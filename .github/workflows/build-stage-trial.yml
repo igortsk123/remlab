@@ -1,0 +1,80 @@
+# СБОРКА ОБРАЗА ПРОБЫ SALAD «ЭТАПЫ 06/07» НА GITHUB ACTIONS (T-189/1) — не на pakardev (диск общий с базой). Тот же путь, что у build-render-trial.yml / build-pose-trial.yml.
+# Запускается пушем в ветки `trial/cpustage*` при правке tools/scout/salad/stage/** или этого файла, либо вручную из такой ветки. Пуш делает директор (решение 22.11).
+# Что делает: готовит контекст (код по stage_files.txt) → собирает Dockerfile.stage (python 3.12 + пакеты точных версий нашего venv) → проверки внутри образа БЕЗ видеокарты
+# (тесты воркера на настоящем HTTP + импорт обоих этапов из кода образа) → печатает размер и digest → пушит в GHCR: ghcr.io/<владелец>/mesh-stage-trial:stage-cpu. Деплоя нет, боевое не трогает.
+name: build-stage-trial
+
+on:
+  push:
+    branches: ['trial/cpustage*']
+    paths:
+      - 'tools/scout/salad/stage/**'
+      - 'tools/scout/salad/trellis/tex_visible.py'
+      - 'tools/scout/salad/trellis/tex_fill.py'
+      - '.github/workflows/build-stage-trial.yml'
+  workflow_dispatch:
+
+concurrency:
+  group: build-stage-trial
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+  packages: write
+
+env:
+  IMAGE: ghcr.io/${{ github.repository_owner }}/mesh-stage-trial:stage-cpu
+  CTX: tools/scout/salad/stage
+
+jobs:
+  build:
+    if: startsWith(github.ref, 'refs/heads/trial/cpustage')
+    runs-on: ubuntu-24.04
+    timeout-minutes: 40
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Контекст сборки — код по списку
+        run: python3 "$CTX/stage_stage_code.py" . "$RUNNER_TEMP/ctx/code"
+
+      - name: Вход в GHCR
+        run: echo "${{ secrets.GITHUB_TOKEN }}" | docker login ghcr.io -u "${{ github.actor }}" --password-stdin
+
+      - name: Сборка
+        run: |
+          set +e
+          cp "$CTX/Dockerfile.stage" "$RUNNER_TEMP/ctx/Dockerfile.stage"
+          docker build --progress=plain --build-arg GIT_SHA="${GITHUB_SHA}" -f "$RUNNER_TEMP/ctx/Dockerfile.stage" -t "$IMAGE" "$RUNNER_TEMP/ctx" > build.log 2>&1
+          rc=$?
+          tail -40 build.log
+          if [ "$rc" -ne 0 ]; then
+            grep -nE "ERROR|error:|Error" build.log | tail -12 | sed 's/^/::error::/'
+            exit "$rc"
+          fi
+          SIZE=$(docker image inspect "$IMAGE" --format '{{.Size}}')
+          echo "размер образа (распакованный): $(python3 -c "print(round($SIZE/2**30,2))") ГБ"
+
+      - name: Проверки без видеокарты (тесты воркера + версии пакетов)
+        run: |
+          set +e
+          docker run --rm -v "$PWD:/repo:ro" -w /repo/tools/scout/salad/stage --entrypoint python "$IMAGE" tests_stage.py > check.log 2>&1
+          rc=$?
+          tail -30 check.log
+          if [ "$rc" -ne 0 ]; then grep -nE "FAIL|ERROR|Error" check.log | tail -12 | sed 's/^/::error::/'; exit 1; fi
+          docker run --rm --entrypoint bash "$IMAGE" -c 'cat /opt/BUILD_INFO_STAGE.txt | head -20'
+
+      - name: Публикация в GHCR
+        id: push
+        run: |
+          docker push "$IMAGE"
+          DIGEST=$(docker inspect --format '{{index .RepoDigests 0}}' "$IMAGE")
+          COMPRESSED=$(docker manifest inspect "$DIGEST" 2>/dev/null | python3 -c 'import json,sys; m=json.load(sys.stdin); print(sum(l["size"] for l in m.get("layers",[])))' || echo 0)
+          GB=$(python3 -c "print(round($COMPRESSED/2**30,2))")
+          {
+            echo "### Образ пробы «этапы 06/07»"
+            echo "- адрес: \`$IMAGE\`"
+            echo "- digest: \`$DIGEST\`"
+            echo "- сжатый размер в реестре: **${GB} ГБ**"
+            echo "- коммит: \`${GITHUB_SHA}\`"
+          } | tee -a "$GITHUB_STEP_SUMMARY"
+          echo "digest=$DIGEST" >> "$GITHUB_OUTPUT"

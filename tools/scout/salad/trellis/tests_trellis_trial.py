@@ -74,7 +74,7 @@ ok('живая цена: другой класс и тариф; нет клас�
 ok('нет связи с Salad — живая цена None (запасной путь — снимок)', T.live_price_usd_h(object(), 'RTX 4090 (24 GB)', 'high') is None)
 
 print('[2] тело группы')
-body = T.build_body('trial-trellis2-x', 'ghcr.io/x/y:t', 'high', 'trellis2', 'hf_SECRET', 8, 32768, 'note', {'basic': {'username': 'u', 'password': 'PW'}})
+body = T.build_body('trial-trellis2-x', 'ghcr.io/x/y:t', 'low', 'trellis2', 'hf_SECRET', 'note', {'basic': {'username': 'u', 'password': 'PW'}})
 env = body['container']['environment_variables']
 ok('карта — только RTX 4090', body['container']['resources']['gpu_classes'] == [T.CARD['class_id']])
 ok('приёмника на проде нет (ни MESH_SINK_URL, ни токена приёмника)', not any(k.startswith('MESH_SINK') for k in env))
@@ -84,7 +84,7 @@ ok('пороги проб в пределах API Salad (failure_threshold ≤ 2
 donor = {'container': {'image': 'ghcr.io/igortsk123/mesh-hunyuan@sha256:' + 'a' * 64, 'resources': {'cpu': 4, 'memory': 24576, 'storage_amount': 64424509440, 'shm_size': 64, 'gpu_classes': ['x', 'y']},
                        'environment_variables': {'STAGED': '1', 'PIPELINE_VERSION': 'v2', 'MESH_SINK_URL': 'https://sink', 'MESH_SINK_TOKEN': 'SINKSECRET',
                                                  'STORAGE_BACKEND': 'http', 'TQDM_DISABLE': '1'}}}
-hb = T.build_body('trial-hunyuan21-x', donor['container']['image'], 'high', 'hunyuan21', '', 8, 32768, 'note', {'basic': {}}, donor)
+hb = T.build_body('trial-hunyuan21-x', donor['container']['image'], 'low', 'hunyuan21', '', 'note', {'basic': {}}, donor)
 henv = hb['container']['environment_variables']
 ok('контроль: приёмник и очередь боевой группы НЕ попадают в пробную (ни URL, ни токен)', not any(k.startswith('MESH_SINK') for k in henv) and 'SINKSECRET' not in json.dumps(hb))
 ok('контроль: боевые ручки образца (STAGED, PIPELINE_VERSION) сохранены, GPU — только 4090, ресурсы образца', henv.get('STAGED') == '1' and henv.get('PIPELINE_VERSION') == 'v2'
@@ -93,11 +93,11 @@ ok('контроль: код воркера едет в command + env TRIAL_WORK
    hb['container']['command'][:3] == ['python', '-u', '-c'] and __import__('zlib').decompress(__import__('base64').b64decode(henv['TRIAL_WORKER_Z'])) == open(os.path.join(HERE, 'worker_trellis.py'), 'rb').read())
 ok('TRELLIS.2: воркер едет через command (bash: pip-пин transformers с повторами → exec python3) без пересборки образа',
    body['container']['command'][:2] == ['bash', '-c'] and 'transformers==4.56' in body['container']['command'][2] and 'exec python3 -u -c' in body['container']['command'][2] and __import__('zlib').decompress(__import__('base64').b64decode(env['TRIAL_WORKER_Z'])) == open(os.path.join(HERE, 'worker_trellis.py'), 'rb').read())
-pb = T.build_body('trial-pixal3d-x', 'ghcr.io/x/y@sha256:' + 'b' * 64, 'high', 'pixal3d', 'hf_SECRET', 8, 32768, 'n', {'basic': {}})
+pb = T.build_body('trial-pixal3d-x', 'ghcr.io/x/y@sha256:' + 'b' * 64, 'low', 'pixal3d', 'hf_SECRET', 'n', {'basic': {}})
 ok('Pixal3D: MODEL=pixal3d, воркер через command (python3), при старте пин huggingface_hub==0.35.3, пина transformers TRELLIS.2 НЕТ (образ с 4.57.3), карта 4090, диск 80 ГиБ',
    pb['container']['environment_variables']['MODEL'] == 'pixal3d' and pb['container']['command'][-1] is not None and 'huggingface_hub==0.35.3' in json.dumps(pb['container']['command']) and T.TRELLIS_PIP_PIN not in json.dumps(pb['container']['command'])
    and pb['container']['resources']['gpu_classes'] == [T.CARD['class_id']] and pb['container']['resources']['storage_amount'] == 80 * 2 ** 30)
-lb = T.build_body('trial-localmesh-x', 'ghcr.io/x/y@sha256:' + 'c' * 64, 'high', 'localmesh', 'hf_SECRET', 8, 32768, 'n', {'basic': {}})
+lb = T.build_body('trial-localmesh-x', 'ghcr.io/x/y@sha256:' + 'c' * 64, 'low', 'localmesh', 'hf_SECRET', 'n', {'basic': {}})
 ok('LocalMesh: MODEL=localmesh, воркер через command (python3), без pip-пина TRELLIS.2, HF_TOKEN только в env',
    lb['container']['environment_variables']['MODEL'] == 'localmesh' and lb['container']['command'][:3] == ['python3', '-u', '-c'] and 'pip' not in json.dumps(lb['container']['command'])
    and lb['container']['environment_variables']['HF_TOKEN'] == 'hf_SECRET' and 'hf_SECRET' not in json.dumps(lb['container']['command']))
@@ -113,6 +113,7 @@ ok('печать скрывает HF_TOKEN и пароль реестра', 'hf_
 class FakeMG:
     def __init__(self, groups=None, create_code=200):
         self.calls, self.groups, self.create_code = [], groups or [], create_code
+        self.created = []                                           # имена созданных групп: GET отвечает 200 только про них (повторная группа ≠ основная)
 
     def env_from_file(self):
         os.environ.setdefault('SALAD_API_KEY', 'k')
@@ -126,22 +127,26 @@ class FakeMG:
         if path == '' and method == 'GET':
             return 200, {'items': self.groups}
         if method == 'GET' and path.startswith('/trial-'):
-            return (404, {}) if not any(c == ('POST', '') for c in self.calls) else (200, {'networking': {'dns': 'trial.example'}})
+            return (404, {}) if path[1:] not in self.created else (200, {'networking': {'dns': 'trial.example'}})
         if method == 'POST' and path == '':
+            self.created.append((body or {}).get('name'))
             return self.create_code, {}
         return 200, {}
 
 
 class FakeBR:
-    def __init__(self, running_after=1):
+    def __init__(self, running_after=1, pull=None):
         self.stops, self.n = [], 0
         self.running_after = running_after
+        self.pull = pull                                              # n → доля скачанного образа (None — сразу running); экземпляр i1 в состоянии downloading
 
     def group_state(self, name):
         return 200, 'stopped', {}
 
     def instances(self, name):
         self.n += 1
+        if self.pull is not None and self.n < self.running_after:
+            return 200, [{'id': 'i1', 'state': 'downloading', 'pulling_progress': self.pull(self.n)}]
         return 200, ([{'state': 'running'}] if self.n >= self.running_after else [])
 
     def stop_and_verify(self, name, timeout_s=300):
@@ -153,8 +158,12 @@ class FakeGW:
     """Шлюз ноды: прогрет сразу; задания — по сценарию `fail_jobs` (сколько первых упадут)."""
     script = {'warm': True, 'fail_jobs': 0, 'health_error': None, 'raise_on': None, 'phase': None, 'no_health': False, 'hf_gb': None, 'disk_free': 50.0, 'fatal_jobs': False, 'broken': None, 'job_hangs': False}
 
+    n_inst = 0
+
     def __init__(self, base, key):
         self.jobs, self.k = {}, 0
+        FakeGW.n_inst += 1
+        self.idx = FakeGW.n_inst
 
     def call(self, method, path, body=None, timeout=60, raw=False):
         s = FakeGW.script
@@ -169,24 +178,34 @@ class FakeGW:
             return 200, {'gpu': {'name': 'RTX 4090'}}
         if path == '/generate':
             self.k += 1
-            self.jobs[body['job_id']] = 'failed' if self.k <= s['fail_jobs'] else 'done'
+            if self.k <= s.get('post_timeouts', 0):                    # клиент не дождался ответа (-1); воркер мог при этом принять задание
+                if s.get('accepted_on_timeout'):
+                    self.jobs[body['job_id']] = 'done'
+                return s.get('post_code', -1), {}
+            self.jobs[body['job_id']] = 'failed' if (self.k <= s['fail_jobs'] and (not s.get('only_group') or self.idx == s['only_group'])) else 'done'
             return 202, {'status': 'queued'}
         if path.startswith('/job/'):
-            st = self.jobs[path[5:]]
+            st = self.jobs.get(path[5:])
+            if st is None:
+                return 404, {}
             if s['job_hangs']:
                 return 200, {'status': 'running'}
             if st == 'failed' and s['fatal_jobs']:
                 return 200, {'status': 'failed', 'error': 'RuntimeError: CUDA driver error: device not ready', 'trace': 't', 'diag': {'kind': 'fatal', 'fatal': True}}
             return 200, ({'status': 'done', 'metrics': {'peak_vram_gb': 19.0, 'glb': {'triangles': 10}}} if st == 'done'
-                         else {'status': 'failed', 'error': 'OOM', 'trace': 't', 'diag': {'kind': 'oom', 'fatal': False}})
+                         else {'status': 'failed', 'error': s.get('fail_error', 'OOM'), 'trace': 't', 'diag': {'kind': 'oom', 'fatal': False}})
         if path.startswith('/glb/'):
             return 200, b'GLBDATA'
         return 404, {}
 
 
+_REAL_PROF = T.KD.resource_profile      # сценарии драйвера идут на карте 4090 (снимок цен в rules/salad-groups.json); ресурсы и тариф — по-прежнему из профиля
+T.KD.resource_profile = lambda wt, path=None: {**_REAL_PROF(wt, path), 'card': T.CARD['class_name']}
+
+
 def args(tmp, **kw):
-    d = dict(donor='mesh-q-low-1', set=None, fail_streak=2, model='trellis2', image='ghcr.io/x/y:t', inputs=tmp, skus=['a:1'], plan='1024:1', seed=42, decimation=500000, texture=2048, tier='high', cpu=8,
-             mem_mb=32768, cap=3.0, max_min=90, ready_min=40, health_min=20, stall_min=10, disk_min_gb=3.0, job_timeout=15, suffix='t1', out=os.path.join(tmp, 'out'), apply=True, stop_only=False)
+    d = dict(donor='mesh-q-low-1', set=None, fail_streak=2, model='trellis2', image='ghcr.io/x/y:t', inputs=tmp, skus=['a:1'], plan='1024:1', seed=42, decimation=500000, texture=2048, tier='low',
+             cap=3.0, max_min=90, ready_min=40, health_min=20, stall_min=10, disk_min_gb=3.0, job_timeout=15, suffix='t1', out=os.path.join(tmp, 'out'), apply=True, stop_only=False)
     d.update(kw)
     return types.SimpleNamespace(**d)
 
@@ -199,7 +218,7 @@ def make_inputs(tmp, skus=('a:1',)):
     json.dump(inp, open(os.path.join(tmp, 'inputs.json'), 'w'))
 
 
-def go(tmp, mg=None, br=None, hf=200, script=None, gw=None, **kw):
+def go(tmp, mg=None, br=None, hf=200, script=None, gw=None, run_kw=None, **kw):
     FakeGW.script = {'warm': True, 'fail_jobs': 0, 'health_error': None, 'raise_on': None, 'phase': None, 'no_health': False, 'hf_gb': None, 'disk_free': 50.0,
                      'fatal_jobs': False, 'broken': None, 'job_hangs': False, **(script or {})}
     clock = [0.0]
@@ -208,7 +227,7 @@ def go(tmp, mg=None, br=None, hf=200, script=None, gw=None, **kw):
         clock[0] += s
     mg, br = mg or FakeMG(), br or FakeBR()
     try:
-        rc = T.run(args(tmp, **kw), mg, br, gw_factory=gw or FakeGW, sleep=sleep, clock=lambda: clock[0], hf_head=lambda p, t: hf)
+        rc = T.run(args(tmp, **kw), mg, br, gw_factory=gw or FakeGW, sleep=sleep, clock=lambda: clock[0], hf_head=lambda p, t: hf, **({'image_gib': 22.46} | (run_kw or {})))
     except RuntimeError as e:
         rc = f'exc:{e}'
     summ = None
@@ -280,6 +299,75 @@ ok('slim_job: длинные строки и тяжёлые поля не раз
    and T.slim_job('мусор') == {'raw': 'мусор'})
 rc, mg, br, s = go(d, suffix='t4', script={'raise_on': '/generate'})
 ok('исключение посреди замера → стоп с проверкой всё равно сделан', isinstance(rc, str) and rc.startswith('exc:') and br.stops == ['trial-trellis2-t4'])
+d3 = tempfile.mkdtemp(prefix='tt-')
+make_inputs(d3, ('a:1', 'b:2'))
+rc, mg, br, s = go(d3, suffix='p1', skus=['a:1', 'b:2'], plan='1024:1', script={'post_timeouts': 1})
+ok('POST без ответа (-1), воркер задание НЕ видит → не отказ: один повтор в конец очереди, оба готовы, failed=0, stopped_by=done',
+   rc == 0 and s['failed'] == 0 and s['stopped_by'] == 'done' and len(s['jobs']) == 2 and [j['status'] for j in s['jobs']] == ['done', 'done']
+   and s['jobs'][-1].get('retried') is True and s['jobs'][-1]['job_id'].startswith('a') and s['post_timeouts'][0]['worker_saw_job'] is False)
+rc, mg, br, s = go(d3, suffix='p2', skus=['a:1', 'b:2'], plan='1024:1', script={'post_timeouts': 1, 'accepted_on_timeout': True})
+ok('POST без ответа, но воркер задание принял (/job 200) → без повтора, продолжаем то же задание, failed=0',
+   rc == 0 and s['failed'] == 0 and len(s['jobs']) == 2 and not any(j.get('retried') for j in s['jobs']) and s['post_timeouts'][0]['worker_saw_job'] is True)
+rc, mg, br, s = go(d3, suffix='p3', skus=['a:1'], plan='1024:1', script={'post_timeouts': 9})
+ok('повтор тоже без ответа → тогда failed с причиной «POST -1» (повтор один, не бесконечный), стоп с проверкой',
+   s['failed'] == 1 and 'POST -1' in str(s['jobs'][0]['error']) and s['jobs'][0].get('retried') is True and len(s['post_timeouts']) == 2 and br.stops == ['trial-trellis2-p3'])
+rc, mg, br, s = go(d3, suffix='p4', skus=['a:1', 'b:2'], plan='1024:1', script={'post_timeouts': 1, 'post_code': 503})
+ok('POST → 503 (HTML шлюза): воркер задание не видит → один повтор в конец очереди, оба готовы, failed=0, код 503 в post_timeouts',
+   s['failed'] == 0 and len(s['jobs']) == 2 and s['jobs'][-1].get('retried') is True and s['post_timeouts'][0]['code'] == 503)
+rc, mg, br, s = go(d3, suffix='p5', skus=['a:1'], plan='1024:1', script={'post_timeouts': 9, 'post_code': 503})
+ok('503 два раза подряд → failed с кодом «POST 503» в причине (повтор один)', s['failed'] == 1 and 'POST 503' in str(s['jobs'][0]['error']) and len(s['post_timeouts']) == 2)
+# T-178/2 (22.11): сторож докачки образа до running — общий, из kit_driver; медленная докачка → пересадка экземпляра, не ждать 60 мин
+_rl, _sl = [], []
+brs = FakeBR(running_after=10 ** 6, pull=lambda n: 0.01 + n * 10 / 60.0 * 0.001)                # 1 % → ≈2 % за 15 мин (≈0,1 %/мин), как 22.11
+def _mkg(max_culls=3):
+    def _f(name):
+        return T.KD.PullGuard(name, max_culls=max_culls, take_slot=lambda: (_sl.append(1) or 1), realloc=lambda g, i, w: (_rl.append((g, i)) or setattr(brs, 'running_after', brs.n + 2) or True), say_fn=lambda *a: None)
+    return _f
+rc, mg, br, s = go(d3, suffix='g1', skus=['a:1'], plan='1024:1', br=brs, run_kw={'pull_guard': _mkg()})
+ok('образ качается ≈0,1 %/мин → экземпляр пересажен (без новой группы), после пересадки нода пошла, задание готово, стоп с проверкой',
+   _rl == [('trial-trellis2-g1', 'i1')] and s['stopped_by'] == 'done' and s['pull_culls'] == 1 and s['failed'] == 0 and br.stops == ['trial-trellis2-g1'])
+brs = FakeBR(running_after=10 ** 6, pull=lambda n: 0.01 + n * 10 / 60.0 * 0.001)
+_rl.clear()
+def _mkg2(name):
+    return T.KD.PullGuard(name, max_culls=1, take_slot=lambda: 1, realloc=lambda g, i, w: (_rl.append(i) or True), say_fn=lambda *a: None)
+rc, mg, br, s = go(d3, suffix='g2', skus=['a:1'], plan='1024:1', br=brs, run_kw={'pull_guard': _mkg2})
+ok('и после пересадки всё медленно (образ или сеть) → pull_slow: гашу, $0, стоп подтверждён, пересадка одна', s['stopped_by'] == 'pull_slow' and len(_rl) == 1 and s['cost_usd_est'] == 0.0 and br.stops == ['trial-trellis2-g2'])
+brs = FakeBR(running_after=60, pull=lambda n: 0.01 + n * 10 / 60.0 * 0.001)
+_rl.clear()
+rc, mg, br, s = go(d3, suffix='g3', skus=['a:1'], plan='1024:1', br=brs, pull_guard=False, run_kw={'pull_guard': _mkg2})
+ok('--no-pull-guard выключает сторож: медленная докачка никого не пересаживает, пока нода сама не поднялась', _rl == [] and s['stopped_by'] == 'done' and 'pull_culls' not in s)
+# T-178/4 (22.11): seed — ключ СТУПЕНИ лесенки (правило «брак → до 2 новых seed»: seed на задание, не на запуск); одна группа — разные seed
+_lp = os.path.join(d3, 'lad-seed.json')
+open(_lp, 'w').write(json.dumps([{'name': 'A', 'input': 'hd', 'res': 1024}, {'name': 'S7', 'input': 'hd', 'res': 1024, 'seed': 7}]))
+_lad = T.parse_ladder(_lp)
+_jj = T.expand_ladder_jobs(T.build_jobs(['a:1'], T.parse_plan('1024:1'), {'a:1': {'input_png_sha256': 'x'}}, 42), _lad)
+ok('лесенка: seed ступени доходит до задания и до payload воркера (7), у ступени без seed — запуск (42)',
+   [(j['job_id'], j['seed'], (j.get('worker_params') or {}).get('seed')) for j in _jj] == [('a_1-A', 42, None), ('a_1-S7', 7, 7)])
+for _bad in (-1, 2 ** 31, 1.5, '7', True):
+    open(_lp, 'w').write(json.dumps([{'name': 'X', 'input': 'hd', 'res': 1024, 'seed': _bad}]))
+    try:
+        T.parse_ladder(_lp)
+        ok(f'seed {_bad!r} отклонён до группы', False)
+    except ValueError:
+        ok(f'seed {_bad!r} отклонён до группы', True)
+ok('драйвер зовёт ОБЩУЮ функцию kit_driver: таймаут POST растёт с телом, ограничен max_s, --post-timeout > 0 перекрывает',
+   T.KD.post_timeout_s(0) == 90 and 120 <= T.KD.post_timeout_s(1 * 2 ** 20) <= 130 and T.KD.post_timeout_s(2 * 2 ** 20) > T.KD.post_timeout_s(1 * 2 ** 20)
+   and T.KD.post_timeout_s(500 * 2 ** 20) == 300 and T.KD.post_timeout_s(10 ** 9, 45) == 45)
+
+print('[4б] драйвер: пауза «проба → разрешение → партия» на тёплой ноде (T-20261121-172)')
+d3 = tempfile.mkdtemp(prefix='tt-')
+make_inputs(d3, ('a:1', 'b:2', 'c:3'))
+gate = os.path.join(d3, 'go')
+rc, mg, br, s = go(d3, suffix='h1', skus=['a:1', 'b:2', 'c:3'], hold_after=1, hold_file=gate, hold_max_min=2)
+ok('нет файла-разрешения → после пробы (1 задание) пауза, по сроку hold_timeout, стоп подтверждён, дальше пробы не пошли',
+   s['stopped_by'] == 'hold_timeout' and len(s['jobs']) == 1 and br.stops == ['trial-trellis2-h1'] and rc == 1)
+open(gate, 'w').write('ok')
+rc, mg, br, s = go(d3, suffix='h2', skus=['a:1', 'b:2', 'c:3'], hold_after=1, hold_file=gate, hold_max_min=2)
+ok('файл-разрешение есть → пауза не мешает: все 3 задания, stopped_by=done', s['stopped_by'] == 'done' and len(s['jobs']) == 3 and rc == 0)
+rc, mg, br, s = go(d3, suffix='h3', skus=['a:1', 'b:2', 'c:3'], hold_after=0, hold_file=None)
+ok('без --hold-after поведение прежнее', s['stopped_by'] == 'done' and len(s['jobs']) == 3)
+rc, mg, br, s = go(d3, suffix='h4', hold_after=1, hold_file=None, hold_max_min=5)
+ok('--hold-after без --hold-file → отказ до группы (код 2, денег 0)', rc == 2 and ('POST', '') not in mg.calls and br.stops == [])
 rc, mg, br, s = go(d, suffix='t5', br=FakeBR(running_after=10 ** 6))
 ok('нода не вышла в running за час → стоп (платили 0)', s['stopped_by'] == 'no_machine' and s['cost_usd_est'] == 0.0)
 rc, mg, br, s = go(d, suffix='t6', mg=FakeMG(create_code=400))
@@ -327,6 +415,7 @@ if have:
             time.sleep(0.1)
         h0 = json.loads(call('GET', '/health')[1])
         ok('/health отвечает сразу (двухпроцессный воркер), в ответе ребёнок и память группы', h0['ok'] is True and h0['child']['started'] is True and 'cgroup_gb' in h0, str(h0)[:200])
+        ok('/health: поля профиля ресурсов (peak_rss_gb, peak_vram_gb, disk_free_gb, disk_mb_s) на месте', all(k in h0 for k in ('peak_rss_gb', 'peak_vram_gb', 'peak_reserved_gb', 'disk_free_gb', 'disk_mb_s', 'disk_read_mb_s', 'weights_gb_min')), str(h0)[:300])
         from PIL import Image
         png = io.BytesIO()
         Image.new('RGBA', (8, 8), (255, 0, 0, 255)).save(png, 'PNG')
@@ -522,14 +611,20 @@ for model in ('supratex', 'mvpainter', 'mvadapter-i2tex', 'pixal3d-tex'):
     mg0 = FakeMG()
     rc, mg0, br0, _ = go(d, mg=mg0, model=model, skus=['a:1', 'c:3'], shape_dir=cat, texture_mesh=None, tex_align='fit', suffix='r-' + model)
     ok(f'{model}: форма есть не у всех (нет у c:3) — отказ (код 2) ДО группы: к Salad ни одного обращения, остановка не нужна', rc == 2 and mg0.calls == [] and br0.stops == [], str((rc, mg0.calls)))
+for model in ('supratex', 'mvpainter', 'mvadapter-i2tex'):                        # профиль ресурсов (P-066): без строки в salad-resources.json способ не запускается — отказ до группы
+    mgx = FakeMG()
+    rc, mgx, brx, _ = go(d, mg=mgx, model=model, skus=['a:1', 'b:2'], shape_dir=cat, texture_mesh=None, apply=False, suffix='np-' + model)
+    ok(f'{model}: нет профиля ресурсов — отказ (код 3) до группы, к Salad ни одного обращения', rc == 3 and mgx.calls == [] and brx.stops == [], str((rc, mgx.calls)))
+T.WORK_TYPES.update({m: 'trellis_shape' for m in ('supratex', 'mvpainter', 'mvadapter-i2tex')})      # ТОЛЬКО в этом тесте: проверяем логику способов на ресурсах профиля trellis_shape; в боевом коде строк у них нет
+_PM = T.KD.resource_profile('trellis_shape')['memory_mb']          # память группы — из профиля (замер T-186/1: 40960), числа в тестах не зашиты
 mg1 = FakeMG()
 rc, mg1, br1, _ = go(d, mg=mg1, model='supratex', skus=['a:1', 'b:2'], shape_dir=cat, texture_mesh=None, apply=False, suffix='dry')
 ok('сухой прогон двух товаров: код 0, ничего не создано', rc == 0 and not [c for c in mg1.calls if c[0] in ('POST', 'PATCH')])
 buf5 = io.StringIO()
 with __import__('contextlib').redirect_stdout(buf5):
     go(d, model='supratex', skus=['a:1', 'b:2'], shape_dir=cat, texture_mesh=None, apply=False, mem_mb=None, suffix='dry2')
-ok('сухой прогон: два задания (по товару), общая группа trial-supratex-dry2, память группы 49152', buf5.getvalue().count('  задание ') == 2 and 'a_1-1024-42-0-supra' in buf5.getvalue()
-   and 'b_2-1024-42-0-supra' in buf5.getvalue() and 'trial-supratex-dry2' in buf5.getvalue() and '"memory": 49152' in buf5.getvalue(), buf5.getvalue()[:300])
+ok('сухой прогон: два задания (по товару), общая группа trial-supratex-dry2, память группы из профиля', buf5.getvalue().count('  задание ') == 2 and 'a_1-1024-42-0-supra' in buf5.getvalue()
+   and 'b_2-1024-42-0-supra' in buf5.getvalue() and 'trial-supratex-dry2' in buf5.getvalue() and f'"memory": {_PM}' in buf5.getvalue(), buf5.getvalue()[:300])
 buf6 = io.StringIO()
 with __import__('contextlib').redirect_stdout(buf6):
     rc, *_ = go(d, model='pixal3d-tex', skus=['a:1', 'b:2'], shape_dir=cat, texture_mesh=None, tex_align='fit,official', apply=False, suffix='dry3')
@@ -595,10 +690,10 @@ buf7 = io.StringIO()
 with __import__('contextlib').redirect_stdout(buf7):
     rc, mg7, br7, _ = go(d, model='mvadapter-i2tex', skus=['a:1', 'b:2', 'c:3'], shape_dir=cat2, texture_mesh=None, gw=MemGW, script={'fail_jobs': 0}, mem_mb=None, fail_streak=9, suffix='q1')
 sm7 = json.load(open(os.path.join(d, 'out', 'summary-trial-mvadapter-i2tex-q1.json')))
-ok('итог по товару: пики видео/процесса/группы и лимит группы (32 ГБ) у каждого товара', all(sm7['by_sku'][k]['peak_rss_gb'] == 22.5 and sm7['by_sku'][k]['peak_cgroup_gb'] == 26.0 and sm7['by_sku'][k]['peak_vram_gb'] == 17.0
-                                                                                      and sm7['by_sku'][k]['mem_limit_gb'] == 32.0 for k in ('a:1', 'b:2', 'c:3')), str(sm7['by_sku']))
+ok('итог по товару: пики видео/процесса/группы и лимит группы (из профиля) у каждого товара', all(sm7['by_sku'][k]['peak_rss_gb'] == 22.5 and sm7['by_sku'][k]['peak_cgroup_gb'] == 26.0 and sm7['by_sku'][k]['peak_vram_gb'] == 17.0
+                                                                                      and sm7['by_sku'][k]['mem_limit_gb'] == _PM / 1024 for k in ('a:1', 'b:2', 'c:3')), str(sm7['by_sku']))
 ok('счётчик отказов в summary: все категории и not_run есть, при успехе — нули', sm7['fail_classes'] == {'uvatlas': 0, 'oom_gpu': 0, 'oom_ram': 0, 'shape_changed': 0, 'cuda': 0, 'other': 0, 'not_run': 0}, str(sm7['fail_classes']))
-ok('в строке «товар …» память видна: видео, процесс, группа из лимита', 'видео 17.0 ГБ, процесс 22.5 ГБ, группа 26.0 из 32.0 ГБ' in buf7.getvalue() and '"fail_classes"' in buf7.getvalue())
+ok('в строке «товар …» память видна: видео, процесс, группа из лимита', 'видео 17.0 ГБ, процесс 22.5 ГБ, группа 26.0 из ' + f'{_PM / 1024:.1f} ГБ' in buf7.getvalue() and '"fail_classes"' in buf7.getvalue())
 buf8 = io.StringIO()
 with __import__('contextlib').redirect_stdout(buf8):
     rc, mg8, br8, _ = go(d, model='mvadapter-i2tex', skus=['a:1', 'b:2', 'c:3'], shape_dir=cat2, texture_mesh=None, gw=MemGW, script={'fail_jobs': 2}, mem_mb=None, fail_streak=9, suffix='q2')
@@ -681,6 +776,59 @@ try:
     ok('архив с путём вне папки — отказ, файл снаружи не создан', False)
 except ValueError:
     ok('архив с путём вне папки — отказ, файл снаружи не создан', not os.path.exists(os.path.join(evil, 'evil.txt')) and not os.path.exists(os.path.join(os.path.dirname(evil), 'evil.txt')))
+
+print('[7] автоповтор упавших по памяти заданий на большой карте (T-186/2): один повтор, счётчик отдельно от отказов')
+import recreate_group as _RG  # noqa: E402
+_SAVE_PROF, _SAVE_CARD, _SAVE_PRICE = T.KD.resource_profile, dict(T.CARD), T.live_price_usd_h
+_SAVE_PICK, _SAVE_GPUC = _RG.pick_gpu_exact, _RG.gpu_classes
+_BIG = 'RTX 5090 (32 GB)'
+T.KD.resource_profile = lambda wt, path=None: {**_REAL_PROF(wt, path), 'card': _SAVE_CARD['class_name'], 'card_fallbacks': [_BIG],
+                                               'card_rule': {'small': _SAVE_CARD['class_name'], 'large': [_BIG], 'small_max_gb': 10}}
+T.live_price_usd_h = lambda MG, name, tier, items=None: 0.4
+_RG.gpu_classes = lambda: []
+_RG.pick_gpu_exact = lambda classes, names: ['big-class-id']
+
+
+def go_auto(tmp, script=None, **kw):
+    FakeGW.n_inst = 0
+    FakeGW.script = {'warm': True, 'fail_jobs': 0, 'health_error': None, 'raise_on': None, 'phase': None, 'no_health': False, 'hf_gb': None, 'disk_free': 50.0,
+                     'fatal_jobs': False, 'broken': None, 'job_hangs': False, **(script or {})}
+    clock = [0.0]
+
+    def sleep(s):
+        clock[0] += s
+    mg, br = FakeMG(), FakeBR()
+    rc = T.run_auto(args(tmp, **kw), mg, br, gw_factory=FakeGW, sleep=sleep, clock=lambda: clock[0], hf_head=lambda p, t: 200, image_gib=22.46)
+    sp = os.path.join(tmp, 'out', f'summary-trial-trellis2-{kw.get("suffix", "t1")}.json')
+    return rc, mg, br, json.load(open(sp)) if os.path.exists(sp) else None
+
+
+try:
+    d7 = tempfile.mkdtemp(prefix='tt-')
+    make_inputs(d7, ('a:1', 'b:2'))
+    rc, mg, br, s7 = go_auto(d7, script={'fail_jobs': 1, 'only_group': 1, 'fail_error': 'RuntimeError: CUDA driver error: out of memory'}, skus=['a:1', 'b:2'], suffix='o1', apply=True)
+    ro = (s7 or {}).get('retries_oom') or {}
+    ok('подделанный OOM: упавшее задание повторено ОДНОЙ группой на большой карте, итог в retries_oom', rc == 0 and ro.get('card') == _BIG and ro.get('done') == 1 and ro.get('failed') == 0 and len(ro.get('jobs') or []) == 1, str(ro))
+    ok('счётчик повторов отдельно от отказов: failed=1 (исходный отказ) и failed_oom=1, retries_oom.limit=1', (s7 or {}).get('failed') == 1 and (s7 or {}).get('failed_oom') == 1 and ro.get('limit') == 1)
+    ok('создано и остановлено ровно 2 группы (основная и повторная), обе с проверкой остановки', [c for c in mg.calls if c == ('POST', '')].__len__() == 2 and len(br.stops) == 2, f'{mg.calls} {br.stops}')
+    ok('повтор не цепляется: у повторной группы нет своего retries_oom, повторная сводка есть', not json.load(open(os.path.join(d7, 'out', 'summary-trial-trellis2-o1r.json'))).get('retries_oom'))
+    d8 = tempfile.mkdtemp(prefix='tt-')
+    make_inputs(d8, ('a:1',))
+    rc, mg, br, s8 = go_auto(d8, script={'fail_jobs': 1, 'only_group': 1, 'fail_error': 'RuntimeError: нет входа'}, skus=['a:1'], suffix='o2', apply=True)
+    ok('отказ НЕ по памяти — повтора нет (одна группа, retries_oom нет)', [c for c in mg.calls if c == ('POST', '')].__len__() == 1 and 'retries_oom' not in (s8 or {}) and (s8 or {}).get('failed_oom') == 0)
+    d9 = tempfile.mkdtemp(prefix='tt-')
+    make_inputs(d9, ('a:1',))
+    rc, mg, br, s9 = go_auto(d9, script={'fail_jobs': 99, 'fail_error': 'CUDA out of memory'}, skus=['a:1'], suffix='o3', apply=True)
+    s9r = json.load(open(os.path.join(d9, 'out', 'summary-trial-trellis2-o3r.json')))
+    ok('повтор тоже упал по памяти — второго повтора НЕТ (потолок 1), оба отказа видны', [c for c in mg.calls if c == ('POST', '')].__len__() == 2 and s9['retries_oom']['failed'] == 1 and not s9r.get('retries_oom'))
+    d10 = tempfile.mkdtemp(prefix='tt-')
+    make_inputs(d10, ('a:1',))
+    rc, mg, br, s10 = go_auto(d10, script={'fail_jobs': 1, 'only_group': 1, 'fail_error': 'CUDA out of memory'}, skus=['a:1'], suffix='o4', apply=True, oom_retry=False)
+    ok('--no-oom-retry выключает повтор', [c for c in mg.calls if c == ('POST', '')].__len__() == 1 and 'retries_oom' not in (s10 or {}))
+finally:
+    T.KD.resource_profile, T.live_price_usd_h = _SAVE_PROF, _SAVE_PRICE
+    T.CARD.update(_SAVE_CARD)
+    _RG.pick_gpu_exact, _RG.gpu_classes = _SAVE_PICK, _SAVE_GPUC
 
 print('ИТОГО: ' + ('всё в норме' if not bad else f'провалов {bad}'))
 sys.exit(1 if bad else 0)

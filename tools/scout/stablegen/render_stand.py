@@ -34,6 +34,9 @@ ap.add_argument('--shade', default='orig', choices=['orig', 'flat', 'recalc'], h
 ap.add_argument('--backface', action='store_true', help='T-94/2 шаг 01: обратная сторона граней красным (диагностика перевёрнутых нормалей и дыр)')
 ap.add_argument('--unlit', action='store_true', help='T-90/6: кадр БЕЗ света — цвет текстуры идёт в излучение (отделяет свет стенда от цвета текстуры)')
 ap.add_argument('--only', default='', help='отладка: список видов через запятую (az000,top55,bot-20)')
+ap.add_argument('--views', default='', help='T-180/7: свои виды «имя:азимут:угол_места,…» (вместо набора по умолчанию и --only); виды задаёт вызывающий скрипт, констант здесь нет')
+ap.add_argument('--lights', default='key', help='T-180/7: key — свет за камерой (как раньше); graze — боковой скользящий (справа от камеры, низко); «key,graze» — оба, у файлов graze суффикс _graze')
+ap.add_argument('--device', default='CPU', choices=['CPU', 'GPU'], help='T-184/1: CPU — как раньше (по умолчанию, локальные запуски не меняются); GPU — Cycles CUDA на видеокарте ноды Salad; нет CUDA-устройства → код 3, молча на процессор НЕ падаем (деньги)')
 a = ap.parse_args(argv)
 T0 = time.time()
 os.makedirs(a.out, exist_ok=True)
@@ -198,6 +201,18 @@ dist = radius / math.sin(min(fov, 2 * math.atan(cam_d.sensor_width * a.h / a.w /
 
 sc.render.engine = 'CYCLES'
 sc.cycles.device = 'CPU'
+if a.device == 'GPU':
+    _prefs = bpy.context.preferences.addons['cycles'].preferences
+    _prefs.compute_device_type = 'CUDA'
+    _prefs.get_devices()
+    _cuda = [d for d in _prefs.devices if d.type == 'CUDA']
+    if not _cuda:
+        print('GPU: нет CUDA-устройств у Blender — отказ (на процессор не переходим)', flush=True)
+        sys.exit(3)
+    for _d in _prefs.devices:
+        _d.use = _d.type == 'CUDA'
+    sc.cycles.device = 'GPU'
+    print('GPU: ' + ', '.join(d.name for d in _cuda), flush=True)
 sc.cycles.samples = a.samples
 sc.cycles.use_denoising = True
 sc.cycles.denoiser = 'OPENIMAGEDENOISE'
@@ -222,7 +237,9 @@ def polar(az_deg, el_deg, r):
 
 
 views = [(f'az{az:03d}', az, 15) for az in range(0, 360, 45)] + [('top55', 45, 55), ('bot-20', 45, -20)]
-if a.only:
+if a.views:
+    views = [(n_, float(az_), float(el_)) for n_, az_, el_ in (v_.split(':') for v_ in a.views.split(',') if v_)]
+if a.only and not a.views:
     import re
     want = [w for w in a.only.split(',') if w]
     extra = []
@@ -250,17 +267,24 @@ if a.unlit:
         bsdf.inputs['Specular IOR Level'].default_value = 0.0
 n = 0
 modes = a.modes.split(',')
-n_total = len(modes) * len(views)
+lights = [x for x in a.lights.split(',') if x]
+n_total = len(modes) * len(views) * len(lights)
 for vi, (name, az, el) in enumerate(views):
     floor.hide_render = el < 0                       # снизу пола нет
     aim(cam, polar(az, el, dist), centre)
-    aim(sun, polar(az - 40, el + 35, 5), centre)     # свет — на 40° левее и на 35° выше камеры: одинаков относительно камеры во всех кадрах
-    for mode in modes:
-        bpy.context.view_layer.material_override = clay if mode == 'clay' else None
-        n += 1
-        p = os.path.join(a.out, f'{n:02d}_{name}_{mode}.png')
-        sc.render.filepath = p
-        t = time.time()
-        bpy.ops.render.render(write_still=True)
-        print(f'кадр {n}/{n_total} {name} {mode}: {time.time() - t:.0f} с', flush=True)
+    for light in lights:
+        if light == 'graze':                         # боковой скользящий: справа от камеры (+90°), почти вдоль земли — тени от каждой неровности (швы, грани)
+            sun_d.energy = 2.6
+            aim(sun, polar(az + 90, 8, 5), centre)
+        else:
+            sun_d.energy = 1.8
+            aim(sun, polar(az - 40, el + 35, 5), centre)     # свет — на 40° левее и на 35° выше камеры: одинаков относительно камеры во всех кадрах
+        for mode in modes:
+            bpy.context.view_layer.material_override = clay if mode == 'clay' else None
+            n += 1
+            p = os.path.join(a.out, f'{n:02d}_{name}_{mode}' + ('_graze' if light == 'graze' else '') + '.png')
+            sc.render.filepath = p
+            t = time.time()
+            bpy.ops.render.render(write_still=True)
+            print(f'кадр {n}/{n_total} {name} {mode}: {time.time() - t:.0f} с', flush=True)
 print(f'ГОТОВО {n} кадров за {time.time() - T0:.0f} с, габарит {tuple(round(x, 3) for x in ext)}', flush=True)

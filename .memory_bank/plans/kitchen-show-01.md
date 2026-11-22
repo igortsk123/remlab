@@ -2,9 +2,11 @@
 workstream: demo-ui
 slug: kitchen-show-01
 title: Кухня на /demo — карточка с фото, окно выбора из 5 кухонь застройщика (цена, «без монтажа и техники»), сумма в «Выбрано», затем фото нейросети кухни
-status: in_progress
+status: partial
+pause_reason: без движения с 07.11; владелец 22.11 TG 1185 — на паузу, приоритет — конвейер покраски
+resume_trigger: слово владельца или задача в plan-zadach.md
 created: 2026-11-07
-updated: 2026-11-07
+updated: 2026-11-22
 completed:
 parent_plan: onb-09-kitchen-options
 ---

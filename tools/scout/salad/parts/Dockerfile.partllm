@@ -1,0 +1,40 @@
+# ОБРАЗ PartLLM ДЛЯ СРАВНЕНИЯ МОДЕЛЕЙ ЧАСТЕЙ — Ш5 / T-183, сборка T-20261121-179 (р.router-5): веса ВНУТРИ образа, сети внутри нет.
+# Окружение — по README PartLLM: Python 3.11, torch 2.8.0 + CUDA 12.8 (scripts/install_torch.py: cu128 → 2.8.0/0.23.0), колёса PyG torch-scatter/-cluster для 2.8.0+cu128, spconv-cu120, flash-attn 2.8.3 готовым колесом (не собирается), transformers==4.57.3 + вшитый qwen3_vl (scripts/patch_transformers.py).
+# Карты: Ampere/Ada/Blackwell (4090 и 5090) — torch 2.8/cu128 знает sm_120; сборки CUDA-кода в образе нет (всё колёса). Нужна ли 5090 по памяти (веса 9,15 ГиБ bf16): оценка ≥16–24 ГБ, НЕ проверена.
+# Код: github.com/czvvd/PartLLM @ e17509bc, веса: HF `Czvvd/PartLLM` @ 0c546a88 (2 файла safetensors ≈9,15 ГиБ; лицензии у весов нет, внутри энкодер Utonia CC-BY-NC — владелец снял запрет для внутреннего сравнения, TG 909). Энкодер Utonia — внутри этих же весов, отдельно не качается.
+# Вход/выход: `scripts/infer.sh text_guided $MODEL_PATH <меш.glb> <папка> --part_names "seat" "leg"` или `full_shape` (папка мешей) → маски/имена частей. pymeshlab (GPL3 по PyPI) ставится, потому что `mesh_utils.py` импортирует его на верхнем уровне (путь full_shape). Воркера-сервера для Salad здесь нет — следующий шаг.
+FROM nvidia/cuda:12.8.1-cudnn-devel-ubuntu22.04
+ENV DEBIAN_FRONTEND=noninteractive PIP_NO_CACHE_DIR=1 PYTHONUNBUFFERED=1
+ARG CODE_COMMIT=e17509bc6d3e45a0b8641df9052085b97232346c
+ARG MODEL_REV=0c546a88ca52cced296200e173c8961b8f2ca0ba
+RUN apt-get update && apt-get install -y --no-install-recommends software-properties-common ca-certificates curl git build-essential ninja-build libgl1 libglib2.0-0 libgomp1 \
+    && add-apt-repository -y ppa:deadsnakes/ppa && apt-get update \
+    && apt-get install -y --no-install-recommends python3.11 python3.11-dev python3.11-venv \
+    && curl -sS https://bootstrap.pypa.io/get-pip.py | python3.11 \
+    && ln -sf /usr/bin/python3.11 /usr/local/bin/python && ln -sf /usr/bin/python3.11 /usr/local/bin/python3 \
+    && rm -rf /var/lib/apt/lists/*
+RUN python -m pip install --upgrade pip setuptools wheel
+RUN pip install torch==2.8.0 torchvision==0.23.0 --index-url https://download.pytorch.org/whl/cu128
+RUN git clone https://github.com/czvvd/PartLLM.git /opt/PartLLM && cd /opt/PartLLM && git checkout ${CODE_COMMIT} \
+    && pip install -r requirements.txt \
+    && pip install "https://data.pyg.org/whl/torch-2.8.0+cu128/torch_scatter-2.1.2+pt28cu128-cp311-cp311-linux_x86_64.whl" "https://data.pyg.org/whl/torch-2.8.0+cu128/torch_cluster-1.6.3+pt28cu128-cp311-cp311-linux_x86_64.whl" \
+    && pip install spconv-cu120 \
+    && pip install --no-deps "https://github.com/Dao-AILab/flash-attention/releases/download/v2.8.3/flash_attn-2.8.3+cu12torch2.8cxx11abiTRUE-cp311-cp311-linux_x86_64.whl" \
+    && pip install pymeshlab \
+    && pip install -e . && python scripts/patch_transformers.py && python scripts/patch_transformers.py --check
+# веса двумя слоями (по файлу ≈4,6 ГиБ) + ВСЕ мелкие файлы ревизии первым слоем (всё, кроме крупных весов)
+# УРОК (Ш5/T-183, pl2 22.11): перечень мелких файлов (allow_patterns=['*.json','*.txt',…]) потерял chat_template.jinja — процессор без шаблона упал на первом меше, платная попытка впустую.
+# Правило: слой 1 = ВСЕ файлы ревизии, КРОМЕ крупных весов (ignore_patterns), а не перечень «что нужно»; крупные — своими слоями. Проверять надо файлы ОБРАЗА, а не список ревизии.
+# СЛЕДУЮЩАЯ СБОРКА: chat_template.jinja попадёт в образ сам; вшитый в worker_parts.PARTLLM_CHAT_TEMPLATE станет не нужен (ensure_chat_template не тронет уже лежащий файл) — тогда его можно удалить.
+RUN python -c "from huggingface_hub import snapshot_download as s; s('Czvvd/PartLLM', revision='${MODEL_REV}', local_dir='/opt/weights/partllm', ignore_patterns=['*.safetensors','*.bin','*.pt','*.pth','*.ckpt','*.gguf','*.onnx'])"
+RUN python -c "from huggingface_hub import snapshot_download as s; s('Czvvd/PartLLM', revision='${MODEL_REV}', local_dir='/opt/weights/partllm', allow_patterns=['model-00001-of-00002.safetensors'])"
+RUN python -c "from huggingface_hub import snapshot_download as s; s('Czvvd/PartLLM', revision='${MODEL_REV}', local_dir='/opt/weights/partllm', allow_patterns=['model-00002-of-00002.safetensors'])"
+RUN test -s /opt/weights/partllm/model-00001-of-00002.safetensors && test -s /opt/weights/partllm/model-00002-of-00002.safetensors && test -s /opt/weights/partllm/config.json \
+    && ls -la /opt/weights/partllm && du -sh /opt/weights/partllm && rm -rf /opt/weights/partllm/.cache \
+    && { echo "PartLLM: ${CODE_COMMIT}; weights ${MODEL_REV}; torch 2.8.0+cu128 py3.11"; python -m pip list 2>/dev/null | grep -i -E "^(torch|spconv|flash|numpy|transformers|torch-scatter|torch-cluster|pymeshlab|peft|timm|ray) " | tr -s " "; } > /opt/BUILD_INFO_PARTS.txt
+RUN { python -c "import torch, spconv.pytorch, torch_scatter, torch_cluster, flash_attn, transformers, pymeshlab; print('импорты PartLLM ok, torch', torch.__version__, 'transformers', transformers.__version__)" || echo 'ПРЕДУПРЕЖДЕНИЕ: импорт без видеокарты не прошёл (проверка — на живой машине)'; } 2>&1 | tee -a /opt/BUILD_INFO_PARTS.txt
+COPY worker_parts.py /app/worker_parts.py
+ENV MODEL_PATH=/opt/weights/partllm HF_HUB_OFFLINE=1 HF_HOME=/data/hf OUT_DIR=/data/out MODEL=partllm PORT=8000
+WORKDIR /opt/PartLLM
+EXPOSE 8000
+CMD ["python", "-u", "/app/worker_parts.py"]

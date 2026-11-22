@@ -587,3 +587,30 @@ _Скрипты переноса и проверки (parse/split/verify) — в
 - 782 — правила только Edit через окно, не sed → `lessons/dev-ops.md`
 - 783 — общий порт моста sg_salad → `lessons/mesh-salad-pool.md`
 - 784 — плита-подложка TRELLIS ломает камеру/материал/заливку → `lessons/mesh-salad-pool.md`
+- 785 — тест образа пропускал __main__ модуля CMD → `lessons/dev-ops.md`
+- 786 — фото покупателя за фоном в heavy-slot (старение, потоки) → `lessons/dev-ops.md`
+- 787 — питон в слоте: *_NUM_THREADS = --cores → `lessons/dev-ops.md`
+- 788 — полосы формы от швов родных GLB, мерка + p99 → `lessons/mesh-salad-pool.md`
+- 789 — «30/30 по числам» ≠ красиво, показывать цвет всех → `lessons/mesh-salad-pool.md`
+- 790 — «платного не было» только после журнала → `lessons/memory-process.md`
+- 791 — каналы каталога не доходили до этапа 3 → `lessons/mesh-salad-pool.md`
+- 792 — «Белый ≠ опал» Codex против счёта каталога → `lessons/mesh-salad-pool.md`
+- 793 — HD-формы по глубине хуже превью → `lessons/mesh-salad-pool.md`
+- 794 — заливка узора с камерой az 0 → `lessons/mesh-salad-pool.md`
+- 795 — этап 5: мерка — сходимость верх−бок одной части → `lessons/mesh-salad-pool.md`
+- 796 — кадры по этапам только у контрольных → `lessons/memory-process.md`
+- 797 — пакет из живого worktree: товар из двух версий → `lessons/dev-ops.md`
+- 798 — PNG RGBA 2 МБ не уходит фото в TG → `lessons/dev-ops.md`
+- 799 — причина цвета владельцу до замера по этапам → `lessons/mesh-salad-pool.md`
+- 800 — камера 04: IoU по точкам вершин, ложная поза ящиков → `lessons/mesh-salad-pool.md`
+- 801 — edge_agree как вердикт позы: 75 % ложных → `lessons/mesh-salad-pool.md`
+- 802 — образ TRELLIS.2 без рецепта прогрева Hunyuan → `lessons/mesh-salad-pool.md`
+- 803 — UltraTex учителем на 40 и эталон со страниц магазинов → `lessons/memory-process.md`
+- 804 — rsync -a без -H раздувает жёсткие ссылки → `lessons/dev-ops.md`
+- 805 — UltraTex считал две одинаковые ветки CFG → `lessons/mesh-salad-pool.md`
+- 806 — растр (z-буфер) не причина «камера не легла» → `lessons/mesh-salad-pool.md`
+- 807 — родная текстура TRELLIS красит невидимое цветом фона → `lessons/mesh-salad-pool.md`
+- 808 — стоп платного драйвера сигналом не работает → `lessons/mesh-salad-pool.md`
+- 809 — тест с временным git под хуком наследует GIT_* → `lessons/dev-ops.md`
+- 810 — база веток покраски: merge/paint-1121 vs main → `lessons/dev-ops.md`
+- 811 — Telegram: длинная подпись к фото → IMAGE_PROCESS_FAILED → `lessons/dev-ops.md`

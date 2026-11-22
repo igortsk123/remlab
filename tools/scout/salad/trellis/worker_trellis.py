@@ -32,6 +32,7 @@ import os
 import socket
 import subprocess
 import sys
+import re
 import threading
 import time
 import traceback
@@ -95,6 +96,49 @@ class FakeBackend:
         return {'stage_s': {'run': 0.01, 'to_glb': 0.01}, 'peak_vram_gb': 0.0}
 
 
+SDPA_BRANCH = """    elif config.ATTN == 'sdpa':                      # T-20261119-94: ветка из Pixal3D (pixal3d/modules/sparse/attention/full_attn.py) — flash-attn под sm_120 нет
+        from torch.nn.functional import scaled_dot_product_attention as _sdpa
+        if num_all_args == 1:
+            q, k, v = qkv.unbind(dim=1)
+        elif num_all_args == 2:
+            k, v = kv.unbind(dim=1)
+        q_offs = [0] + list(torch.cumsum(torch.tensor(q_seqlen), dim=0).tolist())
+        kv_offs = [0] + list(torch.cumsum(torch.tensor(kv_seqlen), dim=0).tolist())
+        outs = []
+        for i in range(len(q_seqlen)):
+            qi = q[q_offs[i]:q_offs[i + 1]].unsqueeze(0).permute(0, 2, 1, 3)
+            ki = k[kv_offs[i]:kv_offs[i + 1]].unsqueeze(0).permute(0, 2, 1, 3)
+            vi = v[kv_offs[i]:kv_offs[i + 1]].unsqueeze(0).permute(0, 2, 1, 3)
+            outs.append(_sdpa(qi, ki, vi).permute(0, 2, 1, 3).squeeze(0))
+        out = torch.cat(outs, dim=0)
+"""
+SDPA_MARK = "config.ATTN == 'sdpa'"
+
+
+def patch_trellis2_sdpa(trellis_dir: str) -> list[str]:
+    """Официальный TRELLIS.2 в РАЗРЕЖЕННОМ внимании знает только xformers/flash_attn/flash_attn_3 (`trellis2/modules/sparse/config.py`, `.../attention/full_attn.py`),
+    а flash-attn под Blackwell (sm_120) не собран — `ModuleNotFoundError: flash_attn` (T-20261119-94, первый запуск на 5090). Дописываем ветку `sdpa` (как в Pixal3D) в
+    файлы на месте; идемпотентно; не нашёл якорь — RuntimeError (лучше громко, чем молча на flash_attn). Плотное внимание (`trellis2/modules/attention`) sdpa знает само."""
+    done = []
+    cfg = os.path.join(trellis_dir, 'trellis2', 'modules', 'sparse', 'config.py')
+    fa = os.path.join(trellis_dir, 'trellis2', 'modules', 'sparse', 'attention', 'full_attn.py')
+    t = open(cfg, encoding='utf-8').read()
+    if "'sdpa'" not in t:
+        a = "in ['xformers', 'flash_attn', 'flash_attn_3']:"
+        if a not in t:
+            raise RuntimeError('sparse/config.py: нет ожидаемой строки со списком бэкендов — патч sdpa не применён')
+        open(cfg, 'w', encoding='utf-8').write(t.replace(a, "in ['xformers', 'flash_attn', 'flash_attn_3', 'sdpa']:"))
+        done.append('config')
+    t = open(fa, encoding='utf-8').read()
+    if SDPA_MARK not in t:
+        a = '    else:\n        raise ValueError(f"Unknown attention module: {config.ATTN}")'
+        if t.count(a) != 1:
+            raise RuntimeError('sparse/attention/full_attn.py: нет ожидаемого хвоста с ValueError — патч sdpa не применён')
+        open(fa, 'w', encoding='utf-8').write(t.replace(a, SDPA_BRANCH + a))
+        done.append('full_attn')
+    return done
+
+
 class Trellis2Backend:
     """TRELLIS.2-4B (MIT): `Trellis2ImageTo3DPipeline` → `o_voxel.postprocess.to_glb` (BaseColor/Metallic/Roughness/Alpha).
     Фон не удаляем: вход — наша вырезка с настоящей альфой (`preprocess_image` берёт её как есть), а модуль вырезки фона
@@ -105,6 +149,8 @@ class Trellis2Backend:
         os.environ.setdefault('PYTORCH_CUDA_ALLOC_CONF', 'expandable_segments:True')
         os.environ.setdefault('OPENCV_IO_ENABLE_OPENEXR', '1')
         sys.path.insert(0, os.environ.get('TRELLIS_DIR', '/opt/TRELLIS.2'))
+        if os.environ.get('ATTN_BACKEND') == 'sdpa':
+            STATE['sdpa_patched'] = patch_trellis2_sdpa(os.environ.get('TRELLIS_DIR', '/opt/TRELLIS.2'))
         STATE['phase'] = 'importing'
         t_imp = time.time()
         import torch
@@ -126,7 +172,20 @@ class Trellis2Backend:
                 raise RuntimeError('вырезка фона отключена: вход должен быть RGBA с настоящей альфой')
         rembg.BiRefNet = NoRembg
         t = time.time()
-        self.pipe = Trellis2ImageTo3DPipeline.from_pretrained(os.environ.get('TRELLIS_MODEL', 'microsoft/TRELLIS.2-4B'))
+        model_src = os.environ.get('TRELLIS_MODEL', 'microsoft/TRELLIS.2-4B')
+        dino_th = None
+        if os.path.isdir(model_src):
+            # T-179/1: веса уже в образе (локальный путь) — из сети идёт только закрытый DINOv3 (по HF_TOKEN группы):
+            # качаем его фоновым потоком, пока основные веса читаются с диска образа; `from_pretrained` потом берёт его из кэша.
+            def _prefetch_dino():
+                from huggingface_hub import snapshot_download
+                t_d = time.time()
+                snapshot_download('facebook/dinov3-vitl16-pretrain-lvd1689m', token=os.environ.get('HF_TOKEN') or None)
+                STATE['timings']['dino_fetch_s'] = round(time.time() - t_d, 1)
+            dino_th = threading.Thread(target=_prefetch_dino, daemon=True)
+            dino_th.start()
+        STATE['timings']['weights_src'] = 'image' if dino_th else 'hub'
+        self.pipe = Trellis2ImageTo3DPipeline.from_pretrained(model_src)
         t_weights = time.time() - t
         STATE['phase'] = 'to_gpu'
         t = time.time()
@@ -162,12 +221,27 @@ class Trellis2Backend:
         torch.cuda.reset_peak_memory_stats()
         stage = {}
         t = time.time()
-        mesh = self.pipe.run(image, seed=int(params.get('seed', 42)), pipeline_type=params.get('pipeline_type') or '1024_cascade')[0]
+        run_kw = trellis2_run_kwargs(params)
+        mesh = self.pipe.run(image, seed=int(params.get('seed', 42)), pipeline_type=params.get('pipeline_type') or '1024_cascade', **run_kw)[0]
         torch.cuda.synchronize()
         stage['run'] = round(time.time() - t, 2)
         peak_run = torch.cuda.max_memory_allocated() / 2 ** 30
+        grid_res = int(round(1.0 / float(mesh.voxel_size)))          # РЕАЛЬНОЕ разрешение сетки: каскад молча снижает 1536 → 1408 → … пока токенов ≥ max_num_tokens (trellis2_image_to_3d.py, sample_shape_slat_cascade)
+        raw_info = {'raw_tris': int(len(mesh.faces)), 'raw_verts': int(len(mesh.vertices))}
+        if params.get('export_raw'):          # сырая форма ДО упаковки (simplify/remesh/decimation) — только форма, без краски; оси как у GLB (Y вверх)
+            raw_info.update(export_raw_mesh(mesh, path[:-4] + '.raw.glb'))
         t = time.time()
         mesh.simplify(16777216)             # предел nvdiffrast, как в example.py
+        variant_files = []
+        for vr in trellis2_pack_variants(params):     # T-94/2 шаг 02: тот же результат формы, разные параметры упаковки (remesh/band/project/decimation) — без новой генерации
+            vg = o_voxel.postprocess.to_glb(
+                vertices=mesh.vertices.clone(), faces=mesh.faces.clone(), attr_volume=mesh.attrs.clone(), coords=mesh.coords.clone(), attr_layout=mesh.layout,
+                voxel_size=mesh.voxel_size, aabb=[[-0.5, -0.5, -0.5], [0.5, 0.5, 0.5]],
+                decimation_target=vr['decimation_target'], texture_size=int(params.get('texture_size', 2048)),
+                remesh=vr['remesh'], remesh_band=vr['remesh_band'], remesh_project=vr['remesh_project'], verbose=False)
+            torch.cuda.synchronize()
+            vg.export(path[:-4] + '.' + vr['name'] + '.glb', extension_webp=bool(int(os.environ.get('EXPORT_WEBP', '0'))))
+            variant_files.append(vr['name'])
         glb = o_voxel.postprocess.to_glb(
             vertices=mesh.vertices, faces=mesh.faces, attr_volume=mesh.attrs, coords=mesh.coords, attr_layout=mesh.layout,
             voxel_size=mesh.voxel_size, aabb=[[-0.5, -0.5, -0.5], [0.5, 0.5, 0.5]],
@@ -178,7 +252,65 @@ class Trellis2Backend:
         # PNG-текстуры (без EXT_texture_webp): тот же вид GLB, что у Hunyuan, — наши рендеры читают его без расширений
         glb.export(path, extension_webp=bool(int(os.environ.get('EXPORT_WEBP', '0'))))
         return {'stage_s': stage, 'peak_vram_gb': round(max(peak_run, torch.cuda.max_memory_allocated() / 2 ** 30), 2),
-                'peak_reserved_gb': round(torch.cuda.max_memory_reserved() / 2 ** 30, 2)}
+                'peak_reserved_gb': round(torch.cuda.max_memory_reserved() / 2 ** 30, 2),
+                'pipeline_type': params.get('pipeline_type') or '1024_cascade', 'grid_res_actual': grid_res, 'run_kwargs': run_kw, 'decimation_target': int(params.get('decimation_target', 500000)),
+                **raw_info, 'has_raw': bool(params.get('export_raw')), 'variant_files': variant_files}
+
+
+TRELLIS2_RANGES = {'steps': (1, 50), 'guidance_strength': (0.0, 10.0), 'guidance_rescale': (0.0, 1.0), 'rescale_t': (1.0, 6.0)}
+
+
+def trellis2_run_kwargs(params: dict) -> dict:
+    """Лесенка формы TRELLIS.2 (T-20261119-94): только то, что ЗАДАНО в задании, уходит в `Trellis2ImageTo3DPipeline.run` — остальное (12 шагов, guidance 7,5, rescale 0,5/0,7, rescale_t 3/5) остаётся
+    по умолчанию апстрима, поэтому прежние задания работают как раньше. Ключи: `ss_*` — разреженная структура, `shape_*` — форма (`steps`, `guidance`, `rescale`, `rescale_t`); `max_num_tokens` —
+    потолок токенов каскада (по умолчанию 49152: при превышении разрешение снижается шагами по 128, кроме 1024). Вне диапазонов fal.ai/апстрима — ValueError."""
+    kw: dict = {}
+    for prefix, arg in (('ss', 'sparse_structure_sampler_params'), ('shape', 'shape_slat_sampler_params')):
+        d: dict = {}
+        for key, name in (('steps', 'steps'), ('guidance', 'guidance_strength'), ('rescale', 'guidance_rescale'), ('rescale_t', 'rescale_t')):
+            v = params.get(f'{prefix}_{key}')
+            if v is None:
+                continue
+            lo, hi = TRELLIS2_RANGES[name]
+            x = int(v) if name == 'steps' else float(v)
+            if not lo <= x <= hi:
+                raise ValueError(f'{prefix}_{key}: от {lo} до {hi}, получено {v!r}')
+            d[name] = x
+        if d:
+            kw[arg] = d
+    if params.get('max_num_tokens') is not None:
+        n = int(params['max_num_tokens'])
+        if not 49152 <= n <= 262144:
+            raise ValueError(f'max_num_tokens: от 49152 до 262144, получено {n}')
+        kw['max_num_tokens'] = n
+    return kw
+
+
+def trellis2_pack_variants(params: dict) -> list[dict]:
+    """T-94/2 шаг 02: `variants` — список `{name, remesh, remesh_band, remesh_project, decimation_target}` (имя из букв, цифр, «-_»); по умолчанию — пусто. Диапазоны: band 0,5–4, project 0–1,
+    decimation 50 тыс.–2 млн. Каждый вариант — отдельный файл `<job>.<name>.glb` (отдаётся по `?v=<name>`)."""
+    out, seen = [], set()
+    for v in params.get('variants') or []:
+        nm = str(v.get('name') or '')
+        if not nm or not all(c.isalnum() or c in '-_' for c in nm) or nm in ('raw', 'ai') or nm in seen:
+            raise ValueError(f'variants: нужно уникальное имя из букв, цифр и «-_» (не raw/ai): {nm!r}')
+        seen.add(nm)
+        band, proj, dec = float(v.get('remesh_band', 1)), float(v.get('remesh_project', 0)), int(v.get('decimation_target', 500000))
+        if not (0.5 <= band <= 4 and 0 <= proj <= 1 and 50000 <= dec <= 2000000):
+            raise ValueError(f'variants {nm}: band 0,5–4, project 0–1, decimation 50 тыс.–2 млн')
+        out.append({'name': nm, 'remesh': bool(v.get('remesh', True)), 'remesh_band': band, 'remesh_project': proj, 'decimation_target': dec})
+    return out
+
+
+def export_raw_mesh(mesh, path: str) -> dict:
+    """Сырая форма TRELLIS.2 (`MeshWithVoxel.vertices/faces`, куб ±0,5, Z вверх) → GLB без краски в кадре GLB (Y вверх: (x, y, z) → (x, z, −y), как в `to_glb` апстрима)."""
+    import numpy as np
+    import trimesh
+    v = mesh.vertices.detach().cpu().numpy() if hasattr(mesh.vertices, 'detach') else np.asarray(mesh.vertices)
+    f = mesh.faces.detach().cpu().numpy() if hasattr(mesh.faces, 'detach') else np.asarray(mesh.faces)
+    v = np.stack([v[:, 0], v[:, 2], -v[:, 1]], axis=1).astype(np.float32)
+    trimesh.Trimesh(vertices=v, faces=f.astype(np.uint32), process=False).export(path)
+    return {'raw_glb_bytes': os.path.getsize(path)}
 
 
 class Hunyuan21Backend:
@@ -357,10 +489,11 @@ def rot_x(deg: float):
     return np.array([[1.0, 0.0, 0.0], [0.0, c, -s], [0.0, s, c]], dtype=np.float64)
 
 
-def to_cube(verts, yaw_deg: float = 0.0, pitch_deg: float = 0.0):
+def to_cube(verts, yaw_deg: float = 0.0, pitch_deg: float = 0.0, fill: float = 1.0):
     """Вершины входного GLB (Y вверх) → кадр сетки Pixal3D: поворот на yaw, центр габарита в ноль, наибольшая сторона = 0,99999 (как `preprocess_mesh` апстрима, без его
     обмена осей: сетка Pixal3D — это Y вверх, лицом +Z, то есть кадр GLB; обмен осей апстрима для TRELLIS.2 даёт Z вверх, ComfyUI компенсирует его опцией «90 degrees»).
-    `pitch_deg` — наклон формы вокруг X (после поворота на yaw). Возвращает (p, center, scale, R); обратное — `from_cube`."""
+    `pitch_deg` — наклон формы вокруг X (после поворота на yaw). `fill` (0 < fill ≤ 1, T-20261119-92) — доля куба: форма вписывается не на весь куб, а на `fill` его стороны
+    (активных вокселей — ≈ fill² от прежнего; сама форма не меняется — это только масштаб, `from_cube` его возвращает). Возвращает (p, center, scale, R); обратное — `from_cube`."""
     import numpy as np
     v = np.asarray(verts, dtype=np.float64)
     R = rot_x(pitch_deg) @ rot_y(yaw_deg)
@@ -370,7 +503,9 @@ def to_cube(verts, yaw_deg: float = 0.0, pitch_deg: float = 0.0):
     ext = float((hi - lo).max())
     if not ext > 0:
         raise ValueError('форма вырождена: габарит нулевой')
-    s = 0.99999 / ext
+    if not 0 < fill <= 1:
+        raise ValueError(f'fill: доля куба в (0; 1], получено {fill!r}')
+    s = fill * 0.99999 / ext
     return (vr - c) * s, c, s, R
 
 
@@ -641,6 +776,18 @@ def check_shape_unchanged(v_in, f_in, v_out, f_out, tol: float = SHAPE_TOL) -> d
     return res
 
 
+class WritableMesh:
+    """Вход апстримного `postprocess_mesh` (читает `vertices`, `faces`, `vertex_normals`, `visual.uv`): у trimesh нормали и вершины «только для чтения», а апстрим меняет оси
+    на месте (`normals[:, 1], normals[:, 2] = …`) — падение «assignment destination is read-only» у любой формы с развёрткой (T-20261119-92/1, диван clean2). Копии — свои, форма и грани те же."""
+
+    def __init__(self, m):
+        import numpy as np
+        self.vertices = np.array(m.vertices, dtype=np.float64)
+        self.faces = np.asarray(m.faces)
+        self.vertex_normals = np.array(m.vertex_normals, dtype=np.float64)
+        self.visual = m.visual
+
+
 def texture_on_shape(pipe, mesh, image, cam: dict, params: dict, hooks: dict | None = None) -> tuple:
     """Покрасить ГОТОВУЮ форму `mesh` (trimesh, кадр GLB: Y вверх) по фото `image` (RGBA, настоящая альфа); `pipe` — методы апстрима Pixal3D (см. `PixalTexBackend.load`),
     `cam` — камера по картинке (`camera_angle_x`, `distance`, `mesh_scale`). Возвращает (trimesh с текстурой в исходном кадре и масштабе, замеры). Форма не меняется:
@@ -678,7 +825,11 @@ def texture_on_shape(pipe, mesh, image, cam: dict, params: dict, hooks: dict | N
     lap('fit')
     cond_img = warp_photo(rgba, fit['sigma'], fit['tx'], fit['ty'], 1024) if align == 'fit' else compose_black(rgba)
     cam_scale = float(fit['mesh_scale']) if align == 'fit' else mscale                 # «fit»: форма подогнана к фото масштабом камеры; «official» — камера как дала MoGe
-    p, c, s, R = to_cube(verts, fit['yaw_deg'], fit['pitch_deg']) if align == 'fit' else to_cube(verts, fit['yaw_base_deg'])          # «official» — только поворот, кратный 90°, как в апстриме
+    fill = float(params.get('shape_fill') or 1.0)                                      # доля куба (по умолчанию весь): ниже 1 — форма меньше в сетке → меньше активных вокселей (память), форма не меняется
+    if not 0.2 <= fill <= 1.0:
+        raise ValueError(f'shape_fill: от 0,2 до 1, получено {fill!r}')
+    cam_scale *= fill                                                                  # мир = куб / mesh_scale (ProjGrid): форма в кубе в fill раз меньше → mesh_scale во столько же раз меньше, проекция фото та же
+    p, c, s, R = to_cube(verts, fit['yaw_deg'], fit['pitch_deg'], fill) if align == 'fit' else to_cube(verts, fit['yaw_base_deg'], 0.0, fill)          # «official» — только поворот, кратный 90°, как в апстриме
     m_in = trimesh.Trimesh(vertices=p, faces=faces, process=False)
     if has_uv:
         m_in.visual = trimesh.visual.TextureVisuals(uv=np.asarray(uv, dtype=np.float64).copy())
@@ -703,7 +854,7 @@ def texture_on_shape(pipe, mesh, image, cam: dict, params: dict, hooks: dict | N
     pbr = pipe.decode_tex_slat_plain(tex_slat)
     del shape_slat, tex_slat
     lap('decode_tex')
-    out = pipe.postprocess_mesh(m_in, pbr, resolution, texture_size)
+    out = pipe.postprocess_mesh(WritableMesh(m_in), pbr, resolution, texture_size)       # апстрим меняет оси прямо в `mesh.vertices` и `mesh.vertex_normals` (у формы с развёрткой — без копии) → даём записываемые копии
     del pbr
     lap('bake')
     v_back = from_cube(undo_upstream_swap(out.vertices), c, s, R).astype(np.float32).astype(np.float64)      # через float32, как лежит в GLB
@@ -711,7 +862,74 @@ def texture_on_shape(pipe, mesh, image, cam: dict, params: dict, hooks: dict | N
     shape = check_shape_unchanged(verts.astype(np.float32).astype(np.float64), faces, v_back, np.asarray(out.faces))
     lap('check_shape')
     return final, {'align': align, 'fit': fit, 'shape': shape, 'has_uv': bool(has_uv), 'stage_s': stage,
-                   'smooth': smooth_info, 'cond_canvas': list(cond_img.size), 'cond_mesh_scale': round(cam_scale, 5), 'photo_crop': list(rgba.size), 'mesh_tris': int(len(faces)), 'tex_resolution': resolution}
+                   'smooth': smooth_info, 'cond_canvas': list(cond_img.size), 'cond_mesh_scale': round(cam_scale, 5), 'shape_fill': fill, 'photo_crop': list(rgba.size), 'mesh_tris': int(len(faces)), 'tex_resolution': resolution}
+
+
+FATAL_CUDA_MARKERS = ('device not ready', 'illegal memory access', 'internal assert', 'device-side assert', 'unspecified launch failure', 'cuda driver error',
+                      'misaligned address', 'uncorrectable ecc', 'launch failure', 'cuda error', 'cudaerror', 'cublas_status', 'cudnn_status')
+
+
+def classify_cuda_error(e: BaseException) -> str:
+    """`oom` — обычная нехватка видеопамяти (`torch.cuda.OutOfMemoryError` или «out of memory» в тексте): процесс цел, память можно освободить и идти дальше;
+    `fatal` — сбой драйвера/ядра/аллокатора («device not ready», «illegal memory access», «INTERNAL ASSERT» и т. п.): состояние CUDA в процессе испорчено (первая ошибка
+    ломает аллокатор, вторая — её следствие, проба a0346 19.11), дальше задания не берём; `other` — остальное (ошибка входа, форма сдвинулась и т. д.)."""
+    text = f'{type(e).__name__}: {e}'.lower()
+    if type(e).__name__ == 'OutOfMemoryError' or 'out of memory' in text:
+        return 'oom'
+    if any(m in text for m in FATAL_CUDA_MARKERS):
+        return 'fatal'
+    return 'other'
+
+
+def gpu_mem(reset_peak: bool = False) -> dict:
+    """Память видеокарты: PyTorch (выделено/зарезервировано/пик с прошлого замера) и драйвер (`mem_get_info` — свободно/всего), ГБ. Без CUDA или при сбое — пусто, не исключение."""
+    try:
+        import torch
+        g = 2 ** 30
+        free, total = torch.cuda.mem_get_info()
+        d = {'allocated_gb': round(torch.cuda.memory_allocated() / g, 3), 'reserved_gb': round(torch.cuda.memory_reserved() / g, 3),
+             'peak_allocated_gb': round(torch.cuda.max_memory_allocated() / g, 3), 'peak_reserved_gb': round(torch.cuda.max_memory_reserved() / g, 3),
+             'free_gb': round(free / g, 3), 'total_gb': round(total / g, 3)}
+        if reset_peak:
+            torch.cuda.reset_peak_memory_stats()
+        return d
+    except Exception:  # noqa: BLE001 — диагностика не должна ронять задание (после фатальной ошибки CUDA сама может не отвечать)
+        return {}
+
+
+def free_gpu() -> None:
+    """Между стадиями: синхронизация → сборка мусора (отпускает тензоры, на которые держат ссылки циклы и кадры исключений) → возврат кэша аллокатора драйверу."""
+    import gc
+    try:
+        import torch
+        torch.cuda.synchronize()
+        gc.collect()
+        torch.cuda.empty_cache()
+    except Exception:  # noqa: BLE001
+        gc.collect()
+
+
+def apply_alloc_conf(torch) -> dict:
+    """Конфиг аллокатора CUDA для `pixal3d-tex` — ПОСЛЕ `import inference` и ДО первого выделения памяти на видеокарте. Апстрим Pixal3D в `inference.py:11` БЕЗУСЛОВНО пишет
+    `PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True` при импорте, а `setdefault` у нас это не перебивал (a0346: «!handles_.at(i) INTERNAL ASSERT» в `CUDACachingAllocator.cpp:400` —
+    путь расширяемых сегментов). Читает torch 2.6 так: единственный экземпляр `CUDAAllocatorConfig::instance()` создаётся ПРИ ПЕРВОМ обращении (статическая переменная функции,
+    `getenv` в этот момент — `c10/cuda/CUDAAllocatorConfig.h:80-88`), НЕ при `import torch`; но и позже настройку можно сменить на ходу: `torch.cuda.memory._set_allocator_settings`
+    (`torch/cuda/memory.py:921` → `Module.cpp:446` → `CUDAAllocatorConfig.cpp:412`) заново разбирает строку, `expandable_segments` читается при КАЖДОМ выделении (`CUDACachingAllocator.cpp:2542,2574,2719`).
+    Поэтому и env, и вызов; действующее значение читаем из `torch.cuda.memory._snapshot()['allocator_settings']` (`memory_snapshot.cpp:371-375`) и отказываем, если оно не то."""
+    want = os.environ.get('PIXTEX_ALLOC_CONF', 'expandable_segments:False')
+    os.environ['PYTORCH_CUDA_ALLOC_CONF'] = want
+    torch.cuda.memory._set_allocator_settings(want)
+    eff = None
+    try:
+        eff = torch.cuda.memory._snapshot().get('allocator_settings') or {}
+    except Exception:  # noqa: BLE001
+        pass
+    res = {'wanted': want, 'env': os.environ.get('PYTORCH_CUDA_ALLOC_CONF'), 'effective': eff}
+    for item in want.split(','):
+        k, _, v = item.partition(':')
+        if k.strip() == 'expandable_segments' and eff and eff.get('expandable_segments') != (v.strip() == 'True'):
+            raise RuntimeError(f'аллокатор CUDA не принял {item!r}: действует {eff.get("expandable_segments")}')
+    return res
 
 
 FATAL_CUDA_MARKERS = ('device not ready', 'illegal memory access', 'internal assert', 'device-side assert', 'unspecified launch failure', 'cuda driver error',
@@ -2504,6 +2722,80 @@ def rss_gb(pid: int) -> float | None:
     return None
 
 
+PEAKS = {'rss_gb': None}
+DISK_TEST: dict = {}
+
+
+def rss_peak_gb(pid: int) -> float | None:
+    """Пик резидентной памяти процесса (VmHWM) — настоящий пик за жизнь ребёнка, а не мгновенное значение; запоминаем и после его гибели (T-186/1: профиль ресурсов)."""
+    try:
+        for ln in open(f'/proc/{pid}/status'):
+            if ln.startswith('VmHWM:'):
+                v = round(int(ln.split()[1]) / 2 ** 20, 2)
+                PEAKS['rss_gb'] = max(PEAKS['rss_gb'] or 0.0, v)
+                break
+    except OSError:
+        pass
+    return PEAKS['rss_gb']
+
+
+def disk_speed_test(path: str, mb: int = 256) -> dict:
+    """Скорость диска ноды: запись `mb` МБ с fsync и чтение обратно (тот же код, что `kit_worker.disk_speed_test`; воркер едет одним файлом — импортировать нельзя)."""
+    p = os.path.join(path or '.', '.kit_disk_test')
+    try:
+        os.makedirs(path or '.', exist_ok=True)
+        chunk = os.urandom(1 << 20)
+        t0 = time.time()
+        with open(p, 'wb') as f:
+            for _ in range(mb):
+                f.write(chunk)
+            f.flush()
+            os.fsync(f.fileno())
+        tw = max(time.time() - t0, 1e-6)
+        try:
+            fd = os.open(p, os.O_RDONLY)
+            os.posix_fadvise(fd, 0, 0, os.POSIX_FADV_DONTNEED)
+            os.close(fd)
+        except (AttributeError, OSError):
+            pass
+        t0 = time.time()
+        with open(p, 'rb') as f:
+            while f.read(1 << 20):
+                pass
+        tr = max(time.time() - t0, 1e-6)
+        return {'write_mb_s': round(mb / tw, 1), 'read_mb_s': round(mb / tr, 1)}
+    except OSError as e:
+        return {'error': str(e)[:120]}
+    finally:
+        try:
+            os.unlink(p)
+        except OSError:
+            pass
+
+
+def job_peaks() -> dict:
+    """Пик VRAM по готовым заданиям: максимум `metrics.peak_vram_gb` / `peak_reserved_gb` из `<job>.res.json` ребёнка."""
+    vram = res = None
+    try:
+        for fn in os.listdir(JOBS_DIR):
+            if fn.endswith('.res.json'):
+                m = (json.load(open(os.path.join(JOBS_DIR, fn), encoding='utf-8')).get('metrics') or {})
+                if m.get('peak_vram_gb') is not None:
+                    vram = max(vram or 0.0, float(m['peak_vram_gb']))
+                if m.get('peak_reserved_gb') is not None:
+                    res = max(res or 0.0, float(m['peak_reserved_gb']))
+    except (OSError, ValueError):
+        pass
+    return {'peak_vram_gb': vram, 'peak_reserved_gb': res}
+
+
+def resources_view(dg: dict) -> dict:
+    """Поля профиля ресурсов в /health (те же имена, что у kit_worker): peak_rss_gb, peak_vram_gb, disk_free_gb, disk_mb_s, disk_read_mb_s, weights_gb_min (None: веса в образе)."""
+    frees = [v['free'] for v in (dg or {}).values() if isinstance(v, dict) and 'free' in v]
+    return {'peak_rss_gb': PEAKS['rss_gb'], **job_peaks(), 'disk_free_gb': min(frees) if frees else None,
+            'disk_mb_s': DISK_TEST.get('write_mb_s'), 'disk_read_mb_s': DISK_TEST.get('read_mb_s'), 'weights_gb_min': None}
+
+
 def proc_cpu(pid: int) -> dict:
     """Состояние процесса (R работает / S ждёт / D диск) и сколько секунд процессорного времени съел (utime+stime): стоит ли ребёнок или считает."""
     try:
@@ -2688,7 +2980,7 @@ def child_info() -> dict:
         return {'started': False}
     rc = CHILD.poll()
     st = read_state()
-    return {'started': True, 'alive': rc is None, 'returncode': rc, 'rss_gb': rss_gb(CHILD.pid) if rc is None else None, **(proc_cpu(CHILD.pid) if rc is None else {}),
+    return {'started': True, 'alive': rc is None, 'returncode': rc, 'rss_gb': rss_gb(CHILD.pid) if rc is None else None, 'rss_peak_gb': rss_peak_gb(CHILD.pid), **(proc_cpu(CHILD.pid) if rc is None else {}),
             'state_age_s': round(time.time() - st['at'], 1) if st.get('at') else None}
 
 
@@ -2702,7 +2994,7 @@ def health() -> dict:
     broken = st.get('broken')                   # фатальная ошибка CUDA в ребёнке: ok=false, новые задания отказ, драйвер гасит группу (`mark_broken`)
     return {'ok': not broken, 'phase': 'broken' if broken else phase, 'warm': bool(st.get('warm')) and bool(ci.get('alive')) and not broken, 'error': broken or err, 'broken': broken,
             'timings': st.get('timings'), 'config': st.get('config'),
-            'progress': st.get('progress'), 'child': ci, 'cgroup_gb': cgroup_gb(), 'disk_gb': disk_gb(), 'uptime_s': round(time.time() - T_CONTAINER, 1)}
+            'progress': st.get('progress'), 'child': ci, 'cgroup_gb': cgroup_gb(), 'disk_gb': (dgb := disk_gb()), 'uptime_s': round(time.time() - T_CONTAINER, 1), **resources_view(dgb)}
 
 
 def watch_loop() -> None:
@@ -2755,8 +3047,10 @@ class H(BaseHTTPRequestHandler):
         if p.startswith('/glb/'):
             jid = os.path.basename(p[5:])
             rp = os.path.join(JOBS_DIR, jid + '.res.json')
-            stages = 'v=stages' in self.path                                                   # ?v=stages — mvadapter-i2tex с mv_keep_stages: архив стадий (А0)
-            fp = os.path.join(OUT, f'{jid}.stages.zip' if stages else (f'{jid}.ai.glb' if 'v=ai' in self.path else f'{jid}.glb'))      # ?v=ai — localmesh: текстура до проекции фото
+            vq = re.search(r'[?&]v=([A-Za-z0-9_-]+)', self.path)
+            v = vq.group(1) if vq else ''
+            stages = v == 'stages'
+            fp = os.path.join(OUT, f'{jid}.stages.zip' if v == 'stages' else (f'{jid}.{v}.glb' if v else f'{jid}.glb'))      # ?v=stages — mvadapter-i2tex с mv_keep_stages: архив стадий (А0); ?v=ai — localmesh: текстура до проекции фото; ?v=raw — TRELLIS.2: сырая форма до упаковки
             if not os.path.exists(rp) or json.load(open(rp, encoding='utf-8')).get('status') != 'done' or not os.path.exists(fp):
                 return self._json(404, {'error': 'GLB нет (задание не готово или упало)' if not stages else 'архива стадий нет (mv_keep_stages не было или сохранение упало)'})
             data = open(fp, 'rb').read()
@@ -2819,6 +3113,7 @@ def make_server(port: int) -> ThreadingHTTPServer:
 def main() -> None:
     os.makedirs(JOBS_DIR, exist_ok=True)
     start_child()
+    threading.Thread(target=lambda: DISK_TEST.update(disk_speed_test(OUT)), daemon=True).start()      # скорость диска ноды — один раз на старте (T-186/1), не в папке весов
     threading.Thread(target=watch_loop, daemon=True).start()
     print(f'воркер пробы: порт {PORT}, модель {os.environ.get("MODEL", "trellis2")}, ребёнок pid {CHILD.pid}', flush=True)
     make_server(PORT).serve_forever()

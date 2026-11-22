@@ -99,14 +99,14 @@ with tempfile.TemporaryDirectory() as root:
     check('unreliable ломает passed даже при идеальной форме', not ok and 'plate_found' in why, why)
 
 # 8. сквозной прогон main() на синтетической папке прогона: check.json + кадр
-def e2e(sku: str, S: np.ndarray, Aph: np.ndarray, root: str, prep_plate: bool | None = None) -> dict:
+def e2e(sku: str, S: np.ndarray, Aph: np.ndarray, root: str, prep_plate: bool | None = None, edge: dict | None = None) -> dict:
     from PIL import Image
     run = os.path.join(root, sku)
     os.makedirs(os.path.join(run, 'stages', 'render_view0'))
     Image.fromarray((S * 255).astype(np.uint8)).save(os.path.join(run, 'stages', 'render_view0', 'mask.png'))
     iou = float((S & Aph).sum()) / float((S | Aph).sum())
     json.dump({'registration': {'iou': iou, 'P': np.eye(3).tolist(), 'method': 'identity'}}, open(os.path.join(run, 'stage_loss.json'), 'w'))
-    json.dump({'picked': {'edge': {'agree': 0.9}}, 'camera': {'az': 0, 'el': 10, 'd': 3, 'f': 2}, 'yaw': 0, 'textured': False}, open(os.path.join(run, 'pose.json'), 'w'))
+    json.dump({'picked': {'edge': edge or {'agree': 0.9}}, 'camera': {'az': 0, 'el': 10, 'd': 3, 'f': 2}, 'yaw': 0, 'textured': False}, open(os.path.join(run, 'pose.json'), 'w'))
     rgba = np.zeros((H, W, 4), np.uint8)
     rgba[Aph] = (200, 120, 60, 255)
     photo = os.path.join(root, sku + '.rgba.png')
@@ -130,6 +130,11 @@ with tempfile.TemporaryDirectory() as root:
     unrel = e2e('plate', np.roll(A, 1, axis=1), A, root, prep_plate=True)
     check('e2e plate_found без среза: passed=false, unreliable=true', not unrel['passed'] and unrel['extra']['unreliable'] is True and 'plate_found' in unrel['extra']['unreliable_reason'], unrel['reason'])
     check('e2e: кадр frame.png записан', os.path.exists(os.path.join(root, 'good', '04-camera', 'frame.png')))
+    ne = e2e('noedges', np.roll(A, 1, axis=1), A, root, edge={'agree': -1.0, 'iou_frame': 0.9, 'width_px': 0.0, 'no_edges': True})
+    check('e2e «нет кромок» (agree −1,0 + no_edges): edge_agree.value = null, не число; passed не страдает; не «ниже порога»',
+          ne['passed'] and ne['metrics']['edge_agree']['value'] is None and ne['metrics']['edge_agree'].get('no_edges') is True and ne['extra']['edge_below_ref'] is False and ne['extra']['no_edges'] is True and 'кромок для сравнения нет' in ne["extra"]["note"], str(ne["metrics"]["edge_agree"]) + " " + ne["extra"]["note"])
+    check('e2e с кромками: edge_agree — число, no_edges=false', good['metrics']['edge_agree']['value'] == 0.9 and good['extra']['no_edges'] is False)
+check('verdict: edge=None → пометка про отсутствие кромок, ok', CC.verdict(0.95, {'miss': 0, 'extra': 0, 'miss_bottom': 0, 'extra_bottom': 0}, None, RULES)[0] is True)
 
 # 9. пометка «низ: маска фото грубая»: бледные тонкие ножки на белом фоне — да; тёмные ножки / толстый низ — нет
 rgb_pale = np.full((H, W, 3), 255, np.uint8)
@@ -208,6 +213,43 @@ sc_bad = PF.pose_score(PF.splat_mask(Pt, {**cam_true, 'az': 40 + 90}, 128), Mt)
 sc_ok = PF.pose_score(Mt, Mt)
 check('оценка позы: точная > повёрнутая на 90°', sc_ok['score'] > sc_bad['score'], f"{sc_ok['score']} vs {sc_bad['score']}")
 
+# --- триггер мультистарта (22.11): auto — по IoU ИЛИ по провалу низа лучшего кандидата ---
+check('ms_trigger: off → None, on → on', PF.ms_trigger('off', {'iou': 0.5}) is None and PF.ms_trigger('on', {'iou': 0.99}) == 'on')
+check('ms_trigger: auto, IoU < 0,9 → iou', PF.ms_trigger('auto', {'iou': 0.85, 'miss_bottom': 0.0, 'extra_bottom': 0.0}, RULES) == 'iou')
+check('ms_trigger: auto, IoU 0,956, низ 0,81/0,70 (кресло 44846) → bottom', PF.ms_trigger('auto', {'iou': 0.956, 'miss_bottom': 0.808, 'extra_bottom': 0.703}, RULES) == 'bottom')
+check('ms_trigger: auto, только extra низа выше порога → bottom', PF.ms_trigger('auto', {'iou': 0.95, 'miss_bottom': 0.1, 'extra_bottom': RULES['extra_bottom_max'] + 0.01}, RULES) == 'bottom')
+check('ms_trigger: auto, IoU ≥ 0,9 и низ проходит → None (не гоняем лишний раз)', PF.ms_trigger('auto', {'iou': 0.95, 'miss_bottom': 0.2, 'extra_bottom': 0.3}, RULES) is None)
+check('ms_trigger: ровно на пороге низа — не триггер (строго «>», как гейт)', PF.ms_trigger('auto', {'iou': 0.95, 'miss_bottom': RULES['miss_bottom_max'], 'extra_bottom': RULES['extra_bottom_max']}, RULES) is None)
+
+# --- принятие позы мультистарта по низу (22.11, директор): низ проходит И кромки не хуже допуска, иначе остаётся прежняя ---
+TOL = RULES['ms_bottom_accept']['edge_agree_tol']
+check('ms_accept: допуск кромок — из rules, не из кода', 0 < TOL < 0.2)
+ok_, _w = PF.ms_accept({'miss_bottom': 0.171, 'extra_bottom': 0.079}, {'miss_bottom': 0.808, 'extra_bottom': 0.703}, 0.4469, 0.46, RULES)
+check('ms_accept: кресло 44846 (низ 0,17/0,08 проходит, кромки 0,46 → 0,447) → новая', ok_ is True, _w)
+_a, _b, _c = {'iou': 0.95, 'score': 0.90}, {'iou': 0.94, 'score': 0.85}, {'iou': 0.70, 'score': 0.40}
+_pool, _ev = PF.pool_and_evalset([_a, _b, _c], _a, None)
+check('pool_and_evalset: без мультистарта (trig=None) не падает, пул по IoU, расчёт = пул', _pool == [_a, _b] and _ev == [_a, _b] and _ev is not _pool, str(_pool))
+_m = {'iou': 0.60, 'score': 0.99}
+for _trig in ('iou', 'on'):
+    _pool, _ev = PF.pool_and_evalset([_m, _a, _b, _c], _a, _trig)
+    check(f'pool_and_evalset: trig={_trig} — пул по score, std0 лишней не добавляется', _pool == [_m] and _ev == [_m], str(_pool))
+_pool, _ev = PF.pool_and_evalset([_m, _a, _b], _a, 'bottom')
+check('pool_and_evalset: trig=bottom, std0 вне пула → считается дополнительно, в пул не входит', _pool == [_m] and _ev == [_m, _a], str(_ev))
+_pool, _ev = PF.pool_and_evalset([_a, _m], _a, 'bottom')
+check('pool_and_evalset: trig=bottom, std0 уже в пуле → без дубля', _ev == _pool and _ev.count(_a) == 1, str(_ev))
+ok_, _w = PF.ms_accept({'miss_bottom': 0.249, 'extra_bottom': 0.253}, {'miss_bottom': 0.411, 'extra_bottom': 0.468}, 0.7342, 0.7514, RULES)
+check('ms_accept: комод 3635 (низ 0,25/0,25 проходит, кромки 0,75 → 0,73) → новая', ok_ is True, _w)
+ok_, _w = PF.ms_accept({'miss_bottom': 0.481, 'extra_bottom': 0.23}, {'miss_bottom': 0.65, 'extra_bottom': 0.023}, 0.4746, 0.7489, RULES)
+check('ms_accept: ТВ-тумба 7736 (низ не прошёл И кромки 0,75 → 0,47) → остаётся старая', ok_ is False, _w)
+ok_, _w = PF.ms_accept({'miss_bottom': 0.481, 'extra_bottom': 0.23}, {'miss_bottom': 0.65, 'extra_bottom': 0.023}, 0.80, 0.70, RULES)
+check('ms_accept: низ не прошёл, даже если кромки лучше → старая (берём только при низе, который проходит)', ok_ is False and 'низ' in _w, _w)
+ok_, _w = PF.ms_accept({'miss_bottom': 0.1, 'extra_bottom': 0.1}, {'miss_bottom': 0.8, 'extra_bottom': 0.7}, 0.70 - TOL - 0.01, 0.70, RULES)
+check('ms_accept: низ проходит, но кромки хуже допуска → старая', ok_ is False and 'кромки' in _w, _w)
+ok_, _w = PF.ms_accept({'miss_bottom': 0.1, 'extra_bottom': 0.1}, {'miss_bottom': 0.8, 'extra_bottom': 0.7}, 0.70 - TOL + 0.005, 0.70, RULES)
+check('ms_accept: кромки хуже, но в допуске → новая', ok_ is True, _w)
+ok_, _w = PF.ms_accept({'miss_bottom': 0.1, 'extra_bottom': 0.1}, {'miss_bottom': 0.8, 'extra_bottom': 0.7}, None, 0.7, RULES)
+check('ms_accept: кромок нет (None) — сравнивать нечем, решает низ → новая', ok_ is True, _w)
+
 # --- уточнение по кромкам не должно ронять силуэт (стул 12914: 0,86 → 0,72 из-за заглушки «кромок нет») ---
 check('edge_term: «кромок нет» → нейтрально 0 (не штраф)', PF.edge_term({'agree': -1.0, 'no_edges': True}) == 0.0)
 check('edge_term: обычные кромки как есть', PF.edge_term({'agree': 0.4, 'no_edges': False}) == 0.4 and PF.edge_term({'agree': 0.2}) == 0.2)
@@ -242,6 +284,53 @@ check('surf_points: точки внутри габарита формы', bool((
 m_v, m_s = PF.splat_mask(cube_V, cam_c, 128), PF.splat_mask(S_pts, cam_c, 128)
 check('surf_points: маска по поверхности заполнена, по вершинам дырявая (плоские грани)', m_s.sum() > 10 * m_v.sum(), f'{int(m_s.sum())} vs {int(m_v.sum())} px')
 check('surf_points: воспроизводимо (seed)', np.array_equal(PF._surf_points(cube, 500), PF._surf_points(cube, 500)))
+
+
+# 10. тонкий предмет (T-188/2): площадная мерка проваливается на 1–2 px сдвига палки, мерка по контуру — нет
+check('rules: thin — числа из файла', all(isinstance(RULES['thin'].get(k), (int, float)) and RULES['thin'][k] > 0 for k in ('half_frac', 'share_min', 'tau_frac', 'precision_min', 'recall_min')) and RULES['thin']['enabled'] is True)
+
+
+def lamp() -> np.ndarray:
+    m = rect(20, 180, 100, 103)                                          # стойка 3 px
+    m |= rect(20, 23, 100, 150)                                          # рука
+    m |= rect(176, 180, 80, 124)                                         # плита
+    return m
+
+
+A_l = lamp()
+tm0 = CC.thin_metrics(A_l, A_l, RULES)
+check('thin: торшер — тонкий (доля ≥ порога), форма == фото: precision=recall=1, passed', tm0['eligible'] and tm0['passed'] and tm0['precision'] == 1.0 and tm0['recall'] == 1.0, str(tm0))
+S_l = np.roll(A_l, 1, axis=1)
+iou_l = float((S_l & A_l).sum()) / float((S_l | A_l).sum())
+tm1 = CC.thin_metrics(S_l, A_l, RULES)
+check('thin: сдвиг на 1 px — IoU площади ниже порога, контур годен', iou_l < RULES['iou_min'] and tm1['passed'], f'iou {iou_l:.3f} {tm1}')
+tm2 = CC.thin_metrics(np.roll(A_l, 12, axis=1), A_l, RULES)
+check('thin: сдвиг на 12 px (≫ допуска) — контур провален', tm2['eligible'] and not tm2['passed'], str(tm2))
+box = rect(40, 160, 40, 160)
+tm3 = CC.thin_metrics(np.roll(box, 25, axis=1), box, RULES)
+check('thin: компактный предмет — не тонкий (eligible=false), путь не включается', not tm3['eligible'], str(tm3))
+tm4 = CC.thin_metrics(np.zeros_like(A_l), A_l, RULES)
+check('thin: пустая форма — не годен, без исключения', not tm4['passed'] and not tm4['eligible'])
+with tempfile.TemporaryDirectory() as root:
+    r1 = e2e('lamp1', S_l, A_l, root)
+    check('e2e торшер сдвиг 1 px: passed=true по контуру, thin_rescue, причина названа', r1['passed'] and r1['extra']['thin_rescue'] is True and r1['extra']['thin']['eligible'] and not r1['extra']['shape_mismatch'] and 'по контуру' in r1["extra"]["note"], r1["extra"]["note"])
+    r2 = e2e('lamp2', np.roll(A_l, 12, axis=1), A_l, root)
+    check('e2e торшер сдвиг 12 px: провал, не спасён', not r2['passed'] and r2['extra']['thin_rescue'] is False, r2['reason'])
+    r3 = e2e('box', np.roll(box, 25, axis=1), box, root)
+    check('e2e компактный с плохим IoU: провал, не спасён', not r3['passed'] and r3['extra']['thin_rescue'] is False and r3['extra']['thin']['eligible'] is False)
+    r4 = e2e('lamp3', S_l, A_l, root, prep_plate=True)
+    check('e2e торшер, но 02-prep plate_found без среза (unreliable): провал остаётся', not r4['passed'] and r4['extra']['thin_rescue'] is False and r4['extra']['unreliable'] is True, r4['reason'])
+    r5 = e2e('good2', np.roll(A, 1, axis=1), A, root)
+    check('e2e годная по площади: путь не нужен, thin_rescue=false (спасение не отнимает и не подменяет)', r5['passed'] and r5['extra']['thin_rescue'] is False)
+    rules_off = json.loads(json.dumps(RULES))
+    rules_off['thin']['enabled'] = False
+    _lr = CC.load_rules
+    CC.load_rules = lambda path=CC.RULES_PATH: rules_off
+    try:
+        r6 = e2e('lamp4', S_l, A_l, root)
+    finally:
+        CC.load_rules = _lr
+    check('e2e enabled=false в правилах: торшер снова брак (путь выключается правилом)', not r6['passed'] and r6['extra']['thin_rescue'] is False and r6['extra']['thin'] is None, r6['reason'])
 
 print('all ok' if not bad else f'FAILED: {bad}')
 sys.exit(1 if bad else 0)

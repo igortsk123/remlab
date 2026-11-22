@@ -248,6 +248,9 @@ if have_tm:
         def postprocess_mesh(self, mesh, pbr, resolution, texture_size):
             self.calls.append(('post', pbr, resolution, texture_size))
             v = np.asarray(mesh.vertices).copy()
+            vv, nn = mesh.vertices, mesh.vertex_normals          # как апстрим (`postprocess_mesh`): обмен осей ПРЯМО в этих массивах (у формы с развёрткой нормали не копируются) — у trimesh нормали только для чтения → «assignment destination is read-only» (проба 19.11, диван clean2)
+            vv[:, 1], vv[:, 2] = vv[:, 2], -vv[:, 1]
+            nn[:, 1], nn[:, 2] = nn[:, 2], -nn[:, 1]
             if self.perturb:
                 v[self.perturb[0], self.perturb[1]] += self.perturb[2]
             out_v = np.stack([v[:, 0], v[:, 2], -v[:, 1]], axis=1)          # как апстрим: (x, y, z) → (x, z, −y)
@@ -314,6 +317,21 @@ if have_tm:
     final_o, m_o = W.texture_on_shape(FakePipe(), mesh_in, photo_r, cam, {'align': 'official'})
     ok('official: форма идёт только с поворотом, кратным 90° (как в апстриме), форма на выходе та же', np.allclose(np.asarray(final_o.vertices), Vi, atol=1e-6))
 
+    # T-20261119-92: рычаг «доля куба» — форма в сетке меньше, сама форма и число граней те же, камера краски получает mesh_scale × fill
+    fpf = FakePipe()
+    final_f, m_f = W.texture_on_shape(fpf, mesh_in, photo, cam, {'align': 'fit', 'shape_fill': 0.75})
+    enc_f = [c for c in fpf.calls if c[0] == 'encode'][0]
+    cond_f = [c for c in fpf.calls if c[0] == 'cond'][0]
+    ok('shape_fill=0,75: форма в кубе в 0,75 раза меньше (наибольшая сторона 0,75, не больше 0,375 от центра)', abs(float((fpf.enc_mesh.vertices.max(0) - fpf.enc_mesh.vertices.min(0)).max()) - 0.75 * 0.99999) < 1e-6 and enc_f[1] <= 0.375 + 1e-6, str(enc_f))
+    ok('shape_fill=0,75: форма на выходе та же (Хаусдорф ~0, грани те же), mesh_scale камеры краски = подогнанный × 0,75, в метриках shape_fill',
+       np.allclose(np.asarray(final_f.vertices), Vi, atol=1e-6) and m_f['shape']['tris_in'] == m_f['shape']['tris_out'] and abs(cond_f[6] - m_f['fit']['mesh_scale'] * 0.75) < 1e-9 and m_f['shape_fill'] == 0.75, str(cond_f))
+    for bad_fill in (0.1, 1.5, -1):
+        try:
+            W.texture_on_shape(FakePipe(), mesh_in, photo, cam, {'align': 'fit', 'shape_fill': bad_fill})
+            ok(f'shape_fill={bad_fill}: отказ', False)
+        except ValueError:
+            ok(f'shape_fill={bad_fill}: отказ', True)
+
     # рычаги «двойного узора»: сглаживание копии формы для латента и сила направляющей
     fp = FakePipe()
     final, m = W.texture_on_shape(fp, mesh_in, photo, cam, {'align': 'fit', 'shape_smooth': 8})
@@ -363,7 +381,7 @@ if have_tm:
 
 print('[3] драйвер')
 import trellis_trial as T  # noqa: E402
-b = T.build_body('trial-pixal3d-tex-x', 'ghcr.io/x/y:t', 'high', 'pixal3d-tex', 'hf_SECRET', 8, 32768, 'note', {'basic': {'username': 'u', 'password': 'PW'}})
+b = T.build_body('trial-pixal3d-tex-x', 'ghcr.io/x/y:t', 'low', 'pixal3d-tex', 'hf_SECRET', 'note', {'basic': {'username': 'u', 'password': 'PW'}})
 e = b['container']['environment_variables']
 ok('тело группы: MODEL=pixal3d-tex, код воркера едет в command (как у pixal3d: обёртка bash с пином huggingface_hub, без pip-пина TRELLIS.2), приёмника нет',
    e['MODEL'] == 'pixal3d-tex' and (lambda c: c[:2] == ['bash', '-c'] and 'exec python3 -u -c' in c[2] and T.TRELLIS_PIP_PIN not in c[2])(b['container']['command']) and not any(k.startswith('MESH_SINK') for k in e)
@@ -399,13 +417,68 @@ rc = T.run(types.SimpleNamespace(**{**base, 'skus': ['a:1', 'b:2'], 'texture_mes
 ok('и --texture-mesh, и --shape-dir сразу — отказ до Salad', rc == 2)
 js = [{'job_id': 'a_1-1024-42-0'}]
 vs = [T.parse_tex_variant(x) for x in ('fit', 'official', 'fit+g3', 'fit+g2.5+s40')]
+vf = [T.parse_tex_variant(x) for x in ('fit+f75', 'fit+g3+f50')]
+ok('вариант +f<процент>: доля куба 0,75 / 0,5, по умолчанию 1; id и shape_fill в задании', vf[0]['fill'] == 0.75 and vf[1]['fill'] == 0.5 and vs[0]['fill'] == 1.0
+   and [j['shape_fill'] for j in T.expand_align_jobs([{'job_id': 'a'}], vf)] == [0.75, 0.5] and T.expand_align_jobs([{'job_id': 'a'}], vf)[0]['job_id'] == 'a-fit-f75')
 two = T.expand_align_jobs(js, vs)
 one = T.expand_align_jobs(js, vs[1:2])
 ok('варианты: суффиксы id, align, сила направляющей и сглаживание проставлены',
    [j['job_id'] for j in two] == ['a_1-1024-42-0-fit', 'a_1-1024-42-0-official', 'a_1-1024-42-0-fit-g3', 'a_1-1024-42-0-fit-g2.5-s40']
    and [(j['align'], j['tex_guidance'], j['shape_smooth']) for j in two] == [('fit', 1.0, 0), ('official', 1.0, 0), ('fit', 3.0, 0), ('fit', 2.5, 40)])
 ok('один вариант: id как был', [j['job_id'] for j in one] == ['a_1-1024-42-0'] and one[0]['align'] == 'official')
-ok('неверные записи вариантов отвергаются', all(T.parse_tex_variant(x) is None for x in ('zzz', 'fit+x3', 'fit+g0', 'fit+g11', 'fit+s0', 'fit+sabc', 'fit+s501', '')))
+ok('неверные записи вариантов отвергаются', all(T.parse_tex_variant(x) is None for x in ('zzz', 'fit+x3', 'fit+g0', 'fit+g11', 'fit+s0', 'fit+sabc', 'fit+s501', 'fit+f19', 'fit+f101', 'fit+fabc', '')))
+
+# лесенка формы TRELLIS.2 (T-20261119-94): в `run` уходит только заданное, остальное — по умолчанию апстрима
+ok('trellis2_run_kwargs: пусто → ничего не меняем (прежние задания работают как раньше)', W.trellis2_run_kwargs({'job_id': 'x', 'seed': 1}) == {})
+ok('trellis2_run_kwargs: шаги ×2 и rescale формы → только `shape_slat_sampler_params`, steps целое', W.trellis2_run_kwargs({'shape_steps': 24, 'shape_rescale': 0.7}) == {'shape_slat_sampler_params': {'steps': 24, 'guidance_rescale': 0.7}})
+ok('trellis2_run_kwargs: структура и токены', W.trellis2_run_kwargs({'ss_steps': 20, 'max_num_tokens': 98304}) == {'sparse_structure_sampler_params': {'steps': 20}, 'max_num_tokens': 98304})
+bad_kw = 0
+for bp in ({'shape_steps': 0}, {'shape_steps': 51}, {'shape_rescale': 1.2}, {'shape_guidance': -1}, {'ss_rescale_t': 7}, {'max_num_tokens': 1000}, {'max_num_tokens': 300000}):
+    try:
+        W.trellis2_run_kwargs(bp)
+    except ValueError:
+        bad_kw += 1
+ok('trellis2_run_kwargs: значения вне диапазона fal.ai/апстрима → ValueError', bad_kw == 7, str(bad_kw))
+lad_path = os.path.join(tempfile.mkdtemp(prefix='lad-'), 'l.json')
+json.dump([{'name': 'hd', 'input': 'hd', 'res': 1024}, {'name': 'hd1536-s24', 'input': 'hd', 'res': 1536, 'shape_steps': 24, 'shape_rescale': 0.7, 'max_num_tokens': 98304, 'export_raw': True}], open(lad_path, 'w'))
+lad = T.parse_ladder(lad_path)
+ok('parse_ladder: ступени с именем, фото, разрешением и параметрами', [x['name'] for x in lad] == ['hd', 'hd1536-s24'] and lad[1]['res'] == 1536 and lad[1]['params']['shape_steps'] == 24 and lad[0]['params'] == {} and lad[1]['input'] == 'hd')
+lj = T.expand_ladder_jobs([{'sku': '112923:13224664101879413845', 'res': 1024, 'rep': 0, 'seed': 42, 'job_id': '112923_13224664101879413845-1024-42-0'}], lad)
+ok('expand_ladder_jobs: id = товар-ступень, res и параметры ступени, фото hd', [j['job_id'] for j in lj] == ['112923_13224664101879413845-hd', '112923_13224664101879413845-hd1536-s24'] and lj[1]['res'] == 1536 and lj[1]['worker_params']['export_raw'] is True and lj[0]['input'] == 'hd')
+bad_l = 0
+for bl in ([], [{'name': 'a'}, {'name': 'a'}], [{'name': 'a b'}], [{'name': 'a', 'input': 'x'}], [{'name': 'a', 'res': 2048}], [{'name': 'a', 'steps': 5}]):
+    json.dump(bl, open(lad_path, 'w'))
+    try:
+        T.parse_ladder(lad_path)
+    except ValueError:
+        bad_l += 1
+ok('parse_ladder: пусто, повтор имени, пробел в имени, неверное фото/разрешение, чужой ключ → ValueError', bad_l == 6, str(bad_l))
+
+# варианты упаковки to_glb (T-94/2 шаг 02): по умолчанию пусто; значения по умолчанию = боевые (remesh, band 1, project 0, 500k)
+ok('trellis2_pack_variants: нет `variants` → пусто', W.trellis2_pack_variants({}) == [])
+pv = W.trellis2_pack_variants({'variants': [{'name': 'A-300k', 'decimation_target': 300000}, {'name': 'C', 'remesh_project': 0.5, 'decimation_target': 1000000}]})
+ok('trellis2_pack_variants: значения по умолчанию и заданные', pv[0] == {'name': 'A-300k', 'remesh': True, 'remesh_band': 1.0, 'remesh_project': 0.0, 'decimation_target': 300000} and pv[1]['remesh_project'] == 0.5 and pv[1]['decimation_target'] == 1000000)
+bad_pv = 0
+for bv in ([{'name': 'raw'}], [{'name': 'a b'}], [{'name': 'a'}, {'name': 'a'}], [{'name': 'a', 'remesh_project': 2}], [{'name': 'a', 'decimation_target': 100}], [{'name': 'a', 'remesh_band': 9}]):
+    try:
+        W.trellis2_pack_variants({'variants': bv})
+    except ValueError:
+        bad_pv += 1
+ok('trellis2_pack_variants: имя raw/ai/повтор/пробел и значения вне диапазона → ValueError', bad_pv == 6, str(bad_pv))
+
+# патч sdpa для разреженного внимания TRELLIS.2 (T-20261119-94, flash_attn под sm_120 нет): якоря — как в microsoft/TRELLIS.2 @75fbf018
+sd = tempfile.mkdtemp(prefix='sdpa-')
+os.makedirs(os.path.join(sd, 'trellis2', 'modules', 'sparse', 'attention'))
+open(os.path.join(sd, 'trellis2', 'modules', 'sparse', 'config.py'), 'w').write("    if env_sparse_attn_backend is not None and env_sparse_attn_backend in ['xformers', 'flash_attn', 'flash_attn_3']:\n        ATTN = env_sparse_attn_backend\n")
+open(os.path.join(sd, 'trellis2', 'modules', 'sparse', 'attention', 'full_attn.py'), 'w').write("    elif config.ATTN == 'flash_attn_3':\n        pass\n    else:\n        raise ValueError(f\"Unknown attention module: {config.ATTN}\")\n")
+ok('patch_trellis2_sdpa: добавляет sdpa в список и ветку внимания, второй раз — ничего', W.patch_trellis2_sdpa(sd) == ['config', 'full_attn'] and W.patch_trellis2_sdpa(sd) == [] and "'sdpa']" in open(os.path.join(sd, 'trellis2', 'modules', 'sparse', 'config.py')).read() and "config.ATTN == 'sdpa'" in open(os.path.join(sd, 'trellis2', 'modules', 'sparse', 'attention', 'full_attn.py')).read())
+open(os.path.join(sd, 'trellis2', 'modules', 'sparse', 'attention', 'full_attn.py'), 'w').write('# якорь изменился\n')
+try:
+    W.patch_trellis2_sdpa(sd)
+    patch_loud = False
+except RuntimeError:
+    patch_loud = True
+ok('patch_trellis2_sdpa: нет якоря в коде апстрима → громкая ошибка, а не тихий flash_attn', patch_loud)
 rc = T.run(types.SimpleNamespace(**{**base, 'texture_mesh': shp_glb, 'tex_align': 'fit+g99'}), NoTouchMG(), NoTouchMG())
 ok('--tex-align fit+g99: отказ (код 2) до обращения к Salad', rc == 2)
 
@@ -415,11 +488,11 @@ ok('--worker-env: PIXTEX_* принимаются', we == {'PIXTEX_LOW_VRAM': '0
 ok('--debug-cuda = CUDA_LAUNCH_BLOCKING=1 + TORCH_SHOW_CPP_STACKTRACES=1; по умолчанию пусто', T.parse_worker_env([], True) == {'CUDA_LAUNCH_BLOCKING': '1', 'TORCH_SHOW_CPP_STACKTRACES': '1'} and T.parse_worker_env([], False) == {} and T.parse_worker_env(None) == {})
 ok('чужие и кривые записи отвергаются (секреты и произвольные переменные через флаг не проходят)',
    all(T.parse_worker_env([x]) is None for x in ('HF_TOKEN=x', 'PIXTEX_LOW_VRAM', 'PIXTEX_LOW_VRAM=1;rm', 'PATH=/x', 'pixtex_low_vram=1', 'PIXTEX_X=a b')))
-bd = T.build_body('trial-pixal3d-tex-x', 'ghcr.io/x/y:t', 'high', 'pixal3d-tex', 'hf_SECRET', 8, 32768, 'note', {'basic': {'username': 'u', 'password': 'PW'}}, extra_env=T.parse_worker_env([], True))
+bd = T.build_body('trial-pixal3d-tex-x', 'ghcr.io/x/y:t', 'low', 'pixal3d-tex', 'hf_SECRET', 'note', {'basic': {'username': 'u', 'password': 'PW'}}, extra_env=T.parse_worker_env([], True))
 ok('в тело группы pixal3d-tex окружение отладки попадает', bd['container']['environment_variables']['CUDA_LAUNCH_BLOCKING'] == '1' and bd['container']['environment_variables']['TORCH_SHOW_CPP_STACKTRACES'] == '1')
 ok('по умолчанию в группу отладки нет (выключена)', not any(k in e for k in ('CUDA_LAUNCH_BLOCKING', 'TORCH_SHOW_CPP_STACKTRACES')) and not any(k.startswith('PIXTEX_') for k in e))
 for mdl in ('pixal3d', 'trellis2', 'localmesh'):
-    bo = T.build_body('trial-x-y', 'ghcr.io/x/y:t', 'high', mdl, 'hf_SECRET', 8, 32768, 'note', {'basic': {'username': 'u', 'password': 'PW'}}, extra_env={'CUDA_LAUNCH_BLOCKING': '1'})
+    bo = T.build_body('trial-x-y', 'ghcr.io/x/y:t', 'low', mdl, 'hf_SECRET', 'note', {'basic': {'username': 'u', 'password': 'PW'}}, extra_env={'CUDA_LAUNCH_BLOCKING': '1'})
     ok(f'другая модель ({mdl}) переменных отладки не получает', 'CUDA_LAUNCH_BLOCKING' not in bo['container']['environment_variables'])
 for name, kw in (('кривая запись', {'worker_env': ['HF_TOKEN=x']}), ('--debug-cuda у другой модели', {'model': 'trellis2', 'debug_cuda': True, 'texture_mesh': None})):
     rc = T.run(types.SimpleNamespace(**{**base, 'texture_mesh': shp_glb, **kw}), NoTouchMG(), NoTouchMG())

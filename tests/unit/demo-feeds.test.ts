@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { alternatives, candidates, feedForStyle, placeOf, sameShape, type FeedItem } from "@/lib/configurator/demo-feeds";
+import { alternatives, candidates, feedForStyle, placeOf, roomFeedKey, sameShape, type FeedItem } from "@/lib/configurator/demo-feeds";
 
 // ленты замен витрины → «Варианты» в /flat (план demo-18 п.1): разные модели раньше цветов, диван — той же формы
 const item = (sid: string, msid: string, w: number, extra: Partial<FeedItem> = {}): FeedItem =>
@@ -49,6 +49,24 @@ describe("ленты замен: ковёр", () => {
     const place = { w: 160, d: 230, rug: true, minLong: 186 };
     expect(alternatives(feed, place, new Set()).map((p) => p.sid)).toEqual(["same", "turned", "long"]);
     expect(alternatives(feed, { ...place, minLong: undefined }, new Set()).map((p) => p.sid)).toEqual(["same", "turned", "short", "long"]);
+  });
+});
+
+// T-115/3: у плоских ковров спальни в ленте нет высоты (`h` пуст) — полоса «Варианты» ковра спальни была пуста; меш-роли высота нужна
+describe("ленты замен: плита без высоты", () => {
+  const flat = (sid: string, w: number, d: number): FeedItem => ({ name: `Ковёр ${sid}`, sid, msid: sid, img: "i", w, d, price: 1, styles: ["минимализм"] });
+  const sofa = (sid: string): FeedItem => ({ name: `Диван ${sid}`, sid, msid: sid, img: "i", w: 190, d: 90, price: 1, styles: ["минимализм"] });
+  const bedroomItems = [{ role: "кровать", w: 160, d: 200 }, { role: "ковёр", w: 300, d: 200, sku: { msid: "cur" } }];
+
+  it("спальный ковёр с h = null попадает в замены по ленте комнаты и стиля; текущий — нет", () => {
+    const data: Record<string, FeedItem[]> = { "bedroom:ковёр": [flat("a", 300, 200), flat("b", 220, 150), flat("cur", 300, 200)], "ковёр": [] };
+    const feed = feedForStyle(data[roomFeedKey("bedroom-2", "ковёр")] ?? [], "минимализм");
+    const got = alternatives(feed, placeOf(bedroomItems[1]!, bedroomItems), new Set(["cur"])).map((p) => p.sid);
+    expect(got).toEqual(["a", "b"]);
+  });
+
+  it("меш-роль без высоты в замены не берётся (карточка и размер меша без h не строятся)", () => {
+    expect(alternatives([sofa("s1"), { ...sofa("s2"), h: 80 }], { w: 190, d: 90 }, new Set()).map((p) => p.sid)).toEqual(["s2"]);
   });
 });
 

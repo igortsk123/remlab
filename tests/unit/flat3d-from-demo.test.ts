@@ -326,6 +326,30 @@ describe("мост витрина → конфигуратор: замены к�
     expect(sw.totals.upgrades - base.totals.upgrades).toBe(5230 - 9291);
   });
 
+  // T-115/3: ковры спальни в ленте приходят с `h: null` (плоский товар). Ковёр — плита-«кит» с фото на плоскости (не меш по msid):
+  // подпись «Д×Ш см» и размер плиты — из w/d, высота нигде не нужна; без высоты замены не пропадают и не дают «×0 см», NaN, null
+  it("ковёр спальни без высоты (h = null): варианты есть, подпись без высоты, плита — по w/d, без NaN", () => {
+    const flat = (sid: string, w: number, d: number) => rug(sid, w, d, { h: null, styles: ["минимализм"] });
+    const bedItems = [{ role: "кровать", x: 100, y: 100, rot: 0, w: 160, d: 200, h: 50, sku: { name: "Кровать", msid: "bed1" } },
+      { role: "ковёр", x: 200, y: 200, rot: 0, w: 300, d: 200, strategy: "procedural_plane",
+        sku: { name: "Ковёр cur", price: 7000, sid: "cur", msid: "cur", img: "img/cur.jpg" } }];
+    const bed = { ...data, variants: [{ id: "bedroom-2-minimal", title: "Минимализм", style: "минимализм", room_id: "bedroom-2", items: bedItems, decor: [] }],
+      feeds: { "bedroom:ковёр": [flat("cur", 300, 200), flat("a", 300, 200), flat("b", 220, 150)] } };
+    const r = fromDemoVariant(bed as never, "bedroom-2-minimal", { ...CTX, assetBase: "/demo/demo-data.json" })!;
+    const slot = r.apartment.slots.find((s) => s.id.endsWith("ковёр#0"))!;
+    expect(slot.optionIds.slice(1)).toHaveLength(2);
+    for (const oid of slot.optionIds) {
+      const o = r.catalogue.options.find((x) => x.id === oid)!;
+      expect(o.descRu).toMatch(/^\d+×\d+ см$/);
+      expect(o.asset).toMatchObject({ kind: "kit", kit: "rug" });
+      expect(o.asset).not.toHaveProperty("hCm");
+    }
+    const cfg = defaultConfiguration(r.apartment, r.catalogue);
+    const sw = resolveScene(r.apartment, r.catalogue, { ...cfg, selections: { ...cfg.selections, [slot.id]: slot.optionIds[1]! } });
+    const p = sw.items.find((i) => i.slotId === slot.id)!.placement;
+    expect([p.wCm, p.dCm, p.x, p.y].every((n) => Number.isFinite(n) && n !== 0)).toBe(true);
+  });
+
   // T-20261107-25/9 (план dims-effective-01): у стульев К2 глубина каталога — копия ширины; сцена берёт глубину по мешу (`d`),
   // подпись «Ш×Г×В» покупателю — каталожную (`d_catalog`), как у магазина
   it("стул К2: место и модель — по глубине сцены, подпись — каталожная глубина; без d_catalog — как раньше", () => {

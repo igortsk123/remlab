@@ -279,6 +279,23 @@ class TestTexVisible(unittest.TestCase):
                 TV.load_stage(d)
             self.assertIn('ids.npz', str(cm.exception))
 
+    def test_side_views_follow_camera_azimuth(self):
+        """Ракурсы «слева/справа» — от азимута найденной камеры, не от осей формы (владелец TG 1586: Босс az 170,6° показывал спину)."""
+        sv = TV.side_view_angles({'az': 170.6, 'el': -4.3})
+        self.assertAlmostEqual(sv['az_cam'], 170.6, places=1)
+        self.assertAlmostEqual(sv['left']['az'], 130.6, places=1)
+        self.assertAlmostEqual(sv['right']['az'], 210.6, places=1)
+        self.assertAlmostEqual(sv['right']['yaw'], -210.6, places=1)       # yaw рендера = −az (рендер вращает предмет)
+        self.assertAlmostEqual(sv['pitch'], -4.3, places=1)                 # высота камеры та же
+        w = TV.side_view_angles({'az': 350.0, 'el': 5.0})                   # 350° = −10°: нормировка в (−180, 180]
+        self.assertAlmostEqual(w['az_cam'], -10.0, places=1)
+        self.assertAlmostEqual(w['left']['az'], -50.0, places=1)
+        self.assertAlmostEqual(w['right']['az'], 30.0, places=1)
+        z = TV.side_view_angles({'az': 0.0, 'el': 10.0})                    # фронтальная камера = прежние ±40° и 10°
+        self.assertEqual((z['left']['yaw'], z['right']['yaw'], z['pitch']), (40.0, -40.0, 10.0))
+        n = TV.side_view_angles(None)                                       # камеры нет — как раньше
+        self.assertEqual((n['az_cam'], n['pitch']), (0.0, 10.0))
+
 
 if __name__ == '__main__':
     unittest.main()

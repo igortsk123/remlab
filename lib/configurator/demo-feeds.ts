@@ -109,7 +109,9 @@ export function sameShape(p: FeedItem, place: FeedPlace): boolean {
 export function candidates(feed: readonly FeedItem[], place: FeedPlace, exclude: Set<string>): FeedItem[] {
   const seen = new Set<string>();
   const near = feed
-    .filter((p) => p.msid && p.img && p.w && p.d && p.h && !exclude.has(p.sid ?? "") && !exclude.has(p.name ?? "") && sameShape(p, place)
+    // высота нужна меш-товару (карточка «w×d×h», размер меша); у плиты (`place.rug`) её нет — ковёр спальни приходит с `h: null`
+    // и без этого условия все 51 были отброшены: полоса «Варианты» ковра спальни пуста (T-115/3, 22.11)
+    .filter((p) => p.msid && p.img && p.w && p.d && (place.rug || p.h) && !exclude.has(p.sid ?? "") && !exclude.has(p.name ?? "") && sameShape(p, place)
       && (!place.minLong || Math.max(p.w, p.d) >= place.minLong))
     .filter((p) => {
       const k = p.sid ?? p.name ?? "";

@@ -1,0 +1,45 @@
+# ОБРАЗ ПРОБЫ UltraTex (вариант 8, T-20261119-90/2): «готовая форма + одно фото → альбедо-текстура», карты 80 ГБ RunPod (A100 sm_80, H100 sm_90).
+# Собирается на GitHub Actions (`.github/workflows/build-ultratex-trial.yml`), НЕ на pakardev (диск общий). Сборщик без видеокарты: ничего, что требует GPU при сборке, здесь нет
+# (у UltraTex нет своих расширений CUDA; Triton-ядра разреженного внимания компилируются при ПЕРВОМ запуске на карте — минуты).
+# Пины — из `requirements.txt` апстрима (Python 3.12, torch 2.5.1/cu124, triton 3.1.0); ПОДОЗРИТЕЛЬНО: transformers 5.2.0 рядом с diffusers 0.30.1 и torch 2.5.1 — авторы «проверили на H100»,
+# нашим сборщиком не проверялось; импорт кода вывода проверяется в сборке текстом (importlib.find_spec), реальный импорт — только на карте (первый шаг сухого прогона).
+# Веса НЕ в образе (≈ 36 ГБ: база 9B 18 + Qwen3-8B 16,4 + LoRA/декодер 0,6 + ae 0,3) — воркер докачивает на старте в $ULTRATEX_ROOT (том пода): UltraTex — с ModelScope (MIT, открыто),
+# FLUX.2-klein-base-9B и ae из FLUX.2-dev — с HF ТОЛЬКО с токеном, принявшим условия (FLUX Non-Commercial; без допуска воркер встаёт в фазу `broken` с понятной причиной).
+# Лицензии того, что в образе: код UltraTex — MIT; код ComfyUI-UltraTex (ultratex_core/) — MIT; SLA sparse-attention (внутри UltraTex) — Apache-2.0; moderngl, xatlas, trimesh — MIT/ Apache; Mesa — MIT.
+FROM nvidia/cuda:12.4.1-cudnn-runtime-ubuntu22.04
+
+ARG ULTRATEX_COMMIT=a726678f3f3631fe2c5e3d1fb4597114784c7a8b
+ENV DEBIAN_FRONTEND=noninteractive PYTHONUNBUFFERED=1 PIP_NO_CACHE_DIR=1 PIP_DISABLE_PIP_VERSION_CHECK=1
+
+# 1. системное: Python 3.12 (deadsnakes), git, EGL/Mesa для moderngl (рендер 6 видов без экрана; llvmpipe — запасной путь, NVIDIA EGL — если драйвер его отдаёт)
+RUN apt-get update && apt-get install -y --no-install-recommends software-properties-common ca-certificates curl git \
+    && add-apt-repository -y ppa:deadsnakes/ppa && apt-get update \
+    && apt-get install -y --no-install-recommends python3.12 python3.12-venv python3.12-dev build-essential \
+       libegl1 libegl-mesa0 libgl1 libgl1-mesa-dri libglx-mesa0 libgbm1 libglvnd0 libopengl0 libglib2.0-0 \
+    && rm -rf /var/lib/apt/lists/* \
+    && python3.12 -m venv /opt/venv
+
+ENV PATH=/opt/venv/bin:$PATH \
+    NVIDIA_DRIVER_CAPABILITIES=all \
+    PYOPENGL_PLATFORM=egl \
+    ULTRATEX_DIR=/opt/UltraTex ULTRATEX_ROOT=/workspace/ultratex PORT=8000
+
+# 2. код авторов по закреплённому коммиту
+RUN git clone https://github.com/yiboz2001/UltraTex.git /opt/UltraTex && cd /opt/UltraTex && git checkout ${ULTRATEX_COMMIT}
+
+# 3. зависимости ИХ файла (torch/triton по пинам; deepspeed 0.9.5 в инференсе не нужен — в сборку не кладём: тянет сборку расширений)
+RUN grep -v -E '^(deepspeed|tensorboard|--extra-index-url|#)' /opt/UltraTex/requirements.txt | grep -v '^$' > /tmp/req.txt \
+    && pip install --extra-index-url https://download.pytorch.org/whl/cu124 -r /tmp/req.txt
+
+# 4. наше: рендер/запекание (moderngl, xatlas, trimesh, scipy), загрузка весов (modelscope), pytest для проверки
+RUN pip install moderngl==5.12.0 xatlas==0.0.9 trimesh==4.5.3 scipy modelscope==1.34.0 pygltflib
+
+# 5. текстовая проверка пакетов и BUILD_INFO (без GPU)
+RUN python -c "import importlib.util as u; names=['torch','triton','accelerate','peft','transformers','einops','safetensors','moderngl','xatlas','trimesh','scipy','modelscope','cv2','skimage']; miss=[n for n in names if u.find_spec(n) is None]; print('нет модулей:', miss); raise SystemExit(1 if miss else 0)" \
+    && { echo "UltraTex ${ULTRATEX_COMMIT}"; python --version; pip freeze; } > /opt/BUILD_INFO_ULTRATEX.txt
+
+COPY ultratex_core /app/ultratex_core
+COPY worker_ultratex.py /app/worker_ultratex.py
+WORKDIR /app
+EXPOSE 8000
+CMD ["python", "/app/worker_ultratex.py"]

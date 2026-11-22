@@ -1,0 +1,77 @@
+# СБОРКА ОБРАЗА ПРОБЫ SALAD «КАМЕРА ПО ФОТО» НА GITHUB ACTIONS (T-184/1, очередь 2) — не на pakardev (диск общий с базой). Тот же путь, что у build-ultratex-trial.yml.
+# Запускается пушем в ветки `trial/pose*` при правке tools/scout/salad/pose/** или этого файла, либо вручную из такой ветки. Пуш делает директор (решение 22.11).
+# Что делает: готовит контекст (код цепочки по pose_files.txt) → собирает Dockerfile.pose (python 3.14.4-slim по digest + numpy/cv2/scipy/Pillow/trimesh закреплённых версий) → проверки внутри
+# образа БЕЗ видеокарты (импорт цепочки, тесты воркера на настоящем HTTP) → печатает размер и digest → пушит в GHCR: ghcr.io/<владелец>/mesh-pose-trial:pose-cpu. Деплоя нет, боевое не трогает.
+name: build-pose-trial
+
+on:
+  push:
+    branches: ['trial/pose*']
+    paths:
+      - 'tools/scout/salad/pose/**'
+      - '.github/workflows/build-pose-trial.yml'
+  workflow_dispatch:
+
+concurrency:
+  group: build-pose-trial
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+  packages: write
+
+env:
+  IMAGE: ghcr.io/${{ github.repository_owner }}/mesh-pose-trial:pose-cpu
+  CTX: tools/scout/salad/pose
+
+jobs:
+  build:
+    if: startsWith(github.ref, 'refs/heads/trial/pose')
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Контекст сборки — код цепочки по списку
+        run: python3 "$CTX/stage_pose_code.py" . "$RUNNER_TEMP/ctx/code"
+
+      - name: Вход в GHCR
+        run: echo "${{ secrets.GITHUB_TOKEN }}" | docker login ghcr.io -u "${{ github.actor }}" --password-stdin
+
+      - name: Сборка
+        run: |
+          set +e
+          cp "$CTX/Dockerfile.pose" "$RUNNER_TEMP/ctx/Dockerfile.pose"
+          docker build --progress=plain --build-arg GIT_SHA="${GITHUB_SHA}" -f "$RUNNER_TEMP/ctx/Dockerfile.pose" -t "$IMAGE" "$RUNNER_TEMP/ctx" > build.log 2>&1
+          rc=$?
+          tail -40 build.log
+          if [ "$rc" -ne 0 ]; then
+            python3 tools/scout/salad/trellis/ci_annotate.py build.log 96 12
+            exit "$rc"
+          fi
+          SIZE=$(docker image inspect "$IMAGE" --format '{{.Size}}')
+          echo "размер образа (распакованный): $(python3 -c "print(round($SIZE/2**30,2))") ГБ"
+
+      - name: Проверки без видеокарты (тесты воркера на поддельной цепочке)
+        run: |
+          set +e
+          docker run --rm -v "$PWD:/repo:ro" -w /repo/tools/scout/salad/pose --entrypoint python "$IMAGE" tests_pose.py > check.log 2>&1
+          rc=$?
+          tail -30 check.log
+          if [ "$rc" -ne 0 ]; then python3 tools/scout/salad/trellis/ci_annotate.py check.log 96 12; exit 1; fi
+
+      - name: Публикация в GHCR
+        id: push
+        run: |
+          docker push "$IMAGE"
+          DIGEST=$(docker inspect --format '{{index .RepoDigests 0}}' "$IMAGE")
+          COMPRESSED=$(docker manifest inspect "$DIGEST" 2>/dev/null | python3 -c 'import json,sys; m=json.load(sys.stdin); print(sum(l["size"] for l in m.get("layers",[])))' || echo 0)
+          GB=$(python3 -c "print(round($COMPRESSED/2**30,2))")
+          {
+            echo "### Образ пробы «камера по фото»"
+            echo "- адрес: \`$IMAGE\`"
+            echo "- digest: \`$DIGEST\`"
+            echo "- сжатый размер в реестре: **${GB} ГБ**"
+            echo "- коммит: \`${GITHUB_SHA}\`"
+          } | tee -a "$GITHUB_STEP_SUMMARY"
+          echo "digest=$DIGEST" >> "$GITHUB_OUTPUT"
