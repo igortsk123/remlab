@@ -23,7 +23,8 @@ import kit_worker as KW  # noqa: E402
 
 say = KD.say
 MODELS = ('p3sam', 'partllm')
-CARD = 'RTX 4090 (24 GB)'
+WORK_TYPE = 'parts_segment'                                           # профиль ресурсов: rules/salad-resources.json (T-186/1) — карта, vCPU, RAM, диск, тариф только оттуда
+CARD = KD.resource_profile(WORK_TYPE)['card']
 CUDA_ARCHS = ('8.0', '8.6', '8.9')                                   # TORCH_CUDA_ARCH_LIST образа (Dockerfile.p3sam)
 PORT = 8000
 WORKER = os.path.join(HERE, 'worker_parts.py')
@@ -34,8 +35,7 @@ def build_body(name, class_id, auth, a):
            'MAX_LIFETIME_S': str(min(a.max_min * 60 + 600, 3 * 3600)), 'IDLE_S': '1200', 'IMAGE_NOTE': a.image.split('@')[-1][:19]}
     cmd, z = KW.bundle(WORKER)                                        # код воркера — в env группы (KIT_WORKER_Z), образ не пересобирается
     env['KIT_WORKER_Z'] = z
-    resources = {'cpu': a.cpu, 'memory': a.mem_mb, 'storage_amount': 40 * 2 ** 30, 'shm_size': 2048}
-    return KD.group_body(name, a.image, a.tier, class_id, PORT, env, resources, auth, command=cmd)
+    return KD.group_body(name, a.image, a.tier, class_id, PORT, env, auth, command=cmd, work_type=WORK_TYPE, card=CARD)
 
 
 def order_verdict(agree: float, shuf: float) -> bool:
@@ -164,7 +164,7 @@ def make_spec(a, plan, price_ref):
 
     return KD.Spec(prefix=f'trial-parts-{a.model}', card=CARD, model=f'parts-{a.model}', jobs=[k for k, _i, _v in plan], build_body=lambda n, c, auth: build_body(n, c, auth, a),
                    submit=submit, poll=poll, preflight=preflight, health_keys=('phase', 'root_gb', 'weights', 'cuda', 'error', 'load_s'), ready_keys=('version', 'model', 'load_s'),
-                   z_keys=('KIT_WORKER_Z',), worker_file=WORKER, cuda_archs=CUDA_ARCHS, before_job=before_job)
+                   z_keys=('KIT_WORKER_Z',), worker_file=WORKER, cuda_archs=CUDA_ARCHS, before_job=before_job, work_type=WORK_TYPE)
 
 
 def main() -> int:
@@ -174,9 +174,7 @@ def main() -> int:
     ap.add_argument('--items', required=True, help='JSON [{"sid","path"}] — меши по порядку (первый проверяется сразу)')
     ap.add_argument('--out', required=True)
     ap.add_argument('--suffix', default=time.strftime('%m%d%H%M', time.gmtime()))
-    ap.add_argument('--tier', default='high', choices=['batch', 'low', 'medium', 'high'])
-    ap.add_argument('--cpu', type=int, default=8)
-    ap.add_argument('--mem-mb', type=int, default=32768)
+    ap.add_argument('--tier', default='low', choices=['low', 'medium'], help='low; нет машин — ядро само пробует medium один раз; batch/high запрещены (владелец TG 1456/1457)')
     ap.add_argument('--cap', type=float, default=0.5, help='общий потолок денег на группу, $')
     ap.add_argument('--probe-cap', type=float, default=None, help='потолок до первого готового задания, $ (по умолчанию = --cap)')
     ap.add_argument('--max-min', type=int, default=45, help='предел минут после running')

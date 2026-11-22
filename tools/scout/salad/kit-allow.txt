@@ -2,3 +2,12 @@
 # worker — воркер с HTTP-сервером, слушающий не `::`; driver — драйвер платных проб, не импортирующий kit_driver.
 worker tools/scout/salad/worker.py  # старый воркер мешей на uvicorn host=0.0.0.0 (образы salad/Dockerfile*, CMD worker.py): меши идут через очередь заданий Salad изнутри контейнера (queue_setup.py: localhost, не шлюз), поэтому живут на IPv4; решает директор, нужен ли переход на fd-сокет `::` (host='::' не годится: asyncio ставит V6ONLY=1)
 driver tools/scout/cutout_redo.py  # старый одноразовый драйвер вырезки (до набора), своей пробой не запускается; решает директор: перевести или убрать
+# salad-api — файл сам собирает ресурсы/классы/группы Salad мимо профиля (T-186/1). Это ПРОДУКТОВЫЕ службы пула/рендера, не пробы набора; перевод на профиль — решение директора.
+salad-api tools/scout/render_gpu/bench_run.py  # бенч render-машины Salad: свой шаблон группы (render-*); не проба набора, решает директор
+salad-api tools/scout/render_gpu/render_machine.py  # боевая render-машина Salad: шаблон группы из rules/render_machine; решает директор
+salad-api tools/scout/render_gpu/salad_look.py  # только читает список GPU-классов (RG.gpu_classes), группу не создаёт
+salad-api tools/scout/salad/queue_setup.py  # боевой пул мешей (mesh-*): правит ресурсы существующих групп по шаблону пула; решает директор
+salad-api tools/scout/salad/recreate_group.py  # пересоздание боевой группы пула мешей по её прежнему шаблону; решает директор
+salad-api tools/scout/salad/migrate_groups.py  # миграция боевых групп пула мешей; решает директор
+salad-api tools/scout/salad/money_guard.py  # учёт/сторож денег пула: читает ресурсы групп, не создаёт
+salad-api tools/scout/stablegen/sg_salad.py  # StableGen на Salad (отдельная служба): свой шаблон; решает директор

@@ -151,7 +151,7 @@ def setup(tmp, keys=('a', 'b', 'c', 'd')):
 
 
 def args(tmp, sh, inp, jobs, **kw):
-    d = dict(image='ghcr.io/x/y:ultratex-bw', jobs=jobs, shape_dir=sh, shape_name='{key}.prep.glb', inputs=inp, out=os.path.join(tmp, 'out'), tier='high', cpu=8, mem_mb=49152,
+    d = dict(image='ghcr.io/x/y:ultratex-bw', jobs=jobs, shape_dir=sh, shape_name='{key}.prep.glb', inputs=inp, out=os.path.join(tmp, 'out'), tier='low',
              resolution=2048, steps=25, seed=42, texture=4096, probe_cap=1.0, cap=4.0, max_min=120, running_min=30, health_min=8, ready_min=75, job_min=30, idle_s=900,
              suffix='t', apply=True, stop_only=False, stall_min=5, stall_gb=0.05, worker_from_image=False, start_min=20)
     d.update(kw)
@@ -192,7 +192,7 @@ check(S.effective_cap(False, 1.0, 4.0) == 1.0 and S.effective_cap(True, 1.0, 4.0
 check(S.effective_cap(False, 5.0, 4.0) == 4.0, 'потолок: проба не выше общего')
 
 # 2. тело группы: секреты не печатаются
-body = S.build_body('n', 'img', 'high', 'cls', 8, 49152, {'basic': {'password': 'SECRET-GHCR'}}, 'SECRET-HF', 7800, 900)
+body = S.build_body('n', 'img', 'low', 'cls', {'basic': {'password': 'SECRET-GHCR'}}, 'SECRET-HF', 7800, 900)
 buf = io.StringIO()
 with contextlib.redirect_stdout(buf):
     S.safe_print(body)
@@ -212,7 +212,7 @@ check(S.weights_stalled(G, 300, 0.05), 'сторож: росла, потом в�
 # 2в. код воркера в env группы (образ не пересобирается)
 cmd, z = S.worker_command(os.path.join(HERE, 'worker_ultratex.py'))
 check(cmd[:3] == ['python', '-u', '-c'] and len(z) > 1000, 'воркер: команда python -u -c и код в env')
-b2 = S.build_body('n', 'img', 'high', 'cls', 8, 49152, {}, 'T', 7800, 900, worker_z=z)
+b2 = S.build_body('n', 'img', 'low', 'cls', {}, 'T', 7800, 900, worker_z=z)
 check(b2['container']['command'] == cmd and b2['container']['environment_variables']['KIT_WORKER_Z'] == z, 'тело: command и KIT_WORKER_Z заданы')
 check(len(cmd[3]) < 1000, 'команда укладывается в лимит Salad 1000 знаков на элемент')
 check('command' not in body['container'], 'тело без worker_z: команда из образа')
@@ -301,7 +301,7 @@ with tempfile.TemporaryDirectory() as tmp:
 
 # 9. нода не выдана
 with tempfile.TemporaryDirectory() as tmp:
-    rc, summ, out, mg, br = drive(tmp, 'a', running_after=99999, running_min=5)
+    rc, summ, out, mg, br = drive(tmp, 'a', running_after=99999, running_min=5, tier_fallback=False)       # без перехода low→medium (его — тест в tests_kit_loop)
     check(rc == 1 and summ.get('stopped_by') == 'no_machine' and summ.get('stop_verified'), 'нода не выдана за 5 мин: стоп no_machine')
 
 # 10. нет входных файлов
@@ -388,7 +388,7 @@ with tempfile.TemporaryDirectory() as tmp:
     check('ход задания a: шаг «sampling»' in out, 'ход задания из /health виден в журнале драйвера')
 
 # 25. диагностика без весов (T-178/1): тело группы — без ключа HF, ULTRATEX_NO_WEIGHTS=1, диск 20 ГиБ; переменные памяти проходят, посторонние — отказ
-dbody = S.build_body('n', 'img', 'high', 'cls', 8, 49152, {}, 'SECRET-HF', 7800, 900, diag=True, extra_env={'ULTRATEX_MEM_CHUNK': '2048'})
+dbody = S.build_body('n', 'img', 'low', 'cls', {}, 'SECRET-HF', 7800, 900, diag=True, extra_env={'ULTRATEX_MEM_CHUNK': '2048'})
 denv = dbody['container']['environment_variables']
 check(denv.get('ULTRATEX_NO_WEIGHTS') == '1' and 'HF_TOKEN' not in denv and denv.get('ULTRATEX_MEM_CHUNK') == '2048', 'диагностика: без токена HF, режим без весов, переменная памяти передана')
 check(dbody['container']['resources']['storage_amount'] == 20 * 2 ** 30, 'диагностика: диск 20 ГиБ вместо 80 (весов нет)')
@@ -408,8 +408,8 @@ with tempfile.TemporaryDirectory() as tmp:
 
 # 27. пакет «затвор → веса → задания» на одной ноде (--diag-first): в теле группы ULTRATEX_DIAG_FIRST=1, токен HF и веса остаются, диск 80 ГиБ; без флага — нет
 os.environ['HF_TOKEN'] = 'SECRET-HF'
-_a = argparse.Namespace(image='img@sha256:1', jobs='k1', shape_dir=tmp_shape if 'tmp_shape' in globals() else '/nonexistent', shape_name='{key}.prep.glb', inputs='/nonexistent', tier='high',
-                        cpu=8, mem_mb=49152, max_min=120, idle_s=900, env=['ULTRATEX_MEM_CHUNK=4096'], diag=False, diag_first=True)
+_a = argparse.Namespace(image='img@sha256:1', jobs='k1', shape_dir=tmp_shape if 'tmp_shape' in globals() else '/nonexistent', shape_name='{key}.prep.glb', inputs='/nonexistent', tier='low',
+                        max_min=120, idle_s=900, env=['ULTRATEX_MEM_CHUNK=4096'], diag=False, diag_first=True)
 _b = S.make_spec(_a).build_body('n', 'cls', {})
 _e = _b['container']['environment_variables']
 check(_e.get('ULTRATEX_DIAG_FIRST') == '1' and _e.get('HF_TOKEN') == 'SECRET-HF' and _e.get('ULTRATEX_MEM_CHUNK') == '4096' and 'ULTRATEX_NO_WEIGHTS' not in _e

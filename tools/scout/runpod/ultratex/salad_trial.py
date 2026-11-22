@@ -29,7 +29,8 @@ import kit_driver as KD  # noqa: E402
 import kit_worker as KW  # noqa: E402
 from kit_driver import Gateway, cost_usd, effective_cap, head, safe_print, say, weights_stalled  # noqa: E402,F401 — имена прежнего драйвера (тесты, вызовы)
 
-CARD_NAME = 'RTX 5090 (32 GB)'
+WORK_TYPE = 'ultratex'          # профиль ресурсов: rules/salad-resources.json (T-186/1) — карта, vCPU, RAM, диск, тариф только оттуда
+CARD_NAME = KD.resource_profile(WORK_TYPE)['card']
 CUDA_ARCHS = ('12.0',)          # образ ultratex-bw: torch 2.8.0 cu128 (как trellis2-bw, sm_120 там проверен); не та карта → отказ до группы (урок 742)
 PORT = 8000
 MODEL_HEADS = (
@@ -44,7 +45,7 @@ def worker_command(path: str | None = None) -> tuple[list[str], str]:
     return KW.bundle(path or os.path.join(HERE, 'worker_ultratex.py'))
 
 
-def build_body(name: str, image: str, tier: str, class_id: str, cpu: int, mem_mb: int, auth: dict, hf_token: str, life_s: int, idle_s: int, worker_z: str | None = None,
+def build_body(name: str, image: str, tier: str, class_id: str, auth: dict, hf_token: str, life_s: int, idle_s: int, worker_z: str | None = None,
                diag: bool = False, extra_env: dict | None = None) -> dict:
     env = {'ULTRATEX_OFFLOAD': 'swap', 'ULTRATEX_SPARSE': 'auto', 'ULTRATEX_ROOT': '/workspace/ultratex', 'PORT': str(PORT), 'HF_TOKEN': hf_token,
            'MAX_LIFETIME_S': str(life_s), 'IDLE_S': str(idle_s), 'NVIDIA_DRIVER_CAPABILITIES': 'all', 'DEPLOYMENT_EPOCH': f'20261121-{name}'}
@@ -55,9 +56,7 @@ def build_body(name: str, image: str, tier: str, class_id: str, cpu: int, mem_mb
     command = None
     if worker_z:
         command, env['KIT_WORKER_Z'] = worker_command()[0], worker_z
-    return KD.group_body(name, image, tier, class_id, PORT, env,
-                         {'cpu': cpu, 'memory': mem_mb, 'storage_amount': (20 if diag else 80) * 2 ** 30, 'shm_size': 2048},     # 80 ГиБ: веса в образе ≈18 без Qwen3-8B (его заменяет text-cache) + запас
-                         auth, command)
+    return KD.group_body(name, image, tier, class_id, PORT, env, auth, command, work_type=WORK_TYPE, variant='diag' if diag else '', card=CARD_NAME)      # диск 80/20 ГиБ — из профиля
 
 
 def lookup_class(MG, name: str, tier: str) -> tuple[str | None, float | None]:
@@ -124,7 +123,7 @@ def make_diag_spec(a) -> KD.Spec:
     params = json.loads(a.diag_params) if a.diag_params else {}
 
     def build(name, class_id, auth):
-        return build_body(name, a.image, a.tier, class_id, a.cpu, a.mem_mb, auth, '', min(a.max_min * 60 + 600, 3 * 3600), a.idle_s,
+        return build_body(name, a.image, a.tier, class_id, auth, '', min(a.max_min * 60 + 600, 3 * 3600), a.idle_s,
                           worker_z=None if getattr(a, 'worker_from_image', False) else worker_command()[1], diag=True, extra_env=parse_env(getattr(a, 'env', None)))
 
     def submit(gw, k, t):
@@ -147,7 +146,8 @@ def make_diag_spec(a) -> KD.Spec:
         return 'running', {}
 
     return KD.Spec(prefix='trial-ultratex', card=CARD_NAME, model='ultratex-diag', jobs=['diag'], build_body=build, submit=submit, poll=poll, preflight=None,
-                   ready_keys=('version', 'offload', 'sparse'), z_keys=('KIT_WORKER_Z',), worker_file=os.path.join(HERE, 'worker_ultratex.py'), cuda_archs=CUDA_ARCHS)
+                   ready_keys=('version', 'offload', 'sparse'), z_keys=('KIT_WORKER_Z',), worker_file=os.path.join(HERE, 'worker_ultratex.py'), cuda_archs=CUDA_ARCHS,
+                   work_type=WORK_TYPE, variant='diag')
 
 
 def make_spec(a, head_fn=head) -> KD.Spec:
@@ -161,7 +161,7 @@ def make_spec(a, head_fn=head) -> KD.Spec:
     hf = os.environ.get('HF_TOKEN', '')
 
     def build(name, class_id, auth):
-        return build_body(name, a.image, a.tier, class_id, a.cpu, a.mem_mb, auth, os.environ.get('HF_TOKEN', ''), min(a.max_min * 60 + 600, 3 * 3600), a.idle_s,
+        return build_body(name, a.image, a.tier, class_id, auth, os.environ.get('HF_TOKEN', ''), min(a.max_min * 60 + 600, 3 * 3600), a.idle_s,
                           worker_z=None if getattr(a, 'worker_from_image', False) else worker_command()[1], extra_env=dict(parse_env(getattr(a, 'env', None)), **({'ULTRATEX_DIAG_FIRST': '1'} if getattr(a, 'diag_first', False) else {})))
 
     def preflight():
@@ -221,7 +221,7 @@ def make_spec(a, head_fn=head) -> KD.Spec:
         return None
 
     return KD.Spec(prefix='trial-ultratex', card=CARD_NAME, model='ultratex', jobs=jobs, build_body=build, submit=submit, poll=poll, preflight=preflight, before_job=before_job,
-                   ready_keys=('version', 'offload', 'sparse', 'gate'), z_keys=('KIT_WORKER_Z',), worker_file=os.path.join(HERE, 'worker_ultratex.py'), cuda_archs=CUDA_ARCHS)
+                   ready_keys=('version', 'offload', 'sparse', 'gate'), z_keys=('KIT_WORKER_Z',), worker_file=os.path.join(HERE, 'worker_ultratex.py'), cuda_archs=CUDA_ARCHS, work_type=WORK_TYPE)
 
 
 def run(a, MG, BR, head_fn=head, **kw) -> int:
@@ -236,9 +236,7 @@ def main() -> int:
     ap.add_argument('--shape-name', default='{key}.prep.glb')
     ap.add_argument('--inputs', default='')
     ap.add_argument('--out', default=os.path.expanduser('~/remlab-logs/t178-1121/salad-out'))
-    ap.add_argument('--tier', default='high', choices=['batch', 'low', 'medium', 'high'])
-    ap.add_argument('--cpu', type=int, default=8)
-    ap.add_argument('--mem-mb', type=int, default=49152)
+    ap.add_argument('--tier', default='low', choices=['low', 'medium'], help='low; нет машин — ядро само пробует medium один раз; batch/high запрещены (владелец TG 1456/1457)')
     ap.add_argument('--resolution', type=int, default=2048)
     ap.add_argument('--steps', type=int, default=25)
     ap.add_argument('--seed', type=int, default=42)
