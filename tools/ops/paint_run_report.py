@@ -43,6 +43,7 @@ JPEG_Q = 88
 REMOTE = 'root@89.167.127.0'
 REMOTE_ROOT = '/opt/remlab/test'
 URL_ROOT = 'https://remont-lab.online/test'
+MATERIAL = '08-material'
 READINESS = os.path.join('tools', 'scout', 'rules', 'paint-readiness.json')
 REASONS = os.path.join('tools', 'scout', 'rules', 'paint-reasons.json')
 VERDICT = {'ok': 'прошёл проверку', 'soft': 'прошёл с замечаниями', 'refused': 'не прошёл', 'missing': 'проверка не запускалась'}
@@ -72,6 +73,11 @@ def load_words(repo: str) -> dict:
 
 def stage_name(W: dict, code: str) -> str:
     return ((W.get('stages') or {}).get(code) or {}).get('name') or code
+
+
+def frame_caption(W: dict, code: str) -> str:
+    """Одна строка «что на кадре этапа» — `frame_caption` в paint-readiness.json (нет — пусто)."""
+    return ((W.get('stages') or {}).get(code) or {}).get('frame_caption') or ''
 
 
 def stage_pct(W: dict, code: str):
@@ -339,7 +345,7 @@ def render_page(s: dict, cards: list, stopped_cards: list, title: str, W: dict |
     nav = ''
     if stage_links:
         nav = ("<div class='sum'><b>По этапам</b> (весь набор на каждом):<ul>" + ''.join(
-            f"<li><a href='{e(k)}/'>{e(stage_name(W, k))}</a> <small>({e(k)})</small> — вошло {v['reached']}, встало {v['refused']}</li>" for k, v in stage_links.items()) + '</ul></div>')
+            f"<li><a href='{e(k)}/'>{e(stage_name(W, k))}</a> <small>({e(k)})</small> — вошло {v['entered']}, встало {v['refused']}</li>" for k, v in stage_links.items()) + '</ul></div>')
     body = []
     for c in cards:
         verdict = VERDICT.get(c['final'], c['final'])
@@ -349,7 +355,7 @@ def render_page(s: dict, cards: list, stopped_cards: list, title: str, W: dict |
         st = c['stop_stage']
         cap = f"встал на: {stage_name(W, st)} ({st})"
         fs = c.get('frame_stage')
-        cap2 = f"последний кадр: {stage_name(W, fs)} ({fs})" if fs else 'кадра нет'
+        cap2 = (f"последний кадр: {stage_name(W, fs)} ({fs})" + (f" — {frame_caption(W, fs)}" if frame_caption(W, fs) else '')) if fs else 'кадра нет'
         stop.append(_card(c, 'refused', 'не дошёл до готовой модели', W, cap, 'фото товара', cap2, say(W, c['reason']), c['reason']))
     return _head(title, f"<h1>{e(title)}</h1>{summ}{nav}<h2>Покрашенные: фото | наш 3D</h2>{''.join(body)}"
                  + (f"<h2>Не дошли до готовой модели: фото | последний кадр</h2>{''.join(stop)}" if stop else ''))
@@ -361,15 +367,27 @@ def stage_summary(per: dict, stage: str) -> dict:
     """Сводка одного этапа по `per`: вошло (этап запускался: есть check.json) · прошло (ok) · с замечаниями · встало (refused) · не дошло. Самопроверка: вошло = прошло+с замечаниями+встало; вошло+не дошло = N."""
     c = {'ok': 0, 'soft': 0, 'refused': 0, 'missing': 0}
     items = {}
+    entered = 0
     for sku, rows in per.items():
         r = next((x for x in rows if x['stage'] == stage), None)
         st = r['status'] if r else 'missing'
+        if stage == pf.NINE:                                          # проверку «вошли» только дошедшие до материала; отказ у остановившихся раньше — не их проверка (директор 22.11)
+            m = next((x for x in rows if x['stage'] == MATERIAL), None)
+            if not m or m['status'] == 'missing':
+                st, r = 'missing', None
+            else:
+                entered += 1
+        else:
+            entered += st != 'missing'
         c[st] = c.get(st, 0) + 1
         items[sku] = {'status': st, 'reason': ((r or {}).get('reason') or '').strip()}
     reached = c['ok'] + c['soft'] + c['refused']
-    s = {'stage': stage, 'n': len(per), 'reached': reached, 'ok': c['ok'], 'soft': c['soft'], 'refused': c['refused'], 'not_reached': c['missing'], 'no_frame': 0, 'items': items, 'errors': []}
+    entered = entered if stage == pf.NINE else reached
+    s = {'stage': stage, 'n': len(per), 'entered': entered, 'reached': reached, 'ok': c['ok'], 'soft': c['soft'], 'refused': c['refused'], 'not_reached': c['missing'], 'no_frame': 0, 'items': items, 'errors': []}
     if reached + c['missing'] != len(per):
-        s['errors'].append(f'{stage}: вошло {reached} + не дошло {c["missing"]} ≠ N {len(per)}')
+        s['errors'].append(f'{stage}: проверено/вошло {reached} + не дошло {c["missing"]} ≠ N {len(per)}')
+    if reached > entered:
+        s['errors'].append(f'{stage}: проверено {reached} > вошло {entered}')
     return s
 
 
@@ -405,12 +423,14 @@ def render_stage_page(s: dict, cards: list, stages: list, label: str, W: dict) -
     pct = stage_pct(W, st)
     cap = f"этап {st[:2]} · {stage_name(W, st)} · готовность этапа " + (f'{pct} %' if pct is not None else 'не задана')
     nav = f"<a href='../'>весь прогон</a> · " + ' · '.join((f"<b>{e(x[:2])}</b>" if x == st else f"<a href='../{e(x)}/' title='{e(stage_name(W, x))}'>{e(x[:2])}</a>") for x in stages)
-    summ = (f"<div class='sum'><div><b>вошло {s['reached']}</b> · <b>прошло {s['ok']}</b> · с замечаниями {s['soft']} · <b>встало {s['refused']}</b> · не дошло {s['not_reached']} (из {s['n']})"
+    head = (f"<b>вошло {s['entered']}</b> (дошли до материала) · проверено {s['reached']} из {s['entered']}" if st == pf.NINE else f"<b>вошло {s['reached']}</b>")
+    legend = frame_caption(W, st)
+    summ = (f"<div class='sum'><div>{head} · <b>прошло {s['ok']}</b> · с замечаниями {s['soft']} · <b>встало {s['refused']}</b> · не дошло {s['not_reached']} (из {s['n']})"
             + (f" · без кадра этапа {s['no_frame']}" if s['no_frame'] else '') + '</div>'
-            + (f"<div class='why'><b>ОШИБКА СВОДКИ:</b> {e('; '.join(s['errors']))}</div>" if s['errors'] else '') + f"<div class='meta'>готовность обновлена: {e(str(W.get('updated') or '—'))}</div></div>")
+            + (f"<div class='why'><b>ОШИБКА СВОДКИ:</b> {e('; '.join(s['errors']))}</div>" if s['errors'] else '') + (f"<div class='why'><b>На кадре:</b> {e(legend)}</div>" if legend else '') + f"<div class='meta'>готовность обновлена: {e(str(W.get('updated') or '—'))}</div></div>")
     body = []
     for c in cards:
-        body.append(_card(c, c['status'], STAGE_VERDICT.get(c['status'], c['status']), W, cap, 'фото товара', f'после этапа {st[:2]}',
+        body.append(_card(c, c['status'], STAGE_VERDICT.get(c['status'], c['status']), W, cap, 'фото товара', frame_caption(W, st) or f'после этапа {st[:2]}',
                           say(W, c['reason']) if c['status'] in ('refused', 'soft') and c['reason'] else '', c['reason'] if c['status'] in ('refused', 'soft') else ''))
     return _head(f'{label}: {cap}', f"<h1>{e(cap)}</h1><nav>{nav}</nav>{summ}{''.join(body)}")
 

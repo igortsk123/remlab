@@ -208,3 +208,17 @@ def test_catalog_items_wrapper(tmp_path):
     p = tmp_path / 'set.json'
     p.write_text(json.dumps({'count': 1, 'items': [{'id': 'x', 'name': 'Ваза', 'role': 'ваза'}]}), encoding='utf-8')
     assert prr.load_catalog(str(p))['x']['name'] == 'Ваза'                                                          # формат набора р.2 (set40.json) читается как каталог
+
+
+def test_stage9_entered_only_those_reached_material():
+    s = prr.stage_summary(PER, '09-check')
+    # у «c» (08 нет check.json) и у «d» (08 refused, но этап 8 запускался): вошли только те, у кого этап 8 был — a, b, d, e
+    assert s['entered'] == 4 and s['not_reached'] == 1 and s['reached'] == 4 and s['items']['c']['status'] == 'missing' and s['errors'] == []
+    assert prr.stage_summary(PER, '04-camera')['entered'] == 5
+
+
+def test_frame_captions():
+    W = prr.load_words(REPO)
+    assert prr.frame_caption(W, '04-camera') == 'красное — наша форма, зелёная линия — контур фото'
+    assert all(prr.frame_caption(W, st) for st in ('01-trellis', '02-prep', '03-parts', '05-delight', '06-visible', '07-fill', '08-material', '09-check'))
+    assert prr.frame_caption({}, '04-camera') == ''
