@@ -378,6 +378,9 @@ def hypothesis_textures(an: dict, rules: dict, base_texs: list, length_cm: float
     rep = an['report']
     out = [t.copy() for t in base_texs]
     tone = rep.get('tone_lab')
+    if tone is None and rules.get('unknown_policy', 'keep') == 'keep':
+        rep['applied'] = 'нет: тона нет (unknown / не дерево) — верх не тронут'
+        return out
     tone = np.asarray(tone if tone is not None else rules['neutral_top_lab'], np.float64)
     lib = rep.get('library') or {}
     pat = None

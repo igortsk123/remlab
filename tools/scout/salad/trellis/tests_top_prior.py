@@ -199,6 +199,16 @@ class PatternClass(unittest.TestCase):
         self.assertIsNone(TP.library_bin([60.0, 8.0, 24.0], 'library', lib, RULES, 'wood_solid', ['flat'])['bin'])
 
 
+class UnknownKeep(unittest.TestCase):
+    def test_no_tone_keeps_top(self):
+        rules = TP.load_rules()
+        base = [np.full((8, 8, 3), 40, np.uint8)]
+        an = {'report': {'tone_lab': None, 'library': {'bin': None}}, 'geoms': [{}], 'top_all': [np.ones(1, bool)], 'size': None, 'ctr': None, 'voices': {}}
+        out = TP.hypothesis_textures(an, rules, base, 100.0, None)
+        self.assertTrue((out[0] == base[0]).all())
+        self.assertIn('не тронут', an['report']['applied'])
+
+
 class Library(unittest.TestCase):
     lib = {'items': {'A': {'lab': [30.0, 10.0, 15.0], 'grain_axis': 'u', 'tile_cm': [40, 40]}, 'B': {'lab': [70.0, 8.0, 25.0], 'grain_axis': 'v', 'tile_cm': [80, 80]}}}
 
