@@ -209,6 +209,21 @@ def soft_iou(S: np.ndarray, Bp: np.ndarray) -> float:
     return float(np.minimum(Bs, Bp).sum()) / den if den else 0.0
 
 
+def ms_accept(new: dict, old: dict, new_edge, old_edge, rules: dict | None = None) -> tuple:
+    """Брать ли позу мультистарта (триггер bottom) вместо позы обычного подбора. new/old — pose_score ПОСЛЕ уточнения; *_edge — согласие кромок (None — нет).
+    Берём новую, только если её низ ПРОХОДИТ гейт и кромки не хуже старых больше чем на ms_bottom_accept.edge_agree_tol (rules/camera-check.json). → (bool, причина)."""
+    if rules is None:
+        import camera_check as CC
+        rules = CC.load_rules()
+    tol = float(rules['ms_bottom_accept']['edge_agree_tol'])
+    mb, eb = new.get('miss_bottom', 0.0), new.get('extra_bottom', 0.0)
+    if mb > rules['miss_bottom_max'] or eb > rules['extra_bottom_max']:
+        return False, f"низ новой позы не проходит (miss {mb:.3f}, extra {eb:.3f})"
+    if new_edge is not None and old_edge is not None and new_edge < old_edge - tol:
+        return False, f"кромки новой позы хуже: {new_edge:.3f} < {old_edge:.3f} − {tol}"
+    return True, 'низ проходит, кромки не хуже допуска'
+
+
 def multistart_fit(P: np.ndarray, Mp: np.ndarray, n: int, topk: int = 4, log=print) -> tuple[list, list]:
     """Много стартов по азимуту (0/90/180/270 ±15°) и подъёму, Нелдер–Мид от каждого. → (кандидаты [{cam, iou, iou_grid, score, …}] по убыванию оценки (разные позы, ≤ topk), ВСЕ старты с числами)."""
     from scipy.optimize import minimize
@@ -470,6 +485,7 @@ def fit_pose(glb: str, photo_path: str, out_run: str, yaw: float = 0.0, px: int 
             ms_info = {'mode': multistart, 'trigger_iou': MS_TRIGGER, 'standard_best_iou': cands[0]['iou'], 'ran': False, 'trigger': None, 'starts': []}
             for c in cands:
                 c.update(pose_score(splat_mask(Pc, c['cam'], n), Mp))
+            std0 = cands[0]                                            # поза обычного подбора: к ней откатываемся, если мультистарт по провалу низа не лучше (ms_accept)
             trig = ms_trigger(multistart, cands[0])
             ms_info['trigger'] = trig
             if trig is not None:
@@ -481,6 +497,8 @@ def fit_pose(glb: str, photo_path: str, out_run: str, yaw: float = 0.0, px: int 
                 pool = [c for c in cands if c['score'] >= cands[0]['score'] - TIE_IOU]
             else:
                 pool = None
+            if trig == 'bottom' and not any(c is std0 for c in pool):
+                pool.append(std0)
             best_iou = cands[0]['iou']
             if pool is None:
                 pool = [c for c in cands if c['iou'] >= best_iou - TIE_IOU]
@@ -498,7 +516,14 @@ def fit_pose(glb: str, photo_path: str, out_run: str, yaw: float = 0.0, px: int 
                 if c['refine_rejected']:
                     log(f"  уточнение отклонено: IoU силуэта {c['iou_sil']} → {c['iou']} (падение > {REFINE_IOU_DROP}); остаётся поза по силуэту")
                     c['cam'], c['edge'], c['iou'] = dict(c['cam_sil']), edge_before, c['iou_sil']
-            return max(pool, key=lambda c: c['edge']['agree']), cands, ms_info
+            best = max(pool, key=lambda c: c['edge']['agree'])
+            if trig == 'bottom' and best is not std0:
+                ok, why_acc = ms_accept(pose_score(splat_mask(Pc, best['cam'], n), Mp), pose_score(splat_mask(Pc, std0['cam'], n), Mp), best['edge']['agree'], std0['edge']['agree'])
+                ms_info['bottom_accept'] = {'accepted': ok, 'reason': why_acc}
+                log(f"мультистарт по низу: {'новая поза' if ok else 'остаётся поза обычного подбора'} — {why_acc}")
+                if not ok:
+                    best = std0
+            return best, cands, ms_info
 
         pick, cands, ms_info = search(geo['V'])
         surf_info = None

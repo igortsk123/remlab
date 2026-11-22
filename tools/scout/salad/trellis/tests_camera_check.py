@@ -216,6 +216,24 @@ check('ms_trigger: auto, только extra низа выше порога → b
 check('ms_trigger: auto, IoU ≥ 0,9 и низ проходит → None (не гоняем лишний раз)', PF.ms_trigger('auto', {'iou': 0.95, 'miss_bottom': 0.2, 'extra_bottom': 0.3}, RULES) is None)
 check('ms_trigger: ровно на пороге низа — не триггер (строго «>», как гейт)', PF.ms_trigger('auto', {'iou': 0.95, 'miss_bottom': RULES['miss_bottom_max'], 'extra_bottom': RULES['extra_bottom_max']}, RULES) is None)
 
+# --- принятие позы мультистарта по низу (22.11, директор): низ проходит И кромки не хуже допуска, иначе остаётся прежняя ---
+TOL = RULES['ms_bottom_accept']['edge_agree_tol']
+check('ms_accept: допуск кромок — из rules, не из кода', 0 < TOL < 0.2)
+ok_, _w = PF.ms_accept({'miss_bottom': 0.171, 'extra_bottom': 0.079}, {'miss_bottom': 0.808, 'extra_bottom': 0.703}, 0.4469, 0.46, RULES)
+check('ms_accept: кресло 44846 (низ 0,17/0,08 проходит, кромки 0,46 → 0,447) → новая', ok_ is True, _w)
+ok_, _w = PF.ms_accept({'miss_bottom': 0.249, 'extra_bottom': 0.253}, {'miss_bottom': 0.411, 'extra_bottom': 0.468}, 0.7342, 0.7514, RULES)
+check('ms_accept: комод 3635 (низ 0,25/0,25 проходит, кромки 0,75 → 0,73) → новая', ok_ is True, _w)
+ok_, _w = PF.ms_accept({'miss_bottom': 0.481, 'extra_bottom': 0.23}, {'miss_bottom': 0.65, 'extra_bottom': 0.023}, 0.4746, 0.7489, RULES)
+check('ms_accept: ТВ-тумба 7736 (низ не прошёл И кромки 0,75 → 0,47) → остаётся старая', ok_ is False, _w)
+ok_, _w = PF.ms_accept({'miss_bottom': 0.481, 'extra_bottom': 0.23}, {'miss_bottom': 0.65, 'extra_bottom': 0.023}, 0.80, 0.70, RULES)
+check('ms_accept: низ не прошёл, даже если кромки лучше → старая (берём только при низе, который проходит)', ok_ is False and 'низ' in _w, _w)
+ok_, _w = PF.ms_accept({'miss_bottom': 0.1, 'extra_bottom': 0.1}, {'miss_bottom': 0.8, 'extra_bottom': 0.7}, 0.70 - TOL - 0.01, 0.70, RULES)
+check('ms_accept: низ проходит, но кромки хуже допуска → старая', ok_ is False and 'кромки' in _w, _w)
+ok_, _w = PF.ms_accept({'miss_bottom': 0.1, 'extra_bottom': 0.1}, {'miss_bottom': 0.8, 'extra_bottom': 0.7}, 0.70 - TOL + 0.005, 0.70, RULES)
+check('ms_accept: кромки хуже, но в допуске → новая', ok_ is True, _w)
+ok_, _w = PF.ms_accept({'miss_bottom': 0.1, 'extra_bottom': 0.1}, {'miss_bottom': 0.8, 'extra_bottom': 0.7}, None, 0.7, RULES)
+check('ms_accept: кромок нет (None) — сравнивать нечем, решает низ → новая', ok_ is True, _w)
+
 # --- уточнение по кромкам не должно ронять силуэт (стул 12914: 0,86 → 0,72 из-за заглушки «кромок нет») ---
 check('edge_term: «кромок нет» → нейтрально 0 (не штраф)', PF.edge_term({'agree': -1.0, 'no_edges': True}) == 0.0)
 check('edge_term: обычные кромки как есть', PF.edge_term({'agree': 0.4, 'no_edges': False}) == 0.4 and PF.edge_term({'agree': 0.2}) == 0.2)
