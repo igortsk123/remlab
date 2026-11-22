@@ -28,11 +28,13 @@
     },
     "forms_render": {
       "card": "RTX 3090 (24 GB)", "card_fallbacks": [],
-      "cpu": 8, "memory_mb": 16384, "storage_gb": 20, "shm_mb": 2048,
+      "cpu": 8, "memory_mb": 16384, "storage_gb": 10, "shm_mb": 1024,
       "tier": "low", "tier_fallback": "medium",
-      "expect": {"job_s": 55},
-      "basis": "estimate",
-      "basis_note": "снимки форм Blender (р.6): 55 с на Salad — оценка из t184-1122/plan.md, на нодах не мерили"
+      "expect": {"job_s": 261, "per_item_render_s_min": 68, "per_item_render_s_max": 98},
+      "basis": "measured",
+      "measured": {"date": "2026-11-22", "log": "~/remlab-logs/t184-1122/render-out/summary-trial-forms-11221555.json",
+                   "what": "T-184/1 р.6 очередь 3: RTX 3090, тариф low ($0,127/ч), 8 vCPU, 5 форм одним пакетом за 261 с (рендер 68–98 с на форму, 10–12 кадров), 5/5 готово, ≈$0,014; пики RAM/диск/shm в /health тогда не отдавались — не мерили"},
+      "basis_note": "карта, vCPU, диск 10 ГиБ, shm 1024 и время — как гоняли в пробе р.6 (см. measured); RAM 16 ГБ — прежнее число пробы, пик не мерили"
     },
     "pose_camera": {
       "card": "GTX 1650 (4 GB)", "card_fallbacks": ["GTX 1050 Ti (4 GB)", "RTX 3050 Laptop (4 GB)"],
