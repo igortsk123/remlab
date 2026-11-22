@@ -194,9 +194,9 @@ class PatternClass(unittest.TestCase):
         lib = {'items': {'S': {'lab': [60.0, 8.0, 24.0], 'family': 'wood', 'pattern_class': 'swirl'},
                          'T': {'lab': [70.0, 8.0, 24.0], 'family': 'wood', 'pattern_class': 'straight'},
                          'B': {'lab': [60.0, 8.0, 24.0], 'family': 'wood', 'pattern_class': 'blocks'}}}
-        self.assertEqual(TP.library_bin([60.0, 8.0, 24.0], 'library', lib, RULES, 'wood_solid', ['straight'])['bin'], 'T')
-        self.assertEqual(TP.library_bin([60.0, 8.0, 24.0], 'library', lib, RULES, 'wood_solid', ['straight', 'swirl'])['bin'], 'S')
-        self.assertIsNone(TP.library_bin([60.0, 8.0, 24.0], 'library', lib, RULES, 'wood_solid', ['flat'])['bin'])
+        self.assertEqual(TP.library_bin([60.0, 8.0, 24.0], 'library', lib, {**RULES, 'library_max_de00': None}, 'wood_solid', ['straight'])['bin'], 'T')
+        self.assertEqual(TP.library_bin([60.0, 8.0, 24.0], 'library', lib, {**RULES, 'library_max_de00': None}, 'wood_solid', ['straight', 'swirl'])['bin'], 'S')
+        self.assertIsNone(TP.library_bin([60.0, 8.0, 24.0], 'library', lib, {**RULES, 'library_max_de00': None}, 'wood_solid', ['flat'])['bin'])
 
 
 class UnknownKeep(unittest.TestCase):
@@ -209,6 +209,16 @@ class UnknownKeep(unittest.TestCase):
         self.assertIn('не тронут', an['report']['applied'])
 
 
+class LibraryMaxDe(unittest.TestCase):
+    def test_far_bin_becomes_flat(self):
+        rules = TP.load_rules()
+        lib = {'items': {'W1': {'family': 'wood', 'lab': [55.0, 15.0, 27.0], 'pattern_class': 'straight'}}}
+        far = TP.library_bin([90.0, 0.0, 1.0], 'library', lib, rules, None, None)
+        self.assertEqual(far['bin'], 'flat')
+        near = TP.library_bin([54.0, 15.0, 26.0], 'library', lib, rules, None, None)
+        self.assertEqual(near['bin'], 'W1')
+
+
 class Library(unittest.TestCase):
     lib = {'items': {'A': {'lab': [30.0, 10.0, 15.0], 'grain_axis': 'u', 'tile_cm': [40, 40]}, 'B': {'lab': [70.0, 8.0, 25.0], 'grain_axis': 'v', 'tile_cm': [80, 80]}}}
 
@@ -218,7 +228,7 @@ class Library(unittest.TestCase):
 
     def test_chipboard_bin_not_for_solid_wood(self):
         lib = {'items': {'W': {'lab': [50.0, 8.0, 20.0], 'family': 'wood'}, 'C': {'lab': [70.0, 8.0, 25.0], 'family': 'chipboard'}}}
-        self.assertEqual(TP.library_bin([71.0, 8.0, 25.0], 'library', lib, RULES, 'wood_solid')['bin'], 'W')
+        self.assertEqual(TP.library_bin([71.0, 8.0, 25.0], 'library', lib, {**RULES, 'library_max_de00': None}, 'wood_solid')['bin'], 'W')
         self.assertEqual(TP.library_bin([71.0, 8.0, 25.0], 'library', lib, RULES, 'ldsp')['bin'], 'C')
 
     def test_decor_has_no_pattern_and_no_tone_no_bin(self):

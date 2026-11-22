@@ -246,6 +246,9 @@ def library_bin(tone_lab, kind: str, library: dict, rules: dict, cls: str | None
             best = (d, a, v)
     if best is None:
         return {'bin': None, 'note': f'нет бинов семейств {fam} и классов {bin_classes}'}
+    mx = rules.get('library_max_de00')
+    if mx is not None and best[0] > mx:
+        return {'bin': 'flat', 'dE00': 0.0, 'nearest': best[1], 'nearest_dE00': round(best[0], 1), 'note': f'ближайший бин дальше {mx} ΔE00 от тона — плоский тон, рисунок не рисуем'}
     return {'bin': best[1], 'dE00': round(best[0], 1), 'lab': best[2]['lab'], 'grain_axis': best[2].get('grain_axis'), 'tile_cm': best[2].get('tile_cm'), 'family': best[2].get('family', 'wood'), 'pattern_class': best[2].get('pattern_class')}
 
 
