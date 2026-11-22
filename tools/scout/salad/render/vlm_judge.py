@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """Оценщик ФОРМЫ по картинке (Ш0, T-184/9) — режим OBSERVE: VLM-модель (Gemini через шлюз проекта `llm_gateway`) сравнивает кадры глины формы с фото магазина
-и по списку видов брака из паспорта (`plans/mesh-type-rules-01.md` § «Приёмка формы TRELLIS.2») отвечает JSON {вид: да/нет/неясно, где}. Ничего не бракует: флаг `vlm_<вид>` = «да» в ОБОИХ прогонах.
+и по списку видов брака из паспорта (`plans/mesh-type-rules-01.md` § «Приёмка формы TRELLIS.2») отвечает JSON {вид: да/нет/неясно, где}. Ничего не бракует: флаг `vlm_<вид>` = «да» в `yes_min` из `runs` прогонов (голос, сейчас 2 из 3); `vlm_<вид>_check` = «да» хотя бы в `check_min_yes` (1) прогоне — «на глаз директору» (шире, ложные бывают; в block не идёт).
 Правила — `tools/scout/rules/form-checks.json`, раздел `vlm_judge`: версия вопроса (в ключе кэша), модель, число прогонов, группы кадров, виды брака с ролями каталога (подстроки роли; пусто = все роли). В коде нет ID товаров и порогов.
 Кэш: файл на (хеш фото + хеш кадров формы — они и есть то, что видит модель, т.е. новая форма/кадры = новый ответ + версия + модель + группа + прогон) — повторный вызов на тех же входах денег не стоит. Названия товара в запрос не идёт, порядок кадров случайный (детерминированный от sku/прогона).
 Ключ шлюза — только через `env_keys` внутри `llm_gateway`; значение не читается и не логируется.
@@ -37,6 +37,8 @@ KINDS = {
     'back_copy': ('зад повторяет перёд: на кадрах «вид сзади/сбоку» задняя стенка выглядит копией лицевого фасада (тот же узор, те же створки и ручки) — у настоящего предмета такого типа сзади обычно гладкая или каркасная стенка; '
                   'отвечай по кадрам вида сзади, если их нет — «неясно»'),
     'no_gaps': 'фасад без щелей: ящики или двери на модели слиты в гладкую плиту, щели между ними едва видны или пропали, а на фото ящики/двери/щели между ними есть (если на фото фасад тоже гладкий — «нет»)',
+    'count_mismatch': ('число дверей и ящиков не как на фото: СНАЧАЛА в `photo` перечисли по фото, сколько дверей и сколько ящиков в каждом столбце слева направо (например «двери 3; ящики: слева 2, середина 0, справа 2»), '
+                       'потом так же в `model` по кадру модели; `verdict` = «да», если число дверей или раскладка/число ящиков различаются (лишние ящики, пропавшие двери, слитые в одну), иначе «нет»; рельеф и ручки не считай'),
     'skewed_body': 'перекос корпуса: углы корпуса не прямые, крышка или боковые стенки скошены/завалены, линии не параллельны, а на фото корпус прямоугольный (кадры модели сняты с перспективой: вертикали слегка сходятся кверху или книзу даже у идеальной коробки — это НЕ перекос; перекос — это завал стенки в одну сторону или явно непрямой угол крышки)',
 }
 FRAME_LABELS = {'01_az000_clay.png': 'модель, вид спереди', '02_az000_clay_graze.png': 'модель, вид спереди, боковой свет (тени в щелях)', '03_az090_clay.png': 'модель, вид сбоку',
@@ -72,6 +74,8 @@ def parse(txt: str, kinds: list[str]) -> dict:
             nope = [x for x in v['details'] if isinstance(x, dict) and str(x.get('on_photo', '')).strip().lower() in ('нет', 'no')]
             v = dict(v, verdict='да' if nope else 'нет', where=v.get('where') or '; '.join(str(x.get('what', ''))[:30] for x in nope)[:120])
         verd = str(v.get('verdict', '')).strip().lower()
+        if k == 'count_mismatch' and (v.get('photo') or v.get('model')):
+            v = dict(v, where=f"фото: {str(v.get('photo', ''))[:60]}; модель: {str(v.get('model', ''))[:60]}")
         out[k] = {'verdict': {'да': 'yes', 'нет': 'no', 'неясно': 'unclear', 'yes': 'yes', 'no': 'no', 'unclear': 'unclear'}.get(verd, 'bad:' + verd), 'where': str(v.get('where', ''))[:120]}
     return out
 
@@ -93,7 +97,8 @@ def ask(sku: str, group: str, kinds: list[str], frames: list[str], photo: str, r
     items = [('фото магазина', photo_on_grey(photo))] + [(FRAME_LABELS.get(os.path.basename(f), 'модель, кадр'), Image.open(f)) for f in frames]
     random.Random(f'{sku}:{run}:{group}').shuffle(items)
     order = '; '.join(f'изображение {i + 1} — {t}' for i, (t, _im) in enumerate(items))
-    shape = ', '.join(('"%s": {"details": [{"what": "", "on_photo": "да|нет"}], "verdict": "да|нет|неясно", "where": ""}' % k) if k == 'invented_detail' else ('"%s": {"verdict": "да|нет|неясно", "where": ""}' % k) for k in kinds)
+    shape = ', '.join(('"%s": {"details": [{"what": "", "on_photo": "да|нет"}], "verdict": "да|нет|неясно", "where": ""}' % k) if k == 'invented_detail' else
+                      ('"%s": {"photo": "", "model": "", "verdict": "да|нет|неясно", "where": ""}' % k) if k == 'count_mismatch' else ('"%s": {"verdict": "да|нет|неясно", "where": ""}' % k) for k in kinds)
     prompt = PROMPT.format(n=len(items), order=order, kinds='\n'.join(f'- {k}: {KINDS[k]}' for k in kinds), shape=shape)
     content = [{'type': 'text', 'text': prompt}] + [{'type': 'image_url', 'image_url': {'url': enc(im)}} for _t, im in items]
     r = chat(model, [{'role': 'user', 'content': content}], timeout=180, tries=4, direct_fallback=False, temperature=0)
@@ -143,6 +148,9 @@ def judge(sku: str, glb_path: str | None, photo: str, frames_dir: str, role: str
             runs.append(rec['answer'])
         for k in kinds:
             yes = sum(1 for a in runs if a[k]['verdict'] == 'yes')
+            need = int(J.get('yes_min', len(runs)))                          # голос: «да» минимум в need прогонах из runs (правило; по умолчанию во всех)
             where = next((a[k]['where'] for a in runs if a[k]['verdict'] == 'yes' and a[k]['where']), '')
-            out.append(check(f'vlm_{k}', yes, len(runs), yes == len(runs), f"«да» в {yes} из {len(runs)} прогонов" + (f': {where}' if where else '')))
+            out.append(check(f'vlm_{k}', yes, need, yes >= need, f"«да» в {yes} из {len(runs)} прогонов (нужно {need})" + (f': {where}' if where else '')))
+            lo = int(J.get('check_min_yes', 1))                             # второй уровень: «да» хотя бы в lo прогонах — «на глаз» (вердикт не ставит, в block не идёт)
+            out.append(check(f'vlm_{k}_check', yes, lo, yes >= lo, (f"«да» в {yes} из {len(runs)} прогонов — показать глазам" + (f': {where}' if where else '')) if yes >= lo else f"«да» в {yes} из {len(runs)} прогонов"))
     return out

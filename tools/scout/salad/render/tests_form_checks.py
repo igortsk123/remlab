@@ -302,6 +302,15 @@ class Run(unittest.TestCase):
         self.assertGreater(c['value'], RULES['thresholds']['body_skew_deg'])
         self.assertEqual(FC.body_skew(wedge, 'диван', RULES['thresholds']), [])          # не корпусная роль — не считаем
 
+    def test_body_skew_ignores_wide_flared_legs(self):
+        import trimesh
+        body = trimesh.creation.box(extents=(1.0, 1.0, 0.5)); body.apply_translation((0, 1.0, 0))   # корпус y 0.5…1.5
+        legs = [trimesh.creation.box(extents=(0.1, 0.5, 0.1)) for _ in range(4)]
+        for lg, (x, z) in zip(legs, ((-0.7, -0.2), (0.7, -0.2), (-0.7, 0.2), (0.7, 0.2))):         # ножки шире корпуса, ниже 45 % высоты
+            lg.apply_translation((x, 0.25, z))
+        m = trimesh.util.concatenate([body] + legs)
+        self.assertFalse(FC.body_skew(m, 'комод', RULES['thresholds'])[0]['flag'])
+
     def test_table_counts_agreement(self):
         recs = [{'sku': 'a', 'auto': 'ok', 'flags': [], 'checks': []}, {'sku': 'b', 'auto': 'ok', 'flags': [], 'checks': []}]
         t = FC.table(recs, {'a': {'verdict': 'годна'}, 'b': {'verdict': 'брак'}}, ['relief'])
