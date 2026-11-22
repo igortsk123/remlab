@@ -752,7 +752,7 @@ def align_ut(geoms: list, tex_after: list, known: list, ut_geoms: list | None) -
     (симметричный предмет — любой поворот одинаков, берётся 0); нет отрыва/нет детали → 'uncertain' (UltraTex дальше не используется). → (список {'V','F','UV','tex'} в НАШЕЙ раскладке | None, отчёт)."""
     import cv2
     from scipy.spatial import cKDTree
-    A = dict({'cands': [0, 90, 180, 270], 'min_score': 0.3, 'margin': 0.15, 'samples': 40000, 'ut_points_max': 1500000, 'seed': 3, 'energy_sigma': 6.0, 'eps': 0.3}, **R.get('align', {}))
+    A = dict({'cands': [0, 90, 180, 270], 'min_score': 0.3, 'margin': 0.10, 'samples': 40000, 'ut_points_max': 1500000, 'seed': 3, 'energy_sigma': 6.0, 'eps': 0.3}, **R.get('align', {}))
     FU = dict({'sigma': 12.0}, **R.get('full', {}))
     rep = {'status': 'no_ut', 'yaw_deg': None, 'corr': {}}
     if ut_geoms is None:
@@ -778,12 +778,15 @@ def align_ut(geoms: list, tex_after: list, known: list, ut_geoms: list | None) -
         center = 0.5 * (np.asarray(g['V']).min(0) + np.asarray(g['V']).max(0))
         Lp = cv2.cvtColor(tex.astype(np.float32) / 255.0, cv2.COLOR_RGB2Lab)[..., 0]
         kmask = np.asarray(known[gi], bool)
-        hp_p = cv2.GaussianBlur(np.abs(cv2.GaussianBlur((Lp - _nconv(Lp, kmask, FU['sigma'])).astype(np.float32), (0, 0), 1.0)), (0, 0), float(A['energy_sigma'])).ravel()
+        hp_raw = cv2.GaussianBlur((Lp - _nconv(Lp, kmask, FU['sigma'])).astype(np.float32), (0, 0), 1.0)
+        hp_p = _nconv(np.abs(hp_raw) * kmask, kmask, float(A['energy_sigma'])).ravel()
         Lu = cv2.cvtColor(ut.astype(np.float32) / 255.0, cv2.COLOR_RGB2Lab)[..., 0]
         occu = np.zeros(Tu * Tu, bool)
         occu[_texel_points(ug, Tu)[0]] = True
         su = FU['sigma'] * Tu / T
-        hp_u = cv2.GaussianBlur(np.abs(cv2.GaussianBlur((Lu - _nconv(Lu, occu.reshape(Tu, Tu), su)).astype(np.float32), (0, 0), 1.0 * Tu / T)), (0, 0), float(A['energy_sigma']) * Tu / T).ravel()
+        om = occu.reshape(Tu, Tu)
+        hu_raw = cv2.GaussianBlur((Lu - _nconv(Lu, om, su)).astype(np.float32), (0, 0), 1.0 * Tu / T)
+        hp_u = _nconv(np.abs(hu_raw) * om, om, float(A['energy_sigma']) * Tu / T).ravel()
         kn_idx = np.flatnonzero(kn[idx_o])
         if len(kn_idx) > A['samples']:
             kn_idx = rng.choice(kn_idx, int(A['samples']), replace=False)
@@ -809,7 +812,11 @@ def align_ut(geoms: list, tex_after: list, known: list, ut_geoms: list | None) -
     if best is None or c_best < A['min_score']:
         rep.update({'status': 'uncertain', 'yaw_deg': None, 'why': 'нет детали на фото/UltraTex для сверки'})
         return None, rep
-    yaw = int(best) if (best == 0 or c_best - c0 >= A['margin']) else 0
+    second = max([c for d, c in ok_.items() if d != best] or [-1.0])
+    if c_best - second < A['margin']:                                          # два поворота почти равны (№11: 90° и 270°) — выбирать нечем: UltraTex не используется
+        rep.update({'status': 'uncertain', 'yaw_deg': None, 'corr_best': c_best, 'why': f'повороты не различаются (лучший {c_best}, второй {round(second, 3)}, нужен отрыв {A["margin"]})'})
+        return None, rep
+    yaw = int(best)
     rep.update({'status': 'aligned' if yaw else 'identity', 'yaw_deg': yaw, 'corr_best': c_best})
     for g, ug, ut, T, Tu, idx_o, Po, idx_u, tree, center in cache:
         _dist, j = tree.query(_yaw_rotate(Po, center, yaw))
