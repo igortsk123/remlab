@@ -316,6 +316,30 @@ for f in [x for x in files if x.endswith('.py')]:
             missing.add(f'{f} → {p}')
 ok(not missing, f'stage_files.txt полон: каждый наш модуль, который импортируют файлы списка, тоже в списке ({sorted(missing)[:3]})')
 
+
+# ---------------------------------------------------------------- сверка «локально / Salad»
+try:
+    import compare_stage as CS
+    from PIL import Image
+    d1, d2 = tmpdir('cmpL'), tmpdir('cmpS')
+    Image.new('RGBA', (20, 10), (200, 100, 50, 255)).save(os.path.join(d1, 'a.png'))
+    Image.new('RGBA', (20, 10), (200, 100, 50, 255)).save(os.path.join(d2, 'a.png'))
+    Image.new('RGBA', (20, 10), (255, 100, 50, 255)).save(os.path.join(d2, 'b.png'))
+    Image.new('RGBA', (20, 10), (200, 100, 50, 255)).save(os.path.join(d1, 'b.png'))
+    Image.new('RGBA', (30, 10), (0, 0, 0, 255)).save(os.path.join(d2, 'c.png'))
+    Image.new('RGBA', (20, 10), (0, 0, 0, 255)).save(os.path.join(d1, 'c.png'))
+    ok(CS.png_diff(os.path.join(d1, 'a.png'), os.path.join(d2, 'a.png'))[0] == 0.0, 'сверка: одинаковые картинки — разница 0')
+    v = CS.png_diff(os.path.join(d1, 'b.png'), os.path.join(d2, 'b.png'))[0]
+    ok(abs(v - (55 / 255) / 3) < 1e-4, f'сверка: один канал на 55/255 — средняя разница {v:.4f}')
+    ok(CS.png_diff(os.path.join(d1, 'c.png'), os.path.join(d2, 'c.png'))[0] is None, 'сверка: разный размер — отказ, не число')
+    ok(CS.png_diff(os.path.join(d1, 'нет.png'), os.path.join(d2, 'a.png'))[0] is None, 'сверка: нет файла — отказ')
+    ja, jb = os.path.join(d1, 'r.json'), os.path.join(d2, 'r.json')
+    json.dump({'unpainted_after': 0, 'fallback_global': 1, 'seconds': 5, 'x': {'n': 3}}, open(ja, 'w'))
+    json.dump({'unpainted_after': 0, 'fallback_global': 2, 'seconds': 9, 'x': {'n': 3}}, open(jb, 'w'))
+    ok(CS.json_diffs(ja, jb) == ['fallback_global: 1 ≠ 2'], 'сверка: счётчики сравниваются, время счёта — нет')
+except ImportError as exc:
+    ok(False, f'сверка: не импортируется ({exc})')
+
 print()
 print('ПРОВАЛЕНО: ' + str(len(FAILS)) if FAILS else 'ВСЕ ТЕСТЫ ЗЕЛЁНЫЕ')
 sys.exit(1 if FAILS else 0)
