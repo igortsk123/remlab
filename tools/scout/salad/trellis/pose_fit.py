@@ -92,7 +92,29 @@ def canvas_mask(alpha: np.ndarray, cv: dict, n: int) -> np.ndarray:
 
 
 # ——— силуэт по облаку вершин (быстро) ———
+_BACKEND = None                    # GPU-бэкенд подбора (pose_gpu.Backend) или None = numpy/cv2 как раньше (T-185/1)
+
+
+def set_backend(device: str | None):
+    """device: None/'numpy' — прежний путь (cv2/numpy); 'cpu'|'cuda' — pose_gpu (torch): силуэт и кадр ПОИСКА; чистовой кадр и stages остаются на cv2. → прежний бэкенд (чтобы вернуть)."""
+    global _BACKEND
+    old = _BACKEND
+    if device in (None, 'numpy'):
+        _BACKEND = None
+    else:
+        import pose_gpu
+        _BACKEND = pose_gpu.Backend(device)
+    return old
+
+
+def render_search(geo: dict, cam: dict, n: int) -> dict:
+    """Кадр для ПОИСКА (кромки в edge_score): на GPU-бэкенде — z-буфер torch, иначе `render_persp`. Чистовой кадр (этап 04 файлы) — всегда `render_persp`."""
+    return render_persp(geo, cam, n) if _BACKEND is None else _BACKEND.render(geo, cam, n)
+
+
 def splat_mask(P: np.ndarray, cam: dict, n: int) -> np.ndarray:
+    if _BACKEND is not None:
+        return _BACKEND.splat_mask(P, cam, n)
     import cv2
     x, y, Z = project(P, cam)
     ok = Z > 1e-3
@@ -358,7 +380,7 @@ def edge_score(geo: dict, cam: dict, photo: np.ndarray, alpha: np.ndarray, cv: d
     import pattern_metric as PM
     import photo_front as PFR
     import stage_loss as SL
-    r = render_persp(geo, cam, n)
+    r = render_search(geo, cam, n)
     P = canvas_P(cv, n)
     S = r['mask']
     A_fr = SL.warp_inv(alpha.astype(np.float32), P, (n, n)) > 0.5
@@ -461,7 +483,7 @@ def choose_pose(base: dict, surf: dict, tie: float = SURF_TIE) -> dict:
     return {'chosen': 'surf' if use_surf else 'base', 'iou_tri_base': tb, 'iou_tri_surf': ts, 'gap': round(ts - tb, 4) if tb is not None and ts is not None else None, 'tie': tie}
 
 
-def fit_pose(glb: str, photo_path: str, out_run: str, yaw: float = 0.0, px: int = 1536, n_fit: int = 256, topk: int = 4, ortho: bool = False, multistart: str = 'auto', log=print, surf_pick: bool = False) -> dict:
+def fit_pose(glb: str, photo_path: str, out_run: str, yaw: float = 0.0, px: int = 1536, n_fit: int = 256, topk: int = 4, ortho: bool = False, multistart: str = 'auto', log=print, surf_pick: bool = False, device: str | None = None) -> dict:
     """ТОЧКА ВХОДА (код): камера фото на форме `glb` → файлы в `out_run` (см. шапку) и словарь
     {camera: {az, el, d, f, cx, cy}, canvas, yaw, px, iou_frame, edge_agree, textured, stages_dir, pose_json, candidates, iou_frontal_ortho_bbox, surf_pick}.
     Форма без текстуры (нет `images`) — кромки сверяются по затенению нормалей (`shade_view`). `ortho=True` — сравнение: d прибита к D_MAX.
@@ -473,6 +495,7 @@ def fit_pose(glb: str, photo_path: str, out_run: str, yaw: float = 0.0, px: int 
     import stage_loss as SL
     import stages_cpu as SC
     saved = (globals()['GRID_D'], globals()['D_MIN'])
+    old_backend = set_backend(device)
     if ortho:
         globals()['GRID_D'] = (D_MAX,)
         globals()['D_MIN'] = D_MAX - 1.0
@@ -555,6 +578,7 @@ def fit_pose(glb: str, photo_path: str, out_run: str, yaw: float = 0.0, px: int 
                 'stages_dir': os.path.join(out_run, 'stages'), 'pose_json': pj, 'candidates': cands, 'iou_frontal_ortho_bbox': round(iou_front, 4), 'surf_pick': surf_info}
     finally:
         globals()['GRID_D'], globals()['D_MIN'] = saved
+        globals()['_BACKEND'] = old_backend
 
 
 def main() -> int:
@@ -569,8 +593,9 @@ def main() -> int:
     ap.add_argument('--ortho', action='store_true', help='сравнение: дистанция камеры прибита к D_MAX (слабая перспектива ≈ ортография), остальное как обычно')
     ap.add_argument('--multistart', choices=('auto', 'on', 'off'), default='auto', help='много стартов по азимуту (0/90/180/270 ±15°) и подъёму для симметричных предметов: auto — если IoU обычного подбора < MS_TRIGGER')
     ap.add_argument('--surf-pick', action='store_true', help='второй поиск по точкам с поверхности граней; из двух поз — с большим IoU по треугольникам (ничья ≤0,005 → боевая); ×2 времени подбора, по умолчанию выкл.')
+    ap.add_argument('--device', choices=('numpy', 'cpu', 'cuda'), default='numpy', help='numpy — прежний путь (cv2/numpy); cpu|cuda — torch (pose_gpu.py): силуэт и кадр поиска; чистовой кадр на cv2 (T-185/1)')
     a = ap.parse_args()
-    res = fit_pose(a.glb, a.photo, a.out_run, a.yaw, a.px, a.n_fit, a.topk, a.ortho, a.multistart, surf_pick=a.surf_pick)
+    res = fit_pose(a.glb, a.photo, a.out_run, a.yaw, a.px, a.n_fit, a.topk, a.ortho, a.multistart, surf_pick=a.surf_pick, device=a.device)
     print(json.dumps({'camera': res['camera'], 'iou_frame': res['iou_frame'], 'edge_agree_before_ecc': res['edge_agree']}, ensure_ascii=False))
     return 0
 
