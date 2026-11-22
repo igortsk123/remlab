@@ -3,6 +3,7 @@
 Бесплатно (процессор): Blender 4.5 + `tools/scout/stablegen/render_stand.py`. ОДНО задание heavy-slot (--prio 1) на все товары — цикл по товарам внутри, не билет на каждый
 (директор 22.11: 31 билет × 95 с тонули в очереди); порог памяти по замеру прогона (пик дерева 1,51 ГБ → заявка 2,3 ГБ = 1,5 × пик). Уже отрисованное пропускается (повторный запуск дорисовывает).
 Ракурсы: az000 — «как на фото» (спереди, лёгкий сверху 15°), az225 — 3/4 сзади; свет в обоих одинаков относительно камеры.
+T-184/9: после кадров приёмки сам запускает Ш0 `form_gate` (автопроверки формы observe → `<out>/<товар>/form_checks.json` + `<out>/form_gate.tsv`; `--no-form-gate` — выключить; `--photos`/`--vlm-cache` — фото и оценщик по картинке).
 T-180/7 (директор 22.11, владелец TG 1373/1376): `--accept` — кадры ПРИЁМКИ формы по правилам `plans/mesh-type-rules-01.md` § «Приёмка формы TRELLIS.2»: 5 видов (спереди 0°, сбоку 90°, строго сзади 180°,
 3/4 сзади 225°, косой сверху 40°; у диванов/кресел/стульев — ещё низкий боковой) × 2 света (обычный за камерой и боковой скользящий); глина, одинаковый масштаб на товар. Все виды — таблица `VIEW_DEFS`
 здесь же (в render_stand констант нет, он получает `--views`). Кадры: `<out>/<товар>/NN_<вид>_clay.png` и `NN_<вид>_clay_graze.png`. `--shade recalc` — гладкие нормали (проверка «грань = плоский показ»).
@@ -80,6 +81,10 @@ def main() -> int:
     ap.add_argument('--no-slot', action='store_true', help='без очереди heavy-slot (отладка)')
     ap.add_argument('--accept', action='store_true', help='кадры приёмки формы: 5 видов (+низкий боковой у сидячих) × 2 света (T-180/7)')
     ap.add_argument('--shade', default='orig', choices=['orig', 'recalc', 'flat'], help='нормали: orig — как в GLB; recalc — гладкие')
+    ap.add_argument('--no-form-gate', action='store_true', help='не запускать Ш0 form_gate (автопроверки формы, observe) после кадров приёмки')
+    ap.add_argument('--photos', default='', help='папка <sku>.hd.rgba.png — фото для проверок формы и оценщика по картинке (form_gate)')
+    ap.add_argument('--vlm-cache', default='', help='папка кэша оценщика по картинке (платный ≈$0,003 на корпусную форму; без неё и без --photos оценщик не идёт)')
+    ap.add_argument('--roles', default='', help='JSON {sku: роль каталога} для form_gate (если нет --set)')
     ap.add_argument('--inner', action='store_true', help=argparse.SUPPRESS)
     a = ap.parse_args()
     ids = [x for x in a.ids.split(',') if x]
@@ -118,7 +123,39 @@ def main() -> int:
         ok = bool(frames_of(out, s, views_of(s), lights))
         fails += 0 if ok else 1
         print(f"{'ok ' if ok else 'НЕТ'} {s} rc={rc} {time.time() - t0:.0f} с", flush=True)
+    if a.accept and not a.no_form_gate:                                      # Ш0: кадры приёмки родились здесь — автопроверки формы идут сразу после них (observe, код возврата не меняют)
+        if a.roles:
+            roles = dict(json.load(open(os.path.expanduser(a.roles), encoding='utf-8')), **roles)
+        run_form_gate(out, glbs, [s for s in ids if frames_of(out, s, views_of(s), lights) and not os.path.isfile(os.path.join(out, s, 'form_checks.json'))], roles,
+                      os.path.expanduser(a.photos), os.path.expanduser(a.vlm_cache))
     return 1 if fails else 0
+
+
+def gate_python() -> str:
+    """Интерпретатор для form_gate: нужны numpy/trimesh/pillow (venv scout); `FORM_GATE_PYTHON` — явно; нет venv — текущий."""
+    v = os.environ.get('FORM_GATE_PYTHON') or os.path.expanduser('~/venvs/scout/bin/python')
+    return v if os.path.isfile(v) else sys.executable
+
+
+def run_form_gate(out: str, glbs: str, skus: list, roles: dict, photos: str = '', vlm_cache: str = '') -> int:
+    """Шаг form_gate (tools/scout/salad/render/form_gate.py) по товарам с готовыми кадрами; сбой — строка в лог, не падение рендера (OBSERVE)."""
+    if not skus:
+        return 0
+    roles_f = os.path.join(out, 'form_gate_roles.json')
+    json.dump({s: roles.get(s, '') for s in skus}, open(roles_f, 'w', encoding='utf-8'), ensure_ascii=False)
+    cmd = [gate_python(), '-I', '-W', 'ignore', os.path.join(HERE, '..', 'scout', 'salad', 'render', 'form_gate.py'), '--out', out, '--glbs', glbs, '--skus', ','.join(skus), '--roles', roles_f]
+    if photos:
+        cmd += ['--photos', photos]
+        if vlm_cache:
+            cmd += ['--vlm-cache', vlm_cache]
+    try:
+        rc = subprocess.run(cmd).returncode
+    except OSError as exc:
+        print(f'form_gate: не запущен ({exc})', flush=True)
+        return 1
+    if rc:
+        print(f'form_gate: rc={rc} — см. вывод выше; рендер это не ломает', flush=True)
+    return rc
 
 
 def find_glb_(glbs: str, sku: str):

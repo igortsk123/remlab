@@ -47,3 +47,52 @@ def test_render_cmd_takes_views_from_table():
     assert os.path.isfile(FR.RENDER_STAND)                                                            # стенд лежит там, куда указывает команда
     page = FR.frame_names(FR.VIEWS)                                                                  # страница этапа (T-180/5) — прежние имена
     assert page == ['01_az000_clay.png', '02_az225_clay.png']
+
+
+def _fake_run(calls, out_dir_holder):
+    """Подмена subprocess.run: «рендер» (команда с --out) создаёт кадры, остальное (form_gate) только записывает команду."""
+    class P:
+        returncode = 0
+
+    def run(cmd, *a, **k):
+        if '--views' in cmd:
+            sku_out = cmd[cmd.index('--out') + 1]
+            os.makedirs(sku_out, exist_ok=True)
+            for n in FR.frame_names(FR.accept_views('шкаф'), FR.ACCEPT_LIGHTS):
+                open(os.path.join(sku_out, n), 'wb').write(b'p')
+        else:
+            calls.append(cmd)
+        return P()
+    return run
+
+
+def _run_main(monkeypatch, tmp_path, extra):
+    glbs = tmp_path / 'glbs'
+    glbs.mkdir()
+    (glbs / 'a_1-hd.glb').write_bytes(b'g')
+    out = tmp_path / 'out'
+    calls = []
+    monkeypatch.setattr(FR.subprocess, 'run', _fake_run(calls, out))
+    monkeypatch.setattr(sys, 'argv', ['forms_render.py', '--glbs', str(glbs), '--out', str(out), '--ids', 'a_1', '--no-slot', '--accept'] + extra)
+    rc = FR.main()
+    return rc, calls, out
+
+
+def test_form_gate_runs_after_accept_frames_by_default(monkeypatch, tmp_path):
+    rc, calls, out = _run_main(monkeypatch, tmp_path, ['--photos', str(tmp_path), '--vlm-cache', str(tmp_path / 'c')])
+    assert rc == 0 and len(calls) == 1
+    cmd = calls[0]
+    assert any(c.endswith('form_gate.py') for c in cmd)
+    assert cmd[cmd.index('--skus') + 1] == 'a_1' and cmd[cmd.index('--out') + 1] == str(out)
+    assert '--photos' in cmd and '--vlm-cache' in cmd
+
+
+def test_form_gate_off_by_flag_and_without_accept(monkeypatch, tmp_path):
+    rc, calls, _ = _run_main(monkeypatch, tmp_path, ['--no-form-gate'])
+    assert rc == 0 and calls == []
+
+
+def test_form_gate_failure_does_not_break_render(monkeypatch, tmp_path):
+    monkeypatch.setattr(FR.subprocess, 'run', lambda *a, **k: (_ for _ in ()).throw(OSError('нет python')))
+    assert FR.run_form_gate(str(tmp_path), str(tmp_path), ['a_1'], {}) == 1               # сбой запуска — код 1 у шага, не исключение
+    assert FR.run_form_gate(str(tmp_path), str(tmp_path), [], {}) == 0                    # нечего проверять
