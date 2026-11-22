@@ -384,14 +384,24 @@ def render_page(s: dict, cards: list, stopped_cards: list, title: str, W: dict |
 NOTE_PAINTED_REFUSED = 'итоговая модель есть, а проверка этапа не прошла'
 
 
-def effective(rows: list, painted: bool) -> dict:
+def effective(rows: list, painted: bool, partial: bool = False) -> dict:
     """{этап: {'status': ok|soft|refused|nodata|after, 'reason', 'note'}} по решениям этапов одного товара. `after` — этап после остановки товара (не считается)."""
     out = {}
     order = [r['stage'] for r in rows]
     stop = None if painted else stop_of(rows)
+    if partial:                                                      # частичный путь (часть этапов не запускали нарочно): остановка — только настоящий отказ; нет check.json — «нет данных», не «встал»
+        ref = [r for r in rows if r['status'] == 'refused']
+        stop = (ref[0]['stage'], (ref[0].get('reason') or '').strip() or 'причина не записана') if ref else None
     for r in rows:
         st, why, note = r['status'], (r.get('reason') or '').strip(), ''
-        if painted:
+        if partial:
+            if stop is None or order.index(r['stage']) < order.index(stop[0]):
+                st = 'nodata' if st == 'missing' else st
+            elif r['stage'] == stop[0]:
+                st = 'refused'
+            else:
+                st = 'after'
+        elif painted:
             if st == 'refused' and r['stage'] != pf.NINE:
                 st, note = 'soft', NOTE_PAINTED_REFUSED
             elif st == 'missing':
@@ -409,10 +419,10 @@ def effective(rows: list, painted: bool) -> dict:
     return out
 
 
-def stage_table(per: dict, painted: set) -> tuple:
+def stage_table(per: dict, painted: set, partial: bool = False) -> tuple:
     """(этапы по порядку, {этап: сводка}) для набора. Сводка: entered, ok, soft, refused, nodata, not_reached (= N − вошло), items {товар: effective}."""
     stages = sorted({r['stage'] for rows in per.values() for r in rows})
-    eff = {sku: effective(rows, sku in painted) for sku, rows in per.items()}
+    eff = {sku: effective(rows, sku in painted, partial) for sku, rows in per.items()}
     table = {}
     for st in stages:
         c = {'ok': 0, 'soft': 0, 'refused': 0, 'nodata': 0, 'after': 0}
@@ -498,16 +508,18 @@ def render_stage_page(s: dict, cards: list, stages: list, label: str, W: dict) -
     return _head(f'{label}: {cap}', f"<h1>{e(cap)}</h1><nav>{nav}</nav>{summ}{''.join(body)}")
 
 
-def stage_pages(per: dict, painted: set, runof: dict, out: str, W: dict, label: str, names: dict, photos: dict) -> tuple:
+def stage_pages(per: dict, painted: set, runof: dict, out: str, W: dict, label: str, names: dict, photos: dict, partial: bool = False) -> tuple:
     """Страницы всех этапов набора в `<out>/<этап>/index.html`. Возвращает ({этап: сводка}, ошибки). Цепочка не сошлась — страницы НЕ строятся, вернутся только ошибки."""
-    stages, table = stage_table(per, painted)
+    stages, table = stage_table(per, painted, partial)
     for sku in per:                                                  # у остановившегося — где встал (подпись у карточек «не дошёл»)
         if sku not in painted:
-            stop = stop_of(per[sku])
+            stop = stop_of(per[sku]) if not partial else next(((r['stage'], r['reason']) for r in per[sku] if r['status'] == 'refused'), None)
+            if stop is None:
+                continue
             for st in stages:
                 if table[st]['items'][sku]['status'] == 'after':
                     table[st]['items'][sku]['stop'] = stop
-    errs = verify_table(stages, table, len(per), len(painted & set(per)))
+    errs = verify_table(stages, table, len(per), None if partial else len(painted & set(per)))
     sums = {st: {k: v for k, v in t.items() if k != 'items'} for st, t in table.items()}
     if errs:
         return sums, errs
@@ -704,9 +716,72 @@ def main_cutout(argv: list) -> int:
     return 1 if errs else 0
 
 
+# ---------- частичный путь (T-180/4, директор 22.11): прогон, где нарочно запускали часть этапов (например 04 и 06) — страницы этих этапов без «покрашено» ----------
+
+def partial_report(run: str, stage_codes: list, out: str, repo: str, name: str, catalog: str | None = None, photos_dir: str | None = None, do_publish: bool = False) -> int:
+    """Страницы выбранных этапов одного прогона `<out>/<этап>/` + `index.html` (список этапов с числами). Цепочка сверяется так же; «покрашено» не считается — других этапов нет."""
+    e = html.escape
+    PC, PS, rules, _ = pf.load_pc(repo)
+    _stages, per_all = pf.analyse(PC, PS, rules, run)
+    unknown = [c for c in stage_codes if c not in _stages]
+    if unknown:
+        print('нет таких этапов:', unknown)
+        return 2
+    per = {sku: [r for r in rows if r['stage'] in stage_codes] for sku, rows in per_all.items()}
+    runof = {sku: run for sku in per}
+    W = load_words(repo)
+    cat = load_catalog(catalog)
+    ru = load_names_ru(repo)
+    gone = 'товар снят с продажи' if cat else ''
+    names = {sku: product_meta(run, sku).get('name') or (cat.get(sku) or {}).get('name') or ru.get(sku) or gone or sku for sku in per}
+    photos = photo_paths(per, runof)
+    if photos_dir:
+        for sku in per:
+            q = os.path.join(os.path.expanduser(photos_dir), f'{sku}.hd.rgba.png')
+            if not photos.get(sku) and os.path.exists(q):
+                photos[sku] = q
+    os.makedirs(out, exist_ok=True)
+    sums, errs = stage_pages(per, set(), runof, out, W, name, names, photos, partial=True)
+    skipped = [pf_stage for pf_stage in _stages if pf_stage not in stage_codes]
+    ch = ''.join(f"<li><a href='{e(k)}/'>{e(stage_name(W, k))}</a> <small>({e(k)})</small> — вошло {v['entered']}, прошло {v['ok']}, с замечаниями {v['soft']}, встало {v['refused']}" + (f", нет данных {v['nodata']}" if v['nodata'] else '') + f", не дошло {v['not_reached']}</li>" for k, v in sums.items())
+    body = (f"<h1>{e(name)}</h1><div class='sum'><div><b>Частичный путь:</b> здесь прогнаны только этапы {', '.join(e(c[:2]) for c in stage_codes)}; этапы {', '.join(e(c[:2]) for c in skipped)} в этом прогоне не запускались, поэтому «покрашено» не считается. Товаров в прогоне: {len(per)}.</div>"
+            f"<div>Правило цепочки: вошло в следующий этап = вошло − встало.</div></div><div class='sum'><b>По этапам</b><ul>{ch}</ul></div>")
+    if errs:
+        body = f"<h1>Страница не построена: сводка не сошлась</h1><ul>{''.join(f'<li>{e(x)}</li>' for x in errs)}</ul>"
+    open(os.path.join(out, 'index.html'), 'w', encoding='utf-8').write(_head(name, body))
+    json.dump({'run': run, 'stages': stage_codes, 'n': len(per), 'chain': sums, 'errors': errs}, open(os.path.join(out, 'summary.json'), 'w', encoding='utf-8'), ensure_ascii=False, indent=1)
+    for k, v in sums.items():
+        print(f"{k}: вошло {v['entered']} · прошло {v['ok']} · с замечаниями {v['soft']} · встало {v['refused']} · нет данных {v['nodata']} · не дошло {v['not_reached']} · без кадра {v['no_frame']}")
+    print('ОШИБКА СВОДКИ: ' + '; '.join(errs) if errs else 'Самопроверка сошлась.')
+    print(f'страница: {os.path.join(out, "index.html")}')
+    if do_publish and not errs:
+        print('выложено:', publish(out, slug(name)))
+    return 1 if errs else 0
+
+
+def main_partial(argv: list) -> int:
+    ap = argparse.ArgumentParser(prog='paint_run_report.py partial', description='страницы выбранных этапов одного прогона (частичный путь, без «покрашено»)')
+    ap.add_argument('run')
+    ap.add_argument('--stages', required=True, help='коды этапов через запятую, например 04-camera,06-visible')
+    ap.add_argument('--out')
+    ap.add_argument('--name')
+    ap.add_argument('--repo')
+    ap.add_argument('--catalog')
+    ap.add_argument('--photos-dir', help='папка с вырезками фото `<товар>.hd.rgba.png`, если пути фото в прогоне нет')
+    ap.add_argument('--publish', action='store_true')
+    a = ap.parse_args(argv)
+    run = os.path.expanduser(a.run).rstrip('/')
+    repo = a.repo or os.path.abspath(os.path.join(HERE, '..', '..'))
+    name = a.name or os.path.basename(run)
+    out = os.path.expanduser(a.out or os.path.join(run, '_report-' + name))
+    return partial_report(run, [x.strip() for x in a.stages.split(',') if x.strip()], out, repo, name, a.catalog, a.photos_dir, a.publish)
+
+
 def main(argv: list) -> int:
     if argv and argv[0] == 'cutout':
         return main_cutout(argv[1:])
+    if argv and argv[0] == 'partial':
+        return main_partial(argv[1:])
     ap = argparse.ArgumentParser(description='сводка и страницы прогона покраски (самопроверка: сумма сходится, кадров = покрашено, карточек = вошло)')
     ap.add_argument('runs', nargs='+')
     ap.add_argument('--out')

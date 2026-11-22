@@ -334,3 +334,27 @@ def test_photo_from_inputs_next_to_form(tmp_path):
     (run / 'run_all.json').write_text(json.dumps({'stages': [{'steps': [{'cmd': ['x', '--glb', str(tmp_path / 'hd-forms' / 'k_1-hd.glb')]}]}]}, indent=1), encoding='utf-8')
     got = prr.photo_paths({'k_1': []}, {'k_1': str(tmp_path / 'run')})
     assert got['k_1'] == str(tmp_path / 'inputs' / 'k_1.hd.rgba.png')
+
+
+def test_partial_chain_and_pages(tmp_path):
+    from PIL import Image
+    codes = ['04-camera', '06-visible']
+    sym = {'o': 'ok', 's': 'soft', 'R': 'refused', '-': 'missing'}
+    per = {'a': 'oo', 'b': 'sR', 'c': 'R-', 'd': 'o-'}                      # c встал на 04; d прошёл 04, 06 не запускали
+    per = {k: [{'stage': st, 'status': sym[ch], 'reason': 'причина ' + st if ch == 'R' else ''} for st, ch in zip(codes, v)] for k, v in per.items()}
+    e = prr.effective(per['d'], False, True)
+    assert e['06-visible']['status'] == 'nodata' and prr.effective(per['c'], False, True)['06-visible']['status'] == 'after'
+    stages, tb = prr.stage_table(per, set(), True)
+    assert prr.verify_table(stages, tb, 4, None) == []
+    assert [(tb[s]['entered'], tb[s]['refused'], tb[s]['nodata']) for s in stages] == [(4, 1, 0), (3, 1, 1)]
+    run = tmp_path / 'run'
+    photos, runof = {}, {}
+    for k in per:
+        for st in codes:
+            (run / k / st).mkdir(parents=True)
+            Image.new('RGBA', (50, 20), (10, 10, 200, 255)).save(run / k / st / 'frame.png')
+        Image.new('RGBA', (40, 30), (200, 10, 10, 255)).save(tmp_path / f'{k}.png')
+        photos[k], runof[k] = str(tmp_path / f'{k}.png'), str(run)
+    W = prr.load_words(REPO)
+    sums, errs = prr.stage_pages(per, set(), runof, str(tmp_path / 'o'), W, 'T', {k: k for k in per}, photos, partial=True)
+    assert errs == [] and 'нет данных этапа 1' in (tmp_path / 'o' / '06-visible' / 'index.html').read_text(encoding='utf-8')
