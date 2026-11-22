@@ -74,7 +74,7 @@ def glb_path(a, sku: str) -> str:
 
 def job_id(sku: str, a, glb: bytes, views, lights) -> str:
     """Идемпотентный id: товар + хеш входа + параметры — повтор после вытеснения ноды не плодит дубль."""
-    h = hashlib.sha256(glb + json.dumps([list(views), list(lights), a.samples, a.shade], sort_keys=True).encode()).hexdigest()[:12]
+    h = hashlib.sha256(glb + json.dumps([list(views), list(lights), a.samples, a.shade] + (['alpha'] if getattr(a, 'alpha', False) else []), sort_keys=True).encode()).hexdigest()[:12]
     return f'{sku}-{h}'.replace('_', '-')[:150]
 
 
@@ -87,7 +87,7 @@ def submit_pack(gw, a, skus: list[str], seats: set[str], t: float) -> tuple[dict
         glb = open(glb_path(a, sku), 'rb').read()
         views, lights = views_for(fr, sku, seats), tuple(fr.ACCEPT_LIGHTS)
         jid = job_id(sku, a, glb, views, lights)
-        body = {'job_id': jid, 'glb_z': base64.b64encode(zlib.compress(glb, 6)).decode(), 'views': list(views), 'lights': list(lights), 'samples': a.samples, 'shade': a.shade}
+        body = {'job_id': jid, 'glb_z': base64.b64encode(zlib.compress(glb, 6)).decode(), 'views': list(views), 'lights': list(lights), 'samples': a.samples, 'shade': a.shade, 'alpha': bool(getattr(a, 'alpha', False))}
         c, r, _tinfo = KD.post_job(gw, '/jobs', body, f'/jobs/{jid}', say_fn=say)
         if c == -1:                                                                       # воркер задания не видит; job_id идемпотентен — один повтор, дубля не будет
             say(f'товар {sku}: POST без ответа, воркер задания не видит — повтор один раз')
@@ -192,6 +192,7 @@ def main() -> int:
     ap.add_argument('--threads', type=int, default=r['threads'], help='потоков процессора на одну форму (разбор сцены)')
     ap.add_argument('--samples', type=int, default=r['samples'], help='как у нашего локального счёта (forms_render --samples по умолчанию)')
     ap.add_argument('--shade', default='orig', choices=['orig', 'recalc', 'flat'])
+    ap.add_argument('--alpha', action='store_true', help='T-184/5: вместе с кадрами — те же кадры с прозрачным фоном без пола (папка alpha/ у товара): маска = сама форма, без тени')
     ap.add_argument('--probe-cap', type=float, default=1.0, help='потолок денег, пока не готово первое задание, $')
     ap.add_argument('--cap', type=float, default=1.0, help='общий потолок, $')
     ap.add_argument('--max-min', type=int, default=90)

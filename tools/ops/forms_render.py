@@ -27,6 +27,7 @@ ACCEPT_VIEWS = ('az000', 'az090', 'az180', 'az225', 'top40')                    
 SEAT_VIEWS = ('low090',)                                                                                                  # + у сидячих: низкий боковой (спинка, подлокотники, ножки, низ)
 SEAT_ROLES = ('диван', 'кресло', 'стул', 'кушетка')
 ACCEPT_LIGHTS = ('key', 'graze')
+ALPHA_SUB = 'alpha'                                                                                                       # подпапка кадров с альфой (маска = сама форма): <out>/<товар>/alpha/<то же имя кадра> — её читает Ш0 (form_checks.mask_checks)
 BLENDER = os.path.expanduser('~/opt/blender-4.5.9/blender')
 RENDER_STAND = os.path.join(HERE, '..', 'scout', 'stablegen', 'render_stand.py')
 
@@ -46,12 +47,13 @@ def frame_names(views, lights=('key',)) -> list:
     return out
 
 
-def render_cmd(glb: str, out: str, views, lights, samples: int, cores: int, shade: str = 'orig') -> list:
-    """Команда Blender для одного товара; виды и свет — из таблиц выше."""
+def render_cmd(glb: str, out: str, views, lights, samples: int, cores: int, shade: str = 'orig', alpha: bool = False) -> list:
+    """Команда Blender для одного товара; виды и свет — из таблиц выше. `alpha` — после каждого кадра тот же кадр с прозрачным фоном без пола в <out>/alpha (T-184/5)."""
     spec = ','.join(f'{v}:{VIEW_DEFS[v][0]}:{VIEW_DEFS[v][1]}' for v in views)
     cmd = ['timeout', '-k', '20', '900', BLENDER, '-b', '-P', RENDER_STAND, '--', '--glb', glb, '--out', out, '--samples', str(samples), '--modes', 'clay', '--views', spec,
            '--lights', ','.join(lights), '--threads', str(cores), '--w', '1200', '--h', '900']
-    return cmd + (['--shade', shade] if shade != 'orig' else [])
+    cmd += ['--shade', shade] if shade != 'orig' else []
+    return cmd + (['--alpha-dir', os.path.join(out, ALPHA_SUB)] if alpha else [])                          # маска формы без тени (T-184/5)
 
 
 def frames_of(out: str, sku: str, views=VIEWS, lights=('key',)) -> list:
@@ -119,7 +121,7 @@ def main() -> int:
     for s in todo:
         g = find_glb_(glbs, s)
         t0 = time.time()
-        cmd = render_cmd(g, os.path.join(out, s), views_of(s), lights, a.samples, a.cores, a.shade)
+        cmd = render_cmd(g, os.path.join(out, s), views_of(s), lights, a.samples, a.cores, a.shade, alpha=a.accept and not a.no_form_gate)    # кадры приёмки + Ш0 → и кадры с альфой: без них три проверки Ш0 «не выполнены»
         with open(log, 'a', encoding='utf-8') as lg:
             lg.write(f'== {s} {g}\n')
             lg.flush()

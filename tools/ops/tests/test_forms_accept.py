@@ -49,7 +49,54 @@ def test_render_cmd_takes_views_from_table():
     assert page == ['01_az000_clay.png', '02_az225_clay.png']
 
 
-GATE = {'mode': 'ok'}                                                                         # ok | crash (rc=1 + traceback) | silent (rc=0, отчёта нет)
+def test_render_cmd_alpha_flag():
+    """Проход альфы (T-184/5): без флага команда прежняя; с флагом — `--alpha-dir <out>/alpha` (туда же смотрит Ш0: form_checks.mask_checks ищет <товар>/alpha)."""
+    assert '--alpha-dir' not in FR.render_cmd('/g.glb', '/o', FR.ACCEPT_VIEWS, FR.ACCEPT_LIGHTS, 16, 2)
+    cmd = FR.render_cmd('/g.glb', '/o', FR.ACCEPT_VIEWS, FR.ACCEPT_LIGHTS, 16, 2, 'recalc', alpha=True)
+    assert cmd[cmd.index('--alpha-dir') + 1] == os.path.join('/o', FR.ALPHA_SUB) == '/o/alpha' and cmd[cmd.index('--shade') + 1] == 'recalc'
+
+
+def _render_cmds(monkeypatch, tmp_path, extra):
+    """Запуск main с подменой subprocess.run: возвращает команды «рендера» (с --views); form_gate и его код тут не важны."""
+    glbs = tmp_path / 'glbs'
+    glbs.mkdir()
+    (glbs / 'a_1-hd.glb').write_bytes(b'g')
+    renders = []
+
+    class P:
+        returncode = 0
+        stderr = ''
+
+    def run(cmd, *a, **k):
+        if '--views' in cmd:
+            renders.append(cmd)
+            os.makedirs(cmd[cmd.index('--out') + 1], exist_ok=True)
+            for n in FR.frame_names(FR.accept_views(''), FR.ACCEPT_LIGHTS):
+                open(os.path.join(cmd[cmd.index('--out') + 1], n), 'wb').write(b'p')
+        return P()
+    monkeypatch.setattr(FR.subprocess, 'run', run)
+    monkeypatch.setattr(sys, 'argv', ['forms_render.py', '--glbs', str(glbs), '--out', str(tmp_path / 'out'), '--ids', 'a_1', '--no-slot'] + extra)
+    FR.main()
+    return renders
+
+
+def test_accept_with_gate_renders_alpha_pass(monkeypatch, tmp_path):
+    """`--accept` (Ш0 включён) → в команде рендера товара `--alpha-dir <out>/<товар>/alpha`: без альфы Ш0 «не выполнен» (relief_graze, back_relief, back_dup_mask)."""
+    r = _render_cmds(monkeypatch, tmp_path, ['--accept', '--no-vlm'])
+    assert len(r) == 1 and r[0][r[0].index('--alpha-dir') + 1] == str(tmp_path / 'out' / 'a_1' / 'alpha')
+
+
+def test_no_alpha_pass_without_accept_or_gate(monkeypatch, tmp_path):
+    """Альфа нужна только Ш0: страница этапа (без --accept) и --no-form-gate — как раньше, без лишнего прохода."""
+    a, b = tmp_path / 'a', tmp_path / 'b'
+    a.mkdir()
+    b.mkdir()
+    for d, extra in ((a, []), (b, ['--accept', '--no-form-gate'])):
+        r = _render_cmds(monkeypatch, d, extra)
+        assert len(r) == 1 and '--alpha-dir' not in r[0]
+
+
+GATE = {'mode': 'ok'}                                                                   # ok | crash (rc=1 + traceback) | silent (rc=0, отчёта нет)
 
 
 def _fake_run(calls, out_dir_holder):
