@@ -1,0 +1,80 @@
+# СБОРКА ОБРАЗА-СРЕДЫ ПРОБЫ SALAD «ЭТАП 04 НА ВИДЕОКАРТЕ» НА GITHUB ACTIONS (T-185/1) — не на pakardev (диск общий с базой). Тот же путь, что у build-stage-trial.yml.
+# Запускается пушем в ветки `trial/gpustage*` при правке Dockerfile.gpustage или этого файла, либо вручную из такой ветки. Пуш делает директор (решение 22.11).
+# Что делает: собирает Dockerfile.gpustage (python 3.12 + пакеты точных версий нашего venv + torch 2.13.0 cu126; КОДА ЭТАПОВ В ОБРАЗЕ НЕТ — он едет в задании по SHA) → проверки внутри образа БЕЗ видеокарты
+# (тесты воркера и pose_job на настоящем HTTP, импорт pose_gpu, алгоритм на torch-CPU против numpy на синтетической форме) → печатает размер и digest → пушит в GHCR: ghcr.io/<владелец>/mesh-stage-trial:gpustage.
+# Деплоя нет, боевое не трогает.
+name: build-gpustage-trial
+
+on:
+  push:
+    branches: ['trial/gpustage*']
+    paths:
+      - 'tools/scout/salad/stage/Dockerfile.gpustage'
+      - '.github/workflows/build-gpustage-trial.yml'
+  workflow_dispatch:
+
+concurrency:
+  group: build-gpustage-trial
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+  packages: write
+
+env:
+  IMAGE: ghcr.io/${{ github.repository_owner }}/mesh-stage-trial:gpustage
+  CTX: tools/scout/salad/stage
+
+jobs:
+  build:
+    if: startsWith(github.ref, 'refs/heads/trial/gpustage')
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Вход в GHCR
+        run: echo "${{ secrets.GITHUB_TOKEN }}" | docker login ghcr.io -u "${{ github.actor }}" --password-stdin
+
+      - name: Сборка (контекст — пустая папка, кода в образе нет)
+        run: |
+          set +e
+          mkdir -p "$RUNNER_TEMP/ctx" && cp "$CTX/Dockerfile.gpustage" "$RUNNER_TEMP/ctx/Dockerfile.gpustage"
+          docker build --progress=plain --build-arg GIT_SHA="${GITHUB_SHA}" -f "$RUNNER_TEMP/ctx/Dockerfile.gpustage" -t "$IMAGE" "$RUNNER_TEMP/ctx" > build.log 2>&1
+          rc=$?
+          tail -40 build.log
+          if [ "$rc" -ne 0 ]; then
+            grep -nE "ERROR|error:|Error" build.log | tail -12 | sed 's/^/::error::/'
+            exit "$rc"
+          fi
+          SIZE=$(docker image inspect "$IMAGE" --format '{{.Size}}')
+          echo "размер образа (распакованный): $(python3 -c "print(round($SIZE/2**30,2))") ГБ"
+
+      - name: Проверки без видеокарты (тесты воркера и pose_job, импорт pose_gpu, torch-CPU против numpy)
+        run: |
+          set +e
+          docker run --rm -v "$PWD:/repo:ro" -w /repo/tools/scout/salad/stage --entrypoint python "$IMAGE" tests_stage.py > check.log 2>&1
+          rc1=$?
+          docker run --rm -v "$PWD:/repo:ro" -w /repo/tools/scout/salad/trellis --entrypoint python "$IMAGE" tests_pose_job.py >> check.log 2>&1
+          rc2=$?
+          docker run --rm -v "$PWD:/repo:ro" -w /repo/tools/scout/salad/trellis --entrypoint python "$IMAGE" -c "import pose_gpu, pose_fit; pose_fit.set_backend('cpu'); print('pose_gpu и pose_fit импортируются, torch-CPU бэкенд включается')" >> check.log 2>&1
+          rc3=$?
+          tail -30 check.log
+          if [ "$rc1$rc2$rc3" != "000" ]; then grep -nE "FAIL|ERROR|Error|✗" check.log | tail -12 | sed 's/^/::error::/'; exit 1; fi
+          docker run --rm --entrypoint bash "$IMAGE" -c 'cat /opt/BUILD_INFO_GPUSTAGE.txt | head -24'
+
+      - name: Публикация в GHCR
+        id: push
+        run: |
+          docker push "$IMAGE"
+          DIGEST=$(docker inspect --format '{{index .RepoDigests 0}}' "$IMAGE")
+          COMPRESSED=$(docker manifest inspect "$DIGEST" 2>/dev/null | python3 -c 'import json,sys; m=json.load(sys.stdin); print(sum(l["size"] for l in m.get("layers",[])))' || echo 0)
+          GB=$(python3 -c "print(round($COMPRESSED/2**30,2))")
+          {
+            echo "### Образ-среда пробы «этап 04 на видеокарте»"
+            echo "- адрес: \`$IMAGE\`"
+            echo "- digest: \`$DIGEST\`"
+            echo "- сжатый размер в реестре: **${GB} ГБ**"
+            echo "- коммит: \`${GITHUB_SHA}\`"
+          } | tee -a "$GITHUB_STEP_SUMMARY"
+          echo "digest=$DIGEST" >> "$GITHUB_OUTPUT"

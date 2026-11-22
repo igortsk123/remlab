@@ -477,7 +477,7 @@ except ValueError:
     ok(True, 'safe_untar: не tar — отказ')
 
 # ---- whitelist команд и аргументы
-ok(set(WS.COMMANDS) == {'06', '07', 'ref_zone', 'render_unlit'}, f'whitelist: ровно 4 команды ({sorted(WS.COMMANDS)})')
+ok(set(WS.COMMANDS) == {'06', '07', 'ref_zone', 'render_unlit', 'pose_job'}, f'whitelist: ровно 5 команд ({sorted(WS.COMMANDS)})')
 good_args = ['--zones', '@in/zones.npy', '--n', '3', '0.5', '@out']
 ok(WS.check_args(good_args) == good_args and WS.check_args(None) == [], 'args: флаги, слова, числа, @in/…, @out — принимаются')
 for bad in (['; rm -rf /'], ['$HOME'], ['../x'], ['/etc/passwd'], ['--Bad'], ['@in/../x'], ['a b'], ['`id`'], ['@in//x'], [1], ['x'] * 41, 'строка'):
@@ -490,6 +490,11 @@ cmd_r, out_r, nm_r = WS.stage_command(C, 'render_unlit', '/tmp/w/j', 'sku1', Fal
 ok(cmd_r[cmd_r.index('-I') + 1] == '-c' and '/tmp/w/j/code' in cmd_r and cmd_r[-2:] == ['--yaw', '12'] and nm_r == '', 'команда render_unlit: встроенная обёртка из кода задания, args в конце')
 cmd_z, _o, _n = WS.stage_command(C, 'ref_zone', '/tmp/w/j', 'sku1', False, False, '/tmp/w/j/peak', code_root='/tmp/w/j/code', args=['--zones', '/x'])
 ok(cmd_z[cmd_z.index('-I') + 1] == '/tmp/w/j/code/tools/scout/salad/trellis/ref_zone.py' and cmd_z[-2:] == ['--zones', '/x'], 'команда ref_zone: скрипт из code_root задания, args в конце')
+cmd_p, out_p, nm_p = WS.stage_command(C, 'pose_job', '/tmp/w/j', 'sku1', False, False, '/tmp/w/j/peak', code_root='/tmp/w/j/code', args=['--glb', '/g.glb', '--device', 'cuda'])
+ok(cmd_p[cmd_p.index('-I') + 1] == '/tmp/w/j/code/tools/scout/salad/trellis/pose_job.py' and cmd_p[-4:] == ['--glb', '/g.glb', '--device', 'cuda'] and nm_p == '' and out_p == '/tmp/w/j/out',
+   'команда pose_job (этап 04, T-185/1): скрипт из code_root задания, args в конце, выход — вся папка out')
+ok(WS.check_args(['--glb', '@in/model.glb', '--photo', '@in/photo.png', '--out-run', '@out', '--device', 'cuda']) and WS.missing_inputs('pose_job', ['code.tar']) == ['model.glb', 'photo.png'],
+   'pose_job: args проходят проверку, без model.glb/photo.png вход неполный')
 cmd07, _o, _n = WS.stage_command(C, '07', '/tmp/w/j', 'sku1', False, False, '/tmp/w/j/peak', code_root='/tmp/w/j/code')
 ok(cmd07[cmd07.index('-I') + 1] == '/tmp/w/j/code/tools/scout/salad/trellis/tex_fill.py', 'команда 07: скрипт берётся из code_root задания, не из образа')
 
@@ -583,6 +588,8 @@ c4, r4 = http4(zb('07', with_code, jid='h-5', args=['; id']))
 ok(c4 == 400 and 'args' in r4['error'], 'HTTP: недопустимые args — 400')
 c4, r4 = http4(zb('render_unlit', {'code.tar': ra['tar']}, jid='h-6'))
 ok(c4 == 400 and 'нет файлов' in r4['error'], 'HTTP: render_unlit без model.glb — 400 с перечнем недостающего')
+c4, r4 = http4(zb('pose_job', {'code.tar': ra['tar']}, jid='h-6p'))
+ok(c4 == 400 and 'нет файлов' in r4['error'], 'HTTP: pose_job без model.glb/photo.png — 400 с перечнем недостающего')
 c4, r4 = http4(zb('07', with_code, jid='h-7'))
 ok(c4 == 202, f'HTTP: 07 с code.tar и code_sha принят ({c4}, {r4})')
 ok(wait_done(pool4, ['h-7']), 'HTTP: задание с кодом из входа закончилось')

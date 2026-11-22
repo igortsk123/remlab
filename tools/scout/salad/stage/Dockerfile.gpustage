@@ -1,0 +1,20 @@
+# ОБРАЗ-СРЕДА ПРОБЫ SALAD «ЭТАП 04 — КАМЕРА ПО ФОТО НА ВИДЕОКАРТЕ» (T-185/1): Python 3.12 (Ubuntu 24.04) + те же numpy/scipy/trimesh/Pillow/opencv, что в образе этапов 06/07 и в нашем ~/venvs/scout,
+# + torch 2.13.0 (cu126; ТА ЖЕ версия, на которой сверен алгоритм pose_gpu.py с numpy/cv2 на CPU — микросверка и сквозной прогон 22.11).
+# КОДА ЭТАПОВ В ОБРАЗЕ НЕТ (T-193/1): воркер `worker_stage.py` едет в env группы (kit_worker.bundle), код этапа — в задании по SHA (`code.tar`, команда `pose_job`). Образ = только среда, пересборка при правке кода не нужна.
+# Правила набора (Dockerfile.kit-template): основа по digest (та же, что у образов этапов/кадров/камеры, ADR-0137); сжатый образ ≪ 35 ГиБ (здесь ≈3 ГиБ — в основном CUDA-библиотеки колеса torch); весов нет.
+# Карта по профилю `pose_camera_gpu` — RTX 3090 (sm_86): колесо cu126 содержит ядра sm_86 (проверка ниже, во время сборки).
+ARG BASE=nvidia/cuda:12.6.3-base-ubuntu24.04@sha256:c87e78933f4c16e3272123bf2f75537306596d0fbaa395a29696a22786e5ee0e
+FROM ${BASE}
+ENV DEBIAN_FRONTEND=noninteractive PYTHONUNBUFFERED=1
+RUN apt-get update && apt-get install -y --no-install-recommends python3 python3-venv python-is-python3 ca-certificates libgomp1 libglib2.0-0t64 \
+    && rm -rf /var/lib/apt/lists/*
+RUN python3 -m venv /opt/venv && /opt/venv/bin/pip install --no-cache-dir --upgrade pip \
+    && /opt/venv/bin/pip install --no-cache-dir numpy==2.5.1 scipy==1.18.0 trimesh==5.0.0 pillow==12.3.0 opencv-python-headless==5.0.0.93 networkx==3.6.1 shapely==2.1.2 rtree==1.4.1 mapbox_earcut==2.0.0 \
+    && /opt/venv/bin/pip install --no-cache-dir torch==2.13.0 --index-url https://download.pytorch.org/whl/cu126 --extra-index-url https://pypi.org/simple
+ENV PATH=/opt/venv/bin:$PATH
+ARG GIT_SHA=unknown
+RUN printf 'stage-worker gpu image (environment only, code comes in the job)\ncommit=%s\npython=%s\n' "$GIT_SHA" "$(python -V 2>&1)" > /opt/BUILD_INFO_GPUSTAGE.txt && pip freeze >> /opt/BUILD_INFO_GPUSTAGE.txt
+# комплектность ВО ВРЕМЯ СБОРКИ (видеокарты на сборщике нет): библиотеки импортируются, torch собран под CUDA 12.6 и содержит ядра для sm_86 (3090)
+RUN python -c "import numpy, scipy, trimesh, PIL, cv2, torch; print(numpy.__version__, scipy.__version__, trimesh.__version__, PIL.__version__, cv2.__version__, torch.__version__)" \
+    && python -c "import torch; assert torch.version.cuda and torch.version.cuda.startswith('12.6'), torch.version.cuda; a = torch.cuda.get_arch_list(); assert 'sm_86' in a, a; print('torch cuda', torch.version.cuda, a)"
+ENV STAGE_CODE=/opt/scout-root STAGE_WORK=/tmp/stage

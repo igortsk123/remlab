@@ -7,12 +7,12 @@
 
 HTTP (порт $PORT, 8000; сервер на `::` — kit_worker.make_server):
   GET  /health                 → {"phase", ..., "pool", "procs", "fill_procs", "peak_stage_gb": {"06": …, "07": …}}  — пик памяти этапа (ГБ), по нему правится строка профиля
-  POST /jobs                   {"job_id","stage":"06"|"07"|"ref_zone"|"render_unlit" (whitelist; иное — 400),"sku","input_z"(zlib→base64 zip входа),"body_only",
+  POST /jobs                   {"job_id","stage":"06"|"07"|"ref_zone"|"render_unlit"|"pose_job" (whitelist; иное — 400),"sku","input_z"(zlib→base64 zip входа),"body_only",
                                 "code_sha"(40 hex, обязателен),"code_tar_sha256"(обязателен, сверяется с code.tar),"args"(необязательно: проверенный список, см. `check_args`)} → 202 (повтор того же job_id не дублирует)
         вход любого задания: `code.tar` в zip (срез tools/** по SHA; распаковывается в `<задание>/code`, команда берётся ОТТУДА)
         вход 06: zip с `model.glb`, `photo.png`, `pose_run/…` (папка камеры этапа 4: stage_loss.json, stages/render_view0/*, 04-camera/check.json)
         вход 07: zip с `06-visible/…` (выход этапа 6: visible.glb, known*.png, check.json) и необязательным `parts.npz`
-        вход ref_zone: что угодно (файлы идут в `args` как `@in/<путь>`); вход render_unlit: `model.glb`, аргументы `--yaw --pitch --size`
+        вход ref_zone: что угодно (файлы идут в `args` как `@in/<путь>`); вход render_unlit: `model.glb`, аргументы `--yaw --pitch --size`; вход pose_job (этап 04, T-185/1): `model.glb`, `photo.png`, аргументы `--glb @in/model.glb --photo @in/photo.png --out-run @out --device cuda`
   GET  /jobs/<id>              → {"status": queued|running|done|failed, "step", "metrics", "error", "sha256", "bytes", "files", "wall_s", "queue_s", "run_s", "peak_gb", "code_sha", "code_tar_sha256", "cmd"}
   GET  /jobs/<id>/result       → zip выхода этапа (`06-visible/…`, `07-fill/…` или вся папка выхода для ref_zone/render_unlit) + `_code.json` (code_sha, sha256 tar, команда); только при done
   POST /shutdown               → процесс завершается
@@ -62,6 +62,7 @@ COMMANDS = {
     '06': {'name': 'tex_visible', 'script': 'tools/scout/salad/trellis/tex_visible.py', 'out': '06-visible'},
     '07': {'name': 'tex_fill', 'script': 'tools/scout/salad/trellis/tex_fill.py', 'out': '07-fill'},
     'ref_zone': {'name': 'ref_zone', 'script': 'tools/scout/salad/trellis/ref_zone.py', 'out': ''},
+    'pose_job': {'name': 'pose_job', 'script': 'tools/scout/salad/trellis/pose_job.py', 'out': ''},    # этап 04 «камера по фото»: pose_fit → camera_check (T-185/1); на видеокарте --device cuda; выход — вся папка out (pose.json, stages/, 04-camera/)
     'render_unlit': {'name': 'render_unlit', 'script': 'tools/scout/salad/recolor_lp.py', 'out': ''},   # модуль с render_unlit; запускается встроенной обёрткой RENDER, не как скрипт
 }
 CODE_DIRS = ('tools/scout/salad/trellis', 'tools/scout/salad', 'tools/scout')           # куда смотрит import этапа (первым — ближайший к этапу)
@@ -74,6 +75,7 @@ NEED_06 = ('model.glb', 'photo.png', 'pose_run/stage_loss.json', 'pose_run/stage
            'pose_run/stages/render_view0/depth.npz', 'pose_run/stages/render_view0/aoi_cos16.png', 'pose_run/stages/render_view0/mask.png')
 NEED_07 = ('06-visible/visible.glb', '06-visible/check.json')
 NEED_RENDER = ('model.glb',)
+NEED_POSE = ('model.glb', 'photo.png')
 # рендер без света (команда render_unlit): `recolor_lp.render_unlit` из кода задания; argv: <корень кода> <model.glb> <out.png> [--yaw --pitch --size]
 RENDER = ("import sys,os,argparse\n"
           "root=sys.argv[1]\n"
@@ -393,7 +395,7 @@ class Pool:
 
 
 def missing_inputs(stage: str, names: list[str]) -> list[str]:
-    need = {'06': NEED_06, '07': NEED_07, 'render_unlit': NEED_RENDER}.get(stage, ())
+    need = {'06': NEED_06, '07': NEED_07, 'render_unlit': NEED_RENDER, 'pose_job': NEED_POSE}.get(stage, ())
     return [n for n in need if n not in names]
 
 
