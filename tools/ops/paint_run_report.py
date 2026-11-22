@@ -476,9 +476,10 @@ h1{font-size:1.25rem;margin:0 0 8px}h2{font-size:1.05rem;margin:20px 0 8px}.sum{
 .pair{display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-top:8px}.pair figure{margin:0}.pair img{width:100%;height:auto;display:block;border-radius:6px;background:#e8e8e8}
 .pair figcaption{font-size:.8rem;color:var(--mut);text-align:center;margin-top:2px}.why{font-size:.9rem;margin-top:6px}details{margin-top:4px;font-size:.8rem;color:var(--mut)}details summary{cursor:pointer}
 .nofr{display:flex;align-items:center;justify-content:center;min-height:120px;border:1px dashed var(--line);border-radius:6px;color:var(--mut);font-size:.85rem}nav{margin:6px 0 12px;font-size:.95rem}nav a{padding:0 2px}
+.pair3{display:grid;grid-template-columns:1fr 1fr 1fr;gap:8px;margin-top:8px}.pair3 figure{margin:0}.pair3 img{width:100%;aspect-ratio:var(--ar,4/3);object-fit:contain;display:block;border-radius:6px;background:#fff}.pair3 .nofr{aspect-ratio:var(--ar,4/3);display:flex;align-items:center;justify-content:center;background:#f3f3f1;border-radius:6px;color:var(--mut);font-size:.85rem;text-align:center}.pair3 figcaption{font-size:.8rem;color:var(--mut);text-align:center;margin-top:2px}
 .no{float:right;font-size:2.4rem;font-weight:800;line-height:1;color:var(--ink,#222);margin:2px 4px 0 12px;white-space:nowrap}
 .tiles{display:grid;grid-template-columns:1fr 1fr;grid-auto-rows:minmax(0,1fr);gap:4px;aspect-ratio:var(--ar,auto)}.tiles img{width:100%;height:100%;min-height:0;object-fit:contain;display:block;border-radius:6px;background:#fff}
-@media (max-width:640px){.pair,.tiles{grid-template-columns:1fr}.tiles{aspect-ratio:auto;grid-auto-rows:auto}.tiles img{height:auto}}
+@media (max-width:640px){.pair,.tiles,.pair3{grid-template-columns:1fr}.tiles{aspect-ratio:auto;grid-auto-rows:auto}.tiles img{height:auto}}
 """
 
 
@@ -995,16 +996,16 @@ def forms_page(items: list, chain: dict, photos: str, glbs: str, frames: str, ou
                 errs.append(f'{sku}: фото: {type(ex).__name__}: {ex}')
         if fr:
             try:
-                for t, p in zip(('az045', 'az225'), _forms_crop(fr)):
+                crops = _forms_crop(fr)
+                card['ar'] = round(min(1.7, max(0.6, crops[0].width / crops[0].height)), 3)               # одна рамка на три кадра карточки
+                for t, p in zip(('az045', 'az225'), crops):
                     p.save(os.path.join(d, f'{sku}_{t}.jpg'), 'JPEG', quality=88)
                     card['tiles'].append(f'img/{sku}_{t}.jpg')
             except Exception as ex:  # noqa: BLE001
                 errs.append(f'{sku}: кадры формы: {type(ex).__name__}: {ex}')
         if st == 'ok' and len(card['tiles']) != 2:
             errs.append(f'{sku}: «форма есть», а кадров {len(card["tiles"])} ≠ 2')
-        head = f"<div class='no'>№ {n}</div>"
-        body = _card(card, css[st], words[st], W, CW.get('caption') or 'вырезка новая П1.96', 'фото магазина', 'форма без цвета: спереди-слева 45° и сзади-справа 225°', why, '')
-        blocks.append(body.replace("<div class='card'>", f"<div class='card'>{head}", 1))
+        blocks.append(_forms_card(n, card, css[st], words[st], CW.get('caption') or 'вырезка новая П1.96', why, CW))
     n_all = len(items)
     s = {'stage': 'forms', 'n': n_all, 'ok': c['ok'], 'failed': c['failed'], 'small': c['small'], 'wait': c['wait'], 'cards': len(blocks), 'final': final, 'errors': errs}
     if sum(c.values()) != n_all:
@@ -1018,6 +1019,16 @@ def forms_page(items: list, chain: dict, photos: str, glbs: str, frames: str, ou
     open(os.path.join(out, 'index.html'), 'w', encoding='utf-8').write(_head(f'{label}: {cap}', f"<h1>{e(cap)}</h1>{summ}{''.join(blocks)}"))
     json.dump(s, open(os.path.join(out, 'summary.json'), 'w', encoding='utf-8'), ensure_ascii=False, indent=1)
     return s, errs
+
+
+def _forms_card(n: int, c: dict, badge_class: str, badge: str, caption: str, why: str, CW: dict) -> str:
+    """Карточка формы: крупный номер справа, ниже в ряд три кадра одного размера — фото магазина | ракурс 1 | ракурс 2 (на телефоне — по одному в строке)."""
+    e = html.escape
+    fig = lambda src, cap: (f"<figure><img src='{e(src)}' loading='lazy' alt='{e(cap)}'><figcaption>{e(cap)}</figcaption></figure>" if src else f"<figure><div class='nofr'>{e(cap)}: {'формы нет' if badge_class in ('refused', 'soft') else 'кадр ещё не готов'}</div></figure>")
+    t = c.get('tiles') or [None, None]
+    return (f"<div class='card'><div class='no'>№ {n}</div><h3>{e(c['name'])}<span class='badge {e(badge_class)}'>{e(badge)}</span></h3><div class='id'>{e(c['sku'])}</div>"
+            f"<div class='meta'>{e(caption)}</div><div class='pair3' style='--ar:{c.get('ar') or 1.333}'>{fig(c.get('foto'), CW.get('cap_photo') or 'фото магазина')}{fig(t[0], CW.get('cap_v1') or 'форма, ракурс 45°')}{fig(t[1], CW.get('cap_v2') or 'форма, ракурс 225°')}</div>"
+            + (f"<div class='why'>{e(why)}</div>" if why else '') + '</div>')
 
 
 def _forms_crop(paths: list) -> list:
