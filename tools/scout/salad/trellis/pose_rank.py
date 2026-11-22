@@ -85,15 +85,27 @@ def is_flip_of(a: dict, b: dict, tol: float = 30.0) -> bool:
 
 
 def choose(families: list, R: dict) -> dict:
-    """Выбор позы из семейств (только при `--rank-pick`): среди поз НЕ под полом — лучшая по `pose_score`; ничья в пределах tie_score — по Boundary-F(2 px) и меньшему Chamfer.
+    """Выбор позы из семейств (только при `--rank-pick`): среди поз НЕ под полом и НЕ зеркальных боевой (yaw+180°) — лучшая по `pose_score`; ничья в пределах tie_score — по Boundary-F(2 px) и меньшему Chamfer; боевая меняется, только если выигрыш Boundary-F ≥ choose.bf_gain и Chamfer не хуже на choose.chamfer_tol_px (пороги пробные, в rules).
     Возвращает {'index': i, 'changed': bool, 'why': str}; если все под полом — остаётся первая (выбранная боевая)."""
     ok = [i for i, f in enumerate(families) if f['floor_ok']]
     if not ok:
         return {'index': 0, 'changed': False, 'why': 'все под полом — остаётся боевая'}
-    best = max(families[i]['score'] for i in ok)
-    tie = [i for i in ok if families[i]['score'] >= best - R['tie_score']]
+    C = R['choose']
+    # зеркальное семейство (yaw+180° боевой позы) НЕ выбираем: Boundary-F и Chamfer не различают перёд и зад (ничья по контуру), решает блок orientation, а не контур
+    base = families[0].get('cam')
+    flips = [i for i in ok if i != 0 and base is not None and families[i].get('cam') is not None and is_flip_of(base, families[i]['cam'], C['flip_tol'])]
+    pool = [i for i in ok if i not in flips]
+    if not pool:
+        return {'index': 0, 'changed': False, 'why': f'не под полом только зеркальные семейства ({len(flips)}) — остаётся боевая'}
+    best = max(families[i]['score'] for i in pool)
+    tie = [i for i in pool if families[i]['score'] >= best - R['tie_score']]
     i = max(tie, key=lambda j: (families[j]['bf']['2'], -(families[j]['chamfer_px'] or 1e9)))
-    return {'index': i, 'changed': i != 0, 'why': f'не под полом: {len(ok)} из {len(families)}; ничья по оценке: {len(tie)}; выбрана по Boundary-F(2 px) и Chamfer'}
+    if i != 0 and 0 in pool:
+        a, b = families[0], families[i]
+        # меняем боевую позу только при заметном выигрыше по Boundary-F и без ухудшения Chamfer: иначе смена на пустом месте
+        if b['bf']['2'] - a['bf']['2'] < C['bf_gain'] or (b['chamfer_px'] or 1e9) > (a['chamfer_px'] or 1e9) + C['chamfer_tol_px']:
+            return {'index': 0, 'changed': False, 'why': f'не под полом: {len(ok)} из {len(families)}; зеркальных пропущено {len(flips)}; выигрыш Boundary-F/Chamfer мал или Chamfer хуже — остаётся боевая'}
+    return {'index': i, 'changed': i != 0, 'why': f'не под полом: {len(ok)} из {len(families)}; зеркальных пропущено {len(flips)}; ничья по оценке: {len(tie)}; выбрана по Boundary-F(2 px) и Chamfer'}
 
 
 # ---------- с геометрией (вызывается из pose_fit) ----------
@@ -238,7 +250,9 @@ def orientation_verdict(votes: dict, pair: dict | None, R: dict) -> dict:
 
 def rank_poses(PF, geo: dict, pick: dict, cands: list, ms_info: dict, photo: np.ndarray, alpha: np.ndarray, cv: dict, tex, Mp: np.ndarray, n: int, log=print, R: dict | None = None) -> dict:
     """Блок `rank` для pose.json (см. шапку). PF — модуль pose_fit (передаётся, чтобы не импортировать его циклом)."""
+    import time
     import stage_loss as SL
+    t_start = time.time()
     R = R or rules()
     V = geo['V']
     ymin, ymax = float(V[:, 1].min()), float(V[:, 1].max())
@@ -318,4 +332,5 @@ def rank_poses(PF, geo: dict, pick: dict, cands: list, ms_info: dict, photo: np.
     out = {'version': R['version'], 'dry_run': True, 'families': families, 'flip': flip, 'orientation': orient, 'weak': weak,
            'floor': {'pick_height_rel': pk['cam_height_rel'], 'pick_ok': pk['floor_ok'], 'under_floor': [f['id'] for f in families if not f['floor_ok']]}}
     out['choose'] = choose(families, R)
+    out['sec'] = round(time.time() - t_start, 1)               # цена ранжирования на товар (семейства, +180°, сигналы), без базового подбора
     return out

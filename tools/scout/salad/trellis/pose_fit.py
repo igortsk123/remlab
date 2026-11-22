@@ -425,7 +425,7 @@ def choose_pose(base: dict, surf: dict, tie: float = SURF_TIE) -> dict:
     return {'chosen': 'surf' if use_surf else 'base', 'iou_tri_base': tb, 'iou_tri_surf': ts, 'gap': round(ts - tb, 4) if tb is not None and ts is not None else None, 'tie': tie}
 
 
-def fit_pose(glb: str, photo_path: str, out_run: str, yaw: float = 0.0, px: int = 1536, n_fit: int = 256, topk: int = 4, ortho: bool = False, multistart: str = 'auto', log=print, surf_pick: bool = False, rank: bool = False) -> dict:
+def fit_pose(glb: str, photo_path: str, out_run: str, yaw: float = 0.0, px: int = 1536, n_fit: int = 256, topk: int = 4, ortho: bool = False, multistart: str = 'auto', log=print, surf_pick: bool = False, rank: bool = False, rank_pick: bool = False) -> dict:
     """ТОЧКА ВХОДА (код): камера фото на форме `glb` → файлы в `out_run` (см. шапку) и словарь
     {camera: {az, el, d, f, cx, cy}, canvas, yaw, px, iou_frame, edge_agree, textured, stages_dir, pose_json, candidates, iou_frontal_ortho_bbox, surf_pick}.
     Форма без текстуры (нет `images`) — кромки сверяются по затенению нормалей (`shade_view`). `ortho=True` — сравнение: d прибита к D_MAX.
@@ -499,6 +499,11 @@ def fit_pose(glb: str, photo_path: str, out_run: str, yaw: float = 0.0, px: int 
         if rank:                                                       # вхолостую: блок `rank` (семейства, yaw+180°, контуры, пол, слабая перспектива) — поза не меняется
             import pose_rank as PR
             rank_info = PR.rank_poses(sys.modules[__name__], geo, pick, cands, ms_info, photo, alpha, cv, tex, Mp, n, log=log)
+            if rank_pick and rank_info['choose']['changed']:            # по умолчанию выкл.: боевой становится выбранное семейство (не зеркальное, не под полом — см. pose_rank.choose)
+                alt = rank_info['families'][rank_info['choose']['index']]
+                rank_info['choose']['applied'] = {'from': pick['cam'], 'to': alt['cam']}
+                log(f"rank-pick: смена позы az {pick['cam']['az']:.1f}→{alt['cam']['az']:.1f}, el {pick['cam']['el']:.1f}→{alt['cam']['el']:.1f} ({rank_info['choose']['why']})")
+                pick = {**pick, 'cam': alt['cam'], 'score': alt['score'], 'iou': alt['iou'], 'rank_pick': True}
         cam = pick['cam']
         front = _bbox_fit(geo['V'][:: max(1, len(geo['V']) // 150000)], 0.0, 0.0, 1000.0, (lambda ys, xs: (xs.min() / n, ys.min() / n, (xs.max() + 1) / n, (ys.max() + 1) / n))(*np.nonzero(Mp)))
         iou_front = iou(splat_mask(geo['V'][:: max(1, len(geo['V']) // 150000)], front, n), Mp)
@@ -533,8 +538,9 @@ def main() -> int:
     ap.add_argument('--multistart', choices=('auto', 'on', 'off'), default='auto', help='много стартов по азимуту (0/90/180/270 ±15°) и подъёму для симметричных предметов: auto — если IoU обычного подбора < MS_TRIGGER')
     ap.add_argument('--surf-pick', action='store_true', help='второй поиск по точкам с поверхности граней; из двух поз — с большим IoU по треугольникам (ничья ≤0,005 → боевая); ×2 времени подбора, по умолчанию выкл.')
     ap.add_argument('--rank', action='store_true', help='вхолостую: блок `rank` в pose.json — семейства поз, гипотеза yaw+180°, Chamfer и Boundary-F, камера над полом, слабая перспектива (pose_rank.py); поза не меняется')
+    ap.add_argument('--rank-pick', action='store_true', help='применить выбор `rank.choose` (включает --rank): боевой становится выбранное семейство — не зеркальное боевой и не под полом; по умолчанию выкл.')
     a = ap.parse_args()
-    res = fit_pose(a.glb, a.photo, a.out_run, a.yaw, a.px, a.n_fit, a.topk, a.ortho, a.multistart, surf_pick=a.surf_pick, rank=a.rank)
+    res = fit_pose(a.glb, a.photo, a.out_run, a.yaw, a.px, a.n_fit, a.topk, a.ortho, a.multistart, surf_pick=a.surf_pick, rank=a.rank or a.rank_pick, rank_pick=a.rank_pick)
     print(json.dumps({'camera': res['camera'], 'iou_frame': res['iou_frame'], 'edge_agree_before_ecc': res['edge_agree']}, ensure_ascii=False))
     return 0
 

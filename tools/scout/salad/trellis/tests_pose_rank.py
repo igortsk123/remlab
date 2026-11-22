@@ -69,6 +69,22 @@ check('выбор: лучшая под полом пропущена; ничья
 c0 = PR.choose([{'floor_ok': False, 'score': .9, 'bf': {'2': .9}, 'chamfer_px': 1.0}], R)
 check('выбор: все под полом → остаётся боевая, changed False', c0['index'] == 0 and c0['changed'] is False)
 
+def fam(az, score, bf2, ch, floor_ok=True):
+    return {'cam': {'az': az, 'el': 5.0}, 'floor_ok': floor_ok, 'score': score, 'bf': {'2': bf2}, 'chamfer_px': ch}
+
+
+check('правила: choose — пороги в одном месте', all(k in R['choose'] for k in ('flip_tol', 'bf_gain', 'chamfer_tol_px')))
+c = PR.choose([fam(10, 0.90, 0.50, 3.0), fam(190, 0.90, 0.90, 1.0)], R)
+check('choose: зеркальное семейство (yaw+180°) не выбирается, даже если у него Boundary-F и Chamfer лучше', c['index'] == 0 and c['changed'] is False, c['why'])
+c = PR.choose([fam(10, 0.90, 0.50, 3.0), fam(100, 0.90, 0.70, 2.5)], R)
+check('choose: не зеркальное семейство с заметным выигрышем Boundary-F и без ухудшения Chamfer — выбирается', c['index'] == 1 and c['changed'] is True, c['why'])
+c = PR.choose([fam(10, 0.90, 0.50, 3.0), fam(100, 0.90, 0.52, 2.5)], R)
+check('choose: выигрыш Boundary-F меньше bf_gain — остаётся боевая', c['index'] == 0 and c['changed'] is False, c['why'])
+c = PR.choose([fam(10, 0.90, 0.50, 3.0), fam(100, 0.90, 0.80, 19.0)], R)
+check('choose: Boundary-F лучше, но Chamfer резко хуже — остаётся боевая', c['index'] == 0 and c['changed'] is False, c['why'])
+c = PR.choose([fam(10, 0.90, 0.50, 3.0, floor_ok=False), fam(190, 0.90, 0.60, 3.0)], R)
+check('choose: боевая под полом, единственная над полом — зеркальная → остаётся боевая (перёд/зад решает orientation)', c['index'] == 0 and c['changed'] is False, c['why'])
+
 cube_V = np.array([[x, y, z] for x in (-.5, .5) for y in (-.5, .5) for z in (-.5, .5)], float)
 cube_F = np.array([[0, 1, 3], [0, 3, 2], [4, 6, 7], [4, 7, 5], [0, 4, 5], [0, 5, 1], [2, 3, 7], [2, 7, 6], [0, 2, 6], [0, 6, 4], [1, 5, 7], [1, 7, 3]])
 S_pts = PF._surf_points({'V': cube_V, 'F': cube_F}, n_pts=20000)
@@ -81,6 +97,7 @@ c1, nit = PF.nm_two_stage(S_pts, Mp, Mb, n, cam0)
 s0, s1 = PF.pose_score(PF.splat_mask(S_pts, cam0, n), Mp)['score'], PF.pose_score(PF.splat_mask(S_pts, c1, n), Mp)['score']
 check('nm_two_stage: подбор улучшает оценку и держит d в пределах', s1 > s0 and PF.D_MIN <= c1['d'] <= PF.D_MAX, f'{s0} → {s1}, шагов {nit}')
 check('pose_fit: --rank по умолчанию выключен, блок rank в ответе', inspect.signature(PF.fit_pose).parameters['rank'].default is False)
+check('pose_fit: --rank-pick по умолчанию выключен (боевая поза не меняется без флага)', inspect.signature(PF.fit_pose).parameters['rank_pick'].default is False)
 
 # ---------- «перёд или зад» (тень): голоса и итог ----------
 sys.path.insert(0, os.path.normpath(os.path.join(HERE, '..', '..')))
