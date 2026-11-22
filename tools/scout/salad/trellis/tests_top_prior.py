@@ -219,6 +219,40 @@ class LibraryMaxDe(unittest.TestCase):
         self.assertEqual(near['bin'], 'W1')
 
 
+class RetintNative(unittest.TestCase):
+    class _Tx:
+        def __init__(self, n):
+            self.Q = np.zeros((n, 3))
+            self.ti = np.arange(n)
+
+    def _an(self, n, tone, tr_lab):
+        return {'report': {'tone_lab': tone, 'library': {'bin': 'flat'}, 'candidates': [{'voice': 'trellis', 'used': True, 'lab': tr_lab}]},
+                'top_all': [{'tx': self._Tx(n), 'top': np.ones(n, bool), 'kn': np.zeros(n, bool), 'gi': 0}], 'size': 1.0}
+
+    def test_keeps_native_pattern_shifts_tone(self):
+        import tex_coverage as TC
+        rules = TP.load_rules()
+        base = np.zeros((8, 8, 3), np.uint8)
+        base[:, :4] = 80
+        base[:, 4:] = 120
+        lab0 = TC.rgb2lab(base.reshape(-1, 3))
+        an = self._an(64, [float(lab0[:, 0].mean()) + 5.0, 0.0, 0.0], [float(lab0[:, 0].mean()), 0.0, 0.0])
+        out = TP.hypothesis_textures(an, rules, [base], 100.0, None)
+        lab1 = TC.rgb2lab(out[0].reshape(-1, 3))
+        self.assertAlmostEqual(float(lab1[:, 0].mean() - lab0[:, 0].mean()), 5.0, delta=0.8)
+        self.assertAlmostEqual(float(lab1[:, 0].std()), float(lab0[:, 0].std()), delta=0.8)   # рисунок (разброс) сохранён
+        self.assertIn('сдвиг тона', an['report']['applied'])
+
+    def test_off_when_trellis_not_used(self):
+        rules = TP.load_rules()
+        base = np.full((8, 8, 3), 100, np.uint8)
+        an = self._an(64, [60.0, 0.0, 0.0], [60.0, 0.0, 0.0])
+        an['report']['candidates'][0]['used'] = False
+        out = TP.hypothesis_textures(an, rules, [base], 100.0, None)
+        self.assertNotIn('applied', an['report'])
+        self.assertEqual(out[0].shape, base.shape)
+
+
 class Library(unittest.TestCase):
     lib = {'items': {'A': {'lab': [30.0, 10.0, 15.0], 'grain_axis': 'u', 'tile_cm': [40, 40]}, 'B': {'lab': [70.0, 8.0, 25.0], 'grain_axis': 'v', 'tile_cm': [80, 80]}}}
 

@@ -400,10 +400,23 @@ def hypothesis_textures(an: dict, rules: dict, base_texs: list, length_cm: float
             if lib.get('grain_axis') == 'v':
                 pat = np.transpose(pat, (1, 0, 2))
     tile = (lib.get('tile_cm') or [None])[0] or rules['fallback_tile_cm']
+    tr = next((c for c in rep.get('candidates', []) if c.get('voice') == 'trellis' and c.get('used') and c.get('lab')), None)
+    retint = bool(rules.get('retint_native', True)) and tr is not None          # голос trellis участвует (верх не плоский) и согласен (иначе тона не было бы) — рисунок модели настоящий
+    if retint:
+        delta = tone - np.asarray(tr['lab'], np.float64)
+        rep['applied'] = f"сдвиг тона существующего верха на ΔLab {np.round(delta, 1).tolist()} (узор модели не заменён)"
     for t in an['top_all']:
         tx, top, kn = t['tx'], t['top'], t['kn']
         sel = top & ~kn
         if not sel.any():
+            continue
+        if retint:
+            img = out[t['gi']]
+            flat = img.reshape(-1, img.shape[2])
+            idx = tx.ti[sel]
+            cur = TC.rgb2lab(flat[idx, :3].astype(np.uint8))
+            flat[idx, :3] = TF.lab2rgb(cur + delta)
+            out[t['gi']] = flat.reshape(img.shape)
             continue
         Q = tx.Q[sel]
         # длинная ось верха — по разбросу точек в плоскости X–Z (кадр куба)

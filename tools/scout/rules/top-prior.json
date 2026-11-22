@@ -9,6 +9,7 @@
     254
   ],
   "unknown_policy": "keep",
+  "retint_native": true,
   "library_max_de00": 8.0,
   "neutral_top_lab": [
     70.0,
