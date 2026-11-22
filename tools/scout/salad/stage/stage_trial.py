@@ -299,6 +299,7 @@ def main() -> int:
     ap.add_argument('--fill-procs', type=int, default=2, help='из них этапа 07 (пик памяти до 9 ГБ при 8 ГБ ноды — вариант А директора 22.11)')
     ap.add_argument('--threads', type=int, default=1, help='потоков BLAS/OpenMP на одно задание')
     ap.add_argument('--stage-timeout-s', type=int, default=900)
+    ap.add_argument("--stuck-min", type=float, default=30.0, help="сторож «завис»: шаг не менялся и GPU<5 % дольше N мин → гашу; для CPU-этапов 06/07 GPU всегда ≈0, считают долго (07 с ничьей — до 10 мин на товар на 0,12 ядра): 30; 0 — выкл")
     ap.add_argument('--probe-cap', type=float, default=1.0, help='потолок денег, пока не готово первое задание, $')
     ap.add_argument('--cap', type=float, default=1.0, help='общий потолок, $')
     ap.add_argument('--max-min', type=int, default=60)
