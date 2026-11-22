@@ -37,6 +37,5 @@ review_after: 2026-12-05
 `tools/scout/salad/recolor_window.py`, откат `recolor_rollback.sh`.
 **«Серая крышка» (ADR-0436, 0447):** детектор `tools/scout/mesh_grey_top.py` (`gt-v4`, 92/92 известных, 7 ложных из 3013) + мягкий карантин;
 разметка — `tools/scout/rules/mesh-grey-top-labels.json`; детали — Tier 2 § «серая крышка». Урок 711.
-
 **Tier 2:** `../domain/viz-fidelity-playbook.md` · [[mesh-pipeline]] · ADR-0145 ·
 разбор Codex — `archive/evidence/codex-color-answer.md`.
