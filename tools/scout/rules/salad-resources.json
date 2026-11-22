@@ -139,6 +139,21 @@
    "expect": {},
    "basis": "estimate",
    "basis_note": "LocalMesh (trellis_trial): прежние умолчания драйвера, карта 4060 Ti 16 ГБ — по комментарию драйвера, пики не мерили"
+  },
+  "pose_camera_gpu": {
+   "card": "RTX 3090 (24 GB)",
+   "card_fallbacks": [],
+   "cpu": 4,
+   "memory_mb": 16384,
+   "storage_gb": 10,
+   "shm_mb": 1024,
+   "tier": "low",
+   "tier_fallback": "medium",
+   "expect": {
+    "job_s": 30
+   },
+   "basis": "estimate",
+   "basis_note": "этап 04 на torch (T-185/1): время — оценка из профиля (CPU 696 с → ≈25–60 с), ещё не мерили; vCPU 4 = 4 процесса на ноду (Нелдер–Мид на CPU, одно ядро на процесс); RAM/диск/shm — по аналогии с pose_camera, пики мерить первой пробой; VRAM малая (силуэт+кадр 768 px). Строка — по просьбе рабочего router-7 (T-185/1)."
   }
  }
 }
