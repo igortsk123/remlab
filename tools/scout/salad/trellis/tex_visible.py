@@ -64,6 +64,10 @@ W_TAKE = 0.25           # вес меньше — тексель не берём
 HOLE_R = 2.5            # дыры между взятыми текселями (пикселей кадра реже текселей) закрываются ближайшим взятым не дальше этого, текселей
 DEPTH_PX = 3.0          # допуск «тексель не заслонён»: расхождение глубины точки и буфера глубины камеры не больше стольких пикселей предмета (у косых граней — шире)
 GREY = 128
+REG_FIT = bool(R.get('reg_fit', True))                  # подгонка сдвига регистрации по силуэту (T-197/2)
+REG_MAX_PX = float(R.get('reg_max_shift_px', 3.0))      # дальше этого сдвиг не ищем и не берём (больше — другая беда: форма/камера, не подпиксель)
+REG_SIGMA = float(R.get('reg_sigma_px', 1.0))           # размытие маски и альфы перед сравнением: гладкая цель → подпиксельный минимум
+REG_MIN_GAIN = float(R.get('reg_min_gain', 0.10))       # сдвиг принят, если невязка силуэта упала не менее чем на эту долю (на боевых силуэт искажён формой: слабые подгонки шумны)
 PHOTO_INTERP = str(R.get('photo_interp', 'lanczos'))   # перевод фото в кадр: lanczos (T-197: линейная теряла ~⅓ мелкого контраста при растяжке фото ×2) | cubic | linear
 SAMPLE_ORDER = int(R.get('sample_order', 3))             # выборка цвета в тексель из кадра: порядок сплайна (3 — бикубика; 1 — билинейная, теряла 15–40 % мелкого контраста; T-197)
 FRONT_COS = 0.80       # мерка света «перёд↔бок»: перёд — cos ≥ этого, бок — от cos_min до SIDE_COS
@@ -135,6 +139,51 @@ def photo_to_frame(photo_rgba: np.ndarray, P: np.ndarray, px: int) -> tuple[np.n
     al = w[..., 3]
     rgb = np.where(al[..., None] > 1e-3, w[..., :3] / np.maximum(al[..., None], 1e-3), 0.0)
     return np.clip(rgb + 0.5, 0, 255).astype(np.uint8), al > 0.5
+
+
+def _shift_P(P: np.ndarray, dx: float, dy: float) -> np.ndarray:
+    """Матрица кадр → фото для случая, когда содержимое фото в кадре сдвинуто на (dx, dy) пикселей кадра."""
+    T = np.array([[1.0, 0.0, -dx], [0.0, 1.0, -dy], [0.0, 0.0, 1.0]])
+    return np.asarray(P, np.float64) @ T
+
+
+def fit_registration(photo_rgba: np.ndarray, P: np.ndarray, mask: np.ndarray, max_shift: float = None, sigma: float = None) -> dict:
+    """Подпиксельный сдвиг регистрации по силуэту (T-197/2): минимум невязки между альфой фото в кадре и маской растра камеры, обе размыты σ.
+    Поиск от грубого к тонкому (шаг 1 → 0,25 → 0,0625 px) в пределах max_shift. Только сдвиг: масштаб/поворот и форма не трогаются.
+    Возвращает {'dx','dy','cost0','cost','gain','P'}: (dx,dy) — поправка, на которую надо сдвинуть фото в кадре, P — матрица кадр → фото с поправкой; gain — доля, на которую упала невязка (0 — сдвиг не нужен)."""
+    import cv2
+    max_shift = REG_MAX_PX if max_shift is None else max_shift
+    sigma = REG_SIGMA if sigma is None else sigma
+    px = mask.shape[0]
+    ys, xs = np.nonzero(mask)
+    if len(ys) == 0:
+        return {'dx': 0.0, 'dy': 0.0, 'cost0': 0.0, 'cost': 0.0, 'gain': 0.0, 'P': np.asarray(P, np.float64)}
+    pad = int(max_shift + 4 * sigma + 4)
+    y0, y1, x0, x1 = max(ys.min() - pad, 0), min(ys.max() + pad + 1, px), max(xs.min() - pad, 0), min(xs.max() + pad + 1, px)
+    m = cv2.GaussianBlur(mask[y0:y1, x0:x1].astype(np.float32), (0, 0), sigma)
+    al = photo_rgba[..., 3].astype(np.float32) / 255.0
+    crop = np.array([[1.0, 0.0, x0], [0.0, 1.0, y0], [0.0, 0.0, 1.0]])             # координаты окна → кадр
+
+    def cost(dx: float, dy: float) -> float:
+        M = _shift_P(P, dx, dy) @ crop
+        w = cv2.warpAffine(al, M[:2], (x1 - x0, y1 - y0), flags=cv2.INTER_LINEAR | cv2.WARP_INVERSE_MAP, borderMode=cv2.BORDER_CONSTANT, borderValue=0)
+        return float(((cv2.GaussianBlur(w, (0, 0), sigma) - m) ** 2).sum())
+
+    c0 = cost(0.0, 0.0)
+    best = (c0, 0.0, 0.0)
+    for step, span in ((1.0, max_shift), (0.25, 1.0), (0.0625, 0.25)):
+        cx, cy = best[1], best[2]
+        n = int(round(span / step))
+        for i in range(-n, n + 1):
+            for j in range(-n, n + 1):
+                dx, dy = cx + i * step, cy + j * step
+                if abs(dx) > max_shift or abs(dy) > max_shift or (i == 0 and j == 0 and step != 1.0):
+                    continue
+                c = cost(dx, dy)
+                if c < best[0]:
+                    best = (c, dx, dy)
+    gain = (c0 - best[0]) / max(c0, 10.0)                           # 10 — пол невязки (px²): у почти идеальной регистрации доля не раздувается
+    return {'dx': best[1], 'dy': best[2], 'cost0': c0, 'cost': best[0], 'gain': gain, 'P': _shift_P(P, best[1], best[2])}
 
 
 # ── перенос ────────────────────────────────────────────────────────────────────────────────────────────────────────
@@ -588,6 +637,17 @@ def _run(glb: str, photo: str, pose_run: str, run_dir: str, sku: str, cos_min: f
                        reason=f'камера фото не легла по силуэту (IoU {iou_here:.3f}) — перенос не делался', seconds=round(time.time() - t0, 1), needs_qwen=False, camera_failed=True,
                        camera=st['camera'], pose_run=pose_run)
         return {'sku': sku, 'passed': False, 'reason': 'camera', 'iou': iou_here}
+    reg = {'applied': False, 'dx': 0.0, 'dy': 0.0, 'gain': 0.0}
+    if REG_FIT:                                                      # подпиксельная подгонка регистрации по силуэту (T-197/2); гейт и сверка IoU выше — по матрице камеры, не по подгонке
+        fr_ = fit_registration(P, st['P'], st['mask'])
+        reg.update(dx=round(fr_['dx'], 3), dy=round(fr_['dy'], 3), gain=round(fr_['gain'], 4))
+        if fr_['gain'] >= REG_MIN_GAIN and (fr_['dx'] or fr_['dy']):
+            st['P'] = fr_['P']
+            prgb, pmask = photo_to_frame(P, st['P'], st['px'])
+            if cut_row is not None:
+                pmask = pmask.copy(); pmask[cut_row:] = False
+                prgb = prgb.copy(); prgb[cut_row:] = 0
+            reg['applied'] = True
     tr = transfer(geoms, st, prgb, pmask, cos_min)
     dst = os.path.join(d, 'visible.glb')
     write_glb(geoms, tr['tex'], dst)
@@ -614,7 +674,7 @@ def _run(glb: str, photo: str, pose_run: str, run_dir: str, sku: str, cos_min: f
     ok = not why
     PS.write_check(d, '06-visible', sku, passed=ok, metric={'name': 'silhouette_iou', **{k: main[k] for k in ('value', 'threshold', 'op')}}, metrics=mm,
                    reason='' if ok else '; '.join(why), seconds=round(time.time() - t0, 1), outputs=['visible.glb', 'known.png', 'conf.png', 'frame.png'], frame='frame.png',
-                   needs_qwen=(not ok), cos_min=cos_min, camera=st['camera'], side_views=side_views, pose_run=pose_run, crease_shadow=crease_info, stats=tr['stats'], depth_band_share=tr['depth_band_share'], body_only=(cut_row is not None), cut_row=cut_row, legs_left_to_stage8=(cut_row is not None), extra_metrics={k: v for k, v in m.items() if k not in GATE})
+                   needs_qwen=(not ok), cos_min=cos_min, camera=st['camera'], side_views=side_views, pose_run=pose_run, crease_shadow=crease_info, stats=tr['stats'], depth_band_share=tr['depth_band_share'], body_only=(cut_row is not None), registration_fit=reg, cut_row=cut_row, legs_left_to_stage8=(cut_row is not None), extra_metrics={k: v for k, v in m.items() if k not in GATE})
     return {'sku': sku, 'passed': ok, 'metrics': m, 'why': why, 'dir': d}
 
 
