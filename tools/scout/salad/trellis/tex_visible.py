@@ -457,16 +457,33 @@ def gate(m: dict) -> tuple[dict, list]:
 
 # ── кадр ───────────────────────────────────────────────────────────────────────────────────────────────────────────
 
-def frame(path: str, prgb: np.ndarray, pmask: np.ndarray, after: np.ndarray, dst_glb: str, size: int = 480, view_glb: str = None) -> None:
-    """«фото | кадр с камеры фото по новой текстуре | −40° | +40°» отдельным листом; боковые — рендер без света записанного GLB (файл читается, развёртка на месте)."""
+SIDE_DEG = 40.0
+
+
+def side_view_angles(cam: dict | None, side_deg: float = SIDE_DEG) -> dict:
+    """Ракурсы «слева/справа» для листа этапа: от азимута НАЙДЕННОЙ камеры фото (az_cam ∓ side_deg), на той же высоте (el камеры) — а не от осей формы
+    (владелец TG 1586: камера Босса az 170,6° — ±40° от оси формы показывали спину, всё серое). Угол камеры `pose_fit`: 0 — спереди, + — камера вправо от предмета; `mesh_render.render`
+    поворачивает ПРЕДМЕТ, поэтому yaw = −az (знак проверен по силуэтам на 3 формах: IoU 0,87–0,97 при yaw=−az, pitch=+el). Нет камеры — как раньше (az 0, подъём 10°).
+    → {az_cam, el_cam, left: {az, yaw}, right: {az, yaw}, pitch}."""
+    az = float((cam or {}).get('az', 0.0))
+    az = (az + 180.0) % 360.0 - 180.0                                   # (−180, 180]
+    el = float((cam or {}).get('el', 10.0))
+    return {'az_cam': round(az, 2), 'el_cam': round(el, 2), 'pitch': round(el, 2),
+            'left': {'az': round(az - side_deg, 2), 'yaw': round(-(az - side_deg), 2)}, 'right': {'az': round(az + side_deg, 2), 'yaw': round(-(az + side_deg), 2)}}
+
+
+def frame(path: str, prgb: np.ndarray, pmask: np.ndarray, after: np.ndarray, dst_glb: str, size: int = 480, view_glb: str = None, cam: dict | None = None) -> dict:
+    """«фото | кадр с камеры фото по новой текстуре | слева 40° | справа 40°» отдельным листом; боковые — рендер без света записанного GLB (файл читается, развёртка на месте); ракурсы — от азимута камеры фото (`side_view_angles`). → словарь углов."""
     import recolor_lp as LP
     px = prgb.shape[0]
+    sv = side_view_angles(cam)
     panels = [np.where(pmask[..., None], prgb, 255).astype(np.uint8), after]
     panels = [np.asarray(Image.fromarray(p).resize((size * 2, size * 2), Image.LANCZOS)) for p in panels]
-    for yaw in (-40.0, 40.0):
-        im = np.asarray(LP.render_unlit(view_glb or dst_glb, yaw, 10.0, size * 2))
+    for yaw in (sv['left']['yaw'], sv['right']['yaw']):
+        im = np.asarray(LP.render_unlit(view_glb or dst_glb, yaw, sv['pitch'], size * 2))
         panels.append(np.where((im[..., 3] > 8)[..., None], im[..., :3], 255).astype(np.uint8))
     Image.fromarray(np.concatenate(panels, axis=1)).save(path)
+    return sv
 
 
 # ── этап ───────────────────────────────────────────────────────────────────────────────────────────────────────────
@@ -567,15 +584,46 @@ def _run(glb: str, photo: str, pose_run: str, run_dir: str, sku: str, cos_min: f
     view = os.path.join(d, '_view.glb')                                 # для показа: непросмотренное — штриховка; в visible.glb заготовка не тронута (этап 7 заливает её)
     write_glb(geoms, [hatch(t, k) for t, k in zip(tr['tex'], tr['known'])], view)
     after_vis = frame_from_tex(st, geoms, [hatch(t, k) for t, k in zip(tr['tex'], tr['known'])])
-    frame(os.path.join(d, 'frame.png'), prgb, pmask, after_vis, dst, view_glb=view)
+    side_views = frame(os.path.join(d, 'frame.png'), prgb, pmask, after_vis, dst, view_glb=view, cam=st['camera'])
     os.remove(view)
     mm, why = gate(m)
     main = mm.pop('silhouette_iou')
     ok = not why
     PS.write_check(d, '06-visible', sku, passed=ok, metric={'name': 'silhouette_iou', **{k: main[k] for k in ('value', 'threshold', 'op')}}, metrics=mm,
                    reason='' if ok else '; '.join(why), seconds=round(time.time() - t0, 1), outputs=['visible.glb', 'known.png', 'frame.png'], frame='frame.png',
-                   needs_qwen=(not ok), cos_min=cos_min, camera=st['camera'], pose_run=pose_run, stats=tr['stats'], depth_band_share=tr['depth_band_share'], body_only=(cut_row is not None), cut_row=cut_row, legs_left_to_stage8=(cut_row is not None), extra_metrics={k: v for k, v in m.items() if k not in GATE})
+                   needs_qwen=(not ok), cos_min=cos_min, camera=st['camera'], side_views=side_views, pose_run=pose_run, stats=tr['stats'], depth_band_share=tr['depth_band_share'], body_only=(cut_row is not None), cut_row=cut_row, legs_left_to_stage8=(cut_row is not None), extra_metrics={k: v for k, v in m.items() if k not in GATE})
     return {'sku': sku, 'passed': ok, 'metrics': m, 'why': why, 'dir': d}
+
+
+def resheet_sides(stage_d: str, pose_run: str, size: int = 480) -> dict:
+    """Пересобрать у готового `06-visible/frame.png` только плитки «слева/справа» по текущему правилу (`side_view_angles`: от азимута камеры фото) — перенос заново не считается (visible.glb, known*.png на месте).
+    Плитки 1–2 берутся из старого листа как есть. Штриховка непросмотренного — как в `_run`. → словарь углов (пишется и в check.json: side_views)."""
+    glb = os.path.join(stage_d, 'visible.glb')
+    geoms = load_shape(glb)
+    texs, hat = [], []
+    for i, g in enumerate(geoms):
+        k = np.asarray(Image.open(os.path.join(stage_d, 'known.png' if i == 0 else f'known{i}.png')).convert('L')) > 127
+        texs.append(g['tex']); hat.append(hatch(g['tex'], k))
+    view = os.path.join(stage_d, '_view.glb')
+    write_glb(geoms, hat, view)
+    try:
+        cam = load_stage(pose_run)['camera']
+        old = np.asarray(Image.open(os.path.join(stage_d, 'frame.png')).convert('RGB'))
+        w4 = old.shape[1] // 4
+        sv = side_view_angles(cam)
+        import recolor_lp as LP
+        panels = [old[:, :w4], old[:, w4: 2 * w4]]
+        for yaw in (sv['left']['yaw'], sv['right']['yaw']):
+            im = np.asarray(LP.render_unlit(view, yaw, sv['pitch'], w4))
+            panels.append(np.where((im[..., 3] > 8)[..., None], im[..., :3], 255).astype(np.uint8))
+        Image.fromarray(np.concatenate(panels, axis=1)).save(os.path.join(stage_d, 'frame.png'))
+    finally:
+        os.remove(view)
+    cp = os.path.join(stage_d, 'check.json')
+    ch = json.load(open(cp, encoding='utf-8'))
+    ch['side_views'] = sv
+    json.dump(ch, open(cp, 'w', encoding='utf-8'), ensure_ascii=False, indent=2)
+    return sv
 
 
 def main() -> int:
