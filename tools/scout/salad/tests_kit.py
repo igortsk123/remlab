@@ -684,3 +684,14 @@ ok(any('среднее 150' in x and 'n=2' in x for x in _sl), 'suggest: ито�
 
 print('\nИТОГ:', 'ВСЁ ЗЕЛЁНОЕ' if not FAILS else f'ПРОВАЛОВ: {len(FAILS)}')
 sys.exit(1 if FAILS else 0)
+
+# --- T-186/2: повтор тяжёлого задания на большой карте — признак OOM, карта повтора, правило в профиле
+ok(KD.is_oom_error('RuntimeError: CUDA driver error: out of memory') and KD.is_oom_error('CUDA out of memory. Tried to allocate 2.00 GiB')
+   and KD.is_oom_error('RuntimeError: !handles_.at(i) INTERNAL ASSERT FAILED at "/pytorch/c10/cuda/CUDACachingAllocator.cpp":432'), 'is_oom_error: out of memory и сбой аллокатора CUDA — память карты')
+ok(not KD.is_oom_error('RuntimeError: нет входа') and not KD.is_oom_error(None) and not KD.is_oom_error('HTTP 503'), 'is_oom_error: прочие ошибки — не память (повтор на большой карте им не поможет)')
+_tp = KD.resource_profile('trellis_shape')
+ok(KD.retry_card(_tp, 'RTX 5060 Ti (16 GB)') == 'RTX 5090 (32 GB)' and KD.retry_card(_tp, 'RTX 5090 (32 GB)') is None and KD.retry_card(_tp, 'RTX 4090 (24 GB)') is None
+   and KD.retry_card(KD.resource_profile('ultratex'), 'RTX 5090 (32 GB)') is None, 'retry_card: с малой карты — на первую большую; с большой и без правила — повтора нет')
+ok(not KD.profile_problems(_tp) and KD.profile_problems(dict(_tp, card_rule={'small': 'X', 'large': ['RTX 5090 (32 GB)']})) and KD.profile_problems(dict(_tp, card_rule={'small': 'RTX 5060 Ti (16 GB)', 'large': []})),
+   'card_rule: малая и большие карты — из карт профиля, large не пуст')
+
