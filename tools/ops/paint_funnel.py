@@ -16,7 +16,9 @@
   python3 paint_funnel.py --repo <путь к репо> …       # откуда брать paint_check и правила (по умолчанию первое найденное из списка REPOS)
   python3 paint_funnel.py --union <прогон> <прогон> …    # все прогоны вместе как один набор (для двух партий одного пути)
   python3 paint_funnel.py --json out.json …            # то же машинно (для сверки до/после влития правила)
-Код возврата 0."""
+В конце — сводка-самопроверка и страница прогона (`paint_run_report.py`, T-180/4): вошло · остановились · покрашено · кадров; страница «фото | наш 3D» по всем покрашенным
+в `<прогон>/_report/` (`--report-out`, `--report-name`; `--publish-report` — на /test/paint-<имя>/; `--no-report` — только для тестов).
+Код возврата 0; 1 — самопроверка сводки не сошлась (или кадр не построился)."""
 import argparse
 import json
 import math
@@ -366,6 +368,10 @@ def main(argv):
     ap.add_argument('--confident-margin', type=float, default=0.25, help='«уверенно прошёл»: запас до порога на самом тесном этапе ≥ этой доли порога')
     ap.add_argument('--confident-share', type=float, default=0.5, help='доля уверенно прошедших в выборке каждого типа (не меньше)')
     ap.add_argument('--grades', help='TSV с оценками глазами (бланк grades.tsv после заполнения): считается false_accept_rate')
+    ap.add_argument('--no-report', action='store_true', help='ТОЛЬКО ДЛЯ ТЕСТОВ: не строить сводку-самопроверку и страницу прогона (T-180/4: по умолчанию строятся всегда, `paint_run_report.py`)')
+    ap.add_argument('--report-out', help='куда класть сводку и страницу (по умолчанию `<прогон>/_report`; для --union — `<первый прогон>/_report-union`)')
+    ap.add_argument('--report-name', help='имя страницы для /test/paint-<имя>/ (по умолчанию — метка прогона)')
+    ap.add_argument('--publish-report', action='store_true', help='выложить страницу на /test/paint-<имя>/ (по умолчанию только локально)')
     a = ap.parse_args(argv)
     runs = [os.path.expanduser(r).rstrip('/') for r in (a.runs or RUNS)]
     PC, PS, rules, repo = load_pc(a.repo)
@@ -404,11 +410,19 @@ def main(argv):
         print('\n'.join(compare_text(res[0][0], res[0][1], res[1][0], res[1][1], res[0][2])) + '\n')
     if res:
         print('\n'.join(before_after(res, merged or None)))
+    rc = 0
+    if res and not a.no_report:                                 # T-180/4: числа и кадры прогона — автоматом; расхождение сводки = ненулевой код
+        import paint_run_report as PRR
+        live = [r for r in runs if os.path.isdir(r)]
+        groups = [(live, {x[0]: x[1] for x in res}, a.report_out or os.path.join(live[0], '_report-union' if len(live) > 1 else '_report'))] if (a.union and len(res) >= 2) else \
+                 [([r], {x[0]: x[1]}, a.report_out if (a.report_out and len(res) == 1) else os.path.join(r, '_report')) for r, x in zip(live, res)]
+        for rs, pb, od in groups:
+            rc |= PRR.report(rs, pb, od, repo, a.report_name, a.publish_report)
     if a.json:
         out = dict(dump)
         out['_yield'] = {l: {'publishable_yield': (sum(1 for s in p if passed_all(p[s], True)) / len(p)) if p else None, 'soft_reference': (sum(1 for s in p if passed_all(p[s])) / len(p)) if p else None, 'submitted': len(p)} for l, p, _s in res}
         json.dump(out, open(a.json, 'w', encoding='utf-8'), ensure_ascii=False, indent=1)
-    return 0
+    return rc
 
 
 if __name__ == '__main__':

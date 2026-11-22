@@ -184,6 +184,7 @@ jobs:
       - run: python -m pytest tools/ops/tests/test_disk_clean.py -q -p no:cacheprovider   # уборка диска DEV второго круга: только влитое/чистое/старое, без одобрения не удаляет, запретные пути (T-20261110-30)
       - run: python -m pytest tools/ops/tests/test_trial_e2e.py -q -p no:cacheprovider   # замерщик пробы агента: стадии, p50/p95, 429/503, без --live на прод не грузит (T-20261109-14)
       - run: python -m pytest tools/ops/tests/test_paint_funnel.py -q -p no:cacheprovider   # воронка покраски: строгая доля (мягко ≠ прошёл), publishable_yield, выборка и false_accept_rate (T-20261121-180/Ш1)
+      - run: python -m pytest tools/ops/tests/test_paint_run_report.py -q -p no:cacheprovider   # сводка и страница прогона покраски: вошло = остановились + покрашено, кадров = покрашено, расхождение → ошибка и код 1 (T-20261122-180/4)
       - run: python -m pytest tools/tokeny/tests -q -p no:cacheprovider   # учёт токенов (кит _optional/tokeny): цены, машины, % недели (T-20261105-19)
       - run: python tools/scout/scene_checks.py --selftest   # ворота артефактов сцены демо (demo-05 п.1)
       - run: python tools/scout/tests/test_chandelier.py   # люстра гостиной: размер по мешу, подвес укорачивается до нормы, следующая — только если не влез корпус (T-20261112-66)
