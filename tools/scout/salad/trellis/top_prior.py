@@ -435,7 +435,7 @@ def hypothesis_textures(an: dict, rules: dict, base_texs: list, length_cm: float
     lib = rep.get('library') or {}
     pat = None
     if lib.get('bin') not in (None, 'flat') and library_dir:
-        p = os.path.join(library_dir, lib['bin'], 'diff.jpg')
+        p = os.path.join(library_dir, lib['bin'] + '.jpg')                # узор бина 512×512 (`top_library_pat512.py`; rules `library_pat`) — один источник и локально, и на Salad
         if os.path.exists(p):
             im = np.asarray(Image.open(p).convert('RGB').resize((512, 512)), np.uint8)
             L = TC.rgb2lab(im.reshape(-1, 3)).reshape(512, 512, 3)
@@ -572,7 +572,7 @@ def stage07(geoms: list, tex_after: list, known: list, parts, roles: dict | None
     if not ok:
         return [np.asarray(t) for t in tex_after], rep
     r2 = dict(rules, retint_native=bool(rules.get('stage07', {}).get('retint_native', False)), unknown_policy='keep')
-    lib = library_dir if library_dir is not None else os.path.join(ROOT, os.path.dirname(rules['library']), 'raw')
+    lib = library_dir if library_dir is not None else os.path.join(ROOT, rules['library_pat'])
     out = hypothesis_textures(an, r2, [np.asarray(t) for t in tex_after], rules['fallback_length_cm'], lib if os.path.isdir(lib) else None)
     ta = _top_tones(an, out, 'after')
     S = rules.get('stage07', {})
@@ -582,7 +582,7 @@ def stage07(geoms: list, tex_after: list, known: list, parts, roles: dict | None
         return [np.asarray(t) for t in tex_after], rep
     rep.update(ta)
     ch = int(sum(int((np.asarray(o)[..., :3] != np.asarray(b)[..., :3]).any(axis=-1).sum()) for o, b in zip(out, tex_after)))
-    rep.update(applied=True, top_source=res['source'], texels_changed=ch, pattern_amp=res.get('pattern_amp'), applied_note=res.get('applied'))
+    rep.update(pattern='library' if res.get('pattern_amp') is not None else 'tone_only', applied=True, top_source=res['source'], texels_changed=ch, pattern_amp=res.get('pattern_amp'), applied_note=res.get('applied'))
     return out, rep
 
 
@@ -605,7 +605,7 @@ def main(argv: list[str]) -> int:
     d.add_argument('--out', default='')
     d.add_argument('--length-cm', type=float, default=0.0)
     d.add_argument('--rules', default='', help='файл правил вместо rules/top-prior.json (например, с rim_de00: 0 — прогон «как было»)')
-    d.add_argument('--lib-raw', default='', help='папка со сканами бинов (<бин>/diff.jpg); по умолчанию data/flat3d/top-library/raw')
+    d.add_argument('--lib-pat', default='', help='папка узоров бинов 512×512 (<бин>.jpg); по умолчанию rules `library_pat`')
     a = ap.parse_args(argv)
     rules = load_rules(a.rules) if a.rules else load_rules()
     card = json.loads(a.card) if a.card else None
@@ -619,7 +619,7 @@ def main(argv: list[str]) -> int:
     fg = os.path.join(a.run, '07-fill', 'filled.glb')
     base = TC.load_geoms(fg if os.path.exists(fg) else os.path.join(a.run, '06-visible', 'visible.glb'))
     before = [np.asarray(g['tex']).copy() for g in base]
-    lib_dir = os.path.expanduser(a.lib_raw) if a.lib_raw else os.path.join(ROOT, os.path.dirname(rules['library']), 'raw')
+    lib_dir = os.path.expanduser(a.lib_pat) if a.lib_pat else os.path.join(ROOT, rules['library_pat'])
     after = hypothesis_textures(an, rules, before, a.length_cm or rules['fallback_length_cm'], lib_dir)
     render_pair(base, before, after, os.path.join(out, 'top_prior_frame.png'))
     rep['pattern_amp'] = an['report'].get('pattern_amp')

@@ -2198,7 +2198,7 @@ def own_panel_tone_hook(geoms: list, tex_after: list, known: list, ut_g: list | 
 def top_prior_hook(geoms: list, tex_after: list, known: list, parts, cfg: dict | None, draft_glb: str | None) -> tuple:
     """Хук 07 (T-187/7; канон paint-photo-fill-01 строка 7: «верх — Ш3в»): невидимые тексели ВЕРХА (нормаль вверх, верхний уровень; `top & ~known`) красятся тоном `top_prior`, если его уверенность ≥ порога
     (rules/top-prior.json → stage07.min_confidence), иначе верх остаётся как сделал 07 (донор / тон своей зоны). Идёт ПОСЛЕ own_panel_tone_hook и ДО front_on_back; known не меняется.
-    cfg: `top_card` (карточка: класс материала верха, размеры), `top_photo` (фото: контраст узора), `top_lib_raw` (папка со сканами бинов узора; нет — только тон). Сбой не роняет этап. → (текстуры, отчёт с `top_source`)."""
+    cfg: `top_card` (карточка: класс материала верха, размеры), `top_photo` (фото: контраст узора). Узор — из rules `library_pat` (в репо и в срезе кода Salad). Сбой не роняет этап. → (текстуры, отчёт с `top_source`)."""
     try:
         import top_prior as TP
         rules = TP.load_rules()
@@ -2206,10 +2206,7 @@ def top_prior_hook(geoms: list, tex_after: list, known: list, parts, cfg: dict |
             return tex_after, {'top_source': 'as_before', 'applied': False, 'gate': 'stage07.enabled = false'}
         c = cfg or {}
         draft = draft_texels(geoms, TC.load_geoms(draft_glb), None) if draft_glb and os.path.isfile(draft_glb) else None
-        lib = c.get('top_lib_raw')
-        out, rep = TP.stage07(geoms, tex_after, known, parts, c.get('part_role'), draft, c.get('top_card'), c.get('top_photo'), rules, library_dir=lib)
-        rep['pattern'] = 'library' if (lib and os.path.isdir(lib) and rep.get('library')) else 'tone_only'
-        return out, rep
+        return TP.stage07(geoms, tex_after, known, parts, c.get('part_role'), draft, c.get('top_card'), c.get('top_photo'), rules)
     except Exception as e:  # noqa: BLE001
         return tex_after, {'top_source': 'as_before', 'applied': False, 'error': f'{type(e).__name__}: {e}'}
 
@@ -2430,9 +2427,8 @@ def main(argv: list | None = None) -> int:
     ap.add_argument("--cfg", default=None)
     ap.add_argument("--no-mirror", action="store_true")
     ap.add_argument("--ut-glb", default=None, help="UltraTex-меш на НАШЕЙ форме (тот же V, F): донор невидимых панелей по оттенку и фактуре; нет — тон своей зоны")
-    ap.add_argument("--card-json", default=None, help="карточка товара JSON ({role, name, <характеристики>}): класс материала верха для top_prior (нет — без слова карточки)")
+    ap.add_argument("--card-json", default=None, help="карточка товара: файл JSON или сам JSON ({role, name, <характеристики>}): класс материала верха для top_prior (нет — без слова карточки)")
     ap.add_argument("--photo", default=None, help="фото каталога (RGBA/белый фон): контраст узора верха; нет — запасной коэффициент")
-    ap.add_argument("--top-lib-raw", default=None, help="папка со сканами бинов узора верха (<бин>/diff.jpg); нет — верх красится только тоном")
     a = ap.parse_args(argv)
     base = os.path.join(a.run, PS.safe_name(a.sku))
     visible = a.visible or os.path.join(base, "06-visible")
@@ -2445,11 +2441,9 @@ def main(argv: list | None = None) -> int:
     parts_npz = None if (a.no_parts_npz or (zones_from == "panels" and not a.parts_npz)) else (a.parts_npz or (default_npz if os.path.exists(default_npz) else None))      # --no-parts-npz: этап 3 отказал — parts.npz не брать, части по геометрии (+ сироты); явный --parts-npz сильнее флага
     cfg = dict({"erode_known": 0}, **(json.loads(a.cfg) if a.cfg else {}))      # вход этапа 6: маска «взято с фото» уже честная
     if a.card_json:
-        cfg["top_card"] = json.loads(a.card_json)
+        cfg["top_card"] = json.load(open(a.card_json, encoding="utf-8")) if os.path.isfile(a.card_json) else json.loads(a.card_json)      # путь к файлу (на Salad — @in/card.json) или сам JSON
     if a.photo:
         cfg["top_photo"] = a.photo
-    if a.top_lib_raw:
-        cfg["top_lib_raw"] = a.top_lib_raw
     try:
         r = run_stage(a.run, a.sku, os.path.join(visible, "visible.glb"), known=load_known_png(visible) or None, cfg=cfg, mirror=not a.no_mirror, ut_glb=a.ut_glb, parts_npz=parts_npz, prev_dir=visible)
     except Exception as e:                                                       # noqa: BLE001 — сбой запуска: в check.json, не молча

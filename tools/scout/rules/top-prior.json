@@ -3,7 +3,7 @@
   "stage07": {"enabled": true, "min_confidence": "medium", "groups": ["library", "decor"], "min_photo_top": 50, "photo_worse_de00": 0.0, "retint_native": false, "_about": "T-187/7: этап 07 красит невидимые тексели верха тоном Ш3в, если уверенность решения >= min_confidence (none<low<medium<high); иначе верх как делал 07 (донор / тон своей зоны). groups: класс верха по карточке (rules classes) — Ш3в только для дерева и декора под дерево (ткань, нет карточки, камень/стекло — как делал 07); min_photo_top/photo_worse_de00: верх виден на фото (≥ min_photo_top текселей) и Ш3в дальше от него, чем нынешняя заливка 07, — оставляем 07 (факт с фото сильнее гипотезы). retint_native=false: сдвиг тона существующей заливки не нужен — в 07 заливка верха своя, не родная TRELLIS."},
  "enabled": false,
   "mode": "dry",
-  "library": "data/flat3d/top-library/library.json",
+  "library": "data/flat3d/top-library/library.json", "library_pat": "data/flat3d/top-library/pat512",
   "background_rgb": [
     254,
     254,

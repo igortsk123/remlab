@@ -671,5 +671,55 @@ ok(wait_done(pool4, ['h-7']), 'HTTP: задание с кодом из вход�
 srv4.shutdown()
 
 print()
+
+
+# ---- T-187/7: верх по Ш3в — результат этапа 07 одинаков «у нас» (дерево репозитория) и «на Salad» (чистая распаковка code.tar, python -I, тот же воркерный запуск)
+def _top_equality():
+    import tempfile
+    sys.path.insert(0, os.path.join(SALAD, 'trellis'))
+    import numpy as np
+    import tests_tex_fill as TT
+    import tex_coverage as TC
+    import tex_fill as TF
+    from PIL import Image
+    g, tex, kn = TT._top_scene()
+    td = tmpdir('topeq')
+    v = os.path.join(td, 'in', 's1', '06-visible')
+    os.makedirs(v)
+    TF.write_glb([g], [tex], os.path.join(v, 'visible.glb'))
+    Image.fromarray((kn * 255).astype(np.uint8)).save(os.path.join(v, 'known.png'))
+    json.dump({'version': 1, 'stage': '06-visible', 'sku': 's1', 'passed': True, 'reason': '', 'metric': None, 'metrics': {}, 'outputs': [], 'frame': None, 'extra': {}}, open(os.path.join(v, 'check.json'), 'w'))
+    ph = np.zeros((200, 300, 4), np.uint8)
+    ph[..., :3] = (150, 100, 60)
+    ph[::6, :, :3] = (120, 80, 45)
+    ph[..., 3] = 255
+    Image.fromarray(ph).save(os.path.join(td, 'photo.png'))
+    json.dump({'role': 'стол обеденный', 'name': 'Стол обеденный из массива дуба', 'Материал столешницы': 'массив дуба'}, open(os.path.join(td, 'card.json'), 'w'), ensure_ascii=False)
+    real = CT.build(ROOT, 'HEAD')
+    code = os.path.join(td, 'code')
+    WS.safe_untar(real['tar'], code)
+    args = ['run_stage', None, 's1', '--visible', v, '--no-parts-npz', '--no-mirror', '--card-json', os.path.join(td, 'card.json'), '--photo', os.path.join(td, 'photo.png')]
+    res = {}
+    for nm, script in (('local', os.path.join(ROOT, 'tools/scout/salad/trellis/tex_fill.py')), ('code_tar', os.path.join(code, 'tools/scout/salad/trellis/tex_fill.py'))):
+        out = os.path.join(td, 'out-' + nm)
+        a = list(args)
+        a[1] = out
+        r = subprocess.run([sys.executable, '-I', script] + a, capture_output=True, cwd=td, timeout=600)
+        ok(r.returncode == 0, f'верх Ш3в: этап 07 из «{nm}» отработал ' + ('' if r.returncode == 0 else r.stderr.decode('utf-8', 'replace')[-300:]))
+        d = os.path.join(out, 's1', '07-fill')
+        rep = json.load(open(os.path.join(d, 'report.json'), encoding='utf-8'))['report']
+        res[nm] = (TC.load_geoms(os.path.join(d, 'filled.glb')), rep.get('top_prior', {}))
+    (ga, ra), (gb, rb) = res['local'], res['code_tar']
+    ok(ra.get('applied') is True and ra.get('pattern') == 'library' and ra.get('top_source') == 'same_part_inference', f'верх Ш3в: применён с узором библиотеки ({ra.get("top_source")}, pattern={ra.get("pattern")}, {ra.get("library")})')
+    ok(all(np.array_equal(np.asarray(x['tex']), np.asarray(y['tex'])) for x, y in zip(ga, gb)), 'верх Ш3в: текстуры filled.glb одинаковы у нас и из code.tar (побайтно)')
+    ok({k: ra.get(k) for k in ('top_source', 'applied', 'tone_lab', 'library', 'texels_changed', 'pattern_amp')} == {k: rb.get(k) for k in ('top_source', 'applied', 'tone_lab', 'library', 'texels_changed', 'pattern_amp')}, 'верх Ш3в: отчёт top_prior одинаков (источник, тон, бин узора, число текселей)')
+
+
+try:
+    _top_equality()
+except Exception as exc:  # noqa: BLE001
+    ok(False, f'верх Ш3в: проверка равенства не выполнена: {type(exc).__name__}: {exc}')
+
+
 print('ПРОВАЛЕНО: ' + str(len(FAILS)) if FAILS else 'ВСЕ ТЕСТЫ ЗЕЛЁНЫЕ')
 sys.exit(1 if FAILS else 0)
