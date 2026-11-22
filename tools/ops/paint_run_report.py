@@ -478,7 +478,7 @@ h1{font-size:1.25rem;margin:0 0 8px}h2{font-size:1.05rem;margin:20px 0 8px}.sum{
 .pair{display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-top:8px}.pair figure{margin:0}.pair img{width:100%;height:auto;display:block;border-radius:6px;background:#e8e8e8}
 .pair figcaption{font-size:.8rem;color:var(--mut);text-align:center;margin-top:2px}.why{font-size:.9rem;margin-top:6px}details{margin-top:4px;font-size:.8rem;color:var(--mut)}details summary{cursor:pointer}
 .nofr{display:flex;align-items:center;justify-content:center;min-height:120px;border:1px dashed var(--line);border-radius:6px;color:var(--mut);font-size:.85rem}nav{margin:6px 0 12px;font-size:.95rem}nav a{padding:0 2px}
-.pair3{display:grid;grid-template-columns:1fr 1fr 1fr;gap:8px;margin-top:8px}.pair3 figure{margin:0}.pair3 img{width:100%;aspect-ratio:var(--ar,4/3);object-fit:contain;display:block;border-radius:6px;background:#fff}.pair3 .nofr{aspect-ratio:var(--ar,4/3);display:flex;align-items:center;justify-content:center;background:#f3f3f1;border-radius:6px;color:var(--mut);font-size:.85rem;text-align:center}.pair3 figcaption{font-size:.8rem;color:var(--mut);text-align:center;margin-top:2px}
+.pair3{display:grid;grid-template-columns:1fr 1fr 1fr;gap:8px;margin-top:8px}.pair3 figure{margin:0}.pair3 img{width:100%;aspect-ratio:var(--ar,4/3);object-fit:contain;display:block;border-radius:6px;background:#fff}.pair3 img.vhod{background:transparent;border-radius:0;filter:drop-shadow(0 0 1px rgba(0,0,0,.45)) drop-shadow(0 1px 3px rgba(0,0,0,.16))}.pair3 .nofr{aspect-ratio:var(--ar,4/3);display:flex;align-items:center;justify-content:center;background:#f3f3f1;border-radius:6px;color:var(--mut);font-size:.85rem;text-align:center}.pair3 figcaption{font-size:.8rem;color:var(--mut);text-align:center;margin-top:2px}
 .no{float:right;font-size:2.4rem;font-weight:800;line-height:1;color:var(--ink,#222);margin:2px 4px 0 12px;white-space:nowrap}
 .tiles{display:grid;grid-template-columns:1fr 1fr;grid-auto-rows:minmax(0,1fr);gap:4px;aspect-ratio:var(--ar,auto)}.tiles img{width:100%;height:100%;min-height:0;object-fit:contain;display:block;border-radius:6px;background:#fff}
 @media (max-width:640px){.pair,.tiles,.pair3{grid-template-columns:1fr}.tiles{aspect-ratio:auto;grid-auto-rows:auto}.tiles img{height:auto}}
@@ -982,16 +982,16 @@ THUMB_SIDE, THUMB_MAX_BYTES = 800, 300 * 1024
 
 
 def _input_images(src: str, thumb: str, full: str) -> None:
-    """Вход (RGBA, прозрачный фон) → светлая подложка, БЕЗ обрезки краёв: превью ≤300 КБ (качество снижается, пока не влезет) и полный размер по клику (до MAX_SIDE)."""
+    """Вход (RGBA, прозрачный фон) → ПРОЗРАЧНЫЕ WebP без подложки и без обрезки краёв (холст как есть): превью ≤300 КБ (качество снижается, пока не влезет) и полный размер по клику (до MAX_SIDE)."""
     from PIL import Image
     im = Image.open(src).convert('RGBA')
-    bg = Image.new('RGB', im.size, (238, 238, 238))
-    bg.paste(im, mask=im.split()[-1])
-    big = bg if max(bg.size) <= MAX_SIDE else bg.resize((round(bg.width * MAX_SIDE / max(bg.size)), round(bg.height * MAX_SIDE / max(bg.size))), Image.LANCZOS)
-    big.save(full, 'JPEG', quality=JPEG_Q, optimize=True)
-    t = bg if max(bg.size) <= THUMB_SIDE else bg.resize((round(bg.width * THUMB_SIDE / max(bg.size)), round(bg.height * THUMB_SIDE / max(bg.size))), Image.LANCZOS)
+
+    def fit(side):
+        return im if max(im.size) <= side else im.resize((round(im.width * side / max(im.size)), round(im.height * side / max(im.size))), Image.LANCZOS)
+    fit(MAX_SIDE).save(full, 'WEBP', quality=90, alpha_quality=100, method=4)
+    t = fit(THUMB_SIDE)
     for q in (88, 80, 72, 64, 56, 48):
-        t.save(thumb, 'JPEG', quality=q, optimize=True)
+        t.save(thumb, 'WEBP', quality=q, alpha_quality=100, method=4)
         if os.path.getsize(thumb) <= THUMB_MAX_BYTES:
             return
     raise ValueError(f'превью входа больше {THUMB_MAX_BYTES // 1024} КБ даже при качестве 48')
@@ -1034,8 +1034,8 @@ def forms_page(items: list, chain: dict, photos: str, glbs: str, frames: str, ou
                 if jsha and hashlib.sha256(open(foto, 'rb').read()).hexdigest() != jsha:
                     errs.append(f'{sku}: файл входа не совпал с журналом (sha256) — это не то, что ушло в модель')
                 else:
-                    _input_images(foto, os.path.join(d, f'{sku}_1-vhod.jpg'), os.path.join(d, f'{sku}_1-vhod-full.jpg'))
-                    card['foto'], card['foto_full'] = f'img/{sku}_1-vhod.jpg', f'img/{sku}_1-vhod-full.jpg'
+                    _input_images(foto, os.path.join(d, f'{sku}_1-vhod.webp'), os.path.join(d, f'{sku}_1-vhod-full.webp'))
+                    card['foto'], card['foto_full'] = f'img/{sku}_1-vhod.webp', f'img/{sku}_1-vhod-full.webp'
             except Exception as ex:  # noqa: BLE001
                 errs.append(f'{sku}: вход: {type(ex).__name__}: {ex}')
         if fr:
@@ -1068,7 +1068,7 @@ def forms_page(items: list, chain: dict, photos: str, glbs: str, frames: str, ou
 def _forms_card(n: int, c: dict, badge_class: str, badge: str, caption: str, why: str, CW: dict) -> str:
     """Карточка формы: крупный номер справа, ниже в ряд три кадра одного размера — фото магазина | ракурс 1 | ракурс 2 (на телефоне — по одному в строке)."""
     e = html.escape
-    fig = lambda src, cap, full=None, none=None: (f"<figure>{('<a href=' + chr(39) + e(full) + chr(39) + ' target=_blank>') if full else ''}<img src='{e(src)}' loading='lazy' alt='{e(cap)}'>{'</a>' if full else ''}<figcaption>{e(cap)}</figcaption></figure>" if src else f"<figure><div class='nofr'>{e(cap)}: {none or ('формы нет' if badge_class in ('refused', 'soft') else 'кадр ещё не готов')}</div></figure>")
+    fig = lambda src, cap, full=None, none=None: (f"<figure>{('<a href=' + chr(39) + e(full) + chr(39) + ' target=_blank>') if full else ''}<img{' class=vhod' if full else ''} src='{e(src)}' loading='lazy' alt='{e(cap)}'>{'</a>' if full else ''}<figcaption>{e(cap)}</figcaption></figure>" if src else f"<figure><div class='nofr'>{e(cap)}: {none or ('формы нет' if badge_class in ('refused', 'soft') else 'кадр ещё не готов')}</div></figure>")
     t = c.get('tiles') or [None, None]
     return (f"<div class='card'><div class='no'>№ {n}</div><h3>{e(c['name'])}<span class='badge {e(badge_class)}'>{e(badge)}</span></h3><div class='id'>{e(c['sku'])}</div>"
             f"<div class='meta'>{e(caption)}</div><div class='pair3' style='--ar:{c.get('ar') or 1.333}'>{fig(c.get('foto'), CW.get('cap_photo') or 'вход модели (вырезка)', c.get('foto_full'), CW.get('no_input') or 'вход не найден')}{fig(t[0], CW.get('cap_v1') or 'форма: как на фото (0°)')}{fig(t[1], CW.get('cap_v2') or 'форма: 3/4 сзади (225°)')}</div>"

@@ -521,7 +521,7 @@ def _forms_fixture(tmp_path):
     for r in rows:                                                              # вход модели — вырезка RGBA с прозрачным фоном (T-180/8); у f_6 входа нет — «вход не найден»
         if r['sku'] != 'f_6':
             im = Image.new('RGBA', (30, 20), (0, 0, 0, 0))
-            im.paste(Image.new('RGBA', (30, 4), (200, 30, 30, 255)), (0, 0))        # красная полоса по самому верхнему краю — проверка «без обрезки краёв»
+            im.paste(Image.new('RGBA', (20, 4), (200, 30, 30, 255)), (5, 0))        # красная полоса по самому верхнему краю — проверка «без обрезки краёв»
             im.save(tmp_path / 'photos' / f"{r['sku']}.hd.rgba.png")
     for sku in ('a_1', 'e_5'):                                                  # форма и кадры есть (e_5 — только GLB, кадров нет)
         (tmp_path / 'glbs' / f'{sku}-hd.glb').write_bytes(b'g')
@@ -612,7 +612,7 @@ def test_slug_adds_prefix_once():
 
 def test_forms_page_shows_model_input_not_shop_photo(tmp_path):
     """T-180/8: «фото» карточки формы = вход модели из `forms-inputs` (вырезка), не карточка магазина: путь входа существует у каждой карточки, у кого файла нет — честно «вход не найден»;
-    прозрачный фон — на светлую подложку, края не обрезаны, превью ≤300 КБ, полный размер по клику; файл входа сверяется с журналом (sha256)."""
+    прозрачный фон остаётся прозрачным (webp с альфой, без подложки), края не обрезаны, превью ≤300 КБ, полный размер по клику; файл входа сверяется с журналом (sha256)."""
     import hashlib
     from PIL import Image
     rules, items, chain = _forms_fixture(tmp_path)
@@ -625,12 +625,16 @@ def test_forms_page_shows_model_input_not_shop_photo(tmp_path):
     have = [it['id'] for it in items if prr.form_input_path(str(ins), it['id'])]
     assert have == ['a_1', 'b_2', 'c_3', 'd_4', 'e_5'] and prr.form_input_path(str(ins), 'f_6') is None            # путь входа — одна функция
     for sku in have:                                                                                              # у каждой карточки с входом: превью и полный размер на диске, ссылка по клику
-        th, fu = tmp_path / 'o' / 'img' / f'{sku}_1-vhod.jpg', tmp_path / 'o' / 'img' / f'{sku}_1-vhod-full.jpg'
+        th, fu = tmp_path / 'o' / 'img' / f'{sku}_1-vhod.webp', tmp_path / 'o' / 'img' / f'{sku}_1-vhod-full.webp'
         assert th.exists() and fu.exists() and th.stat().st_size <= 300 * 1024
-        assert f"<a href='img/{sku}_1-vhod-full.jpg' target=_blank><img src='img/{sku}_1-vhod.jpg'" in page
+        assert f"<a href='img/{sku}_1-vhod-full.webp' target=_blank><img class=vhod src='img/{sku}_1-vhod.webp'" in page
+        for f_ in (th, fu):                                                                                       # T-180/8 ц.2: у превью и полного — альфа и прозрачные углы (никакой подложки)
+            a_ = Image.open(f_).convert('RGBA')
+            assert Image.open(f_).mode in ('RGBA', 'LA') and all(a_.getpixel(p)[3] == 0 for p in ((0, 0), (a_.width - 1, 0), (0, a_.height - 1), (a_.width - 1, a_.height - 1)))
     assert page.count('вход модели (вырезка)') >= 6 and 'вход не найден' in page and "alt='фото магазина'" not in page and '<figcaption>фото магазина' not in page
-    im = Image.open(tmp_path / 'o' / 'img' / 'a_1_1-vhod-full.jpg').convert('RGB')
-    assert im.size == (30, 20) and im.getpixel((15, 10))[0] > 225 and im.getpixel((15, 1))[0] > 180 and im.getpixel((15, 1))[1] < 90   # прозрачное → светлая подложка; верхняя красная полоса на месте (не обрезана)
+    im = Image.open(tmp_path / 'o' / 'img' / 'a_1_1-vhod-full.webp').convert('RGBA')
+    assert im.size == (30, 20) and im.getpixel((15, 10))[3] == 0 and im.getpixel((15, 1))[3] == 255 and im.getpixel((15, 1))[0] > 150 and im.getpixel((15, 1))[1] < 90   # середина прозрачна; верхняя красная полоса на месте (не обрезана)
+    assert 'img.vhod{background:transparent' in page and 'rgb(238' not in page
     Image.new('RGBA', (30, 20), (1, 2, 3, 255)).save(ins / 'a_1.hd.rgba.png')                                   # подмена входа — расхождение с журналом → ошибка сводки
     s, errs = prr.forms_page(*args)
     assert any('a_1' in x and 'журналом' in x for x in errs)
