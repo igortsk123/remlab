@@ -1,0 +1,54 @@
+{
+  "_about": "ПРОФИЛЬ РЕСУРСОВ SALAD ПО ТИПУ РАБОТЫ (T-186/1, владелец TG 1456/1457/1470). Группу Salad создаёт ТОЛЬКО kit_driver и ТОЛЬКО по строке этого файла: нет строки — отказ до создания группы (код 3), свои числа мимо профиля — отказ. Тариф: `tier` (low), нет машин — один раз `tier_fallback` (medium); выше и `batch` — запрещены. Цены тут не хранятся: только живые (kit_driver.gpu_class). `basis`: `measured` — нужны `measured.date` и `measured.log`; `estimate` — «по оценке», не мерили (в журнал проб пишется явно). Воркер отдаёт пики в /health (peak_rss_gb, peak_vram_gb, disk_free_gb, disk_mb_s, weights_gb_min); после прогона `resource_profile.py --suggest <summary>` печатает расхождения, строку правит человек. `expect.weights_gb_min_min` — нижняя скорость докачки весов для DiskGuard (если нет — из salad-groups.json → disk_guard).",
+  "profiles": {
+    "trellis_shape": {
+      "card": "RTX 5090 (32 GB)", "card_fallbacks": [],
+      "cpu": 4, "memory_mb": 24576, "storage_gb": 50, "shm_mb": 2048,
+      "tier": "low", "tier_fallback": "medium",
+      "expect": {"job_s": 132, "peak_vram_gb": 12.3},
+      "basis": "estimate",
+      "basis_note": "карта, время и пик VRAM (12,3 ГБ занято, 18,2 резерв) — замер t178-forms-1122 (22.11, 29 заданий); vCPU/RAM/диск/shm — старый шаблон, не мерили. Кандидат: 16-ГБ карта (проба после «да»)."
+    },
+    "ultratex": {
+      "card": "RTX 5090 (32 GB)", "card_fallbacks": [],
+      "cpu": 8, "memory_mb": 49152, "storage_gb": 80, "shm_mb": 2048,
+      "tier": "low", "tier_fallback": "medium",
+      "expect": {"job_s": 341, "peak_vram_gb": 25.2, "weights_gb": 32.7, "weights_gb_min_min": 2.0},
+      "variants": {"diag": {"storage_gb": 20}},
+      "basis": "estimate",
+      "basis_note": "время и пик VRAM — замер t178-1121 (21.11, 341 с на товар, 25,2 ГБ > 24 ГБ → только 5090); RAM 48 ГБ под выгрузку te/dit — по оценке директора (22.11), пик RAM не мерили; диск 80 ГБ: веса 32,7 + запас."
+    },
+    "parts_segment": {
+      "card": "RTX 4090 (24 GB)", "card_fallbacks": [],
+      "cpu": 8, "memory_mb": 32768, "storage_gb": 40, "shm_mb": 2048,
+      "tier": "low", "tier_fallback": "medium",
+      "expect": {},
+      "basis": "estimate",
+      "basis_note": "числа прежних проб parts_trial (T-183), пики не мерили"
+    },
+    "forms_render": {
+      "card": "RTX 3090 (24 GB)", "card_fallbacks": [],
+      "cpu": 8, "memory_mb": 16384, "storage_gb": 20, "shm_mb": 2048,
+      "tier": "low", "tier_fallback": "medium",
+      "expect": {"job_s": 55},
+      "basis": "estimate",
+      "basis_note": "снимки форм Blender (р.6): 55 с на Salad — оценка из t184-1122/plan.md, на нодах не мерили"
+    },
+    "pose_camera": {
+      "card": "GTX 1650 (4 GB)", "card_fallbacks": ["GTX 1050 Ti (4 GB)", "RTX 3050 Laptop (4 GB)"],
+      "cpu": 8, "memory_mb": 16384, "storage_gb": 10, "shm_mb": 1024,
+      "tier": "low", "tier_fallback": "medium",
+      "expect": {"job_s": 646},
+      "basis": "estimate",
+      "basis_note": "камера 04: GPU не нужна, у Salad нет класса без видеокарты — самый дешёвый GTX 1650 4 ГБ ($0,017/ч low, прайс 22.11; карта выбрана в T-184); 646 с на товар — наш CPU на 1 ядро (n=8), на ноде не мерили"
+    },
+    "cpu_stage": {
+      "card": "GTX 1650 (4 GB)", "card_fallbacks": ["GTX 1050 Ti (4 GB)", "RTX 3050 Laptop (4 GB)"],
+      "cpu": 4, "memory_mb": 8192, "storage_gb": 20, "shm_mb": 1024,
+      "tier": "low", "tier_fallback": "medium",
+      "expect": {},
+      "basis": "estimate",
+      "basis_note": "этапы 06–09 (перенос фото/заливка/материал/проверка) — пока у нас; строка на случай 50k, не мерили"
+    }
+  }
+}

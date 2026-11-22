@@ -300,6 +300,96 @@ def gateway_post_rules() -> dict:
     return salad_rules('gateway_post')
 
 
+# ---------------------------------------------------------------- профиль ресурсов по типу работы (T-186/1; владелец TG 1456/1457/1470)
+class ProfileRefused(RuntimeError):
+    """Группу Salad создаём ТОЛЬКО по профилю типа работы (`rules/salad-resources.json`). Нет профиля, свои числа мимо него, запрещённый тариф, карта вне профиля → отказ ДО создания группы (код 3)."""
+
+
+FORBIDDEN_TIERS = ('batch', 'high')                           # владелец TG 1456/1457: low, нет машин → medium, выше и batch нельзя
+PROFILE_REQUIRED = ('card', 'cpu', 'memory_mb', 'storage_gb', 'shm_mb', 'tier', 'tier_fallback', 'expect', 'basis')
+
+
+def resources_path() -> str:
+    return os.path.join(os.path.dirname(os.path.abspath(__file__)), '..', 'rules', 'salad-resources.json')
+
+
+def load_profiles(path: str | None = None) -> dict:
+    try:
+        return json.load(open(path or resources_path(), encoding='utf-8')).get('profiles') or {}
+    except (OSError, ValueError):
+        return {}
+
+
+def profile_problems(prof: dict) -> list[str]:
+    """Чем строка профиля негодна (пусто — годна): все поля на месте, тарифы только low/medium, `basis` честный (measured — дата и лог)."""
+    out = [f'нет поля «{k}»' for k in PROFILE_REQUIRED if k not in prof]
+    for k in ('tier', 'tier_fallback'):
+        if prof.get(k) in FORBIDDEN_TIERS or (k in prof and prof[k] not in ('low', 'medium')):
+            out.append(f'{k}={prof.get(k)!r}: разрешены только low и medium')
+    if prof.get('basis') not in ('measured', 'estimate'):
+        out.append('basis: measured или estimate')
+    elif prof['basis'] == 'measured':
+        m = prof.get('measured') or {}
+        if not (m.get('date') and m.get('log')):
+            out.append('basis=measured без measured.date и measured.log (откуда числа)')
+    elif not prof.get('basis_note'):
+        out.append('basis=estimate без basis_note (что именно не мерили)')
+    return out
+
+
+def resource_profile(work_type: str, path: str | None = None) -> dict:
+    """Строка профиля типа работы; нет типа/строки/поля — `ProfileRefused` с понятным текстом."""
+    if not work_type:
+        raise ProfileRefused('не указан тип работы (`work_type`): группу Salad создаём только по профилю `rules/salad-resources.json`')
+    prof = load_profiles(path).get(work_type)
+    if not isinstance(prof, dict):
+        raise ProfileRefused(f'нет профиля «{work_type}» в rules/salad-resources.json — добавь строку (карта, vCPU, RAM, диск, shm, тариф, basis) и только потом создавай группу')
+    bad = profile_problems(prof)
+    if bad:
+        raise ProfileRefused(f'профиль «{work_type}» негоден: ' + '; '.join(bad))
+    return prof
+
+
+def profile_resources(prof: dict, variant: str = '') -> dict:
+    """`resources` тела группы — ТОЛЬКО из профиля (вариант `variants.<имя>` перекрывает отдельные поля, например диск диагностики)."""
+    v = {**prof, **((prof.get('variants') or {}).get(variant) or {})} if variant else prof
+    return {'cpu': int(v['cpu']), 'memory': int(v['memory_mb']), 'storage_amount': int(v['storage_gb']) * 2 ** 30, 'shm_size': int(v['shm_mb'])}
+
+
+def tier_refusal(prof: dict, tier: str) -> str | None:
+    if tier in FORBIDDEN_TIERS:
+        return f'тариф «{tier}» запрещён (владелец TG 1456/1457: low, нет машин — medium, выше и batch нельзя)'
+    if tier not in (prof['tier'], prof['tier_fallback']):
+        return f'тариф «{tier}» вне профиля: разрешены {prof["tier"]} и (нет машин) {prof["tier_fallback"]}'
+    return None
+
+
+def card_refusal(prof: dict, card: str) -> str | None:
+    cards = [prof['card'], *(prof.get('card_fallbacks') or [])]
+    return None if card in cards else f'карта «{card}» вне профиля (разрешены: {", ".join(cards)})'
+
+
+def body_refusal(prof: dict, body: dict, variant: str = '') -> str | None:
+    """Готовое тело группы сверяем с профилем: драйвер, собравший тело мимо `group_body(work_type=…)`, ловится здесь, до создания группы."""
+    c = (body or {}).get('container') or {}
+    got = {k: (c.get('resources') or {}).get(k) for k in ('cpu', 'memory', 'storage_amount', 'shm_size')}
+    want = profile_resources(prof, variant)
+    if got != want:
+        return f'ресурсы тела группы {got} не равны профилю {want} — числа только из rules/salad-resources.json'
+    for k in (c.get('priority'), (body or {}).get('priority')):
+        bad = tier_refusal(prof, k)
+        if bad:
+            return bad
+    return None
+
+
+def basis_text(prof: dict) -> str:
+    if prof.get('basis') == 'measured':
+        m = prof.get('measured') or {}
+        return f'замер {m.get("date")}, {m.get("log")}'
+    return 'по оценке'
+
+
 def post_timeout_s(body_chars: int, override: int = 0, rules: dict | None = None) -> int:
     """Таймаут POST задания по размеру тела: base_s + per_mb_s × МБ (base64), не больше max_s — из `gateway_post` (T-178 22.11: шлюз Salad отвечает 76–90+ с на холодной ноде,
     зашитые 90/120 с срывали первое задание). `override` > 0 — явное значение; нет правила — 90 + 30/МБ, ≤ 300."""
@@ -354,11 +444,19 @@ def probes(port: int, path: str = '/health') -> tuple[dict, dict]:
             {'http': http, 'initial_delay_seconds': 10, 'period_seconds': STARTUP_PERIOD_S, 'timeout_seconds': 5, 'success_threshold': 1, 'failure_threshold': 20})
 
 
-def group_body(name: str, image: str, tier: str, class_id: str, port: int, env: dict, resources: dict, auth: dict, command: list | None = None) -> dict:
-    """Тело временной группы пробы: 1 нода, без автостарта и перезапуска, шлюз с ключом, пробы на /health. Модель задаёт только `env`, `resources`, `command`."""
+def group_body(name: str, image: str, tier: str, class_id: str, port: int, env: dict, auth: dict, command: list | None = None, *, work_type: str = '', variant: str = '',
+               card: str | None = None, resources: dict | None = None) -> dict:
+    """Тело временной группы пробы: 1 нода, без автостарта и перезапуска, шлюз с ключом, пробы на /health. Ресурсы — ТОЛЬКО из профиля типа работы (`work_type`,
+    `rules/salad-resources.json`): свои `resources` → `ProfileRefused`, как и нет профиля, тариф вне {low, medium} (batch/high — нельзя), карта вне профиля."""
+    if resources is not None:
+        raise ProfileRefused('ресурсы группы нельзя передавать мимо профиля: правь строку типа работы в rules/salad-resources.json')
+    prof = resource_profile(work_type)
+    bad = tier_refusal(prof, tier) or (card_refusal(prof, card) if card else None)
+    if bad:
+        raise ProfileRefused(bad)
     readiness, startup = probes(port)
     container = {'image': image, **({'command': command} if command else {}),
-                 'resources': {**resources, 'gpu_classes': [class_id]}, 'priority': tier, 'environment_variables': env, 'image_caching': True,
+                 'resources': {**profile_resources(prof, variant), 'gpu_classes': [class_id]}, 'priority': tier, 'environment_variables': env, 'image_caching': True,
                  'registry_authentication': auth}
     return {'name': name, 'display_name': name, 'container': container, 'autostart_policy': False, 'restart_policy': 'never', 'replicas': 1, 'priority': tier,
             'country_codes': [],
@@ -570,6 +668,60 @@ class PullGuard:
         return False
 
 
+# ---------------------------------------------------------------- сторож медленного ДИСКА ноды (T-186/1: t178c качал веса 0,95 ГБ/мин при норме 7,5, а run_probe не звал weights_slow)
+_DGR = salad_rules('disk_guard')                        # числа — `rules/salad-groups.json` → disk_guard; нижняя скорость профиля `expect.weights_gb_min_min` перекрывает
+DISK_WINDOW_S = float(_DGR.get('window_s', 300.0))
+DISK_MIN_GB_MIN = float(_DGR.get('min_gb_min', 2.0))
+DISK_MAX_RECREATE = int(_DGR.get('max_recreations', 2))
+
+
+class DiskGuard:
+    """Идёт фаза `weights` (воркер отдаёт `root_gb` в /health), а скорость за окно ниже нормы — нода с медленным диском: пересаживаем (≤ max_recreations за пробу), потом `give_up`
+    (драйвер гасит: медленно качают все ноды — это образ/сеть/диск группы, а не одна машина). Деньги и число медленных нод идут в сводку (`disk_culls`, `disk_slow_rates`).
+    `realloc(group, iid, why)` и `take_slot()` — как у PullGuard (общий бюджет node_health), подменяются в тестах."""
+
+    def __init__(self, group: str, min_gb_min: float = DISK_MIN_GB_MIN, window_s: float = DISK_WINDOW_S, max_recreations: int = DISK_MAX_RECREATE,
+                 take_slot: Callable[[], int] | None = None, realloc: Callable[[str, str, str], bool] | None = None, say_fn=say):
+        self.group, self.min_gb_min, self.window_s, self.max_recreations, self.say = group, min_gb_min, window_s, max_recreations, say_fn
+        self.take_slot, self.realloc = take_slot, realloc
+        self.culls = 0
+        self.rates: list = []                                   # скорости медленных нод, ГБ/мин — в сводку
+        self.give_up = ''
+
+    def _nh(self):
+        if self.take_slot is None or self.realloc is None:
+            import sys
+            here = os.path.dirname(os.path.abspath(__file__))
+            if here not in sys.path:
+                sys.path.insert(0, here)
+            import node_health as NH
+            self.take_slot = self.take_slot or NH.take_cull_slot
+            self.realloc = self.realloc or NH.reallocate
+
+    def step(self, t: float, hist: list, ins: list) -> bool:
+        """True — ноду пересадили (вызывающий чистит `hist`). `hist` = [(время, ГБ папки весов)] текущей ноды."""
+        rate = weights_slow(hist, self.window_s, self.min_gb_min)
+        if rate is None:
+            return False
+        iid = next((i.get('id') for i in ins if i.get('id')), None)
+        why = f'веса качаются {rate:.2f} ГБ/мин за {self.window_s / 60:.0f} мин (норма от {self.min_gb_min} ГБ/мин) — медленный диск/сеть ноды'
+        if self.culls >= self.max_recreations:
+            self.give_up = f'{why}; пересадок уже {self.culls} — гашу'
+            return False
+        if not iid:
+            return False
+        self._nh()
+        if not self.take_slot():
+            self.say(f'сторож диска: общий бюджет пересадок на час исчерпан — жду: {why}')
+            return False
+        self.say(f'сторож диска: нода {str(iid)[:8]} — {why} → пересаживаю (№{self.culls + 1} из {self.max_recreations})')
+        if self.realloc(self.group, iid, why):
+            self.culls += 1
+            self.rates.append(round(rate, 3))
+            return True
+        return False
+
+
 # ---------------------------------------------------------------- сторож пробы (чистое решение, тестируется без сети)
 @dataclass
 class Watch:
@@ -725,19 +877,55 @@ class Spec:
     before_job: Callable[[str, float, float], str | None] | None = None   # (следующий ключ, деньги сейчас $, потолок сейчас $) → причина планового стопа или None: --max-meshes, файл-стоп,
                                                                            # «по средней длительности не успеет до потолка», первый провал (платное не шлём впустую); стоп = 'planned:<причина>', код 0
     cuda_archs: tuple = ()                                         # архитектуры CUDA образа ('12.0',): пусто — сверка с картой не делается (урок 742)
+    work_type: str = ''                                            # тип работы → профиль ресурсов `rules/salad-resources.json` (T-186/1): ОБЯЗАТЕЛЕН, пусто/нет профиля → отказ до группы (код 3)
+    variant: str = ''                                              # вариант профиля (`variants.<имя>`, например диск диагностики)
 
 
-def run_probe(a, MG, BR, spec: Spec, gw_factory=Gateway, sleep=time.sleep, clock=time.time, slot_check=require_slot,
-              image_check=check_image, ledger=ledger_append, wait_s: float = 2400, pull_guard: Callable[[str], PullGuard] | None = None) -> int:
+def run_probe(a, MG, BR, spec: Spec, **kw) -> int:
+    """Платная проба по профилю типа работы. Тариф `low`; нет машин (`no_machine`, $0 — до running не списывается) → ОДИН раз `tier_fallback` (medium) в ядре, не в драйверах.
+    ВАЖНО: `a.tier`/`a.suffix` меняются на месте (замыкания `build_body` драйверов читают `a`). Выше medium и batch — нельзя (`tier_refusal`)."""
+    res: dict = {}
+    rc = _run_probe_once(a, MG, BR, spec, result=res, **kw)
+    try:
+        prof = resource_profile(spec.work_type)
+    except ProfileRefused:
+        return rc
+    if (res.get('summary') or {}).get('stopped_by') == 'no_machine' and a.apply and a.tier == prof['tier'] and prof['tier_fallback'] != a.tier and getattr(a, 'tier_fallback', True):
+        say(f'нет машин на «{a.tier}» — один раз пробую «{prof["tier_fallback"]}» (профиль {spec.work_type}; выше нельзя)')
+        a.tier, a.suffix = prof['tier_fallback'], f'{a.suffix}m'
+        return _run_probe_once(a, MG, BR, spec, result={}, **kw)
+    return rc
+
+
+def _run_probe_once(a, MG, BR, spec: Spec, gw_factory=Gateway, sleep=time.sleep, clock=time.time, slot_check=require_slot,
+                    image_check=check_image, ledger=ledger_append, wait_s: float = 2400, pull_guard: Callable[[str], PullGuard] | None = None,
+                    disk_guard: Callable[[str], DiskGuard] | None = None, result: dict | None = None) -> int:
     """Платная проба на Salad по общему образцу. `a`: image, suffix, tier, apply, cap, probe_cap, max_min, running_min, start_min, health_min, ready_min, stall_min, stall_gb,
     job_min, out. Без `--apply` — только разбор (тело без секретов, группа НЕ создаётся)."""
     name = f'{spec.prefix}-{a.suffix}'
+    try:                                                     # профиль ресурсов — ДО всего (в т.ч. до разбора без --apply): нет профиля/чужой тариф/чужая карта → отказ
+        prof = resource_profile(spec.work_type)
+        refuse = tier_refusal(prof, a.tier) or card_refusal(prof, spec.card)
+    except ProfileRefused as exc:
+        prof, refuse = None, str(exc)
+    if refuse:
+        say('ОТКАЗ по профилю ресурсов:', refuse)
+        say('группу НЕ создаю, денег не потрачено')
+        return 3
     MG.env_from_file()
     class_id, price = gpu_class(MG, spec.card, a.tier)
     if class_id is None:
         say(f'класс карты «{spec.card}» не найден у Salad — стоп, денег не потрачено')
         return 3
-    body = spec.build_body(name, class_id, MG.ghcr_auth())
+    try:
+        body = spec.build_body(name, class_id, MG.ghcr_auth())
+        refuse = body_refusal(prof, body, spec.variant)
+    except ProfileRefused as exc:
+        refuse = str(exc)
+    if refuse:
+        say('ОТКАЗ по профилю ресурсов:', refuse)
+        say('группу НЕ создаю, денег не потрачено')
+        return 3
     say('группа', name, spec.card, 'тариф', a.tier, 'цена $/ч', price, 'задания', spec.jobs, f'потолок пробы ${a.probe_cap}, общий ${a.cap}')
     if not a.apply:
         safe_print(body, spec.z_keys)
@@ -788,7 +976,9 @@ def run_probe(a, MG, BR, spec: Spec, gw_factory=Gateway, sleep=time.sleep, clock
         return 2
     os.makedirs(a.out, exist_ok=True)
     summary = {'group': name, 'image': a.image, 'image_gib': image_gib, 'tier': a.tier, 'price_usd_h': price, 'cap_usd': a.cap, 'probe_cap_usd': a.probe_cap,
-               'jobs': {}, 'failed': 0, 'stop_verified': False, 'stopped_by': None}
+               'work_type': spec.work_type, 'profile': prof, 'profile_basis': basis_text(prof), 'jobs': {}, 'failed': 0, 'stop_verified': False, 'stopped_by': None}
+    if result is not None:
+        result['summary'] = summary
     ok_create, t_start, refuse = create_and_start(MG, BR, name, body, say, sleep, clock, wait_s)
     if not ok_create:
         summary['stopped_by'] = refuse
@@ -799,6 +989,7 @@ def run_probe(a, MG, BR, spec: Spec, gw_factory=Gateway, sleep=time.sleep, clock
         return 1
     w = Watch(t_start, price, a.probe_cap, a.cap, a.max_min, a.running_min, a.start_min, a.health_min, a.ready_min, a.stall_min, a.stall_gb)
     guard = (pull_guard or PullGuard)(name) if getattr(a, 'pull_guard', True) else None      # --no-pull-guard выключает (a.pull_guard=False)
+    dguard = (disk_guard or (lambda n: DiskGuard(n, min_gb_min=float((prof.get('expect') or {}).get('weights_gb_min_min') or DISK_MIN_GB_MIN))))(name) if getattr(a, 'disk_guard', True) else None
     if guard is not None:
         guard.configure(image_gib)                                                           # норма докачки — от размера образа (ожидаемое × 2,5), не константы мешей
     gw = None
@@ -825,6 +1016,14 @@ def run_probe(a, MG, BR, spec: Spec, gw_factory=Gateway, sleep=time.sleep, clock
                 say(f'!! {guard.give_up} — гашу')
                 summary['stopped_by'] = 'pull_slow'
                 break
+            if dguard is not None and w.run_since is not None and w.ready_at is None:           # платная фаза докачки весов: медленный диск → пересадка, потом стоп
+                if dguard.step(t, w.gb_hist, ins):
+                    w.gb_hist.clear()
+                    summary['disk_culls'], summary['disk_slow_rates'] = dguard.culls, dguard.rates
+                if dguard.give_up:
+                    say(f'!! {dguard.give_up}')
+                    summary['stopped_by'] = 'disk_slow'
+                    break
             why, detail = w.money_time(t, ins)
             summary['cost_usd_est'] = round(w.cost(t), 3)
             if why:
@@ -934,7 +1133,9 @@ def run_probe(a, MG, BR, spec: Spec, gw_factory=Gateway, sleep=time.sleep, clock
         summary['running_s'] = round((clock() - w.run_since), 1) if w.run_since is not None else 0.0
         summary['cost_usd_est'] = round(cost_usd(summary['running_s'], price), 3)
         json.dump(summary, open(os.path.join(a.out, f'summary-{name}.json'), 'w'), ensure_ascii=False, indent=1, default=str)
-        warn = ledger({'group': name, 'model': spec.model, 'card': spec.card, 'tier': a.tier, 'image': a.image, 'running_s': summary['running_s'], 'price_usd_h': price,
+        if dguard is not None:
+            summary['disk_culls'], summary['disk_slow_rates'] = dguard.culls, dguard.rates
+        warn = ledger({'group': name, 'model': spec.model, 'work_type': spec.work_type, 'profile_basis': basis_text(prof), 'profile': prof, 'card': spec.card, 'tier': a.tier, 'image': a.image, 'running_s': summary['running_s'], 'price_usd_h': price,
                        'cost_usd_est': summary['cost_usd_est'], 'stopped_by': summary['stopped_by'], 'stop_verified': summary['stop_verified'],
                        'jobs_done': sum(1 for v in summary['jobs'].values() if v.get('status') == 'done'), 'jobs_failed': summary['failed'], 'driver': 'kit_driver'})
         if warn:

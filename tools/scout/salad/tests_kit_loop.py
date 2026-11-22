@@ -18,6 +18,20 @@ import remlab_tmp  # noqa: E402  временное теста — на диск
 remlab_tmp.use('tests_kit_loop')
 import kit_driver as KD  # noqa: E402
 
+# профиль ресурсов (T-186/1): run_probe без профиля типа работы отказывает; тесты подменяют строку профиля на пробную (как подменяют gpu_class)
+TEST_PROF = {'card': 'RTX X', 'card_fallbacks': ['RTX 5090 (32 GB)'], 'cpu': 4, 'memory_mb': 8192, 'storage_gb': 10, 'shm_mb': 1024, 'tier': 'low', 'tier_fallback': 'medium',
+             'expect': {}, 'basis': 'estimate', 'basis_note': 'тест'}
+
+
+def _fake_profile(wt, path=None):
+    if wt == 'kit-test':
+        return TEST_PROF
+    return _real_profile(wt, path)
+
+
+_real_profile = KD.resource_profile
+KD.resource_profile = _fake_profile
+
 FAILS = []
 
 
@@ -115,8 +129,8 @@ def make_spec(keys):
     def poll(gw, cur, t):
         c, r = gw.call('GET', f'/result/{cur["id"]}')
         return ('done', {'x': 1}) if r.get('status') == 'done' else ('running', {})
-    return KD.Spec(prefix='kit-loop', card='RTX X', model='m', jobs=keys.split(','), build_body=lambda n, c, a: {'name': n}, submit=submit, poll=poll,
-                   allow_no_worker_check=True)                      # поддельный воркер теста: кода воркера нет (в боевой пробе worker_file обязателен)
+    return KD.Spec(prefix='kit-loop', card='RTX X', model='m', jobs=keys.split(','), build_body=lambda n, c, a: KD.group_body(n, 'img@sha256:1', 'low', c, 8000, {}, a, work_type='kit-test'), submit=submit, poll=poll,
+                   allow_no_worker_check=True, work_type='kit-test')                      # поддельный воркер теста: кода воркера нет (в боевой пробе worker_file обязателен)
 
 
 LEDGER = []
@@ -134,7 +148,7 @@ def drive(tmp, keys, job_s, job_min, price=0.6, gw_cls=None, **kw):
             br.t0 = clock()
         return r
     mg.api = api
-    d = dict(image='x@sha256:1', suffix='t', tier='high', apply=True, cap=4.0, probe_cap=1.0, max_min=600, running_min=30, start_min=20, health_min=8, ready_min=30,
+    d = dict(image='x@sha256:1', suffix='t', tier='low', apply=True, cap=4.0, probe_cap=1.0, max_min=600, running_min=30, start_min=20, health_min=8, ready_min=30,
              stall_min=5, stall_gb=0.05, job_min=job_min, out=os.path.join(tmp, 'out'))
     d.update(kw)
     out = io.StringIO()
@@ -178,7 +192,7 @@ with tempfile.TemporaryDirectory() as tmp:
     KD.gpu_class = lambda MG_, name, tier, fetch=None: ('cls', 0.6)
     orig = mg.api
     mg.api = lambda path, method='GET', body=None: (setattr(br, 't0', clock()) if (method == 'POST' and path.endswith('/start')) else None) or orig(path, method, body)
-    a = argparse.Namespace(image='x@sha256:1', suffix='t', tier='high', apply=True, cap=4.0, probe_cap=1.0, max_min=600, running_min=30, start_min=20, health_min=8, ready_min=30,
+    a = argparse.Namespace(image='x@sha256:1', suffix='t', tier='low', apply=True, cap=4.0, probe_cap=1.0, max_min=600, running_min=30, start_min=20, health_min=8, ready_min=30,
                            stall_min=5, stall_gb=0.05, job_min=0, out=os.path.join(tmp, 'out'))
     with contextlib.redirect_stdout(io.StringIO()):
         rc = KD.run_probe(a, mg, br, make_spec('a,b'), gw_factory=lambda base, key: Bad(clock, 100.0), sleep=clock.sleep, clock=clock, slot_check=lambda: None,
@@ -243,7 +257,7 @@ with tempfile.TemporaryDirectory() as tmp:
     clock = Clock()
     mg, br = MG(), BR(clock)
     KD.gpu_class = lambda MG_, name, tier, fetch=None: ('cls', 0.6)
-    a = argparse.Namespace(image='x@sha256:1', suffix='t', tier='high', apply=True, cap=4.0, probe_cap=1.0, max_min=600, running_min=30, start_min=20, health_min=8, ready_min=30,
+    a = argparse.Namespace(image='x@sha256:1', suffix='t', tier='low', apply=True, cap=4.0, probe_cap=1.0, max_min=600, running_min=30, start_min=20, health_min=8, ready_min=30,
                            stall_min=5, stall_gb=0.05, job_min=0, out=os.path.join(tmp, 'out'))
     o = io.StringIO()
     with contextlib.redirect_stdout(o):
@@ -374,7 +388,7 @@ def drive_pull(tmp, running_min, fast_second=True, second_rate=0.12, max_culls=3
         if not fast_second:
             br.realloc_at = None
         return True
-    a = argparse.Namespace(image='x@sha256:1', suffix='t', tier='high', apply=True, cap=4.0, probe_cap=1.0, max_min=600, running_min=running_min, start_min=20, health_min=8, ready_min=30,
+    a = argparse.Namespace(image='x@sha256:1', suffix='t', tier='low', apply=True, cap=4.0, probe_cap=1.0, max_min=600, running_min=running_min, start_min=20, health_min=8, ready_min=30,
                            stall_min=5, stall_gb=0.05, job_min=0, out=os.path.join(tmp, 'out'), pull_guard=guard_on)
     buf = io.StringIO()
     with contextlib.redirect_stdout(buf):
@@ -442,6 +456,150 @@ with tempfile.TemporaryDirectory() as tmp:
     make_spec = _orig_ms
     check(summ.get('stopped_by') == 'first_failed' and rc == 1 and not summ.get('jobs') and summ.get('stop_verified'),
           f'before_job: «!причина» — аварийный стоп, код 1, ничего не послано ({summ.get("stopped_by")}, rc {rc})')
+
+# ---------------------------------------------------------------- T-186/1: профиль ресурсов, тариф, сторож диска
+def run_raw(tmp, spec, mg=None, br=None, gw_cls=None, tier='low', suffix='t', clock=None, **kw):
+    clock = clock or Clock()
+    mg, br = mg or MG(), br or BR(clock)
+    KD.gpu_class = lambda MG_, name, tier_, fetch=None: ('cls', 0.6)
+    orig_api = mg.api
+
+    def api(path, method='GET', body=None):
+        r_ = orig_api(path, method, body)
+        if method == 'POST' and path.endswith('/start'):
+            br.t0 = clock()
+        return r_
+    mg.api = api
+    a = argparse.Namespace(image='x@sha256:1', suffix=suffix, tier=tier, apply=True, cap=4.0, probe_cap=1.0, max_min=600, running_min=30, start_min=20, health_min=8, ready_min=30,
+                           stall_min=5, stall_gb=0.05, job_min=0, out=os.path.join(tmp, 'out'))
+    out = io.StringIO()
+    with contextlib.redirect_stdout(out):
+        rc = KD.run_probe(a, mg, br, spec, gw_factory=lambda base, key: (gw_cls or GW)(clock, 10.0), sleep=clock.sleep, clock=clock, slot_check=lambda: None,
+                          image_check=lambda *x, **k: (True, 'ok', 1.0), ledger=lambda rec: LEDGER.append(rec), **kw)
+    return rc, a, out.getvalue(), mg, br
+
+
+with tempfile.TemporaryDirectory() as tmp:                        # а) тариф batch/high — отказ ДО группы
+    for bad in ('batch', 'high'):
+        rc, a, out, mg, br = run_raw(tmp, make_spec('a'), tier=bad)
+        check(rc == 3 and not mg.created and 'ОТКАЗ по профилю' in out and 'запрещён' in out, f'тариф {bad}: отказ до создания группы, код 3 ({rc})')
+with tempfile.TemporaryDirectory() as tmp:                        # б) нет типа работы / нет профиля / карта вне профиля
+    sp = make_spec('a')
+    sp.work_type = ''
+    rc, a, out, mg, br = run_raw(tmp, sp)
+    check(rc == 3 and not mg.created and 'не указан тип работы' in out, 'Spec без work_type: отказ до группы')
+    sp = make_spec('a')
+    sp.work_type = 'нет-такого'
+    rc, a, out, mg, br = run_raw(tmp, sp)
+    check(rc == 3 and not mg.created and 'нет профиля «нет-такого»' in out, 'тип работы без строки профиля: отказ до группы')
+    sp = make_spec('a')
+    sp.card = 'RTX 9999'
+    rc, a, out, mg, br = run_raw(tmp, sp)
+    check(rc == 3 and not mg.created and 'вне профиля' in out, 'карта не из профиля: отказ до группы')
+with tempfile.TemporaryDirectory() as tmp:                        # в) драйвер собрал тело мимо профиля — ловится по готовому телу
+    sp = make_spec('a')
+    good = sp.build_body
+
+    def sneaky(n, c, auth):
+        b = good(n, c, auth)
+        b['container']['resources']['memory'] = 999999
+        return b
+    sp.build_body = sneaky
+    rc, a, out, mg, br = run_raw(tmp, sp)
+    check(rc == 3 and not mg.created and 'не равны профилю' in out, 'тело с чужой памятью: отказ до группы')
+    sp = make_spec('a')
+    sp.build_body = lambda n, c, auth: {'name': n}
+    rc, a, out, mg, br = run_raw(tmp, sp)
+    check(rc == 3 and not mg.created, 'тело вообще без ресурсов (мимо group_body): отказ до группы')
+# г) group_body сам: свои resources / чужой тариф / нет профиля
+for kwargs, frag in (({'resources': {'cpu': 1}}, 'мимо профиля'), ({'work_type': ''}, 'не указан тип'), ({'work_type': 'нет-такого'}, 'нет профиля')):
+    kw0 = {'work_type': 'kit-test'}
+    kw0.update(kwargs)
+    try:
+        KD.group_body('g', 'img', 'low', 'cls', 8000, {}, {}, **kw0)
+        got = ''
+    except KD.ProfileRefused as exc:
+        got = str(exc)
+    check(frag in got, f'group_body: {frag} → ProfileRefused')
+try:
+    KD.group_body('g', 'img', 'batch', 'cls', 8000, {}, {}, work_type='kit-test')
+    got = ''
+except KD.ProfileRefused as exc:
+    got = str(exc)
+check('запрещён' in got, 'group_body: batch → ProfileRefused')
+b = KD.group_body('g', 'img', 'low', 'cls', 8000, {}, {}, work_type='kit-test')
+check(b['container']['resources'] == {'cpu': 4, 'memory': 8192, 'storage_amount': 10 * 2 ** 30, 'shm_size': 1024, 'gpu_classes': ['cls']} and b['priority'] == 'low',
+      'group_body: ресурсы — ровно из профиля')
+
+with tempfile.TemporaryDirectory() as tmp:                        # д) в журнал проб — профиль и «по оценке»
+    LEDGER.clear()
+    rc, summ, out, br = drive(tmp, 'a', job_s=60.0, job_min=0)
+    rec = LEDGER[-1] if LEDGER else {}
+    check(rec.get('work_type') == 'kit-test' and rec.get('profile_basis') == 'по оценке' and (rec.get('profile') or {}).get('cpu') == 4 and summ.get('profile_basis') == 'по оценке',
+          f'журнал и сводка: тип работы, профиль целиком, «по оценке» ({rec.get("work_type")}, {rec.get("profile_basis")})')
+
+# е) нет машин на low → ОДИН раз medium в ядре (деньги $0 — до running не списывается); второй раз — нет
+class BRNoNode(BR):
+    def instances(self, name):
+        if self.t0 is None:
+            return 200, []
+        up = name != 'kit-loop-t' and self.clock() - self.t0 >= self.running_after
+        return 200, [{'state': 'running' if up else 'creating', 'started': up}]
+
+
+class MGNames(MG):
+    def __init__(self):
+        super().__init__()
+        self.names = set()
+
+    def api(self, path, method='GET', body=None):
+        if method == 'POST' and path == '':
+            self.names.add(body['name'])
+            self.created = True
+            return 201, {}
+        if method == 'GET' and path.startswith('/'):
+            return (200, {'networking': {'dns': 'g.example'}}) if path[1:] in self.names else (404, {})
+        return super().api(path, method, body)
+
+
+with tempfile.TemporaryDirectory() as tmp:
+    clock0 = Clock()
+    rc, a, out, mg, br = run_raw(tmp, make_spec('a'), mg=MGNames(), br=BRNoNode(clock0), clock=clock0)
+    check(a.tier == 'medium' and a.suffix == 'tm' and 'один раз пробую «medium»' in out, f'нет машин на low → один раз medium ({a.tier}, {a.suffix})')
+    check(len(mg.names) == 2, f'создано две группы: low и затем medium ({sorted(mg.names)})')
+
+class DiskSlowGW(GW):
+    """Фаза weights: папка растёт 0,5 ГБ/мин — ниже нормы 2,0 (DiskGuard), но выше «стоит» (Watch.stall)."""
+    def call(self, method, path, body=None, timeout=60, raw=False):
+        if path == '/health':
+            return 200, {'phase': 'weights', 'version': 'v', 'error': '', 'root_gb': round((self.clock() - self.t0) / 60 * 0.5, 3)}
+        return super().call(method, path, body, timeout, raw)
+
+
+class BRId(BR):
+    def instances(self, name):
+        c, ins = super().instances(name)
+        return c, [dict(i, id='inst-1') for i in ins]
+
+
+with tempfile.TemporaryDirectory() as tmp:
+    reall = []
+    clock1 = Clock()
+    rc, a, out, mg, br = run_raw(tmp, make_spec('a'), br=BRId(clock1), clock=clock1, gw_cls=DiskSlowGW,
+                                 disk_guard=lambda n: KD.DiskGuard(n, take_slot=lambda: 1, realloc=lambda g, i, w: (reall.append((g, i)) or True)))
+    sm = json.load(open(os.path.join(tmp, 'out', 'summary-kit-loop-t.json')))
+    check(sm.get('stopped_by') == 'disk_slow' and sm.get('disk_culls') == 2 and len(reall) == 2 and rc == 1 and sm.get('stop_verified'),
+          f'медленный диск: 2 пересадки, затем стоп disk_slow ({sm.get("stopped_by")}, пересадок {sm.get("disk_culls")}, rc {rc})')
+    check(len(sm.get('disk_slow_rates') or []) == 2 and all(0.3 < r_ < 0.7 for r_ in sm['disk_slow_rates']), f'скорости медленных нод — в сводке ({sm.get("disk_slow_rates")})')
+
+# DiskGuard отдельно: быстрая нода не трогается, окно не набралось — не судим
+dg = KD.DiskGuard('g', take_slot=lambda: 1, realloc=lambda g, i, w: True, say_fn=lambda *x: None)
+check(not dg.step(100.0, [(0.0, 0.0), (100.0, 5.0)], [{'id': 'i'}]), 'DiskGuard: окно 5 мин не набралось — не судит')
+check(not dg.step(400.0, [(0.0, 0.0), (400.0, 40.0)], [{'id': 'i'}]), 'DiskGuard: 6 ГБ/мин — нормально, нода не трогается')
+check(dg.step(400.0, [(0.0, 0.0), (400.0, 4.0)], [{'id': 'i'}]) and dg.culls == 1, 'DiskGuard: 0,6 ГБ/мин — пересадка')
+dgx = KD.DiskGuard('g', take_slot=lambda: 0, realloc=lambda g, i, w: True, say_fn=lambda *x: None)
+check(not dgx.step(400.0, [(0.0, 0.0), (400.0, 4.0)], [{'id': 'i'}]) and dgx.culls == 0, 'DiskGuard: общий бюджет пересадок исчерпан — ждёт, не пересаживает')
+
 
 print('\nИТОГ:', 'ВСЁ ЗЕЛЁНОЕ' if not FAILS else f'ПАДЕНИЙ {len(FAILS)}')
 sys.exit(1 if FAILS else 0)
