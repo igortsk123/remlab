@@ -224,6 +224,13 @@ def photo_paths(per: dict, runof: dict) -> dict:
                 p = m.group(1) if m else None
             except Exception:  # noqa: BLE001
                 p = None
+        if not (p and os.path.exists(p)):                                # встал на 01–02: пути фото в данных нет — берём вырезку фото рядом с формой (`<папка форм>/../inputs/<товар>.hd.rgba.png`)
+            try:
+                g = re.search(r'"--glb",\s*"([^"]+)"', open(os.path.join(base, 'run_all.json'), encoding='utf-8').read())
+                q = os.path.join(os.path.dirname(os.path.dirname(g.group(1))), 'inputs', f'{sku}.hd.rgba.png') if g else None
+                p = q if q and os.path.exists(q) else None
+            except Exception:  # noqa: BLE001
+                p = None
         out[sku] = p if p and os.path.exists(p) else None
     return out
 

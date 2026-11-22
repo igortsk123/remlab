@@ -322,3 +322,15 @@ def test_stopped_frames(tmp_path):
     (run / 'd' / '08-material' / 'frame.png').unlink()
     sf = prr.stopped_frames(runof, PER, [('d', '08-material')], photos, str(tmp_path / 'sf2'))
     assert sf['d']['frame_stage'] == '04-camera'                                                                    # нет кадра этапа остановки — берём последний, что есть
+
+
+def test_photo_from_inputs_next_to_form(tmp_path):
+    from PIL import Image
+    (tmp_path / 'inputs').mkdir()
+    (tmp_path / 'hd-forms').mkdir()
+    Image.new('RGBA', (20, 20), (1, 2, 3, 255)).save(tmp_path / 'inputs' / 'k_1.hd.rgba.png')
+    run = tmp_path / 'run' / 'k_1'
+    run.mkdir(parents=True)
+    (run / 'run_all.json').write_text(json.dumps({'stages': [{'steps': [{'cmd': ['x', '--glb', str(tmp_path / 'hd-forms' / 'k_1-hd.glb')]}]}]}, indent=1), encoding='utf-8')
+    got = prr.photo_paths({'k_1': []}, {'k_1': str(tmp_path / 'run')})
+    assert got['k_1'] == str(tmp_path / 'inputs' / 'k_1.hd.rgba.png')
