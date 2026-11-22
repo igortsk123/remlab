@@ -826,13 +826,14 @@ def draft_relief(txs: list, draft: dict, labs: list, kn: list, part_ids: list, p
 
 
 # ---------------------------------------------------------------- заливка ---------------------------------------
-def fill(geoms: list, known: list, parts: list | None = None, cfg: dict | None = None, mirror: bool = True, draft: dict | None = None, tone_only: list | None = None) -> dict:
+def fill(geoms: list, known: list, parts: list | None = None, cfg: dict | None = None, mirror: bool = True, draft: dict | None = None, tone_only: list | None = None, conf: list | None = None) -> dict:
     """geoms — `tex_coverage.load_geoms`; known — по геометрии (T×T bool), parts — по геометрии номера частей ГРАНЕЙ (None — одна часть).
     draft — черновик TRELLIS на ту же форму/развёртку (`draft_texels`): {'lab': [(T,T,3) Lab], 'ok': [(T,T) bool]}; нужен при cfg['source']=='trellis': невидимое берёт цвет черновика,
     сдвинутый переносом статистики Lab (медиана/разброс части: черновик → видимое фото), детали черновика сохраняются; стыки — та же растушёвка. 'stat' (по умолчанию) — цвет части + лоскут фактуры.
     tone_only — (Ш6, р.8) по геометриям T×T bool: тексели с ТОНОВЫМ полем этапа 6 (цвет есть в visible.glb, фото-правды нет; в `known` НЕ входят). Цвет такого тексела остаётся как есть (тон-поле, среднее сохраняется),
     а фактура/заём кладутся поверх как на неизвестный (остаток без среднего); в статистику частей, пул блоков и доноры они не входят. Нет — поведение прежнее.
-    → {'tex': [uint8 (T,T,3) по геометриям], 'report': {...}}. Форма и развёртка не меняются."""
+    conf — (T-196) доверие к фото-текселю 0..1 по геометриям (T×T float; карта этапа 6 `conf.png`), нет — запасное от границы известного; нужен только сведению шва (`rules/paint-fill.json` → `seam`).
+    → {'tex': [uint8 (T,T,3) по геометриям], 'report': {...}, 'keep': [bool (T,T): тексели, оставшиеся 1:1 фото]}. Форма и развёртка не меняются."""
     from scipy.ndimage import binary_erosion, distance_transform_edt
     from scipy.sparse import coo_matrix
     from scipy.sparse.csgraph import dijkstra
@@ -1397,6 +1398,38 @@ def fill(geoms: list, known: list, parts: list | None = None, cfg: dict | None =
                 rep['tone_only_texels'] += int(ts_.sum())
         out_lab[gi].reshape(-1, 3)[tx.ti[unk_flat]] += add
     rep['time_s']['texture'] = round(time.time() - t0, 2)
+    # --- сведение шва «фото | заливка» (T-196, П1.136): доверие → тон зоны → контраст фактуры и переход на сомнительных краях фото; мерка шва до/после (на mip1)
+    seam_c = dict(RULES.get('seam') or {}, **((cfg or {}).get('seam') or {}))
+    rep['seam'] = {'enabled': bool(seam_c.get('enabled'))}
+    if seam_c.get('enabled'):
+        import tex_seam as TS
+        t_s = time.time()
+        size_mm = float(seam_c.get('size_mm') or seam_c['size_mm_default'])
+        rep['seam'].update({'size_mm': size_mm, 'geoms': [], 'conf_source': 'карта этапа 6' if conf is not None else 'запасное: от границы известного'})
+        for gi, tx in enumerate(txs):
+            ti = tx.ti
+            ol = out_lab[gi].reshape(-1, 3)
+            skip_ = (np.isin(tx.part, sorted(skip_parts)) & ~mirrored[gi].reshape(-1)[ti]) if skip_parts else np.zeros(len(ti), bool)
+            cf = None if conf is None or gi >= len(conf) or conf[gi] is None else np.asarray(conf[gi], np.float64).reshape(-1)[ti]
+            k0f = kn_keep[gi].reshape(-1)[ti]
+            before = ol[ti].copy()
+            sb = TS.surface_dist(tx, ~(k0f & ~skip_), size_mm, seam_c['pair_mm'] + 1.0)
+            so = TS.surface_dist(tx, k0f & ~skip_, size_mm, seam_c['pair_mm'] + 1.0)
+            tmm = TS.texel_mm(tx, size_mm)
+
+            def _metric(lab_n, solid, s_in_, s_out_):
+                img = TS.atlas_with_gutter(tx, lab2rgb(lab_n), c['gutter'] if c['gutter'] > 0 else 8)
+                return TS.seam_metric(tx, TS.panel_zone(tx, seam_c['crease_deg'], seam_c['normal_smooth_iters'], seam_c['min_panel_faces']), lab_n, TS.mip1_lab(tx, img, rgb2lab), solid, s_in_, s_out_, seam_c, size_mm, tmm, TC.de2000_v)
+            m_before = _metric(before, k0f & ~skip_, sb, so)
+            r_ = TS.blend_seam(tx, before, labs[gi].reshape(-1, 3)[ti], k0f, cf, skip_, seam_c, size_mm)
+            ol[ti] = r_['lab']
+            kk = kn_keep[gi].reshape(-1).copy()
+            kk[ti] = r_['keep']
+            kn_keep[gi] = kk.reshape(kn_keep[gi].shape)
+            m_after = _metric(r_['lab'], r_['solid'], r_['s_in'], r_['s_out'])
+            rep['seam']['geoms'].append(dict(r_['report'], before=m_before, after=m_after))
+        rep['seam']['time_s'] = round(time.time() - t_s, 2)
+        rep['time_s']['seam'] = rep['seam']['time_s']
     # --- итог: RGB, желоб, проверка покрытия
     outs = []
     nail_masks = {}
@@ -1479,7 +1512,7 @@ def fill(geoms: list, known: list, parts: list | None = None, cfg: dict | None =
                            'pairs_step_pct': round(sum(x['pairs_step_pct'] * x['pairs'] for x in ss) / n, 2),
                            'filled_faces_step_pct': (round(sum((x['filled_faces_step_pct'] or 0.0) * x['pairs'] for x in ss) / n, 2) if any(x['filled_faces_step_pct'] is not None for x in ss) else None)}
     rep['time_s']['all'] = round(time.time() - t0, 2)
-    return {'tex': outs, 'report': rep}
+    return {'tex': outs, 'report': rep, 'keep': kn_keep}
 
 
 # ---------------------------------------------------------------- черновик TRELLIS на нашу форму --------------------
@@ -1589,6 +1622,10 @@ def load_rules(path: str | None = None) -> dict:
             raise KeyError(f'rules/paint-fill.json: нет ключа {k!r}')
     if 'trellis_relief' not in r:
         raise KeyError("rules/paint-fill.json: нет ключа 'trellis_relief'")
+    for k in ('enabled', 'size_mm_default', 'conf_min', 'conf_full', 'edge_mm', 'probe_mm', 'cell_mm', 'reach_mm', 'tone_decay_mm', 'tone_max', 'min_cell', 'hi_sigma_mm', 'contrast_decay_mm',
+              'contrast_gmin', 'contrast_gmax', 'contrast_floor', 'pair_mm', 'pair_cos', 'de_bad', 'poisson', 'crease_deg', 'normal_smooth_iters', 'min_panel_faces'):
+        if k not in (r.get('seam') or {}):
+            raise KeyError(f'rules/paint-fill.json: seam.{k} не задан')
     for k in ('gain_max', 'clip_k', 'patch_frac', 'patch_dl', 'dilate_px', 'part_max_share', 'band_lo', 'band_hi', 'sigma_lo_min', 'sigma_lo_max', 'sigma_hi_max', 'far_w', 'p95_cap',
               'ok_erode_px', 'allowed_families', 'homog_max_std', 'fade_len', 'smooth_pool_rejected'):
         if k not in r['trellis_relief']:
@@ -2069,8 +2106,10 @@ def run_stage(run: str, sku: str, glb: str, known: list | None = None, parts=Non
     kback = known_from_photo(geoms, azimuths=(180.0,))
     _to = load_tone_only_png(prev_dir) if (prev_dir and (cfg or {}).get('tone_only_use', True)) else None      # тон-слой этапа 6 (р.8): цвет оставить, фактуру положить поверх
 
+    _cf = load_conf_png(prev_dir) if prev_dir else None                                  # доверие к фото-текселю (этап 6, р.3) — нет файла: запасное от границы известного
+
     def one(cfg_, draft_):
-        r_ = fill(geoms, known, parts, cfg_, mirror, draft_, tone_only=_to)
+        r_ = fill(geoms, known, parts, cfg_, mirror, draft_, tone_only=_to, conf=_cf)
         rp, tx_ = r_['report'], r_['tex']
         de_ = part_deltas(geoms, parts, known, kback, tex_before, tx_)
         kt = max(sum(v['known_texels'] for v in rp['parts'].values()), 1)
@@ -2079,7 +2118,7 @@ def run_stage(run: str, sku: str, glb: str, known: list | None = None, parts=Non
         dw = max([da[p] for p in bg if p in da] or [None]) if any(p in da for p in bg) else None
         vals = {'empty_pct': rp['unpainted_after_pct'], 'dE00_front_back': dw, 'filled_faces_step_pct': rp['steps']['after']['filled_faces_step_pct'], 'far_excess_pct': rp['far_pct']['excess']}
         nfail = sum(0 if PS.judge(vals[k], th[k][0], th[k][1]) else 1 for k in vals)
-        return {'rep': rp, 'tex': tx_, 'de': de_, 'big': bg, 'de_worst': dw, 'vals': vals, 'nfail': nfail, 'key': (nfail, dw if dw is not None else 99.0, vals['far_excess_pct'] if vals['far_excess_pct'] is not None else 99.0)}
+        return {'keep': r_.get('keep'), 'rep': rp, 'tex': tx_, 'de': de_, 'big': bg, 'de_worst': dw, 'vals': vals, 'nfail': nfail, 'key': (nfail, dw if dw is not None else 99.0, vals['far_excess_pct'] if vals['far_excess_pct'] is not None else 99.0)}
     tried = {}
     if draft is not None and (cfg or {}).get('source') == 'trellis' and dict(FILL, **(cfg or {}))['draft_fallback']:      # Б и А: Б берётся, только если мерки не хуже (число непрошедших, затем ΔE перёд↔зад, затем пятна)
         cA = one(dict(cfg or {}, source='stat'), None)
@@ -2093,7 +2132,7 @@ def run_stage(run: str, sku: str, glb: str, known: list | None = None, parts=Non
     else:
         pick, used = one(cfg, draft), ((cfg or {}).get('source') or 'stat')
     rep, tex_after, de, big, de_worst = pick['rep'], pick['tex'], pick['de'], pick['big'], pick['de_worst']
-    kchg = known_changed_share(known, tex_before, tex_after, RULES['known_change_de'])
+    kchg = known_changed_share(pick.get('keep') or known, tex_before, tex_after, RULES['known_change_de'])      # «не трогаем» — текселы с полным доверием (T-196: сомнительные края фото сводятся в шов осознанно, число — rep['seam'])
     rep['known_changed'] = kchg
     try:                                                          # мерка узора — только отчёт (порог по трудным — позже), сбой её не роняет этап
         rep['pattern_metric'] = pattern_metrics(geoms, parts, known, tex_after, rep, dict(FILL, **(cfg or {})))
@@ -2136,6 +2175,18 @@ def load_tone_only_png(visible: str) -> list | None:
         if not os.path.exists(fp):
             break
         out.append(np.asarray(Image.open(fp).convert("L")) > 127)
+    return out or None
+
+
+def load_conf_png(visible: str) -> list | None:
+    """Доверие к фото-текселю этапа 6 (р.3, T-194/1): `conf.png`, `conf1.png`, … — uint8 = доверие×255, 0 где не известно. Нет файла — None (сведение шва берёт запасное)."""
+    from PIL import Image
+    out = []
+    for i in range(64):
+        fp = os.path.join(visible, "conf.png" if i == 0 else f"conf{i}.png")
+        if not os.path.exists(fp):
+            break
+        out.append(np.asarray(Image.open(fp).convert("L"), np.float32) / 255.0)
     return out or None
 
 
