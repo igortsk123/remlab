@@ -122,6 +122,29 @@ check('рекомендация: низ не прошёл, корпус лёг (
 rec6, _, _ = Q.recommendation('GOOD', 'INDETERMINATE', res_ok, {'explained': 0.0}, TH, bottom_fail=True, iou_top=0.6)
 check('рекомендация: низ не прошёл и корпус не лёг → не LIMIT_PROJECTION', rec6 != 'LIMIT_PROJECTION', rec6)
 
+# — опорная камера = производственная; соперники —
+def _cam(az, d):
+    return {'az': az, 'el': 2.0, 'd': d, 'f': d * 0.7, 'cx': 0.5, 'cy': 0.5}
+
+
+refs = {'cam': _cam(320.0, 10.0), 'score': 0.80, 'ref': True}
+ok_bottom = lambda c: (True, {'miss_bottom': 0.1, 'extra_bottom': 0.1, 'iou_top': 0.95})
+bad_bottom = lambda c: (False, {'miss_bottom': 0.9, 'extra_bottom': 0.9, 'iou_top': 0.95})
+flip_win = {'cam': _cam(140.0, 10.0), 'score': 0.95}                                   # через 180°, оценка намного выше
+bc1 = Q.better_camera(refs, [refs, flip_win], TH, ok_bottom)
+check('соперник через 180° с лучшей оценкой НЕ «лучше» (только счётчик)', not bc1['better'] and bc1['cam'] is None and bc1['n_flip_better'] == 1, str(bc1))
+fd = {'cam': _cam(325.0, 3.8), 'score': 0.83}                                          # тот же поворот, другие d/f (кресло: d 10,3→3,8)
+bc2 = Q.better_camera(refs, [refs, flip_win, fd], TH, ok_bottom)
+check('тот же поворот, d/f другие, выигрыш 0,03 и низ ок → better + focal_distance_ambiguous', bc2['better'] and bc2['focal_distance_ambiguous'] and bc2['gain'] == 0.03, str(bc2))
+bc3 = Q.better_camera(refs, [refs, {'cam': _cam(325.0, 3.8), 'score': 0.81}], TH, ok_bottom)
+check('выигрыш 0,01 < 0,02 → не better, но focal_distance_ambiguous справкой', not bc3['better'] and bc3['focal_distance_ambiguous'], str(bc3))
+bc4 = Q.better_camera(refs, [refs, fd], TH, bad_bottom)
+check('выигрыш ≥ 0,02, но низ не проходит → не better', not bc4['better'] and bc4['bottom_ok'] is False, str(bc4))
+bc5 = Q.better_camera(refs, [refs], TH, ok_bottom)
+check('соперников нет → всё пусто', not bc5['better'] and bc5['gain'] is None)
+cal2 = Q.calibrate([{'max_disp': v, 'max_region_dis': v, 'residual': {'local_share': 0.0}, 'evidence': {}} for v in (0.0, 0.0, 0.1, 0.4)], R, quantile=0.75)
+check('калибровка по квантилю p75 × 1,25 (не по максимуму)', 0.21 <= cal2['thresholds']['disp_max'] <= 0.22 and cal2['calibration']['quantile'] == 0.75, str(cal2['thresholds']))
+
 # — деформация —
 Pt = np.array([[0, 0.0, 0], [0, 0.1, 0], [0, 0.5, 0], [0, 1.0, 0]])
 Dd = Q.deform_legs(Pt, 0.5, 0.0, 1.0, 0.2)

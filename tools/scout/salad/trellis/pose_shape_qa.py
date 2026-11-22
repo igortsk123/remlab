@@ -173,6 +173,26 @@ def flip_gap(starts: list, best: dict, tol: float):
     return round(best['score'] - f['score'], 4), f
 
 
+def better_camera(ref: dict, starts: list, th: dict, bottom_fn) -> dict:
+    """Есть ли соперник лучше ПРОИЗВОДСТВЕННОЙ камеры `ref` (старт со `score`). Правила директора 22.11:
+    • перевёрнутый на ~180° соперник (az_flip) «лучше по IoU» НЕ считается — зеркальную семью решает ориентация/тень (флаг ORIENTATION_AMBIGUOUS остаётся отдельно);
+    • соперник того же поворота, но с другими d/f (отношение расстояний ≥ focal_ratio_min) — `focal_distance_ambiguous` (слабая перспектива), прирост и низ — справкой;
+    • `better` = выигрыш оценки ≥ better_gain_min И низ проходит гейт этапа 04. bottom_fn(cam) → (низ_ок, strip-метрики)."""
+    same = [s for s in starts if s is not ref and not az_flip(ref['cam'], s['cam'], th['flip_az_tol'])]
+    out = {'better': False, 'focal_distance_ambiguous': False, 'gain': None, 'cam': None, 'bottom_ok': None, 'strip': None, 'd_ratio': None,
+           'n_flip_better': sum(1 for s in starts if s is not ref and az_flip(ref['cam'], s['cam'], th['flip_az_tol']) and s['score'] > ref['score'])}
+    if not same:
+        return out
+    c = max(same, key=lambda s: s['score'])
+    gain = round(float(c['score'] - ref['score']), 4)
+    dr = max(c['cam']['d'] / ref['cam']['d'], ref['cam']['d'] / c['cam']['d'])
+    ok, st = bottom_fn(c['cam'])
+    out.update({'gain': gain, 'cam': c['cam'], 'bottom_ok': bool(ok), 'strip': st, 'd_ratio': round(float(dr), 3)})
+    out['focal_distance_ambiguous'] = bool(dr >= th['focal_ratio_min'] and gain > 0)
+    out['better'] = bool(gain >= th['better_gain_min'] and ok)
+    return out
+
+
 def pose_verdict(flip_gap_v, max_disp: float, max_region: float, th: dict) -> str:
     if flip_gap_v is not None and flip_gap_v <= th['flip_gap_max']:
         return 'ORIENTATION_AMBIGUOUS'
@@ -379,7 +399,9 @@ def inject_defect(glb: str, out_glb: str, kind: str, mag: float) -> str:
     return out_glb
 
 
-def audit_product(glb: str, photo: str, out: str, rules: dict | None = None, log=print, probe: bool = True, multistart: str = 'on', reuse: bool = False) -> dict:
+def audit_product(glb: str, photo: str, out: str, rules: dict | None = None, log=print, probe: bool = True, multistart: str = 'on', reuse: bool = False, ref_pose: str | None = None, own_dir: str | None = None) -> dict:
+    """ref_pose — pose.json ПРОИЗВОДСТВЕННОЙ камеры (этап 04, runs04): опорная камера = она, 36 стартов аудита (own_dir/pose.json) — соперники;
+    в отчёт — `better_camera` (есть ли старт лучше производственной по оценке и как у него низ). Без ref_pose опорная — камера, выбранная перефитом аудита."""
     import cv2
     import pose_fit as PF
     import stage_loss as SL
@@ -388,12 +410,15 @@ def audit_product(glb: str, photo: str, out: str, rules: dict | None = None, log
     th = rules['thresholds']
     cal = bool(rules.get('calibration', {}).get('n_null'))
     os.makedirs(out, exist_ok=True)
-    pj_path = os.path.join(out, 'pose.json')
+    own = own_dir or out
+    pj_path = os.path.join(own, 'pose.json')
+    if ref_pose and not os.path.exists(pj_path):
+        raise RuntimeError('ref_pose: нет pose.json аудита со стартами: ' + pj_path)
     if reuse and os.path.exists(pj_path) and (json.load(open(pj_path, encoding='utf-8')).get('multistart') or {}).get('ran'):
         log('pose.json есть (мультистарт был) — подбор камеры не повторяю')          # вердикты можно пересчитать без 7-минутного подбора
     else:
         PF.fit_pose(glb, photo, out, multistart=multistart, log=log)
-    pj = json.load(open(os.path.join(out, 'pose.json'), encoding='utf-8'))
+    pj = json.load(open(pj_path, encoding='utf-8'))
     n = rules['n']
     alpha = SL.read_rgba(photo)[..., 3] > 127
     Mp = PF.canvas_mask(alpha, pj['canvas'], n)
@@ -403,6 +428,17 @@ def audit_product(glb: str, photo: str, out: str, rules: dict | None = None, log
     starts = (pj.get('multistart') or {}).get('starts') or []
     if not starts:
         raise RuntimeError('нет стартов мультистарта в pose.json')
+    Pc = None
+    ref_start = None
+    if ref_pose:                                           # опорная — производственная камера; оценки пересчитаны одним способом (облако с поверхности + splat), иначе оценки разных процедур несравнимы
+        rp = json.load(open(ref_pose, encoding='utf-8'))
+        if rp.get('canvas') != pj.get('canvas') or float(rp.get('yaw', 0.0)) != float(pj.get('yaw', 0.0)):
+            raise RuntimeError('ref_pose: canvas/yaw производственной позы не совпадают с позой аудита — сравнивать нельзя')
+        cam = rp['camera']
+        Pc = PF._surf_points(geo, int(rules.get('surf_n', 200000)))
+        starts = [{**s, **PF.pose_score(PF.splat_mask(Pc, s['cam'], n), Mp)} for s in starts]
+        ref_start = {'cam': cam, 'ref': True, **PF.pose_score(PF.splat_mask(Pc, cam, n), Mp)}
+        starts = [ref_start] + starts
     face_bin = region_bins(V[F].mean(1), rules['region_bins'])
     R0 = PF.render_persp(geo, cam, n)
     S = R0['mask']
@@ -415,7 +451,11 @@ def audit_product(glb: str, photo: str, out: str, rules: dict | None = None, log
         R0 = {**R0, 'ids': Rz['ids']}
     vv = vis_vertices(R0['ids'], F)
     Vv = V[vv[:: max(1, len(vv) // 20000)]]
-    best, nb = near_best(starts, th['near_delta'])
+    if ref_start is not None:                              # эталон — производственная камера; соперники — все старты не хуже неё минус near_delta
+        best = ref_start
+        nb = [s for s in starts if s is not ref_start and s['score'] >= ref_start['score'] - th['near_delta']]
+    else:
+        best, nb = near_best(starts, th['near_delta'])
     gap, flip = flip_gap(starts, {'cam': cam, 'score': best['score']}, th['flip_az_tol'])
     disps, regs, cand = [], [], []
     ref_cam = cam                                          # эталон — ВЫБРАННАЯ камера (pose_fit выбирает из пула по кромкам, не по оценке старта)
@@ -439,7 +479,8 @@ def audit_product(glb: str, photo: str, out: str, rules: dict | None = None, log
     shift = global_shift_explained(S, Mp, rules)
     iou_tri = iou(S, Mp)
     cm = _contour_metrics(S, Mp)
-    Pc = PF._surf_points(geo, int(rules.get('surf_n', 200000)))        # облако с поверхности граней: у плоских граней TRELLIS вершин мало, маска по вершинам дырявая (комод 13224: IoU 0,72 против 0,89)
+    if Pc is None:
+        Pc = PF._surf_points(geo, int(rules.get('surf_n', 200000)))        # облако с поверхности граней: у плоских граней TRELLIS вершин мало, маска по вершинам дырявая (комод 13224: IoU 0,72 против 0,89)
     pr = None
     disputed = iou_tri < th['iou_ok'] or res['local_share'] >= th['local_res_min'] or pose_status != 'GOOD'
     if probe and (disputed or not rules.get('probe_only_disputed', True)):          # G_shape — только на спорных (директор 21.11); на чистых — нечего проверять
@@ -451,6 +492,13 @@ def audit_product(glb: str, photo: str, out: str, rules: dict | None = None, log
     bottom_fail = bool(sh_['miss_bottom'] > cc['miss_bottom_max'] or sh_['extra_bottom'] > cc['extra_bottom_max'])
     strip = {'miss_bottom': round(sh_['miss_bottom'], 4), 'extra_bottom': round(sh_['extra_bottom'], 4), 'iou_top': None if sh_['iou_top'] is None else round(sh_['iou_top'], 4), 'bottom_fail_stage04': bottom_fail,
              'limits': {'miss_bottom_max': cc['miss_bottom_max'], 'extra_bottom_max': cc['extra_bottom_max']}}
+    bc = None
+    if ref_start is not None:
+        def _bottom(c):
+            Sc = PF.render_persp(geo, c, n)['mask']
+            s2 = CC.silhouette_shares(Sc, Mp, float(cc['strip_frac']))
+            return (not (s2['miss_bottom'] > cc['miss_bottom_max'] or s2['extra_bottom'] > cc['extra_bottom_max'])), {k: (round(s2[k], 4) if s2[k] is not None else None) for k in ('miss_bottom', 'extra_bottom', 'iou_top')}
+        bc = better_camera(ref_start, starts, th, _bottom)
     shape_status, ev = shape_verdict(pose_status, iou_tri, res, shift, pr, th, cal, bottom_ok=not bottom_fail)
     rec, safe, zone = recommendation(pose_status, shape_status, res, shift, th, bottom_fail, sh_['iou_top'])
     rep = {'glb': glb, 'photo': photo, 'rules_version': rules.get('version'), 'calibrated': cal, 'tree_pose_fit': None,
@@ -459,6 +507,7 @@ def audit_product(glb: str, photo: str, out: str, rules: dict | None = None, log
            'silhouette_iou_tri': round(iou_tri, 4), 'silhouette_iou_fit': pj.get('iou_frame'), 'boundary_chamfer_px': cm.get('chamfer_px'), 'boundary_bf': cm.get('bf'),
            'front_back_margin': gap, 'flip_cam': (flip or {}).get('cam'), 'near_best': cand, 'cam_pick_vs_ref_disp': round(d_pick, 4),
            'max_disp': round(max(disps + [0.0]), 4), 'max_region_dis': round(max(regs + [0.0]), 4), 'n_starts': len(starts), 'n_near': len(nb),
+           'ref_mode': 'production' if ref_start is not None else 'audit_refit', 'ref_score': None if ref_start is None else ref_start['score'], 'better_camera': bc,
            'zbuf_check': zb, 'strip': strip, 'residual': res, 'shift': shift, 'probe': pr, 'evidence': ev, 'camera': cam}
     json.dump(rep, open(os.path.join(out, 'qa.json'), 'w', encoding='utf-8'), ensure_ascii=False, indent=1)
     try:
@@ -530,8 +579,9 @@ def sheet(out: str, Mp, S, geo, cam, cand, flip, res, pr, Pc, n, rules, rep) -> 
 NULL_KEYS = {'max_disp': 'disp_max', 'max_region_dis': 'region_max', 'local_share': 'local_res_min', 'gain_over_cam': 'gain_min'}
 
 
-def calibrate(reports: list, rules: dict, margin: float = 1.25) -> dict:
-    """Пороги по нулевой выборке (отчёты «легших»): порог = max(нуль) × margin, не ниже стартового пола; число нулей и значения — в `calibration`. Чувствительность на внедрённых дефектах — `sensitivity`."""
+def calibrate(reports: list, rules: dict, margin: float = 1.25, quantile: float | None = None) -> dict:
+    """Пороги по нулевой выборке (отчёты «легших»): порог = max(нуль) × margin (или квантиль × margin, если задан quantile — выборка «легших» грязная: старая мерка проверяет силуэт, не позу),
+    не ниже стартового пола; число нулей и значения — в `calibration`. Чувствительность на внедрённых дефектах — `sensitivity`."""
     vals = {k: [] for k in NULL_KEYS}
     for r in reports:
         vals['max_disp'].append(r['max_disp'])
@@ -543,8 +593,9 @@ def calibrate(reports: list, rules: dict, margin: float = 1.25) -> dict:
     th = {}
     for k, name in NULL_KEYS.items():
         if vals[k]:
-            th[name] = round(max(max(vals[k]) * margin, rules['thresholds'].get(name + '_floor', 0.0)), 4)
-    return {'thresholds': th, 'calibration': {'n_null': len(reports), 'margin': margin, 'null_values': vals}}
+            base = max(vals[k]) if quantile is None else float(np.percentile(vals[k], 100.0 * quantile))
+            th[name] = round(max(base * margin, rules['thresholds'].get(name + '_floor', 0.0)), 4)
+    return {'thresholds': th, 'calibration': {'n_null': len(reports), 'margin': margin, 'quantile': quantile, 'null_values': vals}}
 
 
 def main() -> int:
