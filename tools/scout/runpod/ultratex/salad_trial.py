@@ -241,6 +241,7 @@ def main() -> int:
     ap.add_argument('--steps', type=int, default=25)
     ap.add_argument('--seed', type=int, default=42)
     ap.add_argument('--texture', type=int, default=4096)
+    ap.add_argument('--silence-min', type=float, default=10, help='сторож тишины: через N мин без готового задания и без новой готовности ноды — строка «!! ТИШИНА …» (повтор каждые N мин; до готовности ноды ×2,5); 0 — выключить')
     ap.add_argument('--slow-window-min', dest='slow_window_s', type=lambda x: float(x) * 60, default=0, help='сторож медленной сборки весов на running-ноде: окно, мин (0 — выключен)')
     ap.add_argument('--slow-gb-min', type=float, default=2.0, help='…и порог ГБ/мин: ниже — пересадить ноду (здоровая ≈7,5, медленная ≈0,95)')
     ap.add_argument('--variants', default='', help='JSON (файл или строка) вариантов параметров: {"имя": {resolution, steps, guidance, seed, texture_size}}; задание `<товар>@<имя>` берёт общие параметры и переопределяет их вариантом (пара «штатно | лёгкий»)')

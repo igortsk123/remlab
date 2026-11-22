@@ -529,6 +529,7 @@ PULL_SLOW_FACTOR = float(_PGR.get('slow_factor', 2.5))                # ожид
 PULL_FLOOR_MIN = float(_PGR.get('floor_min', 10.0))                   # не строже 10 минут полной докачки (разброс сети)
 PULL_MIN_ETA_MIN = float(_PGR.get('min_eta_min', 3.0))                # осталось меньше — доедет, пересадка с нуля дороже
 PULL_WINDOW_S = float(_PGR.get('window_s', 300.0))                    # темп — по последним 5 минутам, не по среднему с начала
+PULL_MIN_GIB_MIN = float(_PGR.get('min_gib_min', 0.0))                # порог скорости докачки образа, ГиБ/мин (0 — выключен): темп по окну ниже → пересадка, даже если укладывается в допуск по времени
 PULL_MAX_CULLS = int(_PGR.get('max_culls', 3))                        # пересадок на запуск (общий бюджет node_health — отдельно)
 
 
@@ -598,7 +599,7 @@ def max_total_for_image(image_gib: float | None, healthy_mb_s: float = PULL_HEAL
 
 
 def pull_verdict(obs: list, after_s: float = PULL_AFTER_S, max_total_min: float = 15.0, min_eta_min: float = PULL_MIN_ETA_MIN,
-                 window_s: float = PULL_WINDOW_S) -> str | None:
+                 window_s: float = PULL_WINDOW_S, min_rate: float | None = None, image_gib: float | None = None) -> str | None:
     """Медленная ли докачка образа. obs — [(время_с, доля 0..1)] по возрастанию. max_total_min — из `max_total_for_image`. Причина пересадки или None.
     Догрузившую (≥0,999) не трогаем никогда (05.09: выбросить готовую ноду = заплатить за прогрев дважды)."""
     if len(obs) < 2:
@@ -616,6 +617,9 @@ def pull_verdict(obs: list, after_s: float = PULL_AFTER_S, max_total_min: float 
     eta = (1.0 - p1) / rate if rate > 1e-6 else float('inf')
     if eta < min_eta_min:
         return None
+    if min_rate and rate < min_rate:                           # min_rate — доля образа в минуту (= min_gib_min / размер образа): нода медленнее порога скорости
+        gib = f' ({rate * image_gib:.2f} ГиБ/мин)' if image_gib else ''
+        return f'образ {p1:.0%} за {age / 60:.0f} мин, темп {max(rate, 0):.1%}/мин{gib} < порога {min_rate:.1%}/мин — нода медленная'
     total = age / 60.0 + eta
     if total > max_total_min:
         eta_txt = 'не растёт' if eta == float('inf') else f'ещё {eta:.0f} мин'
@@ -642,6 +646,9 @@ class PullGuard:
     def configure(self, image_gib: float | None) -> None:
         """Норма от размера образа и здоровой скорости; явный max_total_min (тесты, особый образ) не перекрывается."""
         self.verdict_kw.setdefault('max_total_min', max_total_for_image(image_gib))
+        if PULL_MIN_GIB_MIN > 0 and image_gib:
+            self.verdict_kw.setdefault('min_rate', PULL_MIN_GIB_MIN / image_gib)
+            self.verdict_kw.setdefault('image_gib', image_gib)
 
     def _nh(self):
         if self.take_slot is None or self.realloc is None:
@@ -827,6 +834,54 @@ class Watch:
         return None, ''
 
 
+class SilenceGuard:
+    """Сторож тишины (P-039, T-178 22.11: нода 37 мин без готовых заданий — узнали только на обходе). «Ход» — готовое задание, новая готовность ноды, перезапуск ноды. Нет хода дольше
+    `minutes` (до готовности ноды — ×`warm_factor`: подъём ноды законно долог) — `step` возвращает минуты тишины, повтор тревоги — каждые `minutes`. minutes=0 — выключен."""
+
+    def __init__(self, minutes: float, t0: float, warm_factor: float = 2.5):
+        self.limit, self.warm, self.last, self.alerts = float(minutes or 0) * 60.0, warm_factor, t0, 0
+        self.seen = (0, None, 0)
+
+    def step(self, t: float, n_done: int, ready_at, restarts: int):
+        cur = (n_done, ready_at, restarts)
+        if cur != self.seen:
+            self.seen, self.last, self.alerts = cur, t, 0
+            return None
+        if self.limit <= 0:
+            return None
+        lim = self.limit * (self.warm if ready_at is None else 1.0) * (self.alerts + 1)
+        if t - self.last > lim:
+            self.alerts += 1
+            return (t - self.last) / 60.0
+        return None
+
+
+def node_reset(w: 'Watch', t: float) -> None:
+    """Нода сменилась (пересадка или Salad перезапустил её сам): потраченное уходит в `banked`, отсчёты «running/started/ответ/готова/веса» — заново на новой ноде."""
+    w.banked = w.cost(t)
+    w.run_since = w.started_since = w.ready_at = None
+    w.ever_ok = False
+    w.gb_hist = []
+    w.last_cull = t
+
+
+def node_lost_step(w: 'Watch', t: float, ins: list, lost_obs: int, cur, pending: list, max_restarts: int, restarts: int, need_obs: int = 3):
+    """Нода пропала у прогретой группы (22.11, t178a: Salad перезапустил экземпляр — state снова downloading, /health 503 — и 12 заданий подряд получили 503 как «отказы»).
+    Возвращает (lost_obs, restarts, action): action None — нода на месте; 'wait' — нет running, наблюдений меньше need_obs (не дёргаться на одном провале запроса);
+    'restart' — нода потеряна: прерванное задание вернулось в начало очереди (не отказ), деньги ноды в banked, отсчёты заново; 'stop' — перезапусков больше max_restarts."""
+    if w.ready_at is None or any(i.get('state') == 'running' for i in ins):
+        return 0, restarts, None
+    lost_obs += 1
+    if lost_obs < need_obs:
+        return lost_obs, restarts, 'wait'
+    if restarts >= max_restarts:
+        return lost_obs, restarts, 'stop'
+    if cur is not None:
+        pending.insert(0, cur['key'])
+    node_reset(w, t)
+    return 0, restarts + 1, 'restart'
+
+
 def disk_guard_wanted(a) -> bool:
     """DiskGuard (профиль, включён по умолчанию) и сторож `Watch.slow_window_s` (--slow-window-min, T-178/3) делают одно и то же: работает ОДИН. Явное окно сторожа весов выключает DiskGuard; `a.disk_guard=False` выключает его всегда."""
     return bool(getattr(a, 'disk_guard', True)) and not float(getattr(a, 'slow_window_s', 0) or 0) > 0
@@ -849,11 +904,7 @@ def weights_cull(w: 'Watch', guard, t: float, ins: list, why: str, say_fn=say) -
     if not guard.realloc(guard.group, iid, why):
         return False
     guard.culls += 1
-    w.banked = w.cost(t)
-    w.run_since = w.started_since = None
-    w.ever_ok = False
-    w.gb_hist = []
-    w.last_cull = t
+    node_reset(w, t)
     return True
 
 
@@ -1059,6 +1110,8 @@ def _run_probe_once(a, MG, BR, spec: Spec, gw_factory=Gateway, sleep=time.sleep,
     post_retried: set = set()                                          # ключи, которым уже сделан повтор после POST без ответа (повтор — один)
     last_job_look = 0.0
     stall = JobStall(getattr(a, 'stuck_min', STUCK_MIN))
+    lost_obs, node_restarts = 0, 0
+    silence = SilenceGuard(float(getattr(a, 'silence_min', 10) or 0), clock())
     pending = list(spec.jobs)
     cur = None
     last_say = 0.0
@@ -1078,6 +1131,22 @@ def _run_probe_once(a, MG, BR, spec: Spec, gw_factory=Gateway, sleep=time.sleep,
                 say(f'!! {guard.give_up} — гашу')
                 summary['stopped_by'] = 'pull_slow'
                 break
+            lost_obs, node_restarts, lost_act = node_lost_step(w, t, ins, lost_obs, cur, pending, int(getattr(a, 'max_node_restarts', 3)), node_restarts)
+            if lost_act == 'restart':
+                say(f'!! нода пропала у прогретой группы (Salad перезапустил экземпляр, перезапуск №{node_restarts}) — прерванное задание в начало очереди, жду новую ноду')
+                if cur is not None:
+                    summary['jobs'].pop(cur['key'], None)
+                    summary.setdefault('interrupted', []).append(cur['key'])
+                cur = None
+                gw = None
+                last_h = (None, {})
+                seen_ev = len(w.events)
+                summary['node_restarts'] = node_restarts
+            elif lost_act == 'stop':
+                say(f'!! нода пропала снова — перезапусков уже {node_restarts} — гашу')
+                summary['stopped_by'] = 'node_lost'
+                break
+
             if dguard is not None and w.run_since is not None and w.ready_at is None:           # платная фаза докачки весов: медленный диск → пересадка, потом стоп
                 if dguard.step(t, w.gb_hist, ins):
                     w.gb_hist.clear()
@@ -1086,6 +1155,12 @@ def _run_probe_once(a, MG, BR, spec: Spec, gw_factory=Gateway, sleep=time.sleep,
                     say(f'!! {dguard.give_up}')
                     summary['stopped_by'] = 'disk_slow'
                     break
+            q_min = silence.step(t, sum(1 for v in summary['jobs'].values() if v.get('status') == 'done'), w.ready_at, node_restarts)
+            if q_min:
+                i0 = ins[0] if ins else {}
+                say(f'!! ТИШИНА {q_min:.0f} мин: готовых заданий нет · группа {st} · экземпляр {i0.get("state")}{pull_txt(i0)} started={i0.get("started")} ready={i0.get("ready")} '
+                    f'· в очереди {len(pending)} · ≈${w.cost(t):.2f} — разбор (P-039): лог ноды, причина, решение')
+                summary['silence_alerts'] = summary.get('silence_alerts', 0) + 1
             why, detail = w.money_time(t, ins)
             summary['cost_usd_est'] = round(w.cost(t), 3)
             if why:
@@ -1207,7 +1282,7 @@ def _run_probe_once(a, MG, BR, spec: Spec, gw_factory=Gateway, sleep=time.sleep,
         summary['last_instances'] = last_ins
         summary['last_health'] = {'http': last_h[0], 'body': {k: v for k, v in (last_h[1] or {}).items() if k != 'weights'} if isinstance(last_h[1], dict) else None}
         summary['running_s'] = round((clock() - w.run_since), 1) if w.run_since is not None else 0.0
-        summary['cost_usd_est'] = round(cost_usd(summary['running_s'], price), 3)
+        summary['cost_usd_est'] = round(w.banked + cost_usd(summary['running_s'], price), 3)       # banked — деньги пересаженных/перезапущенных нод (без них ИТОГ и журнал занижали расход)
         json.dump(summary, open(os.path.join(a.out, f'summary-{name}.json'), 'w'), ensure_ascii=False, indent=1, default=str)
         if dguard is not None:
             summary['disk_culls'], summary['disk_slow_rates'] = dguard.culls, dguard.rates

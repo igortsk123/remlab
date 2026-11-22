@@ -602,6 +602,29 @@ _g2.culls = _g2.max_culls
 ok(not KD.weights_cull(_wc, _g2, 800.0, [{'id': 'x', 'state': 'running'}], 'медленно', say_fn=lambda *x: None) and not KD.weights_cull(_wc, None, 800.0, [], 'м', say_fn=lambda *x: None),
    'weights_cull: бюджет пересадок исчерпан или сторожа нет — False (драйвер гасит группу)')
 
+# --- T-178/3 (22.11, t178a): Salad перезапустил прогретую ноду — не «отказы заданий», а новая нода; прерванное задание возвращается в очередь
+wl = KD.Watch(0, 0.6, 9, 9)
+wl.money_time(0, ins_run)
+wl.health(5, ins_run, 200, {'phase': 'ready'})
+wl.first_done = True
+_c1 = wl.cost(1000.0)
+_pend, _cur = ['b', 'c'], {'key': 'a'}
+_dl = [{'id': 'i1', 'state': 'downloading'}]
+_o, _r, _act = KD.node_lost_step(wl, 1000.0, ins_run, 0, _cur, _pend, 3, 0)
+ok(_act is None and _o == 0, 'нода running — ничего не делаем')
+_o, _r, _act = KD.node_lost_step(wl, 1010.0, _dl, 0, _cur, _pend, 3, 0)
+ok(_act == 'wait' and _o == 1 and _pend == ['b', 'c'] and wl.ready_at == 5, 'нет running один раз — ждём (сбой одного запроса не считаем потерей)')
+_o, _r, _act = KD.node_lost_step(wl, 1020.0, _dl, _o, _cur, _pend, 3, _r)
+_o, _r, _act = KD.node_lost_step(wl, 1030.0, _dl, _o, _cur, _pend, 3, _r)
+ok(_act == 'restart' and _r == 1 and _pend == ['a', 'b', 'c'] and wl.ready_at is None and wl.run_since is None and abs(wl.banked - wl.cost(1030.0)) < 1e-9 and wl.banked > 0
+   and wl.last_cull == 1030.0 and wl.first_done, 'три наблюдения без running → перезапуск: задание a первым в очереди, деньги в banked, отсчёты заново, first_done сохранён')
+_w2 = KD.Watch(0, 0.6, 9, 9)
+_w2.money_time(0, ins_run)
+_w2.health(5, ins_run, 200, {'phase': 'ready'})
+ok(KD.node_lost_step(_w2, 1030.0, _dl, 5, None, [], 3, 3)[2] == 'stop', 'перезапусков больше лимита — stop (node_lost)')
+_w3 = KD.Watch(0, 0.6, 9, 9)
+ok(KD.node_lost_step(_w3, 30.0, _dl, 9, None, [], 3, 0)[2] is None, 'нода ещё не была готова — потерей не считаем (там свои сторожа)')
+
 # ---------------------------------------------------------------- T-186/1: профиль ресурсов Salad по типу работы + сторож «мимо профиля»
 PROFS = KD.load_profiles()
 ok(len(PROFS) >= 5 and {'trellis_shape', 'ultratex', 'forms_render', 'pose_camera', 'parts_segment'} <= set(PROFS), f'профили на месте: {sorted(PROFS)}')
@@ -722,6 +745,40 @@ ok(KD.retry_card(_tp, 'RTX 5060 Ti (16 GB)') == 'RTX 5090 (32 GB)' and KD.retry_
 ok(not KD.profile_problems(_tp) and KD.profile_problems(dict(_tp, card_rule={'small': 'X', 'large': ['RTX 5090 (32 GB)']})) and KD.profile_problems(dict(_tp, card_rule={'small': 'RTX 5060 Ti (16 GB)', 'large': []})),
    'card_rule: малая и большие карты — из карт профиля, large не пуст')
 
+
+# --- T-178 (22.11): порог скорости докачки образа (ГиБ/мин) и сторож тишины ---------------------------------------------------------------------------------------
+print('\n== порог скорости докачки, сторож тишины ==')
+_IMG = 20.88                                                                     # образ UltraTex, ГиБ
+_mr = 0.8 / _IMG                                                                 # порог 0,8 ГиБ/мин в долях образа
+_slow = [(t_ * 60.0, min(0.99, 0.6 * t_ / _IMG)) for t_ in range(0, 11)]           # 0,6 ГиБ/мин: за 10 мин 29 % образа
+_mt = KD.max_total_for_image(_IMG)
+ok(KD.pull_verdict(_slow, max_total_min=999.0) is None, 'без порога скорости 0,6 ГиБ/мин укладывается в допуск по времени (так нода и простояла 33 мин)')
+_why = KD.pull_verdict(_slow, max_total_min=999.0, min_rate=_mr, image_gib=_IMG)
+ok(_why is not None and 'ГиБ/мин' in _why and 'медленная' in _why, f'с порогом 0,8 ГиБ/мин темп 0,6 ГиБ/мин → пересадка ({_why})')
+_fast = [(t_, min(0.99, (1.5 * t_ / 60.0) / _IMG)) for t_ in range(0, 660, 60)]  # 1,5 ГиБ/мин — здоровая нода
+ok(KD.pull_verdict(_fast, max_total_min=_mt, min_rate=_mr, image_gib=_IMG) is None, 'здоровая нода 1,5 ГиБ/мин порог не трогает')
+_near = [(t_, min(0.99, 0.80 + 0.2 * (t_ / 600.0))) for t_ in range(0, 660, 60)]
+ok(KD.pull_verdict(_near, max_total_min=_mt, min_rate=_mr, image_gib=_IMG) is None, 'почти докачавшую (до конца < min_eta) не пересаживаем даже при низком темпе')
+ok(KD.pull_verdict([(0.0, 0.0), (60.0, 0.01)], max_total_min=_mt, min_rate=_mr, image_gib=_IMG) is None, 'мало наблюдений/окно <2 мин — не судим')
+_g = KD.PullGuard('t', take_slot=lambda: 1, realloc=lambda g_, i_, w_: True, say_fn=lambda *a_, **k_: None, max_total_min=999.0, min_rate=_mr, image_gib=_IMG)
+ok(_g.verdict_kw.get('min_rate') == _mr, 'PullGuard пробрасывает min_rate в вердикт')
+_gc = KD.PullGuard('t', say_fn=lambda *a_, **k_: None)
+_gc.configure(_IMG)
+ok(KD.PULL_MIN_GIB_MIN > 0 and abs(_gc.verdict_kw.get('min_rate', 0) - KD.PULL_MIN_GIB_MIN / _IMG) < 1e-9, 'configure(image_gib): порог из rules/salad-groups.json → доля образа в минуту')
+
+_sg = KD.SilenceGuard(10, 0.0)
+ok(_sg.step(0.0, 0, None, 0) is None, 'тишина: старт без хода — тревоги нет')
+ok(_sg.step(20 * 60.0, 0, None, 0) is None, 'до готовности ноды допуск ×2,5 (25 мин): на 20-й минуте тихо')
+_q = _sg.step(26 * 60.0, 0, None, 0)
+ok(_q is not None and 25 < _q < 27, f'до готовности ноды >25 мин без хода — тревога ({_q})')
+ok(_sg.step(30 * 60.0, 0, None, 0) is None, 'повтор тревоги не чаще, чем через допуск (не спамим каждую минуту)')
+ok(_sg.step(31 * 60.0, 0, 123.0, 0) is None, 'нода стала готова — это ход, отсчёт заново')
+ok(_sg.step(40 * 60.0, 0, 123.0, 0) is None, 'после готовности допуск 10 мин: на 9-й минуте тихо')
+ok(_sg.step(42 * 60.0, 0, 123.0, 0) is not None, 'после готовности >10 мин без готового задания — тревога')
+ok(_sg.step(43 * 60.0, 1, 123.0, 0) is None, 'готовое задание — ход, сброс')
+ok(_sg.step(60 * 60.0, 1, 123.0, 1) is None, 'перезапуск ноды — тоже ход (там свои сообщения и сторожа)')
+_off = KD.SilenceGuard(0, 0.0)
+ok(_off.step(10 ** 6, 0, None, 0) is None, 'silence_min=0 — сторож выключен')
 
 print('\nИТОГ:', 'ВСЁ ЗЕЛЁНОЕ' if not FAILS else f'ПРОВАЛОВ: {len(FAILS)}')
 sys.exit(1 if FAILS else 0)
