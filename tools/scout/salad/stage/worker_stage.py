@@ -61,6 +61,7 @@ STAGES = ('06', '07')                                          # этапы ко
 COMMANDS = {
     '06': {'name': 'tex_visible', 'script': 'tools/scout/salad/trellis/tex_visible.py', 'out': '06-visible'},
     '07': {'name': 'tex_fill', 'script': 'tools/scout/salad/trellis/tex_fill.py', 'out': '07-fill'},
+    'seam': {'name': 'seam_stage', 'script': 'tools/scout/salad/trellis/seam_stage.py', 'out': '07-seam'},      # T-196/1: сведение шва «фото | заливка» ПОСЛЕ 07 (вход 07-fill + 06-visible)
     'ref_zone': {'name': 'ref_zone', 'script': 'tools/scout/salad/trellis/ref_zone.py', 'out': ''},
     'render_unlit': {'name': 'render_unlit', 'script': 'tools/scout/salad/recolor_lp.py', 'out': ''},   # модуль с render_unlit; запускается встроенной обёрткой RENDER, не как скрипт
 }
@@ -73,6 +74,9 @@ MAX_ARGS = 40
 NEED_06 = ('model.glb', 'photo.png', 'pose_run/stage_loss.json', 'pose_run/stages/render_view0/ids.npz', 'pose_run/stages/render_view0/uv.npz',
            'pose_run/stages/render_view0/depth.npz', 'pose_run/stages/render_view0/aoi_cos16.png', 'pose_run/stages/render_view0/mask.png')
 NEED_07 = ('06-visible/visible.glb', '06-visible/check.json')
+NEED_SEAM = ('06-visible/known.png', '07-fill/filled.glb')                                  # шов: маска «известно» этапа 6 и выход 07 (conf*.png — по возможности, нет — запасное)
+FILL_STAGES = ('07', 'seam')                                                                 # этапы с большим пиком памяти: держат место из `fill_procs` (шов — на тех же текселях, что 07)
+DRIVER_STAGES = STAGES + ('seam',)                                                           # что может гнать драйвер пакета (в образ-запас `seam` не входит: код только из задания)
 NEED_RENDER = ('model.glb',)
 # рендер без света (команда render_unlit): `recolor_lp.render_unlit` из кода задания; argv: <корень кода> <model.glb> <out.png> [--yaw --pitch --size]
 RENDER = ("import sys,os,argparse\n"
@@ -226,6 +230,9 @@ def stage_command(c: dict, stage: str, jdir: str, sku: str, body_only: bool, has
         cmd = base + [script, 'run_stage', out, sku, '--visible', os.path.join(jdir, 'in', '06-visible')]
         cmd += ['--parts-npz', os.path.join(jdir, 'in', 'parts.npz')] if has_parts else ['--no-parts-npz']
         return cmd + extra, out, '07-fill'
+    if stage == 'seam':
+        cmd = base + [script, out, sku, '--fill', os.path.join(jdir, 'in', '07-fill'), '--visible', os.path.join(jdir, 'in', '06-visible')]
+        return cmd + extra, out, '07-seam'
     if stage == 'render_unlit':
         return base + ['-c', RENDER, code_root or c['code'], os.path.join(jdir, 'in', 'model.glb'), os.path.join(out, 'render.png')] + extra, out, ''
     return base + [script] + extra, out, ''
@@ -340,7 +347,7 @@ class Pool:
 
     def _run(self, j: dict) -> None:
         stage = j['stage']
-        if stage == '07':
+        if stage in FILL_STAGES:
             self.sem_fill.acquire()                           # сначала «место для 07», потом общий слот: иначе 07 в ожидании держал бы слот
         self.sem.acquire()
         try:
@@ -387,13 +394,13 @@ class Pool:
             for sub in ('in', 'code', 'out'):                  # на ноде остаются только result.zip и stage.log
                 shutil.rmtree(os.path.join(j['dir'], sub), ignore_errors=True)
             self.sem.release()
-            if stage == '07':
+            if stage in FILL_STAGES:
                 self.sem_fill.release()
             self._refresh()
 
 
 def missing_inputs(stage: str, names: list[str]) -> list[str]:
-    need = {'06': NEED_06, '07': NEED_07, 'render_unlit': NEED_RENDER}.get(stage, ())
+    need = {'06': NEED_06, '07': NEED_07, 'seam': NEED_SEAM, 'render_unlit': NEED_RENDER}.get(stage, ())
     return [n for n in need if n not in names]
 
 

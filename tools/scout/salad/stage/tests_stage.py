@@ -559,7 +559,7 @@ except ValueError:
     ok(True, 'safe_untar: не tar — отказ')
 
 # ---- whitelist команд и аргументы
-ok(set(WS.COMMANDS) == {'06', '07', 'ref_zone', 'render_unlit'}, f'whitelist: ровно 4 команды ({sorted(WS.COMMANDS)})')
+ok(set(WS.COMMANDS) == {'06', '07', 'seam', 'ref_zone', 'render_unlit'}, f'whitelist: ровно 5 команд ({sorted(WS.COMMANDS)})')
 good_args = ['--zones', '@in/zones.npy', '--n', '3', '0.5', '@out']
 ok(WS.check_args(good_args) == good_args and WS.check_args(None) == [], 'args: флаги, слова, числа, @in/…, @out — принимаются')
 for bad in (['; rm -rf /'], ['$HOME'], ['../x'], ['/etc/passwd'], ['--Bad'], ['@in/../x'], ['a b'], ['`id`'], ['@in//x'], [1], ['x'] * 41, 'строка'):
@@ -574,6 +574,11 @@ cmd_z, _o, _n = WS.stage_command(C, 'ref_zone', '/tmp/w/j', 'sku1', False, False
 ok(cmd_z[cmd_z.index('-I') + 1] == '/tmp/w/j/code/tools/scout/salad/trellis/ref_zone.py' and cmd_z[-2:] == ['--zones', '/x'], 'команда ref_zone: скрипт из code_root задания, args в конце')
 cmd07, _o, _n = WS.stage_command(C, '07', '/tmp/w/j', 'sku1', False, False, '/tmp/w/j/peak', code_root='/tmp/w/j/code')
 ok(cmd07[cmd07.index('-I') + 1] == '/tmp/w/j/code/tools/scout/salad/trellis/tex_fill.py', 'команда 07: скрипт берётся из code_root задания, не из образа')
+cmds, outs, nms = WS.stage_command(C, 'seam', '/tmp/w/j', 'sku1', False, False, '/tmp/w/j/peak', code_root='/tmp/w/j/code')
+ok(cmds[cmds.index('-I') + 1] == '/tmp/w/j/code/tools/scout/salad/trellis/seam_stage.py' and nms == '07-seam' and '--fill' in cmds and '/tmp/w/j/in/07-fill' in cmds and '/tmp/w/j/in/06-visible' in cmds,
+   'команда шва: seam_stage.py из code_root, вход 07-fill + 06-visible, выход 07-seam')
+ok(WS.missing_inputs('seam', list(WS.NEED_SEAM)) == [] and '07-fill/filled.glb' in WS.missing_inputs('seam', ['06-visible/known.png']), 'вход шва: known.png и filled.glb обязательны')
+ok('seam' in WS.DRIVER_STAGES and 'seam' not in WS.STAGES, 'шов в списке драйвера, но не в образе-запасе')
 
 # ---- пул: код только из задания
 C2 = dict(C, work=tmpdir('work3'), allow_baked=False)
