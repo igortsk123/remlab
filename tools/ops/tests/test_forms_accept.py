@@ -96,3 +96,14 @@ def test_form_gate_failure_does_not_break_render(monkeypatch, tmp_path):
     monkeypatch.setattr(FR.subprocess, 'run', lambda *a, **k: (_ for _ in ()).throw(OSError('нет python')))
     assert FR.run_form_gate(str(tmp_path), str(tmp_path), ['a_1'], {}) == 1               # сбой запуска — код 1 у шага, не исключение
     assert FR.run_form_gate(str(tmp_path), str(tmp_path), [], {}) == 0                    # нечего проверять
+
+
+def test_form_gate_vlm_on_by_default_and_flags_pass_through(monkeypatch, tmp_path):
+    rc, calls, _ = _run_main(monkeypatch, tmp_path, [])
+    cmd = calls[0]
+    assert rc == 0 and '--no-vlm' not in cmd and '--vlm-all' not in cmd and '--vlm-budget' not in cmd      # оценщик идёт сам: фото и кэш form_gate находит/ставит сам, потолок — из rules
+    tmp2 = tmp_path / 'second'
+    tmp2.mkdir()
+    rc, calls, _ = _run_main(monkeypatch, tmp2, ['--no-vlm', '--vlm-all', '--vlm-budget', '0.05'])
+    cmd = calls[0]
+    assert '--no-vlm' in cmd and '--vlm-all' in cmd and cmd[cmd.index('--vlm-budget') + 1] == '0.05'

@@ -82,8 +82,11 @@ def main() -> int:
     ap.add_argument('--accept', action='store_true', help='кадры приёмки формы: 5 видов (+низкий боковой у сидячих) × 2 света (T-180/7)')
     ap.add_argument('--shade', default='orig', choices=['orig', 'recalc', 'flat'], help='нормали: orig — как в GLB; recalc — гладкие')
     ap.add_argument('--no-form-gate', action='store_true', help='не запускать Ш0 form_gate (автопроверки формы, observe) после кадров приёмки')
-    ap.add_argument('--photos', default='', help='папка <sku>.hd.rgba.png — фото для проверок формы и оценщика по картинке (form_gate)')
-    ap.add_argument('--vlm-cache', default='', help='папка кэша оценщика по картинке (платный ≈$0,003 на корпусную форму; без неё и без --photos оценщик не идёт)')
+    ap.add_argument('--photos', default='', help='папка <sku>.hd.rgba.png для form_gate (нет — ищет рядом: <glbs>/../forms-inputs|inputs|photos, <out>/photos)')
+    ap.add_argument('--vlm-cache', default='', help='кэш оценщика по картинке (по умолчанию <out>/vlm-cache)')
+    ap.add_argument('--no-vlm', action='store_true', help='form_gate без оценщика по картинке (только геометрия)')
+    ap.add_argument('--vlm-all', action='store_true', help='form_gate: все виды оценщика и все роли (дороже); по умолчанию 3 observe-вида × корпусные, потолок $0,02')
+    ap.add_argument('--vlm-budget', type=float, default=None, help='потолок оценки расхода оценщика на запуск, $ (по умолчанию из rules, $0,02)')
     ap.add_argument('--roles', default='', help='JSON {sku: роль каталога} для form_gate (если нет --set)')
     ap.add_argument('--inner', action='store_true', help=argparse.SUPPRESS)
     a = ap.parse_args()
@@ -127,7 +130,7 @@ def main() -> int:
         if a.roles:
             roles = dict(json.load(open(os.path.expanduser(a.roles), encoding='utf-8')), **roles)
         run_form_gate(out, glbs, [s for s in ids if frames_of(out, s, views_of(s), lights) and not os.path.isfile(os.path.join(out, s, 'form_checks.json'))], roles,
-                      os.path.expanduser(a.photos), os.path.expanduser(a.vlm_cache))
+                      os.path.expanduser(a.photos), os.path.expanduser(a.vlm_cache), a.no_vlm, a.vlm_all, a.vlm_budget)
     return 1 if fails else 0
 
 
@@ -137,7 +140,7 @@ def gate_python() -> str:
     return v if os.path.isfile(v) else sys.executable
 
 
-def run_form_gate(out: str, glbs: str, skus: list, roles: dict, photos: str = '', vlm_cache: str = '') -> int:
+def run_form_gate(out: str, glbs: str, skus: list, roles: dict, photos: str = '', vlm_cache: str = '', no_vlm: bool = False, vlm_all: bool = False, vlm_budget=None) -> int:
     """Шаг form_gate (tools/scout/salad/render/form_gate.py) по товарам с готовыми кадрами; сбой — строка в лог, не падение рендера (OBSERVE)."""
     if not skus:
         return 0
@@ -146,8 +149,14 @@ def run_form_gate(out: str, glbs: str, skus: list, roles: dict, photos: str = ''
     cmd = [gate_python(), '-I', '-W', 'ignore', os.path.join(HERE, '..', 'scout', 'salad', 'render', 'form_gate.py'), '--out', out, '--glbs', glbs, '--skus', ','.join(skus), '--roles', roles_f]
     if photos:
         cmd += ['--photos', photos]
-        if vlm_cache:
-            cmd += ['--vlm-cache', vlm_cache]
+    if vlm_cache:
+        cmd += ['--vlm-cache', vlm_cache]
+    if no_vlm:
+        cmd.append('--no-vlm')
+    if vlm_all:
+        cmd.append('--vlm-all')
+    if vlm_budget is not None:
+        cmd += ['--vlm-budget', f'{vlm_budget:g}']
     try:
         rc = subprocess.run(cmd).returncode
     except OSError as exc:
