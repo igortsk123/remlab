@@ -234,3 +234,7 @@ def test_removed_product_name(tmp_path):
     assert prr.report([str(run)], {'run': per}, str(tmp_path / 'o'), str(REPO), frames_fn=ok, with_stages=False, catalog=str(cat)) == 0
     page = (tmp_path / 'o' / 'index.html').read_text(encoding='utf-8')
     assert '>Стул<' in page and 'товар снят с продажи' in page and "class='id'>z<" in page                         # нет в базе — «снят с продажи» + id мелко
+
+
+def test_slug_keeps_case():
+    assert prr.slug('e2eHD-1121-union') == 'paint-e2eHD-1121-union' and prr.slug('a b/c') == 'paint-a-b-c' and prr.slug('') == 'paint-run'

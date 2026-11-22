@@ -51,7 +51,7 @@ STAGE_VERDICT = {'ok': 'прошёл', 'soft': 'прошёл с замечани
 
 
 def slug(name: str) -> str:
-    s = re.sub(r'[^a-z0-9]+', '-', name.lower()).strip('-')
+    s = re.sub(r'[^A-Za-z0-9]+', '-', name).strip('-')                # регистр сохраняем: /test/paint-e2eHD-1121-union/ (директор 22.11)
     return 'paint-' + (s or 'run')
 
 
