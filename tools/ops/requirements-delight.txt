@@ -1,0 +1,12 @@
+# venv ~/venvs/delight — этап 05 «снять свет» (Marigold IID, diffusers). Отдельный от scout: diffusers тянет huggingface_hub новее, чем в scout (там сервис кадров).
+# Создать: python3 -m venv ~/venvs/delight && ~/venvs/delight/bin/pip install torch==2.13.0 --index-url https://download.pytorch.org/whl/cpu && ~/venvs/delight/bin/pip install -r tools/ops/requirements-delight.txt
+# Какой интерпретатор у этапа — rules/paint-run-all.json → pythons / stages.05.python (T-20261121-169/5).
+accelerate==1.16.0
+diffusers==0.43.0
+huggingface_hub==2.4.0
+numpy==2.5.5
+pillow==13.0.0
+safetensors==0.8.0
+scipy==1.18.1
+transformers==5.23.0
+trimesh==5.2.1

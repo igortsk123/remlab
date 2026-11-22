@@ -2,7 +2,7 @@
 """Проба заливки невидимого (T-20261120-164) на готовых покрашенных прогонах Salad — без платного, на процессоре.
 На каждый прогон: этап 07 (`tex_fill.run_stage`: GLB → маска «видно с камер фото» az0/az45 → части → заливка → `<выход>/<метка>/07-fill/{filled.glb, report.json, frame.png, check.json}`) и сверх этапа —
 кадры «до | после» с az000 (перёд), az090, az180 (отдельные полные PNG + пара) и мера сторожа охвата с камерами прогона до/после.
-  python3 tex_fill_probe.py [--visible-root <корень этапа 6: <root>/<sku>/06-visible> --source stat|trellis --draft-dir <папка родных GLB TRELLIS.2> --draft-fallback on|off --draft-texture on|off] <выход-папка> <папка-прогона> [<папка-прогона> …]
+  python3 tex_fill_probe.py [--visible-root <корень этапа 6: <root>/<sku>/06-visible> --source stat|trellis|trellis_relief --draft-dir <папка родных GLB TRELLIS.2> --draft-fallback on|off --draft-texture on|off] <выход-папка> <папка-прогона> [<папка-прогона> …]
 Источник «trellis» (вариант Б): черновик берётся как `<draft-dir>/<mid>_<eid>-1024-42-0.glb` по имени прогона (до «@»); нет файла — сбой этого товара, счётчик отказов в итоге.
 Строка на прогон — `<выход>/results.jsonl`; таблица товар × этап — `python3 tools/scout/paint_stage.py table <выход>`."""
 from __future__ import annotations
@@ -26,13 +26,17 @@ def probe(rund: str, out: str, label: str, cfg: dict | None = None, draft_glb: s
     import sg_tex_guard
     from PIL import Image
     if visible:
+        cfg = dict({'erode_known': 0}, **(cfg or {}))          # вход этапа 6: маска «взято с фото» уже честная (дыры ≤2,5 текселя закрыты); отступ в 3 пикселя съедал бы известное (грани мельче пикселя) и затирал бы кадр фото
         kn = []
         for i in range(64):
             fp = os.path.join(visible, 'known.png' if i == 0 else f'known{i}.png')
             if not os.path.exists(fp):
                 break
             kn.append(np.asarray(Image.open(fp).convert('L')) > 127)
-        r = TF.run_stage(out, label, os.path.join(visible, 'visible.glb'), known=kn, cfg=cfg, draft_glb=draft_glb)
+        npz = os.path.join(os.path.dirname(visible.rstrip('/')), '03-parts', 'parts.npz')                  # части этапа 3, если они есть рядом с 06-visible (как в боевом пути); нет — по геометрии
+        r = TF.run_stage(out, label, os.path.join(visible, 'visible.glb'), known=kn, cfg=cfg, draft_glb=draft_glb, prev_dir=visible, parts_npz=npz if os.path.exists(npz) else None)
+        if r.get('refused'):                                   # этап 6 отказал (камера не прошла, нет выхода) — этап 7 не заливает; это не сбой пробы
+            return {'run': label, 'refused': True, 'passed': False, 'reason': r['check']['reason'], 'seconds': r['check']['seconds']}
     else:
         r = TF.run_stage(out, label, sg_tex_guard.glb_of(rund), cfg=cfg, draft_glb=draft_glb)
     geoms, before, after, rep = r['geoms'], r['tex_before'], r['tex_after'], r['report']
@@ -65,7 +69,7 @@ def probe(rund: str, out: str, label: str, cfg: dict | None = None, draft_glb: s
 
 def main() -> int:
     args = sys.argv[1:]
-    cfg, draft_dir, visible_root = {}, None, None
+    cfg, draft_dir, visible_root, draft_pat = {}, None, None, '{base}-1024-42-0.glb'
     while args and args[0].startswith('--'):
         k, v = args[0], args[1]
         if k == '--source':
@@ -74,15 +78,19 @@ def main() -> int:
             draft_dir = v
         elif k == '--draft-fallback':                 # on|off: этап считает и А, берёт Б только если мерки не хуже (по умолчанию on); off — Б «как есть» для сравнения
             cfg['draft_fallback'] = (v == 'on')
+        elif k == '--draft-pattern':                 # имя черновика в --draft-dir, {base} — имя прогона/товара (по умолчанию родной TRELLIS.2: {base}-1024-42-0.glb; out30: {base}-n1024.glb)
+            draft_pat = v
         elif k == '--visible-root':                   # корень выхода этапа 6 (`<root>/<sku>/06-visible/`): вместо папок прогонов — имена товаров (sku)
             visible_root = v
         elif k == '--draft-texture':                  # on|off: класть на черновик Б лоскут фактуры фото (квилт)
             cfg['draft_texture'] = (v == 'on')
+        elif k == '--cfg':                            # JSON-добавка к FILL (варианты проб): '{"pattern_render": false, "pr_block_max": 64}'
+            cfg.update(json.loads(v))
         else:
             print(__doc__)
             return 2
         args = args[2:]
-    if len(args) < 2 or (cfg.get('source') == 'trellis' and not draft_dir):
+    if len(args) < 2 or (cfg.get('source') in ('trellis', 'trellis_relief') and not draft_dir):
         print(__doc__)
         return 2
     out, runs = args[0], args[1:]
@@ -92,7 +100,7 @@ def main() -> int:
         base = os.path.basename(rund.rstrip('/'))
         label = (base[-12:] if visible_root else base.split('-q2509')[0].split('@')[0][-12:] + '_' + base.split('@')[-1][:12])
         try:
-            dg = os.path.join(draft_dir, base.split('@')[0] + '-1024-42-0.glb') if draft_dir else None
+            dg = os.path.join(draft_dir, draft_pat.format(base=base.split('@')[0])) if draft_dir else None
             if dg and not os.path.exists(dg):
                 raise FileNotFoundError(f'нет черновика {dg}')
             rec = probe(rund, out, label, cfg, dg, os.path.join(visible_root, base, '06-visible') if visible_root else None)

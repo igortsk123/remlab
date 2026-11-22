@@ -773,7 +773,7 @@ def test_shadow_k1_in_one():
             restore()
 
 
-# ------------------------------------------------------------------ (е) salad/ не изменён
+# ------------------------------------------------------------------ (е) код паспортов не зависит от salad/
 def test_e():
     print('(е) salad/ не изменён относительно базы ветки:')
     r = subprocess.run(['git', '-C', ROOT, 'merge-base', 'HEAD', 'origin/main'], capture_output=True, text=True)

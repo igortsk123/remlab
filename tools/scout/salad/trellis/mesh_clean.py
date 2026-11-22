@@ -97,7 +97,143 @@ def tri_areas(v: np.ndarray, f: np.ndarray) -> np.ndarray:
     return 0.5 * np.linalg.norm(np.cross(v[f[:, 1]] - v[f[:, 0]], v[f[:, 2]] - v[f[:, 0]]), axis=1)
 
 
-def clean_glb(path: str, out_path: str | None = None, dims_cm=None, thin: float = 0.02, floor: float = 0.05) -> dict:
+def footprint_inside(v: np.ndarray, f: np.ndarray, top_from: float = 0.35, grow: float = 0.05) -> np.ndarray:
+    """Для каждой грани: центр внутри «следа корпуса» (выпуклая оболочка XZ вершин выше `top_from` высоты меша, раздутая на `grow` габарита)? Пусто → всё «внутри»."""
+    ymin, ymax = float(v[:, 1].min()), float(v[:, 1].max())
+    up = v[:, 1] > ymin + top_from * max(ymax - ymin, 1e-9)
+    if up.sum() < 10:
+        return np.ones(len(f), dtype=bool)
+    from scipy.spatial import ConvexHull
+    pts = v[up][:, [0, 2]]
+    hull = ConvexHull(pts)
+    ext = max(np.ptp(pts[:, 0]), np.ptp(pts[:, 1]))
+    c = v[f].mean(1)
+    return np.all(c[:, [0, 2]] @ hull.equations[:, :2].T + hull.equations[:, 2] <= grow * ext, axis=1)
+
+
+def slab_pieces(v: np.ndarray, f: np.ndarray, flat: np.ndarray, min_out: float = 0.2) -> np.ndarray:
+    """Куски старого правила («тонкие у пола», маска граней `flat`) → в плиту идёт ЦЕЛИКОМ тот кусок, у которого ≥ `min_out` граней лежит ЗА следом корпуса (выступает из-под предмета);
+    кусок целиком внутри следа (основание торшера, пятачки ножек) остаётся. Часть плиты под самим предметом уходит вместе с выступающей, потому что это один кусок."""
+    if not flat.any():
+        return flat
+    lab = label_components(f, len(v))
+    out_face = ~footprint_inside(v, f)
+    res = np.zeros(len(f), dtype=bool)
+    for k in np.unique(lab[flat]):
+        m = lab == k
+        if out_face[m].mean() >= min_out:
+            res |= m
+    return res
+
+
+def slab_dust(v: np.ndarray, f: np.ndarray, removed: np.ndarray, band: float = 0.01, max_area: float = 0.003, horiz: float = 0.8, min_h: float = 0.7) -> np.ndarray:
+    """ПРАВКА E («пыль»): после удаления плиты в полосе пола (нижние `band` высоты меша) остаются отдельные мелкие осколки листов. Удаляем отдельные связные куски ОСТАВШЕГОСЯ, которые целиком лежат в этой
+    полосе, имеют площадь < `max_area` площади меша, ≥ `min_h` их площади горизонтальна (|нормаль_Y| ≥ `horiz`) и ≥ 50 % граней лежит ЗА следом корпуса (кусочки, разбитые на части поверхности основания
+    стола «Тюлип», лежат внутри следа — остаются: проба E v1 19.11 проделала в них дыры). Пятачок ножки и основание объёмные/большие, осколок листа плоский, мелкий и торчит из-под предмета."""
+    keep = ~removed
+    if not keep.any():
+        return np.zeros(len(f), dtype=bool)
+    ymin, ymax = float(v[:, 1].min()), float(v[:, 1].max())
+    top = ymin + band * max(ymax - ymin, 1e-9)
+    area = tri_areas(v, f)
+    nrm = np.cross(v[f[:, 1]] - v[f[:, 0]], v[f[:, 2]] - v[f[:, 0]])
+    ny = np.abs(nrm[:, 1]) / np.maximum(2 * area, 1e-12)
+    idx = np.nonzero(keep)[0]
+    lab = label_components(f[idx], len(v))
+    cmax = v[f[idx]].max(axis=1)[:, 1]
+    # опора: вершины КРУПНЫХ оставшихся кусков — осколок, лежащий вплотную к ним (по плану и по высоте), — это поверхность самого предмета (верх основания стола), его не трогаем
+    from scipy.spatial import cKDTree
+    total = float(area.sum())
+    ext = max(ymax - ymin, 1e-9)
+    big = np.zeros(len(f), dtype=bool)
+    for g in np.unique(lab):
+        gi = idx[lab == g]
+        if float(area[gi].sum()) >= max_area * total:
+            big[gi] = True
+    bv = np.unique(f[big].ravel()) if big.any() else np.zeros(0, dtype=int)
+    tree = cKDTree(v[bv][:, [0, 2]]) if len(bv) else None
+    out = np.zeros(len(f), dtype=bool)
+    for g in np.unique(lab):
+        gi = idx[lab == g]
+        if cmax[lab == g].max() > top:
+            continue
+        a = float(area[gi].sum())
+        if a < max_area * total and float(area[gi][ny[gi] >= horiz].sum() / max(a, 1e-12)) >= min_h:
+            if tree is not None:
+                cen = v[f[gi]].mean(axis=1)
+                _, nb = tree.query(cen[:, [0, 2]], k=1)
+                near = (np.abs(v[bv[nb]][:, 1] - cen[:, 1]) <= 0.04 * ext) & (np.linalg.norm(v[bv[nb]][:, [0, 2]] - cen[:, [0, 2]], axis=1) <= 0.02 * ext)
+                if near.mean() >= 0.5:
+                    continue
+            out[gi] = True
+    return out
+
+
+def slab_rule_e(v: np.ndarray, f: np.ndarray, flat_a: np.ndarray) -> np.ndarray:
+    """ПРАВИЛО ОЧИСТКИ E = куски A, выступающие из-под предмета (целиком) + B (горизонтальные группы у пола вне следа) + «пыль». Маска граней к удалению."""
+    slab, _ = slab_faces(v, f)
+    rem = slab_pieces(v, f, flat_a) | slab
+    area = tri_areas(v, f)
+    if float(area[rem].sum() / max(float(area.sum()), 1e-12)) < 0.10:
+        return rem                                   # плиты нет (стол «Тюлип» и др.) — «пыли» от неё тоже нет; осколки поверхности самого предмета не трогаем
+    return rem | slab_dust(v, f, rem)
+
+
+def slab_faces(v: np.ndarray, f: np.ndarray, band: float = 0.25, top_from: float = 0.35, grow: float = 0.05, horiz: float = 0.8, min_h_share: float = 0.6) -> tuple[np.ndarray, dict]:
+    """ВТОРОЕ ПРАВИЛО ОЧИСТКИ (проба 19.11, директор): «почти горизонтальный слой у пола, выходящий за след корпуса сверху» — ПО НОРМАЛЯМ И ВЫСОТЕ, не по связным кускам и не срезом по высоте.
+    След корпуса = выпуклая оболочка (XZ) вершин верхней части (выше `top_from` высоты меша), раздутая на `grow` габарита. Кандидаты — грани с центром ниже `band` высоты меша и ЗА следом.
+    Из кандидатов берутся связные группы; плитой считается группа, где ≥ `min_h_share` площади — горизонтальные грани (|нормаль_Y| ≥ `horiz`) И которая НЕ приросла к предмету выше полосы
+    (общие вершины с гранями выше `band`): основание торшера/ножки приросли, плита и её обрывки лежат отдельно. Возвращает маску граней плиты и числа."""
+    ymin, ymax = float(v[:, 1].min()), float(v[:, 1].max())
+    h = max(ymax - ymin, 1e-9)
+    up = v[:, 1] > ymin + top_from * h
+    info = {'footprint_pts': int(up.sum())}
+    if up.sum() < 10:
+        return np.zeros(len(f), dtype=bool), info
+    from scipy.spatial import ConvexHull
+    pts = v[up][:, [0, 2]]
+    hull = ConvexHull(pts)
+    ext = max(np.ptp(pts[:, 0]), np.ptp(pts[:, 1]))
+    eq = hull.equations                                      # n·x + d ≤ 0 внутри
+    c = v[f].mean(1)
+    inside = np.all(c[:, [0, 2]] @ eq[:, :2].T + eq[:, 2] <= grow * ext, axis=1)
+    cand = (c[:, 1] <= ymin + band * h) & ~inside
+    info.update({'footprint_area': round(float(hull.volume), 5), 'cand_faces': int(cand.sum())})
+    if not cand.any():
+        return cand, info
+    nrm = np.cross(v[f[:, 1]] - v[f[:, 0]], v[f[:, 2]] - v[f[:, 0]])
+    area = 0.5 * np.linalg.norm(nrm, axis=1)
+    ny = np.abs(nrm[:, 1]) / np.maximum(2 * area, 1e-12)
+    idx = np.nonzero(cand)[0]
+    above = c[:, 1] > ymin + band * h                        # грани выше полосы: к ним должны прирастать основание/ножки
+    attached = np.zeros(len(v), dtype=bool)
+    attached[np.unique(f[above])] = True
+    lab = label_components(f[idx], len(v))
+    out = np.zeros(len(f), dtype=bool)
+    groups = []
+    for g in np.unique(lab):
+        gi = idx[lab == g]
+        a_all = float(area[gi].sum())
+        hs = float(area[gi][ny[gi] >= horiz].sum() / max(a_all, 1e-12))
+        take = hs >= min_h_share and not attached[np.unique(f[gi])].any()
+        groups.append({'faces': int(len(gi)), 'area': round(a_all, 5), 'h_share': round(hs, 2), 'attached_up': bool(attached[np.unique(f[gi])].any()), 'slab': bool(take)})
+        if take:
+            out[gi] = True
+    info['groups'] = sorted(groups, key=lambda x: -x['area'])[:6]
+    return out, info
+
+
+def floor_contacts(v: np.ndarray, f: np.ndarray, keep: np.ndarray, band: float = 0.04) -> int:
+    """Число «пятен опоры» (ножки/основание): связные группы граней с центром в нижних `band` высоты меша — по оставленным граням. Для «ножки до/после»."""
+    ymin, ymax = float(v[:, 1].min()), float(v[:, 1].max())
+    c = v[f].mean(1)
+    sel = keep & (c[:, 1] <= ymin + band * max(ymax - ymin, 1e-9))
+    if not sel.any():
+        return 0
+    return int(label_components(f[sel], len(v)).max() + 1)
+
+
+def clean_glb(path: str, out_path: str | None = None, dims_cm=None, thin: float = 0.02, floor: float = 0.05, rule: str = 'E', tag: str = '') -> dict:
     """Очистка БЕЗ слияния примитивов: у каждого примитива (материала) свой `submesh`, материалы и текстуры сохраняются (Codex, директор 19.11).
     Связные куски считаются по ВСЕМ примитивам вместе (куски могут пересекать границу материала). Рядом, кроме `.clean.glb` и `.metrics.json`, кладётся `.audit.glb` —
     сохранённое как есть + удалённое одним ярко-красным материалом: по одному кадру на товар глазами проверить, что правило не срезало низкую полку, царгу, стеклянное основание."""
@@ -111,6 +247,9 @@ def clean_glb(path: str, out_path: str | None = None, dims_cm=None, thin: float 
     joint = trimesh.Trimesh(v, f, process=False)
     metrics, keep = analyse(joint, thin, floor)
     area = tri_areas(v, f)
+    if rule == 'E':                                  # новое правило (19.11, директор): плита по нормалям/следу + пыль; 'A' — прежнее (только куски)
+        keep = ~slab_rule_e(v, f, ~keep)
+    metrics['rule'] = rule
     rem = ~keep
     metrics['primitives'] = len(parts)
     metrics['removed'] = {'tris': int(rem.sum()), 'area': round(float(area[rem].sum()), 5), 'area_share': round(float(area[rem].sum() / max(area.sum(), 1e-12)), 3)}
@@ -128,7 +267,7 @@ def clean_glb(path: str, out_path: str | None = None, dims_cm=None, thin: float 
             kept.append(g.submesh([np.nonzero(m)[0]], append=True, repair=False))
         if (~m).any():
             removed.append(g.submesh([np.nonzero(~m)[0]], append=True, repair=False))
-    out_path = out_path or path[:-4] + '.clean.glb'
+    out_path = out_path or path[:-4] + f'.clean{tag}.glb'
     trimesh.Scene(kept).export(out_path)
     metrics['clean_glb'] = os.path.basename(out_path)
     metrics['clean_tris'] = int(sum(len(g.faces) for g in kept))
@@ -139,7 +278,7 @@ def clean_glb(path: str, out_path: str | None = None, dims_cm=None, thin: float 
             g = g.copy()
             g.visual = trimesh.visual.TextureVisuals(material=red, uv=np.zeros((len(g.vertices), 2)))
             marked.append(g)
-        audit = path[:-4] + '.audit.glb'
+        audit = path[:-4] + f'.audit{tag}.glb'
         trimesh.Scene(kept + marked).export(audit)
         metrics['audit_glb'] = os.path.basename(audit)
     if dims_cm and 'item_ratio_w_d_h' in metrics:
@@ -148,7 +287,7 @@ def clean_glb(path: str, out_path: str | None = None, dims_cm=None, thin: float 
         want = [round(w / m, 3), round(d / m, 3), round(h / m, 3)]
         metrics['feed_ratio_w_d_h'] = want
         metrics['ratio_error_pct'] = [round((a - b) / b * 100, 1) for a, b in zip(metrics['item_ratio_w_d_h'], want)]
-    json.dump(metrics, open(path[:-4] + '.metrics.json', 'w'), ensure_ascii=False, indent=1)
+    json.dump(metrics, open(path[:-4] + f'.metrics{tag}.json', 'w'), ensure_ascii=False, indent=1)
     return metrics
 
 

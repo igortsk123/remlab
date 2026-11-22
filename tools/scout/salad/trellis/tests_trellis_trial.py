@@ -37,6 +37,16 @@ def ok(name, cond, extra=''):
 
 # ——— чистые функции ———
 print('[1] план, задания, деньги')
+# --- папка результатов у каждой модели своя; чужой файл не затирается (19.11: Hunyuan затёр 12 GLB TRELLIS.2) ---
+ok('папка по умолчанию — по модели', T.default_out('pixal3d').endswith('/mesh-models-1118/pixal3d') and T.default_out('trellis2').endswith('/trellis2') and T.default_out('hunyuan21') != T.default_out('trellis2'))
+with tempfile.TemporaryDirectory() as _d:
+    _old = os.path.join(_d, 'trellis'); os.makedirs(_old)
+    open(os.path.join(_old, 'k-1024-42-0.glb'), 'wb').write(b'x')
+    ok('старая общая папка: файл без метки — чужой для любой модели', T.owner_conflicts(_old, ['k-1024-42-0'], 'pixal3d') == ['k-1024-42-0'] and T.owner_conflicts(_old, ['k-1024-42-0'], 'trellis2') == ['k-1024-42-0'])
+    _own = os.path.join(_d, 'pixal3d'); os.makedirs(_own)
+    ok('своя пустая папка — писать можно', T.owner_conflicts(_own, ['k-1024-42-0'], 'pixal3d') == [])
+    open(os.path.join(_own, 'k-1024-42-0.glb'), 'wb').write(b'x'); open(os.path.join(_own, 'k-1024-42-0.model'), 'w').write('pixal3d')
+    ok('метка своей модели — повтор можно, чужой моделью — отказ', T.owner_conflicts(_own, ['k-1024-42-0'], 'pixal3d') == [] and T.owner_conflicts(_own, ['k-1024-42-0'], 'hunyuan21') == ['k-1024-42-0'])
 ok('план 1024:1,1536:2 разбирается', T.parse_plan('1024:1,1536:2') == [{'res': 1024, 'n': 1}, {'res': 1536, 'n': 2}])
 try:
     T.parse_plan('2048:1')
@@ -202,7 +212,7 @@ def make_inputs(tmp, skus=('a:1',)):
     json.dump(inp, open(os.path.join(tmp, 'inputs.json'), 'w'))
 
 
-def go(tmp, mg=None, br=None, hf=200, script=None, run_kw=None, **kw):
+def go(tmp, mg=None, br=None, hf=200, script=None, gw=None, run_kw=None, **kw):
     FakeGW.script = {'warm': True, 'fail_jobs': 0, 'health_error': None, 'raise_on': None, 'phase': None, 'no_health': False, 'hf_gb': None, 'disk_free': 50.0,
                      'fatal_jobs': False, 'broken': None, 'job_hangs': False, **(script or {})}
     clock = [0.0]
@@ -211,7 +221,7 @@ def go(tmp, mg=None, br=None, hf=200, script=None, run_kw=None, **kw):
         clock[0] += s
     mg, br = mg or FakeMG(), br or FakeBR()
     try:
-        rc = T.run(args(tmp, **kw), mg, br, gw_factory=FakeGW, sleep=sleep, clock=lambda: clock[0], hf_head=lambda p, t: hf, **({'image_gib': 22.46} | (run_kw or {})))
+        rc = T.run(args(tmp, **kw), mg, br, gw_factory=gw or FakeGW, sleep=sleep, clock=lambda: clock[0], hf_head=lambda p, t: hf, **({'image_gib': 22.46} | (run_kw or {})))
     except RuntimeError as e:
         rc = f'exc:{e}'
     summ = None
@@ -269,6 +279,18 @@ ok('обычная нехватка памяти (diag.fatal=false) — преж
 rc, mg, br, s = go(d, suffix='t13', script={'job_hangs': True, 'broken': 'RuntimeError: !handles_.at(i) INTERNAL ASSERT'}, job_timeout=60)
 ok('/health «сломан» во время задания → гашу сразу (до таймаута задания), причина и задание в сводке', s['stopped_by'] == 'worker_broken' and 'INTERNAL ASSERT' in str(s['broken'])
    and s['failed'] == 1 and s['jobs'][0]['status'] == 'failed' and br.stops == ['trial-trellis2-t13'])
+rc, mg, br, s = go(d, suffix='t14', script={'job_hangs': True, 'hf_gb': 80.7}, cap=0.05, job_timeout=600)
+ok('потолок денег посреди задания → в сводке снимок: /health (фаза, ГБ весов) и последний ответ /job, секунды задания (19.11: r2/r3 молчали без следа)',
+   s['stopped_by'] == 'money' and s.get('unfinished', {}).get('job_id') and s['unfinished']['seconds'] > 0
+   and s['unfinished']['health']['phase'] == 'ready' and s['unfinished']['warmup']['progress'] == {'hf_gb': 80.7}
+   and s['unfinished']['job'] == {'status': 'running'} and br.stops == ['trial-trellis2-t14'])
+rc, mg, br, s = go(d, suffix='t15', script={'job_hangs': True}, job_timeout=1, fail_streak=5)
+ok('таймаут задания → последний ответ /job сохранён в самом задании (last_job), стоп подтверждён',
+   s['jobs'] and s['jobs'][0]['status'] == 'failed' and s['jobs'][0]['last_job'] == {'status': 'running'} and 'unfinished' not in s and br.stops == ['trial-trellis2-t15'])
+rc, mg, br, s = go(d, suffix='t16')
+ok('нормальный ход — снимка нет (задание закончено), стоп один раз', s['stopped_by'] == 'done' and 'unfinished' not in s and br.stops == ['trial-trellis2-t16'])
+ok('slim_job: длинные строки и тяжёлые поля не раздувают сводку', len(json.dumps(T.slim_job({'status': 'running', 'trace': 'x' * 5000, 'm': {'views': 'y' * 9000}, 'n': 3}))) < 700
+   and T.slim_job('мусор') == {'raw': 'мусор'})
 rc, mg, br, s = go(d, suffix='t4', script={'raise_on': '/generate'})
 ok('исключение посреди замера → стоп с проверкой всё равно сделан', isinstance(rc, str) and rc.startswith('exc:') and br.stops == ['trial-trellis2-t4'])
 d3 = tempfile.mkdtemp(prefix='tt-')
@@ -484,6 +506,264 @@ if have_pil:
         ok('предел веса картинок срабатывает', False)
     except SystemExit:
         ok('предел веса картинок срабатывает', True)
+
+print('[4б] драйвер: долгое создание группы и отказ /start (живая группа MV-Adapter 19.11: stopped позже 10 минут, /start → HTTP 400)')
+
+
+class SlowCreateBR(FakeBR):
+    """Группа создаётся `slow_s` секунд (по часам теста), потом становится stopped; `stuck` — не станет никогда."""
+    def __init__(self, clock_box, slow_s=0, stuck=False, **kw):
+        super().__init__(**kw)
+        self.cb, self.slow_s, self.stuck, self.state_calls = clock_box, slow_s, stuck, 0
+
+    def group_state(self, name):
+        self.state_calls += 1
+        if self.stuck or self.cb[0] < self.slow_s:
+            return 200, 'creating', {}
+        return 200, 'stopped', {}
+
+
+class StartCodesMG(FakeMG):
+    def __init__(self, codes, **kw):
+        super().__init__(**kw)
+        self.codes, self.starts = list(codes), []
+
+    def api(self, path, method='GET', body=None):
+        if method == 'POST' and path.endswith('/start'):
+            self.calls.append((method, path))
+            self.starts.append(1)
+            return (self.codes.pop(0) if self.codes else 202), {}
+        return super().api(path, method, body)
+
+
+def go2(tmp, mg, mkbr, **kw):
+    FakeGW.script = {'warm': True, 'fail_jobs': 0, 'health_error': None, 'raise_on': None, 'phase': None, 'no_health': False, 'hf_gb': None, 'disk_free': 50.0, 'fatal_jobs': False, 'broken': None, 'job_hangs': False}
+    clock = [0.0]
+    br = mkbr(clock)
+    naps = []
+
+    def sleep(sec):
+        naps.append(sec)
+        clock[0] += sec
+    rc = T.run(args(tmp, **kw), mg, br, gw_factory=FakeGW, sleep=sleep, clock=lambda: clock[0], hf_head=lambda p, t: 200)
+    sp = os.path.join(tmp, 'out', f'summary-trial-trellis2-{kw.get("suffix", "t1")}.json')
+    return rc, br, naps, (json.load(open(sp)) if os.path.exists(sp) else None)
+
+
+d = tempfile.mkdtemp(prefix='tt-')
+make_inputs(d)
+mg = StartCodesMG([400, 202])
+rc, br, naps, s = go2(d, mg, lambda c: SlowCreateBR(c, slow_s=15 * 60), suffix='c1')
+ok('группа создаётся 15 мин (старое окно было 10): ждём stopped, /start идёт только после него — первый HTTP 400, второй 202, прогон идёт до конца', rc == 0 and s['stopped_by'] == 'done' and len(mg.starts) == 2
+   and sum(x for x in naps[:200] if x == 5) >= 15 * 60 - 5 and 30 in naps, str((rc, mg.starts, s and s['stopped_by'])))
+ok('при повторе /start пауза 30 с, стоп с проверкой — один раз', br.stops == ['trial-trellis2-c1'] and naps.count(30) == 1, str(naps[:5]))
+mg = StartCodesMG([400] * 10)
+rc, br, naps, s = go2(d, mg, lambda c: SlowCreateBR(c), suffix='c2')
+ok('/start не принят ни разу: 1+5 попыток с паузой 30 с, потом стоп с проверкой и stopped_by=start_failed (а не тихое ожидание у остановленной группы)', rc == 1 and len(mg.starts) == 6 and naps.count(30) == 5
+   and s['stopped_by'] == 'start_failed' and s['stop_verified'] and br.stops == ['trial-trellis2-c2'] and s['running_s'] == 0.0, str((rc, len(mg.starts), s and s['stopped_by'])))
+mg = StartCodesMG([202])
+rc, br, naps, s = go2(d, mg, lambda c: SlowCreateBR(c, stuck=True), suffix='c3', create_wait_min=2)
+ok('группа так и не стала stopped за --create-wait-min → /start не шлём, стоп с проверкой, stopped_by=create_timeout', rc == 1 and mg.starts == [] and s['stopped_by'] == 'create_timeout' and br.stops == ['trial-trellis2-c3'], str((rc, mg.starts, s and s['stopped_by'])))
+ok('по умолчанию ждём stopped 30 минут', T.CREATE_WAIT_MIN == 30 and T.START_RETRIES == 5 and T.START_RETRY_S == 30)
+
+
+print('[5] текстурные модели: несколько товаров в одной группе, у каждого своя форма (T-20261119-06/5/2)')
+import base64  # noqa: E402
+cat = tempfile.mkdtemp(prefix='shp-')
+for fn, data in (('a_1-1024-42-0.clean2.glb', b'glTF-A2'), ('a_1-1024-42-0.clean.glb', b'glTF-A1'), ('b_2-1024-42-0.clean.glb', b'glTF-B1')):
+    open(os.path.join(cat, fn), 'wb').write(data)
+ok('форма из каталога: clean2, если есть, иначе clean; нет ни той ни другой — None', T.find_shape(cat, 'a:1')[0].endswith('a_1-1024-42-0.clean2.glb') and T.find_shape(cat, 'b:2')[0].endswith('b_2-1024-42-0.clean.glb')
+   and 'clean2' in T.find_shape(cat, 'a:1')[1] and T.find_shape(cat, 'c:3') is None)
+NSx = types.SimpleNamespace
+r_ok, why = T.resolve_shapes(NSx(model='supratex', texture_mesh=None, shape_dir=cat), ['a:1', 'b:2'])
+ok('resolve_shapes: два товара — у каждого своя форма', why == '' and list(r_ok) == ['a:1', 'b:2'] and r_ok['a:1'].endswith('.clean2.glb') and r_ok['b:2'].endswith('.clean.glb'), str((r_ok, why)))
+r_no, why = T.resolve_shapes(NSx(model='supratex', texture_mesh=None, shape_dir=cat), ['a:1', 'c:3', 'd:4'])
+ok('resolve_shapes: формы нет у двух из трёх — отказ, названы ВСЕ без формы', r_no is None and 'c:3' in why and 'd:4' in why and 'a:1' not in why.split('у товаров:')[1], why)
+ok('resolve_shapes: нет ни --shape-dir, ни --texture-mesh / оба сразу / --texture-mesh при двух товарах / файла нет — отказ',
+   all(T.resolve_shapes(NSx(model='mvpainter', **kw), sk)[0] is None for kw, sk in (
+       ({'texture_mesh': None, 'shape_dir': None}, ['a:1']), ({'texture_mesh': os.path.join(cat, 'a_1-1024-42-0.clean.glb'), 'shape_dir': cat}, ['a:1']),
+       ({'texture_mesh': os.path.join(cat, 'a_1-1024-42-0.clean.glb'), 'shape_dir': None}, ['a:1', 'b:2']), ({'texture_mesh': '/нет/такого.glb', 'shape_dir': None}, ['a:1']),
+       ({'texture_mesh': None, 'shape_dir': cat}, []))))
+one_ok, _ = T.resolve_shapes(NSx(model='mvpainter', texture_mesh=os.path.join(cat, 'a_1-1024-42-0.clean.glb'), shape_dir=None), ['a:1'])
+ok('прежний способ: --texture-mesh при одном товаре работает', one_ok == {'a:1': os.path.join(cat, 'a_1-1024-42-0.clean.glb')})
+
+
+class RecGW(FakeGW):
+    """Шлюз, запоминающий тело каждого задания: какая форма (`texture_mesh_b64`) уехала с каким job_id."""
+    bodies: list = []
+
+    def call(self, method, path, body=None, timeout=60, raw=False):
+        if path == '/generate':
+            RecGW.bodies.append((body['job_id'], body.get('texture_mesh_b64')))
+        return super().call(method, path, body, timeout, raw)
+
+
+d = tempfile.mkdtemp(prefix='tt-')
+make_inputs(d, ('a:1', 'b:2', 'c:3'))
+mg0 = FakeMG()
+for model in ('supratex', 'mvpainter', 'mvadapter-i2tex', 'pixal3d-tex'):
+    mg0 = FakeMG()
+    rc, mg0, br0, _ = go(d, mg=mg0, model=model, skus=['a:1', 'c:3'], shape_dir=cat, texture_mesh=None, tex_align='fit', suffix='r-' + model)
+    ok(f'{model}: форма есть не у всех (нет у c:3) — отказ (код 2) ДО группы: к Salad ни одного обращения, остановка не нужна', rc == 2 and mg0.calls == [] and br0.stops == [], str((rc, mg0.calls)))
+mg1 = FakeMG()
+rc, mg1, br1, _ = go(d, mg=mg1, model='supratex', skus=['a:1', 'b:2'], shape_dir=cat, texture_mesh=None, apply=False, suffix='dry')
+ok('сухой прогон двух товаров: код 0, ничего не создано', rc == 0 and not [c for c in mg1.calls if c[0] in ('POST', 'PATCH')])
+buf5 = io.StringIO()
+with __import__('contextlib').redirect_stdout(buf5):
+    go(d, model='supratex', skus=['a:1', 'b:2'], shape_dir=cat, texture_mesh=None, apply=False, mem_mb=None, suffix='dry2')
+ok('сухой прогон: два задания (по товару), общая группа trial-supratex-dry2, память группы 49152', buf5.getvalue().count('  задание ') == 2 and 'a_1-1024-42-0-supra' in buf5.getvalue()
+   and 'b_2-1024-42-0-supra' in buf5.getvalue() and 'trial-supratex-dry2' in buf5.getvalue() and '"memory": 49152' in buf5.getvalue(), buf5.getvalue()[:300])
+buf6 = io.StringIO()
+with __import__('contextlib').redirect_stdout(buf6):
+    rc, *_ = go(d, model='pixal3d-tex', skus=['a:1', 'b:2'], shape_dir=cat, texture_mesh=None, tex_align='fit,official', apply=False, suffix='dry3')
+ok('pixal3d-tex: два товара × два варианта кадрирования = четыре задания в одной группе', rc == 0 and buf6.getvalue().count('  задание ') == 4, buf6.getvalue()[-300:])
+
+RecGW.bodies = []
+rc, mg2, br2, _ = go(d, model='supratex', skus=['a:1', 'b:2'], shape_dir=cat, texture_mesh=None, gw=RecGW, suffix='m1')
+sm = json.load(open(os.path.join(d, 'out', 'summary-trial-supratex-m1.json')))
+got = dict(RecGW.bodies)
+ok('боевой ход, два товара в ОДНОЙ группе: группа создана и остановлена с проверкой ровно один раз, оба задания выполнены', rc == 0 and [c for c in mg2.calls if c == ('POST', '')] == [('POST', '')] and br2.stops == ['trial-supratex-m1']
+   and sm['stopped_by'] == 'done' and sm['stop_verified'] and len(sm['jobs']) == 2, str((rc, br2.stops, sm['stopped_by'])))
+ok('в каждое задание уехала СВОЯ форма: a:1 — clean2 (A2), b:2 — clean (B1); тела разные',
+   got.get('a_1-1024-42-0-supra') == base64.b64encode(b'glTF-A2').decode() and got.get('b_2-1024-42-0-supra') == base64.b64encode(b'glTF-B1').decode() and len(set(got.values())) == 2, str(got))
+ok('итог по товару (by_sku): статус, id задания, файл результата; результаты — по товару', set(sm['by_sku']) == {'a:1', 'b:2'} and all(v['status'] == 'done' and v['glb'] for v in sm['by_sku'].values())
+   and os.path.exists(os.path.join(d, 'out', 'trial-supratex', 'x')) is False and sm['by_sku']['a:1']['job_id'] == 'a_1-1024-42-0-supra', str(sm['by_sku']))
+RecGW.bodies = []
+rc, mg3, br3, _ = go(d, model='supratex', skus=['a:1', 'b:2'], shape_dir=cat, texture_mesh=None, gw=RecGW, script={'fail_jobs': 1}, suffix='m2')
+sm = json.load(open(os.path.join(d, 'out', 'summary-trial-supratex-m2.json')))
+ok('первый товар упал, второй всё равно идёт: итог по товару — failed с причиной и done; один стоп с проверкой', sm['by_sku']['a:1']['status'] == 'failed' and sm['by_sku']['a:1']['error'] and sm['by_sku']['b:2']['status'] == 'done'
+   and br3.stops == ['trial-supratex-m2'], str(sm['by_sku']))
+RecGW.bodies = []
+rc, mg4, br4, _ = go(d, model='supratex', skus=['a:1', 'b:2'], shape_dir=cat, texture_mesh=None, gw=RecGW, script={'fail_jobs': 1, 'fatal_jobs': True}, suffix='m3')
+sm = json.load(open(os.path.join(d, 'out', 'summary-trial-supratex-m3.json')))
+ok('фатальная ошибка CUDA на первом товаре: группа гасится сразу, второй — not_run (в итоге по товару это видно), а не «пропал»', sm['stopped_by'] == 'worker_broken' and sm['by_sku']['a:1']['status'] == 'failed'
+   and sm['by_sku']['b:2']['status'] == 'not_run' and br4.stops == ['trial-supratex-m3'], str(sm['by_sku']))
+RecGW.bodies = []
+rc, mg5, br5, _ = go(d, model='supratex', skus=['a:1'], texture_mesh=os.path.join(cat, 'b_2-1024-42-0.clean.glb'), gw=RecGW, suffix='m4')
+ok('прежний способ (--texture-mesh, один товар) по-прежнему едет формой в задании', rc == 0 and dict(RecGW.bodies).get('a_1-1024-42-0-supra') == base64.b64encode(b'glTF-B1').decode(), str(RecGW.bodies)[:200])
+
+
+print('[6] отказы по категориям и память по товару (T-20261119-06/6/1)')
+cf = T.classify_failure
+ok('категории: UVAtlas (в любом регистре и записи), контейнер убит (код -9/137, Killed), нехватка видеопамяти, форма/развёртка изменились, CUDA, прочее',
+   cf('RuntimeError: UVAtlasPack failed') == 'uvatlas' and cf('uvatlas: bad') == 'uvatlas' and cf('дочерний процесс завершился, код -9 (−9 = убит ядром)') == 'oom_ram' and cf('exit code 137') == 'oom_ram'
+   and cf('Killed') == 'oom_ram' and cf('CUDA out of memory.', {'kind': 'oom'}) == 'oom_gpu' and cf('x', {'kind': 'oom'}) == 'oom_gpu' and cf('ShapeChanged: развёртка изменилась: 3e-2') == 'shape_changed'
+   and cf('RuntimeError: CUDA driver error', {'fatal': True}) == 'cuda' and cf('ValueError: форма: нет мешей') == 'other' and cf(None) == 'other')
+ok('приоритеты: UVAtlas важнее прочего, убитый контейнер важнее «CUDA» в том же тексте', cf('CUDA out of memory in UVAtlas') == 'uvatlas' and cf('CUDA context lost; код -9') == 'oom_ram')
+jm = T.job_mem({'metrics': {'peak_vram_gb': 18.5, 'peak_rss_gb': 21.0, 'peak_cgroup_gb': 27.5}}, 32.0)
+ok('пики из метрик done: видео, процесс, группа и лимит группы', jm == {'peak_vram_gb': 18.5, 'peak_rss_gb': 21.0, 'peak_cgroup_gb': 27.5, 'mem_limit_gb': 32.0}, str(jm))
+jf = T.job_mem({'diag': {'peak_rss_gb': 30.5, 'stage_mem': {'start': {'peak_allocated_gb': 1.0, 'cgroup_gb': 12.0}, 'views': {'peak_allocated_gb': 14.0, 'cgroup_gb': 29.0}}, 'mem': {'peak_allocated_gb': 2.0, 'cgroup_gb': 30.5}}}, 32.0)
+ok('пики упавшего задания — из диагностики воркера (стадии до падения + текущий замер)', jf == {'peak_vram_gb': 14.0, 'peak_rss_gb': 30.5, 'peak_cgroup_gb': 30.5, 'mem_limit_gb': 32.0}, str(jf))
+ok('нет данных — None, а не ноль', T.job_mem({}, 32.0) == {'peak_vram_gb': None, 'peak_rss_gb': None, 'peak_cgroup_gb': None, 'mem_limit_gb': 32.0})
+
+
+class MemGW(FakeGW):
+    """Метрики задания с памятью; второй товар падает «убит ядром» (код −9)."""
+    def call(self, method, path, body=None, timeout=60, raw=False):
+        c, r = super().call(method, path, body, timeout, raw)
+        if path.startswith('/job/') and r.get('status') == 'done':
+            r = {**r, 'metrics': {**r['metrics'], 'peak_vram_gb': 17.0, 'peak_rss_gb': 22.5, 'peak_cgroup_gb': 26.0}}
+        if path.startswith('/job/') and r.get('status') == 'failed':
+            r = {**r, 'error': 'дочерний процесс завершился, код -9 (−9 = убит ядром, почти наверняка нехватка памяти)', 'diag': {'kind': 'other', 'fatal': False, 'peak_rss_gb': 31.2,
+                                                                                                                            'stage_mem': {'views': {'peak_allocated_gb': 15.0, 'cgroup_gb': 31.9}}}}
+        return c, r
+
+
+d = tempfile.mkdtemp(prefix='tt-')
+make_inputs(d, ('a:1', 'b:2', 'c:3'))
+cat2 = tempfile.mkdtemp(prefix='shp-')
+for k in ('a_1', 'b_2', 'c_3'):
+    open(os.path.join(cat2, k + '-1024-42-0.clean2.glb'), 'wb').write(b'glTF')
+buf7 = io.StringIO()
+with __import__('contextlib').redirect_stdout(buf7):
+    rc, mg7, br7, _ = go(d, model='mvadapter-i2tex', skus=['a:1', 'b:2', 'c:3'], shape_dir=cat2, texture_mesh=None, gw=MemGW, script={'fail_jobs': 0}, mem_mb=None, fail_streak=9, suffix='q1')
+sm7 = json.load(open(os.path.join(d, 'out', 'summary-trial-mvadapter-i2tex-q1.json')))
+ok('итог по товару: пики видео/процесса/группы и лимит группы (32 ГБ) у каждого товара', all(sm7['by_sku'][k]['peak_rss_gb'] == 22.5 and sm7['by_sku'][k]['peak_cgroup_gb'] == 26.0 and sm7['by_sku'][k]['peak_vram_gb'] == 17.0
+                                                                                      and sm7['by_sku'][k]['mem_limit_gb'] == 32.0 for k in ('a:1', 'b:2', 'c:3')), str(sm7['by_sku']))
+ok('счётчик отказов в summary: все категории и not_run есть, при успехе — нули', sm7['fail_classes'] == {'uvatlas': 0, 'oom_gpu': 0, 'oom_ram': 0, 'shape_changed': 0, 'cuda': 0, 'other': 0, 'not_run': 0}, str(sm7['fail_classes']))
+ok('в строке «товар …» память видна: видео, процесс, группа из лимита', 'видео 17.0 ГБ, процесс 22.5 ГБ, группа 26.0 из 32.0 ГБ' in buf7.getvalue() and '"fail_classes"' in buf7.getvalue())
+buf8 = io.StringIO()
+with __import__('contextlib').redirect_stdout(buf8):
+    rc, mg8, br8, _ = go(d, model='mvadapter-i2tex', skus=['a:1', 'b:2', 'c:3'], shape_dir=cat2, texture_mesh=None, gw=MemGW, script={'fail_jobs': 2}, mem_mb=None, fail_streak=9, suffix='q2')
+sm8 = json.load(open(os.path.join(d, 'out', 'summary-trial-mvadapter-i2tex-q2.json')))
+ok('два отказа «убит ядром»: oom_ram = 2, остальные 0; у упавших пик процесса 31,2 ГБ и группы 31,9 ГБ из 32; у третьего done', sm8['fail_classes']['oom_ram'] == 2 and sum(sm8['fail_classes'].values()) == 2
+   and sm8['by_sku']['a:1']['fail_class'] == 'oom_ram' and sm8['by_sku']['a:1']['peak_rss_gb'] == 31.2 and sm8['by_sku']['a:1']['peak_cgroup_gb'] == 31.9 and sm8['by_sku']['c:3']['status'] == 'done' and sm8['by_sku']['c:3']['fail_class'] is None, str(sm8['by_sku']['a:1']))
+rc, mg9, br9, _ = go(d, model='mvadapter-i2tex', skus=['a:1', 'b:2', 'c:3'], shape_dir=cat2, texture_mesh=None, script={'fail_jobs': 3, 'fatal_jobs': True}, mem_mb=None, suffix='q3')
+sm9 = json.load(open(os.path.join(d, 'out', 'summary-trial-mvadapter-i2tex-q3.json')))
+ok('фатальный отказ на первом: failed 1 по своей категории, остальные два — not_run = 2', sm9['fail_classes']['not_run'] == 2 and sm9['fail_classes']['cuda'] == 1 and sum(v for k, v in sm9['fail_classes'].items() if k != 'not_run') == 1, str(sm9['fail_classes']))
+
+print('[7] А0: --mv-keep-stages — архив стадий скачивается и раскладывается (T-20261119-47/1)')
+import zipfile  # noqa: E402
+
+
+def stages_zip_bytes(extra=None):
+    bio = io.BytesIO()
+    with zipfile.ZipFile(bio, 'w', zipfile.ZIP_STORED) as z:
+        z.writestr('manifest.json', '{"error": null}')
+        z.writestr('views_768/v0.png', b'PNG0')
+        z.writestr('render_view0/r2048.png', b'PNG1')
+        for name in (extra or []):
+            z.writestr(name, b'x')
+    return bio.getvalue()
+
+
+class StagesGW(FakeGW):
+    """Шлюз: задание отдаёт метрики с `stages` (как воркер при mv_keep_stages), `?v=stages` — архив; запоминает тела заданий и все запросы архива."""
+    bodies: list = []
+    zip_calls: list = []
+    zip_data = b''
+    zip_code = 200
+    with_stages = True
+
+    def call(self, method, path, body=None, timeout=60, raw=False):
+        if path == '/generate':
+            StagesGW.bodies.append(dict(body))
+        if path.startswith('/glb/') and '?v=stages' in path:
+            StagesGW.zip_calls.append((path, timeout))
+            return StagesGW.zip_code, (StagesGW.zip_data if StagesGW.zip_code == 200 else {})
+        c, r = super().call(method, path, body, timeout, raw)
+        if path.startswith('/job/') and r.get('status') == 'done' and StagesGW.with_stages:
+            r = {**r, 'metrics': {**r['metrics'], 'stages': {'zip': 'x.stages.zip', 'bytes': len(StagesGW.zip_data), 'files': 3}}}
+        return c, r
+
+
+ok('mv_options: без флага тело задания прежнее (ключа mv_keep_stages нет); с флагом — mv_keep_stages=1',
+   'mv_keep_stages' not in T.mv_options(types.SimpleNamespace()) and T.mv_options(types.SimpleNamespace(mv_keep_stages=False)) == T.mv_options(types.SimpleNamespace())
+   and T.mv_options(types.SimpleNamespace(mv_keep_stages=True))['mv_keep_stages'] == 1)
+d7 = tempfile.mkdtemp(prefix='tt-')
+make_inputs(d7, ('a:1',))
+cat7 = tempfile.mkdtemp(prefix='shp-')
+open(os.path.join(cat7, 'a_1-1024-42-0.clean2.glb'), 'wb').write(b'glTF')
+StagesGW.bodies, StagesGW.zip_calls, StagesGW.zip_data = [], [], stages_zip_bytes()
+rc, _mg, _br, _ = go(d7, model='mvadapter-i2tex', skus=['a:1'], shape_dir=cat7, texture_mesh=None, gw=StagesGW, mv_keep_stages=True, mem_mb=None, suffix='k1')
+sk = json.load(open(os.path.join(d7, 'out', 'summary-trial-mvadapter-i2tex-k1.json')))
+st = sk['jobs'][0].get('stages') or {}
+dest = os.path.join(d7, 'out', 'a_1', 'stages')
+ok('с флагом: в задание уехал mv_keep_stages=1; архив запрошен ОДИН раз тем же шлюзом (?v=stages, долгий таймаут)', rc == 0 and StagesGW.bodies[0].get('mv_keep_stages') == 1 and len(StagesGW.zip_calls) == 1
+   and StagesGW.zip_calls[0][0] == '/glb/a_1-1024-42-0-mvtex?v=stages' and StagesGW.zip_calls[0][1] >= 600, str((StagesGW.bodies, StagesGW.zip_calls)))
+ok('архив лёг в OUT/<ключ>/stages/ с подпапками; сам zip — рядом с GLB; в сводке — число файлов и размер', os.path.exists(os.path.join(dest, 'manifest.json')) and open(os.path.join(dest, 'views_768', 'v0.png'), 'rb').read() == b'PNG0'
+   and os.path.exists(os.path.join(dest, 'render_view0', 'r2048.png')) and os.path.exists(os.path.join(d7, 'out', 'a_1-1024-42-0-mvtex.stages.zip')) and st.get('files') == 3 and st.get('bytes') == len(StagesGW.zip_data)
+   and st.get('dir') == dest, str(st))
+StagesGW.bodies, StagesGW.zip_calls = [], []
+d8 = tempfile.mkdtemp(prefix='tt-')
+make_inputs(d8, ('a:1',))
+StagesGW.with_stages = False                                   # без флага воркер блока stages в метрики не кладёт
+rc, _mg, _br, _ = go(d8, model='mvadapter-i2tex', skus=['a:1'], shape_dir=cat7, texture_mesh=None, gw=StagesGW, mem_mb=None, suffix='k2')
+ok('без флага: ключа mv_keep_stages в теле задания нет, архив не запрашивается, папки stages нет', rc == 0 and 'mv_keep_stages' not in StagesGW.bodies[0] and StagesGW.zip_calls == [] and not os.path.exists(os.path.join(d8, 'out', 'a_1', 'stages')))
+StagesGW.with_stages = True
+StagesGW.zip_code, StagesGW.zip_calls = 404, []
+d9 = tempfile.mkdtemp(prefix='tt-')
+make_inputs(d9, ('a:1',))
+rc, _mg, _br, _ = go(d9, model='mvadapter-i2tex', skus=['a:1'], shape_dir=cat7, texture_mesh=None, gw=StagesGW, mv_keep_stages=True, mem_mb=None, suffix='k3')
+sk3 = json.load(open(os.path.join(d9, 'out', 'summary-trial-mvadapter-i2tex-k3.json')))
+ok('архив не скачался (404): задание остаётся done, GLB на месте, причина — в сводке; группа остановлена', sk3['jobs'][0]['status'] == 'done' and os.path.exists(sk3['jobs'][0]['glb_path']) and 'HTTP 404' in str(sk3['jobs'][0].get('stages')) and sk3['stop_verified'])
+StagesGW.zip_code = 200
+evil = tempfile.mkdtemp(prefix='ev-')
+try:
+    T.save_stages(evil, 'a:1', 'j', stages_zip_bytes(['../../evil.txt']))
+    ok('архив с путём вне папки — отказ, файл снаружи не создан', False)
+except ValueError:
+    ok('архив с путём вне папки — отказ, файл снаружи не создан', not os.path.exists(os.path.join(evil, 'evil.txt')) and not os.path.exists(os.path.join(os.path.dirname(evil), 'evil.txt')))
 
 print('ИТОГО: ' + ('всё в норме' if not bad else f'провалов {bad}'))
 sys.exit(1 if bad else 0)
