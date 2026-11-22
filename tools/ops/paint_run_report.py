@@ -472,7 +472,7 @@ CSS = """
 h1{font-size:1.25rem;margin:0 0 8px}h2{font-size:1.05rem;margin:20px 0 8px}.sum{background:var(--card);border-radius:10px;padding:12px 14px;margin-bottom:16px}
 .sum b{font-weight:650}.sum ul{margin:6px 0 0;padding-left:18px}.sum li{margin:3px 0;font-size:.92rem;word-break:break-word}.sum a{color:inherit}
 .card{border:1px solid var(--line);border-radius:10px;padding:10px;margin-bottom:16px}.card h3{font-size:1rem;margin:0}.id,.meta,small{color:var(--mut);font-size:.78rem;opacity:.85}.meta{font-size:.85rem;opacity:1}
-.badge{display:inline-block;font-size:.8rem;border-radius:99px;padding:1px 9px;border:1px solid currentColor;margin-left:6px;white-space:nowrap}.ok{color:var(--ok)}.soft{color:var(--soft)}.refused,.missing{color:var(--bad)}.waitb{color:var(--mut)}
+.badge{display:inline-block;font-size:.8rem;border-radius:99px;padding:1px 9px;border:1px solid currentColor;margin-left:6px;white-space:nowrap}.ok{color:var(--ok)}.soft{color:var(--soft)}.refused,.missing{color:var(--bad)}.waitb{color:var(--mut)}.retryb{color:var(--soft)}
 .pair{display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-top:8px}.pair figure{margin:0}.pair img{width:100%;height:auto;display:block;border-radius:6px;background:#e8e8e8}
 .pair figcaption{font-size:.8rem;color:var(--mut);text-align:center;margin-top:2px}.why{font-size:.9rem;margin-top:6px}details{margin-top:4px;font-size:.8rem;color:var(--mut)}details summary{cursor:pointer}
 .nofr{display:flex;align-items:center;justify-content:center;min-height:120px;border:1px dashed var(--line);border-radius:6px;color:var(--mut);font-size:.85rem}nav{margin:6px 0 12px;font-size:.95rem}nav a{padding:0 2px}
@@ -941,8 +941,8 @@ def read_trial(path: str | None) -> dict:
     return out
 
 
-def form_status(r: dict | None, glb: str | None, frames: list, trial: tuple | None, rules: dict | None, final: bool) -> tuple:
-    """(статус, причина): ok — форма и оба кадра есть; small — фото магазина мало для формы (форму не запускали); failed — форма не получилась (причина); wait — форма ещё считается (только до конца пакета, при final=True это failed)."""
+def form_status(r: dict | None, glb: str | None, frames: list, trial: tuple | None, rules: dict | None, final: bool, retry: bool = False) -> tuple:
+    """(статус, причина): ok — форма и оба кадра есть; small — фото магазина мало для формы (форму не запускали); failed — форма не получилась (причина); wait — форма ещё считается (только до конца пакета, при final=True это failed); retry — форма не получилась, идёт повтор (товар в списке повтора, GLB ещё нет)."""
     if r is None:
         return ('failed', 'вырезки в журнале нет — форму не запускали') if final else ('wait', 'вырезки в журнале ещё нет')
     cs = cut_status(r, True, rules)
@@ -952,6 +952,8 @@ def form_status(r: dict | None, glb: str | None, frames: list, trial: tuple | No
         return 'failed', 'вырезка не получилась — форму не запускали: ' + (cut_reason(r) or 'причина не записана')
     if glb and frames:
         return 'ok', ''
+    if retry and not glb:
+        return 'retry', ''
     if trial and trial[0] not in (None, 'done', 'ok') or (trial and trial[1]):
         return 'failed', f'форма не получилась: {trial[1] or trial[0]}'
     if glb:
@@ -959,20 +961,20 @@ def form_status(r: dict | None, glb: str | None, frames: list, trial: tuple | No
     return ('failed', 'формы в результате пакета нет') if final else ('wait', 'форма ещё считается')
 
 
-def forms_page(items: list, chain: dict, photos: str, glbs: str, frames: str, out: str, W: dict, label: str, rules: dict | None = None, trial: dict | None = None, final: bool = False) -> tuple:
+def forms_page(items: list, chain: dict, photos: str, glbs: str, frames: str, out: str, W: dict, label: str, rules: dict | None = None, trial: dict | None = None, final: bool = False, retry: set | None = None) -> tuple:
     """Страница `<out>/index.html`: по товару набора крупный номер, фото | два серых рендера формы (az000 «как на фото» и az225 3/4 сзади, один свет), статус «форма есть / форма упала (причина) / фото мало». Самопроверка: сумма статусов = N, карточек = N, у «форма есть» два кадра."""
     e = html.escape
     d = os.path.join(out, 'img')
     os.makedirs(d, exist_ok=True)
     CW = W.get('forms') or {}
-    words = {'ok': CW.get('ok') or 'форма есть', 'failed': CW.get('failed') or 'форма упала', 'small': CW.get('small') or 'фото мало', 'wait': CW.get('wait') or 'форма ещё считается'}
-    css = {'ok': 'ok', 'failed': 'refused', 'small': 'soft', 'wait': 'waitb'}
+    words = {'ok': CW.get('ok') or 'форма есть', 'failed': CW.get('failed') or 'форма упала', 'small': CW.get('small') or 'фото мало', 'wait': CW.get('wait') or 'форма ещё считается', 'retry': CW.get('retry') or 'форма не получилась — идёт повтор'}
+    css = {'ok': 'ok', 'failed': 'refused', 'small': 'soft', 'wait': 'waitb', 'retry': 'retryb'}
     c = {k: 0 for k in words}
     errs, blocks = [], []
     for n, it in enumerate(items, 1):
         sku = it['id']
         r = chain.get(sku)
-        glb = find_glb(glbs, sku)
+        glb = next((g for g in (find_glb(x, sku) for x in glbs.split(',') if x) if g), None)          # несколько папок через запятую (основной пакет и повтор)
         fr = []
         dd = os.path.join(frames, sku)
         for v in ('az000', 'az225'):
@@ -981,8 +983,10 @@ def forms_page(items: list, chain: dict, photos: str, glbs: str, frames: str, ou
                 fr.append(os.path.join(dd, m[0]))
         if len(fr) != 2:
             fr = []
-        st, why = form_status(r, glb, fr, (trial or {}).get(sku), rules, final)
+        st, why = form_status(r, glb, fr, (trial or {}).get(sku), rules, final, sku in (retry or ()))
         c[st] += 1
+        if st == 'retry':
+            why = CW.get('retry_reason') or 'сбой отправки к шлюзу, повтор'
         if st == 'small':
             why = (W.get('cutout') or {}).get('small_reason', '').format(side=('меньшая' if (rules or {}).get('measure', 'min') == 'min' else 'большая'), n=small_side(r, rules), thr=(rules or {}).get('min_cut_side_px')) or 'фото магазина маленькое — форму не делаем'
         sha = (r or {}).get('sha')
@@ -1007,12 +1011,12 @@ def forms_page(items: list, chain: dict, photos: str, glbs: str, frames: str, ou
             errs.append(f'{sku}: «форма есть», а кадров {len(card["tiles"])} ≠ 2')
         blocks.append(_forms_card(n, card, css[st], words[st], CW.get('caption') or 'вырезка новая П1.96', why, CW))
     n_all = len(items)
-    s = {'stage': 'forms', 'n': n_all, 'ok': c['ok'], 'failed': c['failed'], 'small': c['small'], 'wait': c['wait'], 'cards': len(blocks), 'final': final, 'errors': errs}
+    s = {'stage': 'forms', 'n': n_all, 'ok': c['ok'], 'failed': c['failed'], 'small': c['small'], 'wait': c['wait'], 'retry': c['retry'], 'cards': len(blocks), 'final': final, 'errors': errs}
     if sum(c.values()) != n_all:
         errs.append(f'форма: сумма статусов {sum(c.values())} ≠ N {n_all}')
     if len(blocks) != n_all:
         errs.append(f'форма: карточек {len(blocks)} ≠ N {n_all}')
-    line = f"<b>вошло {n_all}</b> · <b>форма есть {c['ok']}</b> · <b>форма упала {c['failed']}</b> · <b>фото мало {c['small']}</b>" + (f" · форма ещё считается {c['wait']}" if c['wait'] else '')
+    line = f"<b>вошло {n_all}</b> · <b>форма есть {c['ok']}</b> · <b>форма упала {c['failed']}</b> · <b>фото мало {c['small']}</b>" + (f" · форма ещё считается {c['wait']}" if c['wait'] else '') + (f" · идёт повтор {c['retry']}" if c['retry'] else '')
     cap = f"этап форма · {(W.get('forms') or {}).get('title') or 'форма товара'}"
     ask = (W.get('forms') or {}).get('ask') or 'Номер товара — крупно в углу карточки: напишите «не годны: № …», если форма не подходит.'
     summ = f"<div class='sum'><div>{line}</div><div class='why'>{e(ask)}</div>" + (f"<div class='why'><b>ОШИБКА СВОДКИ:</b> {e('; '.join(errs))}</div>" if errs else '') + '</div>'
@@ -1054,7 +1058,8 @@ def main_forms(argv: list) -> int:
     ap.add_argument('--set', required=True)
     ap.add_argument('--cutlog', required=True, help='журнал вырезки (cut.jsonl р.2)')
     ap.add_argument('--photos', required=True, help='папка исходных фото вырезки (`<товар>.img`)')
-    ap.add_argument('--glbs', required=True, help='папка форм (GLB)')
+    ap.add_argument('--glbs', required=True, help='папка форм (GLB); несколько — через запятую')
+    ap.add_argument('--retry', default='', help='id товаров, у которых идёт повтор формы (через запятую)')
     ap.add_argument('--frames', required=True, help='папка кадров forms_render.py')
     ap.add_argument('--trial', help='итог пакета форм summary-trial-*.json (причины отказов)')
     ap.add_argument('--final', action='store_true', help='пакет закончен: «ещё считается» не бывает — нет результата = форма упала')
@@ -1069,8 +1074,8 @@ def main_forms(argv: list) -> int:
     sys.path.insert(0, os.path.join(repo, 'tools', 'scout'))
     import mesh_photo as MP
     rules = MP.load_rules(os.path.join(repo, 'tools', 'scout', 'rules', 'mesh-photo.json'))
-    s, errs = forms_page(items, read_chain(a.cutlog), os.path.expanduser(a.photos), os.path.expanduser(a.glbs), os.path.expanduser(a.frames), os.path.expanduser(a.out), load_words(repo), a.name, rules, read_trial(a.trial), a.final)
-    print(f"вошло {s['n']} · форма есть {s['ok']} · форма упала {s['failed']} · фото мало {s['small']} · ещё считается {s['wait']} · карточек {s['cards']}")
+    s, errs = forms_page(items, read_chain(a.cutlog), os.path.expanduser(a.photos), ','.join(os.path.expanduser(x) for x in a.glbs.split(',')), os.path.expanduser(a.frames), os.path.expanduser(a.out), load_words(repo), a.name, rules, read_trial(a.trial), a.final, {x for x in a.retry.split(',') if x})
+    print(f"вошло {s['n']} · форма есть {s['ok']} · форма упала {s['failed']} · фото мало {s['small']} · ещё считается {s['wait']} · идёт повтор {s['retry']} · карточек {s['cards']}")
     print('ОШИБКА СВОДКИ: ' + '; '.join(errs) if errs else 'Самопроверка сошлась.')
     print(f'страница: {os.path.join(os.path.expanduser(a.out), "index.html")}')
     if a.publish and not errs:

@@ -537,7 +537,7 @@ def test_forms_page_statuses_and_summary(tmp_path):
     W = prr.load_words(REPO)
     trial = {'c_3': ('failed', 'OOM в воркере')}
     s, errs = prr.forms_page(items, chain, str(tmp_path / 'photos'), str(tmp_path / 'glbs'), str(tmp_path / 'frames'), str(tmp_path / 'o'), W, 'T', rules, trial, final=False)
-    assert errs == [] and (s['n'], s['ok'], s['failed'], s['small'], s['wait'], s['cards']) == (6, 1, 2, 1, 2, 6)       # c_3 упал, d_4 вырезка упала; e_5 кадры ещё рисуются, f_6 ещё считается
+    assert errs == [] and (s['n'], s['ok'], s['failed'], s['small'], s['wait'], s['cards']) == (6, 1, 2, 1, 2, 6) and s['retry'] == 0       # c_3 упал, d_4 вырезка упала; e_5 кадры ещё рисуются, f_6 ещё считается
     page = (tmp_path / 'o' / 'index.html').read_text(encoding='utf-8')
     assert 'форма есть 1' in page and 'форма упала 2' in page and 'фото мало 1' in page and 'вырезка новая П1.96' in page
     assert all(f"<div class='no'>№ {n}</div>" in page for n in range(1, 7)) and 'OOM в воркере' in page and 'форму не делаем' in page and 'вырезка не получилась — форму не запускали' in page
@@ -575,3 +575,26 @@ def test_forms_render_frames_of(tmp_path):
     assert FR.frames_of(str(tmp_path), 'a_1') == []                                                    # одного ракурса мало — считаем не готовым
     (d / '02_az225_clay.png').write_bytes(b'p')
     assert [os.path.basename(x) for x in FR.frames_of(str(tmp_path), 'a_1')] == ['01_az000_clay.png', '02_az225_clay.png'] and FR.VIEWS == ('az000', 'az225')
+
+
+def test_forms_retry_status_and_two_glb_dirs(tmp_path):
+    """Повтор формы: товар из списка повтора без GLB — «форма не получилась — идёт повтор» (причина словами), не «упала»; GLB из второй папки и кадры — становится «форма есть»."""
+    from PIL import Image
+    rules, items, chain = _forms_fixture(tmp_path)
+    W = prr.load_words(REPO)
+    args = (items, chain, str(tmp_path / 'photos'), str(tmp_path / 'glbs'), str(tmp_path / 'frames'), str(tmp_path / 'o'), W, 'T', rules, {}, True)
+    s, errs = prr.forms_page(*args, retry={'c_3'})
+    assert errs == [] and (s['retry'], s['failed'], s['ok'], s['small']) == (1, 3, 1, 1) and s['ok'] + s['failed'] + s['small'] + s['wait'] + s['retry'] == s['n']
+    page = (tmp_path / 'o' / 'index.html').read_text(encoding='utf-8')
+    assert "badge retryb'>форма не получилась — идёт повтор" in page and 'сбой отправки к шлюзу, повтор' in page and 'идёт повтор 1' in page
+    (tmp_path / 'glbs2').mkdir()
+    (tmp_path / 'glbs2' / 'c_3-hd.glb').write_bytes(b'g')                                                         # повтор пришёл: GLB во второй папке, кадров ещё нет — «упала» (final), не «повтор»
+    (tmp_path / 'frames' / 'c_3').mkdir()
+    for t in ('01_az000_clay.png', '02_az225_clay.png'):
+        im = Image.new('RGB', (120, 90), (230, 230, 230))
+        im.paste(Image.new('RGB', (40, 50), (120, 120, 120)), (30, 20))
+        im.save(tmp_path / 'frames' / 'c_3' / t)
+    a2 = list(args)
+    a2[3] = str(tmp_path / 'glbs') + ',' + str(tmp_path / 'glbs2')
+    s, errs = prr.forms_page(*a2, retry={'c_3'})
+    assert errs == [] and s['retry'] == 0 and s['ok'] == 2
