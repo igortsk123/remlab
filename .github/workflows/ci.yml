@@ -339,6 +339,8 @@ jobs:
       - run: python tools/scout/salad/pose/tests_pose.py   # камера по фото на Salad (T-184/1): воркер и драйвер на localhost без Salad — задание/результат, сверка compare_pose по порогам rules/salad-pose.json, код этапа в образе
       - run: pip install opencv-python-headless pillow scipy && python tools/scout/salad/trellis/tests_camera_check.py   # этап 04-camera (camera_check.py): passed = IoU И miss И extra всего кадра и низа; shape_mismatch; ms-триггер; мерка по контуру тонкого предмета (T-188/2)
       - run: pip install numpy trimesh pyyaml && python tools/scout/salad/parts/tests_parts.py   # воркер разметки частей на kit (Ш5/T-183): сервер ::, ход задания в /health, POST /run→/job→/file, 429 на занятой ноде, после CUDA задания не берёт (MODEL=fake, без GPU)
+      - run: pip install numpy pillow && python tools/scout/salad/render/tests_render.py   # воркер кадров форм Salad на настоящем HTTP с поддельным Blender, драйвер, сверка кадров (силуэт, пустая сцена), код в образ (T-184/1), ≈45 с
+      - run: pip install numpy trimesh scipy pillow && python tools/scout/salad/render/tests_form_checks.py   # автопроверки формы Ш0 в режиме observe (T-184/3): синтетические меши и кадры; пороги в rules/form-checks.json, ID нет
       - run: pip install fast-simplification && python tools/scout/tests/test_mesh_lite.py   # эскиз меша: LITE_TEXTURE_SAFE — текстурный меш, который не ужать с границей, полным (T-20261105-51/2)
       - run: python tools/scout/unfit.py --selftest        # пригодность для гостиной: одно правило у подбора и лечения демо
       - run: python tools/scout/env_keys.py --selftest     # ключи и журнал расходов из worktree — основной копии, чужой mltest последним с WARN (T-20261105-52)
