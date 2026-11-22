@@ -288,6 +288,20 @@ class Run(unittest.TestCase):
         self.assertEqual(bad['auto'], 'flag')
         self.assertEqual(bad['flags'], ['glb_sane'])
 
+    def test_body_skew_box_ok_and_wedge_flagged(self):
+        import trimesh
+        box_m = trimesh.creation.box(extents=(1.0, 2.0, 0.5))
+        self.assertFalse(FC.body_skew(box_m, 'шкаф', RULES['thresholds'])[0]['flag'])
+        wedge = box_m.copy()
+        v = wedge.vertices.copy()
+        top = v[:, 1] > 0
+        v[top, 0] *= 0.7                                           # верх уже низа → стенки не параллельны (трапеция)
+        wedge.vertices = v
+        c = FC.body_skew(wedge, 'шкаф', RULES['thresholds'])[0]
+        self.assertTrue(c['flag'])
+        self.assertGreater(c['value'], RULES['thresholds']['body_skew_deg'])
+        self.assertEqual(FC.body_skew(wedge, 'диван', RULES['thresholds']), [])          # не корпусная роль — не считаем
+
     def test_table_counts_agreement(self):
         recs = [{'sku': 'a', 'auto': 'ok', 'flags': [], 'checks': []}, {'sku': 'b', 'auto': 'ok', 'flags': [], 'checks': []}]
         t = FC.table(recs, {'a': {'verdict': 'годна'}, 'b': {'verdict': 'брак'}}, ['relief'])

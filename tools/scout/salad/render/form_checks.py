@@ -16,6 +16,7 @@
   relief_graze  · мелкий рельеф кадра 0° при боковом свете ВНУТРИ маски формы (альфа, без фона и тени)  · «Дыры, рваный фасад»
   back_relief   · то же на кадре 180°: у корпусной мебели с плоской спиной (`flat_back_roles`) сильный рельеф сзади — каркас/копия фасада · «Открытая сломанная спина», «фасад сзади»
   vlm_<вид>     · оценщик по картинке (vlm_judge.py, T-184/9): «да» в обоих прогонах VLM по виду брака из паспорта, виды и роли — в rules `vlm_judge` · «Дыры, рваный фасад», «грани», «фасад без щелей», «перекос корпуса», «зад=копия», «выдуманная деталь»
+  body_skew     · перекос корпуса по 3D: завал и трапеция стенок корпуса (спереди и сбоку), градусы; только корпусные роли · «перекос корпуса»
   back_dup_mask · рельеф 0° и 180° внутри маски совпадает (прямо/зеркально), только для ролей с плоской спиной · «фасад продублирован на задней стенке»
 Режим: `block` в rules — проверки, чей флаг даёт статус `shape_reject` (в списке только то, у чего 0 ложных на годных формах); остальные — `observe`.
 Статус формы: shape_reject (сработала block-проверка) · camera_or_mask_uncertain (только провал контура из этапа 04: поза/маска/перёд-зад — не доказательство брака формы) · needs_review (прочие флаги) · pass.
@@ -315,6 +316,44 @@ def energy(hp, inner) -> float:
     return float(hp[inner].std())
 
 
+def edge_slopes(u: np.ndarray, y: np.ndarray, ylo: float, yhi: float, nb: int = 14) -> tuple[float, float] | None:
+    """Левая/правая кромка u(y): перцентили по полосам высоты → линейная подгонка → углы от вертикали, градусы (знак +, если верх смещён вправо)."""
+    edges = np.linspace(ylo, yhi, nb + 1)
+    ys, lo, hi = [], [], []
+    for a, b in zip(edges[:-1], edges[1:]):
+        s = (y >= a) & (y < b)
+        if s.sum() < 200:
+            continue
+        ys.append((a + b) / 2)
+        lo.append(np.percentile(u[s], 0.3))
+        hi.append(np.percentile(u[s], 99.7))
+    if len(ys) < 4:
+        return None
+    return (math.degrees(math.atan(np.polyfit(ys, lo, 1)[0])), math.degrees(math.atan(np.polyfit(ys, hi, 1)[0])))
+
+
+def body_skew(m, role: str, R: dict) -> list[dict]:
+    """Перекос корпуса по 3D (T-184/9, слово владельца TG 1702–1703), НЕ по кадру: наши кадры — перспектива (lens 50), вертикали на них сходятся даже у идеальной коробки.
+    Только корпусные роли (`flat_back_roles`). Облако точек поверхности (Y вверх): корпус = выше 12 % высоты (без ножек); спереди (x,y) и сбоку (z,y): завал = среднее углов левой/правой кромки, трапеция = их разность (стенки не параллельны), градусы. Значение = максимум по четырём."""
+    r = (role or '').lower()
+    if not any(x in r for x in R['flat_back_roles']):
+        return []
+    P = surface_points(m, int(R['body_skew_points']), seed=1)
+    x, y, z = P[:, 0], P[:, 1], P[:, 2]
+    h = float(y.max() - y.min())
+    ylo, yhi = float(y.min()) + R['body_skew_leg_cut'] * h, float(y.max()) - 0.02 * h
+    vals, note = [], []
+    for nm, u in (('спереди', x), ('сбоку', z)):
+        sl = edge_slopes(u, y, ylo, yhi)
+        if sl is None:
+            continue
+        vals += [abs((sl[0] + sl[1]) / 2), abs(sl[1] - sl[0])]
+        note.append(f'{nm}: завал {(sl[0] + sl[1]) / 2:+.2f}°, трапеция {sl[1] - sl[0]:+.2f}°')
+    if not vals:
+        return [check('body_skew', None, R['body_skew_deg'], False, 'мало точек корпуса')]
+    return [check('body_skew', max(vals), R['body_skew_deg'], max(vals) > R['body_skew_deg'], '; '.join(note))]
+
+
 def mask_checks(sku_dir: str, role: str, R: dict) -> list[dict]:
     """Проверки по кадрам с альфой (`<sku>/alpha/NN_<вид>_clay_graze.png` рядом с обычным кадром). Нет кадров — пусто."""
     ad = os.path.join(sku_dir, 'alpha')
@@ -379,6 +418,7 @@ def run_sku(sku: str, glb: str | None, photo: str | None, frames: str | None, ru
         rec['checks'].append(glb_sane(m, why, R))
         if m is not None:
             rec['checks'] += [open_edges(m, R), detached(m, R)]
+            rec['checks'] += body_skew(m, role, R)
             rec['checks'] += pose_checks(sku, pose_roots or [])
             rec['checks'] += legs_checks(sku, photo, pose_roots or [], R)
             if photo and os.path.isfile(photo):
