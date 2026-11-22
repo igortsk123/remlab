@@ -1,7 +1,7 @@
 # СБОРКА ОБРАЗА-СРЕДЫ ПРОБЫ SALAD «ЭТАП 04 НА ВИДЕОКАРТЕ» НА GITHUB ACTIONS (T-185/1) — не на pakardev (диск общий с базой). Тот же путь, что у build-stage-trial.yml.
 # Запускается пушем в ветки `trial/gpustage*` при правке Dockerfile.gpustage или этого файла, либо вручную из такой ветки. Пуш делает директор (решение 22.11).
 # Что делает: собирает Dockerfile.gpustage (python 3.12 + пакеты точных версий нашего venv + torch 2.13.0 cu126; КОДА ЭТАПОВ В ОБРАЗЕ НЕТ — он едет в задании по SHA) → проверки внутри образа БЕЗ видеокарты
-# (тесты воркера и pose_job на настоящем HTTP, импорт pose_gpu, алгоритм на torch-CPU против numpy на синтетической форме) → печатает размер и digest → пушит в GHCR: ghcr.io/<владелец>/mesh-stage-trial:gpustage.
+# (импорт воркера, тест pose_job, алгоритм на torch-CPU против numpy на синтетической форме; tests_stage — в обычном CI) → печатает размер и digest → пушит в GHCR: ghcr.io/<владелец>/mesh-stage-trial:gpustage.
 # Деплоя нет, боевое не трогает.
 name: build-gpustage-trial
 
@@ -50,14 +50,15 @@ jobs:
           SIZE=$(docker image inspect "$IMAGE" --format '{{.Size}}')
           echo "размер образа (распакованный): $(python3 -c "print(round($SIZE/2**30,2))") ГБ"
 
-      - name: Проверки без видеокарты (тесты воркера и pose_job, импорт pose_gpu, torch-CPU против numpy)
+      - name: Проверки без видеокарты (воркер импортируется, pose_job, torch-CPU против numpy)
         run: |
           set +e
-          docker run --rm -v "$PWD:/repo:ro" -w /repo/tools/scout/salad/stage --entrypoint python "$IMAGE" tests_stage.py > check.log 2>&1
+          # tests_stage в образ не берём: ему нужен git (срез кода по SHA), его в образе-среде нет — он идёт в обычном CI (ci.yml)
+          docker run --rm -v "$PWD:/repo:ro" -w /repo/tools/scout/salad/stage --entrypoint python "$IMAGE" -c "import worker_stage as W; assert 'pose_job' in W.COMMANDS; print('воркер stage-worker-2 импортируется, pose_job в whitelist')" > check.log 2>&1
           rc1=$?
           docker run --rm -v "$PWD:/repo:ro" -w /repo/tools/scout/salad/trellis --entrypoint python "$IMAGE" tests_pose_job.py >> check.log 2>&1
           rc2=$?
-          docker run --rm -v "$PWD:/repo:ro" -w /repo/tools/scout/salad/trellis --entrypoint python "$IMAGE" -c "import pose_gpu, pose_fit; pose_fit.set_backend('cpu'); print('pose_gpu и pose_fit импортируются, torch-CPU бэкенд включается')" >> check.log 2>&1
+          docker run --rm -v "$PWD:/repo:ro" -w /repo/tools/scout/salad/trellis --entrypoint python "$IMAGE" tests_pose_gpu.py >> check.log 2>&1
           rc3=$?
           tail -30 check.log
           if [ "$rc1$rc2$rc3" != "000" ]; then grep -nE "FAIL|ERROR|Error|✗" check.log | tail -12 | sed 's/^/::error::/'; exit 1; fi
