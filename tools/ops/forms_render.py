@@ -27,6 +27,7 @@ ACCEPT_VIEWS = ('az000', 'az090', 'az180', 'az225', 'top40')                    
 SEAT_VIEWS = ('low090',)                                                                                                  # + у сидячих: низкий боковой (спинка, подлокотники, ножки, низ)
 SEAT_ROLES = ('диван', 'кресло', 'стул', 'кушетка')
 ACCEPT_LIGHTS = ('key', 'graze')
+EMPTY_SUB = 'empty'                                                                                                       # подпапка кадров «пустой сцены» (маска силуэта)
 BLENDER = os.path.expanduser('~/opt/blender-4.5.9/blender')
 RENDER_STAND = os.path.join(HERE, '..', 'scout', 'stablegen', 'render_stand.py')
 
@@ -46,12 +47,13 @@ def frame_names(views, lights=('key',)) -> list:
     return out
 
 
-def render_cmd(glb: str, out: str, views, lights, samples: int, cores: int, shade: str = 'orig') -> list:
+def render_cmd(glb: str, out: str, views, lights, samples: int, cores: int, shade: str = 'orig', empty: bool = False) -> list:
     """Команда Blender для одного товара; виды и свет — из таблиц выше."""
     spec = ','.join(f'{v}:{VIEW_DEFS[v][0]}:{VIEW_DEFS[v][1]}' for v in views)
     cmd = ['timeout', '-k', '20', '900', BLENDER, '-b', '-P', RENDER_STAND, '--', '--glb', glb, '--out', out, '--samples', str(samples), '--modes', 'clay', '--views', spec,
            '--lights', ','.join(lights), '--threads', str(cores), '--w', '1200', '--h', '900']
-    return cmd + (['--shade', shade] if shade != 'orig' else [])
+    cmd += ['--shade', shade] if shade != 'orig' else []
+    return cmd + (['--empty-dir', os.path.join(out, EMPTY_SUB)] if empty else [])      # пустая сцена: те же кадры без модели в <out>/empty (T-184/1)
 
 
 def frames_of(out: str, sku: str, views=VIEWS, lights=('key',)) -> list:

@@ -37,6 +37,7 @@ ap.add_argument('--only', default='', help='отладка: список вид�
 ap.add_argument('--views', default='', help='T-180/7: свои виды «имя:азимут:угол_места,…» (вместо набора по умолчанию и --only); виды задаёт вызывающий скрипт, констант здесь нет')
 ap.add_argument('--lights', default='key', help='T-180/7: key — свет за камерой (как раньше); graze — боковой скользящий (справа от камеры, низко); «key,graze» — оба, у файлов graze суффикс _graze')
 ap.add_argument('--device', default='CPU', choices=['CPU', 'GPU'], help='T-184/1: CPU — как раньше (по умолчанию, локальные запуски не меняются); GPU — Cycles CUDA на видеокарте ноды Salad; нет CUDA-устройства → код 3, молча на процессор НЕ падаем (деньги)')
+ap.add_argument('--empty-dir', default='', help='T-184/1: после каждого кадра — тот же кадр БЕЗ модели (те же камера, свет, пол) в эту папку под тем же именем; нужен для маски силуэта при неплоском фоне (graze)')
 a = ap.parse_args(argv)
 T0 = time.time()
 os.makedirs(a.out, exist_ok=True)
@@ -287,4 +288,13 @@ for vi, (name, az, el) in enumerate(views):
             t = time.time()
             bpy.ops.render.render(write_still=True)
             print(f'кадр {n}/{n_total} {name} {mode}: {time.time() - t:.0f} с', flush=True)
+            if a.empty_dir:                              # пустая сцена: модель скрыта в рендере, всё остальное то же
+                os.makedirs(a.empty_dir, exist_ok=True)
+                for o_ in meshes:
+                    o_.hide_render = True
+                sc.render.filepath = os.path.join(a.empty_dir, os.path.basename(p))
+                bpy.ops.render.render(write_still=True)
+                for o_ in meshes:
+                    o_.hide_render = False
+                sc.render.filepath = p
 print(f'ГОТОВО {n} кадров за {time.time() - T0:.0f} с, габарит {tuple(round(x, 3) for x in ext)}', flush=True)

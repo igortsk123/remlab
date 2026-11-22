@@ -50,7 +50,11 @@ for v in [x.split(':')[0] for x in g('--views').split(',')]:
         n += 1
         if b'PARTIAL' in glb and n == 3:
             continue
-        open(os.path.join(out, f"{n:02d}_{v}_clay" + ('_graze' if lt == 'graze' else '') + '.png'), 'wb').write(b'\x89PNG\r\n\x1a\n' + b'0' * 64)
+        nm = f"{n:02d}_{v}_clay" + ('_graze' if lt == 'graze' else '') + '.png'
+        open(os.path.join(out, nm), 'wb').write(b'\x89PNG\r\n\x1a\n' + b'0' * 64)
+        if '--empty-dir' in a and b'NOEMPTY' not in glb:
+            os.makedirs(g('--empty-dir'), exist_ok=True)
+            open(os.path.join(g('--empty-dir'), nm), 'wb').write(b'\x89PNG\r\n\x1a\n' + b'1' * 64)
 '''
 
 
@@ -372,6 +376,62 @@ class PureTests(unittest.TestCase):
         miss = os.path.join(tmp, 'miss')
         os.makedirs(os.path.join(miss, 's'))
         self.assertFalse(CR.compare(miss, ref, ['s'], rules)['s']['ok'])      # нет кадров — не совпало
+
+
+class EmptySceneTests(unittest.TestCase):
+    """Пустая сцена (T-184/1): флаг доходит до Blender, кадры едут в zip, нет их — отказ; маска силуэта по пустой сцене держит graze-градиент."""
+
+    def test_render_cmd_flag(self):
+        import forms_render as FR
+        self.assertNotIn('--empty-dir', FR.render_cmd('a.glb', '/o', ('az000',), ('key',), 4, 1))
+        cmd = FR.render_cmd('a.glb', '/o', ('az000',), ('key',), 4, 1, empty=True)
+        self.assertEqual(cmd[cmd.index('--empty-dir') + 1], os.path.join('/o', FR.EMPTY_SUB))
+
+    def run_job(self, glb, empty=True):
+        tmp = tempfile.mkdtemp(prefix='tests_render_empty_')
+        c = make_cfg(tmp)
+        pool = WR.Pool(KW.State(), c, WR.load_forms_render(c))
+        pool.submit('e1', glb, dict(PARAMS, empty=empty))
+        self.assertTrue(wait_for(pool, ['e1']))
+        return pool.jobs['e1']
+
+    def test_empty_frames_in_zip(self):
+        j = self.run_job(GLB)
+        self.assertEqual(j['status'], 'done', j.get('error'))
+        names = zipfile.ZipFile(io.BytesIO(open(j['zip'], 'rb').read())).namelist()
+        self.assertEqual(sum(1 for n in names if n.startswith('empty/')), 4)
+        self.assertEqual(sum(1 for n in names if n.endswith('.png') and '/' not in n), 4)
+
+    def test_no_empty_without_flag(self):
+        j = self.run_job(GLB, empty=False)
+        names = zipfile.ZipFile(io.BytesIO(open(j['zip'], 'rb').read())).namelist()
+        self.assertFalse(any(n.startswith('empty/') for n in names))
+
+    def test_missing_empty_frames_fail(self):
+        j = self.run_job(GLB + b'NOEMPTY')
+        self.assertEqual(j['status'], 'failed')
+        self.assertIn('пустой сцены', j['error'])
+
+    def test_mask_vs_empty_graze_gradient(self):
+        try:
+            import numpy as np
+        except ImportError:
+            self.skipTest('нет numpy')
+        import compare_render as CR
+        h, w = 90, 120
+        grad = np.linspace(40, 200, w)[None, :, None].repeat(h, 0).repeat(3, 2).astype(np.int16)    # фон graze — градиент, не плоский
+        img = grad.copy()
+        img[20:70, 30:90] = 100
+        self.assertGreater(float(CR.mask_of(img, 6).mean()), 0.5)                                    # по углам градиент — «форма» почти весь кадр (было)
+        m = CR.mask_vs_empty(img, grad, 6)
+        self.assertAlmostEqual(float(m.mean()), 50 * 60 / (h * w) * 1.0, delta=0.06)                  # по пустой сцене — только форма
+        moved = img.copy()
+        moved[:] = grad
+        moved[20:70, 40:100] = 100
+        rules = dict(CR.load_rules())
+        mo, mr = CR.mask_vs_empty(moved, grad, 6), CR.mask_vs_empty(img, grad, 6)
+        iou = float(np.logical_and(mo, mr).sum() / np.logical_or(mo, mr).sum())
+        self.assertLess(iou, rules['iou_min'])                                                       # сдвиг формы на graze теперь виден
 
 
 if __name__ == '__main__':

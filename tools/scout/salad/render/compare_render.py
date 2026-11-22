@@ -3,7 +3,7 @@
 нет пустых/чёрных, средняя разница пикселей мала; шум Cycles не важен. Пороги — СТАРТОВЫЕ, в `tools/scout/rules/salad-render.json` (секция compare), в код не зашиты.
 
   python compare_render.py --ours <папка с <sku>/NN_….png> --ref <папка кадров р.6> --skus a,b,c [--out compare.json]
-Маска силуэта: пиксель отличается от фона (медиана четырёх угловых пикселей) больше чем на `bg_tol` по любому каналу. Код возврата 0 — все совпали.
+Маска силуэта: пиксель отличается от фона (медиана четырёх угловых пикселей) больше чем на `bg_tol` по любому каналу; если рядом есть `<sku>/empty/<кадр>` (пустая сцена, render_stand --empty-dir) — от неё больше чем на `empty_tol` (graze: фон — градиент). Код возврата 0 — все совпали.
 """
 from __future__ import annotations
 
@@ -33,8 +33,16 @@ def mask_of(img: np.ndarray, tol: float) -> np.ndarray:
     return (np.abs(img - bg).max(axis=2) > tol)
 
 
-def frame_metrics(ours: np.ndarray, ref: np.ndarray, rules: dict) -> dict:
-    mo, mr = mask_of(ours, rules['bg_tol']), mask_of(ref, rules['bg_tol'])
+def mask_vs_empty(img: np.ndarray, empty: np.ndarray, tol: float) -> np.ndarray:
+    """Силуэт при неплоском фоне (graze: градиент света): пиксель, отличающийся от ПУСТОЙ сцены (тот же кадр без модели) больше `empty_tol` по любому каналу."""
+    return np.abs(img - empty).max(axis=2) > tol
+
+
+def frame_metrics(ours: np.ndarray, ref: np.ndarray, rules: dict, empty: np.ndarray | None = None) -> dict:
+    if empty is not None and empty.shape == ours.shape:
+        mo, mr = mask_vs_empty(ours, empty, rules['empty_tol']), mask_vs_empty(ref, empty, rules['empty_tol'])
+    else:
+        mo, mr = mask_of(ours, rules['bg_tol']), mask_of(ref, rules['bg_tol'])
     union = int(np.logical_or(mo, mr).sum())
     iou = 1.0 if union == 0 else float(np.logical_and(mo, mr).sum()) / union
     return {'iou': round(iou, 5), 'mad': round(float(np.abs(ours - ref).mean()), 3), 'mask_frac': round(float(mo.mean()), 4), 'luma': round(float(ours.mean()), 2)}
@@ -68,7 +76,9 @@ def compare(ours_dir: str, ref_dir: str, skus: list[str], rules: dict | None = N
             if a.shape != b.shape:
                 rec['problems'].append(f'{n}: размер {a.shape[:2]} ≠ {b.shape[:2]}')
                 continue
-            m = frame_metrics(a, b, rules)
+            ep = os.path.join(od, 'empty', n)                        # пустая сцена из того же прогона (если снималась) — для обоих кадров одна и та же
+            m = frame_metrics(a, b, rules, read(ep) if os.path.isfile(ep) else None)
+            m['mask'] = 'empty' if os.path.isfile(ep) else 'corners'
             rec['frames'][n] = m
             rec['problems'] += [f'{n}: {p}' for p in frame_problems(m, rules)]
         fs = rec['frames'].values()
