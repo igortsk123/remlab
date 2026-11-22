@@ -1239,6 +1239,80 @@ def rss_gb(pid: int) -> float | None:
     return None
 
 
+PEAKS = {'rss_gb': None}
+DISK_TEST: dict = {}
+
+
+def rss_peak_gb(pid: int) -> float | None:
+    """Пик резидентной памяти процесса (VmHWM) — настоящий пик за жизнь ребёнка, а не мгновенное значение; запоминаем и после его гибели (T-186/1: профиль ресурсов)."""
+    try:
+        for ln in open(f'/proc/{pid}/status'):
+            if ln.startswith('VmHWM:'):
+                v = round(int(ln.split()[1]) / 2 ** 20, 2)
+                PEAKS['rss_gb'] = max(PEAKS['rss_gb'] or 0.0, v)
+                break
+    except OSError:
+        pass
+    return PEAKS['rss_gb']
+
+
+def disk_speed_test(path: str, mb: int = 256) -> dict:
+    """Скорость диска ноды: запись `mb` МБ с fsync и чтение обратно (тот же код, что `kit_worker.disk_speed_test`; воркер едет одним файлом — импортировать нельзя)."""
+    p = os.path.join(path or '.', '.kit_disk_test')
+    try:
+        os.makedirs(path or '.', exist_ok=True)
+        chunk = os.urandom(1 << 20)
+        t0 = time.time()
+        with open(p, 'wb') as f:
+            for _ in range(mb):
+                f.write(chunk)
+            f.flush()
+            os.fsync(f.fileno())
+        tw = max(time.time() - t0, 1e-6)
+        try:
+            fd = os.open(p, os.O_RDONLY)
+            os.posix_fadvise(fd, 0, 0, os.POSIX_FADV_DONTNEED)
+            os.close(fd)
+        except (AttributeError, OSError):
+            pass
+        t0 = time.time()
+        with open(p, 'rb') as f:
+            while f.read(1 << 20):
+                pass
+        tr = max(time.time() - t0, 1e-6)
+        return {'write_mb_s': round(mb / tw, 1), 'read_mb_s': round(mb / tr, 1)}
+    except OSError as e:
+        return {'error': str(e)[:120]}
+    finally:
+        try:
+            os.unlink(p)
+        except OSError:
+            pass
+
+
+def job_peaks() -> dict:
+    """Пик VRAM по готовым заданиям: максимум `metrics.peak_vram_gb` / `peak_reserved_gb` из `<job>.res.json` ребёнка."""
+    vram = res = None
+    try:
+        for fn in os.listdir(JOBS_DIR):
+            if fn.endswith('.res.json'):
+                m = (json.load(open(os.path.join(JOBS_DIR, fn), encoding='utf-8')).get('metrics') or {})
+                if m.get('peak_vram_gb') is not None:
+                    vram = max(vram or 0.0, float(m['peak_vram_gb']))
+                if m.get('peak_reserved_gb') is not None:
+                    res = max(res or 0.0, float(m['peak_reserved_gb']))
+    except (OSError, ValueError):
+        pass
+    return {'peak_vram_gb': vram, 'peak_reserved_gb': res}
+
+
+def resources_view(dg: dict) -> dict:
+    """Поля профиля ресурсов в /health (те же имена, что у kit_worker): peak_rss_gb, peak_vram_gb, disk_free_gb, disk_mb_s, disk_read_mb_s, weights_gb_min (None: веса в образе)."""
+    frees = [v['free'] for v in (dg or {}).values() if isinstance(v, dict) and 'free' in v]
+    return {'peak_rss_gb': PEAKS['rss_gb'], **job_peaks(), 'disk_free_gb': min(frees) if frees else None,
+            'disk_mb_s': DISK_TEST.get('write_mb_s'), 'disk_read_mb_s': DISK_TEST.get('read_mb_s'), 'weights_gb_min': None}
+
+
 def proc_cpu(pid: int) -> dict:
     """Состояние процесса (R работает / S ждёт / D диск) и сколько секунд процессорного времени съел (utime+stime): стоит ли ребёнок или считает."""
     try:
@@ -1423,7 +1497,7 @@ def child_info() -> dict:
         return {'started': False}
     rc = CHILD.poll()
     st = read_state()
-    return {'started': True, 'alive': rc is None, 'returncode': rc, 'rss_gb': rss_gb(CHILD.pid) if rc is None else None, **(proc_cpu(CHILD.pid) if rc is None else {}),
+    return {'started': True, 'alive': rc is None, 'returncode': rc, 'rss_gb': rss_gb(CHILD.pid) if rc is None else None, 'rss_peak_gb': rss_peak_gb(CHILD.pid), **(proc_cpu(CHILD.pid) if rc is None else {}),
             'state_age_s': round(time.time() - st['at'], 1) if st.get('at') else None}
 
 
@@ -1437,7 +1511,7 @@ def health() -> dict:
     broken = st.get('broken')                   # фатальная ошибка CUDA в ребёнке: ok=false, новые задания отказ, драйвер гасит группу (`mark_broken`)
     return {'ok': not broken, 'phase': 'broken' if broken else phase, 'warm': bool(st.get('warm')) and bool(ci.get('alive')) and not broken, 'error': broken or err, 'broken': broken,
             'timings': st.get('timings'), 'config': st.get('config'),
-            'progress': st.get('progress'), 'child': ci, 'cgroup_gb': cgroup_gb(), 'disk_gb': disk_gb(), 'uptime_s': round(time.time() - T_CONTAINER, 1)}
+            'progress': st.get('progress'), 'child': ci, 'cgroup_gb': cgroup_gb(), 'disk_gb': (dgb := disk_gb()), 'uptime_s': round(time.time() - T_CONTAINER, 1), **resources_view(dgb)}
 
 
 def watch_loop() -> None:
@@ -1554,6 +1628,7 @@ def make_server(port: int) -> ThreadingHTTPServer:
 def main() -> None:
     os.makedirs(JOBS_DIR, exist_ok=True)
     start_child()
+    threading.Thread(target=lambda: DISK_TEST.update(disk_speed_test(OUT)), daemon=True).start()      # скорость диска ноды — один раз на старте (T-186/1), не в папке весов
     threading.Thread(target=watch_loop, daemon=True).start()
     print(f'воркер пробы: порт {PORT}, модель {os.environ.get("MODEL", "trellis2")}, ребёнок pid {CHILD.pid}', flush=True)
     make_server(PORT).serve_forever()

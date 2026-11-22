@@ -638,6 +638,17 @@ def run(a, MG, BR, gw_factory=Gateway, sleep=time.sleep, clock=time.time, hf_hea
                     break
             sleep(10)
     finally:
+        try:
+            if gw is not None:                                           # последний /health перед стопом: пики памяти/VRAM/диска для `resource_profile.py --suggest` (T-186/1)
+                c_fin, h_fin = gw.call('GET', '/health', timeout=20)
+                if c_fin == 200:
+                    summary['last_health'] = {'body': h_fin}
+                else:
+                    say('последний /health перед стопом: HTTP', c_fin, '— пики в итог не попали')
+        except Exception as exc:  # noqa: BLE001 — стоп группы важнее; причину пишем в журнал
+            say('последний /health перед стопом не получен:', repr(exc)[:160])
+        if prof_name:
+            summary['work_type'] = prof_name
         ok_stop = BR.stop_and_verify(name)
         summary['stop_verified'] = ok_stop
         summary['running_s'] = round((clock() - run_since), 1) if run_since is not None else 0.0

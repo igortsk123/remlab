@@ -387,6 +387,7 @@ if have:
             time.sleep(0.1)
         h0 = json.loads(call('GET', '/health')[1])
         ok('/health отвечает сразу (двухпроцессный воркер), в ответе ребёнок и память группы', h0['ok'] is True and h0['child']['started'] is True and 'cgroup_gb' in h0, str(h0)[:200])
+        ok('/health: поля профиля ресурсов (peak_rss_gb, peak_vram_gb, disk_free_gb, disk_mb_s) на месте', all(k in h0 for k in ('peak_rss_gb', 'peak_vram_gb', 'peak_reserved_gb', 'disk_free_gb', 'disk_mb_s', 'disk_read_mb_s', 'weights_gb_min')), str(h0)[:300])
         from PIL import Image
         png = io.BytesIO()
         Image.new('RGBA', (8, 8), (255, 0, 0, 255)).save(png, 'PNG')
