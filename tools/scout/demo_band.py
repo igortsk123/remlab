@@ -435,6 +435,10 @@ def plate_report(pairs: dict, old: set | None) -> tuple:
     new = sorted(set(short) - old) if old is not None else []
     if new:
         lines.append(f"WARN:demo_band: новые пары плит без {TARGET} замен: {', '.join(new)}")
+    # лента есть, а замен 0 — не «нехватка каталога», а поломка правила (ковёр спальни без высоты, T-115/3): тревога КАЖДУЮ ночь
+    dead = [f'{room}:{role}/{st}' for (room, role, st), r in sorted(pairs.items()) if r['feed'] and not r['have']]
+    if dead:
+        lines.append(f"WARN:demo_band: лента плит есть, а замен 0 (правило сайта отбрасывает всё): {', '.join(dead)}")
     return [head] + lines, short
 
 
@@ -632,10 +636,14 @@ def _selftest() -> int:
     ok('плиты: 11 замен — недобора нет', plate_pairs(pd, [PR('a', 11)], target=10, roles={'ковёр'})[('living', 'ковёр', 'лофт')]['short'] == 0)
     ok('плиты: правило ролей — из rules/demo-swap.json (ковёр)', RULES.get('plate_roles') == ['ковёр'])
     ln, sh = plate_report(pp, {'living:ковёр/лофт'})
-    ok('плиты: тревога WARN — только на новые пары с недобором (известная живая — без тревоги)',
-       sh == ['bedroom:ковёр/лофт', 'living:ковёр/лофт'] and sum(1 for x in ln if x.startswith('WARN:')) == 1
-       and 'bedroom:ковёр/лофт' in ln[-1] and 'living' not in ln[-1], ln)
-    ok('плиты: первая ночь (прошлого блока нет) — без тревоги', not any(x.startswith('WARN:') for x in plate_report(pp, None)[0]))
+    warns = [x for x in ln if x.startswith('WARN:')]
+    ok('плиты: тревога «новая пара» — только на новые пары с недобором (известная живая — без неё)',
+       sh == ['bedroom:ковёр/лофт', 'living:ковёр/лофт'] and 'новые пары' in warns[0] and 'bedroom:ковёр/лофт' in warns[0]
+       and 'living' not in warns[0], ln)
+    ok('плиты: лента есть, замен 0 — тревога каждую ночь (даже когда пара «известная»), живая гостиная с 3 заменами — не она',
+       len(warns) == 2 and 'замен 0' in warns[1] and 'bedroom:ковёр/лофт' in warns[1] and 'living' not in warns[1]
+       and any('замен 0' in x for x in plate_report(pp, {'bedroom:ковёр/лофт', 'living:ковёр/лофт'})[0]), warns)
+    ok('плиты: первая ночь (прошлого блока нет) — без тревоги «новые пары»', not any('новые пары' in x for x in plate_report(pp, None)[0]))
     ok('плиты: лента есть, а годных 0 — строка говорит это прямо', any('сайт по правилу не берёт ни одной' in x for x in ln), ln)
     ok('плиты: счёт не посчитался (node упал) — пустой список, не падение',
        plate_rows('/nope', runner=lambda: types.SimpleNamespace(returncode=1, stdout='', stderr='x')) == [])
