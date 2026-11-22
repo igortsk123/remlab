@@ -193,6 +193,12 @@ def main() -> int:
     cfgp = av[av.index('--config') + 1]
     check(os.path.isfile(cfgp) and (yaml.safe_load(open(cfgp)) or {}) == {} and av[av.index('--prompt_set') + 1] == 'general' and '--model_path' in av,
           f'PartLLM argv: --config → существующий пустой YAML ({cfgp})')
+    d_tpl = tempfile.mkdtemp()
+    import hashlib
+    b = W.PARTLLM_CHAT_TEMPLATE.encode()
+    check(hashlib.sha1(b'blob %d\0' % len(b) + b).hexdigest() == W.PARTLLM_CHAT_TEMPLATE_BLOB, 'вшитый chat_template совпадает с файлом весов (git blob)')
+    check(W.ensure_chat_template(d_tpl) is True and open(os.path.join(d_tpl, 'chat_template.jinja'), encoding='utf-8').read() == W.PARTLLM_CHAT_TEMPLATE, 'ensure_chat_template пишет шаблон, когда его нет в папке весов')
+    check(W.ensure_chat_template(d_tpl) is False, 'ensure_chat_template не трогает уже лежащий файл')
     W.make_backend = orig
     srv.shutdown()
     print('FAILS:', FAILS or 'нет')
