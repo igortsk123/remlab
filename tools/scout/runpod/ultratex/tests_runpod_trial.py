@@ -135,6 +135,10 @@ T.missing_inputs = lambda a: []
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), '..', '..', 'salad'))
 import kit_driver as _KD  # noqa: E402
 _real_slot = _KD.require_slot
+# файл ключей (~/scout-scenes/salad.env) тест НЕ читает: в CI его нет, на DEV он есть — результат не должен зависеть от машины (T-178/1 цикл 3)
+import migrate_groups as _MG  # noqa: E402
+_real_env = _MG.env_from_file
+_MG.env_from_file = lambda *a, **k: os.environ.setdefault('RUNPOD_API_KEY', 'test-not-a-key')
 check('платное без heavy-slot --prio 2: отказ (код 4), под не создаётся', T.main(['--pod-id', 'p1', '--cap', '3', '--jobs', 'B@25']) == 4)
 _KD.require_slot = lambda *a, **k: None
 T.main(['--pod-id', 'p1', '--cap', '3', '--jobs', 'B@25', 'B@8', 'A@8'])
