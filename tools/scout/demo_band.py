@@ -26,13 +26,20 @@
 общий потолок `mesh_queue_max` и остаток денег трека комнат (`room_mesh_demand.ledger`, цена `PRICE_RUB`). Гостиная считается
 как прежде; сбой комнаты — строка WARN, гостиную не останавливает. Недобор каталога — строкой «не хватает каталога», не ошибкой.
 
+ПЛИТЫ БЕЗ МЕША (T-115/2, `rules/demo-swap.json → plate_roles`; сейчас ковёр гостиной и спальни). Меша у них нет, добирать и
+генерировать нечего — только СЧЁТ замен до `mesh_target` тем же правилом, что мост /flat и тест 2.20 (`swap-report.mjs`), строки
+в журнал ночи и блок `plates` в отчёт; WARN — на новые пары без 10 замен. Каталог добирает лента/фид, не этот шаг.
+
   ~/venvs/scout/bin/python demo_band.py --report          # таблица пар → ~/scout-scenes/demo-band.json (шаг ночной цепочки)
   ~/venvs/scout/bin/python demo_band.py --report --dry    # то же без записи файла
   python3 demo_band.py --selftest
 """
 import json
 import os
+import re
+import subprocess
 import sys
+import types
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, HERE)
@@ -379,6 +386,58 @@ def rooms_report(R: dict) -> tuple:
     return lines, rec
 
 
+def plate_rows(data_path: str, runner=None) -> list:
+    """Строки отчёта лент замен сайта (`tools/flat3d/swap-report.mjs --json`) — ТО ЖЕ правило, что мост /flat и тест 2.20, второй
+    копии правила в Python нет. Не посчиталось — пустой список и WARN (отчёт ночи не падает)."""
+    root = os.path.abspath(os.path.join(HERE, '..', '..'))
+    run = runner or (lambda: subprocess.run(
+        ['bash', '-c', f'. "{root}/tools/ops/node-env.sh" && node --disable-warning=MODULE_TYPELESS_PACKAGE_JSON '
+                       f'"{root}/tools/flat3d/swap-report.mjs" "{data_path}" --json'], capture_output=True, text=True, timeout=120))
+    try:
+        r = run()
+        if r.returncode != 0:
+            raise RuntimeError(f'rc={r.returncode}: {(r.stderr or "").strip()[-200:]}')
+        return json.loads(r.stdout)
+    except Exception as e:  # noqa: BLE001 — счёт плит — справка, а не гейт
+        print(f'WARN:demo_band: замены плит (ковёр) не посчитались — {e}')
+        return []
+
+
+def plate_pairs(demo: dict, rows: list, target: int = TARGET, roles=None) -> dict:
+    """Замены ролей-плит по (комната, роль, стиль): `have` — меньше всех вариантов пары (худшее место), `short` — до цели,
+    `feed` — сколько товаров в ленте роли комнаты (0 при `have` 0 — лента есть, но сайт по правилу не берёт ничего)."""
+    roles = set(RULES.get('plate_roles') or ()) if roles is None else set(roles)
+    rooms = {v.get('id'): re.sub(r'-\d+$', '', str(v.get('room_id') or '')) or 'living' for v in demo.get('variants') or []}
+    out: dict = {}
+    for r in rows:
+        if r.get('role') not in roles:
+            continue
+        room = rooms.get(r.get('variant'), 'living')
+        key = (room, r['role'], r['style'])
+        have = int(r['published_alternatives'])
+        cur = out.get(key)
+        if cur is None or have < cur['have']:
+            feed = (demo.get('feeds') or {}).get(r['role'] if room == 'living' else f"{room}:{r['role']}") or []
+            out[key] = {'have': have, 'short': max(0, target - have), 'feed': len(feed)}
+    return out
+
+
+def plate_report(pairs: dict, old: set | None) -> tuple:
+    """(строки в журнал ночи, ключи пар с недобором). Тревога WARN — только на НОВЫЕ пары с недобором (как у мешей, урок 470)."""
+    lines, short = [], []
+    for (room, role, st), r in sorted(pairs.items()):
+        if r['short']:
+            short.append(f'{room}:{role}/{st}')
+            lines.append(f"  {role} ({room})/{st}: замен {r['have']} из {TARGET}; каталога не хватает {r['short']}"
+                         + (f" (в ленте {r['feed']}, но сайт по правилу не берёт ни одной)" if r['feed'] and not r['have'] else ''))
+    head = (f"[demo_band] плиты без меша ({', '.join(sorted(set(RULES.get('plate_roles') or ())))}): только счёт, ничего не генерируется; "
+            f"пар «комната × роль × стиль» {len(pairs)}, без {TARGET} замен: {len(short)}")
+    new = sorted(set(short) - old) if old is not None else []
+    if new:
+        lines.append(f"WARN:demo_band: новые пары плит без {TARGET} замен: {', '.join(new)}")
+    return [head] + lines, short
+
+
 def report(dry: bool = False) -> int:
     res = compute()
     print(f"[demo_band] цель — {res['target']} альтернатив на место «роль × стиль» в полосе; потолок очереди {res['queue_max']}; "
@@ -420,12 +479,27 @@ def report(dry: bool = False) -> int:
         print('\n'.join(lines))
         print(f"[demo_band] комнаты: в очередь мешей demo {len(R['jobs'])}"
               + (f", остаток денег трека комнат {R['left_rub']:g} ₽" if R['left_rub'] is not None else ''))
+    plate_rec = None
+    if RULES.get('plate_roles'):
+        try:        # прошлый отчёт без блока плит (первая ночь) — всё «известное»: тревога на новые пары со следующей ночи
+            old_plate = (json.load(open(REPORT, encoding='utf-8')).get('plates') or {}).get('short')
+        except Exception:  # noqa: BLE001
+            old_plate = None
+        rows = plate_rows(DEMO_DATA)
+        if rows:
+            ppairs = plate_pairs(json.load(open(DEMO_DATA, encoding='utf-8')), rows)
+            plines, pshort = plate_report(ppairs, None if old_plate is None else set(old_plate))
+            print('\n'.join(plines))
+            plate_rec = {'target': TARGET, 'short': pshort,
+                         'pairs': {f'{rm}:{ro}/{st}': v for (rm, ro, st), v in sorted(ppairs.items())}}
     if not dry:
         out = {'target': res['target'], 'queue_max': res['queue_max'], 'cut': res['cut'], 'sets': res['sets'], 'short': short,
                'publish': res['publish'], 'generate': res['generate'], 'colour_own': res['own'], 'core': res.get('core', []),
                'pairs': {f'{r}/{s}': v for (r, s), v in sorted(res['pairs'].items())}}
         if rooms_rec is not None:
             out['rooms'] = rooms_rec
+        if plate_rec is not None:
+            out['plates'] = plate_rec
         tmp = REPORT + '.tmp'
         json.dump(out, open(tmp, 'w', encoding='utf-8'), ensure_ascii=False, indent=1)
         os.replace(tmp, REPORT)
@@ -547,6 +621,26 @@ def _selftest() -> int:
        all(RMD.quota_share(v['roles'], v.get('share')) is not None for v in ROOMS.values())
        and ROOMS['hall'].get('share') == {'шкаф': 'шкаф-купе', 'прихожая': 'шкаф-купе'}
        and not ({'шкаф', 'прихожая'} & set(ROOMS['hall']['roles'])) and ROOMS['hall']['roles']['шкаф-купе'] == 11)
+    # ПЛИТЫ БЕЗ МЕША (T-115/2): ковёр — только счёт замен по правилу сайта (swap-report), ничего не добираем и не генерируем
+    pd = {'variants': [{'id': 'a', 'room_id': 'living', 'style': 'лофт'}, {'id': 'b', 'room_id': 'living', 'style': 'лофт'},
+                       {'id': 'c', 'room_id': 'bedroom-1', 'style': 'лофт'}, {'id': 'd', 'room_id': 'bedroom-2', 'style': 'лофт'}],
+          'feeds': {'ковёр': [{}] * 5, 'bedroom:ковёр': [{}] * 3}}
+    PR = lambda v, n, role='ковёр', st='лофт': {'variant': v, 'style': st, 'role': role, 'published_alternatives': n}  # noqa: E731
+    pp = plate_pairs(pd, [PR('a', 7), PR('b', 3), PR('c', 0), PR('d', 11), PR('a', 9, role='диван')], target=10, roles={'ковёр'})
+    ok('плиты: пара — по худшему месту, комната из room_id (гостиная / спальня без номера), чужие роли не считаются',
+       pp == {('living', 'ковёр', 'лофт'): {'have': 3, 'short': 7, 'feed': 5}, ('bedroom', 'ковёр', 'лофт'): {'have': 0, 'short': 10, 'feed': 3}}, pp)
+    ok('плиты: 11 замен — недобора нет', plate_pairs(pd, [PR('a', 11)], target=10, roles={'ковёр'})[('living', 'ковёр', 'лофт')]['short'] == 0)
+    ok('плиты: правило ролей — из rules/demo-swap.json (ковёр)', RULES.get('plate_roles') == ['ковёр'])
+    ln, sh = plate_report(pp, {'living:ковёр/лофт'})
+    ok('плиты: тревога WARN — только на новые пары с недобором (известная живая — без тревоги)',
+       sh == ['bedroom:ковёр/лофт', 'living:ковёр/лофт'] and sum(1 for x in ln if x.startswith('WARN:')) == 1
+       and 'bedroom:ковёр/лофт' in ln[-1] and 'living' not in ln[-1], ln)
+    ok('плиты: первая ночь (прошлого блока нет) — без тревоги', not any(x.startswith('WARN:') for x in plate_report(pp, None)[0]))
+    ok('плиты: лента есть, а годных 0 — строка говорит это прямо', any('сайт по правилу не берёт ни одной' in x for x in ln), ln)
+    ok('плиты: счёт не посчитался (node упал) — пустой список, не падение',
+       plate_rows('/nope', runner=lambda: types.SimpleNamespace(returncode=1, stdout='', stderr='x')) == [])
+    ok('плиты: json от swap-report читается как есть',
+       plate_rows('/nope', runner=lambda: types.SimpleNamespace(returncode=0, stdout='[{"role":"ковёр"}]', stderr='')) == [{'role': 'ковёр'}])
     print(f'demo_band selftest: ошибок {bad}')
     return 1 if bad else 0
 
