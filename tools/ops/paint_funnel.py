@@ -371,6 +371,7 @@ def main(argv):
     ap.add_argument('--no-report', action='store_true', help='ТОЛЬКО ДЛЯ ТЕСТОВ: не строить сводку-самопроверку и страницу прогона (T-180/4: по умолчанию строятся всегда, `paint_run_report.py`)')
     ap.add_argument('--report-out', help='куда класть сводку и страницу (по умолчанию `<прогон>/_report`; для --union — `<первый прогон>/_report-union`)')
     ap.add_argument('--report-name', help='имя страницы для /test/paint-<имя>/ (по умолчанию — метка прогона)')
+    ap.add_argument('--report-catalog', help='выгрузка каталога (JSON-список {sid|id, name, role}) для названий товаров на страницах прогона')
     ap.add_argument('--publish-report', action='store_true', help='выложить страницу на /test/paint-<имя>/ (по умолчанию только локально)')
     a = ap.parse_args(argv)
     runs = [os.path.expanduser(r).rstrip('/') for r in (a.runs or RUNS)]
@@ -417,7 +418,7 @@ def main(argv):
         groups = [(live, {x[0]: x[1] for x in res}, a.report_out or os.path.join(live[0], '_report-union' if len(live) > 1 else '_report'))] if (a.union and len(res) >= 2) else \
                  [([r], {x[0]: x[1]}, a.report_out if (a.report_out and len(res) == 1) else os.path.join(r, '_report')) for r, x in zip(live, res)]
         for rs, pb, od in groups:
-            rc |= PRR.report(rs, pb, od, repo, a.report_name, a.publish_report)
+            rc |= PRR.report(rs, pb, od, repo, a.report_name, a.publish_report, catalog=a.report_catalog)
     if a.json:
         out = dict(dump)
         out['_yield'] = {l: {'publishable_yield': (sum(1 for s in p if passed_all(p[s], True)) / len(p)) if p else None, 'soft_reference': (sum(1 for s in p if passed_all(p[s])) / len(p)) if p else None, 'submitted': len(p)} for l, p, _s in res}
