@@ -187,6 +187,12 @@ def main() -> int:
     except subprocess.TimeoutExpired:
         proc.kill()
         check(False, 'автостоп по простою не сработал')
+    # --- PartLLM: argv ссылается на существующий пустой YAML (в репозитории апстрима infer_config.yaml нет — pl1 22.11 упал на прогреве)
+    import yaml
+    av = W.partllm_argv('/x/model', 'general', tempfile.mkdtemp())
+    cfgp = av[av.index('--config') + 1]
+    check(os.path.isfile(cfgp) and (yaml.safe_load(open(cfgp)) or {}) == {} and av[av.index('--prompt_set') + 1] == 'general' and '--model_path' in av,
+          f'PartLLM argv: --config → существующий пустой YAML ({cfgp})')
     W.make_backend = orig
     srv.shutdown()
     print('FAILS:', FAILS or 'нет')

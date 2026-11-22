@@ -272,6 +272,17 @@ class P3SamBackend:
                 'extra': {'stages': stages, 'stage_table': table, 'cpu_count': os.cpu_count(), 'cpu_affinity': len(os.sched_getaffinity(0)), 'decimate_s': dec_s, 'transfer_s': tr_s, 'n_faces_work': int(len(work.faces)), 'patched': self.patched, 'params': {'point_num': pn, 'prompt_num': qn, 'decimate_faces': dec}}}
 
 
+def partllm_argv(mp: str, prompt_set: str, args_dir: str = '/tmp/partllm-args') -> list:
+    """argv для `test_mask_pred.parse_args`. В репозитории PartLLM @e17509bc НЕТ `infer_config.yaml`, а `--config` по умолчанию = он, и `apply_yaml_config` открывает файл без проверки
+    (pl1 22.11: FileNotFoundError на прогреве, $0,016). Пустой YAML = «все значения по умолчанию из argparse» (infer.sh апстрима тоже ничего сверх CLI не передаёт)."""
+    os.makedirs(args_dir, exist_ok=True)
+    cfg = os.path.join(args_dir, 'infer_config.yaml')
+    with open(cfg, 'w') as f:
+        f.write('{}\n')
+    return ['partllm', '--config', cfg, '--glb_dir', '/tmp', '--output_dir', args_dir, '--model_path', mp, '--config_path', mp,
+            '--sem_mode', 'semantic', '--prompt_set', prompt_set]
+
+
 class PartLlmBackend:
     """PartLLM (full-shape, без имён на входе: модель сама называет части). В процессе: веса грузятся один раз (cold/warm), далее по мешу
     prepare_geometry_from_glb → run_inference → process_and_save (их же код, `test_mask_pred.py main_glb_dir`). На выходе faces.npy = ЭКЗЕМПЛЯРЫ частей (instance_labels.npy,
@@ -287,8 +298,7 @@ class PartLlmBackend:
         self.T = T
         mp = os.environ.get('MODEL_PATH', '/opt/weights/partllm')
         self.prompt_set = os.environ.get('PARTLLM_PROMPT_SET', 'general')
-        sys.argv = ['partllm', '--glb_dir', '/tmp', '--output_dir', '/tmp/partllm-args', '--model_path', mp, '--config_path', mp,
-                    '--sem_mode', 'semantic', '--prompt_set', self.prompt_set]
+        sys.argv = partllm_argv(mp, self.prompt_set)
         self.args = T.parse_args()
         T.set_global_seed(self.args.seed)
         self.model, self.processor, _tok, self.hf_config, self.encoder_type = T.load_model(self.args)
