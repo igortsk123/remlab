@@ -752,7 +752,7 @@ def align_ut(geoms: list, tex_after: list, known: list, ut_geoms: list | None) -
     (симметричный предмет — любой поворот одинаков, берётся 0); нет отрыва/нет детали → 'uncertain' (UltraTex дальше не используется). → (список {'V','F','UV','tex'} в НАШЕЙ раскладке | None, отчёт)."""
     import cv2
     from scipy.spatial import cKDTree
-    A = dict({'cands': [0, 90, 180, 270], 'min_corr': 0.15, 'margin': 0.08, 'samples': 40000, 'ut_points_max': 1500000, 'seed': 3}, **R.get('align', {}))
+    A = dict({'cands': [0, 90, 180, 270], 'min_score': 0.3, 'margin': 0.15, 'samples': 40000, 'ut_points_max': 1500000, 'seed': 3, 'energy_sigma': 6.0, 'eps': 0.3}, **R.get('align', {}))
     FU = dict({'sigma': 12.0}, **R.get('full', {}))
     rep = {'status': 'no_ut', 'yaw_deg': None, 'corr': {}}
     if ut_geoms is None:
@@ -778,12 +778,12 @@ def align_ut(geoms: list, tex_after: list, known: list, ut_geoms: list | None) -
         center = 0.5 * (np.asarray(g['V']).min(0) + np.asarray(g['V']).max(0))
         Lp = cv2.cvtColor(tex.astype(np.float32) / 255.0, cv2.COLOR_RGB2Lab)[..., 0]
         kmask = np.asarray(known[gi], bool)
-        hp_p = cv2.GaussianBlur((Lp - _nconv(Lp, kmask, FU['sigma'])).astype(np.float32), (0, 0), 1.5).ravel()
+        hp_p = cv2.GaussianBlur(np.abs(cv2.GaussianBlur((Lp - _nconv(Lp, kmask, FU['sigma'])).astype(np.float32), (0, 0), 1.0)), (0, 0), float(A['energy_sigma'])).ravel()
         Lu = cv2.cvtColor(ut.astype(np.float32) / 255.0, cv2.COLOR_RGB2Lab)[..., 0]
         occu = np.zeros(Tu * Tu, bool)
         occu[_texel_points(ug, Tu)[0]] = True
         su = FU['sigma'] * Tu / T
-        hp_u = cv2.GaussianBlur((Lu - _nconv(Lu, occu.reshape(Tu, Tu), su)).astype(np.float32), (0, 0), 1.5 * Tu / T).ravel()
+        hp_u = cv2.GaussianBlur(np.abs(cv2.GaussianBlur((Lu - _nconv(Lu, occu.reshape(Tu, Tu), su)).astype(np.float32), (0, 0), 1.0 * Tu / T)), (0, 0), float(A['energy_sigma']) * Tu / T).ravel()
         kn_idx = np.flatnonzero(kn[idx_o])
         if len(kn_idx) > A['samples']:
             kn_idx = rng.choice(kn_idx, int(A['samples']), replace=False)
@@ -793,14 +793,20 @@ def align_ut(geoms: list, tex_after: list, known: list, ut_geoms: list | None) -
             scores[d].append((a_, b_))
         cache.append((g, ug, ut, T, Tu, idx_o, Po, idx_u, tree, center))
     corr = {}
+    eps = float(A['eps'])
     for d, lst in scores.items():
         a_, b_ = np.concatenate([x[0] for x in lst]), np.concatenate([x[1] for x in lst])
-        corr[d] = round(float(np.corrcoef(a_, b_)[0, 1]), 3) if len(a_) > 200 and a_.std() > 1e-6 and b_.std() > 1e-6 else None
+        if len(a_) <= 200:
+            corr[d] = None
+            continue
+        lvl = float(np.exp(-abs(np.log((b_.mean() + eps) / (a_.mean() + eps)))))            # уровень энергии детали: у фото и у UltraTex на тех же местах один порядок
+        cc = float(np.corrcoef(a_, b_)[0, 1]) if a_.std() > 1e-6 and b_.std() > 1e-6 else 0.0
+        corr[d] = round(lvl * (0.5 + 0.5 * max(cc, 0.0)), 3)
     rep['corr'] = {str(k): v for k, v in corr.items()}
     ok_ = {d: c for d, c in corr.items() if c is not None}
     best, c_best = (max(ok_.items(), key=lambda kv: kv[1]) if ok_ else (None, None))
     c0 = ok_.get(0, -1.0)
-    if best is None or c_best < A['min_corr']:
+    if best is None or c_best < A['min_score']:
         rep.update({'status': 'uncertain', 'yaw_deg': None, 'why': 'нет детали на фото/UltraTex для сверки'})
         return None, rep
     yaw = int(best) if (best == 0 or c_best - c0 >= A['margin']) else 0
