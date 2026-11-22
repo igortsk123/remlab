@@ -204,8 +204,55 @@ def test_apply_to_fill():
     ok(rep5['applied'] and rep5['texels_detextured'] > 0 and out5[0].astype(float)[unk].std() < 0.35 * noisy.astype(float)[unk].std(), 'хук в tex_fill с включённым флагом — применяет карту')
 
 
+def test_relief_source():
+    print('источник запасной фактуры: UltraTex (тот же меш), TRELLIS — иначе:')
+    sys.path[:0] = [os.path.join(HERE, '..'), os.path.join(HERE, '..', '..')]
+    import tempfile
+
+    import tex_fill as TF
+    V, F = strip(3, False)
+    g = {'V': V, 'F': F, 'UV': np.random.default_rng(0).random((len(V), 2)), 'tex': np.zeros((8, 8, 3), np.uint8)}
+    orig = TF.TC.load_geoms
+    try:
+        with tempfile.NamedTemporaryFile(suffix='.glb') as ut, tempfile.NamedTemporaryFile(suffix='.glb') as dr:
+            TF.TC.load_geoms = lambda path: [dict(g)]
+            ok(TF.pick_relief_draft([g], dr.name, ut.name, 'ultratex')[:2] == (ut.name, 'ultratex'), 'тот же меш → UltraTex')
+            ok(TF.pick_relief_draft([g], dr.name, None, 'ultratex')[:2] == (dr.name, 'trellis'), 'UltraTex нет → TRELLIS')
+            ok(TF.pick_relief_draft([g], None, None, 'ultratex')[1] is None, 'нет ни того, ни другого → источника нет (7 этап сам откажется)')
+            ok(TF.pick_relief_draft([g], dr.name, ut.name, 'trellis')[:2] == (dr.name, 'trellis'), 'правило texture_source=trellis → TRELLIS')
+            g2 = dict(g, UV=g['UV'] + 0.01)
+            TF.TC.load_geoms = lambda path: [g2]
+            ok(TF.pick_relief_draft([g], dr.name, ut.name, 'ultratex')[:2] == (dr.name, 'trellis'), 'другой меш (UV) → TRELLIS')
+    finally:
+        TF.TC.load_geoms = orig
+    ok(TF.RULES['trellis_relief']['texture_source'] == 'ultratex', 'по умолчанию в rules/paint-fill.json — ultratex')
+
+
+def test_ultratex_full():
+    print('«суть целиком»: невидимое = наш тон + средние/высокие частоты UltraTex, фото не трогаем, мерка риска:')
+    sys.path[:0] = [os.path.join(HERE, '..'), os.path.join(HERE, '..', '..')]
+    T = 64
+    rng = np.random.default_rng(2)
+    V = np.array([[0, 0, 0], [1, 0, 0], [1, 1, 0], [0, 1, 0]], float)
+    base_g = {'V': V, 'F': np.array([[0, 1, 2], [0, 2, 3]]), 'UV': np.array([[0, 1], [1, 1], [1, 0], [0, 0]], float)}
+    ramp = np.tile(np.linspace(60, 200, T)[None, :], (T, 1))                                   # относительная яркость перёд↔зад: плавный градиент — уходит в низкий пас
+    ut = np.clip(np.repeat((ramp + rng.normal(0, 14, (T, T)))[..., None], 3, 2), 0, 255).astype(np.uint8)
+    flat = np.full((T, T, 3), 120, np.uint8)
+    known = np.zeros((T, T), bool)
+    known[:, : T // 2] = True
+    out, rep = RZ.ultratex_full([dict(base_g, tex=flat)], [flat], [known], [dict(base_g, tex=ut)], [np.zeros(2, np.int32)])
+    o = out[0].astype(float).mean(2)
+    ok((out[0][known] == flat[known]).all(), 'фото-тексели не изменились')
+    ok(o[~known].std() > 4.0, f'невидимое получило рисунок UltraTex (σ {o[~known].std():.1f})')
+    ok(abs(o[~known].mean() - 120) < 8, f'средний тон остался нашим ({o[~known].mean():.0f}), градиент яркости перёд↔зад не перенесён')
+    ok(rep['risky_parts'] == [0] and rep['parts'][0]['ratio'] > 2.0, f'на видимой стороне фото гладкое, UltraTex рябит — риск отмечен (ratio {rep["parts"][0]["ratio"]})')
+    ph = np.clip(flat.astype(float) + rng.normal(0, 14, flat.shape), 0, 255).astype(np.uint8)
+    out2, rep2 = RZ.ultratex_full([dict(base_g, tex=ph)], [ph], [known], [dict(base_g, tex=ut)], [np.zeros(2, np.int32)])
+    ok(rep2['risky_parts'] == [] and rep2['parts'][0]['ratio'] < 2.0, f'на фото та же рябь — риска нет (ratio {rep2["parts"][0]["ratio"]})')
+
+
 def main():
-    for f in (test_same_mesh, test_decide, test_gate_per_property, test_propagate, test_panels, test_apply_to_fill):
+    for f in (test_same_mesh, test_decide, test_gate_per_property, test_propagate, test_panels, test_apply_to_fill, test_relief_source, test_ultratex_full):
         f()
     print(f'tests_ref_zone: ошибок {len(FAILS)}')
     return 1 if FAILS else 0

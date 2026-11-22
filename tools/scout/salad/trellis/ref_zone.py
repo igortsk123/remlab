@@ -632,6 +632,50 @@ def panel_zones(V, F, fz: np.ndarray, parts, basis, return_info: bool = False):
     return (out, info) if return_info else out
 
 
+# ── «суть целиком» (владелец TG 1643: «UltraTex всегда что-то красит, берём как рисует»): без unknown, без голосов и гейта М4 ─────────────────────────────────────────────
+def ultratex_full(geoms: list, tex_after: list, known: list, ut_geoms: list, parts: list) -> tuple:
+    """На НЕвидимых текселях (не known) каждой части (зона по панелям) к цвету заливки добавляется ΔL = L_UltraTex − низкий пас L_UltraTex по этой части (σ `full.sigma` px карты: средние и высокие частоты,
+    средний уровень части и относительная яркость перёд↔зад убраны), ограничено ±`full.clip`; a, b — наши. Тот же меш: тексель в тексель. Фото-тексели не меняются.
+    Мерка риска (видимая сторона): σ того же ΔL на known-текселях части у UltraTex ÷ max(σ по фото, `full.photo_floor`) > `full.risk_ratio` → рябь там, где на фото гладко.
+    → (текстуры, отчёт {'parts': {часть: {...}}, 'risky_parts', 'texels_changed'})."""
+    import cv2
+    import tex_coverage as TC
+    F = dict({'sigma': 12.0, 'clip': 35.0, 'risk_ratio': 2.0, 'photo_floor': 0.8, 'min_visible': 500}, **R.get('full', {}))
+    out, rep = [], {'parts': {}, 'risky_parts': [], 'texels_changed': 0}
+    for gi, g in enumerate(geoms):
+        tex = np.asarray(tex_after[gi], np.uint8)
+        T = int(tex.shape[0])
+        ut = np.asarray(ut_geoms[gi]['tex'])[..., :3]
+        ut = np.clip(ut, 0, 255).astype(np.uint8) if ut.dtype != np.uint8 else ut
+        if ut.shape[0] != T:
+            ut = cv2.resize(ut, (T, T), interpolation=cv2.INTER_AREA)
+        xy = np.stack([g['UV'][:, 0] * T, (1.0 - g['UV'][:, 1]) * T], 1)
+        fid, _ = TC.raster(xy, g['F'], T)
+        fid = fid.reshape(T, T)
+        occ = fid >= 0
+        pm = np.where(occ, np.asarray(parts[gi])[np.maximum(fid, 0)], -1)
+        kn = np.asarray(known[gi], bool)
+        lab = cv2.cvtColor(tex.astype(np.float32) / 255.0, cv2.COLOR_RGB2Lab)
+        Lu = cv2.cvtColor(ut.astype(np.float32) / 255.0, cv2.COLOR_RGB2Lab)[..., 0]
+        L0 = lab[..., 0].copy()
+        for pid in np.unique(pm[occ]):
+            mp = pm == pid
+            det = np.clip(Lu - _nconv(Lu, mp, F['sigma']), -F['clip'], F['clip'])
+            unk = mp & ~kn
+            lab[..., 0][unk] += det[unk]
+            rep['texels_changed'] += int(unk.sum())
+            kv = mp & kn
+            if int(kv.sum()) >= F['min_visible']:
+                dp = (L0 - _nconv(L0, kv, F['sigma']))[kv]
+                su, sp = float(det[kv].std()), float(dp.std())
+                ratio = su / max(sp, F['photo_floor'])
+                rep['parts'][int(pid)] = {'ut_hf_std_visible': round(su, 3), 'photo_hf_std_visible': round(sp, 3), 'ratio': round(ratio, 2), 'risk': bool(ratio > F['risk_ratio'])}
+                if ratio > F['risk_ratio']:
+                    rep['risky_parts'].append(int(pid))
+        out.append(np.clip(cv2.cvtColor(lab, cv2.COLOR_Lab2RGB) * 255.0 + 0.5, 0, 255).astype(np.uint8))
+    return out, rep
+
+
 # ── 07: карта зона×сторона×свойство (за флагом, по умолчанию выкл.) ───────────────────────────────────────────────────
 def apply_to_fill(geoms: list, tex_after: list, known: list, face_zone: np.ndarray, face_side: np.ndarray, amap: dict, offs: list) -> tuple:
     """`texture = different` для (зона, сторона грани) → на НЕВИДИМЫХ текселях этой пары остаётся только тон: цвет заменяется маскированным низким пасом (σ 12 px карты). Идёт ПОСЛЕ любой заливки — зеркало и рельеф обойти не могут;

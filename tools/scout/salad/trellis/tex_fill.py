@@ -2050,6 +2050,22 @@ def stage6_gate(prev_dir: str):
     return False, '', info
 
 
+def pick_relief_draft(geoms: list, draft_glb: str | None, ut_glb: str | None, source: str | None = None) -> tuple:
+    """Источник запасной микрофактуры (trellis_relief, Ш6; владелец 22.11 TG 1640: «с UltraTex, TRELLIS хуже»): правило `trellis_relief.texture_source` (rules/paint-fill.json, ultratex | trellis).
+    ultratex — меш UltraTex на НАШЕЙ форме (тот же V, F, UV — `ref_zone.same_mesh`): берутся только яркостные полосы его текстуры, тон остаётся нашим, ворота Ш6 те же; TRELLIS — если UltraTex
+    нет, меш другой или правило `trellis`. → (путь черновика | None, 'ultratex' | 'trellis' | None, причина)."""
+    src = source or RULES['trellis_relief'].get('texture_source', 'ultratex')
+    if src == 'ultratex':
+        if not ut_glb or not os.path.isfile(ut_glb):
+            return draft_glb, ('trellis' if draft_glb else None), 'UltraTex-меша нет'
+        import ref_zone as RZ
+        sm = RZ.same_mesh(geoms, TC.load_geoms(ut_glb))
+        if sm['same']:
+            return ut_glb, 'ultratex', 'тот же меш'
+        return draft_glb, ('trellis' if draft_glb else None), 'UltraTex-меш другой: ' + str(sm.get('why'))
+    return draft_glb, ('trellis' if draft_glb else None), 'правило texture_source=trellis'
+
+
 def apply_ref_zone_map(geoms: list, tex_after: list, known: list, cfg: dict | None, force: bool = False) -> tuple:
     """Хук Ш8м (за флагом): `texture = different` для (зона, сторона) → невидимые тексели пары теряют фактуру, остаётся тон. Идёт ПОСЛЕ заливки, значит зеркало и trellis_relief
     обойти `different` не могут; фото-тексели (known) не меняются. Флаг выкл. (rules/ref-zone.json) или карты нет — текстуры как были. → (текстуры, {'applied', 'texels_detextured'})."""
@@ -2061,7 +2077,7 @@ def apply_ref_zone_map(geoms: list, tex_after: list, known: list, cfg: dict | No
     return out, dict(rep, applied=True, flag=bool(RZ.APPLY))
 
 
-def run_stage(run: str, sku: str, glb: str, known: list | None = None, parts=None, cfg: dict | None = None, thresholds: dict | None = None, mirror: bool = True, draft_glb: str | None = None, out_name: str | None = None, parts_npz: str | None = None, prev_dir: str | None = None) -> dict:
+def run_stage(run: str, sku: str, glb: str, known: list | None = None, parts=None, cfg: dict | None = None, thresholds: dict | None = None, mirror: bool = True, draft_glb: str | None = None, ut_glb: str | None = None, out_name: str | None = None, parts_npz: str | None = None, prev_dir: str | None = None) -> dict:
     """Этап 07 «докрасить невидимое»: GLB (текстура = фото на видимом) → `<run>/<sku>/07-fill/` {filled.glb, report.json, frame.png (az180 до | после), check.json}.
     `known` — маска «видно с камеры фото» по геометриям (нет — из `known_from_photo`: az0/az45); `parts` — части граней (нет — `parts_from_geometry`). Не прошёл (check.json passed=false) — товар дальше не идёт.
     → {'check', 'report', 'geoms', 'tex_before', 'tex_after', 'known', 'parts', 'dir'} (для проб и кадров)."""
@@ -2095,7 +2111,10 @@ def run_stage(run: str, sku: str, glb: str, known: list | None = None, parts=Non
         if _roles:
             cfg = dict(cfg or {}, part_role=_roles)          # C: классы частей — из этапа 3 сами (CFG_C больше не нужен)
     draft = None
+    relief_src = None
     if (cfg or {}).get('source') in ('trellis', 'trellis_relief'):
+        if (cfg or {}).get('source') == 'trellis_relief':
+            draft_glb, relief_src, _why = pick_relief_draft(geoms, draft_glb, ut_glb)
         draft = draft_texels(geoms, TC.load_geoms(draft_glb), cfg)
     kback = known_from_photo(geoms, azimuths=(180.0,))
     _to = load_tone_only_png(prev_dir) if (prev_dir and (cfg or {}).get('tone_only_use', True)) else None      # тон-слой этапа 6 (р.8): цвет оставить, фактуру положить поверх
@@ -2127,6 +2146,7 @@ def run_stage(run: str, sku: str, glb: str, known: list | None = None, parts=Non
         pick, used = one(cfg, draft), ((cfg or {}).get('source') or 'stat')
     rep, tex_after, de, big, de_worst = pick['rep'], pick['tex'], pick['de'], pick['big'], pick['de_worst']
     tex_after, rep['ref_zone_map'] = apply_ref_zone_map(geoms, tex_after, known, cfg)
+    rep['relief_source'] = relief_src
     kchg = known_changed_share(known, tex_before, tex_after, RULES['known_change_de'])
     rep['known_changed'] = kchg
     try:                                                          # мерка узора — только отчёт (порог по трудным — позже), сбой её не роняет этап
