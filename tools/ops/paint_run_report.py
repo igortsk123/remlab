@@ -773,6 +773,10 @@ def read_chain(path: str) -> dict:
         except Exception:  # noqa: BLE001
             continue
         if isinstance(r, dict) and r.get('sku'):
+            if 'status' not in r:                                           # журнал `make_cut_v2.py` (T-178/2): поле `refused` (причина отказа) вместо `status`, файлы названы по товару, а не по sha
+                r['status'] = 'refused' if r.get('refused') else 'ok'
+            if not r.get('sha'):
+                r['sha'] = str(r['sku']).replace(':', '_', 1)
             out[str(r['sku']).replace(':', '_', 1)] = r
     return out
 
@@ -790,6 +794,8 @@ def cut_reason(r: dict) -> str:
         bits.append(f"hybrid_error={r.get('hybrid_error')}")
     if r.get('reason'):
         bits.append(str(r['reason']))
+    if r.get('refused'):
+        bits.append(str(r['refused']))
     return '; '.join(bits)
 
 

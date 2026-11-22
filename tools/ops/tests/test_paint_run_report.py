@@ -445,3 +445,24 @@ def test_state_on_pages_and_summary(tmp_path):
     stages, tb = prr.stage_table(PER9, PAINTED9)
     s = {'label': 'T', 'n': 8, 'stopped': 4, 'stopped_by_stage': [], 'painted': 4, 'painted_final': {'ok': 1, 'soft': 3, 'refused': 0, 'missing': 0}, 'painted_strict': 0, 'frames': 4, 'cards': 8, 'errors': [], 'data_state': st}
     assert 'данные на 12:34 · прогон ещё идёт' in prr.render_md(s, W)
+
+
+def test_cutout_v2_log_format(tmp_path):
+    """Журнал make_cut_v2.py (T-178/2): `refused` вместо `status`, файлы по товару (`photos/<товар>.img`, `cut/<товар>.png`), без sha."""
+    from PIL import Image
+    (tmp_path / 'photos').mkdir()
+    (tmp_path / 'cut').mkdir()
+    rows = [{'sku': 'a_1', 'hybrid_error': None, 'mask_verdict': 'ok'},
+            {'sku': 'b_2', 'hybrid_error': None, 'mask_verdict': 'ok', 'refused': 'сторож размера: мелкая вырезка'},
+            {'sku': 'c_3', 'refused': 'вырезка упала: RuntimeError: нет адреса фото'}]
+    for r in rows[:2]:
+        Image.new('RGB', (30, 20), (9, 9, 9)).save(tmp_path / 'photos' / f"{r['sku']}.img", 'JPEG')
+        Image.new('RGBA', (30, 20), (200, 0, 0, 255)).save(tmp_path / 'cut' / f"{r['sku']}.png")
+    p = tmp_path / 'cut.jsonl'
+    p.write_text(''.join(json.dumps(r, ensure_ascii=False) + '\n' for r in rows), encoding='utf-8')
+    chain = prr.read_chain(str(p))
+    items = [{'id': k, 'name': f'Товар {k}'} for k in ('a_1', 'b_2', 'c_3')]
+    s, errs = prr.cutout_page(items, chain, str(tmp_path / 'photos'), str(tmp_path / 'cut'), str(tmp_path / 'o'), prr.load_words(REPO), 'T')
+    assert errs == [] and (s['n'], s['ok'], s['refused'], s['missing'], s['made'], s['cards']) == (3, 1, 2, 0, 1, 3)
+    page = (tmp_path / 'o' / 'index.html').read_text(encoding='utf-8')
+    assert 'сторож размера: мелкая вырезка' in page and 'нет адреса фото' in page
