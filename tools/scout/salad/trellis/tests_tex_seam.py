@@ -23,7 +23,7 @@ import tex_seam as TS  # noqa: E402
 
 bad = 0
 T = 128
-SEAM = dict(TF.RULES['seam'], min_panel_faces=4, tone_decay_mm=25.0, reach_mm=30.0, cell_mm=10.0, min_cell=6, contrast_decay_mm=25.0, pair_mm=4.0, probe_mm=10.0)
+SEAM = dict(TF.RULES['seam'], feather_mm=0.0, min_panel_faces=4, tone_decay_mm=25.0, reach_mm=30.0, cell_mm=10.0, min_cell=6, contrast_decay_mm=25.0, pair_mm=4.0, probe_mm=10.0)
 
 
 def ok(cond, name, extra=''):
@@ -211,16 +211,41 @@ def test_fill_end_to_end():
     ok(off['report']['seam'] == {'enabled': False}, 'seam.enabled=false — шов не трогаем, прежнее поведение')
 
 
+def test_feather():
+    print('граница по мм: лесенка блоков фото-растра сглаживается, середина фото 1:1, выключено — прежнее:')
+    g, tx, smm, x = panel(n=96, width_mm=400.0)
+    col, row = tx.ti % T, tx.ti // T
+    cw = 400.0 / T                                                       # мм на тексел (панель = вся развёртка T×T)
+    step = ((row // 6) % 2).astype(int)                                  # блоки по 6 строк: граница по колонке 64 или 67 (лесенка ≈ 9 мм)
+    k0 = col < 64 + 3 * step
+    lab = np.zeros((len(col), 3))
+    lab[:, 0] = np.where(k0, 50.0, 62.0)
+    base = dict(SEAM, feather_mm=0.0)
+    off = TS.blend_seam(tx, lab.copy(), lab.copy(), k0, np.ones(len(col)), np.zeros(len(col), bool), base, smm)
+    ro = off['report']
+    ok(ro['rough_before']['rough_rms_mm'] > 3.0, 'лесенка есть: шероховатость границы до > 3 мм', str(ro['rough_before']))
+    ok(abs(ro['rough_after']['rough_rms_mm'] - ro['rough_before']['rough_rms_mm']) < 1e-6, 'feather_mm=0 — граница как была', str(ro['rough_after']))
+    on = TS.blend_seam(tx, lab.copy(), lab.copy(), k0, np.ones(len(col)), np.zeros(len(col), bool), dict(base, feather_mm=10.0), smm)
+    rn = on['report']
+    ok(rn['rough_after']['rough_rms_mm'] < 0.7 * rn['rough_before']['rough_rms_mm'], 'с feather: шероховатость границы упала > 30 %', f"{rn['rough_before']['rough_rms_mm']} -> {rn['rough_after']['rough_rms_mm']}")
+    deep = col < 30
+    ok(float(np.abs(on['lab'][deep, 0] - 50.0).max()) < 1e-9 and bool(on['keep'][deep].all()), 'середина фото (далеко от границы) 1:1 и в keep')
+    far = col > 100
+    ok(float(np.abs(on['lab'][far, 0] - lab[far, 0]).max()) < 2.0, 'далёкая заливка не тронута feather')
+    mid = (col >= 64) & (col < 66) & (step == 0)
+    ok(float(on['lab'][mid, 0].mean()) < 62.0 - 1.0, 'заливка у границы плавно подтянута к фото (вытяжка фото в заливку)', f"{float(on['lab'][mid, 0].mean()):.1f}")
+
+
 def test_rules():
     print('правила — в rules/paint-fill.json:')
     s = TF.RULES['seam']
-    ok(all(k in s for k in ('conf_min', 'conf_full', 'probe_mm', 'tone_decay_mm', 'contrast_gmax', 'de_bad', 'poisson')), 'блок seam полон')
+    ok(all(k in s for k in ('conf_min', 'conf_full', 'probe_mm', 'tone_decay_mm', 'contrast_gmax', 'de_bad', 'poisson', 'feather_mm', 'rough_sigma_mm')), 'блок seam полон')
     ok(s['poisson'] is False, 'Пуассон выключен (только если скачок остаётся после ③)')
     ok(0.0 < s['conf_min'] < s['conf_full'] <= 1.0, 'conf_min < conf_full')
 
 
 def main():
-    for f in (test_surface_dist, test_tone, test_crease, test_other_zone, test_contrast, test_confidence, test_fallback_conf, test_fill_end_to_end, test_rules):
+    for f in (test_surface_dist, test_tone, test_crease, test_other_zone, test_contrast, test_confidence, test_fallback_conf, test_fill_end_to_end, test_feather, test_rules):
         print(f.__name__)
         f()
     print(f'tests_tex_seam: ошибок {bad}')

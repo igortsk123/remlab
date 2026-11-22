@@ -313,6 +313,48 @@ def mip1_lab(tx, rgb: np.ndarray, rgb2lab) -> np.ndarray:
     return rgb2lab(np.clip(np.rint(up.reshape(-1, 3)[tx.ti]), 0, 255).astype(np.uint8))
 
 
+def mask_blur(tx, ind: np.ndarray, occ: np.ndarray, sigma_px: float) -> np.ndarray:
+    """Размытие индикатора ind (n,) по растру развёртки, нормированное на занятые texel (occ): доля «фото» в окрестности sigma_px, 0..1. Вне occ не считаем (пустота атласа в размытие не входит)."""
+    from scipy.ndimage import gaussian_filter
+    T = tx.T
+    a = np.zeros(T * T)
+    w = np.zeros(T * T)
+    a[tx.ti[ind & occ]] = 1.0
+    w[tx.ti[occ]] = 1.0
+    num = gaussian_filter(a.reshape(T, T), sigma_px, mode='nearest')
+    den = gaussian_filter(w.reshape(T, T), sigma_px, mode='nearest')
+    return (num / np.maximum(den, 1e-9)).reshape(-1)[tx.ti]
+
+
+def boundary_rough(tx, mask: np.ndarray, occ: np.ndarray, tmm: float, sigma_mm: float) -> dict:
+    """Мерка «ступенек» границы (паспорт: ступенчатая граница фото/заливки): у граничных texel маски (есть сосед по растру вне маски, оба занятые) — расстояние до гладкого контура
+    той же маски, размытой сильно (sigma_mm): RMS и p95, мм; + периметр (мм) и отношение шероховатости к периметру. Гладкая граница → RMS ≈ 0, лесенка из блоков → RMS ≈ половина ступеньки."""
+    from scipy.ndimage import gaussian_filter
+    T = tx.T
+    m = np.zeros((T, T))
+    o = np.zeros((T, T), bool)
+    m.reshape(-1)[tx.ti[mask]] = 1.0
+    o.reshape(-1)[tx.ti[occ]] = True
+    sg = max(sigma_mm / max(tmm, 1e-6), 1.0)
+    g = gaussian_filter(m, sg, mode='nearest') / np.maximum(gaussian_filter(o.astype(float), sg, mode='nearest'), 1e-9)
+    gy, gx = np.gradient(g)
+    gm = np.hypot(gx, gy)
+    mk = m > 0.5
+    edge = np.zeros((T, T), bool)
+    for dy, dx in ((1, 0), (-1, 0), (0, 1), (0, -1)):
+        nb = np.roll(np.roll(mk, dy, 0), dx, 1)
+        no = np.roll(np.roll(o, dy, 0), dx, 1)
+        edge |= mk & ~nb & no & o
+    edge &= gm > 1e-4
+    n = int(edge.sum())
+    if not n:
+        return {'edge_texels': 0, 'rough_rms_mm': 0.0, 'rough_p95_mm': 0.0, 'perimeter_mm': 0.0, 'rough_per_perimeter': 0.0}
+    d = np.abs(g[edge] - 0.5) / gm[edge] * tmm                       # мм до контура g=0.5
+    per = n * tmm
+    return {'edge_texels': n, 'rough_rms_mm': round(float(np.sqrt((d ** 2).mean())), 3), 'rough_p95_mm': round(float(np.percentile(d, 95)), 3),
+            'perimeter_mm': round(per, 1), 'rough_per_perimeter': round(float((d ** 2).mean() ** 0.5 / max(sigma_mm, 1e-6)), 4)}
+
+
 def blend_seam(tx, out_lab: np.ndarray, photo_lab: np.ndarray, keep0: np.ndarray, conf: np.ndarray | None, skip: np.ndarray, c: dict, size_mm: float) -> dict:
     """Один растр: ① вес фото по доверию → ② сдвиг тона заливки → ③ контраст фактуры + плавный переход на сомнительных краевых текселях фото.
     out_lab (n,3) — результат заливки (у фото-текселей = фото); photo_lab — Lab фото; keep0 — известное и покрашенное (защита k0); skip — зоны без перекраски (не трогаем вовсе).
@@ -322,13 +364,21 @@ def blend_seam(tx, out_lab: np.ndarray, photo_lab: np.ndarray, keep0: np.ndarray
     k0 = keep0 & ~skip
     s0 = surface_dist(tx, ~k0, size_mm, c['edge_mm'] * 2.0 + 1.0) if conf is None else np.zeros(n)
     w = photo_weight(conf, k0, s0, c)
+    tmm = texel_mm(tx, size_mm)
+    occ = np.ones(n, bool)
+    fe = float(c.get('feather_mm', 0.0) or 0.0)
+    if fe > 0:                                                    # граница фото|заливка — мм, не текселями: размытая по мм маска даёт плавный вес (лесенка блоков фото-растра сглаживается)
+        g = mask_blur(tx, k0 | skip, occ, fe / max(tmm, 1e-6))
+        wb = smoothstep((g - c['feather_lo']) / max(c['feather_hi'] - c['feather_lo'], 1e-6))
+    else:
+        wb = np.where(k0, 1.0, 0.0)
+    w = np.where(k0, w * wb, 0.0)
     solid = k0 & (w >= 1.0 - 1e-9)
     demoted = k0 & ~solid
     fillpure = ~keep0 & ~skip
     zone = panel_zone(tx, c['crease_deg'], c['normal_smooth_iters'], c['min_panel_faces'])
     s_out = surface_dist(tx, solid, size_mm, cap)
     s_in = surface_dist(tx, ~solid, size_mm, cap)
-    tmm = texel_mm(tx, size_mm)
     lab = out_lab.copy()
     rep = {'demoted_texels': int(demoted.sum()), 'solid_texels': int(solid.sum()), 'texel_mm': round(tmm, 3)}
     if fillpure.any() and solid.any():
@@ -336,6 +386,13 @@ def blend_seam(tx, out_lab: np.ndarray, photo_lab: np.ndarray, keep0: np.ndarray
         lab[fillpure] += dl[fillpure]
         add, rep['contrast'] = contrast_gain(tx, zone, lab, solid, fillpure, s_in, s_out, c, size_mm, tmm)
         lab[fillpure, 0] += add[fillpure]
+    if fe > 0 and solid.any():                                    # заливка у границы, куда вес границы ещё >0: цвет — ближайшее фото (≤ 2·feather), плавно к заливке (wb)
+        ext = np.nonzero(fillpure & (wb > 1e-3))[0]
+        if len(ext):
+            pe, fe_ok = nearest_fill(tx, photo_lab, solid, ext, 2.0 * fe, size_mm)
+            wx = (wb[ext] * fe_ok)[:, None]
+            lab[ext] = wx * pe + (1.0 - wx) * lab[ext]
+            rep['feather_extended_texels'] = int(fe_ok.sum())
     if demoted.any():
         idx = np.nonzero(demoted)[0]
         prox, found = nearest_fill(tx, lab, fillpure, idx, c['reach_mm'], size_mm)
@@ -347,6 +404,9 @@ def blend_seam(tx, out_lab: np.ndarray, photo_lab: np.ndarray, keep0: np.ndarray
     else:
         keep = solid
     rep['zones'] = int(len(np.unique(zone)))
+    fin = (keep | (fillpure & (wb > 0.5)))
+    rep['rough_before'] = boundary_rough(tx, k0, np.ones(n, bool), tmm, c['rough_sigma_mm'])
+    rep['rough_after'] = boundary_rough(tx, fin, np.ones(n, bool), tmm, c['rough_sigma_mm'])
     return {'lab': lab, 'keep': keep, 'solid': solid, 'zone': zone, 's_in': s_in, 's_out': s_out, 'tmm': tmm, 'report': rep}
 
 

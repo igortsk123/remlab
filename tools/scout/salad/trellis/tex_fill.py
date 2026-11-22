@@ -826,6 +826,41 @@ def draft_relief(txs: list, draft: dict, labs: list, kn: list, part_ids: list, p
 
 
 # ---------------------------------------------------------------- заливка ---------------------------------------
+def seam_pass(txs: list, out_lab: list, labs: list, kn_keep: list, conf: list | None, seam_c: dict, gutter: int = 8, skip_fn=None) -> dict:
+    """Сведение шва «фото | заливка» (T-196, П1.136) на готовых растрах: out_lab[gi] (T,T,3 Lab, результат заливки) ПРАВИТСЯ на месте, kn_keep[gi] — тексели, оставшиеся 1:1 фото, тоже на месте.
+    labs[gi] — Lab фото (исходник), conf — доверие к фото-текселю (этап 6) или None, skip_fn(gi, tx) → bool (n,) зоны без перекраски. Граница = известное ↔ всё залитое (зеркало не при чём).
+    → отчёт: {'enabled', 'size_mm', 'conf_source', 'geoms': [{…, 'before', 'after'}], 'time_s'}. Общий код этапа 07 (при seam.enabled) и отдельного шага `seam_stage.py`."""
+    import tex_seam as TS
+    t_s = time.time()
+    size_mm = float(seam_c.get('size_mm') or seam_c['size_mm_default'])
+    srep = {'enabled': True}
+    srep.update({'size_mm': size_mm, 'geoms': [], 'conf_source': 'карта этапа 6' if conf is not None else 'запасное: от границы известного'})
+    for gi, tx in enumerate(txs):
+        ti = tx.ti
+        ol = out_lab[gi].reshape(-1, 3)
+        skip_ = skip_fn(gi, tx) if skip_fn else np.zeros(len(ti), bool)
+        cf = None if conf is None or gi >= len(conf) or conf[gi] is None else np.asarray(conf[gi], np.float64).reshape(-1)[ti]
+        k0f = kn_keep[gi].reshape(-1)[ti]
+        before = ol[ti].copy()
+        sb = TS.surface_dist(tx, ~(k0f & ~skip_), size_mm, seam_c['pair_mm'] + 1.0)
+        so = TS.surface_dist(tx, k0f & ~skip_, size_mm, seam_c['pair_mm'] + 1.0)
+        tmm = TS.texel_mm(tx, size_mm)
+
+        def _metric(lab_n, solid, s_in_, s_out_):
+            img = TS.atlas_with_gutter(tx, lab2rgb(lab_n), gutter if gutter > 0 else 8)
+            return TS.seam_metric(tx, TS.panel_zone(tx, seam_c['crease_deg'], seam_c['normal_smooth_iters'], seam_c['min_panel_faces']), lab_n, TS.mip1_lab(tx, img, rgb2lab), solid, s_in_, s_out_, seam_c, size_mm, tmm, TC.de2000_v)
+        m_before = _metric(before, k0f & ~skip_, sb, so)
+        r_ = TS.blend_seam(tx, before, labs[gi].reshape(-1, 3)[ti], k0f, cf, skip_, seam_c, size_mm)
+        ol[ti] = r_['lab']
+        kk = kn_keep[gi].reshape(-1).copy()
+        kk[ti] = r_['keep']
+        kn_keep[gi] = kk.reshape(kn_keep[gi].shape)
+        m_after = _metric(r_['lab'], r_['solid'], r_['s_in'], r_['s_out'])
+        srep['geoms'].append(dict(r_['report'], before=m_before, after=m_after))
+    srep['time_s'] = round(time.time() - t_s, 2)
+    return srep
+
+
 def fill(geoms: list, known: list, parts: list | None = None, cfg: dict | None = None, mirror: bool = True, draft: dict | None = None, tone_only: list | None = None, conf: list | None = None) -> dict:
     """geoms — `tex_coverage.load_geoms`; known — по геометрии (T×T bool), parts — по геометрии номера частей ГРАНЕЙ (None — одна часть).
     draft — черновик TRELLIS на ту же форму/развёртку (`draft_texels`): {'lab': [(T,T,3) Lab], 'ok': [(T,T) bool]}; нужен при cfg['source']=='trellis': невидимое берёт цвет черновика,
@@ -1402,33 +1437,8 @@ def fill(geoms: list, known: list, parts: list | None = None, cfg: dict | None =
     seam_c = dict(RULES.get('seam') or {}, **((cfg or {}).get('seam') or {}))
     rep['seam'] = {'enabled': bool(seam_c.get('enabled'))}
     if seam_c.get('enabled'):
-        import tex_seam as TS
-        t_s = time.time()
-        size_mm = float(seam_c.get('size_mm') or seam_c['size_mm_default'])
-        rep['seam'].update({'size_mm': size_mm, 'geoms': [], 'conf_source': 'карта этапа 6' if conf is not None else 'запасное: от границы известного'})
-        for gi, tx in enumerate(txs):
-            ti = tx.ti
-            ol = out_lab[gi].reshape(-1, 3)
-            skip_ = (np.isin(tx.part, sorted(skip_parts)) & ~mirrored[gi].reshape(-1)[ti]) if skip_parts else np.zeros(len(ti), bool)
-            cf = None if conf is None or gi >= len(conf) or conf[gi] is None else np.asarray(conf[gi], np.float64).reshape(-1)[ti]
-            k0f = kn_keep[gi].reshape(-1)[ti]
-            before = ol[ti].copy()
-            sb = TS.surface_dist(tx, ~(k0f & ~skip_), size_mm, seam_c['pair_mm'] + 1.0)
-            so = TS.surface_dist(tx, k0f & ~skip_, size_mm, seam_c['pair_mm'] + 1.0)
-            tmm = TS.texel_mm(tx, size_mm)
-
-            def _metric(lab_n, solid, s_in_, s_out_):
-                img = TS.atlas_with_gutter(tx, lab2rgb(lab_n), c['gutter'] if c['gutter'] > 0 else 8)
-                return TS.seam_metric(tx, TS.panel_zone(tx, seam_c['crease_deg'], seam_c['normal_smooth_iters'], seam_c['min_panel_faces']), lab_n, TS.mip1_lab(tx, img, rgb2lab), solid, s_in_, s_out_, seam_c, size_mm, tmm, TC.de2000_v)
-            m_before = _metric(before, k0f & ~skip_, sb, so)
-            r_ = TS.blend_seam(tx, before, labs[gi].reshape(-1, 3)[ti], k0f, cf, skip_, seam_c, size_mm)
-            ol[ti] = r_['lab']
-            kk = kn_keep[gi].reshape(-1).copy()
-            kk[ti] = r_['keep']
-            kn_keep[gi] = kk.reshape(kn_keep[gi].shape)
-            m_after = _metric(r_['lab'], r_['solid'], r_['s_in'], r_['s_out'])
-            rep['seam']['geoms'].append(dict(r_['report'], before=m_before, after=m_after))
-        rep['seam']['time_s'] = round(time.time() - t_s, 2)
+        rep['seam'] = seam_pass(txs, out_lab, labs, kn_keep, conf, seam_c, c['gutter'],
+                                lambda gi, tx: (np.isin(tx.part, sorted(skip_parts)) & ~mirrored[gi].reshape(-1)[tx.ti]) if skip_parts else np.zeros(len(tx.ti), bool))
         rep['time_s']['seam'] = rep['seam']['time_s']
     # --- итог: RGB, желоб, проверка покрытия
     outs = []
@@ -1623,7 +1633,7 @@ def load_rules(path: str | None = None) -> dict:
     if 'trellis_relief' not in r:
         raise KeyError("rules/paint-fill.json: нет ключа 'trellis_relief'")
     for k in ('enabled', 'size_mm_default', 'conf_min', 'conf_full', 'edge_mm', 'probe_mm', 'cell_mm', 'reach_mm', 'tone_decay_mm', 'tone_max', 'min_cell', 'hi_sigma_mm', 'contrast_decay_mm',
-              'contrast_gmin', 'contrast_gmax', 'contrast_floor', 'pair_mm', 'pair_cos', 'de_bad', 'poisson', 'crease_deg', 'normal_smooth_iters', 'min_panel_faces'):
+              'contrast_gmin', 'contrast_gmax', 'contrast_floor', 'pair_mm', 'pair_cos', 'de_bad', 'poisson', 'crease_deg', 'normal_smooth_iters', 'min_panel_faces', 'feather_mm', 'feather_lo', 'feather_hi', 'rough_sigma_mm'):
         if k not in (r.get('seam') or {}):
             raise KeyError(f'rules/paint-fill.json: seam.{k} не задан')
     for k in ('gain_max', 'clip_k', 'patch_frac', 'patch_dl', 'dilate_px', 'part_max_share', 'band_lo', 'band_hi', 'sigma_lo_min', 'sigma_lo_max', 'sigma_hi_max', 'far_w', 'p95_cap',

@@ -158,7 +158,7 @@ def scene_parts():
 def test_parts():
     print('заливка: известное цело; невидимое — цветом СВОЕЙ части, не через границу части и островка:')
     g, parts, known, tl, col = scene_parts()
-    out = TF.fill([g], known, parts, cfg={"gutter": 0, "erode_known": 0, "tone": "median", "src_dev_pattern": 0}, mirror=False)     # часть 1 двухцветная (синий + жёлтый островок): геометрия заливки проверяется при медиане, мода — отдельный тест
+    out = TF.fill([g], known, parts, cfg={"seam": {"enabled": False}, "gutter": 0, "erode_known": 0, "tone": "median", "src_dev_pattern": 0}, mirror=False)     # часть 1 двухцветная (синий + жёлтый островок): геометрия заливки проверяется при медиане, мода — отдельный тест
     tex, rep = out['tex'][0], out['report']
     tex0 = g['tex']
     kn = known[0]
@@ -414,7 +414,7 @@ def test_draft_source():
     dg['tex'] = dtex
     dt = TF.draft_texels([g], [dg])
     ok(dt['report']['ok_pct'] > 99.0 and dt['report']['frame_gap'] < 1e-6, f'черновик перенесён на нашу развёртку: покрытие {dt["report"]["ok_pct"]} %, расхождение кадра {dt["report"]["frame_gap"]}')
-    out = TF.fill([g], known, parts, cfg={'gutter': 0, 'erode_known': 0, 'source': 'trellis'}, mirror=False, draft=dt)
+    out = TF.fill([g], known, parts, cfg={"seam": {"enabled": False}, "gutter": 0, 'erode_known': 0, 'source': 'trellis'}, mirror=False, draft=dt)
     tex, rep = out['tex'][0], out['report']
     kn = known[0]
     ok(int((tex[kn] != g['tex'][kn]).sum()) == 0, 'известные тексели не изменились')
@@ -679,7 +679,7 @@ def test_trellis_relief():
         dg_["tex"] = dtex
         return TF.draft_texels([g], [dg_])
     dt = mk_draft(3.0, True, 15)
-    cfgC = {"gutter": 0, "erode_known": 0, "source": "trellis_relief", "pattern_chroma": 1e9}          # части сцены соседствуют цветными плитками — «узорность» по хроме здесь не нужна
+    cfgC = {"seam": {"enabled": False}, "gutter": 0, "erode_known": 0, "source": "trellis_relief", "pattern_chroma": 1e9}          # части сцены соседствуют цветными плитками — «узорность» по хроме здесь не нужна
     out = TF.fill([g], known, parts, cfg=cfgC, mirror=False, draft=dt)
     st = TF.fill([g], known, parts, cfg={"gutter": 0, "erode_known": 0, "source": "stat", "pattern_chroma": 1e9}, mirror=False)
     tex, rep = out["tex"][0], out["report"]
