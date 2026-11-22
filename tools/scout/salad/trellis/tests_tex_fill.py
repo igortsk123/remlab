@@ -181,10 +181,14 @@ def test_no_known_part():
     print('часть без известного: статистика по всему предмету (счётчик), чёрного нет:')
     g, parts, known, tl, col = scene_parts()
     known2 = [known[0] & ~tile_mask(tl['C']) & ~tile_mask(tl['B'], 0.5)]            # у части 1 известного нет совсем
-    out = TF.fill([g], known2, parts, cfg={'gutter': 0, 'erode_known': 0, 'min_known': 50}, mirror=False)
+    out = TF.fill([g], known2, parts, cfg={'gutter': 0, 'erode_known': 0, 'min_known': 50, 'no_role_global': 'legacy'}, mirror=False)
     rep = out['report']
-    ok(rep['fallback_global'] == 1 and rep['parts'][1]['stats_from_global'], 'часть 1: статистика взята по предмету, счётчик fallback_global = 1')
+    ok(rep['fallback_global'] == 1 and rep['parts'][1]['stats_from_global'], 'no_role_global=legacy: часть 1 — статистика по предмету, счётчик fallback_global = 1')
     ok(rep['unpainted_after_pct'] == 0.0, 'после заливки чёрного нет')
+    out2 = TF.fill([g], known2, parts, cfg={'gutter': 0, 'erode_known': 0, 'min_known': 50}, mirror=False)
+    rep2 = out2['report']
+    ok(1 in rep2['tone_skipped_parts'] and rep2['tone_source'][1]['source'] == 'skip', f"по умолчанию (Ш6) часть без роли и без своего тона НЕ берёт тон всего товара — skip: {rep2['tone_source'].get(1)}")
+    ok(0 not in rep2['tone_skipped_parts'], 'часть с известным (0) — красится как раньше')
 
 
 # ------------------------------------------------------------------ зеркало
@@ -803,7 +807,10 @@ def test_tone_from_neighbour():
     r = TF.choose_tone_sources(pids, roles, kc, tot, fg, tones, bor, c)
     ok(r[1]['source'] == 'donor' and r[1]['donor'] == 2, f"часть 1 (известного 30 < min_known) берёт донора той же роли с большей границей (2, не дерево 3): {r[1]}")
     ok(r[0]['source'] == 'own' and r[3]['source'] == 'own', "хватает известного — тон свой")
-    ok(TF.choose_tone_sources(pids, {}, kc, tot, fg, tones, bor, c)[1]['source'] == 'global_legacy', "ролей нет (нет этапа 3) — прежнее поведение, global")
+    ok(TF.choose_tone_sources(pids, {}, kc, tot, fg, tones, bor, dict(c, no_role_global='legacy'))[1]['source'] == 'global_legacy', "ролей нет, флаг no_role_global=legacy — прежнее поведение, global")
+    rn = TF.choose_tone_sources(pids, {}, kc, tot, fg, tones, bor, dict(c, part_role=None))
+    ok(rn[1]['source'] == 'skip' and rn[0]['source'] == 'own', f"ролей нет (нет этапа 3), своего тона нет, но у товара есть надёжная часть — НЕ красить, не тон всего товара (Ш6): {rn[1]}")
+    ok(TF.choose_tone_sources([1], {}, {1: 30}, {1: 10000}, {1: True}, {1: (88, 1, 3)}, {}, c)[1]['source'] == 'global_legacy', "у товара нет ни одной надёжной части — skip не применяется (красить хоть чем-то)")
     r2 = TF.choose_tone_sources(pids, roles, kc, tot, fg, tones, {(1, 3): 500}, c)
     ok(r2[1]['source'] == 'skip', f"нет соседа той же роли → не красить (не global через материал): {r2[1]}")
     r3 = TF.choose_tone_sources(pids, roles, kc, tot, fg, tones, {(1, 3): 500}, dict(c, catalog_tone={'body': (90, 0, 0)}))

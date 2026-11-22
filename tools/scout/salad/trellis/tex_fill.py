@@ -95,6 +95,7 @@ FILL = {
     'relief_draft_cos': 0.5,         # trellis_relief: перенос строже (Codex 21.11): нормаль точки черновика к нормали текселя — не меньше этого (берётся больший из draft_cos и этого)
     'relief_draft_max_dist': 0.015,  # trellis_relief: ближе к поверхности черновика (берётся меньший из draft_max_dist и этого)
     'relief_draft_thin_cos': -0.2,   # trellis_relief: если рядом (в пределах расстояния) есть точка черновика с нормалью против нормали текселя (cos < этого) — тонкая вещь, перёд/зад путаются → тексель без черновика (None — выкл.)
+    'ref_verdict': None,             # Ш8 (ADR-0459): {часть: 'same'|'different'|'unknown'} — решение по образцу UltraTex (ref_zone.py); different → тон части без рисунка; нет — прежнее поведение
     'part_role': None,               # {часть: роль этапа 3} (run_stage берёт из 03-parts/parts.json; нет — правила по ролям не действуют)
     'pattern_side_cos': 0.2,         # узорная часть: узор кладётся только на тексели, обращённые к фото (cos нормали с направлением камеры pr_az ≥ порога); обратная сторона/сиденье/низ — тон ткани без цветов (дефект Sakura 21.11: цветы спинки на заду и сиденье)
     'smooth_roles': ['legs', 'frame', 'handles'],   # роли без плитки фактуры на недостроенном: тон части без блоков («ёлочка» стыков на дереве, Sakura 21.11)
@@ -114,6 +115,7 @@ FILL = {
     'nail_min_twins': 5,             # видимых двойников (пятен с тем же отбором) не меньше — иначе тёмное считается тенью/швом и правило молчит
     'tone_known_min_share': 0.02,    # часть с ролью этапа 3, у которой известного < этой доли её текселей: её тон — по случайным кусочкам (накладка подлокотника: известны торцы-дерево, тон вышел «песочным»); берёт тон соседней части ТОЙ ЖЕ роли с наибольшей общей границей
     'tone_compat_min_known': 1500, 'tone_compat_de': 25.0,   # донор той же роли: если у части известного ≥ порога — её видимый тон не должен отличаться от донора больше ΔE (иначе донор отвергнут)
+    'no_role_global': 'skip',                                # часть БЕЗ роли (нет этапа 3), у которой известного < min_known: 'skip' — не красить (тон ВСЕГО товара через границу материала не берётся, правило Ш6), 'legacy' — прежний тон всего товара
     'catalog_tone': None, 'skip_global_tone': True,          # каталожный тон роли {роль: Lab}; часть с ролью без своего тона и без донора/каталога НЕ красится (не тон всего товара)
     'quilt_jump_max': 0.5,           # неузорная часть: скачок на швах плитки (jump_L) выше — плитка не кладётся, тон части (швы заметны)
     'part_class': None,              # trellis_relief: {часть: роль/семья из этапа 3} (run_stage --part-roles); нет — ворота только по однородности известного
@@ -899,11 +901,11 @@ def fill(geoms: list, known: list, parts: list | None = None, cfg: dict | None =
             stat[p] = (tone, stat[p][1], stat[p][2], False)
         rep['tone_shared'][role] = {'parts': [int(p) for p in mem], 'tone': [round(float(x), 2) for x in tone], 'known': int(len(Lp))}
     rep['tone_from_neighbour'], rep['tone_source'], skip_parts = {}, {}, set()
-    if c.get('part_role'):                                       # иерархия источника тона части: своя → донор той же роли (совместимый тон) → каталог → не красить
+    if c.get('part_role') or c.get('no_role_global', 'skip') == 'skip':   # иерархия источника тона части: своя → донор той же роли (совместимый тон) → каталог → не красить
         tot_ = {p: int(sum(int((tx.part == p).sum()) for tx in txs)) for p in part_ids}
         kc_ = {p: int(stat[p][2]) for p in part_ids}
         fg_ = {p: bool(stat[p][3]) for p in part_ids}
-        info_ = choose_tone_sources(part_ids, c['part_role'], kc_, tot_, fg_, {p: stat[p][0] for p in part_ids}, part_borders(txs), c)
+        info_ = choose_tone_sources(part_ids, c.get('part_role') or {}, kc_, tot_, fg_, {p: stat[p][0] for p in part_ids}, part_borders(txs), c)
         for p in part_ids:
             i_ = info_[p]
             rep['tone_source'][int(p)] = dict(i_, known=kc_[p], texels=tot_[p])
@@ -1370,7 +1372,8 @@ def fill(geoms: list, known: list, parts: list | None = None, cfg: dict | None =
                 add[sel, 1:] = 0.0                                                                    # заём: только яркость
             if p in raw_mean:                                                                         # узор только на стороне фото: зад, сиденье, низ — тон без цветов
                 add[sel & ~side_ok] = 0.0
-            smooth_p = smooth_part_rule(roles_.get(p, roles_.get(str(p))), rep.get('quilt_info', {}).get(p, {}).get('jump_L'), p in raw_mean, c)
+            rv_ = (c.get('ref_verdict') or {})
+            smooth_p = smooth_part_rule(roles_.get(p, roles_.get(str(p))), rep.get('quilt_info', {}).get(p, {}).get('jump_L'), p in raw_mean, c, rv_.get(p, rv_.get(str(p))))
             if smooth_p:                                                                              # дерево/каркас и плитка с заметными швами — гладко, без «ёлочки»
                 add[sel] = 0.0
                 rep.setdefault('quilt_smooth_parts', [])
@@ -1823,7 +1826,10 @@ def choose_tone_sources(part_ids, roles: dict, known_cnt: dict, total: dict, fro
     for p in part_ids:
         role = role_of(p)
         if role is None or not roles:
-            out[p] = {'source': 'global_legacy' if from_global[p] else 'own'}
+            if from_global[p] and c.get('no_role_global', 'skip') == 'skip' and any(reliable.values()):       # материал неизвестен, своего тона нет: тон ВСЕГО товара — дыра Ш6; хоть одна часть с тоном есть — эту не красим
+                out[p] = {'source': 'skip', 'why': 'нет роли и своего тона (известного < min_known) — тон всего товара не берём'}
+            else:
+                out[p] = {'source': 'global_legacy' if from_global[p] else 'own'}
             continue
         if reliable[p]:
             out[p] = {'source': 'own'}
@@ -1861,8 +1867,10 @@ def pattern_side_ok(normals: np.ndarray, az_deg: float, cos_min: float | None, e
     return (np.asarray(normals) @ photo_views([az_deg], el_deg)[0][0]) >= cos_min        # направление на камеру фото — с наклоном (el)
 
 
-def smooth_part_rule(role, jump_l, pattern: bool, c: dict) -> bool:
+def smooth_part_rule(role, jump_l, pattern: bool, c: dict, ref_verdict=None) -> bool:
     """Правило «без плитки» (дерево, «ёлочка» на швах): роль части (этап 3) в `smooth_roles`, либо неузорная часть со скачком L на швах плитки jump_L > `quilt_jump_max`."""
+    if ref_verdict == 'different':                           # Ш8 (ADR-0459): образец UltraTex показал, что невидимая сторона зоны отличается по свойствам — только тон зоны с фото, рисунок не переносим
+        return True
     if role in (c.get('smooth_roles') or []):
         return True
     return (not pattern) and jump_l is not None and jump_l > c['quilt_jump_max']
