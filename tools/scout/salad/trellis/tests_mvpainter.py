@@ -339,14 +339,15 @@ ok('rules/salad-groups.json даёт запасной список классо�
 ok('fetch_gpu_items: сбой API → None (сухой прогон не падает), успех → цены в LIVE_PRICES', T.fetch_gpu_items(None, fetch=lambda: (_ for _ in ()).throw(OSError('нет сети'))) is None
    and T.fetch_gpu_items(None, fetch=lambda: items) == items and T.LIVE_PRICES[('RTX A6000 (48 GB)', 'high')] == 0.49)
 
-b = T.build_body('trial-mvpainter-x', 'ghcr.io/x/y:t', 'high', 'mvpainter', 'hf_SECRET', 8, 32768, 'note', {'basic': {'username': 'u', 'password': 'PW'}}, extra_env={'MVP_CKPT': 'ckpt'})
+T.WORK_TYPES.update({m: 'trellis_shape' for m in ('supratex', 'mvpainter', 'mvadapter-i2tex')})      # ТОЛЬКО в тесте: своих строк профиля у способа нет (отказ проверяет tests_trellis_trial); логика тела — на ресурсах trellis_shape
+b = T.build_body('trial-mvpainter-x', 'ghcr.io/x/y:t', 'low', 'mvpainter', 'hf_SECRET', 'note', {'basic': {'username': 'u', 'password': 'PW'}}, extra_env={'MVP_CKPT': 'ckpt'})
 e = b['container']['environment_variables']
 ok('тело группы: MODEL=mvpainter, код воркера в command (python3 -u -c, без pip: версии в образе), приёмника на проде нет, окружение воркера (MVP_CKPT) доехало',
    e['MODEL'] == 'mvpainter' and b['container']['command'][:2] == ['python3', '-u'] and not any(k.startswith('MESH_SINK') for k in e) and e['MVP_CKPT'] == 'ckpt'
    and __import__('zlib').decompress(__import__('base64').b64decode(e['TRIAL_WORKER_Z'])) == open(os.path.join(HERE, 'worker_trellis.py'), 'rb').read())
 ok('build_body без выбора класса — 4090 (CARD), диск 80 ГиБ (веса ≈ 28 ГиБ + кэш), образ тот же', b['container']['resources']['gpu_classes'] == [T.CARD['class_id']] and T.CARD['class_name'] == 'RTX 4090 (24 GB)'
    and b['container']['resources']['storage_amount'] == 80 * 2 ** 30 and b['container']['image'] == 'ghcr.io/x/y:t')
-b2 = T.build_body('trial-trellis2-x', 'ghcr.io/x/y:t', 'high', 'trellis2', 'hf_SECRET', 8, 32768, 'note', {'basic': {}}, extra_env={'MVP_CKPT': 'ckpt'})
+b2 = T.build_body('trial-trellis2-x', 'ghcr.io/x/y:t', 'low', 'trellis2', 'hf_SECRET', 'note', {'basic': {}}, extra_env={'MVP_CKPT': 'ckpt'})
 ok('окружение воркера чужим моделям не передаётся', 'MVP_CKPT' not in b2['container']['environment_variables'])
 ok('--worker-env: MVP_*, MVTEX_*, PIXTEX_* проходят, чужое (HF_TOKEN, PATH) — отказ', T.parse_worker_env(['MVP_CKPT=ckpt', 'MVP_LOAD_CPU=0']) == {'MVP_CKPT': 'ckpt', 'MVP_LOAD_CPU': '0'}
    and T.parse_worker_env(['HF_TOKEN=x']) is None and T.parse_worker_env(['PATH=/x']) is None)
@@ -400,6 +401,8 @@ class DryMG:
 
 
 card_keep = dict(T.CARD)
+_GATE = (T.KD.tier_refusal, T.KD.card_refusal)
+T.KD.tier_refusal = T.KD.card_refusal = lambda *x, **k: None      # в этом блоке проверяется ВЫБОР карты/цены (--gpu, живые цены); гейт профиля (P-066) выключен и проверен отдельно ниже
 ns = NS(**{**base, 'image': 'ghcr.io/x/y:t', 'cap': 1.0, 'cpu': 8, 'mem_mb': 32768, 'card': None, 'donor': 'd', 'force_out': False, 'tex_align': 'fit', 'gpu_fetch': lambda: items})
 buf = io.StringIO()
 with redirect_stdout(buf):
@@ -486,6 +489,8 @@ with redirect_stdout(buf):
 ok('4090 — только явным `--gpu "RTX 4090 (24 GB)"`: класс 4090, цена живая $0,33 из ответа API (в тесте), не 5090', rc10 == 0 and 'RTX 4090 (24 GB) тариф high цена $/ч 0.33 ' in buf.getvalue() and '"c4090"' in buf.getvalue(), buf.getvalue()[-300:])
 T.CARD.update(card_keep)
 T.LIVE_PRICES.clear()
+_REAL_PROF = T.KD.resource_profile
+T.KD.resource_profile = lambda wt, path=None: {**_REAL_PROF(wt, path), 'card': T.CARD['class_name']}      # trellis2 по умолчанию: карта профиля = 4090 теста (в бою — карта профиля из API); здесь проверяем только живую цену
 ns11 = NS(**{**ns2.__dict__, 'model': 'trellis2', 'texture_mesh': None, 'gpu': None, 'gpu_fetch': lambda: items, 'skus': ['a:1']})
 buf = io.StringIO()
 with redirect_stdout(buf):
@@ -501,6 +506,12 @@ with redirect_stdout(buf):
 ok('живая цена главнее снимка rules: API сказал 0,777 — в выводе 0,777', 'цена $/ч 0.777 ' in buf.getvalue(), buf.getvalue()[-300:])
 T.CARD.update(card_keep)
 T.LIVE_PRICES.clear()
+T.KD.resource_profile = _REAL_PROF
+T.KD.tier_refusal, T.KD.card_refusal = _GATE
+with redirect_stdout(io.StringIO()) as _bf:
+    rcg = T.run(NS(**{**ns2.__dict__, 'gpu': 'cheapest', 'gpu_fetch': lambda: items}), DryMG(), NS())
+ok('гейт профиля (P-066) включён: --gpu cheapest выбирает A6000 на high — отказ (код 3) до группы: тариф high и карта вне профиля', rcg == 3, str(rcg))
+T.CARD.update(card_keep)
 
 # нехватка видеопамяти: пик памяти по стадиям попадает в диагностику задания (а оттуда — в summary-*.json драйвера)
 oom_runner = W.MVPRunner('/opt/MV-Painter/MVPainter', '/b42', '/b36', '/tools', {}, run_stage=None)
