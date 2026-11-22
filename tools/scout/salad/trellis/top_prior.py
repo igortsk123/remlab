@@ -76,6 +76,35 @@ def card_pattern(card: dict | None, rules: dict) -> dict:
     return dict(rules['pattern']['default'], word=None)
 
 
+def photo_band_std(photo_path: str | None, rules: dict):
+    """Высокочастотный разброс L в верхней полосе силуэта фото каталога (гладкий ход по x вычтен). Нет файла/пикселей — None."""
+    if not photo_path or not os.path.exists(photo_path):
+        return None
+    import tex_coverage as TC
+    from PIL import Image
+    pb = rules['pattern']['photo_band']
+    im = Image.open(photo_path)
+    rgb = np.asarray(im.convert('RGB')).astype(np.uint8)
+    alpha = (np.asarray(im)[..., 3] > pb['alpha_min']) if im.mode == 'RGBA' else (rgb.min(axis=2) < pb['white_max'])
+    rows = np.where(alpha.any(axis=1))[0]
+    if len(rows) == 0:
+        return None
+    y0, H = int(rows.min()), int(rows.max() - rows.min() + 1)
+    L = TC.rgb2lab(rgb.reshape(-1, 3)).reshape(rgb.shape)[..., 0]
+    k = max(pb['min_rows'], int(pb['frac'] * H))
+    band = np.zeros_like(alpha)
+    band[y0 + 2:y0 + 2 + k] = True
+    core = band & alpha & np.roll(band & alpha, 3, 1) & np.roll(band & alpha, -3, 1)
+    w, vals = pb['hp_window'], []
+    for y in np.where(core.any(axis=1))[0]:
+        row = L[y][core[y]]
+        if len(row) < 2 * w:
+            continue
+        vals.append((row - np.convolve(row, np.ones(w) / w, mode='same'))[w // 2 + 1:-(w // 2 + 1)])
+    v = np.concatenate(vals) if vals else np.zeros(0)
+    return round(float(v.std()), 3) if len(v) >= pb['min_px'] else None
+
+
 def card_dims(card: dict | None) -> dict:
     """Толщина верха и наибольший габарит из карточки, см: «Толщина столешницы 1 см», «160x90» в названии/модификации. Нет — None (полоса кромки по умолчанию)."""
     out = {'thickness_cm': None, 'length_cm': None, 'width_cm': None}
@@ -208,7 +237,7 @@ def _real_known(run_dir: str, n: int):
     return out, 'stage06_known_png'
 
 
-def analyze(run_dir: str, card: dict | None, rules: dict | None = None, filled_glb: str | None = None) -> dict:
+def analyze(run_dir: str, card: dict | None, rules: dict | None = None, filled_glb: str | None = None, photo: str | None = None) -> dict:
     """Голоса и решение для одного прогона (папка со стадиями 01/03/06/07). Только чтение; возвращает отчёт и данные для кадра."""
     import tex_coverage as TC
     import tex_fill as TF
@@ -293,7 +322,8 @@ def analyze(run_dir: str, card: dict | None, rules: dict | None = None, filled_g
     res['other_part_vertical'] = {'n': int(len(ov)), 'lab': [round(float(x), 1) for x in TF.tone_of(ov, TF.FILL)] if len(ov) else None, 'note': 'вертикальные видимые тексели ДРУГИХ частей (царга/корпус); голосом не служат'}
     res['top_texels'] = n_top
     res['known_source'] = known_src
-    res['evidence_std_L'] = round(float(ed[:, 0].std()), 2) if len(ed) >= dcfg['min_edge_texels'] else None
+    res['evidence_std_L'] = photo_band_std(photo, rules)
+    res['evidence_source'] = 'photo_band' if res['evidence_std_L'] is not None else 'default'
     res['card_dims'] = dict(dims, edge_band=round(cfg['edge_band'], 4))
     res['top_parts'] = {str(k): v for k, v in top_part_roles.items()}
     res['top_own_part'] = any(r == 'top' for r in top_part_roles.values())
@@ -386,6 +416,7 @@ def main(argv: list[str]) -> int:
     sub = ap.add_subparsers(dest='cmd', required=True)
     d = sub.add_parser('dry')
     d.add_argument('run')
+    d.add_argument('--photo', default='', help='фото каталога (RGBA/белый фон): контраст узора из его верхней полосы; нет — запасной коэффициент')
     d.add_argument('--card', default='')
     d.add_argument('--out', default='')
     d.add_argument('--length-cm', type=float, default=0.0)
@@ -393,7 +424,7 @@ def main(argv: list[str]) -> int:
     a = ap.parse_args(argv)
     rules = load_rules()
     card = json.loads(a.card) if a.card else None
-    an = analyze(a.run, card, rules)
+    an = analyze(a.run, card, rules, photo=a.photo or None)
     out = a.out or os.path.join(a.run, '07-fill')
     os.makedirs(out, exist_ok=True)
     rep = {k: v for k, v in an['report'].items()}

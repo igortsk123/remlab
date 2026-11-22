@@ -129,6 +129,29 @@ class CardDims(unittest.TestCase):
         self.assertEqual(TP.card_dims(None), {'thickness_cm': None, 'length_cm': None, 'width_cm': None})
 
 
+class PhotoBand(unittest.TestCase):
+    def _img(self, noise: float, path: str) -> None:
+        from PIL import Image
+        rng = np.random.default_rng(0)
+        a = np.full((200, 300, 4), 255, np.uint8)
+        a[20:180, 20:280, :3] = 150
+        a[20:40, 20:280, :3] = np.clip(150 + rng.normal(0, noise, (20, 260, 1)), 0, 255).astype(np.uint8)
+        a[:, :, 3] = 0
+        a[20:180, 20:280, 3] = 255
+        Image.fromarray(a, 'RGBA').save(path)
+
+    def test_smooth_band_below_noisy_band_and_missing_is_none(self):
+        import tempfile
+        with tempfile.TemporaryDirectory() as d:
+            self._img(0.0, os.path.join(d, 'a.png'))
+            self._img(8.0, os.path.join(d, 'b.png'))
+            s0, s1 = TP.photo_band_std(os.path.join(d, 'a.png'), RULES), TP.photo_band_std(os.path.join(d, 'b.png'), RULES)
+            self.assertLess(s0, 0.2)
+            self.assertGreater(s1, 1.0)
+        self.assertIsNone(TP.photo_band_std(None, RULES))
+        self.assertIsNone(TP.photo_band_std('/нет/такого.png', RULES))
+
+
 class PatternClass(unittest.TestCase):
     def test_polywood_is_planks_on_straight(self):
         r = TP.card_pattern({'m': 'древесно-полимерный композит (поливуд)'}, RULES)
