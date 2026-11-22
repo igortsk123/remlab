@@ -2206,7 +2206,7 @@ def apply_ref_zone_map(geoms: list, tex_after: list, known: list, cfg: dict | No
     return out, dict(rep, applied=True, flag=bool(RZ.APPLY))
 
 
-def run_stage(run: str, sku: str, glb: str, known: list | None = None, parts=None, cfg: dict | None = None, thresholds: dict | None = None, mirror: bool = True, draft_glb: str | None = None, ut_glb: str | None = None, out_name: str | None = None, parts_npz: str | None = None, prev_dir: str | None = None) -> dict:
+def run_stage_once(run: str, sku: str, glb: str, known: list | None = None, parts=None, cfg: dict | None = None, thresholds: dict | None = None, mirror: bool = True, draft_glb: str | None = None, ut_glb: str | None = None, out_name: str | None = None, parts_npz: str | None = None, prev_dir: str | None = None) -> dict:
     """Этап 07 «докрасить невидимое»: GLB (текстура = фото на видимом) → `<run>/<sku>/07-fill/` {filled.glb, report.json, frame.png (az180 до | после), check.json}.
     `known` — маска «видно с камеры фото» по геометриям (нет — из `known_from_photo`: az0/az45); `parts` — части граней (нет — `parts_from_geometry`). Не прошёл (check.json passed=false) — товар дальше не идёт.
     → {'check', 'report', 'geoms', 'tex_before', 'tex_after', 'known', 'parts', 'dir'} (для проб и кадров)."""
@@ -2316,6 +2316,54 @@ def run_stage(run: str, sku: str, glb: str, known: list | None = None, parts=Non
     check = PS.write_check(d, out_name or STAGE, sku, None, dict(metrics['empty_pct'], name='empty_pct'), '', metrics={k: v for k, v in metrics.items() if k != 'empty_pct'}, seconds=secs,
                            outputs=['filled.glb', 'report.json'], frame=PS.FRAME, known_pct=rep['known_pct'], mirrored_pct=rep['mirrored_pct'], empty_before_pct=rep['unpainted_before_pct'], empty_by_view=rep['unpainted_by_view'], steps=rep['steps'], parts=parts_note, source_used=used, source_tried=tried, pattern_metric=rep['pattern_metric'], pattern_src=rep.get('pattern_src'), stage6=s6, quilt_rejected=rep.get('quilt_rejected'))
     return {'check': check, 'report': rep, 'geoms': geoms, 'tex_before': tex_before, 'tex_after': tex_after, 'known': known, 'parts': parts, 'dir': d, 'deltaE': de, 'kback': kback}
+
+
+def _zones_stamp(d: str, used: str, why: str | None, tried: dict | None = None, total_s: float | None = None) -> None:
+    """Дописать в report.json источник зон: zones_used (parts|panels), zones_reason, zones_parts_try (мерки прогона по частям, если откатились), zones_total_s."""
+    import json
+    fp = os.path.join(d, 'report.json')
+    if not os.path.isfile(fp):
+        return
+    with open(fp, encoding='utf-8') as f:
+        doc = json.load(f)
+    doc.update({'zones_used': used, 'zones_reason': why})
+    if tried is not None:
+        doc['zones_parts_try'] = tried
+    if total_s is not None:
+        doc['zones_total_s'] = round(total_s, 1)
+    with open(fp, 'w', encoding='utf-8') as f:
+        json.dump(doc, f, ensure_ascii=False, indent=1)
+
+
+def run_stage(*args, fallback: bool = True, **kw) -> dict:
+    """Этап 07 с откатом зон (T-198/1): заливка по частям PartLLM (`parts_npz` задан), и если провалена мерка из rules/paint-fill.json `zones_fallback` (перёд на заду) — тот же этап
+    сразу заливает заново по панелям (`parts_npz=None`) и оставляет этот вариант. Остальное — как `run_stage_once`. `fallback=False` — без отката (пробы). Источник зон — в report.json (`zones_used`).
+    Отказ этапа 6, `parts`/`parts_npz` не заданы — без изменений (панели и так). Время этапа в check.json — последнего прогона; сумма — `zones_total_s`."""
+    import shutil
+    t0 = time.time()
+    r = run_stage_once(*args, **kw)
+    names = list(RULES.get('zones_fallback') or [])
+    if r.get('refused') or not (kw.get('parts_npz') and kw.get('parts') is None):
+        return r
+    chk = r.get('check') or {}
+    mets = chk.get('metrics') or {}
+    bad = [k for k in names if (mets.get(k) or {}).get('ok') is False] if fallback else []
+    if not bad:
+        _zones_stamp(r['dir'], 'parts', None if fallback else 'без отката (fallback=False)')
+        return r
+    d = r['dir']
+    tried = {k: {'value': (mets.get(k) or {}).get('value'), 'threshold': (mets.get(k) or {}).get('threshold'), 'ok': (mets.get(k) or {}).get('ok')} for k in names}
+    tried['seconds'] = chk.get('seconds')
+    for src, dst in (('check.json', 'check-parts.json'), ('frame.png', 'frame-parts.png')):
+        if os.path.isfile(os.path.join(d, src)):
+            shutil.copyfile(os.path.join(d, src), os.path.join(d, dst))
+    r2 = run_stage_once(*args, **dict(kw, parts_npz=None))
+    mets2 = ((r2.get('check') or {}).get('metrics')) or {}
+    still = [k for k in bad if (mets2.get(k) or {}).get('ok') is False]
+    why = ('по частям провал: ' + ', '.join(f"{k} {tried[k]['value']} против порога {tried[k]['threshold']}" for k in bad) + '; по панелям: ' + ', '.join(f"{k} {(mets2.get(k) or {}).get('value')}" for k in bad)
+           + (' — и панели не проходят (оставлены панели как основа)' if still else ' — проходят'))
+    _zones_stamp(r2['dir'], 'panels', why, tried, time.time() - t0)
+    return r2
 
 
 def load_tone_only_png(visible: str) -> list | None:

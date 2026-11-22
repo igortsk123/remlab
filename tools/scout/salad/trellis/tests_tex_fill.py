@@ -1355,6 +1355,64 @@ def test_cli_parts_flags():
         ok(both, "оба флага вместе — ошибка аргументов")
 
 
+def test_zones_fallback():
+    print("откат зон 07 (T-198/1): провал front_on_back по частям → тот же этап заливает по панелям:")
+    import json
+    import tempfile
+    calls = []
+
+    def fake(vals):
+        def once(run, sku, glb, **kw):
+            calls.append(kw.get("parts_npz"))
+            d = os.path.join(run, sku.replace(":", "_"), "07-fill")
+            os.makedirs(d, exist_ok=True)
+            v = vals[min(len(calls) - 1, len(vals) - 1)] if kw.get("parts_npz") else vals[-1]
+            json.dump({"report": {}}, open(os.path.join(d, "report.json"), "w"))
+            json.dump({"metrics": {"front_on_back_corr": {"value": v, "threshold": 0.6, "ok": v <= 0.6}}, "seconds": 1.0}, open(os.path.join(d, "check.json"), "w"))
+            open(os.path.join(d, "frame.png"), "wb").write(b"x")
+            return {"check": json.load(open(os.path.join(d, "check.json"))), "dir": d}
+        return once
+
+    was_once, was_rules = TF.run_stage_once, TF.RULES.get("zones_fallback")
+    try:
+        TF.RULES["zones_fallback"] = ["front_on_back_corr"]
+        with tempfile.TemporaryDirectory() as td:
+            TF.run_stage_once = fake([0.69, 0.13])                              # части: 0,69 ✗ → панели 0,13 ✓
+            del calls[:]
+            r = TF.run_stage(td, "a:1", "x.glb", parts_npz="/p/parts.npz")
+            doc = json.load(open(os.path.join(r["dir"], "report.json")))
+            ok(calls == ["/p/parts.npz", None] and doc["zones_used"] == "panels", f"откат на панели ({calls}, {doc.get('zones_used')})")
+            ok(os.path.isfile(os.path.join(r["dir"], "check-parts.json")) and os.path.isfile(os.path.join(r["dir"], "frame-parts.png")), "прогон по частям сохранён рядом")
+            ok(doc["zones_parts_try"]["front_on_back_corr"]["value"] == 0.69 and "front_on_back_corr 0.69" in doc["zones_reason"] and "zones_total_s" in doc, "причина и мерки частей в report.json")
+            TF.run_stage_once = fake([0.2])                                   # части прошли — один прогон
+            del calls[:]
+            r = TF.run_stage(td, "a:2", "x.glb", parts_npz="/p/parts.npz")
+            doc = json.load(open(os.path.join(r["dir"], "report.json")))
+            ok(calls == ["/p/parts.npz"] and doc["zones_used"] == "parts" and doc["zones_reason"] is None, "части прошли — отката нет")
+            TF.run_stage_once = fake([0.69])                                  # провал и у панелей — панели остаются основой, с пометкой
+            del calls[:]
+            r = TF.run_stage(td, "a:3", "x.glb", parts_npz="/p/parts.npz")
+            doc = json.load(open(os.path.join(r["dir"], "report.json")))
+            ok(doc["zones_used"] == "panels" and "панели не проходят" in doc["zones_reason"], "и панели не проходят — панели с пометкой")
+            TF.run_stage_once = fake([0.69])
+            del calls[:]
+            TF.run_stage(td, "a:4", "x.glb", parts_npz="/p/parts.npz", fallback=False)
+            ok(calls == ["/p/parts.npz"], "fallback=False — без отката")
+            del calls[:]
+            TF.run_stage(td, "a:5", "x.glb")
+            ok(calls == [None], "без parts_npz — один прогон (панели и так)")
+            TF.RULES["zones_fallback"] = []
+            del calls[:]
+            TF.run_stage(td, "a:6", "x.glb", parts_npz="/p/parts.npz")
+            ok(calls == ["/p/parts.npz"], "zones_fallback=[] — отката нет")
+    finally:
+        TF.run_stage_once = was_once
+        if was_rules is None:
+            TF.RULES.pop("zones_fallback", None)
+        else:
+            TF.RULES["zones_fallback"] = was_rules
+
+
 def test_render_low():
     print('кадр снизу (дно) — elevation −90:')
     q = Quads()
@@ -1373,7 +1431,7 @@ def test_render_low():
 
 
 def main() -> int:
-    for f in (test_mirror_off_by_default, test_shrink_layout, test_tie_picks_front_on_back, test_front_on_back, test_color, test_photo, test_parts, test_lighter_than_photo, test_no_known_part, test_mirror, test_texture, test_gutter_render, test_seam_steps_concavity, test_diffuse_quilt_far, test_draft_source, test_tone_mode_pattern, test_quilt_efros, test_quilt_holes, test_known_unchanged, test_render_pattern, test_outlier_blocks, test_dark_fabric, test_trellis_relief, test_part_roles_from_stage3, test_stage7_side_tone_smooth_rules, test_tone_from_neighbour, test_nail_twins, test_borrow_donors, test_tone_only, test_part_pattern_single_truth, test_pr_camera_and_winding, test_hidden_visible, test_stage6_gate, test_cli_run_stage, test_orphan_parts, test_cli_parts_flags, test_run_stage_fallback, test_render_low):
+    for f in (test_mirror_off_by_default, test_shrink_layout, test_tie_picks_front_on_back, test_front_on_back, test_color, test_photo, test_parts, test_lighter_than_photo, test_no_known_part, test_mirror, test_texture, test_gutter_render, test_seam_steps_concavity, test_diffuse_quilt_far, test_draft_source, test_tone_mode_pattern, test_quilt_efros, test_quilt_holes, test_known_unchanged, test_render_pattern, test_outlier_blocks, test_dark_fabric, test_trellis_relief, test_part_roles_from_stage3, test_stage7_side_tone_smooth_rules, test_tone_from_neighbour, test_nail_twins, test_borrow_donors, test_tone_only, test_part_pattern_single_truth, test_pr_camera_and_winding, test_hidden_visible, test_stage6_gate, test_cli_run_stage, test_orphan_parts, test_cli_parts_flags, test_zones_fallback, test_run_stage_fallback, test_render_low):
         f()
     print(f'tests_tex_fill: ошибок {bad}')
     return 1 if bad else 0

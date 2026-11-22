@@ -15,6 +15,8 @@
   },
   "known_change_de": 1.0,
   "zones_from": "parts",
+  "zones_fallback": ["front_on_back_corr"],
+  "_zones_fallback_note": "T-198/1 (директор, 22.11): зоны из частей PartLLM дали «перёд на заду» (диван-модули, 25 частей: front_on_back 0,69 при панелях 0,13). Если после заливки по parts провалена любая из этих мерок (имена — из порогов выше), тот же этап сразу заливает заново по панелям и оставляет этот вариант; в report.json — zones_used, zones_reason, zones_parts_try; прогон по частям — check-parts.json и frame-parts.png рядом. Пусто [] — отката нет.",
   "_zones_from_note": "Источник границ материальных зон в 07 (T-198/1, владелец TG 1771-1772): parts — части PartLLM этапа 03 (parts.npz в задании 07; панели формы не склеиваются через границу части), panels — только панели формы (части по геометрии). По умолчанию parts при наличии годного parts.npz (число граней = граням visible.glb), иначе panels с причиной в zones-07.json. Читают: tex_fill.py CLI (локальный счёт) и stage_trial.py --parts-root (пакет на Salad); чужое значение — отказ.",
   "lighter_than_photo": {"dl": 10.0, "edge_px": 12, "grad_thr": 3.0},
   "stage6_gate": {
