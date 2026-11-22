@@ -1,0 +1,25 @@
+# Файлы нашего кода, которые едут в образ `worker-pose` (Salad, очередь 2, T-184/1): цепочка pose_fit + camera_check + stages_cpu (замыкание import по AST, 22.11) и правило камеры.
+# Путь — от корня репозитория. Копирует `stage_pose_code.py` (то же и локально, и в сборке образа) — единый список, дубля нет. Тест `tests_pose.py` сверяет список с import-замыканием.
+tools/scout/salad/trellis/pose_fit.py
+tools/scout/salad/trellis/camera_check.py
+tools/scout/salad/trellis/stages_cpu.py
+tools/scout/salad/trellis/stage_loss.py
+tools/scout/salad/trellis/photo_front.py
+tools/scout/salad/trellis/a1_tone.py
+tools/scout/salad/trellis/ab_tint.py
+tools/scout/salad/trellis/tex_coverage.py
+tools/scout/salad/trellis/mv_geometry.py
+tools/scout/salad/trellis/worker_trellis.py
+tools/scout/salad/clean_islands.py
+tools/scout/salad/collage.py
+tools/scout/salad/components.py
+tools/scout/salad/edge_halo.py
+tools/scout/salad/fetch_weights.py
+tools/scout/salad/fg_estimate.py
+tools/scout/salad/hybrid_mask.py
+tools/scout/salad/preprocess.py
+tools/scout/paint_stage.py
+tools/scout/pattern_metric.py
+tools/scout/pipeline.py
+tools/scout/remlab_tmp.py
+tools/scout/rules/camera-check.json
