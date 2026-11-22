@@ -7,6 +7,8 @@
   heavy-slot.sh t189-stage-probe --prio 2 -- python stage_trial.py --image ghcr.io/…/mesh-stage-trial@sha256:… --inputs inputs.json --apply
 Без --apply — только разбор: тело группы без секретов, проверка образа и входов (группа НЕ создаётся). `--stop-only --suffix X` — погасить группу X и проверить «0 нод».
 Тариф: low; нет машин → medium (автоматически, ядро набора); batch и high запрещены (владелец 22.11, TG 1456/1457).
+КОД ЭТАПА ЕДЕТ В ЗАДАНИИ (T-193/1/1): драйвер собирает `code.tar` из `git archive <SHA>` (`code_tar.py`; `--code-ref`, по умолчанию HEAD этого дерева), кладёт его во вход каждого задания и шлёт `code_sha` +
+`code_tar_sha256`; воркер считает ИМЕННО этот код (образ — только среда), в ответе `code_sha`/`_code.json` — сверяется. Срез проверяется до платной группы (импорт точек входа из чистой распаковки).
 Входы — файл `inputs.json`: {"<товар>": {"glb": путь, "photo": путь RGBA-вырезки, "pose_run": папка камеры этапа 4, "body_only": false}} (список — аргументом, в код не зашит).
 Только этап 07 по готовому 06: `--stages 07 --vis-root <папка с <товар>/06-visible/>` (без `--inputs`; товары — все папки с visible.glb и check.json, сузить — `--skus a,b`): вход 07 берётся оттуда, выход — в `--out`.
 Выход: `<out>/<товар>/06-visible/…`, `<out>/<товар>/07-fill/…` (sha256 сверен), `<out>/items-06.json`, `<out>/items-07.json` (время, пик памяти этапа, метрики).
@@ -33,6 +35,7 @@ sys.path.insert(0, os.path.abspath(os.path.join(HERE, '..', '..', 'render_gpu'))
 import kit_driver as KD  # noqa: E402
 import kit_worker as KW  # noqa: E402
 import worker_stage as WS  # noqa: E402
+import code_tar as CT  # noqa: E402
 from kit_driver import Gateway, say  # noqa: E402
 
 CARD_NAME = 'GTX 1650 (4 GB)'                                  # из профиля cpu_stage: самая дешёвая карта (видеокарта этапам не нужна, у Salad нет класса без неё)
@@ -91,19 +94,29 @@ def zip_dir_into(z: zipfile.ZipFile, src: str, prefix: str, limit_mb: float | No
     return total
 
 
-def input_zip_06(v: dict) -> bytes:
+def add_extras(z: zipfile.ZipFile, v: dict, code_tar: bytes | None) -> None:
+    """Общее для всех входов: `code.tar` (код задания) и доп. файлы товара `extra_in` {имя во входе: локальный путь} (карты зон и т. п.; в `args` — `@in/<имя>`)."""
+    if code_tar:
+        z.writestr('code.tar', code_tar)
+    for rel, path in sorted((v.get('extra_in') or {}).items()):
+        z.write(path, rel)
+
+
+def input_zip_06(v: dict, code_tar: bytes | None = None) -> bytes:
     buf = io.BytesIO()
     with zipfile.ZipFile(buf, 'w', zipfile.ZIP_STORED) as z:
         z.write(v['glb'], 'model.glb')
         z.write(v['photo'], 'photo.png')
         zip_dir_into(z, v['pose_run'], 'pose_run', MAX_POSE_RUN_MB)
+        add_extras(z, v, code_tar)
     return buf.getvalue()
 
 
-def input_zip_07(vis_dir: str) -> bytes:
+def input_zip_07(vis_dir: str, code_tar: bytes | None = None, v: dict | None = None) -> bytes:
     buf = io.BytesIO()
     with zipfile.ZipFile(buf, 'w', zipfile.ZIP_STORED) as z:
         zip_dir_into(z, vis_dir, '06-visible')
+        add_extras(z, v or {}, code_tar)
     return buf.getvalue()
 
 
@@ -121,17 +134,21 @@ def submit_stage(gw, a, inputs: dict, stage: str, t: float) -> tuple[dict | None
     """Отправить задания этапа по одному на товар (POST /jobs; zip входа — zlib+base64). Для 07 вход — выход 06 (нет выхода — товар пропущен, причина в items)."""
     ids: dict[str, str] = {}
     skipped: dict[str, str] = {}
+    code = getattr(a, 'code', None) or {}                                                  # {sha, tar, tar_sha256} — срез кода по SHA (`code_tar.build`)
     for sku, v in inputs.items():
         if stage == '06':
-            data = input_zip_06(v)
+            data = input_zip_06(v, code.get('tar'))
         else:
-            vis = os.path.join(getattr(a, 'vis_root', '') or a.out, sku, '06-visible')
+            vis = v.get('vis') or os.path.join(getattr(a, 'vis_root', '') or a.out, sku, '06-visible')
             if not os.path.isfile(os.path.join(vis, 'visible.glb')):
                 skipped[sku] = 'нет выхода этапа 06 — 07 не запускался'
                 continue
-            data = input_zip_07(vis)
+            data = input_zip_07(vis, code.get('tar'), v)
         jid = job_id(stage, sku, data, a)
-        body = {'job_id': jid, 'stage': stage, 'sku': sku, 'input_z': base64.b64encode(zlib.compress(data, 6)).decode(), 'body_only': bool(v.get('body_only')) and stage == '06'}
+        body = {'job_id': jid, 'stage': stage, 'sku': sku, 'input_z': base64.b64encode(zlib.compress(data, 6)).decode(), 'body_only': bool(v.get('body_only')) and stage == '06',
+                'code_sha': code.get('sha', ''), 'code_tar_sha256': code.get('tar_sha256', '')}
+        if v.get('args'):
+            body['args'] = list(v['args'])
         c, r, _tinfo = KD.post_job(gw, '/jobs', body, f'/jobs/{jid}', say_fn=say)
         if c == -1:                                                                       # воркер задания не видит; job_id идемпотентен — один повтор, дубля не будет
             say(f'товар {sku}: POST без ответа, воркер задания не видит — повтор один раз')
@@ -168,7 +185,11 @@ def poll_stage(gw, a, cur: dict, t: float) -> tuple[str, dict]:
         if c2 != 200 or not data:
             running += 1
             continue
-        rec = {k: v.get(k) for k in ('wall_s', 'run_s', 'queue_s', 'peak_gb', 'metrics', 'bytes', 'sha256', 'files')}
+        rec = {k: v.get(k) for k in ('wall_s', 'run_s', 'queue_s', 'peak_gb', 'metrics', 'bytes', 'sha256', 'files', 'code_sha', 'code_tar_sha256', 'cmd')}
+        want_sha = (getattr(a, 'code', None) or {}).get('sha')
+        if want_sha and v.get('code_sha') != want_sha:
+            cur['got'][sku] = items[sku] = {'status': 'failed', 'error': f'code_sha не сошёлся: отправлен {want_sha}, посчитано на коде {v.get("code_sha")}', **rec}
+            continue
         got = hashlib.sha256(data).hexdigest()
         if got != v.get('sha256'):
             cur['got'][sku] = items[sku] = {'status': 'failed', 'error': f'sha256 не сошёлся: ждали {v.get("sha256")}, получили {got}', **rec}
@@ -217,10 +238,20 @@ def make_spec(a, inputs: dict) -> KD.Spec:
                           worker_z=None if getattr(a, 'worker_from_image', False) else worker_command()[1])
 
     def preflight():
+        try:                                                                              # срез кода по SHA: сборка и проверка импорта ДО создания платной группы
+            a.code = CT.build(getattr(a, 'repo', '') or ROOT, getattr(a, 'code_ref', '') or 'HEAD')
+        except CT.CodeTarError as exc:
+            return False, f'код задания не собран: {exc}'
+        if not getattr(a, 'no_code_check', False):
+            why = CT.selfcheck(a.code['tar'], a.code['entries'])
+            if why:
+                return False, f'срез кода {a.code["sha"][:8]} неполон: {why}'
+        say(f'код задания: SHA {a.code["sha"]}, tar {len(a.code["tar"]) / 1024:.0f} КБ, {len(a.code["files"])} файлов, sha256 {a.code["tar_sha256"][:16]}…, вне срезов: {a.code["outside"]}')
         bad = input_problems(inputs) if '06' in stages_of(a) else []
         if '06' not in stages_of(a):
             root = getattr(a, 'vis_root', '')
-            bad += [f'{s}: нет {root}/{s}/06-visible/visible.glb' for s in inputs if not os.path.isfile(os.path.join(root, s, '06-visible', 'visible.glb'))]
+            bad += [f'{s}: нет {(v.get("vis") or os.path.join(root, s, "06-visible"))}/visible.glb' for s, v in inputs.items()
+                    if not os.path.isfile(os.path.join(v.get('vis') or os.path.join(root, s, '06-visible'), 'visible.glb'))]
         if bad:
             return False, f'входы не готовы: {bad[:4]}'
         return True, f'входы на месте: {len(inputs)} товаров'
@@ -236,6 +267,9 @@ def main() -> int:
     ap.add_argument('--inputs', default='', help='inputs.json: {товар: {glb, photo, pose_run, body_only}}')
     ap.add_argument('--stages', default='06,07', help='какие этапы гнать: 06,07 | 07 (только заливка по готовому 06 — нужен --vis-root)')
     ap.add_argument('--vis-root', default='', help='папка с <товар>/06-visible/ (вход 07 при --stages 07)')
+    ap.add_argument('--code-ref', default='HEAD', help='SHA/ветка, чей код этапов едет в задании (code.tar из git archive; по умолчанию HEAD дерева драйвера)')
+    ap.add_argument('--repo', default=ROOT, help='корень репозитория для git archive')
+    ap.add_argument('--no-code-check', action='store_true', help='не проверять импорт точек входа из чистой распаковки (только если нет библиотек этапов)')
     ap.add_argument('--skus', default='', help='при --vis-root: только эти товары (по умолчанию все с готовым 06)')
     ap.add_argument('--out', default=os.path.expanduser('~/remlab-logs/t189-1122/salad-out'))
     ap.add_argument('--card', default=CARD_NAME, help='класс Salad из профиля cpu_stage (запасные — в профиле)')
@@ -267,6 +301,8 @@ def main() -> int:
         return 0 if KD.stop_and_verify(BR, f'{PREFIX}-{a.suffix}') else 1
     if not a.image or not (a.inputs or (a.vis_root and stages_of(a) == ['07'])):
         sys.exit('нужны --image и --inputs (или --stages 07 --vis-root)')
+    if a.inputs and a.vis_root and stages_of(a) == ['07']:
+        sys.exit('--inputs и --vis-root вместе не нужны: у товара в inputs.json может быть поле "vis"')
     inputs = load_inputs(a.inputs) if a.inputs else vis_inputs(a.vis_root, a.skus)
     if not inputs:
         sys.exit('нет товаров для пакета')
