@@ -1,0 +1,33 @@
+# ОБРАЗ TRELLIS.2 С БЫСТРЫМ ПРОГРЕВОМ ПОД RTX 5090 (Blackwell) — T-20261121-179/1: рецепт Hunyuan (ADR-0137/0168/0173) для TRELLIS.2.
+# ТОНКИЙ СЛОЙ поверх ТЕКУЩЕГО образа `trellis2-bw`, закреплённого по digest (код, расширения, torch — те же байты → та же форма).
+# Что меняется: веса `microsoft/TRELLIS.2-4B` (≈15,1 ГиБ) лежат В ОБРАЗЕ отдельными слоями (скачивание образа до статуса running бесплатно,
+# платным остаётся только чтение с диска образа в VRAM), а `Trellis2ImageTo3DPipeline.from_pretrained` читает их по ЛОКАЛЬНОМУ пути.
+# Проверено по исходникам коммита 75fbf018: `Pipeline.from_pretrained` берёт `<path>/pipeline.json`, модели — `<path>/ckpts/<имя>.json|.safetensors`;
+# декодер разреженной структуры в pipeline.json записан как `microsoft/TRELLIS-image-large/ckpts/ss_dec_conv3d_16l8_fp16` → кладём его в
+# `<path>/microsoft/TRELLIS-image-large/ckpts/…` (тот же приём, что в ADR-0168), иначе пошёл бы в сеть.
+# DINOv3 (`facebook/dinov3-vitl16-pretrain-lvd1689m`, закрытый, ≈1,2 ГиБ) в образ НЕ кладём: токен HF_TOKEN из env группы (решение директора); воркер качает его
+# фоновым потоком одновременно с чтением локальных весов. Переопределяется путь через ENV TRELLIS_MODEL (воркер его уже читает; без ENV — прежнее поведение).
+# safetensors читает файл через mmap сам (`safetensors.torch.load_file`), `torch.load` в пути TRELLIS.2 нет — отдельный sed (как Dockerfile.mmap) не нужен.
+# Откат: прежний образ `…:trellis2-bw` (digest в ARG BASE ниже) не меняется; группа на нём работает как раньше.
+ARG BASE=ghcr.io/igortsk123/mesh-pixal3d-trial@sha256:cc1e0088ff03fb86e957914a18d00b8cb97f8dc40ae204fa992c82f92aea12ff
+FROM ${BASE}
+ENV HF_HUB_ENABLE_HF_TRANSFER=0
+# слой 1: конфиги + малые модели (декодеры, энкодеры) + ss_dec из TRELLIS-image-large
+RUN python3 -c "from huggingface_hub import snapshot_download as s; \
+s('microsoft/TRELLIS.2-4B', local_dir='/opt/weights/TRELLIS.2-4B', allow_patterns=['*.json','ckpts/*dec*','ckpts/*enc*'], max_workers=8); \
+s('microsoft/TRELLIS-image-large', local_dir='/opt/weights/TRELLIS.2-4B/microsoft/TRELLIS-image-large', allow_patterns=['ckpts/ss_dec_conv3d_16l8_fp16.*'], max_workers=8)"
+# слои 2–4: большие потоковые модели (по 2,4 ГиБ) — разными слоями, чтобы пуш и скачивание шли кусками
+RUN python3 -c "from huggingface_hub import snapshot_download as s; \
+s('microsoft/TRELLIS.2-4B', local_dir='/opt/weights/TRELLIS.2-4B', allow_patterns=['ckpts/ss_flow_*','ckpts/slat_flow_img2shape_dit_1_3B_512*','ckpts/slat_flow_imgshape2tex_dit_1_3B_512*'], max_workers=8)"
+RUN python3 -c "from huggingface_hub import snapshot_download as s; \
+s('microsoft/TRELLIS.2-4B', local_dir='/opt/weights/TRELLIS.2-4B', allow_patterns=['ckpts/slat_flow_img2shape_dit_1_3B_1024*'], max_workers=8)"
+RUN python3 -c "from huggingface_hub import snapshot_download as s; \
+s('microsoft/TRELLIS.2-4B', local_dir='/opt/weights/TRELLIS.2-4B', allow_patterns=['ckpts/slat_flow_imgshape2tex_dit_1_3B_1024*'], max_workers=8)"
+# проверка комплектности: каждая модель из pipeline.json и texturing_pipeline.json есть локально (.json + .safetensors), размеры не нулевые
+RUN python3 -c "import json,os; R='/opt/weights/TRELLIS.2-4B'; miss=[]; \
+[miss.append(p) for f in ('pipeline.json','texturing_pipeline.json') for v in json.load(open(R+'/'+f))['args']['models'].values() for p in (R+'/'+v+'.json', R+'/'+v+'.safetensors') if not (os.path.exists(p) and os.path.getsize(p)>0)]; \
+print('нет файлов:', miss) if miss else print('веса комплектны'); raise SystemExit(1 if miss else 0)" \
+    && du -sh /opt/weights/TRELLIS.2-4B && rm -rf /opt/weights/TRELLIS.2-4B/.cache /opt/weights/TRELLIS.2-4B/microsoft/TRELLIS-image-large/.cache \
+    && { echo "TRELLIS.2-4B весов в образе: /opt/weights/TRELLIS.2-4B (T-179/1, digest основы ${BASE})"; } >> /opt/BUILD_INFO_PIXAL3D_BW.txt
+COPY worker_trellis.py /app/worker_trellis.py
+ENV TRELLIS_MODEL=/opt/weights/TRELLIS.2-4B

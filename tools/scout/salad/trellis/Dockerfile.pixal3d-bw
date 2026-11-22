@@ -1,0 +1,76 @@
+# ОБРАЗ ПРОБЫ «форма TRELLIS.2 + краска Pixal3D» ПОД RTX 5090 (Blackwell, sm_120, 32 ГБ) — T-20261119-92/1, путь А (владелец TG 1768–1770).
+# Зачем отдельный образ: у образа TRELLIS.2 (`Dockerfile.trellis`) torch 2.6/cu124 — он не знает sm_120 (нужны CUDA ≥ 12.8 и torch ≥ 2.7), а flash-attn 2.7.3 под sm_120 не собран.
+# Что внутри: CUDA 12.8.1 devel / Ubuntu 24.04 / py3.12 (как `Dockerfile.localmesh`, там же проверена сборка расширений под torch 2.8.0/cu128); расширения CUDA — ФОРКИ visualbruno
+# по закреплённым коммитам (CuMesh, FlexGEMM, TRELLIS.2/o-voxel — они уже собирались под torch 2.8/cu128 в образе localmesh); nvdiffrast v0.4.0; natten 0.21.0 (NAF); код Pixal3D, MoGe, NAF —
+# как в `Dockerfile.pixal3d`. Все расширения — ТОЛЬКО под sm_120 (TORCH_CUDA_ARCH_LIST=12.0): на 4090 этот образ не идёт (там — образ pixal3d-trial). Сборка без видеокарты: архитектура и FORCE_CUDA руками.
+# Внимание — `ATTN_BACKEND=sdpa` (в Pixal3D у разреженного полного внимания есть ветка sdpa: pixal3d/modules/sparse/attention/full_attn.py), flash-attn не ставим: колёс под sm_120/torch 2.8 нет,
+# сборка из исходников — часы. Поток краски — полное внимание (`ElasticSLatFlowModel`, без окон), окон-ветки sdpa не требуется.
+# Веса (Pixal3D ≈ 22 ГиБ, DINOv3 закрытый по HF_TOKEN из env группы, MoGe-2) — НЕ в образе, докачиваются на старте. Образ — в тот же пакет GHCR `mesh-pixal3d-trial`, тег `pixal3d-bw`.
+FROM nvidia/cuda:12.8.1-devel-ubuntu24.04
+ARG TRELLIS_COMMIT=65d1e13b4a92296036044df0633242bb9e95abf6
+ARG CUMESH_COMMIT=d10e54c30ddd03d11472c1431693f985501c7966
+ARG FLEXGEMM_COMMIT=db388bd17c34abc697792aa718dca780734c2783
+ARG NVDIFFRAST_REF=v0.4.0
+ARG UTILS3D_COMMIT=9a4eb15e4021b67b12c460c7057d642626897ec8
+ARG PIXAL3D_COMMIT=f7cf38429b0bd264f1995f0f8743a88b1c728b94
+ARG MOGE_COMMIT=74fbce054ebed49800de42d0ad0e83495065719a
+ARG NAF_COMMIT=37f2dfc180f2de53d98bd601109c0da0dd6b0f43
+ARG TORCH_CUDA_ARCH_LIST="12.0"
+ENV DEBIAN_FRONTEND=noninteractive PIP_NO_CACHE_DIR=1 PIP_DISABLE_PIP_VERSION_CHECK=1 PYTHONUNBUFFERED=1 \
+    TORCH_CUDA_ARCH_LIST=${TORCH_CUDA_ARCH_LIST} FORCE_CUDA=1 CUDA_HOME=/usr/local/cuda MAX_JOBS=4 \
+    PATH=/opt/venv/bin:$PATH CPATH=/usr/include/eigen3 SSL_CERT_FILE=/etc/ssl/certs/ca-certificates.crt NVIDIA_DRIVER_CAPABILITIES=all
+
+RUN apt-get update && apt-get install -y --no-install-recommends \
+        python3 python3-venv python3-dev python3-pip git build-essential cmake ninja-build libeigen3-dev curl ca-certificates libgl1 libglib2.0-0 libjpeg-dev libopenexr-dev \
+    && rm -rf /var/lib/apt/lists/* && python3 --version && python3 -m venv /opt/venv
+
+RUN pip install --upgrade pip setuptools wheel packaging ninja cmake \
+    && pip install torch==2.8.0 torchvision==0.23.0 --index-url https://download.pytorch.org/whl/cu128 \
+    && python -c "import torch; print(torch.__version__, torch.version.cuda, torch.cuda._get_arch_list() if hasattr(torch.cuda, '_get_arch_list') else '')"
+
+# версии пакетов — requirements.txt Pixal3D (gradio не нужен; MoGe — по коммиту) + то, что тянет TRELLIS.2 (tensorboard, pandas, lpips) и наш воркер
+RUN pip install pillow==12.0.0 imageio==2.37.2 imageio-ffmpeg==0.6.0 tqdm==4.67.1 easydict==1.13 opencv-python-headless==4.12.0.88 trimesh==4.10.1 \
+        transformers==4.57.3 zstandard==0.25.0 kornia==0.8.2 timm==1.0.22 diffusers==0.37.1 accelerate==1.13.0 plyfile==1.1.3 tensorboard pandas lpips scipy \
+    && pip install "git+https://github.com/microsoft/MoGe.git@${MOGE_COMMIT}" \
+    && pip install "git+https://github.com/EasternJournalist/utils3d.git@${UTILS3D_COMMIT}"
+
+RUN git clone -b ${NVDIFFRAST_REF} https://github.com/NVlabs/nvdiffrast.git /tmp/ext-nvdiffrast \
+    && pip install --no-build-isolation /tmp/ext-nvdiffrast && rm -rf /tmp/ext-nvdiffrast
+
+# три расширения CUDA из форков visualbruno (как в Dockerfile.localmesh: --recursive обязателен, Eigen — из apt, если подмодуль пуст)
+RUN git clone --recursive https://github.com/visualbruno/CuMesh.git /tmp/ext/CuMesh && git -C /tmp/ext/CuMesh checkout ${CUMESH_COMMIT} && git -C /tmp/ext/CuMesh submodule update --init --recursive \
+    && { [ -f /tmp/ext/CuMesh/third_party/cubvh/third_party/eigen/Eigen/Dense ] || { rm -rf /tmp/ext/CuMesh/third_party/cubvh/third_party/eigen && mkdir -p /tmp/ext/CuMesh/third_party/cubvh/third_party && ln -s /usr/include/eigen3 /tmp/ext/CuMesh/third_party/cubvh/third_party/eigen; }; } \
+    && pip install --no-build-isolation /tmp/ext/CuMesh
+RUN git clone --recursive https://github.com/visualbruno/FlexGEMM.git /tmp/ext/FlexGEMM && git -C /tmp/ext/FlexGEMM checkout ${FLEXGEMM_COMMIT} && git -C /tmp/ext/FlexGEMM submodule update --init --recursive \
+    && pip install --no-build-isolation /tmp/ext/FlexGEMM
+RUN git clone --recursive https://github.com/visualbruno/TRELLIS.2.git /tmp/ext/TRELLIS.2 && git -C /tmp/ext/TRELLIS.2 checkout ${TRELLIS_COMMIT} && git -C /tmp/ext/TRELLIS.2 submodule update --init --recursive \
+    && { [ -f /tmp/ext/TRELLIS.2/o-voxel/third_party/eigen/Eigen/Dense ] || { rm -rf /tmp/ext/TRELLIS.2/o-voxel/third_party/eigen && mkdir -p /tmp/ext/TRELLIS.2/o-voxel/third_party && ln -s /usr/include/eigen3 /tmp/ext/TRELLIS.2/o-voxel/third_party/eigen; }; } \
+    && pip install --no-build-isolation /tmp/ext/TRELLIS.2/o-voxel \
+    && rm -rf /tmp/ext
+
+# natten 0.21.0 — компиляция под sm_120 (нужен апсемплеру NAF); долго (десятки минут)
+RUN NATTEN_CUDA_ARCH="12.0" NATTEN_N_WORKERS=4 pip install natten==0.21.0 --no-build-isolation
+
+RUN git clone https://github.com/TencentARC/Pixal3D.git /opt/Pixal3D \
+    && cd /opt/Pixal3D && git checkout ${PIXAL3D_COMMIT} \
+    && grep -rl "camenduru/dinov3-vitl16-pretrain-lvd1689m" /opt/Pixal3D --include=*.py --include=*.json | xargs -r sed -i 's#camenduru/dinov3-vitl16-pretrain-lvd1689m#facebook/dinov3-vitl16-pretrain-lvd1689m#g' \
+    && ! grep -rn "camenduru/" /opt/Pixal3D --include=*.py --include=*.json
+
+# NAF: код по закреплённому коммиту и веса релиза — в кэше torch.hub (из интернета на старте не тянется)
+RUN mkdir -p /root/.cache/torch/hub/checkpoints \
+    && git clone https://github.com/valeoai/NAF.git /root/.cache/torch/hub/valeoai_NAF_main \
+    && git -C /root/.cache/torch/hub/valeoai_NAF_main checkout ${NAF_COMMIT} \
+    && echo valeoai_NAF >> /root/.cache/torch/hub/trusted_list \
+    && curl -fsSL -o /root/.cache/torch/hub/checkpoints/naf_release.pth https://github.com/valeoai/NAF/releases/download/model/naf_release.pth
+
+# transformers 4.57.3 требует huggingface-hub <1.0 (зависимости MoGe/diffusers утянули 2.x — урок px0): пин последним слоем; полный список версий — в BUILD_INFO
+RUN pip install -q "huggingface_hub==0.35.3" \
+    && { echo "Pixal3D ${PIXAL3D_COMMIT}"; echo "MoGe ${MOGE_COMMIT}"; echo "NAF ${NAF_COMMIT}"; echo "TRELLIS.2(visualbruno) ${TRELLIS_COMMIT}"; echo "CuMesh ${CUMESH_COMMIT}"; echo "FlexGEMM ${FLEXGEMM_COMMIT}"; \
+         echo "arch ${TORCH_CUDA_ARCH_LIST}"; pip freeze; } > /opt/BUILD_INFO_PIXAL3D_BW.txt \
+    && { python -c "import cumesh, flex_gemm, o_voxel, natten; print('extensions import ok')" || echo 'ПРЕДУПРЕЖДЕНИЕ: импорт расширений без видеокарты не прошёл (проверка — на живой машине)'; }
+
+COPY worker_trellis.py /app/worker_trellis.py
+WORKDIR /app
+ENV MODEL=pixal3d PIXAL3D_DIR=/opt/Pixal3D ATTN_BACKEND=sdpa PORT=8000 HF_HOME=/data/hf OUT_DIR=/data/out
+EXPOSE 8000
+CMD ["python3", "/app/worker_trellis.py"]

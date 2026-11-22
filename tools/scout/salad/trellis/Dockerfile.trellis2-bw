@@ -1,0 +1,14 @@
+# ОБРАЗ ПРОБЫ «форма TRELLIS.2 без урезаний» ПОД RTX 5090 (Blackwell, sm_120, 32 ГБ) — T-20261119-94/1 (лесенка формы: HD-фото → 1536_cascade → больше шагов → сырой меш).
+# ТОНКИЙ СЛОЙ поверх `pixal3d-bw` (Dockerfile.pixal3d-bw: CUDA 12.8.1, torch 2.8.0/cu128, CuMesh/FlexGEMM/o-voxel/nvdiffrast/natten собраны под sm_120, ATTN_BACKEND=sdpa):
+# в нём уже ВСЕ расширения CUDA, которых требует `Trellis2ImageTo3DPipeline`; не хватает только питоновского кода апстрима `microsoft/TRELLIS.2` (пакет `trellis2`) — его и кладём.
+# Коммит — тот же, что в образе пробы на 4090 (`Dockerfile.trellis`, TRELLIS_COMMIT), чтобы ступень «0 — нынешняя форма» и новые ступени шли на одном коде модели.
+# Проверено по исходникам коммита: `trellis2.pipelines` не требует nvdiffrec/renderutils; внимание — `ATTN_BACKEND=sdpa` (`trellis2/modules/attention/config.py`: xformers | flash_attn | flash_attn_3 | sdpa | naive).
+# Веса (TRELLIS.2-4B ≈ 16 ГБ, закрытый DINOv3 по HF_TOKEN из env группы) — НЕ в образе, докачиваются на старте. Тег — `ghcr.io/<владелец>/mesh-pixal3d-trial:trellis2-bw`.
+FROM ghcr.io/igortsk123/mesh-pixal3d-trial:pixal3d-bw
+ARG TRELLIS_COMMIT=75fbf0183001ed9876c8dbb35de6b68552ee08bd
+RUN git clone https://github.com/microsoft/TRELLIS.2.git /opt/TRELLIS.2 \
+    && cd /opt/TRELLIS.2 && git checkout ${TRELLIS_COMMIT} \
+    && { echo "TRELLIS.2(microsoft) ${TRELLIS_COMMIT}"; } >> /opt/BUILD_INFO_PIXAL3D_BW.txt
+RUN { python -c "import sys; sys.path.insert(0, '/opt/TRELLIS.2'); import trellis2; print('trellis2 import ok')" || echo 'ПРЕДУПРЕЖДЕНИЕ: импорт trellis2 без видеокарты не прошёл (проверка — на живой машине)'; }
+COPY worker_trellis.py /app/worker_trellis.py
+ENV TRELLIS_DIR=/opt/TRELLIS.2 MODEL=trellis2 ATTN_BACKEND=sdpa PORT=8000 HF_HOME=/data/hf OUT_DIR=/data/out
