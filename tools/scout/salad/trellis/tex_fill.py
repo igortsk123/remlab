@@ -95,6 +95,7 @@ FILL = {
     'relief_draft_cos': 0.5,         # trellis_relief: перенос строже (Codex 21.11): нормаль точки черновика к нормали текселя — не меньше этого (берётся больший из draft_cos и этого)
     'relief_draft_max_dist': 0.015,  # trellis_relief: ближе к поверхности черновика (берётся меньший из draft_max_dist и этого)
     'relief_draft_thin_cos': -0.2,   # trellis_relief: если рядом (в пределах расстояния) есть точка черновика с нормалью против нормали текселя (cos < этого) — тонкая вещь, перёд/зад путаются → тексель без черновика (None — выкл.)
+    'ref_zone_map': None,            # Ш8м: {face_zone, face_side, map, offs} из ref_zone.compare — карта зона×сторона×свойство; применяется ПОСЛЕ заливки, только при apply_to_fill=true (по умолчанию выкл.)
     'ref_verdict': None,             # Ш8 (ADR-0459): {часть: 'same'|'different'|'unknown'} — решение по образцу UltraTex (ref_zone.py); different → тон части без рисунка; нет — прежнее поведение
     'part_role': None,               # {часть: роль этапа 3} (run_stage берёт из 03-parts/parts.json; нет — правила по ролям не действуют)
     'pattern_side_cos': 0.2,         # узорная часть: узор кладётся только на тексели, обращённые к фото (cos нормали с направлением камеры pr_az ≥ порога); обратная сторона/сиденье/низ — тон ткани без цветов (дефект Sakura 21.11: цветы спинки на заду и сиденье)
@@ -2049,6 +2050,17 @@ def stage6_gate(prev_dir: str):
     return False, '', info
 
 
+def apply_ref_zone_map(geoms: list, tex_after: list, known: list, cfg: dict | None, force: bool = False) -> tuple:
+    """Хук Ш8м (за флагом): `texture = different` для (зона, сторона) → невидимые тексели пары теряют фактуру, остаётся тон. Идёт ПОСЛЕ заливки, значит зеркало и trellis_relief
+    обойти `different` не могут; фото-тексели (known) не меняются. Флаг выкл. (rules/ref-zone.json) или карты нет — текстуры как были. → (текстуры, {'applied', 'texels_detextured'})."""
+    m = (cfg or {}).get('ref_zone_map')
+    import ref_zone as RZ
+    if not m or not (RZ.APPLY or force):
+        return tex_after, {'applied': False, 'texels_detextured': 0, 'flag': bool(RZ.APPLY), 'map': bool(m)}
+    out, rep = RZ.apply_to_fill(geoms, tex_after, known, np.asarray(m['face_zone']), np.asarray(m['face_side']), m['map'], m['offs'])
+    return out, dict(rep, applied=True, flag=bool(RZ.APPLY))
+
+
 def run_stage(run: str, sku: str, glb: str, known: list | None = None, parts=None, cfg: dict | None = None, thresholds: dict | None = None, mirror: bool = True, draft_glb: str | None = None, out_name: str | None = None, parts_npz: str | None = None, prev_dir: str | None = None) -> dict:
     """Этап 07 «докрасить невидимое»: GLB (текстура = фото на видимом) → `<run>/<sku>/07-fill/` {filled.glb, report.json, frame.png (az180 до | после), check.json}.
     `known` — маска «видно с камеры фото» по геометриям (нет — из `known_from_photo`: az0/az45); `parts` — части граней (нет — `parts_from_geometry`). Не прошёл (check.json passed=false) — товар дальше не идёт.
@@ -2114,6 +2126,7 @@ def run_stage(run: str, sku: str, glb: str, known: list | None = None, parts=Non
     else:
         pick, used = one(cfg, draft), ((cfg or {}).get('source') or 'stat')
     rep, tex_after, de, big, de_worst = pick['rep'], pick['tex'], pick['de'], pick['big'], pick['de_worst']
+    tex_after, rep['ref_zone_map'] = apply_ref_zone_map(geoms, tex_after, known, cfg)
     kchg = known_changed_share(known, tex_before, tex_after, RULES['known_change_de'])
     rep['known_changed'] = kchg
     try:                                                          # мерка узора — только отчёт (порог по трудным — позже), сбой её не роняет этап

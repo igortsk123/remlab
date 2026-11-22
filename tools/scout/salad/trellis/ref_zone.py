@@ -38,6 +38,11 @@ def _rules() -> dict:
 
 R = _rules()
 APPLY = bool(R.get('apply_to_fill', False))
+PANEL_DEG = float(R.get('panel_deg', 15.0))                  # излом ребра внутри панели, градусы
+PANEL_SIDE_COS = float(R.get('panel_side_cos', 0.6))         # нормаль грани к оси стороны не меньше — иначе «косая»
+PANEL_PURITY = float(R.get('panel_purity', 0.9))             # доля одной зоны среди боковых панелей / голосов двойников
+SYM_EPS = float(R.get('sym_eps', 0.015))                      # двойник через плоскость: расстояние центров, доли диагонали
+SYM_MIN = float(R.get('sym_min', 0.8))                       # форма считается симметричной при доле граней с двойником не меньше
 WIN = int(R.get('win', 48))
 STRIDE = int(R.get('stride', 24))
 MIN_WIN = int(R.get('min_windows', 6))
@@ -296,9 +301,10 @@ def face_graph(V: np.ndarray, F: np.ndarray):
     return i, j, np.linalg.norm(cen[i] - cen[j], axis=1) + 1e-9, dih, n
 
 
-def propagate_zones(V, F, fz: np.ndarray, parts) -> np.ndarray:
-    """Невидимым граням — зона по графу смежности: та же геометрическая часть, излом ребра ≤ MAX_DIH. Кратчайшие расстояния считаются ОТДЕЛЬНО до каждого ярлыка; зона = ближайший ярлык,
-    если второй по близости не ближе CONFLICT × первого, иначе -1 (спорно: смешанное). Не достали — -1."""
+def propagate_zones(V, F, fz: np.ndarray, parts, return_info: bool = False):
+    """Невидимым граням — зона по графу смежности: та же геометрическая часть, излом ребра ≤ MAX_DIH. Кратчайшие расстояния считаются ОТДЕЛЬНО до каждого ярлыка; зона = ближайший ярлык.
+    Спорная грань (второй ярлык ближе CONFLICT × первого) берёт зону с БОЛЬШЕЙ площадью видимого (размеченного по фото) — тон двух зон никогда не смешивается. Не достали (другая часть, остров) — -1.
+    return_info → (карта, {'disputed', 'unreachable', 'todo'})."""
     from scipy.sparse import coo_matrix
     from scipy.sparse.csgraph import dijkstra
     i, j, w, dih, _n = face_graph(V, F)
@@ -311,8 +317,12 @@ def propagate_zones(V, F, fz: np.ndarray, parts) -> np.ndarray:
     g = coo_matrix((np.concatenate([w, w]), (np.concatenate([i, j]), np.concatenate([j, i]))), shape=(nF, nF)).tocsr()
     labels = [int(z) for z in np.unique(fz[fz >= 0])]
     out = fz.copy()
+    info = {'disputed': 0, 'unreachable': 0, 'todo': int((fz < 0).sum())}
     if not labels:
-        return out
+        return (out, info) if return_info else out
+    Vv = np.asarray(V, np.float64)
+    ar = 0.5 * np.linalg.norm(np.cross(Vv[np.asarray(F)[:, 1]] - Vv[np.asarray(F)[:, 0]], Vv[np.asarray(F)[:, 2]] - Vv[np.asarray(F)[:, 0]]), axis=1)
+    area = np.array([float(ar[fz == z].sum()) for z in labels])
     D = np.full((len(labels), nF), np.inf)
     for k, z in enumerate(labels):
         src = np.flatnonzero(fz == z)
@@ -321,10 +331,16 @@ def propagate_zones(V, F, fz: np.ndarray, parts) -> np.ndarray:
     best = D.argmin(0)
     d1, d2 = srt[0], (srt[1] if len(labels) > 1 else np.full(nF, np.inf))
     lab = np.array(labels, np.int32)[best]
-    good = np.isfinite(d1) & (d2 >= CONFLICT * np.maximum(d1, 1e-9))
+    disputed = np.isfinite(d2) & (d2 < CONFLICT * np.maximum(d1, 1e-9))
+    close = np.argsort(D, axis=0)[:2]                                                  # две ближайшие зоны
+    big = np.where(area[close[0]] >= area[close[1]], close[0], close[1]) if len(labels) > 1 else close[0]
+    lab = np.where(disputed, np.array(labels, np.int32)[big], lab)
+    reach = np.isfinite(d1)
     todo = fz < 0
-    out[todo & good] = lab[todo & good]
-    return out
+    out[todo & reach] = lab[todo & reach]
+    info['disputed'] = int((todo & reach & disputed).sum())
+    info['unreachable'] = int((todo & ~reach).sum())
+    return (out, info) if return_info else out
 
 
 # ── окна на рендерах образца (М2) ──────────────────────────────────────────────────────────────────────────────────
@@ -425,7 +441,11 @@ def compare(form_geo: dict, ref_tex: np.ndarray, form_geoms: list, ref_geoms: li
         fz, _tot = label_faces(nF, st, seg, inner)
         z_src = 'сегменты нашего фото'
     n_lab_photo = int((fz >= 0).sum())
-    fz_all = propagate_zones(form_geo['V'], form_geo['F'], fz, parts)
+    import pose_fit as PF
+    _C, _rt, _up, _fw = PF.cam_basis(float(cam0['az']), 0.0, float(cam0['d']))
+    basis = (_rt, _up, _fw)
+    fz_all, pinfo = panel_zones(form_geo['V'], form_geo['F'], fz, parts, basis, return_info=True)
+    fside = face_sides(form_geo['V'], form_geo['F'], basis)
     # М2: рендеры образца: вид фото (из камеры 04) и стороны при том же масштабе
     tex2k = ref_tex if max(ref_tex.shape[:2]) <= 2048 else cv2.resize(ref_tex, (2048, 2048), interpolation=cv2.INTER_AREA)
     tex2k = tex2k.astype(np.float32)
@@ -474,7 +494,142 @@ def compare(form_geo: dict, ref_tex: np.ndarray, form_geoms: list, ref_geoms: li
         entry['symmetry_left_right'] = {p: sym[p]['decision'] for p in PROPS}
         zones[int(z)] = entry
     return {'window_debug': list(WIN_DEBUG), 'same_mesh': sm, 'zone_source': z_src, 'segment_centres_Lab': np.round(centres, 1).tolist(), 'faces_labelled_by_photo': n_lab_photo, 'faces_total': nF,
-            'faces_with_zone_after_propagation': int((fz_all >= 0).sum()), 'zones': zones, 'map': {int(k): v for k, v in amap.items()}, 'coverage': cover, 'face_zone': fz_all.astype(np.int32)}
+            'faces_with_zone_after_propagation': int((fz_all >= 0).sum()), 'propagation': pinfo, 'face_side': fside,
+            'disputed_share': round(pinfo['disputed'] / max(pinfo['todo'], 1), 4), 'disputed_ok': bool(pinfo['disputed'] / max(pinfo['todo'], 1) <= float(R.get('disputed_max_share', 0.5))), 'zones': zones, 'map': {int(k): v for k, v in amap.items()}, 'coverage': cover, 'face_zone': fz_all.astype(np.int32)}
+
+
+# ── Б (директор 22.11): зоны по ПАНЕЛЯМ; невидимое без меток — только по симметрии бока и по зоне боковых панелей ─────────────────────────────
+def _face_area_cen_normal(V, F):
+    V = np.asarray(V, np.float64)
+    F = np.asarray(F)
+    c = np.cross(V[F[:, 1]] - V[F[:, 0]], V[F[:, 2]] - V[F[:, 0]])
+    ar = 0.5 * np.linalg.norm(c, axis=1)
+    return ar, V[F].mean(1), c / np.maximum(2 * ar[:, None], 1e-12)
+
+
+def face_sides(V, F, basis) -> np.ndarray:
+    """Сторона грани по нормали при камере фото: -1 лицо (в сторону камеры), 0 зад, 1 правый, 2 левый, 3 верх (крышка), 4 низ, -2 косая. basis = (right, up, fwd) мира; fwd — от камеры к предмету."""
+    right, up, fwd = (np.asarray(b, np.float64) for b in basis)
+    _a, _c, n = _face_area_cen_normal(V, F)
+    d = {'front': -(n @ fwd), 'back': n @ fwd, 'right': n @ right, 'left': -(n @ right), 'top': n @ up, 'bottom': -(n @ up)}
+    names = ['front', 'back', 'right', 'left', 'top', 'bottom']
+    m = np.stack([d[k] for k in names], 1)
+    best = m.argmax(1)
+    code = np.array([-1, 0, 1, 2, 3, 4])[best]
+    code[m.max(1) < PANEL_SIDE_COS] = -2
+    return code.astype(np.int32)
+
+
+def mirror_score(V, F, right, eps_frac: float, n_samples: int = 60000) -> tuple:
+    """Симметрия формы плоскостью, перпендикулярной `right` через середину габарита, по ТОЧКАМ поверхности (триангуляция лево/право не зеркальна): доля площади, у которой отражённая точка
+    ближе eps·диагональ к поверхности с нормалью, отражённой с cos ≥ 0,7. → (доля, функция twin(грани) → (индекс грани-двойника, ok))."""
+    from scipy.spatial import cKDTree
+    Vv = np.asarray(V, np.float64)
+    Ff = np.asarray(F)
+    r = np.asarray(right, np.float64)
+    r = r / np.linalg.norm(r)
+    t = Vv @ r
+    c0 = 0.5 * (t.min() + t.max())
+    diag = float(np.linalg.norm(Vv.max(0) - Vv.min(0)))
+    ar, cen, n = _face_area_cen_normal(Vv, Ff)
+    rng = np.random.default_rng(0)
+    fi = rng.choice(len(Ff), size=n_samples, p=ar / ar.sum())
+    u = rng.random((n_samples, 2))
+    flip = u.sum(1) > 1
+    u[flip] = 1 - u[flip]
+    tri = Vv[Ff[fi]]
+    pts = tri[:, 0] + u[:, :1] * (tri[:, 1] - tri[:, 0]) + u[:, 1:] * (tri[:, 2] - tri[:, 0])
+    tree = cKDTree(pts)
+
+    def refl_pt(x):
+        return x - 2 * ((x @ r) - c0)[:, None] * r[None, :]
+
+    def refl_n(x):
+        return x - 2 * (x @ r)[:, None] * r[None, :]
+
+    def twin(faces):
+        faces = np.asarray(faces)
+        d, k = tree.query(refl_pt(cen[faces]), k=1)
+        jf = fi[k]
+        ok = (d <= eps_frac * diag) & ((refl_n(n[faces]) * n[jf]).sum(1) >= 0.7)
+        return jf, ok
+
+    d, k = tree.query(refl_pt(pts), k=1)
+    okp = (d <= eps_frac * diag) & ((refl_n(n[fi]) * n[fi[k]]).sum(1) >= 0.7)
+    return float(okp.mean()), twin
+
+
+def panel_ids(V, F, parts) -> np.ndarray:
+    """Панели: связные области граней с изломом ребра ≤ PANEL_DEG (и той же геометрической части)."""
+    from scipy.sparse import coo_matrix
+    from scipy.sparse.csgraph import connected_components
+    i, j, _w, dih, _n = face_graph(V, F)
+    ok = dih <= PANEL_DEG
+    if parts is not None:
+        pa = np.asarray(parts)
+        ok &= pa[i] == pa[j]
+    nF = len(F)
+    g = coo_matrix((np.ones(2 * int(ok.sum())), (np.concatenate([i[ok], j[ok]]), np.concatenate([j[ok], i[ok]]))), shape=(nF, nF)).tocsr()
+    return connected_components(g, directed=False)[1].astype(np.int32)
+
+
+def _dominant(zones: np.ndarray, area: np.ndarray, min_share: float):
+    sel = zones >= 0
+    if not sel.any():
+        return None, 0.0
+    zs = np.unique(zones[sel])
+    ar = np.array([area[zones == z].sum() for z in zs])
+    k = int(ar.argmax())
+    return int(zs[k]), float(ar[k] / ar.sum())
+
+
+def panel_zones(V, F, fz: np.ndarray, parts, basis, return_info: bool = False):
+    """Зоны всех граней по правилу директора (Б, 22.11), одна зона на грань, смеси нет:
+    (1) панель с видимой частью — зона по меткам фото внутри этой панели (продолжение по рёбрам ТОЛЬКО в панели);
+    (2) невидимый бок без меток — зона видимого бока по симметрии формы (двойник через плоскость), иначе -1;
+    (3) зад без меток — зона БОКОВЫХ панелей, только если обе стороны одной зоны (доля ≥ PANEL_PURITY), иначе -1;
+    (4) крышка, низ, косые, всё прочее без меток — -1 (unknown → нейтральный тон, 07 решает сам). → карта (+ info)."""
+    fz = np.asarray(fz, np.int32)
+    nF = len(F)
+    pid = panel_ids(V, F, parts)
+    out, info = propagate_zones(V, F, fz, pid, return_info=True)         # шаг 1: границы продолжения = панели
+    ar, cen, nrm = _face_area_cen_normal(V, F)
+    sd = face_sides(V, F, basis)
+    right = np.asarray(basis[0], np.float64)
+    info['steps'] = {'photo_panels': int((out >= 0).sum()), 'mirror': 0, 'back': 0}
+    info['sym_score'] = None
+    labelled = out >= 0
+    # шаг 2: невидимый бок по симметрии
+    sc, twin = mirror_score(V, F, right, SYM_EPS)
+    info['sym_score'] = round(sc, 3)
+    if sc >= SYM_MIN:
+        for p in np.unique(pid):
+            m = pid == p
+            if labelled[m].any() or not np.isin(sd[m], (1, 2)).all():
+                continue
+            fm = np.flatnonzero(m)
+            jf, okt = twin(fm)
+            zt = out[jf[okt]]
+            zt = zt[zt >= 0]
+            if len(zt) == 0 or ar[fm][okt].sum() < 0.5 * ar[fm].sum():
+                continue
+            zs, shares = np.unique(zt, return_counts=True)
+            if shares.max() / shares.sum() >= PANEL_PURITY:
+                out[m] = int(zs[shares.argmax()])
+                info['steps']['mirror'] += int(m.sum())
+    # шаг 3: зад без меток — зона боковых панелей, если обе стороны одной зоны
+    back = [p for p in np.unique(pid) if not (out[pid == p] >= 0).any() and (sd[pid == p] == 0).all()]
+    if back:
+        zr, pr = _dominant(np.where(sd == 1, out, -1), ar, PANEL_PURITY)
+        zl, pl = _dominant(np.where(sd == 2, out, -1), ar, PANEL_PURITY)
+        if zr is not None and zr == zl and pr >= PANEL_PURITY and pl >= PANEL_PURITY:
+            for p in back:
+                m = pid == p
+                out[m] = zr
+                info['steps']['back'] += int(m.sum())
+    info['unknown'] = int((out < 0).sum())
+    info['side_zone'] = {'right': _dominant(np.where(sd == 1, out, -1), ar, 0)[0], 'left': _dominant(np.where(sd == 2, out, -1), ar, 0)[0]}
+    return (out, info) if return_info else out
 
 
 # ── 07: карта зона×сторона×свойство (за флагом, по умолчанию выкл.) ───────────────────────────────────────────────────

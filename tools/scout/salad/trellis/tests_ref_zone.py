@@ -84,7 +84,13 @@ def test_propagate():
         out = RZ.propagate_zones(V, F, fz, None)
         ok(out[1] == 0 and out[-2] == 1, f'split={split}: грани рядом с ярлыком берут его зону')
         mid = len(F) // 2
-        ok(out[mid] == -1, f'split={split}: грань на равном расстоянии от двух разных зон — спорно (-1)')
+        ok(out[mid] in (0, 1) and (out >= 0).all(), f'split={split}: грань на равном расстоянии от двух зон берёт ОДНУ из них (смеси нет, -1 нет)')
+    V, F = strip(12, False)
+    fz = np.full(len(F), -1, np.int32)
+    fz[0], fz[-1], fz[-2], fz[-3] = 0, 1, 1, 1
+    out, info = RZ.propagate_zones(V, F, fz, None, return_info=True)
+    mid = len(F) // 2 + 1
+    ok(info['disputed'] >= 1 and out[mid] == 1, f'спорная грань берёт зону с большей площадью видимого (1: 3 грани против 1): {info}')
     V, F = strip(6, True)
     fz = np.full(len(F), -1, np.int32)
     fz[0] = 0
@@ -95,8 +101,111 @@ def test_propagate():
     ok((RZ.propagate_zones(V, F, fz, parts)[6:] == -1).all(), 'другая геометрическая часть — зона не переходит')
 
 
+def box(nx=4, ny=3, nz=4, w=2.0, h=1.0, d=1.0):
+    """Коробка из сетки квадратов (общие вершины в пределах грани), нормали наружу; боковые грани ±x с одинаковой диагональю — зеркальны. → V, F, сторона каждой грани ('front'+z, 'back'-z, 'right'+x, 'left'-x, 'top'+y, 'bottom'-y)."""
+    V, F, side = [], [], []
+
+    def face(axis, sign, a, b):
+        # сетка по осям a,b; третья ось = ±половина размера
+        dims = {0: w, 1: h, 2: d}
+        na, nb = (nx, ny, nz)[a], (nx, ny, nz)[b]
+        base = len(V)
+        for ib in range(nb + 1):
+            for ia in range(na + 1):
+                p = [0.0, 0.0, 0.0]
+                p[a] = (ia / na - 0.5) * dims[a]
+                p[b] = (ib / nb - 0.5) * dims[b]
+                p[axis] = sign * dims[axis] / 2
+                V.append(p)
+        for ib in range(nb):
+            for ia in range(na):
+                v0 = base + ib * (na + 1) + ia
+                v1, v2, v3 = v0 + 1, v0 + na + 1, v0 + na + 2
+                for tri in ([v0, v1, v3], [v0, v3, v2]):
+                    pa, pb, pc = (np.array(V[k]) for k in tri)
+                    nn = np.cross(pb - pa, pc - pa)
+                    if nn[axis] * sign < 0:
+                        tri = [tri[0], tri[2], tri[1]]
+                    F.append(tri)
+                    side.append({(2, 1): 'front', (2, -1): 'back', (0, 1): 'right', (0, -1): 'left', (1, 1): 'top', (1, -1): 'bottom'}[(axis, sign)])
+
+    face(2, 1, 0, 1)
+    face(2, -1, 0, 1)
+    face(0, 1, 2, 1)
+    face(0, -1, 2, 1)
+    face(1, 1, 0, 2)
+    face(1, -1, 0, 2)
+    return np.array(V), np.array(F), np.array(side)
+
+
+BASIS = (np.array([1.0, 0, 0]), np.array([0, 1.0, 0]), np.array([0, 0, -1.0]))      # right, up, fwd: камера смотрит вдоль -z, лицо — грани +z
+
+
+def test_panels():
+    print('зоны по панелям (Б): метки в панели, симметрия бока, зад от боков, остальное unknown:')
+    V, F, side = box()
+    fz = np.full(len(F), -1, np.int32)
+    fz[side == 'front'] = 0
+    fz[side == 'left'] = 1                                     # левый бок виден на фото, правый и зад нет
+    out, info = RZ.panel_zones(V, F, fz, None, BASIS, return_info=True)
+    ok((out[side == 'front'] == 0).all(), 'лицо — зона по меткам фото')
+    ok(info['sym_score'] is not None and info['sym_score'] >= 0.8, f'коробка симметрична плоскостью лево↔право (score {info["sym_score"]})')
+    ok((out[side == 'right'] == 1).all(), 'невидимый правый бок — зона видимого левого (по симметрии)')
+    ok((out[side == 'back'] == 1).all(), 'зад без меток — зона боковых панелей (обе стороны зона 1)')
+    ok((out[side == 'top'] == -1).all() and (out[side == 'bottom'] == -1).all(), 'крышка и низ без меток — unknown (-1), в зоны не берутся')
+    ok(set(np.unique(out)) <= {-1, 0, 1}, 'никакой смеси: только зоны фото или -1')
+    # два бока разных зон → зад unknown
+    fz2 = fz.copy()
+    fz2[side == 'right'] = 2
+    out2 = RZ.panel_zones(V, F, fz2, None, BASIS)
+    ok((out2[side == 'back'] == -1).all(), 'бока разных зон — зад unknown, а не «бо́льшая зона»')
+    # несимметричная форма → невидимый бок unknown
+    V3 = V.copy()
+    V3[:, 1] += np.where(V3[:, 0] > 0, 0.4, 0.0) * (V3[:, 1] > 0)         # правая верхняя часть сдвинута — двойников у части граней нет
+    V3[V3[:, 0] > 0.0, 0] *= 1.6
+    out3, info3 = RZ.panel_zones(V3, F, fz, None, BASIS, return_info=True)
+    ok(info3['sym_score'] < 0.8 and (out3[side == 'right'] == -1).all(), f'форма несимметрична (score {info3["sym_score"]}) — невидимый бок unknown')
+    # панель с видимой частью: метки внутри панели не перетекают на другую панель
+    fz4 = np.full(len(F), -1, np.int32)
+    k = np.flatnonzero(side == 'front')[:3]
+    fz4[k] = 0
+    out4 = RZ.panel_zones(V, F, fz4, None, BASIS)
+    ok((out4[side == 'front'] == 0).all() and (out4[side == 'top'] == -1).all(), 'метки лица закрывают лицо целиком (одна панель) и не уходят через излом 90° на крышку')
+
+
+def test_apply_to_fill():
+    print('хук 07: different лишает невидимые тексели фактуры; фото-тексели, зеркало и trellis_relief не обходят:')
+    sys.path[:0] = [os.path.join(HERE, '..'), os.path.join(HERE, '..', '..')]
+    T = 64
+    rng = np.random.default_rng(1)
+    V = np.array([[0, 0, 0], [1, 0, 0], [1, 1, 0], [0, 1, 0]], float)
+    geom = {'V': V, 'F': np.array([[0, 1, 2], [0, 2, 3]]), 'UV': np.array([[0, 1], [1, 1], [1, 0], [0, 0]], float), 'tex': np.zeros((T, T, 3), np.uint8)}
+    base = np.full((T, T, 3), 120.0)
+    noisy = np.clip(base + rng.normal(0, 25, (T, T, 3)), 0, 255).astype(np.uint8)       # «после заливки»: шум на невидимой половине (зеркало/relief/узор)
+    known = np.zeros((T, T), bool)
+    known[:, : T // 2] = True
+    fz, fs = np.array([0, 0]), np.array([0, 0])
+    amap = {0: {'back': {'texture': 'different'}}}
+    out, rep = RZ.apply_to_fill([geom], [noisy], [known], fz, fs, amap, [0])
+    o = out[0].astype(float)
+    unk = ~known
+    ok((out[0][known] == noisy[known]).all(), 'фото-тексели (known) не изменились')
+    ok(o[unk].std() < 0.35 * noisy.astype(float)[unk].std(), f'шум невидимой стороны подавлен ({noisy.astype(float)[unk].std():.1f} → {o[unk].std():.1f}): zerkalo/relief-тексели тоже не known — не обходят different')
+    amap2 = {0: {'back': {'texture': 'same'}}}
+    out2, _ = RZ.apply_to_fill([geom], [noisy], [known], fz, fs, amap2, [0])
+    ok((out2[0] == noisy).all(), 'texture = same — заливка не тронута')
+    out3, _ = RZ.apply_to_fill([geom], [noisy], [known], fz, np.array([1, 1]), amap, [0])
+    ok((out3[0] == noisy).all(), 'different для другой стороны (back) не трогает правый бок')
+    import tex_fill as TF
+    ok(not RZ.APPLY, 'по умолчанию флаг apply_to_fill выключен (rules/ref-zone.json)')
+    out4, rep4 = TF.apply_ref_zone_map([geom], [noisy], [known], {'ref_zone_map': {'face_zone': fz, 'face_side': fs, 'map': amap, 'offs': [0]}})
+    ok((out4[0] == noisy).all() and rep4['applied'] is False, 'хук в tex_fill при выключенном флаге — ничего не меняет')
+    out5, rep5 = TF.apply_ref_zone_map([geom], [noisy], [known], {'ref_zone_map': {'face_zone': fz, 'face_side': fs, 'map': amap, 'offs': [0]}}, force=True)
+    ok(rep5['applied'] and rep5['texels_detextured'] > 0 and out5[0].astype(float)[unk].std() < 0.35 * noisy.astype(float)[unk].std(), 'хук в tex_fill с включённым флагом — применяет карту')
+
+
 def main():
-    for f in (test_same_mesh, test_decide, test_gate_per_property, test_propagate):
+    for f in (test_same_mesh, test_decide, test_gate_per_property, test_propagate, test_panels, test_apply_to_fill):
         f()
     print(f'tests_ref_zone: ошибок {len(FAILS)}')
     return 1 if FAILS else 0
