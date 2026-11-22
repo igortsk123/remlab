@@ -148,6 +148,7 @@ from __future__ import annotations
 
 import contextlib
 import fcntl
+import json
 import os
 import re
 import signal
@@ -176,6 +177,32 @@ def _env_f(name: str, default: float) -> float:
         return float(os.environ.get(name, default))
     except ValueError:
         return default
+
+
+_RULES_DEF = {'enabled': True, 'shrink_after_min': 15, 'margin': 1.5, 'floor_gb': 0.5, 'grow_guard_min': 5,
+              'head_report_min': 60, 'head_report_every_min': 30}
+_RULES_CACHE: list = [None, -1.0, None]            # (путь, mtime, правила)
+
+
+def rules() -> dict:
+    """БРОНЬ ПО ФАКТУ (T-162/2, П1.116): числа правила — в `tools/ops/rules/heavy-slot.json` (HEAVY_SLOT_RULES — другой файл, для проверки):
+    shrink_after_min (N), margin (запас к пику прогона), floor_gb, grow_guard_min, head_report_min / head_report_every_min, enabled.
+    Нет файла или битый — значения по умолчанию (то же, что в файле). Читается заново при смене файла."""
+    p = os.environ.get('HEAVY_SLOT_RULES') or os.path.join(os.path.dirname(os.path.abspath(__file__)), 'rules', 'heavy-slot.json')
+    try:
+        mt = os.path.getmtime(p)
+    except OSError:
+        return dict(_RULES_DEF)
+    if _RULES_CACHE[0] == p and _RULES_CACHE[1] == mt:
+        return _RULES_CACHE[2]
+    r = dict(_RULES_DEF)
+    with contextlib.suppress(Exception):
+        raw = json.load(open(p, encoding='utf-8'))
+        for k, v in _RULES_DEF.items():
+            if k in raw and isinstance(raw[k], (bool, int, float)) and (isinstance(v, bool) == isinstance(raw[k], bool)):
+                r[k] = raw[k]
+    _RULES_CACHE[:] = [p, mt, r]
+    return r
 
 
 def _meminfo(key: str) -> float:
@@ -477,6 +504,14 @@ def _num(x) -> str:
         return f'{float(x):g}'
     except (TypeError, ValueError):
         return str(x)
+
+
+def _fl(x) -> float | None:
+    """Число из записи как float; нет или не число — None."""
+    try:
+        return float(x)
+    except (TypeError, ValueError):
+        return None
 
 
 def _sec(x: float) -> str:
@@ -951,7 +986,7 @@ class _Meter(threading.Thread):
         super().__init__(daemon=True)
         self.label, self.pid, self.every, self.long_s = label, pid, every, long_s
         self.peak, self.peak_rss, self.t0, self.warned = 0.0, 0.0, time.time(), False
-        self.holder, self.eff, self.told = holder, eff, 0.0
+        self.holder, self.eff, self.told, self.over_told = holder, eff, 0.0, False
         self.cpu_s: list = []                         # (время, тики CPU дерева) за окно — факт держателя (T-75)
         self._stop_ev = threading.Event()
 
@@ -990,14 +1025,16 @@ class _Meter(threading.Thread):
     def tell(self) -> None:
         """ПРЕВЫШЕНИЕ (T-91): пик прогона выше своего порога — пишу его в запись держателя (`peak_gb`), чтобы другие считали
         мою долю по факту (`_holders_need`). Пишу только при превышении и росте на ≥ 0,05 ГБ — запись редкая."""
-        if not self.holder or not self.eff or self.peak <= self.eff or self.peak < self.told + 0.05:
+        if not self.holder or not self.eff or self.peak < self.told + 0.05:
             return
         h = _read_kv(self.holder) or {}
         if h.get('pid') != str(os.getpid()):
             return
         h['peak_gb'] = f'{self.peak:.3f}'
+        h['peak_t'] = f'{time.time():.1f}'            # T-162/2: пик пишу ВСЕГДА при росте ≥ 0,05 ГБ (не только сверх порога) — по нему и по времени роста другие урезают мою бронь
         _write_kv(self.holder, h)
-        if not self.told:
+        if self.peak > self.eff and not self.over_told:
+            self.over_told = True
             log(self.label, f'WARN: превысил свой порог {self.eff:.2f} ГБ (пик {self.peak:.2f}) — другие считают мою долю '
                             f'по факту, не ниже объявленного')
         self.told = self.peak
@@ -1029,42 +1066,89 @@ class _Meter(threading.Thread):
 
 # ---------------------------------------------------------------- допуск по памяти (T-74: без двойного счёта)
 
+def _holder_share(d: str, h: dict, now: float | None = None, rows: list | None = None) -> dict:
+    """Доля памяти ОДНОГО держателя для допуска других → {label, th, used, peak, part, over, shrunk, held_s, decl, note}. th — порог доли:
+    эффективный (`eff_gb`, у старой версии — `min_gb`); used — PSS дерева сейчас (уже вычтена из MemAvailable); part = max(th − used, 0).
+    ПРЕВЫШЕНИЕ (T-91): пик прогона выше порога — th = max(объявленный, пик). БРОНЬ ПО ФАКТУ (T-162/2): держит ≥ shrink_after_min мин, пик прогона
+    (`peak_gb`) известен и не рос последние grow_guard_min мин → th = max(пик × margin, наибольший замер типа, floor_gb, used), если это ниже th;
+    без `peak_gb` (старая версия) — не урезается. Порог не прочитан — th = inf."""
+    now = time.time() if now is None else now
+    out = {'label': h.get('label', '?'), 'over': False, 'shrunk': False, 'peak': None, 'held_s': None, 'note': ''}
+    try:
+        th = float(h.get('eff_gb') or h['min_gb'])
+    except (KeyError, ValueError):
+        return dict(out, th=float('inf'), used=0.0, part=float('inf'), decl=None, note='порог не прочитан')
+    try:
+        pid = int(h.get('pid', 0))
+    except ValueError:
+        pid = 0
+    used = tree_mem(pid, h.get('label', ''))[0] if h.get('stage') == 'работает' else 0.0
+    peak_f = _fl(h.get('peak_gb'))
+    peak = max(peak_f or 0.0, used)
+    try:
+        decl = float(h.get('min_gb') or th)
+    except ValueError:
+        decl = th
+    run_t = _fl(h.get('run_t'))
+    held = now - run_t if run_t and h.get('stage') == 'работает' else None
+    out.update(decl=decl, used=used, peak=peak if (peak_f is not None or used) else None, held_s=held)
+    if peak > th:
+        th, out['over'] = max(decl, peak), True
+        out['note'] = f'(превысил: пик {peak:.1f})'
+    else:
+        r = rules()
+        pt = _fl(h.get('peak_t')) or run_t or 0.0
+        if r.get('enabled') and peak_f is not None and held is not None and held >= r['shrink_after_min'] * 60 and now - pt >= r['grow_guard_min'] * 60:
+            typ = [x['peak_gb'] for x in _counted(_peaks(d) if rows is None else rows, h.get('type') or task_type(h.get('label', '')))]
+            new = max(peak * r['margin'], max(typ, default=0.0), r['floor_gb'], used)
+            if new < th:
+                th, out['shrunk'] = new, True
+                out['note'] = f"(по факту: пик {peak:.1f} × {r['margin']:g} за {held / 60:.0f} мин, заявка {decl:g})"
+    out.update(th=th, part=max(th - used, 0.0))
+    return out
+
+
+def head_report_due(waited_s: float, last: float, now: float | None = None) -> bool:
+    """ПРОТИВ ГОЛОДАНИЯ (T-162/2): голова ждёт ≥ head_report_min минут и прошло ≥ head_report_every_min с прошлого отчёта (last — время, 0 — не было)."""
+    now = time.time() if now is None else now
+    r = rules()
+    return waited_s >= r['head_report_min'] * 60 and now - last >= r['head_report_every_min'] * 60
+
+
 def _holders_need(d: str, k: int, n: int) -> tuple[float, str, bool]:
     """Сколько ещё памяти могут взять ДРУГИЕ держатели (кроме слота k): Σ max(порог_h − память_h, 0) → (ГБ, пояснение,
-    есть ли держатели). Порог — эффективный (`eff_gb`, у старой версии — `min_gb`); память — PSS дерева держателя сейчас:
-    она уже вычтена из MemAvailable, второй раз не считается. Порог не прочитан — бесконечность (ждать тот слот).
-    ПРЕВЫШЕНИЕ (T-91): пик держателя в этом прогоне (`peak_gb` из записи — пишет его замер, — или память сейчас) выше его
-    порога — оценка по замерам для него не сработала: доля считается по факту, не ниже объявленного —
-    max(объявленный, пик прогона) − память сейчас (пик выше сейчас — значит, память у него скачет и может вернуться)."""
+    есть ли держатели). Порог и доля каждого — `_holder_share`: эффективный (`eff_gb`), при превышении — по факту (T-91), у долгого держателя с
+    малым пиком — урезан до факта (T-162/2: пик прогона × запас, не ручная заявка); память — PSS дерева держателя сейчас:
+    она уже вычтена из MemAvailable, второй раз не считается. Порог не прочитан — бесконечность (ждать тот слот)."""
     total, parts = 0.0, []
+    rows = _peaks(d)
     for j in range(1, n + 1):
         if j == k or not is_held(j):
             continue
-        h = _read_kv(_holder_file(d, j)) or {}
-        try:
-            th = float(h.get('eff_gb') or h['min_gb'])
-        except (KeyError, ValueError):
+        sh = _holder_share(d, _read_kv(_holder_file(d, j)) or {}, rows=rows)
+        if sh['th'] == float('inf'):
             return float('inf'), f'порог держателя слота {j} не прочитан', True
-        try:
-            pid = int(h.get('pid', 0))
-        except ValueError:
-            pid = 0
-        used = tree_mem(pid, h.get('label', ''))[0] if h.get('stage') == 'работает' else 0.0
-        try:
-            peak = max(float(h.get('peak_gb') or 0), used)
-        except ValueError:
-            peak = used
-        over = ''
-        if peak > th:
-            try:
-                decl = float(h.get('min_gb') or th)
-            except ValueError:
-                decl = th
-            th, over = max(decl, peak), f'(превысил: пик {peak:.1f})'
-        part = max(th - used, 0.0)
-        total += part
-        parts.append(f"{h.get('label', '?')}{over} {th:g}−{used:.1f}={part:.1f}")
+        total += sh['part']
+        parts.append(f"{sh['label']}{sh['note']} {sh['th']:g}−{sh['used']:.1f}={sh['part']:.1f}")
     return total, ('держатели ' + ' + '.join(parts)) if parts else '', bool(parts)
+
+
+def holders_report(d: str, n: int, now: float | None = None) -> list:
+    """ОТЧЁТ «КТО ДЕРЖИТ СКОЛЬКО ПО ФАКТУ» (T-162/2): по строке на держателя — держит мин, заявка, порог доли, память сейчас, пик прогона, доля в допуске; в конце сумма."""
+    now = time.time() if now is None else now
+    rows, lines, tot = _peaks(d), [], 0.0
+    for j in range(1, n + 1):
+        if not is_held(j):
+            continue
+        h = _read_kv(_holder_file(d, j)) or {}
+        sh = _holder_share(d, h, now, rows)
+        tot += sh['part'] if sh['part'] != float('inf') else 0.0
+        hold = f"держит {sh['held_s'] / 60:.0f} мин" if sh['held_s'] is not None else f"стадия {h.get('stage', '?')}"
+        lines.append(f"слот {j} {sh['label']}: {hold}, заявка {sh['decl'] if sh['decl'] is not None else '?'} ГБ, доля в допуске {sh['th'] if sh['th'] != float('inf') else '?'} ГБ, "
+                     f"память сейчас {sh['used']:.2f}, пик прогона {('%.2f' % sh['peak']) if sh['peak'] is not None else 'не записан (старая версия)'}, "
+                     f"бронирует {sh['part'] if sh['part'] != float('inf') else '?'} ГБ {sh['note']}".rstrip())
+    lines.append(f'итого бронь держателей {tot:.1f} ГБ, свободно сейчас {mem_available_gb():.1f} ГБ')
+    return lines
 
 
 def _holders_cores(d: str, k: int, n: int, strict: bool = True) -> tuple[float, bool]:
@@ -1480,7 +1564,7 @@ def heavy_slot(label: str, min_gb: float = 6.0, timeout: float | None = None, no
             _write_kv(holder_p, dict(me, since=int(t_mem), stage='память', yields=yields))
             _unlink(ticket)                           # после записи держателя: следующий первый уже видит мой порог
             ticket = None
-            last, yielded, what0 = -1e9, False, ''
+            last, yielded, what0, t_rep = -1e9, False, '', 0.0
             ok, why, free, what = _need(d, 1, own, n, cores, pr)
             while not ok:
                 if time.time() - last >= report or what != what0:
@@ -1490,6 +1574,11 @@ def heavy_slot(label: str, min_gb: float = 6.0, timeout: float | None = None, no
                 if timeout is not None and time.time() - t0 >= timeout:
                     note(f'не дождался памяти за {round(time.time() - t0)} с (--timeout {timeout:g}) — не запускаю')
                     raise SlotTimeout(label)
+                if head_report_due(time.time() - t0, t_rep):
+                    t_rep = time.time()
+                    note(f'ГОЛОДАНИЕ: жду память {_sec(time.time() - t0)} с (порог {own:g} ГБ) — кто держит сколько по факту:')
+                    for ln_ in holders_report(d, n):
+                        note('  ' + ln_)
                 if time.time() - t_mem >= yield_s:
                     oth, _, any_h = _holders_need(d, 1, n)
                     croom = _core_room(d, 1, n)[0]
@@ -1663,7 +1752,13 @@ def status(out=sys.stdout) -> int:
             eff_s = f" (по замеру {float(eff):.2f})" if eff and float(eff) < float(h.get('min_gb') or 0) else ''
             if h.get('peak_gb'):
                 with contextlib.suppress(ValueError):
-                    eff_s += f" · превысил порог: пик {float(h['peak_gb']):.2f} ГБ — доля по факту"
+                    sh = _holder_share(d, h)
+                    if sh['over']:
+                        eff_s += f" · превысил порог: пик {float(h['peak_gb']):.2f} ГБ — доля по факту"
+                    elif sh['shrunk']:
+                        eff_s += f" · бронь по факту {sh['th']:.2f} ГБ (пик {float(h['peak_gb']):.2f} × запас, держит давно)"
+                    else:
+                        eff_s += f" · пик {float(h['peak_gb']):.2f} ГБ"
             fact_s = ''
             if fact_on() and h.get('fcpu'):
                 with contextlib.suppress(ValueError):
