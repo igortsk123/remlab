@@ -359,5 +359,27 @@ class TestTexVisible(unittest.TestCase):
         far = TV.fit_registration(self._shifted_square_alpha(5.0, 0.0), st['P'], st['mask'])
         self.assertLessEqual(abs(far['dx']), TV.REG_MAX_PX + 1e-6)         # больше потолка не берём
 
+    def test_legs_cut_reads_04_flag_and_blocks_all_but_trusted_legs(self):
+        """T-191/3: ножки не совпали → фото ниже корпуса не берём, кроме рамок прошедших сверку; пол сдвинут — ни одной; флага нет — None."""
+        with tempfile.TemporaryDirectory() as d:
+            os.makedirs(os.path.join(d, '04-camera'))
+            ck = os.path.join(d, '04-camera', 'check.json')
+            json.dump({'passed': True, 'extra': {}}, open(ck, 'w', encoding='utf-8'))
+            self.assertIsNone(TV.legs_cut(d))
+            ex = {'legs_mismatch': True, 'legs_cut_row': 100, 'legs_trusted_boxes': [[10, 110, 20, 150]], 'legs_match': {'floor_ok': True, 'why': 'ножек не годных 1 из 2'}}
+            json.dump({'passed': True, 'extra': ex}, open(ck, 'w', encoding='utf-8'))
+            json.dump({'frame_px': 200}, open(os.path.join(d, 'stage_loss.json'), 'w', encoding='utf-8'))
+            lc = TV.legs_cut(d)
+            self.assertEqual((lc['row'], lc['frame_px'], lc['boxes']), (100, 200, [[10, 110, 20, 150]]))
+            blk, r = TV.leg_block_mask((200, 200), lc['row'], lc['boxes'])
+            self.assertEqual(r, 96)                                              # граница − 4 px запаса
+            self.assertTrue(blk[96:, 50:].all() and not blk[:96].any())          # корпус выше границы не блокируется, ножки без пары — да
+            self.assertFalse(blk[110:151, 10:21].any())                          # прошедшая сверку ножка — открыта
+            blk2, _ = TV.leg_block_mask((100, 100), lc['row'], lc['boxes'], scale=0.5)
+            self.assertFalse(blk2[55:75, 5:10].any() and blk2[:46].any())        # масштаб кадра: граница 100·0,5 − 4 = 46
+            ex['legs_match']['floor_ok'] = False
+            json.dump({'passed': True, 'extra': ex}, open(ck, 'w', encoding='utf-8'))
+            self.assertEqual(TV.legs_cut(d)['boxes'], [])                        # пол сдвинут — доверенных ножек нет
+
 if __name__ == '__main__':
     unittest.main()

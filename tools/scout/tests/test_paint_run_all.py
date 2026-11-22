@@ -183,6 +183,18 @@ with tempfile.TemporaryDirectory() as run:
     pl = {i['stage']: i for i in RA.plan(run, 'k', dict(A, photo='o.png'), REAL, CR)}
     ok(pl['06']['action'] == 'blocked' and '04-camera' in pl['06']['why'], '04 отказ по иной причине → 05/06 заблокированы')
 
+# T-191/3: ножки формы не совпали с фото (04 прошёл, extra.legs_mismatch) → 06 тоже идёт с --body-only; флаг снят — без него
+with tempfile.TemporaryDirectory() as run:
+    for stg in ('01-trellis', '02-prep'):
+        put(run, 'k', stg, True)
+    put(run, 'k', '04-camera', True, photo='cam.png', legs_mismatch=True)
+    put(run, 'k', '05-delight', True, metric={'name': 'x', 'value': 1, 'threshold': 2, 'op': '<=', 'ok': True, 'na': True})
+    cmd = {i['stage']: i for i in RA.plan(run, 'k', dict(A, photo='o.png'), REAL, CR)}['06']['steps'][0]['argv']
+    ok('--body-only' in cmd, '04 прошёл, legs_mismatch → 06 с --body-only')
+    put(run, 'k', '04-camera', True, photo='cam.png', legs_mismatch=False)
+    cmd = {i['stage']: i for i in RA.plan(run, 'k', dict(A, photo='o.png'), REAL, CR)}['06']['steps'][0]['argv']
+    ok('--body-only' not in cmd, 'legs_mismatch=false → без --body-only')
+
 # 7в. каталог: тип и params — из записи; нет записи — этап 8 заблокирован, params не выдумываются
 with tempfile.TemporaryDirectory() as run:
     cat = os.path.join(run, 'cat.json')

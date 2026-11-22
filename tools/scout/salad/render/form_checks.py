@@ -12,7 +12,7 @@
   holes         · грубые лишние сквозные просветы в силуэте против фото (приближение)  · «Дыры, рваный фасад»
   relief        · много мелкого рельефа на кадре 0° — рваный, «изъеденный» фасад   · «Дыры, рваный фасад»
   back_dup      · кадр 0° и кадр 180° (прямо или зеркально) совпадают по рельефу    · «фасад продублирован на задней стенке» (ловит только точную копию)
-  legs_match    · ножки: компоненты нижней полосы маски фото ↔ формы парой по центрам, макс. смещение центра / шаг между соседними ножками фото (силуэт IoU этого не видит; нормировка на ширину предмета не разводила) · «Пропали ножки», «ножки не там» (р.3, T-191/1)
+  legs_match    · ножки: компоненты нижней полосы маски фото ↔ формы парой по центрам, ошибка ножки ÷ её толщина, пол, число ножек (T-191/3: legs_check.py, пороги — camera-check.json legs_match; силуэт IoU этого не видит) · «Пропали ножки», «ножки не там»
   relief_graze  · мелкий рельеф кадра 0° при боковом свете ВНУТРИ маски формы (альфа, без фона и тени)  · «Дыры, рваный фасад»
   back_relief   · то же на кадре 180°: у корпусной мебели с плоской спиной (`flat_back_roles`) сильный рельеф сзади — каркас/копия фасада · «Открытая сломанная спина», «фасад сзади»
   vlm_<вид>     · оценщик по картинке (vlm_judge.py, T-184/9): «да» в обоих прогонах VLM по виду брака из паспорта (`vlm_<вид>_check` — «да» хотя бы в одном: на глаз директору), виды и роли — в rules `vlm_judge` · «Дыры, рваный фасад», «грани», «фасад без щелей», «перекос корпуса», «зад=копия», «выдуманная деталь»
@@ -215,38 +215,19 @@ def runs(mask: np.ndarray, R: dict) -> int:
     return n
 
 
-# ---------- ножки: внутренняя деталь, которой не видно по IoU (логика р.router-3, T-191/1) ----------
-def leg_centers(m: np.ndarray, y0: int, y1: int, min_area: int) -> list[tuple[float, float]]:
-    from scipy import ndimage
-    reg = np.zeros_like(m)
-    reg[y0:y1] = m[y0:y1]
-    lab, n = ndimage.label(reg, structure=np.ones((3, 3)))
-    out = []
-    for i in range(1, n + 1):
-        if int((lab == i).sum()) >= min_area:
-            cy, cx = ndimage.center_of_mass(lab == i)
-            out.append((cx, cy))
-    return out
-
-
+# ---------- ножки: внутренняя деталь, которой не видно по IoU (T-191/1; мерка и пороги — T-191/3: salad/trellis/legs_check.py, rules/camera-check.json блок legs_match) ----------
 def legs_match(S: np.ndarray, pa: np.ndarray, R: dict) -> dict:
-    """S — маска формы с позы 04, pa — маска фото в тех же пикселях. Ножки = компоненты нижней полосы `leg_match_band` высоты предмета. Число ножек разное (скрыты/слиты) — значение не считается."""
-    from scipy.optimize import linear_sum_assignment
-    ys, xs = np.nonzero(pa)
-    if not len(ys):
-        return check('legs_match', None, R['legs_match'], False, 'маска фото пуста')
-    y0, y1 = ys.min(), ys.max() + 1
-    ya = y1 - int((y1 - y0) * R['leg_match_band'])
-    cp, cs = leg_centers(pa, ya, y1, R['leg_match_area']), leg_centers(S, ya, y1, R['leg_match_area'])
-    if len(cp) < 2:
-        return check('legs_match', None, R['legs_match'], False, f'ножки фото не раздельны ({len(cp)}) — не применима')
-    if len(cp) != len(cs):
-        return check('legs_match', None, R['legs_match'], False, f'ножек фото/формы {len(cp)}/{len(cs)} — разное число (скрыты или слиты), значение не считается')
-    D = np.array([[math.hypot(a[0] - b[0], a[1] - b[1]) for b in cs] for a in cp])
-    r, c = linear_sum_assignment(D)
-    pitch = float(np.min(np.diff(sorted(a[0] for a in cp))))                      # шаг между ближайшими ножками фото, px
-    mx = float(D[r, c].max()) / max(pitch, 1.0)
-    return check('legs_match', mx, R['legs_match'], mx > R['legs_match'], f'ножек {len(cp)}, макс. смещение центра {float(D[r, c].max()):.1f} px при шаге между ножками {pitch:.0f} px (среднее смещение {float(D[r, c].mean()):.1f})')
+    """S — маска формы с позы 04, pa — маска фото в тех же пикселях. Значение — худшая ошибка ножки ÷ её толщина (`legs_check.legs_report`), порог — `err_over_w_max`; флаг — провал сверки (число ножек, пол или хоть одна ножка).
+    Меньше двух раздельных ножек на фото — значение не считается. `R` не используется: единственный источник порогов — camera-check.json (общий с этапами 04 и 06)."""
+    sys.path.insert(0, os.path.normpath(os.path.join(HERE, '..', 'trellis')))
+    import legs_check as LC                                       # noqa: PLC0415
+    rules = LC.load_rules()
+    rep = LC.legs_report(S, pa, rules)
+    thr = rules['err_over_w_max']
+    if not rep['applicable']:
+        return check('legs_match', None, thr, False, rep['why'] or 'не применима')
+    note = f"ножек фото/формы {rep['n_photo']}/{rep['n_mesh']}, худшая ошибка/толщина {rep['err_over_w_max']}, пол {rep['floor_dy_pct']:+.1f} % высоты" + (f" — {rep['why']}" if rep['mismatch'] else '')
+    return check('legs_match', rep['err_over_w_max'], thr, bool(rep['mismatch']), note)
 
 
 def legs_checks(sku: str, photo: str | None, roots: list[str], R: dict) -> list[dict]:

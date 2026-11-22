@@ -27,6 +27,7 @@ sys.path.insert(0, HERE)
 sys.path.insert(0, os.path.normpath(os.path.join(HERE, '..', '..')))
 import stage_loss as SL  # noqa: E402
 import paint_stage as PS  # noqa: E402
+import legs_check as LC  # noqa: E402
 
 RULES_PATH = os.path.join(HERE, '..', '..', 'rules', 'camera-check.json')
 
@@ -232,6 +233,7 @@ def main() -> int:
         reason = ('shape_mismatch: форма не совпадает с фото, позой не лечится (%d лучших из %d стартов в коридоре IoU %.3f–%.3f) — в список на перегенерацию формы, этап 6 не красит; '
                   % (shm_info['top_k'], len(pose['multistart']['starts']), shm_info['iou_best'] - shm_info['iou_spread'], shm_info['iou_best'])) + reason
         ok = False
+    legs = LC.legs_report(S, pa)                                    # ножки формы против фото (T-191/3): пишется в extra, passed не меняет — решение «ножкам фото не верим» принимает этап 06
     bsm = bottom_shape_mismatch(shares, coarse, rules) and not thin_rescue
     if bsm:
         reason = 'bottom_shape_mismatch: форма низа не совпадает с фото (ножки), корпус лёг (IoU верха %.3f) — фото на ножки не переносить; ' % shares['iou_top'] + reason
@@ -261,7 +263,7 @@ def main() -> int:
                                   'edge_agree': {'value': None if edge is None else round(edge, 4), **({'no_edges': True} if no_edges else {})}},
                          reason=reason if not ok else '', seconds=round(time.time() - t0, 1), outputs=['frame.png'], frame='frame.png',
                          edge_ref_min=rules['edge_ref'], edge_below_ref=bool(edge is not None and edge < rules['edge_ref']), no_edges=no_edges, note=reason if ok else '', strip_rows=shares['strip_rows'], strip_frac=rules['strip_frac'],
-                         bottom_mask_coarse=coarse, bottom_mask=bq, bottom_shape_mismatch=bsm, shape_mismatch=shm, shape_corridor=shm_info, regen_form=bool(shm), iou_top=None if shares['iou_top'] is None else round(shares['iou_top'], 4),
+                         bottom_mask_coarse=coarse, bottom_mask=bq, bottom_shape_mismatch=bsm, legs_match=LC.compact(legs), legs_mismatch=bool(legs['mismatch']), legs_cut_row=legs['cut_row'], legs_trusted_boxes=legs['trusted_boxes'], shape_mismatch=shm, shape_corridor=shm_info, regen_form=bool(shm), iou_top=None if shares['iou_top'] is None else round(shares['iou_top'], 4),
                          bottom_top_iou_min=rules.get('bottom_top_iou_min', rules['iou_min']), thin=tm, thin_rescue=thin_rescue, unreliable=bool(unrel), unreliable_reason=unrel_why, rules_file='tools/scout/rules/camera-check.json',
                          camera=pose['camera'], yaw=a.yaw if a.yaw is not None else pose.get('yaw'), pairs=None, photo=a.photo, method=reg.get('method'),
                          textured=pose.get('textured'), frame_note='фото 50 % + рендер 50 %; красный контур — рендер формы, зелёный — фото')

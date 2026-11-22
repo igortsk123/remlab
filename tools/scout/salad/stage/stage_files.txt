@@ -13,6 +13,7 @@ tools/scout/salad/trellis/tex_coverage.py
 tools/scout/salad/trellis/tex_fill.py
 tools/scout/salad/trellis/tex_visible.py
 tools/scout/salad/trellis/crease_mask.py
+tools/scout/salad/trellis/legs_check.py
 tools/scout/rules/tex-visible.json
 tools/scout/rules/paint-fill.json
 tools/scout/rules/mesh-color-guard.json
