@@ -105,6 +105,41 @@ def photo_band_std(photo_path: str | None, rules: dict):
     return round(float(v.std()), 3) if len(v) >= pb['min_px'] else None
 
 
+def photo_groove_dL(photo_path: str | None, rules: dict):
+    """Глубина шва между планками по фото каталога (единицы L): поперечный минимум высокочастотной составляющей под верхней кромкой силуэта. Нет данных — None."""
+    if not photo_path or not os.path.exists(photo_path):
+        return None
+    import tex_coverage as TC
+    from PIL import Image
+    g, pb = rules['pattern']['groove'], rules['pattern']['photo_band']
+    im = Image.open(photo_path)
+    rgb = np.asarray(im.convert('RGB')).astype(np.uint8)
+    alpha = (np.asarray(im)[..., 3] > pb['alpha_min']) if im.mode == 'RGBA' else (rgb.min(axis=2) < pb['white_max'])
+    rows = np.where(alpha.any(axis=1))[0]
+    cols = np.where(alpha.any(axis=0))[0]
+    if len(rows) == 0:
+        return None
+    H = int(rows.max() - rows.min() + 1)
+    L = TC.rgb2lab(rgb.reshape(-1, 3)).reshape(rgb.shape)[..., 0]
+    k, w = max(g['min_rows'], int(g['band_frac'] * H)), g['hp_window']
+    x0, x1 = int(cols.min() + g['x_from'] * (cols.max() - cols.min())), int(cols.min() + g['x_to'] * (cols.max() - cols.min()))
+    mins = []
+    for x in range(x0, x1):
+        ys = np.where(alpha[:, x])[0]
+        if len(ys) == 0:
+            continue
+        col = L[ys[0] + 2:ys[0] + 2 + k, x]
+        if len(col) < k:
+            continue
+        hp = (col - np.convolve(col, np.ones(w) / w, mode='same'))[w // 2 + 1:-(w // 2 + 1)]
+        hp = hp[hp > -g['edge_reject_L']]
+        if len(hp) >= 4:
+            mins.append(float(hp.min()))
+    if len(mins) < g['min_cols']:
+        return None
+    return round(float(np.clip(-np.median(mins), g['min_dL'], g['max_dL'])), 2)
+
+
 def card_dims(card: dict | None) -> dict:
     """Толщина верха и наибольший габарит из карточки, см: «Толщина столешницы 1 см», «160x90» в названии/модификации. Нет — None (полоса кромки по умолчанию)."""
     out = {'thickness_cm': None, 'length_cm': None, 'width_cm': None}
@@ -324,6 +359,8 @@ def analyze(run_dir: str, card: dict | None, rules: dict | None = None, filled_g
     res['known_source'] = known_src
     res['evidence_std_L'] = photo_band_std(photo, rules)
     res['evidence_source'] = 'photo_band' if res['evidence_std_L'] is not None else 'default'
+    res['groove_dL'] = photo_groove_dL(photo, rules)
+    res['groove_source'] = 'photo' if res['groove_dL'] is not None else 'fallback'
     res['card_dims'] = dict(dims, edge_band=round(cfg['edge_band'], 4))
     res['top_parts'] = {str(k): v for k, v in top_part_roles.items()}
     res['top_own_part'] = any(r == 'top' for r in top_part_roles.values())
@@ -392,7 +429,8 @@ def hypothesis_textures(an: dict, rules: dict, base_texs: list, length_cm: float
             lab = lab + pat[iv, iu]
         if planks:
             lab[:, 0] += jit
-            lab[groove, 0] -= rules['pattern']['plank_groove_dL']
+            gd = rep.get('groove_dL')
+            lab[groove, 0] -= rules['pattern']['groove']['fallback_dL'] if gd is None else gd
         rgb = TF.lab2rgb(lab)
         img = out[t['gi']]
         flat = img.reshape(-1, img.shape[2]) if img.ndim == 3 else None

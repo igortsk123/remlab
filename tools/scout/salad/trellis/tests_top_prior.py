@@ -152,6 +152,29 @@ class PhotoBand(unittest.TestCase):
         self.assertIsNone(TP.photo_band_std('/нет/такого.png', RULES))
 
 
+class PhotoGroove(unittest.TestCase):
+    def _img(self, seam_dL, path):
+        from PIL import Image
+        a = np.zeros((200, 300, 4), np.uint8)
+        a[20:180, 20:280, :3] = 150
+        a[20:180, 20:280, 3] = 255
+        if seam_dL:
+            for y in (27, 28):
+                a[y, 20:280, :3] = 150 - seam_dL * 2.2
+        Image.fromarray(a, 'RGBA').save(path)
+
+    def test_seam_depth_from_photo_and_missing_is_none(self):
+        import tempfile
+        with tempfile.TemporaryDirectory() as d:
+            self._img(0, os.path.join(d, 'a.png'))
+            self._img(6, os.path.join(d, 'b.png'))
+            s0, s1 = TP.photo_groove_dL(os.path.join(d, 'a.png'), RULES), TP.photo_groove_dL(os.path.join(d, 'b.png'), RULES)
+            self.assertEqual(s0, RULES['pattern']['groove']['min_dL'])
+            self.assertGreater(s1, s0 + 1.0)
+            self.assertLessEqual(s1, RULES['pattern']['groove']['max_dL'])
+        self.assertIsNone(TP.photo_groove_dL(None, RULES))
+
+
 class PatternClass(unittest.TestCase):
     def test_polywood_is_planks_on_straight(self):
         r = TP.card_pattern({'m': 'древесно-полимерный композит (поливуд)'}, RULES)
