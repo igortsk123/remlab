@@ -520,5 +520,30 @@ for path in files(lambda f: not f.startswith(('test', 'tests', 'kit_')) and f !=
     if pr:
         ok(False, f'проба {rel(path)}: {"; ".join(pr)}')
 
+
+# T-178/2: общий вход «отправить задание» — таймаут по размеру тела; POST без ответа (-1) не отказ, а вопрос воркеру
+class _GW:
+    def __init__(self, post_codes, saw):
+        self.post_codes, self.saw, self.calls = list(post_codes), saw, []
+
+    def call(self, method, path, body=None, timeout=60, raw=False):
+        self.calls.append((method, path, timeout))
+        if method == 'POST':
+            return self.post_codes.pop(0), {}
+        return (200 if self.saw else 404), {}
+
+
+g_ = _GW([202], False)
+c_, r_, i_ = KD.post_job(g_, '/generate', {'job_id': 'j', 'image_b64': 'x' * (2 * 2 ** 20)}, '/job/j', say_fn=lambda *a: None)
+ok(c_ == 202 and i_ is None and len(g_.calls) == 1 and 150 <= g_.calls[0][2] <= 160, 'post_job: ответ есть → отдаём как есть, таймаут POST растёт с телом (2 МБ → ≈150 с), без лишних запросов')
+g_ = _GW([-1], True)
+c_, r_, i_ = KD.post_job(g_, '/generate', {'job_id': 'j', 'image_b64': 'x'}, '/job/j', say_fn=lambda *a: None)
+ok(c_ == 202 and i_['worker_saw_job'] is True and [x[0] for x in g_.calls] == ['POST', 'GET'], 'post_job: POST без ответа, воркер задание видит → принято (202), повтор не нужен')
+g_ = _GW([-1], False)
+c_, r_, i_ = KD.post_job(g_, '/generate', {'job_id': 'j', 'image_b64': 'x'}, '/job/j', say_fn=lambda *a: None)
+ok(c_ == -1 and i_['worker_saw_job'] is False and i_['timeout_s'] == 90, 'post_job: воркер задание не видит → -1 остаётся (повтор решает драйвер), в сведениях таймаут')
+ok(KD.post_timeout_s(0) == 90 and KD.post_timeout_s(500 * 2 ** 20) == 300 and KD.post_timeout_s(10 ** 9, 45) == 45
+   and KD.post_timeout_s(2 ** 20, rules={'base_s': 10, 'per_mb_s': 5, 'max_s': 100}) == 15, 'post_timeout_s: формула, потолок max_s, override и правила из rules')
+
 print('\nИТОГ:', 'ВСЁ ЗЕЛЁНОЕ' if not FAILS else f'ПРОВАЛОВ: {len(FAILS)}')
 sys.exit(1 if FAILS else 0)
