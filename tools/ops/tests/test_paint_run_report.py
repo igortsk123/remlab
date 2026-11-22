@@ -380,3 +380,66 @@ def test_tiles_crop_common_box(tmp_path):
     got = prr._tiles(str(tmp_path / 's.png'), str(tmp_path / 't'), 4)
     sizes = {Image.open(g).size for g in got}
     assert len(got) == 4 and len(sizes) == 1 and list(sizes)[0][1] < 100                                              # одинаковая рамка у всех, поля обрезаны
+
+
+# ---- метка свежести данных (директор 22.11): «данные на ЧЧ:ММ (Лондон), прогон закончен / ещё идёт» ----
+
+def _old(path, age_s):
+    import os, time
+    t = time.time() - age_s
+    for dp, dn, fn in os.walk(path):
+        for n in dn + fn:
+            os.utime(os.path.join(dp, n), (t, t))
+    os.utime(path, (t, t))
+
+
+def _mkrun(tmp_path, progress=None):
+    run = tmp_path / 'run'
+    (run / 'k_1' / '04-camera').mkdir(parents=True)
+    (run / 'k_1' / '04-camera' / 'check.json').write_text('{}', encoding='utf-8')
+    if progress:
+        (run / 'progress.log').write_text(progress, encoding='utf-8')
+    return run
+
+
+def test_state_finished(tmp_path):
+    run = _mkrun(tmp_path, '2026-11-21 12:00:00 старт k_1 дерево x\n2026-11-21 12:46:30 конец k_1 дерево x rc=0 10 с\n2026-11-21 12:46:30 ВСЁ, обработано 1\n')
+    _old(run, 3 * 3600)
+    st = prr.run_state([str(run)], state_dir=str(tmp_path / 'нет-такой'))
+    assert st['running'] is False and 'прогон закончен' in st['text'] and 'Лондон' in st['text'] and st['jobs'] == []
+
+
+def test_state_running_by_heavy_slot_job(tmp_path):
+    import os
+    run = _mkrun(tmp_path)
+    _old(run, 5 * 3600)
+    hs = tmp_path / 'hs'
+    (hs / 'wait').mkdir(parents=True)
+    (hs / 'wait' / '1-1').write_text(f'label=paint-03-2-1\npid={os.getpid()}\ncmd=python x.py {run}/k_1/work/m.json\n', encoding='utf-8')       # живой процесс, команда называет прогон
+    (hs / 'wait' / '2-2').write_text(f'label=чужой\npid={os.getpid()}\ncmd=python x.py {tmp_path}/другой-прогон/k\n', encoding='utf-8')
+    (hs / 'wait' / '3-3').write_text(f'label=умер\npid=999999999\ncmd=python x.py {run}\n', encoding='utf-8')                                   # процесса нет — не считается
+    st = prr.run_state([str(run)], state_dir=str(hs))
+    assert st['running'] is True and st['jobs'] == ['paint-03-2-1'] and 'ещё идёт' in st['text'] and 'heavy-slot' in st['text']
+
+
+def test_state_running_by_progress_log_and_fresh_folder(tmp_path):
+    import time
+    run = _mkrun(tmp_path, '2026-11-21 12:46:30 ВСЁ, обработано 1\n' + time.strftime('%Y-%m-%d %H:%M:%S') + ' старт k_2 дерево x\n')                  # старый «ВСЁ» выше, последнее событие — старт
+    _old(run, 5 * 3600)
+    st = prr.run_state([str(run)], state_dir=str(tmp_path / 'нет'))
+    assert st['running'] is True and 'пакет run не закончен' in st['text'] and st['progress'][0]['unfinished'] is True
+    run2 = _mkrun(tmp_path / 'b')                                                                                                                  # журнала и заданий нет, папка свежая (< 10 мин)
+    assert prr.run_state([str(run2)], state_dir=str(tmp_path / 'нет'))['running'] is True
+    old = _mkrun(tmp_path / 'c', '2026-11-20 10:00:00 старт k_1 дерево x\n')                                                                       # пакет «не закончил», но молчит давно и заданий нет → не идёт
+    _old(old, 30 * 3600)
+    st = prr.run_state([str(old)], state_dir=str(tmp_path / 'нет'))
+    assert st['running'] is False and 'молчит' in st['text']
+
+
+def test_state_on_pages_and_summary(tmp_path):
+    W = prr.load_words(REPO)
+    st = {'at': '12:34', 'tz': 'Europe/London', 'running': True, 'jobs': [], 'progress': [], 'last_change_min_ago': 1, 'text': 'данные на 12:34 (Лондон) · прогон ещё идёт — числа могут измениться'}
+    assert 'данные на 12:34 (Лондон)' in prr.state_html(st) and prr.state_html(None) == ''
+    stages, tb = prr.stage_table(PER9, PAINTED9)
+    s = {'label': 'T', 'n': 8, 'stopped': 4, 'stopped_by_stage': [], 'painted': 4, 'painted_final': {'ok': 1, 'soft': 3, 'refused': 0, 'missing': 0}, 'painted_strict': 0, 'frames': 4, 'cards': 8, 'errors': [], 'data_state': st}
+    assert 'данные на 12:34 (Лондон)' in prr.render_md(s, W)

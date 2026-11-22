@@ -34,6 +34,7 @@ import os
 import re
 import subprocess
 import sys
+import time
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, HERE)
@@ -55,6 +56,115 @@ STAGE_VERDICT = {'ok': 'прошёл', 'soft': 'прошёл с замечани
 def slug(name: str) -> str:
     s = re.sub(r'[^A-Za-z0-9]+', '-', name).strip('-')                # регистр сохраняем: /test/paint-e2eHD-1121-union/ (директор 22.11)
     return 'paint-' + (s or 'run')
+
+
+# ---------- метка свежести данных (директор 22.11): папка прогона ещё меняется, а страница её читает ----------
+FRESH_MIN = 10                                                            # папка менялась позже, чем N минут назад — прогон ещё идёт
+
+
+def _pid_alive(pid) -> bool:
+    try:
+        return os.path.exists(f'/proc/{int(pid)}')
+    except (TypeError, ValueError):
+        return False
+
+
+def heavy_jobs(runs: list, state_dir: str | None = None) -> list:
+    """Живые задания heavy-slot (держатели `holder*` и очередь `wait/*`), чья команда `cmd=` называет папку одного из прогонов. Файл состояния без живого процесса не считается. Возвращает метки заданий."""
+    d = os.path.expanduser(state_dir or os.environ.get('HEAVY_SLOT_DIR') or '~/.cache/remlab-heavy-slot')
+    files = []
+    try:
+        files += [os.path.join(d, f) for f in os.listdir(d) if f.startswith('holder')]
+        files += [os.path.join(d, 'wait', f) for f in os.listdir(os.path.join(d, 'wait'))]
+    except OSError:
+        return []
+    pats = [re.compile(re.escape(os.path.abspath(os.path.expanduser(r)).rstrip('/')) + r'(?=[/\s"\']|$)') for r in runs]
+    out = []
+    for f in files:
+        try:
+            kv = dict(ln.rstrip('\n').split('=', 1) for ln in open(f, encoding='utf-8') if '=' in ln)
+        except OSError:
+            continue
+        if _pid_alive(kv.get('pid')) and any(p.search(kv.get('cmd', '')) for p in pats):
+            out.append(kv.get('label') or os.path.basename(f))
+    return sorted(set(out))
+
+
+def last_change(runs: list) -> float:
+    """Самое позднее время изменения (mtime) любого файла/папки внутри прогона до глубины `<товар>/<этап>/файл` (по sku-папкам — как читает страница)."""
+    best = 0.0
+    for r in runs:
+        r = os.path.expanduser(r)
+        stack = [(r, 0)]
+        while stack:
+            p, lvl = stack.pop()
+            try:
+                best = max(best, os.stat(p).st_mtime)
+                if lvl < 3 and os.path.isdir(p):
+                    stack += [(os.path.join(p, n), lvl + 1) for n in os.listdir(p) if not (lvl >= 1 and n in ('work', 'stages'))]
+            except OSError:
+                pass
+    return best
+
+
+PROGRESS_STALE_MIN = 180                                                  # журнал пакета молчит дольше, и заданий нет — пакет считаем остановленным
+
+
+def progress_state(run: str, now: float) -> dict | None:
+    """Журнал пакета `<прогон>/progress.log` (T-176/2): строки `ГГГГ-ММ-ДД ЧЧ:ММ:СС старт|конец <товар> …` и `… ВСЁ, …`. Пакет не закончил, если ПОСЛЕДНЕЕ из событий (старт/конец/ВСЁ) — не «ВСЁ» (старые «ВСЁ» выше по журналу не в счёт). Нет журнала — None."""
+    from datetime import datetime
+    p = os.path.join(os.path.expanduser(run), 'progress.log')
+    try:
+        lines = [x.rstrip('\n') for x in open(p, encoding='utf-8') if x.strip()]
+    except OSError:
+        return None
+    ev = re.compile(r'^(\d{4}-\d\d-\d\d \d\d:\d\d:\d\d) (старт|конец|ВСЁ)\b\s*(\S*)')
+    last = next((m for m in (ev.match(x) for x in reversed(lines)) if m), None)
+    if not last:
+        return None
+    ts_last = None
+    for x in reversed(lines):
+        try:
+            ts_last = datetime.strptime(x[:19], '%Y-%m-%d %H:%M:%S').timestamp()           # время журнала — местное машины, где писали
+            break
+        except ValueError:
+            continue
+    ago = max(0, round((now - ts_last) / 60)) if ts_last else None
+    return {'run': os.path.basename(os.path.expanduser(run).rstrip('/')), 'event': last.group(2), 'product': last.group(3) if last.group(2) != 'ВСЁ' else '', 'unfinished': last.group(2) != 'ВСЁ', 'last_line_min_ago': ago, 'last_line_ts': ts_last}
+
+
+def run_state(runs: list, now: float | None = None, state_dir: str | None = None) -> dict:
+    """Метка данных: когда прочитаны (Лондон) и идёт ли прогон. Идёт = есть живые задания heavy-slot этого прогона ИЛИ пакет не закончил (журнал `progress.log`: последнее событие не «ВСЁ» и запись не старше PROGRESS_STALE_MIN) ИЛИ папка менялась < FRESH_MIN мин назад."""
+    from datetime import datetime
+    from zoneinfo import ZoneInfo
+    now = time.time() if now is None else now
+    jobs = heavy_jobs(runs, state_dir)
+    lc = last_change(runs)
+    ago = max(0, round((now - lc) / 60)) if lc else None
+    prog = [x for x in (progress_state(r, now) for r in runs) if x]
+    live_prog = [x for x in prog if x['unfinished'] and (x['last_line_min_ago'] is None or x['last_line_min_ago'] < PROGRESS_STALE_MIN)]
+    stuck = [x for x in prog if x['unfinished'] and x not in live_prog]
+    running = bool(jobs) or bool(live_prog) or (ago is not None and ago < FRESH_MIN)
+    tz = ZoneInfo('Europe/London')
+    at = datetime.fromtimestamp(now, tz).strftime('%H:%M')
+    why = []
+    if jobs:
+        why.append(f"заданий heavy-slot этого прогона: {len(jobs)} ({', '.join(jobs[:4])}{'…' if len(jobs) > 4 else ''})")
+    for x in live_prog:
+        t = datetime.fromtimestamp(x['last_line_ts'], tz).strftime('%H:%M') if x.get('last_line_ts') else '—'
+        why.append(f"пакет {x['run']} не закончен: последняя запись {t} «{x['event']}{(' ' + x['product']) if x['product'] else ''}»")
+    for x in stuck:
+        why.append(f"пакет {x['run']}: «ВСЁ» не писал, но молчит {x['last_line_min_ago']} мин")
+    if ago is not None:
+        why.append(f'папка менялась {ago} мин назад' if ago < 120 else 'папка не менялась больше двух часов')
+    text = f"данные на {at} (Лондон) · прогон " + ('ещё идёт — числа могут измениться' if running else 'закончен') + (f" ({'; '.join(why)})" if why else '')
+    return {'at': at, 'tz': 'Europe/London', 'running': running, 'jobs': jobs, 'progress': [{k: v for k, v in x.items() if k != 'last_line_ts'} for x in prog], 'last_change_min_ago': ago, 'text': text}
+
+
+def state_html(state: dict | None) -> str:
+    if not state:
+        return ''
+    return f"<div class='meta stamp' style='{'color:var(--soft);font-weight:600' if state['running'] else ''}'>{html.escape(state['text'])}</div>"
 
 
 # ---------- слова для владельца: названия этапов и фразы причин — из json рядом с правилами, не из кода ----------
@@ -168,6 +278,7 @@ def render_md(s: dict, W: dict | None = None) -> str:
     W = W or {}
     f = s['painted_final']
     out = [f"# Прогон покраски `{s['label']}` — сводка (автоматом, `paint_run_report.py`)", '',
+           (f"- **{s['data_state']['text']}**" if s.get('data_state') else '- данные: метка свежести не посчитана'),
            f"- **Вошло: {s['n']}**",
            f"- **Не дошли до готовой модели: {s['stopped']}**" + ('' if s['stopped'] else ' — нет')]
     for x in s['stopped_by_stage']:
@@ -387,7 +498,7 @@ def _card(c: dict, badge_class: str, badge: str, W: dict, caption: str, cap1: st
             + (f"<div class='why'>{e(why)}</div>" if why else '') + (f"<details><summary>подробно</summary>{e(detail)}</details>" if detail else '') + '</div>')
 
 
-def render_page(s: dict, cards: list, stopped_cards: list, title: str, W: dict | None = None, stage_links: dict | None = None) -> str:
+def render_page(s: dict, cards: list, stopped_cards: list, title: str, W: dict | None = None, stage_links: dict | None = None, state: dict | None = None) -> str:
     W = W or {}
     e = html.escape
     f = s['painted_final']
@@ -411,7 +522,7 @@ def render_page(s: dict, cards: list, stopped_cards: list, title: str, W: dict |
         fs = c.get('frame_stage')
         cap2 = (f"последний кадр: {stage_name(W, fs)} ({fs})" + (f" — {frame_caption(W, fs)}" if frame_caption(W, fs) else '')) if fs else 'кадра нет'
         stop.append(_card(c, 'refused', 'не дошёл до готовой модели', W, cap, 'фото товара', cap2, say(W, c['reason']), c['reason']))
-    return _head(title, f"<h1>{e(title)}</h1>{summ}{nav}<h2>Покрашенные: фото | наш 3D</h2>{''.join(body)}"
+    return _head(title, f"<h1>{e(title)}</h1>{state_html(state)}{summ}{nav}<h2>Покрашенные: фото | наш 3D</h2>{''.join(body)}"
                  + (f"<h2>Не дошли до готовой модели: фото | последний кадр</h2>{''.join(stop)}" if stop else ''))
 
 
@@ -531,7 +642,7 @@ def stage_cards(runof: dict, table: dict, stage: str, W: dict, out: str, photos:
 STAGE_WORDS = {'ok': 'прошёл', 'soft': 'прошёл с замечаниями', 'refused': 'встал', 'nodata': 'нет данных этапа', 'after': 'не дошёл'}
 
 
-def render_stage_page(s: dict, cards: list, stages: list, label: str, W: dict) -> str:
+def render_stage_page(s: dict, cards: list, stages: list, label: str, W: dict, state: dict | None = None) -> str:
     e = html.escape
     st = s['stage']
     pct = stage_pct(W, st)
@@ -553,10 +664,10 @@ def render_stage_page(s: dict, cards: list, stages: list, label: str, W: dict) -
             why = 'check.json этапа не записан, хотя товар шёл дальше'
         body.append(_card(c, 'missing' if c['status'] in ('after', 'nodata') else c['status'], STAGE_WORDS[c['status']], W, cap, 'фото товара', frame_caption(W, st) or f'после этапа {st[:2]}',
                           why, c['reason'] if c['status'] in ('refused', 'soft') else ''))
-    return _head(f'{label}: {cap}', f"<h1>{e(cap)}</h1><nav>{nav}</nav>{summ}{''.join(body)}")
+    return _head(f'{label}: {cap}', f"<h1>{e(cap)}</h1>{state_html(state)}<nav>{nav}</nav>{summ}{''.join(body)}")
 
 
-def stage_pages(per: dict, painted: set, runof: dict, out: str, W: dict, label: str, names: dict, photos: dict, partial: bool = False) -> tuple:
+def stage_pages(per: dict, painted: set, runof: dict, out: str, W: dict, label: str, names: dict, photos: dict, partial: bool = False, state: dict | None = None) -> tuple:
     """Страницы всех этапов набора в `<out>/<этап>/index.html`. Возвращает ({этап: сводка}, ошибки). Цепочка не сошлась — страницы НЕ строятся, вернутся только ошибки."""
     stages, table = stage_table(per, painted, partial)
     for sku in per:                                                  # у остановившегося — где встал (подпись у карточек «не дошёл»)
@@ -577,7 +688,7 @@ def stage_pages(per: dict, painted: set, runof: dict, out: str, W: dict, label: 
         errs += e
         s['no_frame'] = sums[st]['no_frame'] = sum(1 for c in cards if c['status'] in ('ok', 'soft', 'refused') and not c['frame'])
         os.makedirs(os.path.join(out, st), exist_ok=True)
-        open(os.path.join(out, st, 'index.html'), 'w', encoding='utf-8').write(render_stage_page(s, cards, stages, label, W))
+        open(os.path.join(out, st, 'index.html'), 'w', encoding='utf-8').write(render_stage_page(s, cards, stages, label, W, state))
     json.dump(sums, open(os.path.join(out, 'stages.json'), 'w', encoding='utf-8'), ensure_ascii=False, indent=1)
     return sums, errs
 
@@ -627,9 +738,11 @@ def report(runs: list, per_by_label: dict, out: str, repo: str, name: str | None
         stopped_cards.append({'sku': sku, 'name': names[sku], 'stop_stage': stg, 'reason': reasons.get(sku, ''), **sf[sku]})
     s['cards'] = len(cards) + len(stopped_cards)
     s['errors'] = verify(s) + extra
+    state = run_state(runs)                                          # метка свежести: когда прочитаны данные и идёт ли прогон
+    s['data_state'] = state
     stage_sums = {}
     if with_stages:                                                    # страницы по этапам: `<out>/<этап>/index.html` — фото | результат этапа по всем товарам набора
-        stage_sums, serrs = stage_pages(per, painted, runof, out, W, label, names, photos)
+        stage_sums, serrs = stage_pages(per, painted, runof, out, W, label, names, photos, state=state)
         s['errors'] += serrs
     s['stage_chain'] = {k: {x: y for x, y in v.items() if x != 'items'} for k, v in stage_sums.items()}
     open(os.path.join(out, 'summary.md'), 'w', encoding='utf-8').write(render_md(s, W))
@@ -637,7 +750,7 @@ def report(runs: list, per_by_label: dict, out: str, repo: str, name: str | None
     if s['errors']:                                                  # не сошлось — страница прогона не строится (вместо неё — причина), выкладка заблокирована
         open(os.path.join(out, 'index.html'), 'w', encoding='utf-8').write(_head('Страница не построена', '<h1>Страница не построена: сводка не сошлась</h1><ul>' + ''.join(f'<li>{html.escape(x)}</li>' for x in s['errors']) + '</ul>'))
     else:
-        open(os.path.join(out, 'index.html'), 'w', encoding='utf-8').write(render_page(s, cards, stopped_cards, f'Прогон покраски {label}', W, stage_sums))
+        open(os.path.join(out, 'index.html'), 'w', encoding='utf-8').write(render_page(s, cards, stopped_cards, f'Прогон покраски {label}', W, stage_sums, state))
     print(render_md(s, W))
     print(f'страница: {os.path.join(out, "index.html")}')
     if do_publish and not s['errors']:
@@ -789,15 +902,16 @@ def partial_report(run: str, stage_codes: list, out: str, repo: str, name: str, 
             if not photos.get(sku) and os.path.exists(q):
                 photos[sku] = q
     os.makedirs(out, exist_ok=True)
-    sums, errs = stage_pages(per, set(), runof, out, W, name, names, photos, partial=True)
+    state = run_state([run])
+    sums, errs = stage_pages(per, set(), runof, out, W, name, names, photos, partial=True, state=state)
     skipped = [pf_stage for pf_stage in _stages if pf_stage not in stage_codes]
     ch = ''.join(f"<li><a href='{e(k)}/'>{e(stage_name(W, k))}</a> <small>({e(k)})</small> — вошло {v['entered']}, прошло {v['ok']}, с замечаниями {v['soft']}, встало {v['refused']}" + (f", нет данных {v['nodata']}" if v['nodata'] else '') + f", не дошло {v['not_reached']}</li>" for k, v in sums.items())
-    body = (f"<h1>{e(name)}</h1><div class='sum'><div><b>Частичный путь:</b> здесь прогнаны только этапы {', '.join(e(c[:2]) for c in stage_codes)}; этапы {', '.join(e(c[:2]) for c in skipped)} в этом прогоне не запускались, поэтому «покрашено» не считается. Товаров в прогоне: {len(per)}.</div>"
+    body = (f"<h1>{e(name)}</h1>{state_html(state)}<div class='sum'><div><b>Частичный путь:</b> здесь прогнаны только этапы {', '.join(e(c[:2]) for c in stage_codes)}; этапы {', '.join(e(c[:2]) for c in skipped)} в этом прогоне не запускались, поэтому «покрашено» не считается. Товаров в прогоне: {len(per)}.</div>"
             f"<div>Правило цепочки: вошло в следующий этап = вошло − встало.</div></div><div class='sum'><b>По этапам</b><ul>{ch}</ul></div>")
     if errs:
         body = f"<h1>Страница не построена: сводка не сошлась</h1><ul>{''.join(f'<li>{e(x)}</li>' for x in errs)}</ul>"
     open(os.path.join(out, 'index.html'), 'w', encoding='utf-8').write(_head(name, body))
-    json.dump({'run': run, 'stages': stage_codes, 'n': len(per), 'chain': sums, 'errors': errs}, open(os.path.join(out, 'summary.json'), 'w', encoding='utf-8'), ensure_ascii=False, indent=1)
+    json.dump({'run': run, 'stages': stage_codes, 'n': len(per), 'data_state': state, 'chain': sums, 'errors': errs}, open(os.path.join(out, 'summary.json'), 'w', encoding='utf-8'), ensure_ascii=False, indent=1)
     for k, v in sums.items():
         print(f"{k}: вошло {v['entered']} · прошло {v['ok']} · с замечаниями {v['soft']} · встало {v['refused']} · нет данных {v['nodata']} · не дошло {v['not_reached']} · без кадра {v['no_frame']}")
     print('ОШИБКА СВОДКИ: ' + '; '.join(errs) if errs else 'Самопроверка сошлась.')
