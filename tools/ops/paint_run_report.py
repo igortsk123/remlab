@@ -182,7 +182,7 @@ def _load(repo: str, rel: str) -> dict:
 def load_words(repo: str) -> dict:
     """{'stages': {папка этапа: {name, pct}}, 'updated': …, 'phrases': [{has, say}]}. Нет файла — пусто: этап называется кодом, причина — своим текстом."""
     r = _load(repo, READINESS)
-    return {'stages': r.get('stages') or {}, 'updated': r.get('updated'), 'phrases': (_load(repo, REASONS).get('phrases') or [])}
+    return {'stages': r.get('stages') or {}, 'updated': r.get('updated'), 'phrases': (_load(repo, REASONS).get('phrases') or []), 'cutout': (_load(repo, REASONS).get('cutout') or {})}
 
 
 def stage_name(W: dict, code: str) -> str:
@@ -799,10 +799,23 @@ def cut_reason(r: dict) -> str:
     return '; '.join(bits)
 
 
-def cut_status(r: dict | None, has_file: bool) -> str:
-    """ok — вырезка есть и журнал чист; soft — есть, но фото маленькое / маска под вопросом; refused — сбой, коллаж, плохая маска или файла нет; missing — товара нет в журнале."""
+def small_side(r: dict, rules: dict | None) -> int | None:
+    """Мерка вырезки по правилу сторожа размера (`mesh_photo.check_size`, порог и «какая сторона» — из `rules/mesh-photo.json`): число px, если сторож её НЕ пропускает; иначе None. Своего порога здесь нет."""
+    if not rules or not r.get('cut_wh'):
+        return None
+    import mesh_photo as MP
+    good, _why = MP.check_size(list(r['cut_wh']), rules)
+    if good:
+        return None
+    return int(min(r['cut_wh']) if rules.get('measure', 'min') == 'min' else max(r['cut_wh']))
+
+
+def cut_status(r: dict | None, has_file: bool, rules: dict | None = None) -> str:
+    """ok — вырезка есть и журнал чист; soft — есть, но фото маленькое / маска под вопросом; small — вырезка хорошая, но фото магазина мало для формы (сторож размера; с `rules`); refused — сбой, коллаж, плохая маска или файла нет; missing — товара нет в журнале."""
     if r is None:
         return 'missing'
+    if has_file and small_side(r, rules) is not None and not r.get('hybrid_error') and r.get('mask_verdict') != 'bad' and r.get('verdict') != 'collage':
+        return 'small'                                                       # отказ только по размеру: сама вырезка не виновата
     if r.get('status') != 'ok' or not has_file or r.get('verdict') == 'collage' or r.get('mask_verdict') == 'bad':
         return 'refused'
     if r.get('verdict') not in (None, 'ok') or r.get('mask_verdict') not in (None, 'ok'):
@@ -810,22 +823,32 @@ def cut_status(r: dict | None, has_file: bool) -> str:
     return 'ok'
 
 
-def cutout_page(items: list, chain: dict, photos: str, cuts: str, out: str, W: dict, label: str, names: dict | None = None) -> tuple:
+def cutout_line(s: dict) -> str:
+    """Строка сводки этапа: вырезка есть (все) · годна для формы · фото мало; «не получилась» и «нет в журнале» — только если есть."""
+    return (f"<b>вырезка есть {s['made']}</b> · <b>годна для формы {s['fit']}</b> (чистая {s['ok']}, с замечаниями {s['soft']}) · <b>фото мало {s['small']}</b>"
+            + (f" · <b>не получилась {s['refused']}</b>" if s['refused'] else '') + (f" · нет в журнале {s['missing']}" if s['missing'] else ''))
+
+
+def cutout_page(items: list, chain: dict, photos: str, cuts: str, out: str, W: dict, label: str, names: dict | None = None, rules: dict | None = None) -> tuple:
     """Страница `<out>/index.html`: по каждому товару набора «исходное фото | вырезка» + сводка вошло/есть вырезка/нет. Возвращает (сводка, ошибки); самопроверка: сумма статусов = N, карточек = N."""
     e = html.escape
     d = os.path.join(out, 'img')
     os.makedirs(d, exist_ok=True)
     cards, errs = [], []
-    c = {'ok': 0, 'soft': 0, 'refused': 0, 'missing': 0}
+    c = {'ok': 0, 'soft': 0, 'small': 0, 'refused': 0, 'missing': 0}
+    CW = W.get('cutout') or {}
     for it in items:
         sku = it['id']
         r = chain.get(sku)
         sha = (r or {}).get('sha')
         cutf = os.path.join(cuts, f'{sha}.png') if sha else ''
-        st = cut_status(r, bool(sha) and os.path.exists(cutf))
+        st = cut_status(r, bool(sha) and os.path.exists(cutf), rules)
         c[st] += 1
         reason = cut_reason(r) if r is not None and st != 'ok' else ('нет в журнале вырезки — будет сделана заново' if r is None else '')
         card = {'sku': sku, 'name': (names or {}).get(sku) or it.get('name') or sku, 'status': st, 'reason': reason, 'foto': None, 'frame': None}
+        if st == 'small':                                                    # причина словами из paint-reasons.json (`cutout.small_reason`), число и порог — из мерки сторожа
+            card['why'] = (CW.get('small_reason') or 'фото магазина маленькое ({side} сторона {n} px, нужно ≥{thr}) — форму не делаем').format(
+                side=(CW.get('side_min') or 'меньшая') if rules.get('measure', 'min') == 'min' else (CW.get('side_long') or 'большая'), n=small_side(r, rules), thr=rules.get('min_cut_side_px'))
         for key, src, tag in (('foto', os.path.join(photos, f'{sha}.img') if sha else '', '1-foto'), ('frame', cutf, '2-cut')):
             if src and os.path.exists(src):
                 try:
@@ -835,7 +858,7 @@ def cutout_page(items: list, chain: dict, photos: str, cuts: str, out: str, W: d
                     errs.append(f'{sku}: {tag}: {type(ex).__name__}: {ex}')
         cards.append(card)
     n = len(items)
-    s = {'stage': 'cutout', 'n': n, 'ok': c['ok'], 'soft': c['soft'], 'refused': c['refused'], 'missing': c['missing'], 'made': c['ok'] + c['soft'], 'cards': len(cards), 'errors': errs}
+    s = {'stage': 'cutout', 'n': n, 'ok': c['ok'], 'soft': c['soft'], 'small': c['small'], 'refused': c['refused'], 'missing': c['missing'], 'made': c['ok'] + c['soft'] + c['small'], 'fit': c['ok'] + c['soft'], 'cards': len(cards), 'errors': errs}
     if sum(c.values()) != n:
         s['errors'].append(f'вырезка: сумма статусов {sum(c.values())} ≠ N {n}')
     if len(cards) != n:
@@ -843,10 +866,11 @@ def cutout_page(items: list, chain: dict, photos: str, cuts: str, out: str, W: d
     pct = stage_pct(W, 'cutout')
     cap = f"этап вырезка · {stage_name(W, 'cutout')} · готовность этапа " + (f'{pct} %' if pct is not None else 'не задана')
     legend = frame_caption(W, 'cutout')
-    summ = (f"<div class='sum'><div><b>вошло {n}</b> · <b>вырезка есть {s['made']}</b> (чистая {c['ok']}, с замечаниями {c['soft']}) · <b>не получилась {c['refused']}</b> · нет в журнале {c['missing']}</div>"
+    summ = (f"<div class='sum'><div><b>вошло {n}</b> · {cutout_line(s)}</div>"
             + (f"<div class='why'><b>На кадре:</b> {e(legend)}</div>" if legend else '') + (f"<div class='why'><b>ОШИБКА СВОДКИ:</b> {e('; '.join(s['errors']))}</div>" if s['errors'] else '') + '</div>')
-    words = {'ok': 'вырезка чистая', 'soft': 'вырезка с замечаниями', 'refused': 'вырезка не получилась', 'missing': 'нет в журнале'}
-    body = ''.join(_card(cd, cd['status'], words[cd['status']], W, cap, 'исходное фото', 'вырезка без фона', say(W, cd['reason']) if cd['reason'] else '', cd['reason']) for cd in cards)
+    words = {'ok': 'вырезка чистая', 'soft': 'вырезка с замечаниями', 'small': CW.get('small_label') or 'фото мало для формы', 'refused': 'вырезка не получилась', 'missing': 'нет в журнале'}
+    css = {'small': 'soft'}                                                  # жёлтая метка (как «с замечаниями»), не красная: вырезка хорошая
+    body = ''.join(_card(cd, css.get(cd['status'], cd['status']), words[cd['status']], W, cap, 'исходное фото', 'вырезка без фона', cd.get('why') or (say(W, cd['reason']) if cd['reason'] else ''), cd['reason']) for cd in cards)
     open(os.path.join(out, 'index.html'), 'w', encoding='utf-8').write(_head(f'{label}: {cap}', f"<h1>{e(cap)}</h1>{summ}{body}"))
     json.dump({k: v for k, v in s.items()}, open(os.path.join(out, 'summary.json'), 'w', encoding='utf-8'), ensure_ascii=False, indent=1)
     return s, s['errors']
@@ -876,8 +900,10 @@ def main_cutout(argv: list) -> int:
     name = a.name or ('cutout-' + os.path.splitext(os.path.basename(a.set))[0])
     out = os.path.expanduser(a.out or os.path.join(os.path.dirname(os.path.abspath(os.path.expanduser(a.set))), '_report-' + name))
     W = load_words(repo)
-    s, errs = cutout_page(items, read_chain(os.path.expanduser(chain_p)), photos, cuts, out, W, name)
-    print(f"вошло {s['n']} · вырезка есть {s['made']} (чистая {s['ok']}, с замечаниями {s['soft']}) · не получилась {s['refused']} · нет в журнале {s['missing']} · карточек {s['cards']}")
+    sys.path.insert(0, os.path.join(repo, 'tools', 'scout'))
+    import mesh_photo as MP                                                  # порог размера — из того же места, что сторож (rules/mesh-photo.json)
+    s, errs = cutout_page(items, read_chain(os.path.expanduser(chain_p)), photos, cuts, out, W, name, rules=MP.load_rules(os.path.join(repo, 'tools', 'scout', 'rules', 'mesh-photo.json')))
+    print(re.sub(r'</?b>', '', f"вошло {s['n']} · {cutout_line(s)} · карточек {s['cards']}"))
     print('ОШИБКА СВОДКИ: ' + '; '.join(errs) if errs else 'Самопроверка сошлась.')
     print(f'страница: {os.path.join(out, "index.html")}')
     if a.publish and not errs:

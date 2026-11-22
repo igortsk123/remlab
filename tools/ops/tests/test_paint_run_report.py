@@ -466,3 +466,39 @@ def test_cutout_v2_log_format(tmp_path):
     assert errs == [] and (s['n'], s['ok'], s['refused'], s['missing'], s['made'], s['cards']) == (3, 1, 2, 0, 1, 3)
     page = (tmp_path / 'o' / 'index.html').read_text(encoding='utf-8')
     assert 'слишком маленькой' in page and 'сторож размера: мелкая вырезка' in page and 'нет адреса фото' in page and 'status=refused' not in page
+
+
+def test_cutout_small_photo_status(tmp_path):
+    """Отказ только по размеру → жёлтый «фото мало для формы», а не «не получилась»; порог и сторона — из rules/mesh-photo.json через mesh_photo.check_size."""
+    import os
+    from PIL import Image
+    sys.path.insert(0, os.path.join(REPO, 'tools', 'scout'))
+    import mesh_photo as MP
+    rules = MP.load_rules(os.path.join(REPO, 'tools', 'scout', 'rules', 'mesh-photo.json'))
+    thr = rules['min_cut_side_px']
+    big = [thr + 300, thr + 100]
+    small = [thr - 12, thr - 100]                                              # большая сторона меньше порога при любой мерке
+    mk = lambda sku, wh, **kw: {'sku': sku, 'cut_wh': wh, 'hybrid_error': None, 'mask_verdict': 'ok', **kw}
+    rows = [mk('a_1', big),
+            mk('b_2', small, refused='сторож размера: вырезка'),
+            mk('c_3', small, refused='сторож размера: вырезка', mask_verdict='bad'),       # маска плохая — настоящий отказ, не «мало»
+            mk('d_4', big, refused='вырезка упала: RuntimeError: x')]
+    (tmp_path / 'photos').mkdir()
+    (tmp_path / 'cut').mkdir()
+    for r in rows[:3]:
+        Image.new('RGB', (30, 20), (9, 9, 9)).save(tmp_path / 'photos' / f"{r['sku']}.img", 'JPEG')
+        Image.new('RGBA', (30, 20), (200, 0, 0, 255)).save(tmp_path / 'cut' / f"{r['sku']}.png")
+    p = tmp_path / 'cut.jsonl'
+    p.write_text(''.join(json.dumps(r, ensure_ascii=False) + '\n' for r in rows), encoding='utf-8')
+    chain = prr.read_chain(str(p))
+    assert prr.cut_status(chain['b_2'], True) == 'refused'                      # без правил (старый вызов) — как раньше
+    assert [prr.cut_status(chain[k], True, rules) for k in ('a_1', 'b_2', 'c_3')] == ['ok', 'small', 'refused']
+    W = prr.load_words(REPO)
+    items = [{'id': k, 'name': f'Товар {k}'} for k in ('a_1', 'b_2', 'c_3', 'd_4')]
+    s, errs = prr.cutout_page(items, chain, str(tmp_path / 'photos'), str(tmp_path / 'cut'), str(tmp_path / 'o'), W, 'T', rules=rules)
+    assert errs == [] and (s['n'], s['ok'], s['small'], s['refused'], s['made'], s['fit'], s['cards']) == (4, 1, 1, 2, 2, 1, 4)
+    page = (tmp_path / 'o' / 'index.html').read_text(encoding='utf-8')
+    assert 'фото мало для формы' in page and f'нужно ≥{thr}' in page and 'форму не делаем' in page and 'годна для формы 1' in page and 'фото мало 1' in page
+    assert "badge soft'>фото мало для формы" in page and "badge refused'>вырезка не получилась" in page
+    side = max(small) if rules.get('measure', 'min') != 'min' else min(small)
+    assert f'сторона {side} px' in page and MP.check_size(small, rules)[0] is False and str(side) in MP.check_size(small, rules)[1]     # то же число, что в тексте сторожа
