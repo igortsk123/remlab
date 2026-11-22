@@ -2195,6 +2195,25 @@ def own_panel_tone_hook(geoms: list, tex_after: list, known: list, ut_g: list | 
         return tex_after, {'error': f'{type(e).__name__}: {e}'}
 
 
+def top_prior_hook(geoms: list, tex_after: list, known: list, parts, cfg: dict | None, draft_glb: str | None) -> tuple:
+    """Хук 07 (T-187/7; канон paint-photo-fill-01 строка 7: «верх — Ш3в»): невидимые тексели ВЕРХА (нормаль вверх, верхний уровень; `top & ~known`) красятся тоном `top_prior`, если его уверенность ≥ порога
+    (rules/top-prior.json → stage07.min_confidence), иначе верх остаётся как сделал 07 (донор / тон своей зоны). Идёт ПОСЛЕ own_panel_tone_hook и ДО front_on_back; known не меняется.
+    cfg: `top_card` (карточка: класс материала верха, размеры), `top_photo` (фото: контраст узора), `top_lib_raw` (папка со сканами бинов узора; нет — только тон). Сбой не роняет этап. → (текстуры, отчёт с `top_source`)."""
+    try:
+        import top_prior as TP
+        rules = TP.load_rules()
+        if not rules.get('stage07', {}).get('enabled', False):
+            return tex_after, {'top_source': 'as_before', 'applied': False, 'gate': 'stage07.enabled = false'}
+        c = cfg or {}
+        draft = draft_texels(geoms, TC.load_geoms(draft_glb), None) if draft_glb and os.path.isfile(draft_glb) else None
+        lib = c.get('top_lib_raw')
+        out, rep = TP.stage07(geoms, tex_after, known, parts, c.get('part_role'), draft, c.get('top_card'), c.get('top_photo'), rules, library_dir=lib)
+        rep['pattern'] = 'library' if (lib and os.path.isdir(lib) and rep.get('library')) else 'tone_only'
+        return out, rep
+    except Exception as e:  # noqa: BLE001
+        return tex_after, {'top_source': 'as_before', 'applied': False, 'error': f'{type(e).__name__}: {e}'}
+
+
 def apply_ref_zone_map(geoms: list, tex_after: list, known: list, cfg: dict | None, force: bool = False) -> tuple:
     """Хук Ш8м (за флагом): `texture = different` для (зона, сторона) → невидимые тексели пары теряют фактуру, остаётся тон. Идёт ПОСЛЕ заливки, значит зеркало и trellis_relief
     обойти `different` не могут; фото-тексели (known) не меняются. Флаг выкл. (rules/ref-zone.json) или карты нет — текстуры как были. → (текстуры, {'applied', 'texels_detextured'})."""
@@ -2281,6 +2300,8 @@ def run_stage_once(run: str, sku: str, glb: str, known: list | None = None, part
         _ug = TC.load_geoms(ut_glb)
         ut_g = _ug if RZ_same_mesh(geoms, _ug) else None
     tex_after, rep['own_panel'] = own_panel_tone_hook(geoms, tex_after, known, ut_g, parts, front_axis_of_check(_chk6), float(th['front_on_back_corr'][1]))
+    tex_after, rep['top_prior'] = top_prior_hook(geoms, tex_after, known, parts, cfg, None if relief_src == 'ultratex' else draft_glb)
+    rep['top_source'] = rep['top_prior'].get('top_source')
     rep['front_on_back'] = front_on_back_corr(geoms, tex_after, front_axis_of_check(_chk6))
     kchg = known_changed_share(known, tex_before, tex_after, RULES['known_change_de'])
     rep['known_changed'] = kchg
@@ -2409,6 +2430,9 @@ def main(argv: list | None = None) -> int:
     ap.add_argument("--cfg", default=None)
     ap.add_argument("--no-mirror", action="store_true")
     ap.add_argument("--ut-glb", default=None, help="UltraTex-меш на НАШЕЙ форме (тот же V, F): донор невидимых панелей по оттенку и фактуре; нет — тон своей зоны")
+    ap.add_argument("--card-json", default=None, help="карточка товара JSON ({role, name, <характеристики>}): класс материала верха для top_prior (нет — без слова карточки)")
+    ap.add_argument("--photo", default=None, help="фото каталога (RGBA/белый фон): контраст узора верха; нет — запасной коэффициент")
+    ap.add_argument("--top-lib-raw", default=None, help="папка со сканами бинов узора верха (<бин>/diff.jpg); нет — верх красится только тоном")
     a = ap.parse_args(argv)
     base = os.path.join(a.run, PS.safe_name(a.sku))
     visible = a.visible or os.path.join(base, "06-visible")
@@ -2420,6 +2444,12 @@ def main(argv: list | None = None) -> int:
         ap.error(f"rules/paint-fill.json: zones_from={zones_from!r}, ожидалось parts или panels")
     parts_npz = None if (a.no_parts_npz or (zones_from == "panels" and not a.parts_npz)) else (a.parts_npz or (default_npz if os.path.exists(default_npz) else None))      # --no-parts-npz: этап 3 отказал — parts.npz не брать, части по геометрии (+ сироты); явный --parts-npz сильнее флага
     cfg = dict({"erode_known": 0}, **(json.loads(a.cfg) if a.cfg else {}))      # вход этапа 6: маска «взято с фото» уже честная
+    if a.card_json:
+        cfg["top_card"] = json.loads(a.card_json)
+    if a.photo:
+        cfg["top_photo"] = a.photo
+    if a.top_lib_raw:
+        cfg["top_lib_raw"] = a.top_lib_raw
     try:
         r = run_stage(a.run, a.sku, os.path.join(visible, "visible.glb"), known=load_known_png(visible) or None, cfg=cfg, mirror=not a.no_mirror, ut_glb=a.ut_glb, parts_npz=parts_npz, prev_dir=visible)
     except Exception as e:                                                       # noqa: BLE001 — сбой запуска: в check.json, не молча

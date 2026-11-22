@@ -1430,8 +1430,58 @@ def test_render_low():
     ok(ctr[0] > ctr[2], 'снизу ближняя к камере плита (низ, красная) закрывает верхнюю (синюю)', str(ctr))
 
 
+def _top_scene(top_known_rgb=None):
+    """Стол: вертикальный фасад (известный, «дерево») и горизонтальная плита верха; верх на фото не виден (или виден левой половиной цветом top_known_rgb)."""
+    q = Quads()
+    q.quad([[-0.5, 0, 0], [0.5, 0, 0], [0.5, 1, 0], [-0.5, 1, 0]], (0, 0, 1.0, .9), sub=16)                    # фасад
+    q.quad([[-0.5, 1, 0], [0.5, 1, 0], [0.5, 1, -0.5], [-0.5, 1, -0.5]], (0, .92, 1.0, 1.0), sub=16)          # верх (нормаль вверх)
+    tex = np.zeros((T, T, 3), np.uint8)
+    paint(tex, (0, 0, 1.0, .9), [170, 110, 60])
+    paint(tex, (0, .92, 1.0, 1.0), [90, 90, 90])                                                              # «как залил 07» — серый
+    kn = tile_mask((0, 0, 1.0, .9))
+    if top_known_rgb is not None:
+        paint(tex, (0, .92, 1.0, 1.0), top_known_rgb, sub=0.5)
+        kn = kn | tile_mask((0, .92, 1.0, 1.0), sub=0.5)
+    return q.geom(tex), tex, kn
+
+
+def test_top_prior_hook():
+    print('верх по Ш3в в этапе 07 (T-187/7): класс, порог уверенности, известное не трогаем, арбитр по фото верха:')
+    import copy
+    import top_prior as TP
+    card = {'role': 'стол обеденный', 'name': 'Стол обеденный из массива дуба', 'Материал столешницы': 'массив дуба'}
+    g, tex, kn = _top_scene()
+    cfg = {'top_card': card}
+    out, rep = TF.top_prior_hook([g], [tex.copy()], [kn], None, cfg, None)
+    top_px = tile_mask((0, .92, 1.0, 1.0))
+    ok(rep.get('applied') is True and rep['top_source'] == 'same_part_inference' and rep['texels_changed'] > 1000, f'дерево + голос фасада → верх покрашен, top_source={rep.get("top_source")}', str(rep)[:300])
+    ok(np.array_equal(out[0][kn], tex[kn]), 'известные тексели не изменились (known — на нуле)')
+    ch = (out[0] != tex).any(-1)
+    ok(not (ch & ~top_px).any(), 'изменились только тексели верха')
+    ph = rep.get('hidden_after_lab')
+    ok(ph is not None and ph[0] > 45 and ph[1] > 5, f'верх теплее и светлее серого заливки (Lab {ph}) — тон фасада дерева')
+    o2, r2 = TF.top_prior_hook([g], [tex.copy()], [kn], None, {}, None)
+    ok(r2['top_source'] == 'as_before' and not r2['applied'] and np.array_equal(o2[0], tex), f'нет карточки (класс неизвестен) — как делал 07: {r2.get("gate")}')
+    o3, r3 = TF.top_prior_hook([g], [tex.copy()], [kn], None, {'top_card': {'role': 'диван', 'name': 'Диван', 'Материал обивки': 'велюр'}}, None)
+    ok(r3['top_source'] == 'as_before' and np.array_equal(o3[0], tex), f'ткань/не дерево — как делал 07: {r3.get("gate")}')
+    r_ = copy.deepcopy(TP.load_rules())
+    r_['stage07']['min_confidence'] = 'high'
+    ok(TP.stage07_gate({'tone_lab': [60, 10, 28], 'confidence': 'medium', 'card_class': {'group': 'library', 'class': 'wood_solid'}}, r_)[0] is False, 'порог high: medium не проходит')
+    ok(TP.stage07_gate({'tone_lab': [60, 10, 28], 'confidence': 'high', 'card_class': {'group': 'library', 'class': 'wood_solid'}}, r_)[0] is True, 'порог high: high проходит')
+    r_['stage07']['enabled'] = False
+    ok(TP.stage07_gate({'tone_lab': [60, 10, 28], 'confidence': 'high', 'card_class': {'group': 'library'}}, r_)[0] is False, 'stage07.enabled=false — правило выключено')
+    g2, tex2, kn2 = _top_scene(top_known_rgb=[60, 90, 200])                                                    # половина верха видна на фото и она СИНЯЯ — гипотеза Ш3в от неё далеко
+    out4, rep4 = TF.top_prior_hook([g2], [tex2.copy()], [kn2], None, cfg, None)
+    ok(rep4.get('rejected_by_photo') is True and not rep4['applied'] and rep4['top_source'] == 'as_before' and np.array_equal(out4[0], tex2), f'верх виден на фото и Ш3в дальше от него — оставлено как есть: {rep4.get("gate")}')
+    ok(rep4['photo_top_n'] >= 50, f'видимых текселей верха {rep4["photo_top_n"]}')
+    g3, tex3, kn3 = _top_scene()
+    ok(TF.top_prior_hook([g3], [tex3.copy()], [kn3], None, {'top_card': card}, None)[1]['top_source'] != 'photo_top', 'верх целиком невидим: источник не photo_top')
+    allk = [np.ones_like(kn)]
+    ok(TF.top_prior_hook([g3], [tex3.copy()], allk, None, cfg, None)[1]['top_source'] == 'photo_top', 'весь верх с фото — top_source=photo_top, красить нечего')
+
+
 def main() -> int:
-    for f in (test_mirror_off_by_default, test_shrink_layout, test_tie_picks_front_on_back, test_front_on_back, test_color, test_photo, test_parts, test_lighter_than_photo, test_no_known_part, test_mirror, test_texture, test_gutter_render, test_seam_steps_concavity, test_diffuse_quilt_far, test_draft_source, test_tone_mode_pattern, test_quilt_efros, test_quilt_holes, test_known_unchanged, test_render_pattern, test_outlier_blocks, test_dark_fabric, test_trellis_relief, test_part_roles_from_stage3, test_stage7_side_tone_smooth_rules, test_tone_from_neighbour, test_nail_twins, test_borrow_donors, test_tone_only, test_part_pattern_single_truth, test_pr_camera_and_winding, test_hidden_visible, test_stage6_gate, test_cli_run_stage, test_orphan_parts, test_cli_parts_flags, test_zones_fallback, test_run_stage_fallback, test_render_low):
+    for f in (test_top_prior_hook, test_mirror_off_by_default, test_shrink_layout, test_tie_picks_front_on_back, test_front_on_back, test_color, test_photo, test_parts, test_lighter_than_photo, test_no_known_part, test_mirror, test_texture, test_gutter_render, test_seam_steps_concavity, test_diffuse_quilt_far, test_draft_source, test_tone_mode_pattern, test_quilt_efros, test_quilt_holes, test_known_unchanged, test_render_pattern, test_outlier_blocks, test_dark_fabric, test_trellis_relief, test_part_roles_from_stage3, test_stage7_side_tone_smooth_rules, test_tone_from_neighbour, test_nail_twins, test_borrow_donors, test_tone_only, test_part_pattern_single_truth, test_pr_camera_and_winding, test_hidden_visible, test_stage6_gate, test_cli_run_stage, test_orphan_parts, test_cli_parts_flags, test_zones_fallback, test_run_stage_fallback, test_render_low):
         f()
     print(f'tests_tex_fill: ошибок {bad}')
     return 1 if bad else 0

@@ -314,18 +314,11 @@ def analyze(run_dir: str, card: dict | None, rules: dict | None = None, filled_g
     import tex_coverage as TC
     import tex_fill as TF
     rules = rules or load_rules()
-    cfg, dcfg = dict(rules['geometry']), rules['decision']
-    dims = card_dims(card)
-    if dims['thickness_cm'] and dims['length_cm']:
-        cfg['edge_band'] = max(cfg['edge_band_min'], min(cfg['edge_band'], cfg['edge_band_k'] * dims['thickness_cm'] / dims['length_cm']))
     vis = os.path.join(run_dir, '06-visible', 'visible.glb')
     geoms = TC.load_geoms(vis)
     known, known_src = _real_known(run_dir, len(geoms))
     if known is None:                                                         # нет known.png: только геометрическая видимость с запасных ракурсов — на невидимом верху это заливка, не фото (урок Киннера 21.11)
         known, known_src = TF.known_from_photo(geoms), 'geometry_only'
-    ctr, size = TF.frame_of(geoms)
-    offs = np.cumsum([0] + [len(g['V']) for g in geoms])
-    P = (np.concatenate([np.asarray(g['V'], np.float64) for g in geoms]) - ctr) / size
     roles = {}
     pj = os.path.join(run_dir, '03-parts', 'parts.json')
     if os.path.exists(pj):
@@ -337,6 +330,21 @@ def analyze(run_dir: str, card: dict | None, rules: dict | None = None, filled_g
     dg = os.path.join(run_dir, '01-trellis', 'model.glb')
     if os.path.exists(dg):
         draft = TF.draft_texels(geoms, TC.load_geoms(dg), None)
+    return analyze_data(geoms, known, known_src, parts, roles, draft, card, rules, photo)
+
+
+def analyze_data(geoms: list, known: list, known_src: str, parts, roles: dict, draft, card: dict | None, rules: dict, photo: str | None = None) -> dict:
+    """Голоса и решение по данным в памяти (без чтения папки прогона): `analyze` и этап 07 (`stage07`) зовут одно и то же. parts — части граней по геометриям | None; roles — {id части: роль};
+    draft — `tex_fill.draft_texels` (родной цвет TRELLIS) | None."""
+    import tex_coverage as TC
+    import tex_fill as TF
+    cfg, dcfg = dict(rules['geometry']), rules['decision']
+    dims = card_dims(card)
+    if dims['thickness_cm'] and dims['length_cm']:
+        cfg['edge_band'] = max(cfg['edge_band_min'], min(cfg['edge_band'], cfg['edge_band_k'] * dims['thickness_cm'] / dims['length_cm']))
+    ctr, size = TF.frame_of(geoms)
+    offs = np.cumsum([0] + [len(g['V']) for g in geoms])
+    P = (np.concatenate([np.asarray(g['V'], np.float64) for g in geoms]) - ctr) / size
     bg_lab = np.asarray(TC.rgb2lab(np.asarray([rules['background_rgb']], np.uint8)))[0]
     E, PL, TR, OV, top_all, texs = [], [], [], [], [], []
     RIM = []
@@ -496,6 +504,86 @@ def hypothesis_textures(an: dict, rules: dict, base_texs: list, length_cm: float
         flat[idx, :3] = rgb
         out[t['gi']] = flat.reshape(img.shape)
     return out
+
+
+# ---------------------------------------------------------------- этап 07: верх по Ш3в ----------------------------
+CONF_RANK = {'none': 0, 'low': 1, 'medium': 2, 'high': 3}
+
+
+def stage07_gate(res: dict, rules: dict) -> tuple:
+    """Правило на ВСЕ товары (T-187/7): верх красим тоном Ш3в, если решение дало тон и его уверенность ≥ `stage07.min_confidence` (rules/top-prior.json); иначе верх остаётся как есть
+    (донор / тон своей зоны этапа 07). → (применять, причина). Чистая функция."""
+    S = rules.get('stage07', {})
+    if not S.get('enabled', False):
+        return False, 'stage07.enabled = false'
+    if res.get('tone_lab') is None:
+        return False, f"тона нет ({res.get('type')}: {res.get('reason')})"
+    grp = (res.get('card_class') or {}).get('group')
+    if grp not in S.get('groups', ['library', 'decor']):
+        return False, f"класс верха по карточке «{(res.get('card_class') or {}).get('class')}» (группа {grp}) — Ш3в только для дерева/декора под дерево"
+    need = S.get('min_confidence', 'medium')
+    if CONF_RANK.get(res.get('confidence'), 0) < CONF_RANK[need]:
+        return False, f"уверенность {res.get('confidence')} < {need}"
+    return True, f"уверенность {res.get('confidence')} ≥ {need}"
+
+
+def _top_tones(an: dict, texs: list, tag: str) -> dict:
+    """Мерка «было→стало» по верху (в отчёт 07): медиана Lab ВИДИМЫХ с фото текселей верха (`photo_top_lab`, n) и невидимых (`hidden_<tag>_lab`); dE00 невидимого к видимому — `hidden_<tag>_dE_to_photo`
+    (видимых текселей верха мало — читателю смотреть `photo_top_n`)."""
+    import tex_coverage as TC
+    ph, hid = [], []
+    for t in an['top_all']:
+        img = np.asarray(texs[t['gi']])
+        flat = img.reshape(-1, img.shape[-1])[:, :3]
+        lab = TC.rgb2lab(flat[t['tx'].ti][t['top']].astype(np.uint8))
+        kn = t['kn'][t['top']]
+        ph.append(lab[kn])
+        hid.append(lab[~kn])
+    ph, hid = (np.concatenate(x) if x else np.zeros((0, 3)) for x in (ph, hid))
+    out = {'photo_top_n': int(len(ph)), 'photo_top_lab': None if not len(ph) else [round(float(x), 1) for x in np.median(ph, axis=0)],
+           f'hidden_{tag}_lab': None if not len(hid) else [round(float(x), 1) for x in np.median(hid, axis=0)]}
+    if len(ph) and len(hid):
+        out[f'hidden_{tag}_dE_to_photo'] = round(_de(np.median(hid, axis=0), np.median(ph, axis=0)), 1)
+    return out
+
+
+def stage07(geoms: list, tex_after: list, known: list, parts, roles: dict | None, draft, card: dict | None = None, photo: str | None = None, rules: dict | None = None,
+            library_dir: str | None = None) -> tuple:
+    """Хук этапа 07 (T-187/7; канон paint-photo-fill-01, строка 7: «верх — Ш3в»). Верх (горизонтальная плита, нормаль вверх) — только тексели, которых нет на фото (`top & ~known`; known не меняется).
+    → (текстуры, отчёт). Отчёт: `top_source` — photo_top (весь верх с фото) | no_top (верха нет) | same_part_inference | trellis_prior | as_before (уверенности нет — как делал 07) и поля решения."""
+    import tex_coverage as TC  # noqa: F401
+    rules = rules or load_rules()
+    an = analyze_data(geoms, known, 'stage07', parts, roles or {}, draft, card, rules, photo)
+    res = an['report']
+    n_top = int(sum(int(t['top'].sum()) for t in an['top_all']))
+    n_hid = int(sum(int((t['top'] & ~t['kn']).sum()) for t in an['top_all']))
+    rep = {'top_source': 'as_before', 'applied': False, 'min_confidence': rules.get('stage07', {}).get('min_confidence'), 'source': res.get('source'), 'type': res.get('type'),
+           'confidence': res.get('confidence'), 'tone_lab': res.get('tone_lab'), 'reason': res.get('reason'), 'route': res.get('route'), 'n_top': n_top, 'n_top_hidden': n_hid,
+           'texels_changed': 0, 'top_class': {k: (res.get('card_class') or {}).get(k) for k in ('class', 'group')}, 'library': (res.get('library') or {}).get('bin'), 'other_material_hint': res.get('other_material_hint')}
+    rep.update(_top_tones(an, tex_after, 'before'))
+    if n_top == 0:
+        rep['top_source'] = 'no_top'
+        return [np.asarray(t) for t in tex_after], rep
+    if n_hid == 0:
+        rep['top_source'] = 'photo_top'
+        return [np.asarray(t) for t in tex_after], rep
+    ok, why = stage07_gate(res, rules)
+    rep['gate'] = why
+    if not ok:
+        return [np.asarray(t) for t in tex_after], rep
+    r2 = dict(rules, retint_native=bool(rules.get('stage07', {}).get('retint_native', False)), unknown_policy='keep')
+    lib = library_dir if library_dir is not None else os.path.join(ROOT, os.path.dirname(rules['library']), 'raw')
+    out = hypothesis_textures(an, r2, [np.asarray(t) for t in tex_after], rules['fallback_length_cm'], lib if os.path.isdir(lib) else None)
+    ta = _top_tones(an, out, 'after')
+    S = rules.get('stage07', {})
+    db, da = rep.get('hidden_before_dE_to_photo'), ta.get('hidden_after_dE_to_photo')
+    if rep['photo_top_n'] >= S.get('min_photo_top', 50) and db is not None and da is not None and da > db + S.get('photo_worse_de00', 0.0):
+        rep.update(gate=f'верх виден на фото ({rep["photo_top_n"]} тексел.): Ш3в дальше от фото (ΔE00 {da} > {db}) — оставлено как есть', hidden_after_dE_to_photo=da, rejected_by_photo=True)
+        return [np.asarray(t) for t in tex_after], rep
+    rep.update(ta)
+    ch = int(sum(int((np.asarray(o)[..., :3] != np.asarray(b)[..., :3]).any(axis=-1).sum()) for o, b in zip(out, tex_after)))
+    rep.update(applied=True, top_source=res['source'], texels_changed=ch, pattern_amp=res.get('pattern_amp'), applied_note=res.get('applied'))
+    return out, rep
 
 
 def render_pair(geoms, before, after, path: str, elevation: float = 55.0, azimuth: float = 0.0, res: int = 720) -> None:
