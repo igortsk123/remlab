@@ -716,6 +716,159 @@ def ultratex_full(geoms: list, tex_after: list, known: list, ut_geoms: list, par
     return out, rep
 
 
+def own_panel_tone(geoms: list, tex_after: list, known: list, ut_geoms: list | None, parts: list | None) -> tuple:
+    """Невидимые панели (T-187/6, владелец 22.11 TG 1737/1741/1744): зеркала и чужого квилта нет. Панель, у которой фото закрывает меньше `min_known` текселей, — «невидимая».
+    Для неё среди ВИДИМЫХ панелей ищется донор по UltraTex (тот же меш, та же поза): тот же ОТТЕНОК (ΔE по a,b медиан UltraTex ≤ `donor_hue_de`) И та же ФАКТУРА (σ детали L−низкий пас σ `full.sigma`,
+    отношение в пределах `donor_tex_ratio`, обе ниже `full.photo_floor` — «гладкое/гладкое»); светлота L не сравнивается (свой свет и тени UltraTex).
+      • донор нашёлся → невидимые тексели = наш тон И наши куски (квилт из блоков ФОТО донора); разница светлоты UltraTex не переносится;
+      • донора нет → тон своей зоны (медиана текущей заливки панели) + суть UltraTex (ΔL как в `ultratex_full`, нет UltraTex — плоский тон).
+    Фото-тексели не меняются. → (текстуры, отчёт {'panels': {id: {...}}, 'texels_changed', 'hidden', 'with_donor'})."""
+    import cv2
+    import tex_coverage as TC
+    import tex_fill as TF
+    O = dict({'enabled': True, 'min_known': 0.05, 'min_visible_texels': 200, 'min_hidden_texels': 300, 'donor_hue_de': 6.0, 'donor_tex_ratio': 1.6, 'quilt_block': 16, 'quilt_cells': 6,
+              'quilt_overlap': 4, 'quilt_pool': 300, 'quilt_tries': 40, 'ut_detail': True, 'max_panels': 80, 'seed': 7}, **R.get('own_panel', {}))
+    FU = dict({'sigma': 12.0, 'clip': 35.0, 'photo_floor': 0.8}, **R.get('full', {}))
+    out, rep = [], {'panels': {}, 'texels_changed': 0, 'hidden': 0, 'with_donor': 0}
+    if not O['enabled']:
+        return [np.asarray(t, np.uint8) for t in tex_after], dict(rep, off=True)
+
+    def lab_of(rgb):
+        return cv2.cvtColor(np.asarray(rgb, np.uint8).astype(np.float32) / 255.0, cv2.COLOR_RGB2Lab)
+
+    def panel_map(geo, pa, T):
+        xy = np.stack([geo['UV'][:, 0] * T, (1.0 - geo['UV'][:, 1]) * T], 1)
+        fid, _ = TC.raster(xy, geo['F'], T)
+        fid = fid.reshape(T, T)
+        return np.where(fid >= 0, pa[np.maximum(fid, 0)], -1)
+
+    def groups_of(pmap):
+        flat = pmap.ravel()
+        occ = np.flatnonzero(flat >= 0)
+        order = occ[np.argsort(flat[occ], kind='stable')]
+        ids, starts = np.unique(flat[order], return_index=True)
+        return dict(zip(ids.tolist(), np.split(order, starts[1:])))
+
+    def crop(idx, T, pad):
+        r, c = idx // T, idx % T
+        y0, y1, x0, x1 = max(int(r.min()) - pad, 0), min(int(r.max()) + pad + 1, T), max(int(c.min()) - pad, 0), min(int(c.max()) + pad + 1, T)
+        m = np.zeros((y1 - y0, x1 - x0), bool)
+        m[r - y0, c - x0] = True
+        return y0, y1, x0, x1, m
+
+    def detail(Lflat, idx, T):
+        """ΔL = L − маскированный низкий пас по панели (σ full.sigma) на текселях idx; → (det по idx, σ det)."""
+        y0, y1, x0, x1, m = crop(idx, T, int(3 * FU['sigma']))
+        Lc = Lflat.reshape(T, T)[y0:y1, x0:x1].astype(np.float32)
+        det = Lc - _nconv(Lc, m, FU['sigma'])
+        r, c = idx // T, idx % T
+        d = det[r - y0, c - x0]
+        return d, float(d.std())
+
+    for gi, g in enumerate(geoms):
+        tex = np.asarray(tex_after[gi], np.uint8)
+        T = int(tex.shape[0])
+        pa = panel_ids(np.asarray(g['V'], np.float64), np.asarray(g['F']), None if parts is None else parts[gi])
+        grp = groups_of(panel_map(g, pa, T))
+        kn = np.asarray(known[gi], bool).ravel()
+        lab = lab_of(tex).reshape(-1, 3)
+        rgb = tex.reshape(-1, 3)
+        lu, ugrp = None, {}
+        if ut_geoms is not None:
+            ut = np.asarray(ut_geoms[gi]['tex'])[..., :3]
+            ut = np.clip(ut, 0, 255).astype(np.uint8) if ut.dtype != np.uint8 else ut
+            if ut.shape[0] != T:
+                ut = cv2.resize(ut, (T, T), interpolation=cv2.INTER_AREA)
+            lu = lab_of(ut).reshape(-1, 3)
+            ugrp = groups_of(panel_map(ut_geoms[gi], pa, T))
+        big = sorted(grp, key=lambda k: -len(grp[k]))[: int(O['max_panels'])]
+        vis, hid = [], []
+        for k in big:
+            idx = grp[k]
+            nk = int(kn[idx].sum())
+            if nk >= O['min_visible_texels'] and nk >= O['min_known'] * len(idx):
+                vis.append(k)
+            elif len(idx) >= O['min_hidden_texels']:
+                hid.append(k)
+        ustat = {}
+        if lu is not None:
+            for k in set(vis) | set(hid):
+                if k in ugrp:
+                    ustat[k] = (np.median(lu[ugrp[k]], axis=0), detail(lu[:, 0], ugrp[k], T)[1])
+        photo_med = {k: np.median(lab[grp[k][kn[grp[k]]]], axis=0) for k in vis}
+        newlab, newrgb = lab.copy(), None
+        paint = {}
+        rng = np.random.RandomState(int(O['seed']))
+        for k in hid:
+            idx = grp[k]
+            sel = idx[~kn[idx]]
+            if not len(sel):
+                continue
+            info = {'texels': int(len(sel)), 'tone_before': [round(float(x), 1) for x in np.median(lab[sel], axis=0)]}
+            best = hue_only = None
+            if k in ustat:
+                uh, sh = ustat[k]
+                for v in vis:
+                    if v not in ustat:
+                        continue
+                    uv_, sv = ustat[v]
+                    de = float(np.hypot(uh[1] - uv_[1], uh[2] - uv_[2]))
+                    if de > O['donor_hue_de']:
+                        continue
+                    a_, b_ = max(sh, FU['photo_floor']), max(sv, FU['photo_floor'])
+                    ratio = a_ / b_
+                    same_tex = (sh < FU['photo_floor'] and sv < FU['photo_floor']) or (1.0 / O['donor_tex_ratio'] <= ratio <= O['donor_tex_ratio'])
+                    if same_tex:
+                        if best is None or de < best[1]:
+                            best = (v, de, ratio)
+                    elif hue_only is None or de < hue_only[1]:
+                        hue_only = (v, de, ratio)
+            if best is not None:
+                v = best[0]
+                dm = np.zeros((T, T), bool)
+                dm.ravel()[grp[v][kn[grp[v]]]] = True
+                B = int(O['quilt_block'])
+                frac = cv2.boxFilter(dm.astype(np.float32), -1, (B, B), normalize=True, borderType=cv2.BORDER_CONSTANT)
+                ys, xs = np.nonzero(frac[B // 2:T - B // 2 + 1:B // 2, B // 2:T - B // 2 + 1:B // 2] > 0.999)
+                pool = [tex[y * (B // 2):y * (B // 2) + B, x * (B // 2):x * (B // 2) + B] for y, x in zip(ys, xs)]
+                info.update({'tone_from': 'donor', 'donor_panel': int(v), 'hue_dE_ab': round(best[1], 2), 'tex_ratio': round(best[2], 2), 'donor_blocks': len(pool)})
+                rep['with_donor'] += 1
+                if len(pool) >= 4:
+                    if len(pool) > O['quilt_pool']:
+                        pool = [pool[i] for i in rng.choice(len(pool), int(O['quilt_pool']), replace=False)]
+                    q = TF.wrap_soften(TF.quilt_image(np.stack(pool).astype(np.float64), int(O['quilt_cells']), int(O['quilt_overlap']), rng, int(O['quilt_tries'])))
+                    S = q.shape[0]
+                    paint[k] = (sel, np.clip(q[(sel // T) % S, (sel % T) % S] + 0.5, 0, 255).astype(np.uint8))
+                    info['texture'] = 'куски донора (квилт)'
+                else:
+                    newlab[sel] = photo_med[v]
+                    info['texture'] = 'плоский тон донора (мало блоков)'
+            else:
+                tone = np.median(lab[sel], axis=0)
+                newlab[sel] = tone
+                info.update({'tone_from': 'own', 'why': 'нет UltraTex' if k not in ustat else ('оттенок совпал, фактура нет' if hue_only else 'нет панели того же оттенка')})
+                if hue_only:
+                    info.update({'hue_only_panel': int(hue_only[0]), 'hue_dE_ab': round(hue_only[1], 2), 'tex_ratio': round(hue_only[2], 2)})
+                if O['ut_detail'] and lu is not None and k in ugrp:
+                    d, _ = detail(lu[:, 0], ugrp[k], T)                          # суть UltraTex на месте: тот же шаг, что в каноне (тексель в тексель — тот же меш и раскладка)
+                    dm_ = np.zeros(T * T, np.float32)
+                    dm_[ugrp[k]] = np.clip(d, -FU['clip'], FU['clip'])
+                    newlab[sel, 0] += dm_[sel]
+                    info['texture'] = 'суть UltraTex (ΔL)'
+                else:
+                    info['texture'] = 'плоский'
+            info['tone_after'] = [round(float(x), 1) for x in np.median(newlab[sel], axis=0)]
+            rep['panels'][int(k)] = info
+            rep['hidden'] += 1
+            rep['texels_changed'] += int(len(sel))
+        res = np.clip(cv2.cvtColor(newlab.reshape(T, T, 3).astype(np.float32), cv2.COLOR_Lab2RGB) * 255.0 + 0.5, 0, 255).astype(np.uint8).reshape(-1, 3)
+        for k, (sel, px) in paint.items():
+            res[sel] = px
+        res[kn] = rgb[kn]
+        out.append(res.reshape(T, T, 3))
+    return out, rep
+
+
 # ── 07: карта зона×сторона×свойство (за флагом, по умолчанию выкл.) ───────────────────────────────────────────────────
 def apply_to_fill(geoms: list, tex_after: list, known: list, face_zone: np.ndarray, face_side: np.ndarray, amap: dict, offs: list) -> tuple:
     """`texture = different` для (зона, сторона грани) → на НЕВИДИМЫХ текселях этой пары остаётся только тон: цвет заменяется маскированным низким пасом (σ 12 px карты). Идёт ПОСЛЕ любой заливки — зеркало и рельеф обойти не могут;

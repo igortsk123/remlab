@@ -965,9 +965,12 @@ def fill(geoms: list, known: list, parts: list | None = None, cfg: dict | None =
     out_lab = [lb.copy() for lb in labs]
     done = [k.copy() for k in kn]                  # известное или уже залитое зеркалом/геодезией (источник дальнейших шагов)
     mirrored = [np.zeros_like(k) for k in kn]
-    sym = symmetry(txs, kn, c['mirror_eps'], c['sample'], c['mirror_cos']) if mirror else {'axis': None, 'score': 0.0, 'planes': {}}
+    mirror_on = bool(mirror) and bool(RULES.get('mirror_enabled', False))           # зеркала в пути 07 нет (rules/paint-fill.json: mirror_enabled=false); тон невидимого — донор по UltraTex (ref_zone)
+    sym = symmetry(txs, kn, c['mirror_eps'], c['sample'], c['mirror_cos']) if mirror_on else {'axis': None, 'score': 0.0, 'planes': {}}
     rep['mirror'] = {'axis': sym['axis'], 'score': sym['score'], 'planes': sym['planes'], 'applied': False, 'texels': 0}
-    if mirror and sym['axis'] is not None and sym['score'] >= c['mirror_min_score']:
+    if mirror and not mirror_on:
+        rep['mirror']['off'] = 'rules mirror_enabled=false'
+    if mirror_on and sym['axis'] is not None and sym['score'] >= c['mirror_min_score']:
         R = np.ones(3)
         R[sym['axis']] = -1
         rep['mirror']['applied'] = True
@@ -1600,7 +1603,7 @@ def load_rules(path: str | None = None) -> dict:
     for k in ('quilt_extreme', 'mirror_extreme'):
         if 'black_rel' not in r[k]:
             raise KeyError(f'rules/paint-fill.json: {k}.black_rel не задан')
-    for k in ('pool_rejected_pct', 'empty_pct', 'dE00_front_back', 'dL_front_back', 'filled_faces_step_pct', 'far_excess_pct', 'known_changed_share_pct', 'time_s'):
+    for k in ('pool_rejected_pct', 'empty_pct', 'dE00_front_back', 'dL_front_back', 'filled_faces_step_pct', 'far_excess_pct', 'known_changed_share_pct', 'time_s', 'front_on_back_corr'):
         if k not in r['thresholds']:
             raise KeyError(f'rules/paint-fill.json: threshold {k!r} не задан')
     return r
@@ -2031,6 +2034,60 @@ def known_changed_share(known: list, before: list, after: list, de_min: float) -
     return {'share_pct': round(100.0 * chg / max(tot, 1), 4), 'known': tot, 'changed': chg}
 
 
+def front_axis_of_check(chk) -> tuple | None:
+    """(ось 0|2, знак) «перёд» формы по азимуту камеры этапа 4 из check.json этапа 6 (`extra.camera.az`): камера смотрит вдоль −(sin az, cos az) в (x, z); перёд — ось с бо́льшей долей, знак — сторона камеры.
+    Нет позы → None. Это ТОЛЬКО для автопроверки «перёд на заду» (сверка); источник оси «перёд» для сайта — модуль ориентации (orient_worker)."""
+    cam = ((chk or {}).get('extra') or {}).get('camera') or {}
+    if 'az' not in cam:
+        return None
+    a = np.radians(float(cam['az']))
+    sx, cz = float(np.sin(a)), float(np.cos(a))
+    return (0, 1 if sx >= 0 else -1) if abs(sx) > abs(cz) else (2, 1 if cz >= 0 else -1)
+
+
+def front_on_back_corr(geoms: list, tex_list: list, front: tuple | None, eps_frac: float = 0.02, min_pairs: int = 200, min_std: float = 2.0) -> dict:
+    """Автопроверка «перёд скопирован на зад» (T-187/6): пары граней ЗАДА и их зеркальных двойников на ПЕРЕДЕ (отражение через центр по оси «перёд»); корреляция яркости текстуры в центрах граней.
+    Нормаль берётся без знака (обмотка мешей TRELLIS не согласована), сторона — по положению центра грани. Гладкие (σ < `min_std`) или мало пар — corr None (не измерено).
+    → {'corr', 'pairs', 'axis'}."""
+    from scipy.spatial import cKDTree
+    if front is None:
+        return {'corr': None, 'pairs': 0, 'axis': None, 'why': 'нет позы камеры'}
+    axis, sign = front
+    Lf, Lb = [], []
+    for g, tex in zip(geoms, tex_list):
+        V, F, UV = np.asarray(g['V'], np.float64), np.asarray(g['F'], np.int64), np.asarray(g['UV'], np.float64)
+        tri = V[F]
+        n = np.cross(tri[:, 1] - tri[:, 0], tri[:, 2] - tri[:, 0])
+        n /= np.maximum(np.linalg.norm(n, axis=1), 1e-30)[:, None]
+        cen = tri.mean(1)
+        ctr = 0.5 * (V.min(0) + V.max(0))
+        half = max(0.5 * float(np.ptp(V[:, axis])), 1e-9)
+        pos = (cen[:, axis] - ctr[axis]) * sign
+        diag = float(np.linalg.norm(V.max(0) - V.min(0)))
+        fr = (np.abs(n[:, axis]) > 0.7) & (pos > 0.6 * half)
+        bk = (np.abs(n[:, axis]) > 0.7) & (pos < -0.6 * half)
+        if not fr.any() or not bk.any():
+            continue
+        T = int(np.asarray(tex).shape[0])
+        uvc = UV[F].mean(1)
+        px = np.clip((uvc[:, 0] * T).astype(int), 0, T - 1)
+        py = np.clip(((1.0 - uvc[:, 1]) * T).astype(int), 0, T - 1)
+        lum = np.asarray(tex, np.float64)[py, px, :3].mean(1)
+        bi, fi = np.flatnonzero(bk), np.flatnonzero(fr)
+        refl = cen[bi].copy()
+        refl[:, axis] = 2 * ctr[axis] - refl[:, axis]
+        d, j = cKDTree(cen[fi]).query(refl, k=1, distance_upper_bound=eps_frac * diag)
+        okp = np.isfinite(d)
+        Lb.append(lum[bi][okp])
+        Lf.append(lum[fi[j[okp]]])
+    if not Lb:
+        return {'corr': None, 'pairs': 0, 'axis': axis, 'why': 'нет пар зад↔перёд'}
+    lb, lf = np.concatenate(Lb), np.concatenate(Lf)
+    if len(lb) < min_pairs or lb.std() < min_std or lf.std() < min_std:
+        return {'corr': None, 'pairs': int(len(lb)), 'axis': axis, 'why': 'мало пар или гладко'}
+    return {'corr': round(float(np.corrcoef(lb, lf)[0, 1]), 3), 'pairs': int(len(lb)), 'axis': axis}
+
+
 def stage6_gate(prev_dir: str):
     """Можно ли заливать: по `check.json` и выходу этапа 6 (`06-visible`). Отказ: нет check.json, камера этапа 4 не прошла (`extra.camera_failed` / `camera_gate`='failed'), этап пометил отказ (`extra.refused`), нет `visible.glb`.
     Мягкий провал этапа 6 (passed=false по меркам, но выход есть — например `needs_qwen`) не отказ: заливка идёт, провал записывается в check.json (`stage6`). → (отказ, причина, {'passed', 'reason', 'soft_fail'})."""
@@ -2064,6 +2121,20 @@ def pick_relief_draft(geoms: list, draft_glb: str | None, ut_glb: str | None, so
             return ut_glb, 'ultratex', 'тот же меш'
         return draft_glb, ('trellis' if draft_glb else None), 'UltraTex-меш другой: ' + str(sm.get('why'))
     return draft_glb, ('trellis' if draft_glb else None), 'правило texture_source=trellis'
+
+
+def RZ_same_mesh(a: list, b: list) -> bool:
+    import ref_zone as RZ
+    return bool(RZ.same_mesh(a, b).get('same'))
+
+
+def own_panel_tone_hook(geoms: list, tex_after: list, known: list, ut_g: list | None, parts) -> tuple:
+    """Хук 07 (T-187/6): невидимые панели — донор по оттенку+фактуре UltraTex (тон и куски фото донора) или тон своей зоны + суть UltraTex; чужого квилта нет (ref_zone.own_panel_tone). Сбой не роняет этап."""
+    import ref_zone as RZ
+    try:
+        return RZ.own_panel_tone(geoms, tex_after, known, ut_g, parts)
+    except Exception as e:  # noqa: BLE001
+        return tex_after, {'error': f'{type(e).__name__}: {e}'}
 
 
 def apply_ref_zone_map(geoms: list, tex_after: list, known: list, cfg: dict | None, force: bool = False) -> tuple:
@@ -2147,6 +2218,12 @@ def run_stage(run: str, sku: str, glb: str, known: list | None = None, parts=Non
     rep, tex_after, de, big, de_worst = pick['rep'], pick['tex'], pick['de'], pick['big'], pick['de_worst']
     tex_after, rep['ref_zone_map'] = apply_ref_zone_map(geoms, tex_after, known, cfg)
     rep['relief_source'] = relief_src
+    ut_g = None
+    if ut_glb and os.path.isfile(ut_glb):
+        _ug = TC.load_geoms(ut_glb)
+        ut_g = _ug if RZ_same_mesh(geoms, _ug) else None
+    tex_after, rep['own_panel'] = own_panel_tone_hook(geoms, tex_after, known, ut_g, parts)
+    rep['front_on_back'] = front_on_back_corr(geoms, tex_after, front_axis_of_check(_chk6))
     kchg = known_changed_share(known, tex_before, tex_after, RULES['known_change_de'])
     rep['known_changed'] = kchg
     try:                                                          # мерка узора — только отчёт (порог по трудным — позже), сбой её не роняет этап
@@ -2169,9 +2246,10 @@ def run_stage(run: str, sku: str, glb: str, known: list | None = None, parts=Non
         'known_changed_share_pct': {'value': kchg['share_pct'], 'threshold': th['known_changed_share_pct'][1], 'op': th['known_changed_share_pct'][0]},
         'pool_rejected_pct': {'value': round(100.0 * max(rep.get('quilt_rejected_share', {}).values(), default=0.0), 1), 'threshold': th['pool_rejected_pct'][1], 'op': th['pool_rejected_pct'][0]},     # мягкий провал: больше половины пула блоков отбраковано правилом — образец беден, запасной режим (плитка) вместо квилта
         'time_s': {'value': round(secs, 1), 'threshold': th['time_s'][1], 'op': th['time_s'][0]},
+        'front_on_back_corr': {'value': rep['front_on_back']['corr'], 'threshold': th['front_on_back_corr'][1], 'op': th['front_on_back_corr'][0]},      # перёд на заду (T-187/6): не измерено (None) — не провал
     }
-    for m in metrics.values():
-        m['ok'] = PS.judge(m['value'], m['op'], m['threshold'])
+    for k_, m in metrics.items():
+        m['ok'] = True if (k_ == 'front_on_back_corr' and m['value'] is None) else PS.judge(m['value'], m['op'], m['threshold'])
     if draft is not None:
         rep['draft_transfer'] = draft['report']
     report = {'report': rep, 'deltaE_by_part': de, 'big_parts': big, 'parts_note': parts_note, 'part_class_note': pc_note, 'empty_before_pct': rep['unpainted_before_pct']}

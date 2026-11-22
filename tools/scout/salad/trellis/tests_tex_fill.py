@@ -209,8 +209,60 @@ def test_no_known_part():
 
 
 # ------------------------------------------------------------------ зеркало
+def test_mirror_off_by_default():
+    print('зеркала в пути 07 нет по умолчанию (TG 1737):')
+    q = Quads()
+    q.quad([[-1, 0, 0], [-1, 0, 1], [-1, 1, 1], [-1, 1, 0]], (0, 0, .5, .5), sub=24)
+    q.quad([[1, 0, 1], [1, 0, 0], [1, 1, 0], [1, 1, 1]], (.5, 0, 1, .5), sub=24)
+    tex = np.full((T, T, 3), 100, np.uint8)
+    ml = tile_mask((0, 0, .5, .5))
+    tex[ml] = (200, 60, 60)
+    g = q.geom(tex)
+    out = TF.fill([g], [ml], None, cfg={'gutter': 0, 'erode_known': 0}, mirror=True)
+    rm = out['report']['mirror']
+    ok(not rm['applied'] and rm.get('off') == 'rules mirror_enabled=false' and rm['texels'] == 0, f'mirror=True при правиле mirror_enabled=false: зеркало не применено ({rm.get("off")})')
+
+
+def test_front_on_back():
+    print('автопроверка «перёд на заду» (коробка с двумя симметриями, ручки на лице):')
+    rng = np.random.default_rng(5)
+    q = Quads()
+    q.quad([[-1, 0, 1], [1, 0, 1], [1, 1, 1], [-1, 1, 1]], (0, 0, .5, .5), sub=24)       # перёд z=+1
+    q.quad([[-1, 0, -1], [1, 0, -1], [1, 1, -1], [-1, 1, -1]], (.5, 0, 1, .5), sub=24)     # зад z=−1, те же (x, y)
+    q.quad([[-1, 0, -1], [-1, 0, 1], [-1, 1, 1], [-1, 1, -1]], (0, .5, .5, 1), sub=24)     # левый бок
+    q.quad([[1, 0, 1], [1, 0, -1], [1, 1, -1], [1, 1, 1]], (.5, .5, 1, 1), sub=24)         # правый бок
+    mf, mb = tile_mask((0, 0, .5, .5)), tile_mask((.5, 0, 1, .5))
+    handles = np.full((T, T), 120.0)
+    for (y0, y1, x0, x1) in ((6, 12, 6, 26), (6, 12, 38, 58), (18, 24, 6, 26), (18, 24, 38, 58)):
+        handles[y0:y1, x0:x1] = 235.0                                                       # «ручки/щели» на лице
+    handles += rng.normal(0, 3, handles.shape)
+    t_copy = np.repeat(np.clip(handles, 0, 255)[..., None], 3, 2).astype(np.uint8)
+    t_copy = np.where(mb[..., None], np.roll(t_copy, (0, -T // 2), axis=(0, 1)) if False else t_copy, t_copy)
+    tex_copy = np.full((T, T, 3), 100, np.uint8)
+    tex_copy[mf] = t_copy[mf]
+    tex_copy[mb] = np.roll(np.roll(t_copy, T // 2, axis=1), 0, axis=0)[mb]                # зад = копия лица (тот же узор, сдвиг тайла)
+    g = q.geom(tex_copy)
+    r_bad = TF.front_on_back_corr([g], [tex_copy], (2, 1))
+    ok(r_bad['corr'] is not None and r_bad['corr'] > 0.8, f'перёд скопирован на зад → корреляция высокая ({r_bad["corr"]}, пар {r_bad["pairs"]})')
+    tex_ok = tex_copy.copy()
+    tex_ok[mb] = np.repeat(np.clip(120 + rng.normal(0, 3, (T, T)), 0, 255)[..., None], 3, 2).astype(np.uint8)[mb]       # зад: гладкий тон, без ручек
+    r_ok = TF.front_on_back_corr([g], [tex_ok], (2, 1))
+    ok(r_ok['corr'] is None or r_ok['corr'] < 0.3, f'зад без ручек → корреляции нет ({r_ok["corr"]}: {r_ok.get("why", "измерено")})')
+    ok(TF.front_on_back_corr([g], [tex_copy], None)['corr'] is None, 'нет позы камеры → не измерено (None), не провал')
+    ok(TF.front_axis_of_check({'extra': {'camera': {'az': 160.0}}}) == (2, -1) and TF.front_axis_of_check({'extra': {'camera': {'az': 55.0}}}) == (0, 1) and TF.front_axis_of_check({}) is None, 'ось «перёд» по азимуту: az160 → (z, −), az55 → (x, +), нет позы → None')
+
+
 def test_mirror():
-    print('зеркало симметричного предмета:')
+    print('зеркало симметричного предмета (механизм жив при mirror_enabled=true; по умолчанию выкл.):')
+    _was = TF.RULES.get('mirror_enabled')
+    TF.RULES['mirror_enabled'] = True
+    try:
+        _test_mirror_body()
+    finally:
+        TF.RULES['mirror_enabled'] = _was
+
+
+def _test_mirror_body():
     q = Quads()
     left = [[-1, 0, 0], [-1, 0, 1], [-1, 1, 1], [-1, 1, 0]]
     right = [[1, 0, 1], [1, 0, 0], [1, 1, 0], [1, 1, 1]]
@@ -1006,6 +1058,15 @@ def test_hidden_visible():
 
 
 def test_dark_fabric():
+    _was = TF.RULES.get("mirror_enabled")
+    TF.RULES["mirror_enabled"] = True                          # механизм зеркала жив под правилом; по умолчанию в 07 выкл.
+    try:
+        _test_dark_fabric_body()
+    finally:
+        TF.RULES["mirror_enabled"] = _was
+
+
+def _test_dark_fabric_body():
     print("тёмная ткань (тон L≈15): чёрный порог относительный к тону — блоки пула и двойники зеркала не вымываются целиком (T-164, диван 114082):")
     rng = np.random.RandomState(5)
     qe, me = TF.RULES["quilt_extreme"], TF.RULES["mirror_extreme"]
@@ -1230,7 +1291,7 @@ def test_render_low():
 
 
 def main() -> int:
-    for f in (test_color, test_photo, test_parts, test_lighter_than_photo, test_no_known_part, test_mirror, test_texture, test_gutter_render, test_seam_steps_concavity, test_diffuse_quilt_far, test_draft_source, test_tone_mode_pattern, test_quilt_efros, test_quilt_holes, test_known_unchanged, test_render_pattern, test_outlier_blocks, test_dark_fabric, test_trellis_relief, test_part_roles_from_stage3, test_stage7_side_tone_smooth_rules, test_tone_from_neighbour, test_nail_twins, test_borrow_donors, test_tone_only, test_part_pattern_single_truth, test_pr_camera_and_winding, test_hidden_visible, test_stage6_gate, test_cli_run_stage, test_orphan_parts, test_cli_parts_flags, test_run_stage_fallback, test_render_low):
+    for f in (test_mirror_off_by_default, test_front_on_back, test_color, test_photo, test_parts, test_lighter_than_photo, test_no_known_part, test_mirror, test_texture, test_gutter_render, test_seam_steps_concavity, test_diffuse_quilt_far, test_draft_source, test_tone_mode_pattern, test_quilt_efros, test_quilt_holes, test_known_unchanged, test_render_pattern, test_outlier_blocks, test_dark_fabric, test_trellis_relief, test_part_roles_from_stage3, test_stage7_side_tone_smooth_rules, test_tone_from_neighbour, test_nail_twins, test_borrow_donors, test_tone_only, test_part_pattern_single_truth, test_pr_camera_and_winding, test_hidden_visible, test_stage6_gate, test_cli_run_stage, test_orphan_parts, test_cli_parts_flags, test_run_stage_fallback, test_render_low):
         f()
     print(f'tests_tex_fill: ошибок {bad}')
     return 1 if bad else 0

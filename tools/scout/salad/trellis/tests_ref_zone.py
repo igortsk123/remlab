@@ -334,8 +334,80 @@ def test_ultratex_full():
     ok(rep2['risky_parts'] == [] and rep2['parts'][0]['ratio'] < 2.0, f'на фото та же рябь — риска нет (ratio {rep2["parts"][0]["ratio"]})')
 
 
+def box_uv_geom(T: int = 192):
+    """Коробка `box()` с UV: у каждой из 6 сторон свой тайл сетки 3×2. → геометрия, сторона граней, маски тайлов."""
+    V, F, side = box()
+    names = ['front', 'back', 'right', 'left', 'top', 'bottom']
+    axis_of = {'front': 2, 'back': 2, 'right': 0, 'left': 0, 'top': 1, 'bottom': 1}
+    UV = np.zeros((len(V), 2))
+    lo, hi = V.min(0), V.max(0)
+    for fi, f in enumerate(F):
+        ti = names.index(side[fi])
+        cx, cy = ti % 3, ti // 3
+        ax = [a for a in range(3) if a != axis_of[side[fi]]]
+        for vi in f:
+            u = (V[vi, ax[0]] - lo[ax[0]]) / (hi[ax[0]] - lo[ax[0]])
+            v = (V[vi, ax[1]] - lo[ax[1]]) / (hi[ax[1]] - lo[ax[1]])
+            UV[vi] = [(cx + 0.05 + 0.9 * u) / 3.0, 1.0 - (cy + 0.05 + 0.9 * (1.0 - v)) / 2.0]
+    masks = {}
+    for ti, n in enumerate(names):
+        m = np.zeros((T, T), bool)
+        cx, cy = ti % 3, ti // 3
+        m[cy * T // 2 + 6:(cy + 1) * T // 2 - 6, cx * T // 3 + 6:(cx + 1) * T // 3 - 6] = True
+        masks[n] = m
+    return {'V': V, 'F': F, 'UV': UV}, side, masks
+
+
+def test_own_panel_tone():
+    print('невидимые панели: донор по оттенку И фактуре UltraTex (L не сравнивается) — тон и куски фото донора; нет донора — своя зона + суть UltraTex:')
+    sys.path[:0] = [os.path.join(HERE, '..'), os.path.join(HERE, '..', '..')]
+    import cv2
+    T = 192
+    g, side, mk = box_uv_geom(T)
+    rng = np.random.default_rng(7)
+
+    def tile(l, a, b, sd):
+        lab = np.stack([np.clip(l + rng.normal(0, sd, (T, T)), 0, 100), np.full((T, T), a), np.full((T, T), b)], -1).astype(np.float32)
+        return np.clip(cv2.cvtColor(lab, cv2.COLOR_Lab2RGB) * 255 + 0.5, 0, 255).astype(np.uint8)
+
+    photo = tile(50, 0, 0, 0)
+    noisy = tile(50, 0, 0, 10)                                       # чужая фактура от заливки на невидимом
+    wood = tile(55, 14, 30, 6)
+    photo[mk['front']] = wood[mk['front']]
+    for n in ('back', 'right', 'left', 'top', 'bottom'):
+        photo[mk[n]] = noisy[mk[n]]
+    ut = tile(50, 0, 0, 0)
+    ut[mk['front']] = tile(60, 14, 30, 6)[mk['front']]                # перёд: дерево с зерном
+    ut[mk['right']] = tile(35, 15, 28, 6)[mk['right']]                # правый: тот же оттенок и зерно, но темнее (свет UltraTex) — донор
+    ut[mk['left']] = tile(60, 15, 28, 0)[mk['left']]                  # левый: оттенок тот же, гладкий — фактура не совпала
+    ut[mk['back']] = tile(50, -10, -35, 0)[mk['back']]                # зад: синий — оттенка нет
+    known = [mk['front']]
+    out, rep = RZ.own_panel_tone([dict(g, tex=photo)], [photo], known, [dict(g, tex=ut)], None)
+    o = out[0]
+    lab_o = cv2.cvtColor(o.astype(np.float32) / 255.0, cv2.COLOR_RGB2Lab)
+    lw = cv2.cvtColor(wood.astype(np.float32) / 255.0, cv2.COLOR_RGB2Lab)[mk['front']].mean(0)
+    ok((o[mk['front']] == photo[mk['front']]).all(), 'фото-тексели (фасад) не изменились')
+    r = lab_o[mk['right']]
+    ok(np.abs(r.reshape(-1, 3).mean(0) - lw).max() < 4.0 and 3.0 < r[..., 0].std() < 9.0, f'правый (оттенок и фактура совпали) = тон и зерно фасада с фото (L {r[..., 0].mean():.0f}, фасад {lw[0]:.0f}; σ L {r[..., 0].std():.1f}); тёмность UltraTex не перенесена')
+    lf = lab_o[mk['left']]
+    ok(abs(lf[..., 0].mean() - 50) < 3 and lf[..., 0].std() < 2.0 and abs(lf[..., 1].mean()) < 3, f'левый (оттенок совпал, фактура нет) — тон своей зоны (серый), дерево не берёт и шум заливки снят (σ L {lf[..., 0].std():.1f})')
+    bk = lab_o[mk['back']]
+    ok(abs(bk[..., 0].mean() - 50) < 3 and bk[..., 0].std() < 2.0 and abs(bk[..., 1].mean()) < 3 and abs(bk[..., 2].mean()) < 3, 'зад (оттенка нет) — тон своей зоны без шума и без фактуры фасада')
+    pr = rep['panels']
+    don = [v for v in pr.values() if v['tone_from'] == 'donor']
+    own_hue = [v for v in pr.values() if v.get('hue_only_panel') is not None]
+    ok(len(don) == 1 and don[0]['hue_dE_ab'] < 4.0 and don[0]['texture'] == 'куски донора (квилт)', f'в отчёте один донор (панелей с донором {len(don)}), с ΔE_ab {don[0]["hue_dE_ab"] if don else None}')
+    ok(len(own_hue) == 1 and own_hue[0]['why'] == 'оттенок совпал, фактура нет', 'в отчёте левый: оттенок совпал, фактура нет')
+    out2, rep2 = RZ.own_panel_tone([dict(g, tex=photo)], [photo], known, None, None)
+    ok(rep2['with_donor'] == 0 and all(v['tone_from'] == 'own' and v['why'] == 'нет UltraTex' for v in rep2['panels'].values()), 'нет UltraTex — у всех тон своей зоны')
+    ut_rough = ut.copy()
+    ut_rough[mk['back']] = tile(50, -10, -35, 8)[mk['back']]
+    out4, rep4 = RZ.own_panel_tone([dict(g, tex=photo)], [photo], known, [dict(g, tex=ut_rough)], None)
+    ok(cv2.cvtColor(out4[0].astype(np.float32) / 255.0, cv2.COLOR_RGB2Lab)[..., 0][mk['back']].std() > 4.0, 'нет донора, но у UltraTex на заду есть зерно — суть UltraTex на месте (ΔL)')
+
+
 def main():
-    for f in (test_same_mesh, test_decide, test_gate_per_property, test_propagate, test_object_basis, test_inconsistent_winding, test_outer_only, test_panel_with_bottom, test_panels, test_apply_to_fill, test_relief_source, test_ultratex_full):
+    for f in (test_own_panel_tone, test_same_mesh, test_decide, test_gate_per_property, test_propagate, test_object_basis, test_inconsistent_winding, test_outer_only, test_panel_with_bottom, test_panels, test_apply_to_fill, test_relief_source, test_ultratex_full):
         f()
     print(f'tests_ref_zone: ошибок {len(FAILS)}')
     return 1 if FAILS else 0
