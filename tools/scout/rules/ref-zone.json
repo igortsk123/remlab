@@ -9,5 +9,5 @@
   "coherence_min": 0.4, "direction_same_deg": 20.0, "direction_diff_deg": 45.0,
   "uniform_same_dL": 2.5, "uniform_diff_dL": 6.0,
   "photo_texture_ratio": [0.5, 2.0], "photo_scale_ratio": [0.6, 1.7], "photo_direction_deg": 25.0, "photo_uniform_dL": 4.0,
-  "seg_k_max": 4, "seg_merge_dE": 10.0, "seg_min_share": 0.02, "face_vote_min_px": 2, "face_vote_agree": 0.7, "max_dihedral_deg": 100.0, "conflict_ratio": 1.1, "panel_deg": 15, "panel_side_cos": 0.6, "panel_purity": 0.9, "sym_eps": 0.015, "sym_min": 0.8, "disputed_max_share": 0.5, "win_good_share": 0.85, "win_zone_share": 0.9, "weld_eps": 1e-5
+  "seg_k_max": 4, "seg_merge_dE": 10.0, "seg_min_share": 0.02, "face_vote_min_px": 2, "face_vote_agree": 0.7, "max_dihedral_deg": 100.0, "conflict_ratio": 1.1, "panel_deg": 15, "panel_side_cos": 0.6, "panel_purity": 0.9, "panel_outer": 0.75, "sym_eps": 0.015, "sym_min": 0.8, "disputed_max_share": 0.5, "win_good_share": 0.85, "win_zone_share": 0.9, "weld_eps": 1e-5
 }

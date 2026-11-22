@@ -183,6 +183,21 @@ def test_inconsistent_winding():
     ok((sd[side == 'front'] == -1).all() and (sd[side == 'back'] == 0).all(), 'стороны лицо/зад по положению, не по знаку нормали')
 
 
+def test_outer_only():
+    print('сторона — только у внешнего края (стенки рельефа на лице ≠ бок):')
+    V, F, side = box()
+    sd = RZ.face_sides(V, F, BASIS)
+    ok((sd[side == 'left'] == 2).all() and (sd[side == 'right'] == 1).all(), 'настоящие боковые грани — бок')
+    # стенка внутри: вертикальная грань в середине лицевой плоскости, нормаль вдоль x
+    Vi = np.array([[0.0, -0.2, 0.5], [0.0, 0.2, 0.5], [0.0, 0.2, 0.3]], np.float64)
+    Fi = np.array([[0, 1, 2]], np.int32)
+    Vc = np.vstack([V, Vi])
+    Fc = np.vstack([F, Fi + len(V)])
+    sc = RZ.face_sides(Vc, Fc, BASIS)
+    ok(sc[-1] == -2, 'стенка рельефа с нормалью вбок у центра габарита → не бок (−2)')
+    ok((sc[:-1] == sd).all(), 'остальные грани не изменились')
+
+
 def test_panels():
     print('зоны по панелям (Б): метки в панели, симметрия бока, зад от боков, остальное unknown:')
     V, F, side = box()
@@ -298,7 +313,7 @@ def test_ultratex_full():
 
 
 def main():
-    for f in (test_same_mesh, test_decide, test_gate_per_property, test_propagate, test_object_basis, test_inconsistent_winding, test_panels, test_apply_to_fill, test_relief_source, test_ultratex_full):
+    for f in (test_same_mesh, test_decide, test_gate_per_property, test_propagate, test_object_basis, test_inconsistent_winding, test_outer_only, test_panels, test_apply_to_fill, test_relief_source, test_ultratex_full):
         f()
     print(f'tests_ref_zone: ошибок {len(FAILS)}')
     return 1 if FAILS else 0

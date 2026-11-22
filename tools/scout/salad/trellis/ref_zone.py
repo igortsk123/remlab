@@ -40,6 +40,7 @@ R = _rules()
 APPLY = bool(R.get('apply_to_fill', False))
 PANEL_DEG = float(R.get('panel_deg', 15.0))                  # излом ребра внутри панели, градусы
 PANEL_SIDE_COS = float(R.get('panel_side_cos', 0.6))         # нормаль грани к оси стороны не меньше — иначе «косая»
+PANEL_OUTER = float(R.get('panel_outer', 0.75))               # грань — сторона предмета, только если лежит дальше этой доли полуразмера габарита по оси стороны (иначе стенка рельефа/полка внутри → «косая»)
 PANEL_PURITY = float(R.get('panel_purity', 0.9))             # доля одной зоны среди боковых панелей / голосов двойников
 SYM_EPS = float(R.get('sym_eps', 0.015))                      # двойник через плоскость: расстояние центров, доли диагонали
 SYM_MIN = float(R.get('sym_min', 0.8))                       # форма считается симметричной при доле граней с двойником не меньше
@@ -540,9 +541,12 @@ def face_sides(V, F, basis) -> np.ndarray:
     axes = [-fwd, right, up]
     dots = np.stack([np.abs(n @ a_) for a_ in axes], 1)
     k = dots.argmax(1)
-    sg = np.stack([rel @ a_ for a_ in axes], 1)[np.arange(len(k)), k] >= 0
+    pos = np.stack([rel @ a_ for a_ in axes], 1)[np.arange(len(k)), k]
+    half = np.array([0.5 * np.ptp(Vv @ a_) for a_ in axes])
+    sg = pos >= 0
     code = np.select([(k == 0) & sg, (k == 0) & ~sg, (k == 1) & sg, (k == 1) & ~sg, (k == 2) & sg], [-1, 0, 1, 2, 3], 4)
     code[dots.max(1) < PANEL_SIDE_COS] = -2
+    code[np.abs(pos) < PANEL_OUTER * half[k]] = -2                 # внутри габарита (стенки рельефа на лице, полки): не сторона
     return code.astype(np.int32)
 
 
