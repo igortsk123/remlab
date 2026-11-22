@@ -518,8 +518,11 @@ def _forms_fixture(tmp_path):
     rows = [mk('a_1', big), mk('b_2', small, refused='сторож размера: вырезка'), mk('c_3', big), mk('d_4', big, refused='вырезка упала: RuntimeError: x'), mk('e_5', big), mk('f_6', big)]
     for d in ('photos', 'glbs', 'frames'):
         (tmp_path / d).mkdir()
-    for r in rows:
-        Image.new('RGB', (30, 20), (9, 9, 9)).save(tmp_path / 'photos' / f"{r['sku']}.img", 'JPEG')
+    for r in rows:                                                              # вход модели — вырезка RGBA с прозрачным фоном (T-180/8); у f_6 входа нет — «вход не найден»
+        if r['sku'] != 'f_6':
+            im = Image.new('RGBA', (30, 20), (0, 0, 0, 0))
+            im.paste(Image.new('RGBA', (30, 4), (200, 30, 30, 255)), (0, 0))        # красная полоса по самому верхнему краю — проверка «без обрезки краёв»
+            im.save(tmp_path / 'photos' / f"{r['sku']}.hd.rgba.png")
     for sku in ('a_1', 'e_5'):                                                  # форма и кадры есть (e_5 — только GLB, кадров нет)
         (tmp_path / 'glbs' / f'{sku}-hd.glb').write_bytes(b'g')
     for t in ('01_az000_clay.png', '02_az225_clay.png'):
@@ -605,3 +608,29 @@ def test_slug_adds_prefix_once():
     assert prr.slug('forms-set40') == 'paint-forms-set40' and prr.slug('paint-forms-set40') == 'paint-forms-set40'
     assert prr.slug('Paint-paint-forms-set40') == 'paint-forms-set40' and prr.slug('e2eHD-1121-union') == 'paint-e2eHD-1121-union'
     assert 'paint-paint' not in prr.slug('paint-paint-x') and prr.slug('') == 'paint-run' and prr.slug('paint-') == 'paint-run'
+
+
+def test_forms_page_shows_model_input_not_shop_photo(tmp_path):
+    """T-180/8: «фото» карточки формы = вход модели из `forms-inputs` (вырезка), не карточка магазина: путь входа существует у каждой карточки, у кого файла нет — честно «вход не найден»;
+    прозрачный фон — на светлую подложку, края не обрезаны, превью ≤300 КБ, полный размер по клику; файл входа сверяется с журналом (sha256)."""
+    import hashlib
+    from PIL import Image
+    rules, items, chain = _forms_fixture(tmp_path)
+    ins = tmp_path / 'photos'
+    (ins / 'inputs.json').write_text(json.dumps({f"{it['id'].replace('_', ':')}": {'input_png_sha256': hashlib.sha256((ins / f"{it['id']}.hd.rgba.png").read_bytes()).hexdigest()} for it in items if (ins / f"{it['id']}.hd.rgba.png").exists()}), encoding='utf-8')
+    args = (items, chain, str(ins), str(tmp_path / 'glbs'), str(tmp_path / 'frames'), str(tmp_path / 'o'), prr.load_words(REPO), 'T', rules, {}, True)
+    s, errs = prr.forms_page(*args)
+    assert errs == []
+    page = (tmp_path / 'o' / 'index.html').read_text(encoding='utf-8')
+    have = [it['id'] for it in items if prr.form_input_path(str(ins), it['id'])]
+    assert have == ['a_1', 'b_2', 'c_3', 'd_4', 'e_5'] and prr.form_input_path(str(ins), 'f_6') is None            # путь входа — одна функция
+    for sku in have:                                                                                              # у каждой карточки с входом: превью и полный размер на диске, ссылка по клику
+        th, fu = tmp_path / 'o' / 'img' / f'{sku}_1-vhod.jpg', tmp_path / 'o' / 'img' / f'{sku}_1-vhod-full.jpg'
+        assert th.exists() and fu.exists() and th.stat().st_size <= 300 * 1024
+        assert f"<a href='img/{sku}_1-vhod-full.jpg' target=_blank><img src='img/{sku}_1-vhod.jpg'" in page
+    assert page.count('вход модели (вырезка)') >= 6 and 'вход не найден' in page and "alt='фото магазина'" not in page and '<figcaption>фото магазина' not in page
+    im = Image.open(tmp_path / 'o' / 'img' / 'a_1_1-vhod-full.jpg').convert('RGB')
+    assert im.size == (30, 20) and im.getpixel((15, 10))[0] > 225 and im.getpixel((15, 1))[0] > 180 and im.getpixel((15, 1))[1] < 90   # прозрачное → светлая подложка; верхняя красная полоса на месте (не обрезана)
+    Image.new('RGBA', (30, 20), (1, 2, 3, 255)).save(ins / 'a_1.hd.rgba.png')                                   # подмена входа — расхождение с журналом → ошибка сводки
+    s, errs = prr.forms_page(*args)
+    assert any('a_1' in x and 'журналом' in x for x in errs)

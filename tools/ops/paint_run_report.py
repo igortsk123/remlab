@@ -27,6 +27,7 @@
 Код возврата 0 — всё сошлось; 1 — самопроверка нашла расхождение или кадр не построился."""
 from __future__ import annotations
 
+import hashlib
 import argparse
 import html
 import json
@@ -962,8 +963,42 @@ def form_status(r: dict | None, glb: str | None, frames: list, trial: tuple | No
     return ('failed', 'формы в результате пакета нет') if final else ('wait', 'форма ещё считается')
 
 
+def form_input_path(inputs: str, sku: str) -> str | None:
+    """ЕДИНСТВЕННЫЙ источник пути ВХОДА модели: вырезанное фото, которое ушло в TRELLIS.2, — `<папка входов>/<товар>.hd.rgba.png` (папка `forms-inputs` пакета форм). Нет файла — None (подменять карточкой магазина нельзя)."""
+    p = os.path.join(inputs, f'{sku}.hd.rgba.png')
+    return p if os.path.isfile(p) else None
+
+
+def read_inputs_journal(inputs: str) -> dict:
+    """Журнал входов пакета форм (`inputs.json` рядом с вырезками): {товар с «_»: sha256 файла входа}. Нет журнала — пусто (сверка пропускается)."""
+    try:
+        raw = json.load(open(os.path.join(inputs, 'inputs.json'), encoding='utf-8'))
+    except (OSError, ValueError):
+        return {}
+    return {k.replace(':', '_'): v.get('input_png_sha256') for k, v in raw.items() if isinstance(v, dict) and v.get('input_png_sha256')}
+
+
+THUMB_SIDE, THUMB_MAX_BYTES = 800, 300 * 1024
+
+
+def _input_images(src: str, thumb: str, full: str) -> None:
+    """Вход (RGBA, прозрачный фон) → светлая подложка, БЕЗ обрезки краёв: превью ≤300 КБ (качество снижается, пока не влезет) и полный размер по клику (до MAX_SIDE)."""
+    from PIL import Image
+    im = Image.open(src).convert('RGBA')
+    bg = Image.new('RGB', im.size, (238, 238, 238))
+    bg.paste(im, mask=im.split()[-1])
+    big = bg if max(bg.size) <= MAX_SIDE else bg.resize((round(bg.width * MAX_SIDE / max(bg.size)), round(bg.height * MAX_SIDE / max(bg.size))), Image.LANCZOS)
+    big.save(full, 'JPEG', quality=JPEG_Q, optimize=True)
+    t = bg if max(bg.size) <= THUMB_SIDE else bg.resize((round(bg.width * THUMB_SIDE / max(bg.size)), round(bg.height * THUMB_SIDE / max(bg.size))), Image.LANCZOS)
+    for q in (88, 80, 72, 64, 56, 48):
+        t.save(thumb, 'JPEG', quality=q, optimize=True)
+        if os.path.getsize(thumb) <= THUMB_MAX_BYTES:
+            return
+    raise ValueError(f'превью входа больше {THUMB_MAX_BYTES // 1024} КБ даже при качестве 48')
+
+
 def forms_page(items: list, chain: dict, photos: str, glbs: str, frames: str, out: str, W: dict, label: str, rules: dict | None = None, trial: dict | None = None, final: bool = False, retry: set | None = None) -> tuple:
-    """Страница `<out>/index.html`: по товару набора крупный номер, фото | два серых рендера формы (az000 «как на фото» и az225 3/4 сзади, один свет), статус «форма есть / форма упала (причина) / фото мало». Самопроверка: сумма статусов = N, карточек = N, у «форма есть» два кадра."""
+    """Страница `<out>/index.html`: по товару набора крупный номер, ВХОД модели (вырезка, `photos` = папка входов `forms-inputs`; нет файла — «вход не найден») | два серых рендера формы (az000 «как на фото» и az225 3/4 сзади, один свет), статус «форма есть / форма упала (причина) / фото мало». Самопроверка: сумма статусов = N, карточек = N, у «форма есть» два кадра."""
     e = html.escape
     d = os.path.join(out, 'img')
     os.makedirs(d, exist_ok=True)
@@ -972,6 +1007,7 @@ def forms_page(items: list, chain: dict, photos: str, glbs: str, frames: str, ou
     css = {'ok': 'ok', 'failed': 'refused', 'small': 'soft', 'wait': 'waitb', 'retry': 'retryb'}
     c = {k: 0 for k in words}
     errs, blocks = [], []
+    jr = read_inputs_journal(photos)
     for n, it in enumerate(items, 1):
         sku = it['id']
         r = chain.get(sku)
@@ -990,15 +1026,18 @@ def forms_page(items: list, chain: dict, photos: str, glbs: str, frames: str, ou
             why = CW.get('retry_reason') or 'сбой отправки к шлюзу, повтор'
         if st == 'small':
             why = (W.get('cutout') or {}).get('small_reason', '').format(side=('меньшая' if (rules or {}).get('measure', 'min') == 'min' else 'большая'), n=small_side(r, rules), thr=(rules or {}).get('min_cut_side_px')) or 'фото магазина маленькое — форму не делаем'
-        sha = (r or {}).get('sha')
-        foto = os.path.join(photos, f'{sha}.img') if sha else ''
-        card = {'sku': sku, 'name': it.get('name') or sku, 'foto': None, 'tiles': []}
-        if foto and os.path.exists(foto):
+        foto = form_input_path(photos, sku)
+        card = {'sku': sku, 'name': it.get('name') or sku, 'foto': None, 'foto_full': None, 'tiles': []}
+        if foto:
             try:
-                _jpeg(foto, os.path.join(d, f'{sku}_1-foto.jpg'))
-                card['foto'] = f'img/{sku}_1-foto.jpg'
+                jsha = jr.get(sku)
+                if jsha and hashlib.sha256(open(foto, 'rb').read()).hexdigest() != jsha:
+                    errs.append(f'{sku}: файл входа не совпал с журналом (sha256) — это не то, что ушло в модель')
+                else:
+                    _input_images(foto, os.path.join(d, f'{sku}_1-vhod.jpg'), os.path.join(d, f'{sku}_1-vhod-full.jpg'))
+                    card['foto'], card['foto_full'] = f'img/{sku}_1-vhod.jpg', f'img/{sku}_1-vhod-full.jpg'
             except Exception as ex:  # noqa: BLE001
-                errs.append(f'{sku}: фото: {type(ex).__name__}: {ex}')
+                errs.append(f'{sku}: вход: {type(ex).__name__}: {ex}')
         if fr:
             try:
                 crops = _forms_crop(fr)
@@ -1029,10 +1068,10 @@ def forms_page(items: list, chain: dict, photos: str, glbs: str, frames: str, ou
 def _forms_card(n: int, c: dict, badge_class: str, badge: str, caption: str, why: str, CW: dict) -> str:
     """Карточка формы: крупный номер справа, ниже в ряд три кадра одного размера — фото магазина | ракурс 1 | ракурс 2 (на телефоне — по одному в строке)."""
     e = html.escape
-    fig = lambda src, cap: (f"<figure><img src='{e(src)}' loading='lazy' alt='{e(cap)}'><figcaption>{e(cap)}</figcaption></figure>" if src else f"<figure><div class='nofr'>{e(cap)}: {'формы нет' if badge_class in ('refused', 'soft') else 'кадр ещё не готов'}</div></figure>")
+    fig = lambda src, cap, full=None, none=None: (f"<figure>{('<a href=' + chr(39) + e(full) + chr(39) + ' target=_blank>') if full else ''}<img src='{e(src)}' loading='lazy' alt='{e(cap)}'>{'</a>' if full else ''}<figcaption>{e(cap)}</figcaption></figure>" if src else f"<figure><div class='nofr'>{e(cap)}: {none or ('формы нет' if badge_class in ('refused', 'soft') else 'кадр ещё не готов')}</div></figure>")
     t = c.get('tiles') or [None, None]
     return (f"<div class='card'><div class='no'>№ {n}</div><h3>{e(c['name'])}<span class='badge {e(badge_class)}'>{e(badge)}</span></h3><div class='id'>{e(c['sku'])}</div>"
-            f"<div class='meta'>{e(caption)}</div><div class='pair3' style='--ar:{c.get('ar') or 1.333}'>{fig(c.get('foto'), CW.get('cap_photo') or 'фото магазина')}{fig(t[0], CW.get('cap_v1') or 'форма: как на фото (0°)')}{fig(t[1], CW.get('cap_v2') or 'форма: 3/4 сзади (225°)')}</div>"
+            f"<div class='meta'>{e(caption)}</div><div class='pair3' style='--ar:{c.get('ar') or 1.333}'>{fig(c.get('foto'), CW.get('cap_photo') or 'вход модели (вырезка)', c.get('foto_full'), CW.get('no_input') or 'вход не найден')}{fig(t[0], CW.get('cap_v1') or 'форма: как на фото (0°)')}{fig(t[1], CW.get('cap_v2') or 'форма: 3/4 сзади (225°)')}</div>"
             + (f"<div class='why'>{e(why)}</div>" if why else '') + '</div>')
 
 
@@ -1058,7 +1097,7 @@ def main_forms(argv: list) -> int:
     ap = argparse.ArgumentParser(prog='paint_run_report.py forms', description='страница этапа «форма»: фото | серый рендер формы (az000, az225) по набору; статусы форма есть / форма упала / фото мало')
     ap.add_argument('--set', required=True)
     ap.add_argument('--cutlog', required=True, help='журнал вырезки (cut.jsonl р.2)')
-    ap.add_argument('--photos', required=True, help='папка исходных фото вырезки (`<товар>.img`)')
+    ap.add_argument('--photos', required=True, help='папка ВХОДОВ модели `forms-inputs` (`<товар>.hd.rgba.png` + `inputs.json`): вырезка, ушедшая в TRELLIS.2; не магазинное фото')
     ap.add_argument('--glbs', required=True, help='папка форм (GLB); несколько — через запятую')
     ap.add_argument('--retry', default='', help='id товаров, у которых идёт повтор формы (через запятую)')
     ap.add_argument('--frames', required=True, help='папка кадров forms_render.py')
