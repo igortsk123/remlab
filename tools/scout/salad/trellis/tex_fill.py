@@ -2142,11 +2142,17 @@ def own_panel_tone_hook(geoms: list, tex_after: list, known: list, ut_g: list | 
     """Хук 07 (T-187/6): невидимые панели — донор по оттенку+фактуре UltraTex (тон и куски фото донора) или тон своей зоны + суть UltraTex; чужого квилта нет (ref_zone.own_panel_tone). Сбой не роняет этап."""
     import ref_zone as RZ
     try:
+        t_al = time.time()
         ut_al, al = RZ.align_ut(geoms, tex_after, known, ut_g)                # UltraTex → поза фото; нет уверенности — UltraTex не используется (тон своей зоны)
+        al['sec_align'] = round(time.time() - t_al, 1)
         out = rep = None
         if al.get('status') == 'tied':                                        # несколько поворотов почти равны: второй ступенью — тот, у кого front_on_back после заливки минимален и ≤ порога
             fb_by, best = {}, None
-            for y in al['ties']:
+            mx = int(((RZ.R.get('align') or {}).get('max_ties')) or 2)      # на медленном ядре каждый кандидат = полная заливка: пробуем только лучшие по энергии (T-187/6, зависание >700 с)
+            cand = sorted(al['ties'], key=lambda y: -float((al.get('corr') or {}).get(str(y), 0.0)))[:mx]
+            al['ties_tried'] = cand
+            t_tie = time.time()
+            for y in cand:
                 ut_y, _ = RZ.align_ut(geoms, tex_after, known, ut_g, yaw=y)
                 o_y, r_y = RZ.own_panel_tone(geoms, tex_after, known, ut_y, parts)
                 c_y = front_on_back_corr(geoms, o_y, front).get('corr')
@@ -2154,6 +2160,7 @@ def own_panel_tone_hook(geoms: list, tex_after: list, known: list, ut_g: list | 
                 if c_y is not None and c_y <= thr and (best is None or c_y < best[0]):
                     best = (c_y, y, o_y, r_y)
             al['tie_front_on_back'] = fb_by
+            al['sec_tie'] = round(time.time() - t_tie, 1)
             if best is not None:
                 out, rep = best[2], best[3]
                 al.update({'status': 'aligned_by_front_on_back', 'yaw_deg': best[1], 'chosen_front_on_back': best[0]})
@@ -2162,6 +2169,7 @@ def own_panel_tone_hook(geoms: list, tex_after: list, known: list, ut_g: list | 
         if rep is None:
             out, rep = RZ.own_panel_tone(geoms, tex_after, known, ut_al, parts)
         rep['ut_align'] = al
+        rep['sec_hook'] = round(time.time() - t_al, 1)
         return out, rep
     except Exception as e:  # noqa: BLE001
         return tex_after, {'error': f'{type(e).__name__}: {e}'}
