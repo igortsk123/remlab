@@ -44,7 +44,7 @@
     ],
     "leg_match_band": 0.18,
     "leg_match_area": 25,
-    "legs_match": 0.03
+    "legs_match": 0.2
   },
   "block": [
     "glb_sane",

@@ -12,7 +12,7 @@
   holes         · грубые лишние сквозные просветы в силуэте против фото (приближение)  · «Дыры, рваный фасад»
   relief        · много мелкого рельефа на кадре 0° — рваный, «изъеденный» фасад   · «Дыры, рваный фасад»
   back_dup      · кадр 0° и кадр 180° (прямо или зеркально) совпадают по рельефу    · «фасад продублирован на задней стенке» (ловит только точную копию)
-  legs_match    · ножки: компоненты нижней полосы маски фото ↔ формы парой по центрам, макс. расстояние / ширина предмета (силуэт IoU этого не видит) · «Пропали ножки», «ножки не там» (р.3, T-191/1)
+  legs_match    · ножки: компоненты нижней полосы маски фото ↔ формы парой по центрам, макс. смещение центра / шаг между соседними ножками фото (силуэт IoU этого не видит; нормировка на ширину предмета не разводила) · «Пропали ножки», «ножки не там» (р.3, T-191/1)
   relief_graze  · мелкий рельеф кадра 0° при боковом свете ВНУТРИ маски формы (альфа, без фона и тени)  · «Дыры, рваный фасад»
   back_relief   · то же на кадре 180°: у корпусной мебели с плоской спиной (`flat_back_roles`) сильный рельеф сзади — каркас/копия фасада · «Открытая сломанная спина», «фасад сзади»
   back_dup_mask · рельеф 0° и 180° внутри маски совпадает (прямо/зеркально), только для ролей с плоской спиной · «фасад продублирован на задней стенке»
@@ -233,7 +233,7 @@ def legs_match(S: np.ndarray, pa: np.ndarray, R: dict) -> dict:
     ys, xs = np.nonzero(pa)
     if not len(ys):
         return check('legs_match', None, R['legs_match'], False, 'маска фото пуста')
-    y0, y1, w = ys.min(), ys.max() + 1, float(xs.max() - xs.min() + 1)
+    y0, y1 = ys.min(), ys.max() + 1
     ya = y1 - int((y1 - y0) * R['leg_match_band'])
     cp, cs = leg_centers(pa, ya, y1, R['leg_match_area']), leg_centers(S, ya, y1, R['leg_match_area'])
     if len(cp) < 2:
@@ -242,8 +242,9 @@ def legs_match(S: np.ndarray, pa: np.ndarray, R: dict) -> dict:
         return check('legs_match', None, R['legs_match'], False, f'ножек фото/формы {len(cp)}/{len(cs)} — разное число (скрыты или слиты), значение не считается')
     D = np.array([[math.hypot(a[0] - b[0], a[1] - b[1]) for b in cs] for a in cp])
     r, c = linear_sum_assignment(D)
-    mx = float(D[r, c].max()) / w
-    return check('legs_match', mx, R['legs_match'], mx > R['legs_match'], f'ножек {len(cp)}, макс. смещение центра {float(D[r, c].max()):.1f} px при ширине {w:.0f} px (среднее {float(D[r, c].mean()):.1f})')
+    pitch = float(np.min(np.diff(sorted(a[0] for a in cp))))                      # шаг между ближайшими ножками фото, px
+    mx = float(D[r, c].max()) / max(pitch, 1.0)
+    return check('legs_match', mx, R['legs_match'], mx > R['legs_match'], f'ножек {len(cp)}, макс. смещение центра {float(D[r, c].max()):.1f} px при шаге между ножками {pitch:.0f} px (среднее смещение {float(D[r, c].mean()):.1f})')
 
 
 def legs_checks(sku: str, photo: str | None, roots: list[str], R: dict) -> list[dict]:

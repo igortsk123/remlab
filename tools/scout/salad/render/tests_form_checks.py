@@ -192,9 +192,9 @@ class LegsMatch(unittest.TestCase):
     def test_matching_legs_ok_shifted_flagged(self):
         S, pa = self.masks(0)
         self.assertFalse(FC.legs_match(S, pa, R)['flag'])
-        S, pa = self.masks(shift=20)
+        S, pa = self.masks(shift=30)
         c = FC.legs_match(S, pa, R)
-        self.assertTrue(c['flag'])                                               # 20 px при ширине 260 = 0,077 > порога; силуэт-IoU такого почти не видит
+        self.assertTrue(c['flag'])                                               # 30 px при шаге между ножками 110 px = 0,27 > порога 0,2; силуэт-IoU такого почти не видит
         self.assertGreater(c['value'], R['legs_match'])
 
     def test_different_count_or_single_leg_not_counted(self):
