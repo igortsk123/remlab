@@ -82,6 +82,14 @@ def frame_caption(W: dict, code: str) -> str:
     return ((W.get('stages') or {}).get(code) or {}).get('frame_caption') or ''
 
 
+def frame_tiles(W: dict, code: str) -> int:
+    """На сколько равных частей резать кадр этапа (ракурсы в ряд) — поле `frame_tiles` в paint-readiness.json; 1 — не резать."""
+    try:
+        return max(1, int(((W.get('stages') or {}).get(code) or {}).get('frame_tiles') or 1))
+    except Exception:  # noqa: BLE001
+        return 1
+
+
 def stage_pct(W: dict, code: str):
     v = ((W.get('stages') or {}).get(code) or {}).get('pct')
     return v if isinstance(v, (int, float)) else None
@@ -251,6 +259,34 @@ def _jpeg(src: str, dst: str) -> None:
     im.save(dst, 'JPEG', quality=JPEG_Q, optimize=True)
 
 
+def _tiles(src: str, dst_base: str, n: int) -> list:
+    """Режет кадр-полосу на n равных частей (ракурсы в ряд) → `<dst_base>_1.jpg` …; ширина части не похожа на высоту (±20 %) — не режет (пусто)."""
+    from PIL import Image
+    im = Image.open(src)
+    w, h = im.size
+    if n < 2 or abs(w / n - h) > 0.2 * h:
+        return []
+    parts = [im.convert('RGB').crop((round(k * w / n), 0, round((k + 1) * w / n), h)) for k in range(n)]
+    box = None                                                       # общая рамка непустого во всех ракурсах (белые поля режем, чтобы товар был крупнее); одна рамка на все — ракурсы остаются сопоставимы
+    for part in parts:
+        b = part.convert('L').point(lambda v: 255 if v < 245 else 0).getbbox()
+        if b:
+            box = b if box is None else (min(box[0], b[0]), min(box[1], b[1]), max(box[2], b[2]), max(box[3], b[3]))
+    if box:
+        pad = round(0.04 * max(box[2] - box[0], box[3] - box[1]))
+        pw, ph = parts[0].size
+        box = (max(0, box[0] - pad), max(0, box[1] - pad), min(pw, box[2] + pad), min(ph, box[3] + pad))
+        parts = [p.crop(box) for p in parts]
+    out = []
+    for k, part in enumerate(parts):
+        p = f'{dst_base}_{k + 1}.png'
+        part.save(p)
+        _jpeg(p, f'{dst_base}_{k + 1}.jpg')
+        os.remove(p)
+        out.append(f'{dst_base}_{k + 1}.jpg')
+    return out
+
+
 def build_frames(repo: str, runof: dict, skus: list, out: str) -> dict:
     """Кадры «фото | наш 3D» (как `tex_visible`: фото карточки в кадре камеры этапа 4 и итоговая текстура этапа 8 по растру той же камеры, без света) — JPEG ≤1600 px.
     Возвращает {'ok': {sku: {'foto': путь, 'view3d': путь}}, 'errors': {sku: текст}}; сбой одного товара не рушит остальных (сводка ловит нехватку)."""
@@ -327,7 +363,8 @@ h1{font-size:1.25rem;margin:0 0 8px}h2{font-size:1.05rem;margin:20px 0 8px}.sum{
 .pair{display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-top:8px}.pair figure{margin:0}.pair img{width:100%;height:auto;display:block;border-radius:6px;background:#e8e8e8}
 .pair figcaption{font-size:.8rem;color:var(--mut);text-align:center;margin-top:2px}.why{font-size:.9rem;margin-top:6px}details{margin-top:4px;font-size:.8rem;color:var(--mut)}details summary{cursor:pointer}
 .nofr{display:flex;align-items:center;justify-content:center;min-height:120px;border:1px dashed var(--line);border-radius:6px;color:var(--mut);font-size:.85rem}nav{margin:6px 0 12px;font-size:.95rem}nav a{padding:0 2px}
-@media (max-width:640px){.pair{grid-template-columns:1fr}}
+.tiles{display:grid;grid-template-columns:1fr 1fr;grid-auto-rows:minmax(0,1fr);gap:4px;aspect-ratio:var(--ar,auto)}.tiles img{width:100%;height:100%;min-height:0;object-fit:contain;display:block;border-radius:6px;background:#fff}
+@media (max-width:640px){.pair,.tiles{grid-template-columns:1fr}.tiles{aspect-ratio:auto;grid-auto-rows:auto}.tiles img{height:auto}}
 """
 
 
@@ -341,7 +378,10 @@ def _card(c: dict, badge_class: str, badge: str, W: dict, caption: str, cap1: st
     e = html.escape
     ph = f"<figure><img src='{e(c['foto'])}' loading='lazy' alt='фото'><figcaption>{e(cap1)}</figcaption></figure>" if c.get('foto') else "<figure><div class='nofr'>фото нет</div></figure>"
     key = 'view3d' if c.get('view3d') else 'frame'
-    fr = (f"<figure><img src='{e(c[key])}' loading='lazy' alt='результат'><figcaption>{e(cap2)}</figcaption></figure>" if c.get(key) else "<figure><div class='nofr'>кадра нет</div></figure>")
+    if c.get('tiles'):                                               # кадр из нескольких ракурсов в ряд — сеткой, каждый крупно (на телефоне — по одному на всю ширину)
+        fr = f"<figure><div class='tiles'{(' style=\'--ar:' + str(c['photo_ar']) + '\'') if c.get('photo_ar') and c.get('foto') else ''}>" + ''.join(f"<img src='{e(t)}' loading='lazy' alt='ракурс {i + 1}'>" for i, t in enumerate(c['tiles'])) + f"</div><figcaption>{e(cap2)}</figcaption></figure>"
+    else:
+        fr = (f"<figure><img src='{e(c[key])}' loading='lazy' alt='результат'><figcaption>{e(cap2)}</figcaption></figure>" if c.get(key) else "<figure><div class='nofr'>кадра нет</div></figure>")
     return (f"<div class='card'><h3>{e(c['name'])}<span class='badge {e(badge_class)}'>{e(badge)}</span></h3><div class='id'>{e(c['sku'])}</div>"
             + (f"<div class='meta'>{e(caption)}</div>" if caption else '') + f"<div class='pair'>{ph}{fr}</div>"
             + (f"<div class='why'>{e(why)}</div>" if why else '') + (f"<details><summary>подробно</summary>{e(detail)}</details>" if detail else '') + '</div>')
@@ -467,13 +507,21 @@ def stage_cards(runof: dict, table: dict, stage: str, W: dict, out: str, photos:
             if photos.get(sku):
                 _jpeg(photos[sku], os.path.join(d, f'{sku}_1-foto.jpg'))
                 c['foto'] = f'img/{sku}_1-foto.jpg'
+                from PIL import Image
+                pw_, ph_ = Image.open(os.path.join(d, f'{sku}_1-foto.jpg')).size
+                c['photo_ar'] = round(pw_ / ph_, 3) if ph_ else None                      # сетка ракурсов — тех же пропорций, что фото (одна высота)
         except Exception as ex:  # noqa: BLE001
             errs.append(f'{stage}: фото {sku}: {type(ex).__name__}: {ex}')
         fr = os.path.join(runof[sku], sku, stage, 'frame.png')
         if e['status'] != 'after' and os.path.exists(fr):
             try:
-                _jpeg(fr, os.path.join(d, f'{sku}_2-{stage[:2]}.jpg'))
-                c['frame'] = f'img/{sku}_2-{stage[:2]}.jpg'
+                tl = _tiles(fr, os.path.join(d, f'{sku}_2-{stage[:2]}'), frame_tiles(W, stage))
+                if tl:
+                    c['tiles'] = [f'img/{os.path.basename(x)}' for x in tl]
+                    c['frame'] = c['tiles'][0]
+                else:
+                    _jpeg(fr, os.path.join(d, f'{sku}_2-{stage[:2]}.jpg'))
+                    c['frame'] = f'img/{sku}_2-{stage[:2]}.jpg'
             except Exception as ex:  # noqa: BLE001
                 errs.append(f'{stage}: кадр {sku}: {type(ex).__name__}: {ex}')
         cards.append(c)

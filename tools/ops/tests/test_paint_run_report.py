@@ -358,3 +358,25 @@ def test_partial_chain_and_pages(tmp_path):
     W = prr.load_words(REPO)
     sums, errs = prr.stage_pages(per, set(), runof, str(tmp_path / 'o'), W, 'T', {k: k for k in per}, photos, partial=True)
     assert errs == [] and 'нет данных этапа 1' in (tmp_path / 'o' / '06-visible' / 'index.html').read_text(encoding='utf-8')
+
+
+def test_frame_tiles(tmp_path):
+    from PIL import Image
+    Image.new('RGB', (400, 100), (9, 9, 9)).save(tmp_path / 'strip.png')
+    assert len(prr._tiles(str(tmp_path / 'strip.png'), str(tmp_path / 't'), 4)) == 4 and prr._tiles(str(tmp_path / 'strip.png'), str(tmp_path / 'u'), 2) == []   # 200×100 — не квадрат ±20 %: не режем
+    W = prr.load_words(REPO)
+    assert prr.frame_tiles(W, '06-visible') == 4 and prr.frame_tiles(W, '07-fill') == 2 and prr.frame_tiles(W, '04-camera') == 1
+    card = {'sku': 'k', 'name': 'k', 'foto': 'img/a.jpg', 'photo_ar': 1.333, 'frame': 'img/t_1.jpg', 'tiles': ['img/t_%d.jpg' % i for i in range(1, 5)]}
+    page = prr._card(card, 'ok', 'ок', W, '', 'фото', 'ракурсы')
+    assert page.count("<div class='tiles' style='--ar:1.333'>") == 1 and page.count('alt=\'ракурс') == 4
+
+
+def test_tiles_crop_common_box(tmp_path):
+    from PIL import Image
+    im = Image.new('RGB', (400, 100), (255, 255, 255))
+    for k in range(4):
+        im.paste((10, 10, 10), (k * 100 + 40, 30, k * 100 + 60, 70))                                                  # товар 20×40 в середине каждого ракурса
+    im.save(tmp_path / 's.png')
+    got = prr._tiles(str(tmp_path / 's.png'), str(tmp_path / 't'), 4)
+    sizes = {Image.open(g).size for g in got}
+    assert len(got) == 4 and len(sizes) == 1 and list(sizes)[0][1] < 100                                              # одинаковая рамка у всех, поля обрезаны
