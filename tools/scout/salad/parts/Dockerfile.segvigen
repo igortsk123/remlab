@@ -51,8 +51,9 @@ print('dinov3 sha256', h.hexdigest()); raise SystemExit(0 if h.hexdigest()=='${D
 # комплектность по тем путям, что открывает код (то же делает бэкенд при загрузке)
 RUN python -c "import sys; sys.path.insert(0, '/tmp'); import segvigen_backend as S; m = S.missing_files('/opt/weights/TRELLIS.2-4B', '/opt/SegviGen', '/opt/weights/SegviGen/full_seg.ckpt', '/opt/weights/dinov3-vitl16-pretrain-lvd1689m', '/opt/blender/blender'); print('нет файлов:', m) if m else print('образ комплектен'); raise SystemExit(1 if m else 0)" \
     && du -sh /opt/weights/* /opt/SegviGen /opt/blender && rm -f /tmp/segvigen_backend.py
-# проверка импортов без видеокарты (если упадёт — это дёшево на сборке, а не на платной ноде)
-RUN python -c "import sys; sys.path.insert(0, '/opt/SegviGen'); import trellis2.modules.sparse as sp; from trellis2 import models; from trellis2.modules.image_feature_extractor import DinoV3FeatureExtractor; from trellis2.representations import MeshWithVoxel; from trellis2.pipelines.rembg import BiRefNet; print('питоновские импорты SegviGen ok')" \
-    && { python -c "import o_voxel, flex_gemm, cumesh; print('расширения CUDA импортируются')" || echo 'ПРЕДУПРЕЖДЕНИЕ: импорт расширений CUDA без видеокарты не прошёл (как у основы) — проверка на живой машине'; }
+# проверка без видеокарты: flex_gemm/o_voxel при импорте обращаются к CUDA (на сборщике GPU нет — первая сборка 22.11 упала именно тут), поэтому реальный импорт делает воркер на ноде (фаза loading → broken при сбое, ноду гасит драйвер).
+# Здесь — то, что видно без GPU: весь код SegviGen компилируется, нужные пакеты установлены, DINOv3ViTModel есть.
+RUN python -m compileall -q /opt/SegviGen/trellis2 /opt/SegviGen/inference_full.py \
+    && python -c "import importlib.util as u; miss=[m for m in ('o_voxel','flex_gemm','cumesh','nvdiffrast','trimesh','scipy','safetensors','transformers') if u.find_spec(m) is None]; print('нет пакетов:', miss) if miss else print('пакеты на месте'); raise SystemExit(1 if miss else 0)"
 ENV SEGVIGEN_DIR=/opt/SegviGen SEGVIGEN_CKPT=/opt/weights/SegviGen/full_seg.ckpt TRELLIS_MODEL=/opt/weights/TRELLIS.2-4B DINOV3_DIR=/opt/weights/dinov3-vitl16-pretrain-lvd1689m BLENDER=/opt/blender/blender \
     ATTN_BACKEND=sdpa MODEL=segvigen PORT=8000 HF_HOME=/data/hf OUT_DIR=/data/out
