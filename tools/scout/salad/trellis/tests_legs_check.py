@@ -80,6 +80,16 @@ def test_noise_and_partial() -> None:
     ok(r['mismatch'] and len(r['trusted_boxes']) == 2 and sum(1 for l in r['legs'] if not l['ok']) == 1, f'одна из трёх не годна — доверены две: {r["why"]}')
 
 
+def test_merged_component_not_trusted() -> None:
+    print('слипшиеся ножки (царга + ножки в одном компоненте) не доверяем:')
+    S, pa = masks(0)
+    for m in (S, pa):
+        m[160:170, 20:175] = True                                            # царга соединила две левые ножки в один широкий компонент; правая ножка отдельная
+    r = LC.legs_report(S, pa)
+    ok(r['applicable'] and r['n_photo'] == 2 and not r['mismatch'], f'ножки на месте: компонентов 2, провала нет ({r["why"]})')
+    ok(len(r['trusted_boxes']) == 1 and r['trusted_boxes'][0][0] > 200 and r['legs'][0].get('merged'), f'доверена только отдельная правая ножка, слипшаяся — нет: {r["trusted_boxes"]}')
+
+
 def test_compact_and_rules() -> None:
     print('запись и правила:')
     r = LC.legs_report(*masks(0))
@@ -98,6 +108,7 @@ def main() -> int:
     test_shift_relative_to_body()
     test_count_floor_and_na()
     test_noise_and_partial()
+    test_merged_component_not_trusted()
     test_compact_and_rules()
     print(f'tests_legs_check: ошибок {len(FAILS)}')
     return 1 if FAILS else 0

@@ -6,6 +6,7 @@
 Что считается. Ножки = компоненты связности нижней полосы `band` высоты предмета (по маске фото; у формы — по её маске); мелкие (< `min_rel` площади крупнейшей и < `min_area` px) — шум.
 Для каждой пары ножка фото ↔ ножка формы (венгерский алгоритм по расстоянию центров): ошибка = расстояние центров минус общий сдвиг корпуса (боковые края выше полосы), ÷ толщина ножки фото (медиана ширины по строкам).
 Ножка годна: ошибка ÷ толщина ≤ `err_over_w_max`. Форма «ножки не годны» (`mismatch`): число ножек фото/формы разное, ИЛИ пол (низ формы против низа фото) вне `floor_dy_pct_max` % высоты, ИЛИ хотя бы одна ножка не годна.
+Рамка компонента шире `trust_w_max` толщин ножки (ножки слиплись с царгой/цоколем) в доверенные не попадает, даже если «годна»: центр слипшегося компонента сдвиг отдельной ножки не видит (кадр Теджонса, T-191/3).
 Высота ножек (отношение) только пишется. Меньше двух раздельных ножек на фото — мерка не применима (цоколь, одна широкая ножка): `applicable: false`, `mismatch: false`.
 Пороги — `tools/scout/rules/camera-check.json`, блок `legs_match` (единственный источник для 04, 06 и Ш0). Зависимости: numpy, scipy.
 """
@@ -18,7 +19,7 @@ import numpy as np
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 RULES_PATH = os.path.normpath(os.path.join(HERE, '..', '..', 'rules', 'camera-check.json'))
-DEFAULTS = {'band': 0.18, 'min_area': 100, 'min_rel': 0.0, 'err_over_w_max': 0.6, 'floor_dy_pct_max': 2.5, 'body_cover_min': 0.6, 'edge_rows': [0.045, 0.008]}
+DEFAULTS = {'trust_w_max': 3.0, 'open_rel': 0.0, 'band': 0.18, 'min_area': 100, 'min_rel': 0.0, 'err_over_w_max': 0.6, 'floor_dy_pct_max': 2.5, 'body_cover_min': 0.6, 'edge_rows': [0.045, 0.008]}
 
 
 def load_rules(path: str = RULES_PATH) -> dict:
@@ -30,11 +31,14 @@ def load_rules(path: str = RULES_PATH) -> dict:
     return dict(DEFAULTS, **{k: v for k, v in blk.items() if not k.startswith('_')})
 
 
-def components(m: np.ndarray, y0: int, y1: int, min_area: int, min_rel: float) -> list[dict]:
+def components(m: np.ndarray, y0: int, y1: int, min_area: int, min_rel: float, open_h: int = 0) -> list[dict]:
     """Компоненты маски в строках [y0, y1): центр, толщина (медиана ширины по строкам), рамка, площадь; шум (< min_area И < min_rel × крупнейшая) отброшен. Слева направо."""
     from scipy import ndimage
     reg = np.zeros(m.shape, bool)
     reg[y0:y1] = m[y0:y1]
+    if open_h > 1:                                                           # вертикальное раскрытие: тонкая горизонтальная царга/цоколь (ниже open_h px по вертикали) уходит, ножки (выше) остаются
+        from scipy import ndimage as _nd
+        reg = _nd.binary_opening(reg, structure=np.ones((open_h, 1), bool))
     lab, n = ndimage.label(reg, structure=np.ones((3, 3)))
     out = []
     for i in range(1, n + 1):
@@ -78,8 +82,9 @@ def legs_report(S: np.ndarray, pa: np.ndarray, rules: dict | None = None) -> dic
     y0, y1 = int(ys.min()), int(ys.max()) + 1
     H = y1 - y0
     ya = y1 - int(H * R['band'])
-    cp = components(pa, ya, y1, int(R['min_area']), float(R['min_rel']))
-    cs = components(S, ya, y1, int(R['min_area']), float(R['min_rel']))
+    oh = int(round(float(R['open_rel']) * H))
+    cp = components(pa, ya, y1, int(R['min_area']), float(R['min_rel']), oh)
+    cs = components(S, ya, y1, int(R['min_area']), float(R['min_rel']), oh)
     rep.update(n_photo=len(cp), n_mesh=len(cs), H=H)
     if len(cp) < 2:
         rep['why'] = f'ножки фото не раздельны ({len(cp)}) — не применима'
@@ -103,7 +108,8 @@ def legs_report(S: np.ndarray, pa: np.ndarray, rules: dict | None = None) -> dic
             eow = err / max(a['w'], 1.0)
             leg = {'photo': [round(a['cx'], 1), round(a['cy'], 1)], 'mesh': [round(b['cx'], 1), round(b['cy'], 1)], 'w_px': round(a['w'], 1), 'err_px': round(err, 1), 'err_over_w': round(eow, 3), 'ok': bool(eow <= R['err_over_w_max'])}
             rep['legs'].append(leg)
-            if leg['ok']:
+            leg['merged'] = bool((b['x1'] - b['x0'] + 1) > R['trust_w_max'] * max(b['w'], 1.0))      # ножки слиплись с царгой/цоколем: центр компонента не видит сдвиг отдельной ножки
+            if leg['ok'] and not leg['merged']:
                 rep['trusted_boxes'].append([b['x0'], b['y0'], b['x1'], b['y1']])
         hr = [(cs[c]['y1'] - cs[c]['y0'] + 1) / max(cp[i]['y1'] - cp[i]['y0'] + 1, 1) for i, c in zip(ri, ci)]
         rep['leg_h_ratio'] = round(float(np.median(hr)), 2)
