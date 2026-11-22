@@ -555,6 +555,20 @@ g_ = _GW([500], False)
 c_, r_, i_ = KD.post_job(g_, '/generate', {'job_id': 'j', 'image_b64': 'x'}, '/job/j', say_fn=lambda *a: None, rules={'retry_http': [500]})
 ok(c_ == 500 and i_ and i_['worker_saw_job'] is False, 'post_job: список кодов берётся из rules (retry_http), не из кода')
 ok('retry_http' in KD.gateway_post_rules() and 503 in KD.gateway_post_rules()['retry_http'], 'rules/salad-groups.json: gateway_post.retry_http задан')
+_pr = KD.salad_rules('pull_guard')
+ok(_pr and KD.PULL_AFTER_S == _pr['after_s'] and KD.PULL_WINDOW_S == _pr['window_s'] and KD.PULL_MAX_CULLS == _pr['max_culls'] and KD.PULL_SLOW_FACTOR == _pr['slow_factor'],
+   'сторож докачки: числа берутся из rules/salad-groups.json → pull_guard, не из кода')
+_obs = [(float(t), 0.01 + t / 60.0 * 0.001) for t in range(0, 900, 60)]               # T-178 22.11: 1 % → 2 % за 15 мин (≈0,1 %/мин)
+ok(KD.pull_verdict(_obs, max_total_min=KD.max_total_for_image(22.46)) is not None, 'pull_verdict: образ 22,5 ГиБ, темп 0,1 %/мин на 15-й минуте → медленно (пересадка)')
+_good = [(float(t), 0.05 * t / 60.0) for t in range(0, 900, 60)]                       # нормальная нода: 5 %/мин (22 ГиБ за ≈20 мин, допуск 55)
+ok(KD.pull_verdict(_good, max_total_min=KD.max_total_for_image(22.46)) is None, 'pull_verdict: нормальный темп (5 %/мин, прогноз ≈20 мин при допуске 55) — не трогаем')
+class _Rl:
+    n = 0
+_rl, _sl = [], []
+_pg = KD.PullGuard('g', take_slot=lambda: (_sl.append(1) or 1), realloc=lambda g, i, w: (_rl.append((g, i)) or True), say_fn=lambda *a: None)
+_pg.configure(22.46)
+_moved = [_pg.step(float(t), [{'id': 'inst-1', 'state': 'downloading', 'pulling_progress': 0.01 + t / 60.0 * 0.001}]) for t in range(0, 900, 60)]
+ok(any(_moved) and _rl == [('g', 'inst-1')] and _pg.culls == 1, 'PullGuard: темп 0,1 %/мин → пересадка этого экземпляра (без новой группы), ровно одна')
 ok(KD.post_timeout_s(0) == 90 and KD.post_timeout_s(500 * 2 ** 20) == 300 and KD.post_timeout_s(10 ** 9, 45) == 45
    and KD.post_timeout_s(2 ** 20, rules={'base_s': 10, 'per_mb_s': 5, 'max_s': 100}) == 15, 'post_timeout_s: формула, потолок max_s, override и правила из rules')
 
