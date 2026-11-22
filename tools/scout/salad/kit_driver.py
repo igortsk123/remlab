@@ -587,6 +587,9 @@ class Watch:
     ready_min: float = 30
     stall_min: float = 5
     stall_gb: float = 0.05
+    slow_window_s: float = 0                         # сторож медленной сборки весов на running-ноде (0 — выключен): окно, с
+    slow_gb_min: float = 2.0                         # …и порог ГБ/мин (здоровая нода ≈7,5, медленная ≈0,95 — замер 22.11)
+    banked: float = 0.0                              # деньги, уже потраченные на пересаженные ноды (running_s считается заново на новой)
     last_cull: float | None = None                   # пересадка ноды при медленной докачке образа: «нода не выдана» считаем заново от неё
     run_since: float | None = None
     started_since: float | None = None
@@ -600,7 +603,7 @@ class Watch:
         return (t - self.run_since) if self.run_since is not None else 0.0
 
     def cost(self, t: float) -> float:
-        return cost_usd(self.running_s(t), self.price)
+        return self.banked + cost_usd(self.running_s(t), self.price)
 
     def cap_now(self) -> float:
         return effective_cap(self.first_done, self.probe_cap, self.cap)
@@ -631,6 +634,10 @@ class Watch:
                 self.events.append(('weights_gb', h['root_gb'], ''))
                 if weights_stalled(self.gb_hist, self.stall_min * 60, self.stall_gb):
                     return 'download_stalled', f'докачка весов не растёт {self.stall_min} мин (папка {h["root_gb"]} ГБ)'
+            if h.get('phase') == 'weights' and self.slow_window_s > 0:
+                rate = weights_slow(self.gb_hist, self.slow_window_s, self.slow_gb_min)
+                if rate is not None:
+                    return 'weights_slow', f'веса собираются {rate:.2f} ГБ/мин < {self.slow_gb_min} за {self.slow_window_s / 60:.0f} мин (папка {h["root_gb"]} ГБ) — нода медленная'
             if h.get('phase') == 'broken' or h.get('error'):
                 self.events.append(('warm_error', h.get('error'), ''))
                 return 'warm_failed', f'воркер сломан: {h.get("error")} (фаза {h.get("phase")})'
@@ -645,6 +652,31 @@ class Watch:
         if self.run_since is not None and self.ready_at is None and self.running_s(t) > self.ready_min * 60:
             return 'not_ready', f'{self.ready_min} мин после running модель не прогрелась'
         return None, ''
+
+
+def weights_cull(w: 'Watch', guard, t: float, ins: list, why: str, say_fn=say) -> bool:
+    """Медленная сборка весов на running-ноде: пересадить (тот же бюджет `max_culls`, что у медленной докачки образа). Потраченное на эту ноду уходит в `banked`,
+    отсчёты «running/started/ответ/веса» начинаются заново на новой ноде. False — пересаживать нельзя (нет сторожа, бюджет исчерпан, нет running-инстанса): драйвер гасит группу."""
+    if guard is None or guard.culls >= guard.max_culls:
+        return False
+    run = [i for i in ins if i.get('state') == 'running' and i.get('id')]
+    if not run:
+        return False
+    guard._nh()
+    if not guard.take_slot():
+        say_fn('сторож весов: общий бюджет пересадок на час исчерпан — гашу')
+        return False
+    iid = run[0]['id']
+    say_fn(f'сторож весов: нода {iid[:8]} — {why} → пересаживаю (№{guard.culls + 1} из {guard.max_culls})')
+    if not guard.realloc(guard.group, iid, why):
+        return False
+    guard.culls += 1
+    w.banked = w.cost(t)
+    w.run_since = w.started_since = None
+    w.ever_ok = False
+    w.gb_hist = []
+    w.last_cull = t
+    return True
 
 
 # ---------------------------------------------------------------- общий учёт денег проб
@@ -799,6 +831,8 @@ def run_probe(a, MG, BR, spec: Spec, gw_factory=Gateway, sleep=time.sleep, clock
         say('ИТОГ', json.dumps({k: summary.get(k) for k in ('group', 'stopped_by', 'stop_verified')}, ensure_ascii=False))
         return 1
     w = Watch(t_start, price, a.probe_cap, a.cap, a.max_min, a.running_min, a.start_min, a.health_min, a.ready_min, a.stall_min, a.stall_gb)
+    w.slow_window_s = float(getattr(a, 'slow_window_s', 0) or 0)
+    w.slow_gb_min = float(getattr(a, 'slow_gb_min', 2.0) or 2.0)
     guard = (pull_guard or PullGuard)(name) if getattr(a, 'pull_guard', True) else None      # --no-pull-guard выключает (a.pull_guard=False)
     if guard is not None:
         guard.configure(image_gib)                                                           # норма докачки — от размера образа (ожидаемое × 2,5), не константы мешей
@@ -849,6 +883,11 @@ def run_probe(a, MG, BR, spec: Spec, gw_factory=Gateway, sleep=time.sleep, clock
                 c, h = gw.call('GET', '/health', timeout=20)
                 last_h = (c, h)
                 why, detail = w.health(t, ins, c, h)
+                if why == 'weights_slow' and weights_cull(w, guard, t, ins, detail, say):
+                    gw = None                                              # новая нода — новый шлюз, отсчёт заново
+                    last_h = (None, {})
+                    summary['weights_culls'] = guard.culls
+                    why = None                                             # пересадили — дальше обычный шаг цикла (пауза в конце)
                 if why:
                     say(f'!! {detail} — гашу')
                     summary['stopped_by'] = why
