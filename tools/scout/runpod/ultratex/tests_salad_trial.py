@@ -461,5 +461,45 @@ with tempfile.TemporaryDirectory() as tmp:
         S.time = _real_time
     check(set(summ.get('jobs', {})) == {'a'} and str(summ.get('stopped_by', '')).startswith('контрольное') and br.stopped >= 1, f'затвор: первое упало → остальные не шлём, аварийный стоп ({summ.get("stopped_by")})')
 
+# T-178/3 (22.11): параметры по заданию — пара «штатно | лёгкий» на одной группе
+check(S.split_job('112923_1@lite') == ('112923_1', 'lite') and S.split_job('112923_1') == ('112923_1', ''), 'задание key@вариант: товар и вариант разделяются, без @ — вариант пуст')
+V = S.parse_variants('{"std": {}, "lite": {"resolution": 1024, "steps": 12, "texture_size": 1024}}')
+_a = types.SimpleNamespace(resolution=2048, steps=25, seed=42, texture=4096)
+check(S.job_params(_a, V, 'x@lite') == {'resolution': 1024, 'steps': 12, 'seed': 42, 'texture_size': 1024} and S.job_params(_a, V, 'x@std') == {'resolution': 2048, 'steps': 25, 'seed': 42, 'texture_size': 4096}
+      and S.job_params(_a, V, 'x') == {'resolution': 2048, 'steps': 25, 'seed': 42, 'texture_size': 4096}, 'параметры задания: вариант переопределяет только свои ключи, остальное — общие')
+for bad in ('{"lite": {"foo": 1}}', '{"lite": {"steps": "12"}}', '{"li te": {"steps": 12}}', '[1]', 'не json'):
+    try:
+        S.parse_variants(bad)
+        check(False, f'--variants {bad}: должен отказать')
+    except SystemExit:
+        check(True, f'--variants {bad}: отказ до группы')
+try:
+    S.job_params(_a, V, 'x@нет')
+    check(False, 'неизвестный вариант: отказ')
+except SystemExit:
+    check(True, 'неизвестный вариант задания: отказ до денег')
+
+# в тело /generate уходят параметры варианта (проверка через настоящий submit спецификации, подставной шлюз)
+with tempfile.TemporaryDirectory() as tmp:
+    sh_, inp_ = setup(tmp)
+    got = []
+
+    class _G:
+        def call(self, method, path, body=None, timeout=60, raw=False):
+            if method == 'POST':
+                got.append(body)
+            return 202, {}
+    spec = S.make_spec(args(tmp, sh_, inp_, 'a@std,a@lite', variants='{"std": {}, "lite": {"resolution": 1024, "steps": 12, "texture_size": 1024}}'))
+    for j in ('a@std', 'a@lite'):
+        cur, _x = spec.submit(_G(), j, 1000.0)
+    ps = [{k: b[k] for k in ('resolution', 'steps', 'texture_size', 'seed')} for b in got if b and 'job_id' in b]
+    check(ps == [{'resolution': 2048, 'steps': 25, 'texture_size': 4096, 'seed': 42}, {'resolution': 1024, 'steps': 12, 'texture_size': 1024, 'seed': 42}]
+          and got[0]['job_id'] != got[1]['job_id'] and '@' not in got[1]['job_id'], f'submit: штатно 2048/25/4096, лёгкий 1024/12/1024, разные job_id без «@» ({ps})')
+    try:
+        S.make_spec(args(tmp, sh_, inp_, 'a@нет'))
+        check(False, 'make_spec: неизвестный вариант должен отказать')
+    except SystemExit:
+        check(True, 'make_spec: задание с неизвестным вариантом — отказ до группы')
+
 print('\nИТОГ:', 'ВСЁ ЗЕЛЁНОЕ' if not FAILS else f'ПАДЕНИЙ {len(FAILS)}')
 sys.exit(1 if FAILS else 0)

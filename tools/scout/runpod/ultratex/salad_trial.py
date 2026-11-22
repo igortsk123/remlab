@@ -68,6 +68,46 @@ def parse_jobs(spec: str) -> list[str]:
     return [x.strip() for x in spec.split(',') if x.strip()]
 
 
+JOB_PARAM_KEYS = ('resolution', 'steps', 'guidance', 'seed', 'texture_size')
+
+
+def split_job(job: str) -> tuple[str, str]:
+    """Задание `<товар>` или `<товар>@<вариант>` → (товар, вариант). Вариант — имя из --variants: тот же товар считается несколько раз с разными параметрами (пара «штатно | лёгкий»)."""
+    prod, _, var = job.partition('@')
+    return prod, var
+
+
+def parse_variants(spec) -> dict:
+    """--variants: JSON-файл или строка `{"имя": {resolution?, steps?, guidance?, seed?, texture_size?}}`; пусто → {}. Лишний ключ или не число — отказ ДО группы и денег."""
+    if not spec:
+        return {}
+    raw = open(os.path.expanduser(spec), encoding='utf-8').read() if os.path.exists(os.path.expanduser(spec)) else spec
+    try:
+        d = json.loads(raw)
+    except ValueError as e:
+        raise SystemExit(f'--variants: не JSON ({e})')
+    if not isinstance(d, dict):
+        raise SystemExit('--variants: нужен объект {"имя": {параметры}}')
+    for name, v in d.items():
+        bad = [k for k in v if k not in JOB_PARAM_KEYS] if isinstance(v, dict) else ['не объект']
+        if bad or not name.replace('-', '').replace('_', '').isalnum():
+            raise SystemExit(f'--variants {name}: ключи только {JOB_PARAM_KEYS}, имя из букв/цифр/-/_; лишнее: {bad}')
+        if any(isinstance(x, bool) or not isinstance(x, (int, float)) for x in v.values()):
+            raise SystemExit(f'--variants {name}: значения — числа')
+    return d
+
+
+def job_params(a, variants: dict, job: str) -> dict:
+    """Параметры /generate для задания: общие из --resolution/--steps/--seed/--texture, поверх — переопределения варианта (если у задания есть @вариант)."""
+    base = {'resolution': a.resolution, 'steps': a.steps, 'seed': a.seed, 'texture_size': a.texture}
+    var = split_job(job)[1]
+    if var:
+        if var not in variants:
+            raise SystemExit(f'задание «{job}»: варианта «{var}» нет в --variants {sorted(variants)}')
+        base.update(variants[var])
+    return base
+
+
 def parse_env(items) -> dict:
     """--env K=V (повторяемый): переменные воркера для группы — ULTRATEX_MEM_CHUNK, ULTRATEX_CFG, ULTRATEX_VRAM_FRAC…; секретов сюда не кладём."""
     out = {}
@@ -114,6 +154,10 @@ def make_spec(a, head_fn=head) -> KD.Spec:
     if getattr(a, 'diag', False):
         return make_diag_spec(a)
     jobs = parse_jobs(a.jobs)
+    variants = parse_variants(getattr(a, 'variants', ''))
+    unknown = sorted({split_job(j)[1] for j in jobs} - set(variants) - {''})
+    if unknown:
+        raise SystemExit(f'задания с вариантами {unknown}: нет в --variants {sorted(variants)}')      # отказ до группы и денег
     hf = os.environ.get('HF_TOKEN', '')
 
     def build(name, class_id, auth):
@@ -121,7 +165,7 @@ def make_spec(a, head_fn=head) -> KD.Spec:
                           worker_z=None if getattr(a, 'worker_from_image', False) else worker_command()[1], extra_env=dict(parse_env(getattr(a, 'env', None)), **({'ULTRATEX_DIAG_FIRST': '1'} if getattr(a, 'diag_first', False) else {})))
 
     def preflight():
-        missing = [k for k in jobs for p in (os.path.join(a.shape_dir, a.shape_name.format(key=k)), os.path.join(a.inputs, f'{k}.rgba.png')) if not os.path.exists(p)]
+        missing = [k for k in jobs for pk in [split_job(k)[0]] for p in (os.path.join(a.shape_dir, a.shape_name.format(key=pk)), os.path.join(a.inputs, f'{pk}.rgba.png')) if not os.path.exists(p)]
         if missing:
             return False, f'нет входных файлов: {missing[:4]}'
         token = os.environ.get('HF_TOKEN', hf)
@@ -129,12 +173,12 @@ def make_spec(a, head_fn=head) -> KD.Spec:
         return (not bad), ('допуск к закрытым весам FLUX.2: есть' if not bad else f'допуска к весам FLUX.2 НЕТ {bad}')
 
     def submit(gw, k, t):
-        glb = open(os.path.join(a.shape_dir, a.shape_name.format(key=k)), 'rb').read()
-        png = open(os.path.join(a.inputs, f'{k}.rgba.png'), 'rb').read()
-        jid = f'{k}-{int(t)}'.replace('_', '-')[:150]
-        c, r, pt = KD.post_job(gw, '/generate', {'job_id': jid, 'image_b64': base64.b64encode(png).decode(), 'glb_b64': base64.b64encode(glb).decode(),
-                                                 'resolution': a.resolution, 'steps': a.steps, 'seed': a.seed, 'texture_size': a.texture}, f'/result/{jid}',
-                               getattr(a, 'post_timeout', 0))        # таймаут по размеру тела; -1 → сперва спросить воркера (kit_driver.post_job)
+        pk = split_job(k)[0]
+        glb = open(os.path.join(a.shape_dir, a.shape_name.format(key=pk)), 'rb').read()
+        png = open(os.path.join(a.inputs, f'{pk}.rgba.png'), 'rb').read()
+        jid = f'{k}-{int(t)}'.replace('_', '-').replace('@', '-')[:150]
+        c, r, pt = KD.post_job(gw, '/generate', dict({'job_id': jid, 'image_b64': base64.b64encode(png).decode(), 'glb_b64': base64.b64encode(glb).decode()}, **job_params(a, variants, k)),
+                               f'/result/{jid}', getattr(a, 'post_timeout', 0))        # таймаут по размеру тела; -1 → сперва спросить воркера (kit_driver.post_job)
         say(f'задание {k}: POST /generate → {c}', str(r)[:120] if c != 202 else '')
         return ({'key': k, 'id': jid, 't0': t, 'post': pt}, {}) if c == 202 else (None, {'http': c, 'detail': r, 'post': pt})
 
@@ -199,6 +243,7 @@ def main() -> int:
     ap.add_argument('--steps', type=int, default=25)
     ap.add_argument('--seed', type=int, default=42)
     ap.add_argument('--texture', type=int, default=4096)
+    ap.add_argument('--variants', default='', help='JSON (файл или строка) вариантов параметров: {"имя": {resolution, steps, guidance, seed, texture_size}}; задание `<товар>@<имя>` берёт общие параметры и переопределяет их вариантом (пара «штатно | лёгкий»)')
     ap.add_argument('--probe-cap', type=float, default=1.0, help='потолок денег, пока не готово первое задание, $')
     ap.add_argument('--cap', type=float, default=4.0, help='общий потолок после первого успеха, $')
     ap.add_argument('--max-min', type=int, default=120)
