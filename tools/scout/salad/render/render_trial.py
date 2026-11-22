@@ -33,7 +33,8 @@ import pose_trial as PT  # noqa: E402  — общие куски пакетно�
 import worker_render as WR  # noqa: E402
 from kit_driver import Gateway, say  # noqa: E402
 
-CARD_NAME = 'RTX 3090 (24 GB)'
+WORK_TYPE = 'forms_render'                                        # профиль ресурсов: rules/salad-resources.json (T-186/1) — карта, vCPU, RAM, диск, shm, тариф только оттуда
+CARD = KD.resource_profile(WORK_TYPE)['card']
 PORT = 8000
 WORKER = os.path.join(HERE, 'worker_render.py')
 RULES = os.path.normpath(os.path.join(HERE, '..', '..', 'rules', 'salad-render.json'))
@@ -58,13 +59,13 @@ def worker_command(path: str | None = None) -> tuple[list[str], str]:
     return KW.bundle(path or WORKER)
 
 
-def build_body(name: str, image: str, tier: str, class_id: str, cpu: int, mem_mb: int, auth: dict, life_s: int, idle_s: int, procs: int, threads: int, worker_z: str | None = None) -> dict:
+def build_body(name: str, image: str, tier: str, class_id: str, auth: dict, life_s: int, idle_s: int, procs: int, threads: int, worker_z: str | None = None) -> dict:
     env = {'PORT': str(PORT), 'MAX_LIFETIME_S': str(life_s), 'IDLE_S': str(idle_s), 'RENDER_PROCS': str(procs), 'RENDER_THREADS': str(threads), 'RENDER_DEVICE': 'GPU',
            'RENDER_TIMEOUT_S': str(load_rules()['frame_timeout_s']), 'DEPLOYMENT_EPOCH': f'20261122-{name}'}
     command = None
     if worker_z:
         command, env['KIT_WORKER_Z'] = worker_command()[0], worker_z
-    return KD.group_body(name, image, tier, class_id, PORT, env, {'cpu': cpu, 'memory': mem_mb, 'storage_amount': 10 * 2 ** 30, 'shm_size': 1024}, auth, command)
+    return KD.group_body(name, image, tier, class_id, PORT, env, auth, command, work_type=WORK_TYPE, card=CARD)
 
 
 def glb_path(a, sku: str) -> str:
@@ -144,7 +145,7 @@ def make_spec(a) -> KD.Spec:
     seats = {s for s in a.seats.split(',') if s}
 
     def build(name, class_id, auth):
-        return build_body(name, a.image, a.tier, class_id, a.cpu, a.mem_mb, auth, min(a.max_min * 60 + 600, 3 * 3600), a.idle_s, a.procs, a.threads,
+        return build_body(name, a.image, a.tier, class_id, auth, min(a.max_min * 60 + 600, 3 * 3600), a.idle_s, a.procs, a.threads,
                           worker_z=None if getattr(a, 'worker_from_image', False) else worker_command()[1])
 
     def preflight():
@@ -155,7 +156,7 @@ def make_spec(a) -> KD.Spec:
             return False, f'--seats: товаров нет в --skus: {sorted(seats - set(skus))}'
         return True, f'входы на месте: {len(skus)} товаров, сидячих {len(seats)}'
 
-    return KD.Spec(prefix=PREFIX, card=a.card, model='forms-render', jobs=['pack'], build_body=build, submit=lambda gw, k, t: submit_pack(gw, a, skus, seats, t),
+    return KD.Spec(prefix=PREFIX, card=CARD, model='forms-render', jobs=['pack'], build_body=build, work_type=WORK_TYPE, submit=lambda gw, k, t: submit_pack(gw, a, skus, seats, t),
                    poll=lambda gw, cur, t: poll_pack(gw, a, cur, t), preflight=preflight, ready_keys=('version', 'blender', 'cuda', 'device', 'procs'), z_keys=('KIT_WORKER_Z',),
                    worker_file=WORKER)
 
@@ -186,10 +187,7 @@ def main() -> int:
     ap.add_argument('--glb-dir', default=os.path.expanduser('~/remlab-logs/t178-forms-1122/forms-out'))
     ap.add_argument('--glb-name', default='{sku}-hd.glb')
     ap.add_argument('--out', default=os.path.expanduser('~/remlab-logs/t184-1122/render-out'))
-    ap.add_argument('--card', default=CARD_NAME, help='класс Salad (Blender Cycles CUDA)')
     ap.add_argument('--tier', default='low', choices=['low', 'medium'], help='low; нет машин → medium (автоматически); batch и high запрещены правилом владельца 22.11')
-    ap.add_argument('--cpu', type=int, default=r['cpu'], help='vCPU группы (по оценке, пока нет профиля ресурсов р.5)')
-    ap.add_argument('--mem-mb', type=int, default=r['mem_mb'])
     ap.add_argument('--procs', type=int, default=r['procs'], help='форм одновременно на ноде')
     ap.add_argument('--threads', type=int, default=r['threads'], help='потоков процессора на одну форму (разбор сцены)')
     ap.add_argument('--samples', type=int, default=r['samples'], help='как у нашего локального счёта (forms_render --samples по умолчанию)')

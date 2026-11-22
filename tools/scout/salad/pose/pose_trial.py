@@ -31,7 +31,8 @@ import kit_driver as KD  # noqa: E402
 import kit_worker as KW  # noqa: E402
 from kit_driver import Gateway, say  # noqa: E402
 
-CARD_NAME = 'GTX 1650 (4 GB)'
+WORK_TYPE = 'pose_camera'                                         # профиль ресурсов: rules/salad-resources.json (T-186/1) — карта, vCPU, RAM, диск, shm, тариф только оттуда
+CARD = KD.resource_profile(WORK_TYPE)['card']
 PORT = 8000
 WORKER = os.path.join(HERE, 'worker_pose.py')
 RULES = os.path.normpath(os.path.join(HERE, '..', '..', 'rules', 'salad-pose.json'))
@@ -46,13 +47,13 @@ def worker_command(path: str | None = None) -> tuple[list[str], str]:
     return KW.bundle(path or WORKER)
 
 
-def build_body(name: str, image: str, tier: str, class_id: str, cpu: int, mem_mb: int, auth: dict, life_s: int, idle_s: int, procs: int, omp: int, worker_z: str | None = None) -> dict:
+def build_body(name: str, image: str, tier: str, class_id: str, auth: dict, life_s: int, idle_s: int, procs: int, omp: int, worker_z: str | None = None) -> dict:
     env = {'PORT': str(PORT), 'MAX_LIFETIME_S': str(life_s), 'IDLE_S': str(idle_s), 'POSE_PROCS': str(procs), 'POSE_OMP': str(omp),
            'POSE_FIT_TIMEOUT_S': str(load_rules()['fit_timeout_s']), 'POSE_CHECK_TIMEOUT_S': str(load_rules()['check_timeout_s']), 'DEPLOYMENT_EPOCH': f'20261122-{name}'}
     command = None
     if worker_z:
         command, env['KIT_WORKER_Z'] = worker_command()[0], worker_z
-    return KD.group_body(name, image, tier, class_id, PORT, env, {'cpu': cpu, 'memory': mem_mb, 'storage_amount': 10 * 2 ** 30, 'shm_size': 1024}, auth, command)
+    return KD.group_body(name, image, tier, class_id, PORT, env, auth, command, work_type=WORK_TYPE, card=CARD)
 
 
 def paths(a, sku: str) -> tuple[str, str]:
@@ -142,7 +143,7 @@ def make_spec(a) -> KD.Spec:
     skus = [s for s in a.skus.split(',') if s]
 
     def build(name, class_id, auth):
-        return build_body(name, a.image, a.tier, class_id, a.cpu, a.mem_mb, auth, min(a.max_min * 60 + 600, 3 * 3600), a.idle_s, a.procs, a.omp,
+        return build_body(name, a.image, a.tier, class_id, auth, min(a.max_min * 60 + 600, 3 * 3600), a.idle_s, a.procs, a.omp,
                           worker_z=None if getattr(a, 'worker_from_image', False) else worker_command()[1])
 
     def preflight():
@@ -151,7 +152,7 @@ def make_spec(a) -> KD.Spec:
             return False, f'нет входных файлов: {miss[:4]}'
         return True, f'входы на месте: {len(skus)} товаров'
 
-    return KD.Spec(prefix='trial-pose', card=a.card, model='pose-cpu', jobs=['pack'], build_body=build, submit=lambda gw, k, t: submit_pack(gw, a, skus, t),
+    return KD.Spec(prefix='trial-pose', card=CARD, model='pose-cpu', jobs=['pack'], build_body=build, work_type=WORK_TYPE, submit=lambda gw, k, t: submit_pack(gw, a, skus, t),
                    poll=lambda gw, cur, t: poll_pack(gw, a, cur, t), preflight=preflight, ready_keys=('version', 'libs', 'cpu_model', 'cpus', 'procs'), z_keys=('KIT_WORKER_Z',),
                    worker_file=WORKER)
 
@@ -255,10 +256,7 @@ def main() -> int:
     ap.add_argument('--photo-dir', default=os.path.expanduser('~/remlab-logs/t178-forms-1122/forms-inputs'))
     ap.add_argument('--photo-name', default='{sku}.hd.rgba.png')
     ap.add_argument('--out', default=os.path.expanduser('~/remlab-logs/t184-1122/pose-out'))
-    ap.add_argument('--card', default=CARD_NAME, help='класс Salad (видеокарта не нужна — берём самый дешёвый)')
     ap.add_argument('--tier', default='low', choices=['low', 'medium'], help='low; нет машин → medium (автоматически); batch и high запрещены правилом владельца 22.11')
-    ap.add_argument('--cpu', type=int, default=8)
-    ap.add_argument('--mem-mb', type=int, default=16384)
     ap.add_argument('--procs', type=int, default=r['procs'], help='процессов расчёта на ноде (по ядру)')
     ap.add_argument('--omp', type=int, default=r['omp_threads'])
     ap.add_argument('--px', type=int, default=None)

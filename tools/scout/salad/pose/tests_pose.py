@@ -320,11 +320,14 @@ class PureTests(unittest.TestCase):
         self.assertEqual(KD.worker_progress_refusal(PT.WORKER), '')
 
     def test_body_has_no_secrets_and_digest_required(self):
-        body = PT.build_body('trial-pose-t', 'x/y@sha256:' + 'a' * 64, 'low', 'cls', 8, 16384, {}, 3600, 900, 6, 1, worker_z='Z')
+        body = PT.build_body('trial-pose-t', 'x/y@sha256:' + 'a' * 64, 'low', 'cls', {}, 3600, 900, 6, 1, worker_z='Z')
         text = json.dumps(body)
         self.assertNotIn('SALAD_API_KEY', text)
         self.assertIn('POSE_PROCS', text)
         self.assertIn('KIT_WORKER_Z', text)
+        import kit_driver as KD
+        prof = KD.resource_profile(PT.WORK_TYPE)
+        self.assertEqual(body['container']['resources'], {**KD.profile_resources(prof, ''), 'gpu_classes': ['cls']})   # ресурсы — только профиль, в build_body своих нет
 
 
 class SubmitPostTests(unittest.TestCase):

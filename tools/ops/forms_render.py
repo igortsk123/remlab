@@ -9,7 +9,7 @@ T-180/7 (директор 22.11, владелец TG 1373/1376): `--accept` — 
 
   python3 tools/ops/forms_render.py --glbs <папка с GLB форм> --out <папка кадров> (--set set40.json | --ids 99272_1,112923_2) [--max N] [--cores 2] [--samples 16] [--no-slot]
 
-Кадры: `<out>/<товар>/01_az000_clay.png`, `02_az225_clay.png`. GLB ищется как `<товар>*.glb` (предпочтительно `-hd`, свежий) — `paint_run_report.find_glb`. Код 1 — если у кого-то кадров нет (причина — в `<out>/render.log`)."""
+Кадры: `<out>/<товар>/01_az000_clay.png`, `02_az225_clay.png`. GLB ищется как `<товар>*.glb` (предпочтительно `-hd`, свежий) — `find_glb_`. Код 1 — если у кого-то кадров нет (причина — в `<out>/render.log`)."""
 import argparse
 import json
 import os
@@ -19,7 +19,6 @@ import time
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, HERE)
-import paint_run_report as prr  # noqa: E402
 
 VIEW_DEFS = {'az000': (0, 15), 'az090': (90, 15), 'az180': (180, 15), 'az225': (225, 15), 'top40': (45, 40), 'low090': (90, 3)}    # вид → (азимут°, угол места°): ЕДИНСТВЕННЫЙ источник ракурсов
 VIEWS = ('az000', 'az225')                                                                                                # страница этапа «форма» (T-180/5)
@@ -123,7 +122,15 @@ def main() -> int:
 
 
 def find_glb_(glbs: str, sku: str):
-    return prr.find_glb(glbs, sku)
+    """GLB формы товара в папке: `<товар>*.glb`, предпочтительно `-hd`, из равных — свежий; без `.audit.glb`/`.raw.glb`. Нет — None."""
+    try:
+        names = [n for n in os.listdir(glbs) if (n.startswith(sku + '-') or n == sku + '.glb') and n.endswith('.glb') and not n.endswith(('.audit.glb', '.raw.glb'))]
+    except OSError:
+        return None
+    if not names:
+        return None
+    names.sort(key=lambda n: (('-hd' in n), os.path.getmtime(os.path.join(glbs, n))), reverse=True)
+    return os.path.join(glbs, names[0])
 
 
 if __name__ == '__main__':
