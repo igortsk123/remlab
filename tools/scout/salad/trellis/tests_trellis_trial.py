@@ -304,6 +304,20 @@ brs = FakeBR(running_after=60, pull=lambda n: 0.01 + n * 10 / 60.0 * 0.001)
 _rl.clear()
 rc, mg, br, s = go(d3, suffix='g3', skus=['a:1'], plan='1024:1', br=brs, pull_guard=False, run_kw={'pull_guard': _mkg2})
 ok('--no-pull-guard выключает сторож: медленная докачка никого не пересаживает, пока нода сама не поднялась', _rl == [] and s['stopped_by'] == 'done' and 'pull_culls' not in s)
+# T-178/4 (22.11): seed — ключ СТУПЕНИ лесенки (правило «брак → до 2 новых seed»: seed на задание, не на запуск); одна группа — разные seed
+_lp = os.path.join(d3, 'lad-seed.json')
+open(_lp, 'w').write(json.dumps([{'name': 'A', 'input': 'hd', 'res': 1024}, {'name': 'S7', 'input': 'hd', 'res': 1024, 'seed': 7}]))
+_lad = T.parse_ladder(_lp)
+_jj = T.expand_ladder_jobs(T.build_jobs(['a:1'], T.parse_plan('1024:1'), {'a:1': {'input_png_sha256': 'x'}}, 42), _lad)
+ok('лесенка: seed ступени доходит до задания и до payload воркера (7), у ступени без seed — запуск (42)',
+   [(j['job_id'], j['seed'], (j.get('worker_params') or {}).get('seed')) for j in _jj] == [('a_1-A', 42, None), ('a_1-S7', 7, 7)])
+for _bad in (-1, 2 ** 31, 1.5, '7', True):
+    open(_lp, 'w').write(json.dumps([{'name': 'X', 'input': 'hd', 'res': 1024, 'seed': _bad}]))
+    try:
+        T.parse_ladder(_lp)
+        ok(f'seed {_bad!r} отклонён до группы', False)
+    except ValueError:
+        ok(f'seed {_bad!r} отклонён до группы', True)
 ok('драйвер зовёт ОБЩУЮ функцию kit_driver: таймаут POST растёт с телом, ограничен max_s, --post-timeout > 0 перекрывает',
    T.KD.post_timeout_s(0) == 90 and 120 <= T.KD.post_timeout_s(1 * 2 ** 20) <= 130 and T.KD.post_timeout_s(2 * 2 ** 20) > T.KD.post_timeout_s(1 * 2 ** 20)
    and T.KD.post_timeout_s(500 * 2 ** 20) == 300 and T.KD.post_timeout_s(10 ** 9, 45) == 45)

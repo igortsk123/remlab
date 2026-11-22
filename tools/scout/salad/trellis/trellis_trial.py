@@ -125,11 +125,11 @@ def expand_align_jobs(jobs: list[dict], variants: list[dict]) -> list[dict]:
             for j in jobs for v in variants]
 
 
-LADDER_KEYS = ('ss_steps', 'ss_guidance', 'ss_rescale', 'ss_rescale_t', 'shape_steps', 'shape_guidance', 'shape_rescale', 'shape_rescale_t', 'max_num_tokens', 'export_raw', 'variants')
+LADDER_KEYS = ('ss_steps', 'ss_guidance', 'ss_rescale', 'ss_rescale_t', 'shape_steps', 'shape_guidance', 'shape_rescale', 'shape_rescale_t', 'max_num_tokens', 'export_raw', 'variants', 'seed')
 
 
 def parse_ladder(path: str) -> list[dict]:
-    """T-20261119-94 — лесенка формы TRELLIS.2: JSON-список ступеней `{name, input: cur|hd, res: 1024|1536, ss_steps?, shape_steps?, shape_rescale?, max_num_tokens?, export_raw?}`. Имя ступени — в id задания
+    """T-20261119-94 — лесенка формы TRELLIS.2: JSON-список ступеней `{name, input: cur|hd, res: 1024|1536, ss_steps?, shape_steps?, shape_rescale?, max_num_tokens?, export_raw?, seed?}` (seed — на ступень: перекрывает `--seed` запуска, одна группа — разные seed). Имя ступени — в id задания
     (`<товар>-<имя>`), у каждой ступени меняется РОВНО то, что записано; прочее — по умолчанию апстрима. Ошибка в файле → ValueError (до группы и денег)."""
     items = json.load(open(os.path.expanduser(path), encoding='utf-8'))
     if not isinstance(items, list) or not items:
@@ -145,13 +145,15 @@ def parse_ladder(path: str) -> list[dict]:
         bad = [k for k in it if k not in ('name', 'input', 'res') + LADDER_KEYS]
         if bad:
             raise ValueError(f'лесенка {nm}: неизвестные ключи {bad}')
+        if 'seed' in it and (isinstance(it['seed'], bool) or not isinstance(it['seed'], int) or not 0 <= it['seed'] < 2 ** 31):
+            raise ValueError(f'лесенка {nm}: seed — целое от 0 до 2^31-1 (правило «брак → до 2 новых seed» — seed на задание, не на запуск)')
         out.append({'name': nm, 'input': it.get('input', 'cur'), 'res': int(it.get('res', 1024)), 'params': {k: it[k] for k in LADDER_KEYS if k in it}})
     return out
 
 
 def expand_ladder_jobs(jobs: list[dict], ladder: list[dict]) -> list[dict]:
     """Задание на каждую ступень лесенки для каждого товара (порядок — по ступеням: сперва все товары первой ступени, затем второй…): `res`, фото (`cur` — как в БД 30 товаров, `hd` — `<товар>.hd.rgba.png`) и параметры ступени."""
-    return [dict(j, job_id=f'{j["sku"].replace(":", "_")}-{r["name"]}', res=r['res'], input=r['input'], worker_params=r['params']) for r in ladder for j in jobs]
+    return [dict(j, job_id=f'{j["sku"].replace(":", "_")}-{r["name"]}', res=r['res'], input=r['input'], worker_params=r['params'], seed=r['params'].get('seed', j['seed'])) for r in ladder for j in jobs]
 
 
 def price_usd_h(tier: str) -> float | None:
