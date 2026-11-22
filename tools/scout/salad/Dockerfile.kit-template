@@ -17,9 +17,11 @@ ARG BASE=<репозиторий-основы>@sha256:<64-hex>
 FROM ${BASE}
 ENV HF_HUB_ENABLE_HF_TRANSFER=0
 
-# слой 1: конфиги и малые файлы
+# слой 1: ВСЕ мелкие файлы ревизии = всё, кроме крупных весов (конфиги, токенайзер, chat_template.jinja, …)
+# УРОК (Ш5/T-183, pl2 22.11): перечень мелких файлов (allow_patterns=['*.json','*.txt',…]) потерял chat_template.jinja — процессор без шаблона упал на первом меше, платная попытка впустую.
+# Правило: слой 1 = ВСЕ файлы ревизии, КРОМЕ крупных весов (ignore_patterns), а не перечень «что нужно»; крупные — своими слоями. Проверять надо файлы ОБРАЗА, а не список ревизии.
 RUN python3 -c "from huggingface_hub import snapshot_download as s; \
-s('<владелец>/<репозиторий>', local_dir='/opt/weights/<имя>', allow_patterns=['*.json','*.txt'], max_workers=8)"
+s('<владелец>/<репозиторий>', local_dir='/opt/weights/<имя>', ignore_patterns=['*.safetensors','*.bin','*.pt','*.pth','*.ckpt','*.gguf','*.onnx'], max_workers=8)"
 # слои 2…N: крупные файлы — каждый своим слоем (≤ ~5 ГиБ на слой)
 RUN python3 -c "from huggingface_hub import snapshot_download as s; \
 s('<владелец>/<репозиторий>', local_dir='/opt/weights/<имя>', allow_patterns=['<крупный-файл-1>*'], max_workers=8)"

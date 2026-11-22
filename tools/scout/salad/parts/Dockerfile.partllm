@@ -22,8 +22,11 @@ RUN git clone https://github.com/czvvd/PartLLM.git /opt/PartLLM && cd /opt/PartL
     && pip install --no-deps "https://github.com/Dao-AILab/flash-attention/releases/download/v2.8.3/flash_attn-2.8.3+cu12torch2.8cxx11abiTRUE-cp311-cp311-linux_x86_64.whl" \
     && pip install pymeshlab \
     && pip install -e . && python scripts/patch_transformers.py && python scripts/patch_transformers.py --check
-# веса двумя слоями (по файлу ≈4,6 ГиБ) + мелкие файлы (конфиги, токенайзер) первым
-RUN python -c "from huggingface_hub import snapshot_download as s; s('Czvvd/PartLLM', revision='${MODEL_REV}', local_dir='/opt/weights/partllm', allow_patterns=['*.json','*.txt','*.model','*.py'])"
+# веса двумя слоями (по файлу ≈4,6 ГиБ) + ВСЕ мелкие файлы ревизии первым слоем (всё, кроме крупных весов)
+# УРОК (Ш5/T-183, pl2 22.11): перечень мелких файлов (allow_patterns=['*.json','*.txt',…]) потерял chat_template.jinja — процессор без шаблона упал на первом меше, платная попытка впустую.
+# Правило: слой 1 = ВСЕ файлы ревизии, КРОМЕ крупных весов (ignore_patterns), а не перечень «что нужно»; крупные — своими слоями. Проверять надо файлы ОБРАЗА, а не список ревизии.
+# СЛЕДУЮЩАЯ СБОРКА: chat_template.jinja попадёт в образ сам; вшитый в worker_parts.PARTLLM_CHAT_TEMPLATE станет не нужен (ensure_chat_template не тронет уже лежащий файл) — тогда его можно удалить.
+RUN python -c "from huggingface_hub import snapshot_download as s; s('Czvvd/PartLLM', revision='${MODEL_REV}', local_dir='/opt/weights/partllm', ignore_patterns=['*.safetensors','*.bin','*.pt','*.pth','*.ckpt','*.gguf','*.onnx'])"
 RUN python -c "from huggingface_hub import snapshot_download as s; s('Czvvd/PartLLM', revision='${MODEL_REV}', local_dir='/opt/weights/partllm', allow_patterns=['model-00001-of-00002.safetensors'])"
 RUN python -c "from huggingface_hub import snapshot_download as s; s('Czvvd/PartLLM', revision='${MODEL_REV}', local_dir='/opt/weights/partllm', allow_patterns=['model-00002-of-00002.safetensors'])"
 RUN test -s /opt/weights/partllm/model-00001-of-00002.safetensors && test -s /opt/weights/partllm/model-00002-of-00002.safetensors && test -s /opt/weights/partllm/config.json \
