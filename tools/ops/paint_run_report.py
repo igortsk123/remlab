@@ -157,14 +157,16 @@ def run_state(runs: list, now: float | None = None, state_dir: str | None = None
         why.append(f"пакет {x['run']}: «ВСЁ» не писал, но молчит {x['last_line_min_ago']} мин")
     if ago is not None:
         why.append(f'папка менялась {ago} мин назад' if ago < 120 else 'папка не менялась больше двух часов')
-    text = f"данные на {at} (Лондон) · прогон " + ('ещё идёт — числа могут измениться' if running else 'закончен') + (f" ({'; '.join(why)})" if why else '')
-    return {'at': at, 'tz': 'Europe/London', 'running': running, 'jobs': jobs, 'progress': [{k: v for k, v in x.items() if k != 'last_line_ts'} for x in prog], 'last_change_min_ago': ago, 'text': text}
+    text = f"данные на {at} · прогон " + ('ещё идёт — числа могут измениться' if running else 'закончен')           # видимая строка — короткая (директор 22.11); остальное — в `details`, на странице под «подробно»
+    details = 'время — по Лондону' + (': ' + '; '.join(why) if why else '')
+    return {'at': at, 'tz': 'Europe/London', 'running': running, 'jobs': jobs, 'progress': [{k: v for k, v in x.items() if k != 'last_line_ts'} for x in prog], 'last_change_min_ago': ago, 'text': text, 'details': details}
 
 
 def state_html(state: dict | None) -> str:
     if not state:
         return ''
-    return f"<div class='meta stamp' style='{'color:var(--soft);font-weight:600' if state['running'] else ''}'>{html.escape(state['text'])}</div>"
+    return (f"<div class='meta stamp' style='{'color:var(--soft);font-weight:600' if state['running'] else ''}'>{html.escape(state['text'])}"
+            + (f"<details style='font-weight:400'><summary>подробно</summary>{html.escape(state['details'])}</details>" if state.get('details') else '') + '</div>')
 
 
 # ---------- слова для владельца: названия этапов и фразы причин — из json рядом с правилами, не из кода ----------
@@ -278,7 +280,7 @@ def render_md(s: dict, W: dict | None = None) -> str:
     W = W or {}
     f = s['painted_final']
     out = [f"# Прогон покраски `{s['label']}` — сводка (автоматом, `paint_run_report.py`)", '',
-           (f"- **{s['data_state']['text']}**" if s.get('data_state') else '- данные: метка свежести не посчитана'),
+           (f"- **{s['data_state']['text']}** ({s['data_state'].get('details', '')})" if s.get('data_state') else '- данные: метка свежести не посчитана'),
            f"- **Вошло: {s['n']}**",
            f"- **Не дошли до готовой модели: {s['stopped']}**" + ('' if s['stopped'] else ' — нет')]
     for x in s['stopped_by_stage']:
