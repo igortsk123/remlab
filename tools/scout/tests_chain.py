@@ -273,8 +273,10 @@ def swap_feed_stats(demo_path: str = '~/scout-scenes/flat215-demo/demo-data.json
             k, _, v = ln.partition('\t')
             if v:
                 scores[k] = json.loads(v)
+    # у «голодных» пар порог ниже (`hungry_style.style_min`, T-115/3 22.11): карточка с `style_soft` — стиль от нижней границы, не ниже
+    soft_thr = float((rules.get('hungry_style') or {}).get('style_min', thr))
     low = [f"{it['sid']}:{st}" for _, it in pool for st in it.get('styles') or []
-           if float((scores.get(it['sid']) or {}).get(st, 0)) < thr]
+           if float((scores.get(it['sid']) or {}).get(st, 0)) < (soft_thr if st in (it.get('style_soft') or []) else thr)]
     # СЧЁТ — ТЕМ ЖЕ ПРАВИЛОМ, ЧТО ДОБИРАЕТ (demo-20 В2, Codex 22.10): модели в полосе размера, без текущей, диван той же формы,
     # у каждого места варианта (`demo_band`); пара голодна, если хоть одному её месту не хватает до `starving_below`.
     # Прежний счёт брал ТОВАРЫ (цвета одной модели — разные) любого размера

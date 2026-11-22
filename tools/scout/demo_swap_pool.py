@@ -36,6 +36,9 @@ sys.path.insert(0, HERE)
 RULES = json.load(open(os.path.join(HERE, 'rules', 'demo-swap.json'), encoding='utf-8'))   # conv-03: правила ленты
 PER_GROUP = int(os.environ.get('DEMO_SWAP_PER_GROUP', RULES['per_group']))
 IN_STYLE_MIN = float(RULES['in_style_min'])
+HUNGRY = RULES['hungry_style']                                        # «голодная» пара: балл ниже, чем у сытой (владелец 22.11, TG 1185)
+HUNGRY_STYLE_MIN = float(HUNGRY['style_min'])                         # 6,0 — только для пар, где замен меньше минимума
+STARVING_BELOW = int(RULES['starving_below'])                         # минимум замен в полосе на пару (один источник с `tests_chain`/`demo_band`)
 import price_tiers as PT                                              # ценовые ступени роли — одно место правила границ
 SEGMENTS_ON = os.environ.get('DEMO_SWAP_SEGMENTS', '1') != '0'        # 0 — откат на группу «подкатегория × стиль» (потолок на все цены)
 STYLES = ('лофт', 'сканди', 'джапанди', 'минимализм', 'неоклассика', 'современный')
@@ -55,7 +58,7 @@ def _lit(xs) -> str:
     return ','.join("'" + str(x).replace("'", "''") + "'" for x in xs) or "''"
 
 
-def pool_sql(in_style_min: float = IN_STYLE_MIN, top: int | None = None, any_mesh: bool = False) -> str:
+def pool_sql(in_style_min: float = IN_STYLE_MIN, top: int | None = None, any_mesh: bool = False, with_score: bool = False) -> str:
     """Запрос пула — ВСЕ кандидаты по порядку группы (срез до `PER_GROUP` — в `pick` после проверок); `top` — прежний запрос
     (первые `top` группы до проверок, порядок выдачи базы) для дозаполнения вариантов; `any_mesh` — те же ворота и порядок, но
     и товары без готового меша (кого добирать в ленту, `demo_band`). Вынесен отдельно, чтобы `--selftest` проверял его форму
@@ -85,14 +88,14 @@ ranked as (
   select *, row_number() over (partition by sub, style
                                order by uni asc, q desc, st_score desc, price asc nulls last, sku) as rn from cand)
 select sku, rep, sub, style, cat_role, name, shop, img, url, coalesce(price::text,''),
-       w_cm, d_cm, h_cm
+       w_cm, d_cm, h_cm{', st_score' if with_score else ''}
   from ranked {f"where rn <= {top} order by cat_role, style, sku" if top else "order by sub, style, rn"}"""
 
 
 RUG = 'ковёр'
 
 
-def rug_sql(in_style_min: float = IN_STYLE_MIN) -> str:
+def rug_sql(in_style_min: float = IN_STYLE_MIN, with_score: bool = False) -> str:
     """ЛЕНТА ЗАМЕН КОВРА (план demo-18 п.2): ковру модель не нужна (он плита с фото), поэтому в `pool_sql` его нет. Отбор — запрос
     дозаполнения (`demo_fill.RUG_SQL`), но стиль — балл ≥ порога ленты, как у мебели, а порядок — тот же, что у пула. Та же форма
     строки, что у `pool_sql` (`_row`): модели семейства у ковров нет — модель = сам товар; `w` — длинная сторона, `d` — короткая
@@ -113,7 +116,7 @@ with cand as (
      and coalesce((ps.scores->>s.style)::numeric, 0) >= {in_style_min}),
 ranked as (
   select *, row_number() over (partition by style order by uni asc, q desc, st_score desc, price asc nulls last, sku) as rn from cand)
-select sku, sku, '{RUG}', style, '{RUG}', name, shop, img, url, coalesce(price::text,''), w_cm, d_cm, 1
+select sku, sku, '{RUG}', style, '{RUG}', name, shop, img, url, coalesce(price::text,''), w_cm, d_cm, 1{', st_score' if with_score else ''}
   from ranked order by style, rn"""
 
 
@@ -163,11 +166,12 @@ def universal_rugs(have: set, styles: tuple = STYLES, rows: list | None = None) 
 def rug_pool(ok=None, band: dict | None = None) -> list[dict]:
     """Ковры ленты замен: тот же отбор `pick` (до `PER_GROUP` прошедших на стиль, конверт роли — `ENVELOPE['ковёр']` по длинной
     стороне, сперва — в полосе `band`), `ok` — проверки сборки ковра (`flat215_demo.swap_rug_ok`). Стилю без своих ковров —
-    запасной нейтральный (`universal_rugs`)."""
+    запасной нейтральный (`universal_rugs`); голодные пары — `extend_hungry` (порог 6,0)."""
     from mesh_queue import db
-    rows = [p for p in map(_row, db(rug_sql())) if p]
-    return pick(rows + universal_rugs({p['style'] for p in rows}), ok, band=band,
-                fam_price=_fam_prices())
+    allr = [p for p in map(_row, db(rug_sql(in_style_min=min(IN_STYLE_MIN, HUNGRY_STYLE_MIN), with_score=True))) if p]
+    rows = [p for p in allr if p.get('score', 0) >= IN_STYLE_MIN]
+    pk = lambda rs: pick(rs, ok, band=band, fam_price=_fam_prices())  # noqa: E731
+    return extend_hungry(pk(rows + universal_rugs({p['style'] for p in rows})), allr, pk, band)
 
 
 # Подушки (T-20261107-25/4): в ленту шли только подушки наборов — у неоклассики ни одной; из каталога тем же отбором, что шторы
@@ -250,10 +254,11 @@ def soft_pool(role: str, ok=None, per_group: int = PER_GROUP) -> list[dict]:
 
 
 def _row(r: list) -> dict | None:
-    if len(r) != 13:
+    if len(r) not in (13, 14):
         return None
-    sku, rep, sub, style, role, name, shop, img, url, price, w, d, h = r
-    return {'sid': sku.replace(':', '_', 1), 'msid': rep.replace(':', '_', 1),
+    sku, rep, sub, style, role, name, shop, img, url, price, w, d, h = r[:13]
+    return {**({'score': float(r[13])} if len(r) == 14 and r[13] != '' else {}),
+            'sid': sku.replace(':', '_', 1), 'msid': rep.replace(':', '_', 1),
             'sub': sub, 'style': style, 'role': role, 'name': name, 'shop': shop,
             'img': img, 'url': url,
             'price': int(float(price)) if price else None,
@@ -405,13 +410,54 @@ def _pick_legacy(rows: list, good, per_group: int, band, in_band) -> list:
     return out
 
 
+HUNGRY_LOG: dict = {}      # (роль, стиль) → {'before', 'after', 'soft'}: что сделал порог голодных пар в последнем отборе (читает сборка → отчёт ночи)
+
+
+def _models_in_band(rows: list[dict], band: dict | None) -> dict:
+    """(роль, стиль) → {модели строк, подходящие по полосе размера роли} — тот же счёт «альтернатив», что у ленты (`demo_band.feed_models`)."""
+    from slot_rules import in_band
+    out: dict = {}
+    for p in rows:
+        if band and not in_band(p, band.get(p['role'])):
+            continue
+        out.setdefault((p['role'], p['style']), set()).add(p.get('msid') or p['sid'])
+    return out
+
+
+def extend_hungry(strict_out: list[dict], soft_rows: list[dict], pick_rows, band: dict | None = None) -> list[dict]:
+    """ПОРОГ «ГОЛОДНОЙ» ПАРЫ (владелец 22.11, TG 1185: «мало замен в лофте — снизь порог»). Пара «роль × стиль», где моделей в полосе
+    (без текущей модели варианта — как `demo_band.alternatives`) меньше `starving_below`, дополнительно берёт товары с баллом стиля
+    от `hungry_style.style_min` (6,0) до `in_style_min` (6,6): `soft_rows` — строки пула с баллом (`score`), `pick_rows(rows)` — тот же
+    отбор и те же проверки, что у основного (`pick` с `ok`, полосой, потолком). Сытые пары не меняются ни на строку: к ним добавляется
+    только то, что набрали голодные. Условие общее — по числу, без перечня стилей и ролей. Итог по каждой паре — `HUNGRY_LOG`."""
+    have_n = _models_in_band(strict_out, band)
+    hungry = {k for k in {(p['role'], p['style']) for p in soft_rows if p.get('score', IN_STYLE_MIN) < IN_STYLE_MIN}
+              if len(have_n.get(k, ())) - 1 < STARVING_BELOW}
+    seen = {(p['sid'], p['style']) for p in strict_out}
+    rest = [p for p in soft_rows if (p['role'], p['style']) in hungry and p.get('score', IN_STYLE_MIN) < IN_STYLE_MIN
+            and p.get('score', IN_STYLE_MIN) >= HUNGRY_STYLE_MIN and (p['sid'], p['style']) not in seen]
+    added = [dict(p, style_soft=True) for p in pick_rows(rest)] if rest else []
+    after_n = _models_in_band(strict_out + added, band)
+    for k in sorted({(p['role'], p['style']) for p in soft_rows} | set(have_n)):
+        HUNGRY_LOG[k] = {'before': len(have_n.get(k, ())), 'after': len(after_n.get(k, ())),
+                         'soft': sum(1 for p in added if (p['role'], p['style']) == k), 'hungry': k in hungry}
+    return strict_out + added
+
+
+def hungry_report() -> list[dict]:
+    """HUNGRY_LOG строками для данных сборки/отчёта: все пары, где что-то посчитано; `soft` — сколько строк дал сниженный порог."""
+    return [{'role': r, 'style': st, **v} for (r, st), v in sorted(HUNGRY_LOG.items())]
+
+
 def pool(ok=None, roles: tuple | None = None, band: dict | None = None, ceiling_cm: float | None = None) -> list[dict]:
     """Пул ленты замен; `roles` — только эти роли (отбор тот же, проверки `ok` — только им: счёт банкеток стиля до расстановки,
     `flat215_demo.bench_pool`, demo-19 Г2); `band` — полоса размера комнаты (в группе сперва подходящие, `pick`); `ceiling_cm` —
-    потолок квартиры (`flat215_demo.demo_ceiling`; нет — базовый) для гейта подвеса."""
+    потолок квартиры (`flat215_demo.demo_ceiling`; нет — базовый) для гейта подвеса. Голодные пары — `extend_hungry` (порог 6,0)."""
     from mesh_queue import db
-    return pick([p for p in map(_row, db(pool_sql())) if p and (roles is None or p['role'] in roles)], ok, band=band,
-                ceiling_cm=ceiling_cm, fam_price=_fam_prices())
+    allr = [p for p in map(_row, db(pool_sql(in_style_min=min(IN_STYLE_MIN, HUNGRY_STYLE_MIN), with_score=True)))
+            if p and (roles is None or p['role'] in roles)]
+    pk = lambda rows: pick(rows, ok, band=band, ceiling_cm=ceiling_cm, fam_price=_fam_prices())  # noqa: E731
+    return extend_hungry(pk([p for p in allr if p.get('score', 0) >= IN_STYLE_MIN]), allr, pk, band)
 
 
 def pool_top() -> list[dict]:
@@ -604,7 +650,54 @@ def _selftest() -> int:
     if 'mesh_status' in q2 or 'photo_alive' not in q2 or f'>= {IN_STYLE_MIN}' not in q2:
         bad += 1
         print('  FAIL: запрос «и без меша» — те же ворота, кроме готовности меша')
-    print(f'demo_swap_pool selftest: случаев 26, ошибок {bad}')
+    # ПОРОГ ГОЛОДНЫХ ПАР (владелец 22.11, TG 1185): голодная пара берёт балл от HUNGRY_STYLE_MIN, сытая не меняется. Числа — из правил
+    HR = lambda sid, st, score, role='столик', msid=None, w=100: {'sid': sid, 'msid': msid or sid, 'role': role, 'style': st,  # noqa: E731
+                                                                  'score': score, 'w': w, 'd': 50, 'h': 40}
+    strict = [HR(f'h{i}', 'лофт', IN_STYLE_MIN) for i in range(2)] + [HR(f's{i}', 'сканди', IN_STYLE_MIN) for i in range(STARVING_BELOW + 3)]
+    soft_h = [HR(f'x{i}', 'лофт', (IN_STYLE_MIN + HUNGRY_STYLE_MIN) / 2) for i in range(STARVING_BELOW + 2)]
+    soft_s = [HR(f'y{i}', 'сканди', (IN_STYLE_MIN + HUNGRY_STYLE_MIN) / 2) for i in range(3)]
+    below = [HR('z0', 'лофт', HUNGRY_STYLE_MIN - 0.1)]
+    HUNGRY_LOG.clear()
+    got = extend_hungry(strict, strict + soft_h + soft_s + below, lambda rows: rows)
+    got_l = [p for p in got if p['style'] == 'лофт']
+    if len(got_l) - 2 != len(soft_h) or not all(p.get('style_soft') for p in got_l[2:]) or any(p.get('style_soft') for p in got_l[:2]):
+        bad += 1
+        print('  FAIL: голодная пара получает строки с баллом [мин_голодной; порог) и помечается style_soft:', len(got_l))
+    if [p for p in got if p['style'] == 'сканди'] != [p for p in strict if p['style'] == 'сканди']:
+        bad += 1
+        print('  FAIL: сытая пара (моделей ≥ минимума + текущая) не меняется ни на строку')
+    if any(p['sid'] == 'z0' for p in got):
+        bad += 1
+        print('  FAIL: балл ниже нижней границы голодных в ленту не идёт')
+    lg = HUNGRY_LOG[('столик', 'лофт')]
+    if (lg['before'], lg['after'], lg['soft'], lg['hungry']) != (2, 2 + len(soft_h), len(soft_h), True) \
+            or HUNGRY_LOG[('столик', 'сканди')]['soft'] or HUNGRY_LOG[('столик', 'сканди')]['hungry']:
+        bad += 1
+        print('  FAIL: журнал было→стало по парам:', dict(HUNGRY_LOG))
+    # граница сытости: ровно минимум + текущая модель — сытая; на одну меньше — голодная (счёт без текущей, как demo_band.alternatives)
+    edge_ok = [HR(f'e{i}', 'лофт', IN_STYLE_MIN) for i in range(STARVING_BELOW + 1)]
+    edge_lo = edge_ok[:-1]
+    sx = [HR('q0', 'лофт', (IN_STYLE_MIN + HUNGRY_STYLE_MIN) / 2)]
+    if extend_hungry(edge_ok, edge_ok + sx, lambda rows: rows) != edge_ok or len(extend_hungry(edge_lo, edge_lo + sx, lambda rows: rows)) != len(edge_lo) + 1:
+        bad += 1
+        print('  FAIL: граница: минимум+1 моделей — сытая, минимум — голодная')
+    # вне полосы размера модель не считается (как карточки листа): 12 моделей, но все вне полосы → пара голодная
+    far = [HR(f'f{i}', 'лофт', IN_STYLE_MIN, w=300) for i in range(STARVING_BELOW + 2)]
+    near = HR('n0', 'лофт', (IN_STYLE_MIN + HUNGRY_STYLE_MIN) / 2, w=100)
+    if len(extend_hungry(far, far + [near], lambda rows: rows, band={'столик': {'lo': 80, 'hi': 120, 'side': 'w'}})) != len(far) + 1:
+        bad += 1
+        print('  FAIL: модели вне полосы размера не делают пару сытой')
+    # сняли порог (style_min = in_style_min) — правило не действует: soft-строк нет; ни ID, ни перечня стилей в логике
+    if not (HUNGRY_STYLE_MIN <= IN_STYLE_MIN) or HUNGRY_STYLE_MIN != float(RULES['hungry_style']['style_min']) or STARVING_BELOW != int(RULES['starving_below']):
+        bad += 1
+        print('  FAIL: числа порога голодных — не из rules/demo-swap.json')
+    R13 = ['a:1', 'a:1', 's', 'лофт', 'столик', 'n', 'sh', 'i', 'u', '10', '1', '1', '1']
+    q3, r3 = pool_sql(with_score=True), rug_sql(with_score=True)
+    if 'w_cm, d_cm, h_cm, st_score' not in q3 or 'w_cm, d_cm, 1, st_score' not in r3 or 'st_score\n' in pool_sql().split('select sku, rep')[-1] \
+            or (_row(R13 + ['6.30']) or {}).get('score') != 6.3 or 'score' in (_row(R13) or {'score': 0}):
+        bad += 1
+        print('  FAIL: запрос с баллом — 14-я колонка; без флага — прежние 13 (остальные читатели не меняются)')
+    print(f'demo_swap_pool selftest: случаев 33, ошибок {bad}')
     return 1 if bad else 0
 
 

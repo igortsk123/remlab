@@ -442,6 +442,25 @@ def plate_report(pairs: dict, old: set | None) -> tuple:
     return [head] + lines, short
 
 
+def hungry_block(demo: dict) -> tuple:
+    """Порог голодных пар (владелец 22.11, TG 1185; `demo_swap_pool.extend_hungry`): было→стало моделей в полосе по ВСЕМ парам «роль × стиль»,
+    что посчитала последняя сборка (`demo['hungry_style']`). → (строки в журнал ночи, запись для отчёта). Нет блока — «сборка до правила»."""
+    rows = demo.get('hungry_style') or []
+    if not rows:
+        return ['[demo_band] порог голодных пар: в данных сборки нет блока hungry_style (сборка до правила)'], None
+    soft = [r for r in rows if r.get('soft')]
+    still = [r for r in rows if r.get('hungry') and r['after'] - 1 < DSP.STARVING_BELOW]
+    lines = [f"[demo_band] порог голодных пар (балл стиля от {DSP.HUNGRY_STYLE_MIN:g}, голодная — меньше {DSP.STARVING_BELOW} альтернатив): "
+             f"пар {len(rows)}, голодных {sum(1 for r in rows if r.get('hungry'))}, подтянуто {len(soft)}, сытых без изменений {sum(1 for r in rows if not r.get('soft'))}"]
+    lines += [f"  {r['role']}/{r['style']}: моделей в полосе {r['before']} → {r['after']} (+{r['soft']} строк с баллом "
+              f"{DSP.HUNGRY_STYLE_MIN:g}–{DSP.IN_STYLE_MIN:g})" for r in soft]
+    if still:
+        lines.append('  всё ещё голодные (каталога с таким баллом не хватает): '
+                     + ', '.join(f"{r['role']}/{r['style']} {r['after']}" for r in still))
+    return lines, {'style_min': DSP.HUNGRY_STYLE_MIN, 'starving_below': DSP.STARVING_BELOW,
+                   'pairs': {f"{r['role']}/{r['style']}": {k: r[k] for k in ('before', 'after', 'soft', 'hungry')} for r in rows}}
+
+
 def report(dry: bool = False) -> int:
     res = compute()
     print(f"[demo_band] цель — {res['target']} альтернатив на место «роль × стиль» в полосе; потолок очереди {res['queue_max']}; "
@@ -496,6 +515,12 @@ def report(dry: bool = False) -> int:
             print('\n'.join(plines))
             plate_rec = {'target': TARGET, 'short': pshort,
                          'pairs': {f'{rm}:{ro}/{st}': v for (rm, ro, st), v in sorted(ppairs.items())}}
+    hungry_rec = None
+    try:
+        hl, hungry_rec = hungry_block(json.load(open(DEMO_DATA, encoding='utf-8')))
+        print('\n'.join(hl))
+    except Exception as e:  # noqa: BLE001 — отчёт о правиле — справка, а не гейт
+        print(f'WARN:demo_band: порог голодных пар не посчитан — {repr(e)[:120]}')
     if not dry:
         out = {'target': res['target'], 'queue_max': res['queue_max'], 'cut': res['cut'], 'sets': res['sets'], 'short': short,
                'publish': res['publish'], 'generate': res['generate'], 'colour_own': res['own'], 'core': res.get('core', []),
@@ -504,6 +529,8 @@ def report(dry: bool = False) -> int:
             out['rooms'] = rooms_rec
         if plate_rec is not None:
             out['plates'] = plate_rec
+        if hungry_rec is not None:
+            out['hungry'] = hungry_rec
         tmp = REPORT + '.tmp'
         json.dump(out, open(tmp, 'w', encoding='utf-8'), ensure_ascii=False, indent=1)
         os.replace(tmp, REPORT)
@@ -566,6 +593,17 @@ def _selftest() -> int:
     ok('потолок очереди: первые по вкладу, остаток срезан и недобор за ним вернулся',
        cut['generate'] == ['g1'] and cut['cut'] == 2 and cut['pairs'][('столик', 'лофт')]['after'] == 2, cut['pairs'][('столик', 'лофт')])
     ok('правило — из rules/demo-swap.json', TARGET == int(RULES['mesh_target']) and QUEUE_MAX == int(RULES['mesh_queue_max']))
+    # ПОРОГ ГОЛОДНЫХ ПАР (владелец 22.11, TG 1185): отчёт ночи — было→стало по всем парам из данных сборки
+    hb, hrec = hungry_block({'hungry_style': [
+        {'role': 'тв-тумба', 'style': 'лофт', 'before': 3, 'after': 8, 'soft': 5, 'hungry': True},
+        {'role': 'диван', 'style': 'сканди', 'before': 14, 'after': 14, 'soft': 0, 'hungry': False},
+        {'role': 'ковёр', 'style': 'лофт', 'before': 1, 'after': 2, 'soft': 1, 'hungry': True}]})
+    ok('отчёт порога: подтянутые парой «было→стало», сытые считаются без строки, всё ещё голодные — отдельно',
+       any('тв-тумба/лофт: моделей в полосе 3 → 8' in x for x in hb) and not any('диван/сканди:' in x for x in hb)
+       and 'сытых без изменений 1' in hb[0] and any('всё ещё голодные' in x and 'ковёр/лофт 2' in x for x in hb), hb)
+    ok('отчёт порога: запись по всем парам для файла ночи', hrec and set(hrec['pairs']) == {'тв-тумба/лофт', 'диван/сканди', 'ковёр/лофт'}
+       and hrec['pairs']['диван/сканди']['soft'] == 0, hrec)
+    ok('отчёт порога: сборки до правила — одна строка, без падения', hungry_block({})[1] is None)
     # СВОЙ МЕШ ВАРИАНТУ С ЧУЖИМ ЦВЕТОМ (T-20261107-19): v1 — вариант семьи «g9» на меше представителя, отмечен сторожем
     oc = [dict(C('g9'), sid='v1'), dict(C('g9'), sid='v2'), dict(C('g8'), sid='g8')]
     oc2, own = own_colour(oc, {'v1'})

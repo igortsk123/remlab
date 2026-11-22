@@ -2175,6 +2175,8 @@ def build() -> dict:
             if old is not None:
                 if p['style'] not in old['styles']:
                     old['styles'].append(p['style'])
+                    if p.get('style_soft'):    # балл стиля 6,0–6,6 у голодной пары (`demo_swap_pool.extend_hungry`)
+                        old.setdefault('style_soft', []).append(p['style'])
                     if p.get('rug_universal'):   # запасной нейтральный этому стилю (`universal_rugs`) — список таких стилей
                         old.setdefault('rug_universal', []).append(p['style'])
                 continue
@@ -2193,7 +2195,8 @@ def build() -> dict:
                   'sid': p['sid'], 'msid': p['msid'], 'sub': p['sub'], 'src': 'pool',
                   'basis': _basis(mid, eid), 'hung': _hung(p['name']),
                   'pack': _pack_of(mid, eid, p['name']),
-                  **({'rug_universal': [p['style']]} if p.get('rug_universal') else {})}
+                  **({'rug_universal': [p['style']]} if p.get('rug_universal') else {}),
+                  **({'style_soft': [p['style']]} if p.get('style_soft') else {})}
             have[(base, p['sid'])] = it
             n[0] += 1
             target.setdefault(base, []).append(it)
@@ -2203,6 +2206,7 @@ def build() -> dict:
     # (своя копия: пул дописывает им стили) плюс прежний пул `pool_top`
     dec_feeds = {r: [dict(p, styles=list(p['styles'])) for p in lst] for r, lst in feeds.items()}
     added, off_env = 0, 0
+    hungry_log: list = []        # порог голодных пар: было→стало по парам «роль × стиль» (`demo_swap_pool.hungry_report`) → в данные → отчёт ночи
     try:
         import demo_swap_pool
         added, off_env = glue(demo_swap_pool.pool(swap_ok, band=_slot_band(liv), ceiling_cm=demo_ceiling()), feeds, have)   # в группе сперва в полосе (demo-20 В)
@@ -2215,6 +2219,10 @@ def build() -> dict:
         import demo_swap_pool
         rugs = demo_swap_pool.rug_pool(swap_rug_ok, band=_slot_band(liv))
         n_rug = glue(rugs, feeds, have)
+        hungry_log = demo_swap_pool.hungry_report()
+        _hs = [x for x in hungry_log if x['soft']]
+        print(f"порог голодных пар (балл стиля от {demo_swap_pool.HUNGRY_STYLE_MIN:g}): пар посчитано {len(hungry_log)}, "
+              f"подтянуто {len(_hs)}: " + (', '.join(f"{x['role']}/{x['style']} {x['before']}→{x['after']}" for x in _hs) or '—'))
         print(f'ковры ленты замен: из пула {len(rugs)}, добавлено {n_rug[0]} (потолок длинной стороны {rug_ceiling():g} см)')
     except Exception as e:  # noqa: BLE001
         print(f'WARN:rug_pool: ковры пула в ленту не попали: {repr(e)[:160]}')
@@ -2395,6 +2403,7 @@ def build() -> dict:
             # ФЛАГИ НОВЫХ КОМНАТ И ОПРОСА (ADR-0330 п.5): всё выключено — полей нет вовсе (данные гостиной прежние)
             **flags,
             'variants': variants, 'sets': product_sets, 'sofa_feed': feed, 'feeds': feeds,
+            **({'hungry_style': hungry_log} if hungry_log else {}),     # было→стало по парам при пороге голодных (отчёт ночи `demo_band`)
             # ЦЕНОВЫЕ СТУПЕНИ РОЛИ (T-61/3, план price-segments-01): `price_segment` у каждой карточки лент (lo/mid/hi — по цене её семейства),
             # а здесь — границы и подписи по ролям для чипов страницы «Комфорт · 56 000–95 999 ₽» (премиум — «от …»); правила нет — полей нет
             **({'price_segments': _price_segment_ranges()} if _price_segment_ranges() else {}),
