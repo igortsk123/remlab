@@ -182,7 +182,7 @@ def _load(repo: str, rel: str) -> dict:
 def load_words(repo: str) -> dict:
     """{'stages': {папка этапа: {name, pct}}, 'updated': …, 'phrases': [{has, say}]}. Нет файла — пусто: этап называется кодом, причина — своим текстом."""
     r = _load(repo, READINESS)
-    return {'stages': r.get('stages') or {}, 'updated': r.get('updated'), 'phrases': (_load(repo, REASONS).get('phrases') or []), 'cutout': (_load(repo, REASONS).get('cutout') or {})}
+    return {'stages': r.get('stages') or {}, 'updated': r.get('updated'), 'phrases': (_load(repo, REASONS).get('phrases') or []), 'cutout': (_load(repo, REASONS).get('cutout') or {}), 'forms': (_load(repo, REASONS).get('forms') or {})}
 
 
 def stage_name(W: dict, code: str) -> str:
@@ -476,6 +476,7 @@ h1{font-size:1.25rem;margin:0 0 8px}h2{font-size:1.05rem;margin:20px 0 8px}.sum{
 .pair{display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-top:8px}.pair figure{margin:0}.pair img{width:100%;height:auto;display:block;border-radius:6px;background:#e8e8e8}
 .pair figcaption{font-size:.8rem;color:var(--mut);text-align:center;margin-top:2px}.why{font-size:.9rem;margin-top:6px}details{margin-top:4px;font-size:.8rem;color:var(--mut)}details summary{cursor:pointer}
 .nofr{display:flex;align-items:center;justify-content:center;min-height:120px;border:1px dashed var(--line);border-radius:6px;color:var(--mut);font-size:.85rem}nav{margin:6px 0 12px;font-size:.95rem}nav a{padding:0 2px}
+.no{float:right;font-size:2.4rem;font-weight:800;line-height:1;color:var(--ink,#222);margin:2px 4px 0 12px;white-space:nowrap}
 .tiles{display:grid;grid-template-columns:1fr 1fr;grid-auto-rows:minmax(0,1fr);gap:4px;aspect-ratio:var(--ar,auto)}.tiles img{width:100%;height:100%;min-height:0;object-fit:contain;display:block;border-radius:6px;background:#fff}
 @media (max-width:640px){.pair,.tiles{grid-template-columns:1fr}.tiles{aspect-ratio:auto;grid-auto-rows:auto}.tiles img{height:auto}}
 """
@@ -911,6 +912,161 @@ def main_cutout(argv: list) -> int:
     return 1 if errs else 0
 
 
+# ---------- страница этапа «форма» (T-180/5, директор 22.11, владелец TG 1228): фото | серый рендер формы 2 ракурса; утверждение владельцем ----------
+
+def find_glb(dir_: str, sku: str) -> str | None:
+    """GLB формы товара в папке: `<товар>*.glb`, предпочтительно `-hd`, из равных — свежий. Нет — None."""
+    try:
+        names = [n for n in os.listdir(dir_) if (n.startswith(sku + '-') or n == sku + '.glb') and n.endswith('.glb') and not n.endswith(('.audit.glb', '.raw.glb'))]      # `<товар>-…`: иначе id, являющийся началом другого id, взял бы чужой GLB
+    except OSError:
+        return None
+    if not names:
+        return None
+    names.sort(key=lambda n: (('-hd' in n), os.path.getmtime(os.path.join(dir_, n))), reverse=True)
+    return os.path.join(dir_, names[0])
+
+
+def read_trial(path: str | None) -> dict:
+    """Итог пакета форм (`summary-trial-*.json`: jobs[{sku, status, error}]) → {id с «_»: (статус, ошибка)}. Нет файла — пусто."""
+    out = {}
+    if not path or not os.path.exists(os.path.expanduser(path)):
+        return out
+    try:
+        for j in json.load(open(os.path.expanduser(path), encoding='utf-8')).get('jobs') or []:
+            if j.get('sku'):
+                out[str(j['sku']).replace(':', '_', 1)] = (j.get('status'), j.get('error'))
+    except Exception:  # noqa: BLE001
+        pass
+    return out
+
+
+def form_status(r: dict | None, glb: str | None, frames: list, trial: tuple | None, rules: dict | None, final: bool) -> tuple:
+    """(статус, причина): ok — форма и оба кадра есть; small — фото магазина мало для формы (форму не запускали); failed — форма не получилась (причина); wait — форма ещё считается (только до конца пакета, при final=True это failed)."""
+    if r is None:
+        return ('failed', 'вырезки в журнале нет — форму не запускали') if final else ('wait', 'вырезки в журнале ещё нет')
+    cs = cut_status(r, True, rules)
+    if cs == 'small':
+        return 'small', ''
+    if cs == 'refused' or (r.get('refused') and cs != 'small'):
+        return 'failed', 'вырезка не получилась — форму не запускали: ' + (cut_reason(r) or 'причина не записана')
+    if glb and frames:
+        return 'ok', ''
+    if trial and trial[0] not in (None, 'done', 'ok') or (trial and trial[1]):
+        return 'failed', f'форма не получилась: {trial[1] or trial[0]}'
+    if glb:
+        return ('failed', 'форма есть, кадры не отрисованы') if final else ('wait', 'форма есть, кадры ещё рисуются')
+    return ('failed', 'формы в результате пакета нет') if final else ('wait', 'форма ещё считается')
+
+
+def forms_page(items: list, chain: dict, photos: str, glbs: str, frames: str, out: str, W: dict, label: str, rules: dict | None = None, trial: dict | None = None, final: bool = False) -> tuple:
+    """Страница `<out>/index.html`: по товару набора крупный номер, фото | два серых рендера формы (az045, az225, один свет), статус «форма есть / форма упала (причина) / фото мало». Самопроверка: сумма статусов = N, карточек = N, у «форма есть» два кадра."""
+    e = html.escape
+    d = os.path.join(out, 'img')
+    os.makedirs(d, exist_ok=True)
+    CW = W.get('forms') or {}
+    words = {'ok': CW.get('ok') or 'форма есть', 'failed': CW.get('failed') or 'форма упала', 'small': CW.get('small') or 'фото мало', 'wait': CW.get('wait') or 'форма ещё считается'}
+    css = {'ok': 'ok', 'failed': 'refused', 'small': 'soft', 'wait': 'missing'}
+    c = {k: 0 for k in words}
+    errs, blocks = [], []
+    for n, it in enumerate(items, 1):
+        sku = it['id']
+        r = chain.get(sku)
+        glb = find_glb(glbs, sku)
+        fr = []
+        dd = os.path.join(frames, sku)
+        for v in ('az045', 'az225'):
+            m = [f for f in sorted(os.listdir(dd)) if f.endswith(f'_{v}_clay.png')] if os.path.isdir(dd) else []
+            if m:
+                fr.append(os.path.join(dd, m[0]))
+        if len(fr) != 2:
+            fr = []
+        st, why = form_status(r, glb, fr, (trial or {}).get(sku), rules, final)
+        c[st] += 1
+        if st == 'small':
+            why = (W.get('cutout') or {}).get('small_reason', '').format(side=('меньшая' if (rules or {}).get('measure', 'min') == 'min' else 'большая'), n=small_side(r, rules), thr=(rules or {}).get('min_cut_side_px')) or 'фото магазина маленькое — форму не делаем'
+        sha = (r or {}).get('sha')
+        foto = os.path.join(photos, f'{sha}.img') if sha else ''
+        card = {'sku': sku, 'name': it.get('name') or sku, 'foto': None, 'tiles': []}
+        if foto and os.path.exists(foto):
+            try:
+                _jpeg(foto, os.path.join(d, f'{sku}_1-foto.jpg'))
+                card['foto'] = f'img/{sku}_1-foto.jpg'
+            except Exception as ex:  # noqa: BLE001
+                errs.append(f'{sku}: фото: {type(ex).__name__}: {ex}')
+        if fr:
+            try:
+                for t, p in zip(('az045', 'az225'), _forms_crop(fr)):
+                    p.save(os.path.join(d, f'{sku}_{t}.jpg'), 'JPEG', quality=88)
+                    card['tiles'].append(f'img/{sku}_{t}.jpg')
+            except Exception as ex:  # noqa: BLE001
+                errs.append(f'{sku}: кадры формы: {type(ex).__name__}: {ex}')
+        if st == 'ok' and len(card['tiles']) != 2:
+            errs.append(f'{sku}: «форма есть», а кадров {len(card["tiles"])} ≠ 2')
+        head = f"<div class='no'>№ {n}</div>"
+        body = _card(card, css[st], words[st], W, CW.get('caption') or 'вырезка новая П1.96', 'фото магазина', 'форма без цвета: спереди-слева 45° и сзади-справа 225°', why, '')
+        blocks.append(body.replace("<div class='card'>", f"<div class='card'>{head}", 1))
+    n_all = len(items)
+    s = {'stage': 'forms', 'n': n_all, 'ok': c['ok'], 'failed': c['failed'], 'small': c['small'], 'wait': c['wait'], 'cards': len(blocks), 'final': final, 'errors': errs}
+    if sum(c.values()) != n_all:
+        errs.append(f'форма: сумма статусов {sum(c.values())} ≠ N {n_all}')
+    if len(blocks) != n_all:
+        errs.append(f'форма: карточек {len(blocks)} ≠ N {n_all}')
+    line = f"<b>вошло {n_all}</b> · <b>форма есть {c['ok']}</b> · <b>форма упала {c['failed']}</b> · <b>фото мало {c['small']}</b>" + (f" · форма ещё считается {c['wait']}" if c['wait'] else '')
+    cap = f"этап форма · {(W.get('forms') or {}).get('title') or 'форма товара'}"
+    ask = (W.get('forms') or {}).get('ask') or 'Номер товара — крупно в углу карточки: напишите «не годны: № …», если форма не подходит.'
+    summ = f"<div class='sum'><div>{line}</div><div class='why'>{e(ask)}</div>" + (f"<div class='why'><b>ОШИБКА СВОДКИ:</b> {e('; '.join(errs))}</div>" if errs else '') + '</div>'
+    open(os.path.join(out, 'index.html'), 'w', encoding='utf-8').write(_head(f'{label}: {cap}', f"<h1>{e(cap)}</h1>{summ}{''.join(blocks)}"))
+    json.dump(s, open(os.path.join(out, 'summary.json'), 'w', encoding='utf-8'), ensure_ascii=False, indent=1)
+    return s, errs
+
+
+def _forms_crop(paths: list) -> list:
+    """Два серых кадра формы → одинаковые по размеру: общая рамка по предмету (не по фону) с полем 4 %; фон кадра — по углу."""
+    from PIL import Image, ImageChops
+    ims = [Image.open(p).convert('RGB') for p in paths]
+    box = None
+    for im in ims:
+        bg = Image.new('RGB', im.size, im.getpixel((2, 2)))
+        diff = ImageChops.difference(im, bg).convert('L').point(lambda v: 255 if v > 14 else 0)
+        b = diff.getbbox()
+        if b:
+            box = b if box is None else (min(box[0], b[0]), min(box[1], b[1]), max(box[2], b[2]), max(box[3], b[3]))
+    if not box:
+        return ims
+    pad = int(0.04 * max(box[2] - box[0], box[3] - box[1]))
+    box = (max(0, box[0] - pad), max(0, box[1] - pad), min(ims[0].width, box[2] + pad), min(ims[0].height, box[3] + pad))
+    return [im.crop(box) for im in ims]
+
+
+def main_forms(argv: list) -> int:
+    ap = argparse.ArgumentParser(prog='paint_run_report.py forms', description='страница этапа «форма»: фото | серый рендер формы (az045, az225) по набору; статусы форма есть / форма упала / фото мало')
+    ap.add_argument('--set', required=True)
+    ap.add_argument('--cutlog', required=True, help='журнал вырезки (cut.jsonl р.2)')
+    ap.add_argument('--photos', required=True, help='папка исходных фото вырезки (`<товар>.img`)')
+    ap.add_argument('--glbs', required=True, help='папка форм (GLB)')
+    ap.add_argument('--frames', required=True, help='папка кадров forms_render.py')
+    ap.add_argument('--trial', help='итог пакета форм summary-trial-*.json (причины отказов)')
+    ap.add_argument('--final', action='store_true', help='пакет закончен: «ещё считается» не бывает — нет результата = форма упала')
+    ap.add_argument('--out', required=True)
+    ap.add_argument('--name', default='forms-set40')
+    ap.add_argument('--repo')
+    ap.add_argument('--publish', action='store_true')
+    a = ap.parse_args(argv)
+    repo = a.repo or os.path.abspath(os.path.join(HERE, '..', '..'))
+    raw = json.load(open(os.path.expanduser(a.set), encoding='utf-8'))
+    items = raw['items'] if isinstance(raw, dict) else raw
+    sys.path.insert(0, os.path.join(repo, 'tools', 'scout'))
+    import mesh_photo as MP
+    rules = MP.load_rules(os.path.join(repo, 'tools', 'scout', 'rules', 'mesh-photo.json'))
+    s, errs = forms_page(items, read_chain(a.cutlog), os.path.expanduser(a.photos), os.path.expanduser(a.glbs), os.path.expanduser(a.frames), os.path.expanduser(a.out), load_words(repo), a.name, rules, read_trial(a.trial), a.final)
+    print(f"вошло {s['n']} · форма есть {s['ok']} · форма упала {s['failed']} · фото мало {s['small']} · ещё считается {s['wait']} · карточек {s['cards']}")
+    print('ОШИБКА СВОДКИ: ' + '; '.join(errs) if errs else 'Самопроверка сошлась.')
+    print(f'страница: {os.path.join(os.path.expanduser(a.out), "index.html")}')
+    if a.publish and not errs:
+        print('выложено:', publish(os.path.expanduser(a.out), slug(a.name)))
+    return 1 if errs else 0
+
+
 # ---------- частичный путь (T-180/4, директор 22.11): прогон, где нарочно запускали часть этапов (например 04 и 06) — страницы этих этапов без «покрашено» ----------
 
 def partial_report(run: str, stage_codes: list, out: str, repo: str, name: str, catalog: str | None = None, photos_dir: str | None = None, do_publish: bool = False) -> int:
@@ -978,6 +1134,8 @@ def main(argv: list) -> int:
         return main_cutout(argv[1:])
     if argv and argv[0] == 'partial':
         return main_partial(argv[1:])
+    if argv and argv[0] == 'forms':
+        return main_forms(argv[1:])
     ap = argparse.ArgumentParser(description='сводка и страницы прогона покраски (самопроверка: сумма сходится, кадров = покрашено, карточек = вошло)')
     ap.add_argument('runs', nargs='+')
     ap.add_argument('--out')

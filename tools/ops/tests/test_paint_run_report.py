@@ -502,3 +502,76 @@ def test_cutout_small_photo_status(tmp_path):
     assert "badge soft'>фото мало для формы" in page and "badge refused'>вырезка не получилась" in page
     side = max(small) if rules.get('measure', 'min') != 'min' else min(small)
     assert f'сторона {side} px' in page and MP.check_size(small, rules)[0] is False and str(side) in MP.check_size(small, rules)[1]     # то же число, что в тексте сторожа
+
+
+# ---- страница этапа «форма» (T-180/5): фото | серый рендер формы 2 ракурса; статусы форма есть / упала / фото мало / ещё считается ----
+
+def _forms_fixture(tmp_path):
+    import os
+    from PIL import Image
+    sys.path.insert(0, os.path.join(REPO, 'tools', 'scout'))
+    import mesh_photo as MP
+    rules = MP.load_rules(os.path.join(REPO, 'tools', 'scout', 'rules', 'mesh-photo.json'))
+    thr = rules['min_cut_side_px']
+    big, small = [thr + 300, thr + 100], [thr - 12, thr - 100]
+    mk = lambda sku, wh, **kw: {'sku': sku, 'cut_wh': wh, 'hybrid_error': None, 'mask_verdict': 'ok', **kw}
+    rows = [mk('a_1', big), mk('b_2', small, refused='сторож размера: вырезка'), mk('c_3', big), mk('d_4', big, refused='вырезка упала: RuntimeError: x'), mk('e_5', big), mk('f_6', big)]
+    for d in ('photos', 'glbs', 'frames'):
+        (tmp_path / d).mkdir()
+    for r in rows:
+        Image.new('RGB', (30, 20), (9, 9, 9)).save(tmp_path / 'photos' / f"{r['sku']}.img", 'JPEG')
+    for sku in ('a_1', 'e_5'):                                                  # форма и кадры есть (e_5 — только GLB, кадров нет)
+        (tmp_path / 'glbs' / f'{sku}-hd.glb').write_bytes(b'g')
+    for t in ('01_az045_clay.png', '02_az225_clay.png'):
+        (tmp_path / 'frames' / 'a_1').mkdir(exist_ok=True)
+        im = Image.new('RGB', (120, 90), (230, 230, 230))
+        im.paste(Image.new('RGB', (40, 50), (120, 120, 120)), (30, 20))
+        im.save(tmp_path / 'frames' / 'a_1' / t)
+    (tmp_path / 'c.jsonl').write_text(''.join(json.dumps(r, ensure_ascii=False) + '\n' for r in rows), encoding='utf-8')
+    items = [{'id': r['sku'], 'name': f"Товар {r['sku']}"} for r in rows]
+    return rules, items, prr.read_chain(str(tmp_path / 'c.jsonl'))
+
+
+def test_forms_page_statuses_and_summary(tmp_path):
+    rules, items, chain = _forms_fixture(tmp_path)
+    W = prr.load_words(REPO)
+    trial = {'c_3': ('failed', 'OOM в воркере')}
+    s, errs = prr.forms_page(items, chain, str(tmp_path / 'photos'), str(tmp_path / 'glbs'), str(tmp_path / 'frames'), str(tmp_path / 'o'), W, 'T', rules, trial, final=False)
+    assert errs == [] and (s['n'], s['ok'], s['failed'], s['small'], s['wait'], s['cards']) == (6, 1, 2, 1, 2, 6)       # c_3 упал, d_4 вырезка упала; e_5 кадры ещё рисуются, f_6 ещё считается
+    page = (tmp_path / 'o' / 'index.html').read_text(encoding='utf-8')
+    assert 'форма есть 1' in page and 'форма упала 2' in page and 'фото мало 1' in page and 'вырезка новая П1.96' in page
+    assert all(f"<div class='no'>№ {n}</div>" in page for n in range(1, 7)) and 'OOM в воркере' in page and 'форму не делаем' in page and 'вырезка не получилась — форму не запускали' in page
+    assert page.count("badge ok'>форма есть") == 1 and page.count("badge soft'>фото мало") == 1 and "badge refused'>форма упала" in page and '<script' not in page
+    assert (tmp_path / 'o' / 'img' / 'a_1_az045.jpg').exists() and (tmp_path / 'o' / 'img' / 'a_1_az225.jpg').exists()
+    from PIL import Image
+    assert Image.open(tmp_path / 'o' / 'img' / 'a_1_az045.jpg').size == Image.open(tmp_path / 'o' / 'img' / 'a_1_az225.jpg').size   # кадры одной рамки
+
+
+def test_forms_page_final_has_no_wait(tmp_path):
+    rules, items, chain = _forms_fixture(tmp_path)
+    s, errs = prr.forms_page(items, chain, str(tmp_path / 'photos'), str(tmp_path / 'glbs'), str(tmp_path / 'frames'), str(tmp_path / 'o'), prr.load_words(REPO), 'T', rules, {}, final=True)
+    assert errs == [] and s['wait'] == 0 and s['ok'] == 1 and s['failed'] == 4 and s['small'] == 1 and s['ok'] + s['failed'] + s['small'] == s['n']
+    page = (tmp_path / 'o' / 'index.html').read_text(encoding='utf-8')
+    assert 'кадры не отрисованы' in page and 'формы в результате пакета нет' in page
+
+
+def test_find_glb_prefers_hd_and_skips_audit(tmp_path):
+    import os, time
+    for n in ('x_1-1024-42-0-t.glb', 'x_1-hd.glb', 'x_1-hd.audit.glb', 'x_12-hd.glb', 'y_2.glb'):
+        (tmp_path / n).write_bytes(b'g')
+    os.utime(tmp_path / 'x_1-1024-42-0-t.glb', (time.time() + 99, time.time() + 99))                 # свежее, но не -hd
+    assert os.path.basename(prr.find_glb(str(tmp_path), 'x_1')) == 'x_1-hd.glb'                      # -hd предпочтительнее; чужой x_12 и .audit не берутся
+    assert os.path.basename(prr.find_glb(str(tmp_path), 'x_12')) == 'x_12-hd.glb' and os.path.basename(prr.find_glb(str(tmp_path), 'y_2')) == 'y_2.glb'
+    assert prr.find_glb(str(tmp_path), 'нет') is None and prr.find_glb(str(tmp_path / 'нет-папки'), 'x_1') is None
+
+
+def test_forms_render_frames_of(tmp_path):
+    import os
+    import forms_render as FR
+    d = tmp_path / 'a_1'
+    d.mkdir()
+    assert FR.frames_of(str(tmp_path), 'a_1') == [] and FR.frames_of(str(tmp_path), 'нет') == []
+    (d / '01_az045_clay.png').write_bytes(b'p')
+    assert FR.frames_of(str(tmp_path), 'a_1') == []                                                    # одного ракурса мало — считаем не готовым
+    (d / '02_az225_clay.png').write_bytes(b'p')
+    assert [os.path.basename(x) for x in FR.frames_of(str(tmp_path), 'a_1')] == ['01_az045_clay.png', '02_az225_clay.png'] and FR.VIEWS == ('az045', 'az225')
