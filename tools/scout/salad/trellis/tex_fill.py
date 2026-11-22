@@ -850,13 +850,32 @@ def seam_pass(txs: list, out_lab: list, labs: list, kn_keep: list, conf: list | 
             img = TS.atlas_with_gutter(tx, lab2rgb(lab_n), gutter if gutter > 0 else 8)
             return TS.seam_metric(tx, TS.panel_zone(tx, seam_c['crease_deg'], seam_c['normal_smooth_iters'], seam_c['min_panel_faces']), lab_n, TS.mip1_lab(tx, img, rgb2lab), solid, s_in_, s_out_, seam_c, size_mm, tmm, TC.de2000_v)
         m_before = _metric(before, k0f & ~skip_, sb, so)
-        r_ = TS.blend_seam(tx, before, labs[gi].reshape(-1, 3)[ti], k0f, cf, skip_, seam_c, size_mm)
+        # варианты сведения (T-196/1): полный (тон + контраст) | без контраста | только граница (feather); берём тот, у кого шов по мерке лучше; ни один не лучше «как было» — оставляем «как было»
+        # (мерка шва — ΔE00 p95 пар через границу; шов, который уже не виден, не трогаем: на 112923/114082 полный вариант портил шов, p95 6,7→8,2 и 3,0→5,5)
+        variants = [('full', seam_c), ('no_contrast', dict(seam_c, contrast_gmin=1.0, contrast_gmax=1.0)),
+                    ('feather_only', dict(seam_c, contrast_gmin=1.0, contrast_gmax=1.0, tone_max=[0.0, 0.0, 0.0]))]
+        tried, best = {}, None
+        for vname, vc in variants:
+            rv = TS.blend_seam(tx, before, labs[gi].reshape(-1, 3)[ti], k0f, cf, skip_, vc, size_mm)
+            mv = _metric(rv['lab'], rv['solid'], rv['s_in'], rv['s_out'])
+            tried[vname] = {'dE00_median': mv['dE00_median'], 'dE00_p95': mv['dE00_p95'], 'bad_share_pct': mv['bad_share_pct']}
+            key = (mv['dE00_p95'] if mv['dE00_p95'] is not None else 99.0, mv['dE00_median'] if mv['dE00_median'] is not None else 99.0)
+            if best is None or key < best[0]:
+                best = (key, vname, rv, mv)
+        p95_b = m_before['dE00_p95'] if m_before['dE00_p95'] is not None else 0.0
+        if best[0][0] <= p95_b * seam_c.get('accept_p95_ratio', 1.0) + seam_c.get('accept_p95_abs', 0.0):
+            _, chosen, r_, m_after_pre = best
+        else:                                                           # ни один вариант не лучше «как было» — не трогаем
+            chosen, r_, m_after_pre = 'unchanged', None, m_before
+        if r_ is None:
+            r_ = {'lab': before.copy(), 'keep': k0f.copy(), 'solid': k0f & ~skip_, 's_in': sb, 's_out': so, 'report': {'zones': None, 'demoted_texels': 0, 'solid_texels': int((k0f & ~skip_).sum()), 'rough_before': TS.boundary_rough(tx, k0f, np.ones(len(ti), bool), tmm, seam_c['rough_sigma_mm'])}}
+            r_['report']['rough_after'] = r_['report']['rough_before']
         ol[ti] = r_['lab']
         kk = kn_keep[gi].reshape(-1).copy()
         kk[ti] = r_['keep']
         kn_keep[gi] = kk.reshape(kn_keep[gi].shape)
-        m_after = _metric(r_['lab'], r_['solid'], r_['s_in'], r_['s_out'])
-        srep['geoms'].append(dict(r_['report'], before=m_before, after=m_after))
+        m_after = m_after_pre
+        srep['geoms'].append(dict(r_['report'], before=m_before, after=m_after, variant=chosen, variants=tried))
     srep['time_s'] = round(time.time() - t_s, 2)
     return srep
 
@@ -1633,7 +1652,7 @@ def load_rules(path: str | None = None) -> dict:
     if 'trellis_relief' not in r:
         raise KeyError("rules/paint-fill.json: нет ключа 'trellis_relief'")
     for k in ('enabled', 'size_mm_default', 'conf_min', 'conf_full', 'edge_mm', 'probe_mm', 'cell_mm', 'reach_mm', 'tone_decay_mm', 'tone_max', 'min_cell', 'hi_sigma_mm', 'contrast_decay_mm',
-              'contrast_gmin', 'contrast_gmax', 'contrast_floor', 'pair_mm', 'pair_cos', 'de_bad', 'poisson', 'crease_deg', 'normal_smooth_iters', 'min_panel_faces', 'feather_mm', 'feather_lo', 'feather_hi', 'rough_sigma_mm'):
+              'contrast_gmin', 'contrast_gmax', 'contrast_floor', 'pair_mm', 'pair_cos', 'de_bad', 'poisson', 'crease_deg', 'normal_smooth_iters', 'min_panel_faces', 'feather_mm', 'feather_lo', 'feather_hi', 'rough_sigma_mm', 'accept_p95_ratio', 'accept_p95_abs'):
         if k not in (r.get('seam') or {}):
             raise KeyError(f'rules/paint-fill.json: seam.{k} не задан')
     for k in ('gain_max', 'clip_k', 'patch_frac', 'patch_dl', 'dilate_px', 'part_max_share', 'band_lo', 'band_hi', 'sigma_lo_min', 'sigma_lo_max', 'sigma_hi_max', 'far_w', 'p95_cap',
