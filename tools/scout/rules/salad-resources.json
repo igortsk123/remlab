@@ -2,23 +2,41 @@
  "_about": "ПРОФИЛЬ РЕСУРСОВ SALAD ПО ТИПУ РАБОТЫ (T-186/1, владелец TG 1456/1457/1470). Группу Salad создаёт ТОЛЬКО kit_driver и ТОЛЬКО по строке этого файла: нет строки — отказ до создания группы (код 3), свои числа мимо профиля — отказ. Тариф: `tier` (low), нет машин — один раз `tier_fallback` (medium); выше и `batch` — запрещены. Цены тут не хранятся: только живые (kit_driver.gpu_class). `basis`: `measured` — нужны `measured.date` и `measured.log`; `estimate` — «по оценке», не мерили (в журнал проб пишется явно). Воркер отдаёт пики в /health (peak_rss_gb, peak_vram_gb, disk_free_gb, disk_mb_s, weights_gb_min); после прогона `resource_profile.py --suggest <summary>` печатает расхождения, строку правит человек. `expect.weights_gb_min_min` — нижняя скорость докачки весов для DiskGuard (если нет — из salad-groups.json → disk_guard).",
  "profiles": {
   "trellis_shape": {
-   "card": "RTX 5090 (32 GB)",
+   "card": "RTX 5060 Ti (16 GB)",
    "card_fallbacks": [
-    "RTX 5060 Ti (16 GB)",
-    "RTX 4060 Ti (16 GB)"
+    "RTX 5090 (32 GB)",
+    "RTX 4090 (24 GB)"
    ],
    "cpu": 8,
-   "memory_mb": 32768,
+   "memory_mb": 40960,
    "storage_gb": 80,
    "shm_mb": 1024,
    "tier": "low",
    "tier_fallback": "medium",
    "expect": {
-    "job_s": 132,
-    "peak_vram_gb": 12.3
+    "job_s": 245,
+    "job_s_5090": 128,
+    "peak_vram_gb": 11.6,
+    "peak_rss_gb": 30.24,
+    "disk_mb_s": 598
    },
-   "basis": "estimate",
-   "basis_note": "карта 5090, время и пик VRAM (12,3 ГБ занято, 18,2 резерв) — замер t178-forms-1122 (22.11, 29 заданий); vCPU/RAM/диск/shm — параметры того же запуска (умолчания trellis_trial: 8/32 ГБ/80 ГиБ/1 ГБ, диск: кэш HF ≈42 ГиБ + результаты, директор 19.11), пики RAM/диска не мерили. Кандидаты 16 ГБ (5060 Ti, 4060 Ti) — проба T-186/1 после «да»"
+   "basis": "measured",
+   "basis_note": "время и VRAM — замеры (5090: t178-forms-1122, 29 заданий; 5060 Ti: 6 готовых заданий t186p/t186q, медленнее в 1,9–2,3×); RAM: пик 30,2 ГБ на 5060 Ti при 32 ГБ профиля — поднят до 40 ГБ (запас ×1,25), проверить первым прогоном; диск: Salad показывает ≈1 ТБ общего, пик занятого от 80 ГиБ не измерен; vCPU 8 — по умолчанию драйвера, не варьировали",
+   "measured": {
+    "date": "2026-11-22",
+    "log": "~/remlab-logs/t186-1122/probe-out/ и probe2-out/ (summary-trial-trellis2-t186p.json, summary-trial-trellis2-t186q.json); 5090 — ~/remlab-logs/t178-forms-1122/forms-out*/",
+    "what": "5060 Ti 16 ГБ, форма 1024 hd: проба 1 — 3 товара, проба 2 — 8 (6 готово, 2 тяжёлых — нехватка памяти карты); время и пики VRAM/RSS/диск — из /health и metrics заданий"
+   },
+   "card_rule": {
+    "metric": "peak_vram_gb товара на 5090 (замер forms-out, форма 1024 hd)",
+    "small_max_gb": 10,
+    "small": "RTX 5060 Ti (16 GB)",
+    "large": [
+     "RTX 5090 (32 GB)",
+     "RTX 4090 (24 GB)"
+    ],
+    "evidence": "на 5060 Ti прошли все товары с пиком на 5090 ≤8,9 ГБ (5 из 5) и 1 из 3 тяжёлых (12,3 — прошёл; 12,1 и 10,6 — CUDA out of memory/allocator assert); правило: пик ≤ ~10 ГБ → 5060 Ti, тяжелее → 5090/4090; OOM не повторять"
+   }
   },
   "ultratex": {
    "card": "RTX 5090 (32 GB)",
@@ -139,6 +157,21 @@
    "expect": {},
    "basis": "estimate",
    "basis_note": "LocalMesh (trellis_trial): прежние умолчания драйвера, карта 4060 Ti 16 ГБ — по комментарию драйвера, пики не мерили"
+  },
+  "pose_camera_gpu": {
+   "card": "RTX 3090 (24 GB)",
+   "card_fallbacks": [],
+   "cpu": 4,
+   "memory_mb": 16384,
+   "storage_gb": 10,
+   "shm_mb": 1024,
+   "tier": "low",
+   "tier_fallback": "medium",
+   "expect": {
+    "job_s": 30
+   },
+   "basis": "estimate",
+   "basis_note": "этап 04 на torch (T-185/1): время — оценка из профиля (CPU 696 с → ≈25–60 с), ещё не мерили; vCPU 4 = 4 процесса на ноду (Нелдер–Мид на CPU, одно ядро на процесс); RAM/диск/shm — по аналогии с pose_camera, пики мерить первой пробой; VRAM малая (силуэт+кадр 768 px). Строка — по просьбе рабочего router-7 (T-185/1)."
   }
  }
 }

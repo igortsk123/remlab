@@ -679,6 +679,8 @@ ok(any('RAM' in x and 'не влезает' in x for x in _sg), 'suggest: пик
 ok(any('НИЖЕ нормы' in x for x in _sg) and any('пересаживал 1' in x for x in _sg) and any('среднее 341' in x for x in _sg), 'suggest: медленная докачка, пересадка и время задания видны')
 ok(any('по оценке' in x for x in _sg), 'suggest: напоминает, что основание профиля — «по оценке»')
 ok(any('не пришёл' in x for x in RP.suggest({'work_type': 'ultratex', 'last_health': {'body': {}}})), 'suggest: нет замера — так и говорит')
+_sl = RP.suggest({'work_type': 'trellis_shape', 'last_health': {'body': {'peak_rss_gb': 30.2, 'peak_vram_gb': 11.6}}, 'jobs': [{'status': 'done', 'seconds': 200.0}, {'status': 'failed', 'seconds': 300.0}, {'status': 'done', 'seconds': 100.0}]})
+ok(any('среднее 150' in x and 'n=2' in x for x in _sl), 'suggest: итог trellis_trial (jobs — список, время в seconds) тоже читается')
 
 print('\nИТОГ:', 'ВСЁ ЗЕЛЁНОЕ' if not FAILS else f'ПРОВАЛОВ: {len(FAILS)}')
 sys.exit(1 if FAILS else 0)
