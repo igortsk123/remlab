@@ -465,4 +465,4 @@ def test_cutout_v2_log_format(tmp_path):
     s, errs = prr.cutout_page(items, chain, str(tmp_path / 'photos'), str(tmp_path / 'cut'), str(tmp_path / 'o'), prr.load_words(REPO), 'T')
     assert errs == [] and (s['n'], s['ok'], s['refused'], s['missing'], s['made'], s['cards']) == (3, 1, 2, 0, 1, 3)
     page = (tmp_path / 'o' / 'index.html').read_text(encoding='utf-8')
-    assert 'сторож размера: мелкая вырезка' in page and 'нет адреса фото' in page
+    assert 'слишком маленькой' in page and 'сторож размера: мелкая вырезка' in page and 'нет адреса фото' in page and 'status=refused' not in page

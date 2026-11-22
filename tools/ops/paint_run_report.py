@@ -784,7 +784,7 @@ def read_chain(path: str) -> dict:
 def cut_reason(r: dict) -> str:
     """Причина вырезки из полей журнала словами-кодами (фразы — в paint-reasons.json): только то, что не «ок»."""
     bits = []
-    if r.get('status') != 'ok':
+    if r.get('status') != 'ok' and not r.get('refused'):                    # у журнала make_cut_v2 `status` выведен нами из `refused` — служебное слово не показываем
         bits.append(f"status={r.get('status')}")
     if r.get('verdict') not in (None, 'ok'):
         bits.append(f"verdict={r.get('verdict')}")
