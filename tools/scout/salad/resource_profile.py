@@ -41,8 +41,11 @@ def suggest(summary: dict, prof: dict | None = None) -> list[str]:
         out.append(f'VRAM: пик {vram} ГБ' + (f' (ожидали {exp})' if exp else '') + f'; карта профиля «{prof["card"]}» — если пик < 12 ГБ, кандидат 16-ГБ карта')
     free = h.get('disk_free_gb')
     if free is not None:
-        used = prof['storage_gb'] - free
-        out.append(f'диск: свободно {free} ГБ из {prof["storage_gb"]} ГБ профиля (занято ≈ {used:.0f}); {"можно меньше" if free > prof["storage_gb"] * 0.6 else "запас нужен"}')
+        if free > prof['storage_gb']:
+            out.append(f'диск: нода показала {free} ГБ свободно при {prof["storage_gb"]} ГБ профиля — Salad отдаёт общий диск хоста, пик занятого этим не измерить (меряй размер папок весов и результатов)')
+        else:
+            used = prof['storage_gb'] - free
+            out.append(f'диск: свободно {free} ГБ из {prof["storage_gb"]} ГБ профиля (занято ≈ {used:.0f}); {"можно меньше" if free > prof["storage_gb"] * 0.6 else "запас нужен"}')
     mbs = h.get('disk_mb_s')
     if mbs is not None:
         out.append(f'скорость диска ноды: запись {mbs} МБ/с, чтение {h.get("disk_read_mb_s")} МБ/с')
