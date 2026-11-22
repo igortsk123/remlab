@@ -32,6 +32,7 @@ def measure(inputs: dict, roots: dict, stage: str) -> list:
         prgb, pmask = TV.photo_to_frame(np.asarray(Image.open(it['photo']).convert('RGBA')), st['P'], st['px'])
         cs = CM.crease_shadow(prgb, pmask, st, TV.load_shape(os.path.join(first, sku, '06-visible', 'visible.glb')), rules)
         valid = st['mask']
+        zone, _cut = CM.body_zone(st['mask'])
         row = {'sku': sku}
         for name, root in roots.items():
             p = os.path.join(root, sku, sub, fn)
@@ -40,9 +41,10 @@ def measure(inputs: dict, roots: dict, stage: str) -> list:
                 continue
             gg = TV.load_shape(p)
             after = TV.frame_from_tex(st, gg, [x['tex'] for x in gg])
-            d = CM.dark_streak_share(after, cs['band'], cs['groove'], valid, st['mask'], rules)
-            dn = CM.dark_streak_new(after, prgb, pmask, cs['band'], cs['groove'], valid, st['mask'], rules)
-            row[name] = {'share_pct': d['share_pct'], 'new_pct': dn['share_pct'], 'streak_px': dn['streak_px'], 'in_photo_px': dn['streak_in_photo_px'], 'contrast': CM.slit_contrast_ratio(prgb, after, cs, st['mask'], valid, rules).get('ratio')}
+            d = CM.dark_streak_share(after, cs['band'], cs['groove'], valid, st['mask'], rules, zone=zone)
+            dn = CM.dark_streak_new(after, prgb, pmask, cs['band'], cs['groove'], valid, st['mask'], rules, zone=zone)
+            dl = CM.dark_streak_new(after, prgb, pmask, cs['band'], cs['groove'], valid, st['mask'], rules, zone=~zone)
+            row[name] = {'share_pct': d['share_pct'], 'new_pct': dn['share_pct'], 'streak_px': dn['streak_px'], 'in_photo_px': dn['streak_in_photo_px'], 'legs_new_pct': dl['share_pct'], 'contrast': CM.slit_contrast_ratio(prgb, after, cs, st['mask'], valid, rules).get('ratio')}
         rows.append(row)
     return rows
 
@@ -68,7 +70,7 @@ def main() -> None:
     roots = dict(x.split('=', 1) for x in a.roots)
     rows = measure(json.load(open(a.inputs, encoding='utf-8')), roots, a.stage)
     for r in rows:
-        print(r['sku'], {k: (v and (v['share_pct'], v['new_pct'])) for k, v in r.items() if k != 'sku'})
+        print(r['sku'], {k: (v and (v['share_pct'], v['new_pct'], v['legs_new_pct'])) for k, v in r.items() if k != 'sku'})
     sm = summary(rows, next(iter(roots)))
     print('сводка (new_pct / база):', json.dumps(sm, ensure_ascii=False))
     if a.json:

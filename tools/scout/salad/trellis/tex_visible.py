@@ -598,8 +598,10 @@ def _run(glb: str, photo: str, pose_run: str, run_dir: str, sku: str, cos_min: f
     cs = tr['crease']
     kvalid = known_px(geoms, st, tr)
     cn = np.concatenate([c[k] for c, k in zip(tr['conf'], tr['known'])]) if tr['known'] else np.zeros(0)
-    crease_info = {'confidence_mean': round(float(cn.mean()), 4) if cn.size else None, 'confidence_low_share': round(float((cn < 0.5).mean()), 4) if cn.size else None, **cs['stats'],
-                   'dark_streak': CM.dark_streak_share(after, cs['band'], cs['groove'], kvalid, st['mask']), 'dark_streak_new': CM.dark_streak_new(after, prgb, pmask, cs['band'], cs['groove'], kvalid, st['mask']),
+    zone, zcut = CM.body_zone(st['mask'], cut_row=cut_row)                  # корпус: выше нижней кромки (T-194/4); ножки — отдельной меркой
+    crease_info = {'body_cut_row': zcut, 'confidence_mean': round(float(cn.mean()), 4) if cn.size else None, 'confidence_low_share': round(float((cn < 0.5).mean()), 4) if cn.size else None, **cs['stats'],
+                   'dark_streak': CM.dark_streak_share(after, cs['band'], cs['groove'], kvalid, st['mask'], zone=zone), 'dark_streak_new': CM.dark_streak_new(after, prgb, pmask, cs['band'], cs['groove'], kvalid, st['mask'], zone=zone),
+                   'dark_streak_legs': CM.dark_streak_new(after, prgb, pmask, cs['band'], cs['groove'], kvalid, st['mask'], zone=~zone),
                    'slit_contrast': CM.slit_contrast_ratio(prgb, after, cs, st['mask'], kvalid)}
     m = metrics(geoms, st, prgb, pmask, tr, after, cos_min)
     view = os.path.join(d, '_view.glb')                                 # для показа: непросмотренное — штриховка; в visible.glb заготовка не тронута (этап 7 заливает её)

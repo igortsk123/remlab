@@ -154,6 +154,42 @@ def test_dark_streak_new():
     ok(d5['share_pct'] is None, 'нет валидных пикселей — мерка None')
 
 
+def test_body_zone():
+    print('зона корпуса (T-194/4): ножки и кромка вне корпуса, мерка ножек отдельно:')
+    H, Wd = 200, 200
+    mask = np.zeros((H, Wd), bool)
+    mask[20:140, 20:180] = True                                             # корпус: строки 20…139, ширина 160
+    mask[140:200, 25:35] = True                                             # две ножки по 10 px
+    mask[140:200, 165:175] = True
+    zone, cut = CM.body_zone(mask)
+    ok(zone[20, 100] and zone[100, 100] and not zone[199, 30] and not zone[150, 170], 'верх корпуса — в зоне, ножки — вне зоны')
+    ok(120 < cut <= 140, f'граница зоны выше низа корпуса на запас (cut={cut}; низ корпуса 139)')
+    zc, cc = CM.body_zone(mask, cut_row=60)
+    ok(cc == 60 and zc[59, 100] and not zc[60, 100], 'cut_row (body_only) ниже по смыслу не расширяет, а сужает зону')
+    mf = np.zeros((H, Wd), bool)
+    mf[20:200, 20:180] = True                                               # шкаф до пола: ножек нет
+    zf, cf = CM.body_zone(mf)
+    ok(cf < 200 and cf > 150, f'без ножек граница = низ − запас ({cf})')
+    band = np.zeros((H, Wd), bool)
+    band[:, 90:110] = True                                                   # полоса изломов на корпусе
+    band[:, 26:34] = True                                                    # и вдоль ножки
+    valid = np.ones((H, Wd), bool)
+    groove = np.zeros((H, Wd), bool)
+    photo = np.full((H, Wd, 3), 150, np.uint8)
+    after = photo.copy()
+    after[145:195, 28:32] = 40                                               # тёмное у ножки (ниже корпуса), на фото его нет
+    full = np.ones((H, Wd), bool)
+    r = CM.load_rules()
+    nb = CM.dark_streak_new(after, photo, full, band & mask, groove, valid, mask, r, zone=zone)
+    ok(nb['streak_px'] == 0, 'тёмное ниже корпуса не попадает в мерку корпуса')
+    nl = CM.dark_streak_new(after, photo, full, band & mask, groove, valid, mask, r, zone=~zone)
+    ok(nl['streak_px'] > 0 and nl['share_pct'] is not None, f'то же тёмное — в мерке ножек ({nl["share_pct"]} %)')
+    after2 = photo.copy()
+    after2[40:80, 98:102] = 40                                               # тёмное на корпусе, на фото нет
+    nb2 = CM.dark_streak_new(after2, photo, full, band & mask, groove, valid, mask, r, zone=zone)
+    ok(nb2['share_pct'] is not None and nb2['share_pct'] > 1, f'тёмное на корпусе без пары на фото — брак корпуса ({nb2["share_pct"]} %)')
+
+
 def main():
     test_crease_found_and_flat_has_none()
     test_groove_and_measures()
@@ -161,6 +197,7 @@ def main():
     test_band()
     test_confidence()
     test_dark_streak_new()
+    test_body_zone()
     print(f'tests_crease_mask: ошибок {bad}')
     sys.exit(1 if bad else 0)
 

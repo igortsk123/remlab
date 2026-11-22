@@ -18,7 +18,7 @@ import numpy as np
 
 SCOUT = os.path.normpath(os.path.join(os.path.dirname(os.path.abspath(__file__)), '..', '..'))
 DEFAULTS = {'angle_deg': 35.0, 'depth_jump_px': 12.0, 'k_min': 2, 'k_max': 10, 'k_resid': 0.1, 'groove_px': 1, 'ref_win': 31, 'dL_reject': 12.0, 'thin_px': 5, 'min_evidence_px': 20,
-            'photo_dark_dL': 15.0, 'photo_dark_grow_px': 3, 'close_px': 8, 'conf_band': 0.6, 'conf_highlight': 0.5, 'highlight_dL': 25.0, 'conf_fill': 0.5, 'dark_streak_dL': 25.0, 'slit_contrast_min': 0.5}
+            'photo_dark_dL': 15.0, 'photo_dark_grow_px': 3, 'close_px': 8, 'conf_band': 0.6, 'conf_highlight': 0.5, 'highlight_dL': 25.0, 'conf_fill': 0.5, 'dark_streak_dL': 25.0, 'slit_contrast_min': 0.5, 'body_cover_min': 0.6, 'body_margin_frac': 0.12}
 
 
 def load_rules(path: str | None = None) -> dict:
@@ -131,13 +131,35 @@ def crease_shadow(prgb: np.ndarray, pmask: np.ndarray, st: dict, geoms: list, ru
     return {'groove': groove, 'slit_rgb': slit_rgb, 'band': band, 'crease': crease, 'stats': stats}
 
 
-def dark_streak_share(after_rgb: np.ndarray, band: np.ndarray, groove: np.ndarray, valid: np.ndarray, mask: np.ndarray, rules: dict | None = None) -> dict:
+def body_zone(mask: np.ndarray, rules: dict | None = None, cut_row: int | None = None) -> tuple:
+    """Зона «КОРПУС» кадра (T-194/4): строки выше нижней кромки корпуса. Низ корпуса — последняя строка, где силуэт формы занимает ≥ body_cover_min от максимальной ширины (ниже — ножки: узкие
+    полосы), минус запас body_margin_frac высоты корпуса (кромка корпус/низ и излом корпус—ножки: форма там лежит против фото со сдвигом ножек). `cut_row` (06 body_only) — ещё выше, если задан.
+    → (zone bool кадра, cut — первая строка вне зоны). Мерки полос у изломов считаются на корпусе; ножки меряет `dark_streak_new` с `~zone` (мерка ножек)."""
+    r = rules or load_rules()
+    rows = np.nonzero(mask.any(axis=1))[0]
+    zone = np.zeros(mask.shape, bool)
+    if rows.size == 0:
+        return zone, 0
+    top = int(rows[0])
+    w = mask.sum(axis=1).astype(np.float64)
+    full = np.nonzero(w >= float(r['body_cover_min']) * w.max())[0]
+    b = int(full[-1])
+    cut = int(b - float(r['body_margin_frac']) * (b - top)) + 1
+    if cut_row is not None:
+        cut = min(cut, int(cut_row))
+    zone[:max(cut, 0)] = True
+    return zone, max(cut, 0)
+
+
+def dark_streak_share(after_rgb: np.ndarray, band: np.ndarray, groove: np.ndarray, valid: np.ndarray, mask: np.ndarray, rules: dict | None = None, zone: np.ndarray | None = None) -> dict:
     """Мерка «тёмные рваные полосы на панелях»: доля пикселей полосы изломов (без пикселей щели), валидных (`valid` — взятые/залитые, не серая заготовка), где L* кадра ниже медианы панели
     (медиана по пикселям вне полосы) на dark_streak_dL. → {share_pct, band_px, streak_px}. Нет полосы/валидных — share_pct None."""
     r = rules or load_rules()
     L8 = lum8(after_rgb)
     ref = reference_l8(L8, mask & valid & ~band, int(r['ref_win']))
     cand = band & mask & valid & ~groove
+    if zone is not None:                                               # только внутри зоны (корпус или, с ~зоной, ножки)
+        cand = cand & zone
     n = int(cand.sum())
     if n < 50:
         return {'share_pct': None, 'band_px': n, 'streak_px': 0}
@@ -146,7 +168,7 @@ def dark_streak_share(after_rgb: np.ndarray, band: np.ndarray, groove: np.ndarra
 
 
 def dark_streak_new(after_rgb: np.ndarray, photo_rgb: np.ndarray, pmask: np.ndarray, band: np.ndarray, groove: np.ndarray, valid: np.ndarray, mask: np.ndarray,
-                    rules: dict | None = None) -> dict:
+                    rules: dict | None = None, zone: np.ndarray | None = None) -> dict:
     """Мерка T-194/2 «тёмное у излома, которого НЕТ на фото»: как dark_streak_share, но пиксель-полоса считается браком, только если на фото (через камеру 04, `photo_rgb`/`pmask`) в окрестности
     photo_dark_grow_px нет тёмного (L* ниже медианы панели ФОТО на photo_dark_dL). Дизайнерские зазоры и ручки фото браком не считаются (там тёмное и на фото); сдвиг щели относительно излома меша
     ≤ photo_dark_grow_px не засчитывается. → {share_pct, band_px, streak_px, streak_in_photo_px}."""
@@ -155,6 +177,8 @@ def dark_streak_new(after_rgb: np.ndarray, photo_rgb: np.ndarray, pmask: np.ndar
     L8 = lum8(after_rgb)
     ref = reference_l8(L8, mask & valid & ~band, int(r['ref_win']))
     cand = band & mask & valid & ~groove
+    if zone is not None:                                               # только внутри зоны: корпус (T-194/4) или, с ~зоной, ножки
+        cand = cand & zone
     n = int(cand.sum())
     if n < 50:
         return {'share_pct': None, 'band_px': n, 'streak_px': 0, 'streak_in_photo_px': 0}
