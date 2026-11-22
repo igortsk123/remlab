@@ -333,5 +333,31 @@ class TestTexVisible(unittest.TestCase):
         self.assertGreaterEqual(eq, 0.90, f'фото = кадр: {eq:.3f}')
         self.assertLess(old, new - 0.03, f'контроль: линейная {old:.3f} должна быть хуже бикубики {new:.3f}')
 
+    def _shifted_square_alpha(self, dx, dy, ss=8):
+        """Фото-вырезка: квадрат Q0..Q1, сдвинутый на (dx, dy) px кадра, с антиалиасингом по площади (сэмплинг ss×ss)."""
+        big = np.zeros((PX * ss, PX * ss), np.float32)
+        r0, r1 = int(round((Q0 + dy) * ss)), int(round((Q1 + dy) * ss))
+        c0, c1 = int(round((Q0 + dx) * ss)), int(round((Q1 + dx) * ss))
+        big[r0:r1, c0:c1] = 1.0
+        a = big.reshape(PX, ss, PX, ss).mean((1, 3))
+        ph = np.zeros((PX, PX, 4), np.uint8)
+        ph[..., :3] = 128
+        ph[..., 3] = np.round(a * 255).astype(np.uint8)
+        return ph
+
+    def test_fit_registration_recovers_subpixel_shift(self):
+        """Подгонка регистрации (T-197/2): сдвиг фото относительно камеры на доли пикселя находится с точностью ≤0,15 px; точная регистрация — нулевой сдвиг."""
+        st = fake_stage()
+        for dx, dy in ((0.0, 0.0), (0.6, -0.4), (-1.25, 0.75), (2.0, 1.5)):
+            fr = TV.fit_registration(self._shifted_square_alpha(dx, dy), st['P'], st['mask'])
+            self.assertLessEqual(abs(fr['dx'] + dx), 0.15, 'dx %.3f вместо %.3f' % (fr['dx'], -dx))          # сдвиг подгонки = поправка: обратен сдвигу фото
+            self.assertLessEqual(abs(fr['dy'] + dy), 0.15, 'dy %.3f вместо %.3f' % (fr['dy'], -dy))
+        fr0 = TV.fit_registration(self._shifted_square_alpha(0.0, 0.0), st['P'], st['mask'])
+        self.assertLess(fr0['gain'], TV.REG_MIN_GAIN)                     # точная регистрация: подгонка не применяется
+        fr1 = TV.fit_registration(self._shifted_square_alpha(1.5, 0.0), st['P'], st['mask'])
+        self.assertGreaterEqual(fr1['gain'], TV.REG_MIN_GAIN)             # заметный сдвиг: применяется
+        far = TV.fit_registration(self._shifted_square_alpha(5.0, 0.0), st['P'], st['mask'])
+        self.assertLessEqual(abs(far['dx']), TV.REG_MAX_PX + 1e-6)         # больше потолка не берём
+
 if __name__ == '__main__':
     unittest.main()
