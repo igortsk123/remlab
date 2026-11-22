@@ -1,0 +1,319 @@
+#!/usr/bin/env python3
+"""Автопроверки ФОРМЫ TRELLIS.2 (Ш0) — режим OBSERVE (T-184/3, директор 22.11, P-064 п.4): меряют по GLB, кадрам и маске фото то, что не требует глаза, и пишут вердикт РЯДОМ (`form_checks.json`).
+Ничего не бракуют и не останавливают конвейер: `observe: true` в `tools/scout/rules/form-checks.json`. Таблица брака — `plans/mesh-type-rules-01.md` § «Приёмка формы TRELLIS.2».
+Пороги — СТАРТОВЫЕ, в rules, в коде нет ни порогов, ни ID товаров; калибруются по таблице «авто ↔ глаз» (`--table`).
+
+Проверки (имя → что ловит, строка таблицы брака):
+  glb_sane      · не читается / нулевой размер (низ формы — только в отчёт: у форм центр в нуле) · «Не читается, нулевой размер»
+  open_edges    · доля открытых рёбер (грань без пары) — дыры и разрывы поверхности · «Дыры, рваный фасад или верх»
+  detached      · доля площади крупных частей, парящих вне габарита главного куска · «крупный оторванный кусок»
+  sil_iou/extra/miss/legs · контур кадра против маски фото и нижняя полоса (ножки) — из этапа 04 камеры (--pose-roots), пороги оттуда же · «Наплыв … меняет контур», «Пропали ножки»
+  sil_extra~/sil_miss~/legs~ · то же приближённо (ортогональный силуэт GLB при лучшем азимуте), когда позы нет; только значения (approx_flag: false)
+  holes         · грубые лишние сквозные просветы в силуэте против фото (приближение)  · «Дыры, рваный фасад»
+  relief        · много мелкого рельефа на кадре 0° — рваный, «изъеденный» фасад   · «Дыры, рваный фасад»
+  back_dup      · кадр 0° и кадр 180° (прямо или зеркально) совпадают по рельефу    · «фасад продублирован на задней стенке» (ловит только точную копию)
+Запуск: python3 form_checks.py --glbs DIR --glb-name '{sku}-hd.glb' --photos DIR --frames DIR --skus a,b | --skus-file F --out DIR [--eye eye.json --table table.md]
+"""
+from __future__ import annotations
+
+import argparse
+import json
+import math
+import os
+import sys
+
+import numpy as np
+from PIL import Image, ImageDraw
+
+HERE = os.path.dirname(os.path.abspath(__file__))
+RULES = os.path.normpath(os.path.join(HERE, '..', '..', 'rules', 'form-checks.json'))
+SIL_N = 256                                                    # сторона нормированной сетки сравнения силуэтов
+
+
+def load_rules(path: str = RULES) -> dict:
+    return json.load(open(path, encoding='utf-8'))
+
+
+def load_mesh(path: str):
+    """GLB → один trimesh с применёнными преобразованиями сцены; None если не читается."""
+    import trimesh
+    try:
+        sc = trimesh.load(path, force='scene')
+        m = sc.to_geometry() if hasattr(sc, 'to_geometry') else sc.dump(concatenate=True)
+    except Exception as exc:                                   # noqa: BLE001 — причина уходит в отчёт проверки glb_sane
+        return None, f'{type(exc).__name__}: {exc}'
+    if m is None or not len(getattr(m, 'faces', [])):
+        return None, 'нет граней'
+    m = m.copy()
+    m.merge_vertices(merge_tex=True, merge_norm=True)                  # GLB режет вершины по UV/нормалям: без склейки по положению каждый треугольник — «отдельный кусок»
+    return m, ''
+
+
+def check(name: str, value, thr, flag: bool, note: str = '') -> dict:
+    return {'name': name, 'value': None if value is None else round(float(value), 4), 'thr': thr, 'flag': bool(flag), 'note': note}
+
+
+# ---------- геометрия ----------
+def glb_sane(m, why: str, R: dict) -> dict:
+    if m is None:
+        return check('glb_sane', None, None, True, f'не читается: {why}')
+    ext = np.asarray(m.extents, float)
+    if not np.all(np.isfinite(ext)) or ext.min() <= R['min_extent']:
+        return check('glb_sane', float(ext.min()), R['min_extent'], True, f'нулевой размер {np.round(ext, 4).tolist()}')
+    off = float(m.bounds[0][1]) / float(ext[1])               # низ формы относительно высоты; у форм TRELLIS центр в нуле (−0,5) — только в отчёт, не флаг
+    return check('glb_sane', float(ext.min()), R['min_extent'], False, f'низ формы {off:+.3f} высоты, габарит {np.round(ext, 3).tolist()}')
+
+
+def open_edges(m, R: dict) -> dict:
+    e = m.edges_sorted
+    if not len(e):
+        return check('open_edges', None, R['open_edge_share'], False, 'нет рёбер')
+    _u, cnt = np.unique(e, axis=0, return_counts=True)
+    share = float((cnt == 1).sum()) / len(cnt)
+    return check('open_edges', share, R['open_edge_share'], share > R['open_edge_share'], f'рёбер {len(cnt)}, открытых {int((cnt == 1).sum())}')
+
+
+def detached(m, R: dict) -> dict:
+    """«Крупный оторванный кусок»: часть, не связанная с главным куском И не касающаяся его по габариту (с запасом `detached_gap` диагонали). Ножки/панели из отдельных кусков, упирающиеся в корпус, — норма."""
+    import trimesh
+    comps = trimesh.graph.connected_components(m.face_adjacency, nodes=np.arange(len(m.faces)), min_len=1)
+    area = m.area_faces
+    tot = float(area.sum())
+    order = sorted(range(len(comps)), key=lambda i: -float(area[comps[i]].sum()))
+    main = m.vertices[np.unique(m.faces[comps[order[0]]])]
+    gap = R['detached_gap'] * float(np.linalg.norm(m.extents))
+    lo, hi = main.min(0) - gap, main.max(0) + gap
+    far, tot_far = 0, 0.0
+    for i in order[1:]:
+        share = float(area[comps[i]].sum()) / tot
+        if share < R['detached_piece_min']:
+            continue
+        v = m.vertices[np.unique(m.faces[comps[i]])]
+        if np.any(v.max(0) < lo) or np.any(v.min(0) > hi):
+            far += 1
+            tot_far += share
+    return check('detached', tot_far, R['detached_share'], tot_far > R['detached_share'], f'кусков {len(comps)}, крупных парящих (вне габарита главного) {far}, главный {float(area[comps[order[0]]].sum()) / tot:.3f} площади')
+
+
+# ---------- силуэты ----------
+def surface_points(m, n: int, seed: int = 0) -> np.ndarray:
+    import trimesh
+    return np.asarray(trimesh.sample.sample_surface(m, n, seed=seed)[0], float)
+
+
+def sil_at(pts: np.ndarray, az_deg: float, grid: int = 384) -> np.ndarray:
+    """Ортогональный силуэт облака точек поверхности при повороте вокруг вертикали (Y вверх; az 0 — смотрим с +Z, как камера az000 после импорта glTF в Blender). Дыры от разрежения закрываются на 2 шага."""
+    from scipy import ndimage
+    a = math.radians(az_deg)
+    x = pts[:, 0] * math.cos(a) + pts[:, 2] * math.sin(a)
+    y = pts[:, 1]
+    k = (grid - 5) / max(float(x.max() - x.min()), float(y.max() - y.min()), 1e-9)
+    ix, iy = ((x - x.min()) * k + 2).astype(int), ((y.max() - y) * k + 2).astype(int)
+    img = np.zeros((int(iy.max()) + 3, int(ix.max()) + 3), bool)
+    img[iy, ix] = True
+    return crop(ndimage.binary_closing(img, structure=np.ones((3, 3), bool), iterations=2))
+
+
+def best_front(pts: np.ndarray, photo: np.ndarray, R: dict) -> tuple[np.ndarray, float]:
+    """Азимут формы, при котором силуэт лучше всего совпадает с маской фото (фото снято не строго спереди: у форм разный поворот, см. pose az). → (силуэт, азимут)."""
+    pn = norm(photo)
+    best = (-1.0, 0.0, None)
+    for az in range(0, 360, int(R['az_step'])):
+        s = sil_at(pts, az)
+        a = norm(s)
+        iou = float((a & pn).sum()) / max(float((a | pn).sum()), 1.0)
+        if iou > best[0]:
+            best = (iou, float(az), s)
+    return best[2], best[1]
+
+
+def photo_mask(path: str, alpha_min: int = 127) -> np.ndarray:
+    a = np.asarray(Image.open(path).convert('RGBA'))[:, :, 3]
+    return crop(a > alpha_min)
+
+
+def crop(mask: np.ndarray) -> np.ndarray:
+    ys, xs = np.where(mask)
+    return mask[ys.min():ys.max() + 1, xs.min():xs.max() + 1] if len(ys) else mask
+
+
+def norm(mask: np.ndarray, n: int = SIL_N) -> np.ndarray:
+    """Силуэт, обрезанный по bbox, → сетка n×n (отношение сторон нормируется; его расхождение меряет отдельно aspect)."""
+    return np.asarray(Image.fromarray((mask * 255).astype(np.uint8)).resize((n, n), Image.BILINEAR)) > 127
+
+
+def fill_holes(mask: np.ndarray) -> np.ndarray:
+    from scipy import ndimage
+    return ndimage.binary_fill_holes(mask)
+
+
+def sil_checks(front: np.ndarray, photo: np.ndarray, R: dict, az: float = 0.0) -> list[dict]:
+    """ПРИБЛИЖЕНИЕ без позы камеры: ортогональный силуэт формы при лучшем азимуте против маски фото (фото снято в 3/4 с перспективой — тонкие ножки и контур считаются грубо).
+    Пороги `sil_*` флагают только грубое; точная сверка — `pose_checks` (этап 04 камеры) там, где он есть. `approx_flag: false` — только значения."""
+    fl = bool(R.get('approx_flag', False))
+    a, b = norm(front), norm(photo)
+    union = float((a | b).sum())
+    iou = float((a & b).sum()) / union if union else 0.0
+    extra = float((a & ~b).sum()) / max(float(b.sum()), 1.0)
+    miss = float((~a & b).sum()) / max(float(b.sum()), 1.0)
+    ar = math.log((front.shape[1] / front.shape[0]) / (photo.shape[1] / photo.shape[0]))
+    ctx = f'IoU {iou:.3f} при азимуте {az:.0f}° (приближение, ортогонально), пропорции формы/фото {math.exp(ar):.2f}'
+    out = [check('sil_extra~', extra, R['sil_extra'], fl and extra > R['sil_extra'], ctx), check('sil_miss~', miss, R['sil_miss'], fl and miss > R['sil_miss'], ctx)]
+    ha = float((fill_holes(a) & ~a).sum()) / max(float(a.sum()), 1.0)                # сквозные просветы внутри силуэта
+    hb = float((fill_holes(b) & ~b).sum()) / max(float(b.sum()), 1.0)
+    out.append(check('holes', ha - hb, R['holes_extra'], ha - hb > R['holes_extra'], f'просветов у формы {ha:.3f}, у фото {hb:.3f} (грубые сквозные дыры; приближение)'))
+    ra, rb = runs(a, R), runs(b, R)
+    out.append(check('legs~', ra - rb, 0, fl and ra < rb, f'опор в нижней полосе: форма {ra}, фото {rb} (приближение)'))
+    return out
+
+
+def pose_checks(sku: str, roots: list[str]) -> list[dict]:
+    """Точная сверка контура с маской фото — результат этапа 04 камеры (`04-camera/check.json`): IoU силуэта, пропавшее/лишнее, то же в нижней полосе (ножки). Пороги — из самого check.json
+    (единый источник этапа 04). Нет прогона — пусто."""
+    import glob
+    for r in roots:
+        for pth in [os.path.join(r, sku, '04-camera', 'check.json')] + sorted(glob.glob(os.path.join(r, 'g*', sku, '04-camera', 'check.json'))):
+            if os.path.isfile(pth):
+                c = json.load(open(pth, encoding='utf-8'))
+                mt = c['metrics']
+                src = f'этап 04 камеры ({os.path.relpath(pth, r).split(os.sep)[0] if os.sep in os.path.relpath(pth, r) else "прогон"})'
+
+                def one(name, v, thr, op):
+                    bad = (v < thr) if op == '>=' else (v > thr)
+                    return check(name, v, thr, bad, f'{src}: {op} {thr}')
+                return [one('sil_iou', c['metric']['value'], c['metric']['threshold'], c['metric']['op']),
+                        one('sil_extra', mt['extra']['value'], mt['extra']['threshold'], mt['extra']['op']),
+                        one('sil_miss', mt['miss']['value'], mt['miss']['threshold'], mt['miss']['op']),
+                        one('legs', mt['miss_bottom']['value'], mt['miss_bottom']['threshold'], mt['miss_bottom']['op'])]
+    return []
+
+
+def runs(mask: np.ndarray, R: dict) -> int:
+    """Число отдельных опор в нижней полосе силуэта: столбцы, где в полосе есть форма, склеиваем в отрезки; короче `leg_min_w` долей ширины — шум."""
+    h = mask.shape[0]
+    band = mask[int(h * (1 - R['leg_band'])):]
+    col = band.mean(axis=0) > R['leg_fill']
+    n, i = 0, 0
+    while i < len(col):
+        if col[i]:
+            j = i
+            while j < len(col) and col[j]:
+                j += 1
+            if (j - i) / len(col) >= R['leg_min_w']:
+                n += 1
+            i = j
+        else:
+            i += 1
+    return n
+
+
+# ---------- задняя стенка по кадрам ----------
+def back_dup(frames_dir: str, R: dict) -> list[dict]:
+    """Кадр 0° и зеркальный кадр 180° (вид с другой стороны, тот же свет относительно камеры): продублированный фасад даёт почти одинаковый рельеф. Корреляция высокочастотной части
+    в центральном окне; считается только если рельеф есть на обоих кадрах (энергия ≥ порога) — гладкая плита не даёт ложной «похожести»."""
+    f0 = next((f for f in sorted(os.listdir(frames_dir)) if '_az000_clay.png' in f), None) if os.path.isdir(frames_dir) else None
+    f1 = next((f for f in sorted(os.listdir(frames_dir)) if '_az180_clay.png' in f), None) if os.path.isdir(frames_dir) else None
+    if not f0 or not f1:
+        return [check('back_dup', None, R['back_dup_corr'], False, 'нет кадров 0°/180°')]
+    from scipy import ndimage
+
+    def hp(p):
+        g = np.asarray(Image.open(os.path.join(frames_dir, p)).convert('L'), float)
+        h, w = g.shape
+        g = g[int(h * R['bd_win'][1]):int(h * R['bd_win'][3]), int(w * R['bd_win'][0]):int(w * R['bd_win'][2])]
+        return g - ndimage.gaussian_filter(g, R['bd_sigma'])
+    a, b0 = hp(f0), hp(f1)
+    b = b0
+    relief = check('relief', float(a.std()), R['relief_energy'], float(a.std()) > R['relief_energy'], f'энергия мелкого рельефа кадра 0° {float(a.std()):.2f} (гладкая плита ≈2, рваный фрезерованный фасад ≫)')
+    ea, eb = float(a.std()), float(b.std())
+    if min(ea, eb) < R['bd_energy']:
+        return [relief, check('back_dup', 0.0, R['back_dup_corr'], False, f'рельефа мало (энергия {ea:.2f}/{eb:.2f} < {R["bd_energy"]}) — проверка не применима')]
+    w = min(a.shape[1], b.shape[1])
+    cd = float(np.corrcoef(a[:, :w].ravel(), b0[:, :w].ravel())[0, 1])               # зеркальная по глубине копия фасада сзади: с обеих сторон читается одинаково (без отражения)
+    cm = float(np.corrcoef(a[:, :w].ravel(), b0[:, ::-1][:, :w].ravel())[0, 1])      # копия, повёрнутая вокруг вертикали: на кадре 180° отражена по горизонтали
+    c = max(cd, cm)
+    return [relief, check('back_dup', c, R['back_dup_corr'], bool(R.get('back_dup_flag', True)) and c > R['back_dup_corr'], f'корреляция рельефа 0°↔180°: прямая {cd:.3f}, зеркальная {cm:.3f}; энергия {ea:.2f}/{eb:.2f}')]
+
+
+# ---------- один товар ----------
+def run_sku(sku: str, glb: str | None, photo: str | None, frames: str | None, rules: dict, pose_roots: list[str] | None = None) -> dict:
+    R = rules['thresholds']
+    rec: dict = {'sku': sku, 'observe': rules.get('observe', True), 'checks': []}
+    if not glb or not os.path.isfile(glb):
+        rec['checks'].append(check('glb_sane', None, None, True, 'GLB не найден'))
+    else:
+        m, why = load_mesh(glb)
+        rec['checks'].append(glb_sane(m, why, R))
+        if m is not None:
+            rec['checks'] += [open_edges(m, R), detached(m, R)]
+            rec['checks'] += pose_checks(sku, pose_roots or [])
+            if photo and os.path.isfile(photo):
+                pm = photo_mask(photo)
+                fs, az = best_front(surface_points(m, int(R['sil_points'])), pm, R)
+                rec['checks'] += sil_checks(fs, pm, R, az)
+            else:
+                rec['checks'].append(check('sil_extra~', None, R['sil_extra'], False, 'нет маски фото — приближённые силуэтные проверки пропущены'))
+    if frames:
+        rec['checks'] += back_dup(frames, R)
+    flags = [c['name'] for c in rec['checks'] if c['flag']]
+    rec['auto'] = 'flag' if flags else 'ok'
+    rec['flags'] = flags
+    return rec
+
+
+def table(recs: list[dict], eye: dict, names: list[str]) -> str:
+    lines = ['| форма | глаз | авто | ' + ' | '.join(names) + ' | флаги |', '|---|---|---|' + '---|' * len(names) + '---|']
+    agree = 0
+    for r in recs:
+        by = {c['name']: c for c in r['checks']}
+        e = eye.get(r['sku'], {})
+        ev = e.get('verdict', '—')
+        ok_auto = 'ok' if r['auto'] == 'ok' else 'флаг'
+        if ev != '—' and ((ev == 'годна' and r['auto'] == 'ok') or (ev == 'брак' and r['auto'] == 'flag')):
+            agree += 1
+        cells = []
+        for n in names:
+            c = by.get(n)
+            cells.append('—' if not c or c['value'] is None else f"{'⚠ ' if c['flag'] else ''}{c['value']}")
+        lines.append(f"| {r['sku']} | {ev}{' · ' + e['note'] if e.get('note') else ''} | {ok_auto} | " + ' | '.join(cells) + f" | {', '.join(r['flags']) or '—'} |")
+    judged = sum(1 for r in recs if eye.get(r['sku'], {}).get('verdict') in ('годна', 'брак'))
+    lines.append(f'\nсовпало с глазом: {agree} из {judged}')
+    return '\n'.join(lines)
+
+
+def main() -> int:
+    ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
+    ap.add_argument('--glbs', required=True)
+    ap.add_argument('--glb-name', default='{sku}-hd.glb')
+    ap.add_argument('--photos', required=True, help='папка <sku>.hd.rgba.png (маска — альфа)')
+    ap.add_argument('--photo-name', default='{sku}.hd.rgba.png')
+    ap.add_argument('--frames', default='', help='папка <sku>/NN_az000_clay.png … (для back_dup)')
+    ap.add_argument('--skus', default='')
+    ap.add_argument('--skus-file', default='')
+    ap.add_argument('--out', required=True)
+    ap.add_argument('--eye', default='', help='JSON {sku: {verdict: годна|брак, note}} — вердикт глазом для таблицы')
+    ap.add_argument('--table', default='')
+    ap.add_argument('--pose-roots', default='', help='папки прогонов этапа 04 камеры (<root>/<sku>/04-camera/check.json или <root>/g*/<sku>/…) через запятую — точная сверка контура с фото')
+    ap.add_argument('--rules', default=RULES)
+    a = ap.parse_args()
+    rules = load_rules(a.rules)
+    skus = [s for s in a.skus.split(',') if s]
+    if a.skus_file:
+        skus += [ln.split()[0] for ln in open(a.skus_file, encoding='utf-8') if ln.strip()]
+    os.makedirs(a.out, exist_ok=True)
+    recs = []
+    for s in skus:
+        rec = run_sku(s, os.path.join(a.glbs, a.glb_name.format(sku=s)), os.path.join(a.photos, a.photo_name.format(sku=s)), os.path.join(a.frames, s) if a.frames else None, rules, [x for x in a.pose_roots.split(',') if x])
+        os.makedirs(os.path.join(a.out, s), exist_ok=True)
+        json.dump(rec, open(os.path.join(a.out, s, 'form_checks.json'), 'w', encoding='utf-8'), ensure_ascii=False, indent=1)
+        recs.append(rec)
+        print(f"{s} {rec['auto']} {rec['flags']}", flush=True)
+    json.dump(recs, open(os.path.join(a.out, 'all.json'), 'w', encoding='utf-8'), ensure_ascii=False, indent=1)
+    if a.table:
+        eye = json.load(open(a.eye, encoding='utf-8')) if a.eye else {}
+        open(a.table, 'w', encoding='utf-8').write(table(recs, eye, ['open_edges', 'detached', 'sil_iou', 'sil_extra', 'sil_miss', 'legs', 'sil_extra~', 'sil_miss~', 'holes', 'relief', 'back_dup']) + '\n')
+    return 0
+
+
+if __name__ == '__main__':
+    sys.exit(main())
