@@ -202,3 +202,9 @@ def test_names_ru_from_repo():
     ru = prr.load_names_ru(str(REPO))
     assert len(ru) > 100 and all(isinstance(v, str) and v for v in ru.values())                                     # запасной источник названий — витрина репозитория
     assert prr.load_names_ru('/нет/такой/папки') == {}
+
+
+def test_catalog_items_wrapper(tmp_path):
+    p = tmp_path / 'set.json'
+    p.write_text(json.dumps({'count': 1, 'items': [{'id': 'x', 'name': 'Ваза', 'role': 'ваза'}]}), encoding='utf-8')
+    assert prr.load_catalog(str(p))['x']['name'] == 'Ваза'                                                          # формат набора р.2 (set40.json) читается как каталог

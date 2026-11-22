@@ -183,6 +183,8 @@ def load_catalog(path: str | None) -> dict:
     if not path:
         return {}
     d = json.load(open(os.path.expanduser(path), encoding='utf-8'))
+    if isinstance(d, dict) and isinstance(d.get('items'), list):          # набор в виде {items: [...]} (например `set40.json` р.2)
+        d = d['items']
     return {(r.get('sid') or r.get('id')): r for r in (d if isinstance(d, list) else [d]) if isinstance(r, dict) and (r.get('sid') or r.get('id'))}
 
 
