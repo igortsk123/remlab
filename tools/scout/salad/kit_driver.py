@@ -654,6 +654,32 @@ class Watch:
         return None, ''
 
 
+def node_reset(w: 'Watch', t: float) -> None:
+    """Нода сменилась (пересадка или Salad перезапустил её сам): потраченное уходит в `banked`, отсчёты «running/started/ответ/готова/веса» — заново на новой ноде."""
+    w.banked = w.cost(t)
+    w.run_since = w.started_since = w.ready_at = None
+    w.ever_ok = False
+    w.gb_hist = []
+    w.last_cull = t
+
+
+def node_lost_step(w: 'Watch', t: float, ins: list, lost_obs: int, cur, pending: list, max_restarts: int, restarts: int, need_obs: int = 3):
+    """Нода пропала у прогретой группы (22.11, t178a: Salad перезапустил экземпляр — state снова downloading, /health 503 — и 12 заданий подряд получили 503 как «отказы»).
+    Возвращает (lost_obs, restarts, action): action None — нода на месте; 'wait' — нет running, наблюдений меньше need_obs (не дёргаться на одном провале запроса);
+    'restart' — нода потеряна: прерванное задание вернулось в начало очереди (не отказ), деньги ноды в banked, отсчёты заново; 'stop' — перезапусков больше max_restarts."""
+    if w.ready_at is None or any(i.get('state') == 'running' for i in ins):
+        return 0, restarts, None
+    lost_obs += 1
+    if lost_obs < need_obs:
+        return lost_obs, restarts, 'wait'
+    if restarts >= max_restarts:
+        return lost_obs, restarts, 'stop'
+    if cur is not None:
+        pending.insert(0, cur['key'])
+    node_reset(w, t)
+    return 0, restarts + 1, 'restart'
+
+
 def weights_cull(w: 'Watch', guard, t: float, ins: list, why: str, say_fn=say) -> bool:
     """Медленная сборка весов на running-ноде: пересадить (тот же бюджет `max_culls`, что у медленной докачки образа). Потраченное на эту ноду уходит в `banked`,
     отсчёты «running/started/ответ/веса» начинаются заново на новой ноде. False — пересаживать нельзя (нет сторожа, бюджет исчерпан, нет running-инстанса): драйвер гасит группу."""
@@ -671,11 +697,7 @@ def weights_cull(w: 'Watch', guard, t: float, ins: list, why: str, say_fn=say) -
     if not guard.realloc(guard.group, iid, why):
         return False
     guard.culls += 1
-    w.banked = w.cost(t)
-    w.run_since = w.started_since = None
-    w.ever_ok = False
-    w.gb_hist = []
-    w.last_cull = t
+    node_reset(w, t)
     return True
 
 
@@ -842,6 +864,7 @@ def run_probe(a, MG, BR, spec: Spec, gw_factory=Gateway, sleep=time.sleep, clock
     post_retried: set = set()                                          # ключи, которым уже сделан повтор после POST без ответа (повтор — один)
     last_job_look = 0.0
     stall = JobStall(getattr(a, 'stuck_min', STUCK_MIN))
+    lost_obs, node_restarts = 0, 0
     pending = list(spec.jobs)
     cur = None
     last_say = 0.0
@@ -860,6 +883,21 @@ def run_probe(a, MG, BR, spec: Spec, gw_factory=Gateway, sleep=time.sleep, clock
             if guard is not None and guard.give_up and w.run_since is None:
                 say(f'!! {guard.give_up} — гашу')
                 summary['stopped_by'] = 'pull_slow'
+                break
+            lost_obs, node_restarts, lost_act = node_lost_step(w, t, ins, lost_obs, cur, pending, int(getattr(a, 'max_node_restarts', 3)), node_restarts)
+            if lost_act == 'restart':
+                say(f'!! нода пропала у прогретой группы (Salad перезапустил экземпляр, перезапуск №{node_restarts}) — прерванное задание в начало очереди, жду новую ноду')
+                if cur is not None:
+                    summary['jobs'].pop(cur['key'], None)
+                    summary.setdefault('interrupted', []).append(cur['key'])
+                cur = None
+                gw = None
+                last_h = (None, {})
+                seen_ev = len(w.events)
+                summary['node_restarts'] = node_restarts
+            elif lost_act == 'stop':
+                say(f'!! нода пропала снова — перезапусков уже {node_restarts} — гашу')
+                summary['stopped_by'] = 'node_lost'
                 break
             why, detail = w.money_time(t, ins)
             summary['cost_usd_est'] = round(w.cost(t), 3)

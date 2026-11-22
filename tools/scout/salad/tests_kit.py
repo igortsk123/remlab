@@ -596,5 +596,28 @@ _g2.culls = _g2.max_culls
 ok(not KD.weights_cull(_wc, _g2, 800.0, [{'id': 'x', 'state': 'running'}], 'медленно', say_fn=lambda *x: None) and not KD.weights_cull(_wc, None, 800.0, [], 'м', say_fn=lambda *x: None),
    'weights_cull: бюджет пересадок исчерпан или сторожа нет — False (драйвер гасит группу)')
 
+# --- T-178/3 (22.11, t178a): Salad перезапустил прогретую ноду — не «отказы заданий», а новая нода; прерванное задание возвращается в очередь
+wl = KD.Watch(0, 0.6, 9, 9)
+wl.money_time(0, ins_run)
+wl.health(5, ins_run, 200, {'phase': 'ready'})
+wl.first_done = True
+_c1 = wl.cost(1000.0)
+_pend, _cur = ['b', 'c'], {'key': 'a'}
+_dl = [{'id': 'i1', 'state': 'downloading'}]
+_o, _r, _act = KD.node_lost_step(wl, 1000.0, ins_run, 0, _cur, _pend, 3, 0)
+ok(_act is None and _o == 0, 'нода running — ничего не делаем')
+_o, _r, _act = KD.node_lost_step(wl, 1010.0, _dl, 0, _cur, _pend, 3, 0)
+ok(_act == 'wait' and _o == 1 and _pend == ['b', 'c'] and wl.ready_at == 5, 'нет running один раз — ждём (сбой одного запроса не считаем потерей)')
+_o, _r, _act = KD.node_lost_step(wl, 1020.0, _dl, _o, _cur, _pend, 3, _r)
+_o, _r, _act = KD.node_lost_step(wl, 1030.0, _dl, _o, _cur, _pend, 3, _r)
+ok(_act == 'restart' and _r == 1 and _pend == ['a', 'b', 'c'] and wl.ready_at is None and wl.run_since is None and abs(wl.banked - wl.cost(1030.0)) < 1e-9 and wl.banked > 0
+   and wl.last_cull == 1030.0 and wl.first_done, 'три наблюдения без running → перезапуск: задание a первым в очереди, деньги в banked, отсчёты заново, first_done сохранён')
+_w2 = KD.Watch(0, 0.6, 9, 9)
+_w2.money_time(0, ins_run)
+_w2.health(5, ins_run, 200, {'phase': 'ready'})
+ok(KD.node_lost_step(_w2, 1030.0, _dl, 5, None, [], 3, 3)[2] == 'stop', 'перезапусков больше лимита — stop (node_lost)')
+_w3 = KD.Watch(0, 0.6, 9, 9)
+ok(KD.node_lost_step(_w3, 30.0, _dl, 9, None, [], 3, 0)[2] is None, 'нода ещё не была готова — потерей не считаем (там свои сторожа)')
+
 print('\nИТОГ:', 'ВСЁ ЗЕЛЁНОЕ' if not FAILS else f'ПРОВАЛОВ: {len(FAILS)}')
 sys.exit(1 if FAILS else 0)
