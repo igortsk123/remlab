@@ -3049,6 +3049,7 @@ class H(BaseHTTPRequestHandler):
             rp = os.path.join(JOBS_DIR, jid + '.res.json')
             vq = re.search(r'[?&]v=([A-Za-z0-9_-]+)', self.path)
             v = vq.group(1) if vq else ''
+            stages = v == 'stages'
             fp = os.path.join(OUT, f'{jid}.stages.zip' if v == 'stages' else (f'{jid}.{v}.glb' if v else f'{jid}.glb'))      # ?v=stages — mvadapter-i2tex с mv_keep_stages: архив стадий (А0); ?v=ai — localmesh: текстура до проекции фото; ?v=raw — TRELLIS.2: сырая форма до упаковки
             if not os.path.exists(rp) or json.load(open(rp, encoding='utf-8')).get('status') != 'done' or not os.path.exists(fp):
                 return self._json(404, {'error': 'GLB нет (задание не готово или упало)' if not stages else 'архива стадий нет (mv_keep_stages не было или сохранение упало)'})
