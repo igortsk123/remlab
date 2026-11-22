@@ -16,3 +16,9 @@ tools/scout/salad/trellis/crease_mask.py
 tools/scout/rules/tex-visible.json
 tools/scout/rules/paint-fill.json
 tools/scout/rules/mesh-color-guard.json
+tools/assets/material_parts.py
+tools/assets/part_shapes.py
+tools/assets/parts_refine.py
+tools/assets/parts_vote.py
+data/flat3d/material-part-rules.json
+data/flat3d/parts-sam-rules.json
