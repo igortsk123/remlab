@@ -522,7 +522,7 @@ def _forms_fixture(tmp_path):
         Image.new('RGB', (30, 20), (9, 9, 9)).save(tmp_path / 'photos' / f"{r['sku']}.img", 'JPEG')
     for sku in ('a_1', 'e_5'):                                                  # форма и кадры есть (e_5 — только GLB, кадров нет)
         (tmp_path / 'glbs' / f'{sku}-hd.glb').write_bytes(b'g')
-    for t in ('01_az045_clay.png', '02_az225_clay.png'):
+    for t in ('01_az000_clay.png', '02_az225_clay.png'):
         (tmp_path / 'frames' / 'a_1').mkdir(exist_ok=True)
         im = Image.new('RGB', (120, 90), (230, 230, 230))
         im.paste(Image.new('RGB', (40, 50), (120, 120, 120)), (30, 20))
@@ -542,9 +542,9 @@ def test_forms_page_statuses_and_summary(tmp_path):
     assert 'форма есть 1' in page and 'форма упала 2' in page and 'фото мало 1' in page and 'вырезка новая П1.96' in page
     assert all(f"<div class='no'>№ {n}</div>" in page for n in range(1, 7)) and 'OOM в воркере' in page and 'форму не делаем' in page and 'вырезка не получилась — форму не запускали' in page
     assert page.count("badge ok'>форма есть") == 1 and page.count("badge soft'>фото мало") == 1 and "badge refused'>форма упала" in page and '<script' not in page
-    assert (tmp_path / 'o' / 'img' / 'a_1_az045.jpg').exists() and (tmp_path / 'o' / 'img' / 'a_1_az225.jpg').exists()
+    assert (tmp_path / 'o' / 'img' / 'a_1_az000.jpg').exists() and (tmp_path / 'o' / 'img' / 'a_1_az225.jpg').exists()
     from PIL import Image
-    assert Image.open(tmp_path / 'o' / 'img' / 'a_1_az045.jpg').size == Image.open(tmp_path / 'o' / 'img' / 'a_1_az225.jpg').size   # кадры одной рамки
+    assert Image.open(tmp_path / 'o' / 'img' / 'a_1_az000.jpg').size == Image.open(tmp_path / 'o' / 'img' / 'a_1_az225.jpg').size   # кадры одной рамки
 
 
 def test_forms_page_final_has_no_wait(tmp_path):
@@ -571,7 +571,7 @@ def test_forms_render_frames_of(tmp_path):
     d = tmp_path / 'a_1'
     d.mkdir()
     assert FR.frames_of(str(tmp_path), 'a_1') == [] and FR.frames_of(str(tmp_path), 'нет') == []
-    (d / '01_az045_clay.png').write_bytes(b'p')
+    (d / '01_az000_clay.png').write_bytes(b'p')
     assert FR.frames_of(str(tmp_path), 'a_1') == []                                                    # одного ракурса мало — считаем не готовым
     (d / '02_az225_clay.png').write_bytes(b'p')
-    assert [os.path.basename(x) for x in FR.frames_of(str(tmp_path), 'a_1')] == ['01_az045_clay.png', '02_az225_clay.png'] and FR.VIEWS == ('az045', 'az225')
+    assert [os.path.basename(x) for x in FR.frames_of(str(tmp_path), 'a_1')] == ['01_az000_clay.png', '02_az225_clay.png'] and FR.VIEWS == ('az000', 'az225')

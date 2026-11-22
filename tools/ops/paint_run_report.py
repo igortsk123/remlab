@@ -960,7 +960,7 @@ def form_status(r: dict | None, glb: str | None, frames: list, trial: tuple | No
 
 
 def forms_page(items: list, chain: dict, photos: str, glbs: str, frames: str, out: str, W: dict, label: str, rules: dict | None = None, trial: dict | None = None, final: bool = False) -> tuple:
-    """Страница `<out>/index.html`: по товару набора крупный номер, фото | два серых рендера формы (az045, az225, один свет), статус «форма есть / форма упала (причина) / фото мало». Самопроверка: сумма статусов = N, карточек = N, у «форма есть» два кадра."""
+    """Страница `<out>/index.html`: по товару набора крупный номер, фото | два серых рендера формы (az000 «как на фото» и az225 3/4 сзади, один свет), статус «форма есть / форма упала (причина) / фото мало». Самопроверка: сумма статусов = N, карточек = N, у «форма есть» два кадра."""
     e = html.escape
     d = os.path.join(out, 'img')
     os.makedirs(d, exist_ok=True)
@@ -975,7 +975,7 @@ def forms_page(items: list, chain: dict, photos: str, glbs: str, frames: str, ou
         glb = find_glb(glbs, sku)
         fr = []
         dd = os.path.join(frames, sku)
-        for v in ('az045', 'az225'):
+        for v in ('az000', 'az225'):
             m = [f for f in sorted(os.listdir(dd)) if f.endswith(f'_{v}_clay.png')] if os.path.isdir(dd) else []
             if m:
                 fr.append(os.path.join(dd, m[0]))
@@ -998,7 +998,7 @@ def forms_page(items: list, chain: dict, photos: str, glbs: str, frames: str, ou
             try:
                 crops = _forms_crop(fr)
                 card['ar'] = round(min(1.7, max(0.6, crops[0].width / crops[0].height)), 3)               # одна рамка на три кадра карточки
-                for t, p in zip(('az045', 'az225'), crops):
+                for t, p in zip(('az000', 'az225'), crops):
                     p.save(os.path.join(d, f'{sku}_{t}.jpg'), 'JPEG', quality=88)
                     card['tiles'].append(f'img/{sku}_{t}.jpg')
             except Exception as ex:  # noqa: BLE001
@@ -1027,7 +1027,7 @@ def _forms_card(n: int, c: dict, badge_class: str, badge: str, caption: str, why
     fig = lambda src, cap: (f"<figure><img src='{e(src)}' loading='lazy' alt='{e(cap)}'><figcaption>{e(cap)}</figcaption></figure>" if src else f"<figure><div class='nofr'>{e(cap)}: {'формы нет' if badge_class in ('refused', 'soft') else 'кадр ещё не готов'}</div></figure>")
     t = c.get('tiles') or [None, None]
     return (f"<div class='card'><div class='no'>№ {n}</div><h3>{e(c['name'])}<span class='badge {e(badge_class)}'>{e(badge)}</span></h3><div class='id'>{e(c['sku'])}</div>"
-            f"<div class='meta'>{e(caption)}</div><div class='pair3' style='--ar:{c.get('ar') or 1.333}'>{fig(c.get('foto'), CW.get('cap_photo') or 'фото магазина')}{fig(t[0], CW.get('cap_v1') or 'форма, ракурс 45°')}{fig(t[1], CW.get('cap_v2') or 'форма, ракурс 225°')}</div>"
+            f"<div class='meta'>{e(caption)}</div><div class='pair3' style='--ar:{c.get('ar') or 1.333}'>{fig(c.get('foto'), CW.get('cap_photo') or 'фото магазина')}{fig(t[0], CW.get('cap_v1') or 'форма: как на фото (0°)')}{fig(t[1], CW.get('cap_v2') or 'форма: 3/4 сзади (225°)')}</div>"
             + (f"<div class='why'>{e(why)}</div>" if why else '') + '</div>')
 
 
@@ -1050,7 +1050,7 @@ def _forms_crop(paths: list) -> list:
 
 
 def main_forms(argv: list) -> int:
-    ap = argparse.ArgumentParser(prog='paint_run_report.py forms', description='страница этапа «форма»: фото | серый рендер формы (az045, az225) по набору; статусы форма есть / форма упала / фото мало')
+    ap = argparse.ArgumentParser(prog='paint_run_report.py forms', description='страница этапа «форма»: фото | серый рендер формы (az000, az225) по набору; статусы форма есть / форма упала / фото мало')
     ap.add_argument('--set', required=True)
     ap.add_argument('--cutlog', required=True, help='журнал вырезки (cut.jsonl р.2)')
     ap.add_argument('--photos', required=True, help='папка исходных фото вырезки (`<товар>.img`)')
