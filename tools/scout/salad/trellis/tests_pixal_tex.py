@@ -381,7 +381,7 @@ if have_tm:
 
 print('[3] драйвер')
 import trellis_trial as T  # noqa: E402
-b = T.build_body('trial-pixal3d-tex-x', 'ghcr.io/x/y:t', 'high', 'pixal3d-tex', 'hf_SECRET', 8, 32768, 'note', {'basic': {'username': 'u', 'password': 'PW'}})
+b = T.build_body('trial-pixal3d-tex-x', 'ghcr.io/x/y:t', 'low', 'pixal3d-tex', 'hf_SECRET', 'note', {'basic': {'username': 'u', 'password': 'PW'}})
 e = b['container']['environment_variables']
 ok('тело группы: MODEL=pixal3d-tex, код воркера едет в command (как у pixal3d: сперва пин huggingface_hub==0.35.3, затем воркер), приёмника нет',
    e['MODEL'] == 'pixal3d-tex' and b['container']['command'][:2] == ['bash', '-c'] and 'huggingface_hub==0.35.3' in b['container']['command'][2] and 'exec python3 -u -c' in b['container']['command'][2]
@@ -479,11 +479,11 @@ ok('--worker-env: PIXTEX_* принимаются', we == {'PIXTEX_LOW_VRAM': '0
 ok('--debug-cuda = CUDA_LAUNCH_BLOCKING=1 + TORCH_SHOW_CPP_STACKTRACES=1; по умолчанию пусто', T.parse_worker_env([], True) == {'CUDA_LAUNCH_BLOCKING': '1', 'TORCH_SHOW_CPP_STACKTRACES': '1'} and T.parse_worker_env([], False) == {} and T.parse_worker_env(None) == {})
 ok('чужие и кривые записи отвергаются (секреты и произвольные переменные через флаг не проходят)',
    all(T.parse_worker_env([x]) is None for x in ('HF_TOKEN=x', 'PIXTEX_LOW_VRAM', 'PIXTEX_LOW_VRAM=1;rm', 'PATH=/x', 'pixtex_low_vram=1', 'PIXTEX_X=a b')))
-bd = T.build_body('trial-pixal3d-tex-x', 'ghcr.io/x/y:t', 'high', 'pixal3d-tex', 'hf_SECRET', 8, 32768, 'note', {'basic': {'username': 'u', 'password': 'PW'}}, extra_env=T.parse_worker_env([], True))
+bd = T.build_body('trial-pixal3d-tex-x', 'ghcr.io/x/y:t', 'low', 'pixal3d-tex', 'hf_SECRET', 'note', {'basic': {'username': 'u', 'password': 'PW'}}, extra_env=T.parse_worker_env([], True))
 ok('в тело группы pixal3d-tex окружение отладки попадает', bd['container']['environment_variables']['CUDA_LAUNCH_BLOCKING'] == '1' and bd['container']['environment_variables']['TORCH_SHOW_CPP_STACKTRACES'] == '1')
 ok('по умолчанию в группу отладки нет (выключена)', not any(k in e for k in ('CUDA_LAUNCH_BLOCKING', 'TORCH_SHOW_CPP_STACKTRACES')) and not any(k.startswith('PIXTEX_') for k in e))
 for mdl in ('pixal3d', 'trellis2', 'localmesh'):
-    bo = T.build_body('trial-x-y', 'ghcr.io/x/y:t', 'high', mdl, 'hf_SECRET', 8, 32768, 'note', {'basic': {'username': 'u', 'password': 'PW'}}, extra_env={'CUDA_LAUNCH_BLOCKING': '1'})
+    bo = T.build_body('trial-x-y', 'ghcr.io/x/y:t', 'low', mdl, 'hf_SECRET', 'note', {'basic': {'username': 'u', 'password': 'PW'}}, extra_env={'CUDA_LAUNCH_BLOCKING': '1'})
     ok(f'другая модель ({mdl}) переменных отладки не получает', 'CUDA_LAUNCH_BLOCKING' not in bo['container']['environment_variables'])
 for name, kw in (('кривая запись', {'worker_env': ['HF_TOKEN=x']}), ('--debug-cuda у другой модели', {'model': 'trellis2', 'debug_cuda': True, 'texture_mesh': None})):
     rc = T.run(types.SimpleNamespace(**{**base, 'texture_mesh': '/x.glb', **kw}), NoTouchMG(), NoTouchMG())
