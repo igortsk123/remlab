@@ -437,6 +437,8 @@ def worker_problems(text: str) -> list[str]:
         return []
     if 'AF_INET6' in text and re.search(r"bind\(\s*\(\s*['\"]::['\"]", text):
         return []                                               # свой сокет на `::` (worker_sg.py)
+    if 'AF_INET6' in text and 'IPV6_V6ONLY' in text and re.search(r"Server\(\s*\(\s*['\"]::['\"]", text):
+        return []                                               # свой класс сервера с address_family=AF_INET6, V6ONLY=0 и привязкой к `::` (worker_trellis.py: DualStackServer)
     return ['воркер не через kit_worker и не на `::`: шлюз и пробы Salad ходят по IPv6 (урок 724/754)']
 
 
@@ -513,6 +515,9 @@ def spec_problems(text: str) -> list[str]:
     return [] if 'worker_file' in text else ['KD.Spec без worker_file: ход задания до платного запуска не проверить (урок b1)']
 
 
+ok(worker_problems("class DualStackServer(ThreadingHTTPServer):\n    address_family = socket.AF_INET6\n    def server_bind(self):\n        self.socket.setsockopt(socket.IPPROTO_IPV6, socket.IPV6_V6ONLY, 0)\ndef make_server(p):\n    return DualStackServer(('::', p), H)\n") == []
+   and worker_problems("srv = ThreadingHTTPServer(('0.0.0.0', 8000), H)\n") and worker_problems("def make_server(p):\n    return S(('::', p), H)\n"),
+   'сторож воркера: свой сервер с AF_INET6 + IPV6_V6ONLY + привязкой к `::` проходит; 0.0.0.0 и `::` без AF_INET6/V6ONLY — нет')
 ok(spec_problems('return KD.Spec(prefix="x", worker_file=WF)') == [] and spec_problems('return KD.Spec(prefix="x")') and spec_problems('x = 1') == [], 'сторож Spec: worker_file обязателен')
 for path in files(lambda f: not f.startswith(('test', 'tests', 'kit_')) and f != 'bench_run.py'):
     text = open(path, encoding='utf-8').read()
