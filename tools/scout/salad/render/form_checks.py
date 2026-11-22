@@ -409,7 +409,7 @@ def summary(recs: list[dict], eye: dict) -> str:
 
 
 # ---------- один товар ----------
-def run_sku(sku: str, glb: str | None, photo: str | None, frames: str | None, rules: dict, pose_roots: list[str] | None = None, alpha_dir: str | None = None, role: str = '', vlm_cache: str | None = None, chat=None) -> dict:
+def run_sku(sku: str, glb: str | None, photo: str | None, frames: str | None, rules: dict, pose_roots: list[str] | None = None, alpha_dir: str | None = None, role: str = '', vlm_cache: str | None = None, chat=None, vlm_kw: dict | None = None) -> dict:
     R = rules['thresholds']
     block = rules.get('block', [])
     rec: dict = {'sku': sku, 'observe': not block, 'block': block, 'checks': []}
@@ -435,7 +435,7 @@ def run_sku(sku: str, glb: str | None, photo: str | None, frames: str | None, ru
         rec['checks'] += mask_checks(alpha_dir, role, R)
     if vlm_cache and frames and rules.get('vlm_judge'):
         import vlm_judge as VJ
-        rec['checks'] += VJ.judge(sku, glb, photo, frames, role, rules['vlm_judge'], vlm_cache, chat)
+        rec['checks'] += VJ.judge(sku, glb, photo, frames, role, rules['vlm_judge'], vlm_cache, chat, **(vlm_kw or {}))
     flags = [c['name'] for c in rec['checks'] if c['flag']]
     rec['auto'] = 'flag' if flags else 'ok'
     rec['status'] = status_of(rec['checks'], block)
