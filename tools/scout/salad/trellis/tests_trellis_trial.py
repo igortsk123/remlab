@@ -605,14 +605,19 @@ for model in ('supratex', 'mvpainter', 'mvadapter-i2tex', 'pixal3d-tex'):
     mg0 = FakeMG()
     rc, mg0, br0, _ = go(d, mg=mg0, model=model, skus=['a:1', 'c:3'], shape_dir=cat, texture_mesh=None, tex_align='fit', suffix='r-' + model)
     ok(f'{model}: форма есть не у всех (нет у c:3) — отказ (код 2) ДО группы: к Salad ни одного обращения, остановка не нужна', rc == 2 and mg0.calls == [] and br0.stops == [], str((rc, mg0.calls)))
+for model in ('supratex', 'mvpainter', 'mvadapter-i2tex'):                        # профиль ресурсов (P-066): без строки в salad-resources.json способ не запускается — отказ до группы
+    mgx = FakeMG()
+    rc, mgx, brx, _ = go(d, mg=mgx, model=model, skus=['a:1', 'b:2'], shape_dir=cat, texture_mesh=None, apply=False, suffix='np-' + model)
+    ok(f'{model}: нет профиля ресурсов — отказ (код 3) до группы, к Salad ни одного обращения', rc == 3 and mgx.calls == [] and brx.stops == [], str((rc, mgx.calls)))
+T.WORK_TYPES.update({m: 'trellis_shape' for m in ('supratex', 'mvpainter', 'mvadapter-i2tex')})      # ТОЛЬКО в этом тесте: проверяем логику способов на ресурсах профиля trellis_shape; в боевом коде строк у них нет
 mg1 = FakeMG()
 rc, mg1, br1, _ = go(d, mg=mg1, model='supratex', skus=['a:1', 'b:2'], shape_dir=cat, texture_mesh=None, apply=False, suffix='dry')
 ok('сухой прогон двух товаров: код 0, ничего не создано', rc == 0 and not [c for c in mg1.calls if c[0] in ('POST', 'PATCH')])
 buf5 = io.StringIO()
 with __import__('contextlib').redirect_stdout(buf5):
     go(d, model='supratex', skus=['a:1', 'b:2'], shape_dir=cat, texture_mesh=None, apply=False, mem_mb=None, suffix='dry2')
-ok('сухой прогон: два задания (по товару), общая группа trial-supratex-dry2, память группы 49152', buf5.getvalue().count('  задание ') == 2 and 'a_1-1024-42-0-supra' in buf5.getvalue()
-   and 'b_2-1024-42-0-supra' in buf5.getvalue() and 'trial-supratex-dry2' in buf5.getvalue() and '"memory": 49152' in buf5.getvalue(), buf5.getvalue()[:300])
+ok('сухой прогон: два задания (по товару), общая группа trial-supratex-dry2, память группы из профиля (32768)', buf5.getvalue().count('  задание ') == 2 and 'a_1-1024-42-0-supra' in buf5.getvalue()
+   and 'b_2-1024-42-0-supra' in buf5.getvalue() and 'trial-supratex-dry2' in buf5.getvalue() and '"memory": 32768' in buf5.getvalue(), buf5.getvalue()[:300])
 buf6 = io.StringIO()
 with __import__('contextlib').redirect_stdout(buf6):
     rc, *_ = go(d, model='pixal3d-tex', skus=['a:1', 'b:2'], shape_dir=cat, texture_mesh=None, tex_align='fit,official', apply=False, suffix='dry3')
