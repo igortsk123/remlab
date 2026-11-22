@@ -320,7 +320,7 @@ class PureTests(unittest.TestCase):
         self.assertEqual(KD.worker_progress_refusal(PT.WORKER), '')
 
     def test_body_has_no_secrets_and_digest_required(self):
-        body = PT.build_body('trial-pose-t', 'x/y@sha256:' + 'a' * 64, 'batch', 'cls', 8, 16384, {}, 3600, 900, 6, 1, worker_z='Z')
+        body = PT.build_body('trial-pose-t', 'x/y@sha256:' + 'a' * 64, 'low', 'cls', 8, 16384, {}, 3600, 900, 6, 1, worker_z='Z')
         text = json.dumps(body)
         self.assertNotIn('SALAD_API_KEY', text)
         self.assertIn('POSE_PROCS', text)
@@ -367,6 +367,33 @@ class SubmitPostTests(unittest.TestCase):
         cur, info = PT.submit_pack(gw, self._args(), ['s1'], 100.0)
         self.assertIsNone(cur)
         self.assertEqual(info['http'], 429)
+
+
+class TierRuleTests(unittest.TestCase):
+    """Правило владельца 22.11 (TG 1456/1457): low; нет машин → medium; batch и high — никогда."""
+
+    def test_low_no_machine_goes_medium_only(self):
+        self.assertEqual(PT.fallback_tier('low', 'no_machine'), 'medium')
+        for tier, why in (('low', 'done'), ('low', 'money'), ('low', ''), ('medium', 'no_machine'), ('medium', 'done')):
+            self.assertIsNone(PT.fallback_tier(tier, why), (tier, why))
+
+    def test_default_is_low_and_batch_high_refused(self):
+        import subprocess
+        src = open(PT.__file__, encoding='utf-8').read()
+        self.assertIn("default='low', choices=['low', 'medium']", src)
+        r = subprocess.run([sys.executable, '-I', PT.__file__, '--tier', 'batch', '--skus', 'x', '--image', 'y'], capture_output=True, text=True)
+        self.assertNotEqual(r.returncode, 0)
+        r = subprocess.run([sys.executable, '-I', PT.__file__, '--tier', 'high', '--skus', 'x', '--image', 'y'], capture_output=True, text=True)
+        self.assertNotEqual(r.returncode, 0)
+
+    def test_stopped_by_reads_summary(self):
+        import types
+        d = tempfile.mkdtemp(prefix='tests_pose_sum_')
+        a = types.SimpleNamespace(out=d, suffix='z1')
+        self.assertEqual(PT.stopped_by(a), '')
+        with open(os.path.join(d, 'summary-trial-pose-z1.json'), 'w') as f:
+            json.dump({'stopped_by': 'no_machine'}, f)
+        self.assertEqual(PT.stopped_by(a), 'no_machine')
 
 
 if __name__ == '__main__':

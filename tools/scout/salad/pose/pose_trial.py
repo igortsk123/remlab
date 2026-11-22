@@ -223,8 +223,26 @@ def run_local(a, sleep=time.sleep, clock=time.time) -> int:
     return rc
 
 
+def fallback_tier(tier: str, stopped_by: str) -> str | None:
+    """Правило владельца (TG 1456/1457, 22.11): batch не берём; тариф low, нет машин → medium; выше НЕ поднимаем. Переход — только при no_machine (нода не выдана, платить не за что)."""
+    return 'medium' if tier == 'low' and stopped_by == 'no_machine' else None
+
+
+def stopped_by(a) -> str:
+    try:
+        return json.load(open(os.path.join(a.out, f'summary-trial-pose-{a.suffix}.json'), encoding='utf-8')).get('stopped_by') or ''
+    except (OSError, ValueError):
+        return ''
+
+
 def run(a, MG, BR, **kw) -> int:
-    return KD.run_probe(a, MG, BR, make_spec(a), **kw)
+    rc = KD.run_probe(a, MG, BR, make_spec(a), **kw)
+    nxt = fallback_tier(a.tier, stopped_by(a))
+    if nxt:
+        say(f'нет машин на тарифе {a.tier} — переход на {nxt} (выше не поднимаем, правило владельца)')
+        a.tier, a.suffix = nxt, a.suffix + 'm'
+        rc = KD.run_probe(a, MG, BR, make_spec(a), **kw)
+    return rc
 
 
 def main() -> int:
@@ -238,7 +256,7 @@ def main() -> int:
     ap.add_argument('--photo-name', default='{sku}.hd.rgba.png')
     ap.add_argument('--out', default=os.path.expanduser('~/remlab-logs/t184-1122/pose-out'))
     ap.add_argument('--card', default=CARD_NAME, help='класс Salad (видеокарта не нужна — берём самый дешёвый)')
-    ap.add_argument('--tier', default='batch', choices=['batch', 'low', 'medium', 'high'])
+    ap.add_argument('--tier', default='low', choices=['low', 'medium'], help='low; нет машин → medium (автоматически); batch и high запрещены правилом владельца 22.11')
     ap.add_argument('--cpu', type=int, default=8)
     ap.add_argument('--mem-mb', type=int, default=16384)
     ap.add_argument('--procs', type=int, default=r['procs'], help='процессов расчёта на ноде (по ядру)')
