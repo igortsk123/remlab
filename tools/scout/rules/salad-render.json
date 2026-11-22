@@ -12,6 +12,7 @@
     "bg_tol": 6,
     "min_mask_frac": 0.002,
     "min_mean_luma": 3.0,
-    "empty_tol": 6
+    "empty_tol": 6,
+    "alpha_min": 8
   }
 }

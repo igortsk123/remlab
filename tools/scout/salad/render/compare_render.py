@@ -38,8 +38,20 @@ def mask_vs_empty(img: np.ndarray, empty: np.ndarray, tol: float) -> np.ndarray:
     return np.abs(img - empty).max(axis=2) > tol
 
 
-def frame_metrics(ours: np.ndarray, ref: np.ndarray, rules: dict, empty: np.ndarray | None = None) -> dict:
-    if empty is not None and empty.shape == ours.shape:
+def read_alpha(path: str) -> np.ndarray:
+    """Альфа-канал кадра (0–255), кадр без альфы — все 255."""
+    return np.asarray(Image.open(path).convert('RGBA'), dtype=np.int16)[:, :, 3]
+
+
+def mask_vs_alpha(alpha: np.ndarray, amin: float) -> np.ndarray:
+    """Силуэт = САМА форма (тени нет): пиксель, где модель дала хоть какое-то покрытие, альфа > `alpha_min` (стекло — полупрозрачное, берём любое покрытие)."""
+    return alpha > amin
+
+
+def frame_metrics(ours: np.ndarray, ref: np.ndarray, rules: dict, empty: np.ndarray | None = None, alphas: tuple | None = None) -> dict:
+    if alphas is not None and alphas[0].shape == ours.shape[:2] == alphas[1].shape:
+        mo, mr = mask_vs_alpha(alphas[0], rules['alpha_min']), mask_vs_alpha(alphas[1], rules['alpha_min'])
+    elif empty is not None and empty.shape == ours.shape:
         mo, mr = mask_vs_empty(ours, empty, rules['empty_tol']), mask_vs_empty(ref, empty, rules['empty_tol'])
     else:
         mo, mr = mask_of(ours, rules['bg_tol']), mask_of(ref, rules['bg_tol'])
@@ -77,8 +89,10 @@ def compare(ours_dir: str, ref_dir: str, skus: list[str], rules: dict | None = N
                 rec['problems'].append(f'{n}: размер {a.shape[:2]} ≠ {b.shape[:2]}')
                 continue
             ep = os.path.join(od, 'empty', n)                        # пустая сцена из того же прогона (если снималась) — для обоих кадров одна и та же
-            m = frame_metrics(a, b, rules, read(ep) if os.path.isfile(ep) else None)
-            m['mask'] = 'empty' if os.path.isfile(ep) else 'corners'
+            al_o, al_r = os.path.join(od, 'alpha', n), os.path.join(rd, 'alpha', n)               # маска = сама форма: альфа обоих кадров (если снималась)
+            als = (read_alpha(al_o), read_alpha(al_r)) if os.path.isfile(al_o) and os.path.isfile(al_r) else None
+            m = frame_metrics(a, b, rules, read(ep) if os.path.isfile(ep) else None, als)
+            m['mask'] = 'alpha' if als else ('empty' if os.path.isfile(ep) else 'corners')
             rec['frames'][n] = m
             rec['problems'] += [f'{n}: {p}' for p in frame_problems(m, rules)]
         fs = rec['frames'].values()

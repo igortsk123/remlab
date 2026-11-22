@@ -52,6 +52,9 @@ for v in [x.split(':')[0] for x in g('--views').split(',')]:
             continue
         nm = f"{n:02d}_{v}_clay" + ('_graze' if lt == 'graze' else '') + '.png'
         open(os.path.join(out, nm), 'wb').write(b'\x89PNG\r\n\x1a\n' + b'0' * 64)
+        if '--alpha-dir' in a and b'NOALPHA' not in glb:
+            os.makedirs(g('--alpha-dir'), exist_ok=True)
+            open(os.path.join(g('--alpha-dir'), nm), 'wb').write(b'\x89PNG\r\n\x1a\n' + b'2' * 64)
         if '--empty-dir' in a and b'NOEMPTY' not in glb:
             os.makedirs(g('--empty-dir'), exist_ok=True)
             open(os.path.join(g('--empty-dir'), nm), 'wb').write(b'\x89PNG\r\n\x1a\n' + b'1' * 64)
@@ -432,6 +435,64 @@ class EmptySceneTests(unittest.TestCase):
         mo, mr = CR.mask_vs_empty(moved, grad, 6), CR.mask_vs_empty(img, grad, 6)
         iou = float(np.logical_and(mo, mr).sum() / np.logical_or(mo, mr).sum())
         self.assertLess(iou, rules['iou_min'])                                                       # сдвиг формы на graze теперь виден
+
+
+class AlphaMaskTests(unittest.TestCase):
+    """Маска = сама форма (T-184/5): флаг доходит до Blender, кадры с альфой едут в zip, нет их — отказ; маска по альфе не берёт тень."""
+
+    def test_render_cmd_flag(self):
+        import forms_render as FR
+        self.assertNotIn('--alpha-dir', FR.render_cmd('a.glb', '/o', ('az000',), ('key',), 4, 1))
+        cmd = FR.render_cmd('a.glb', '/o', ('az000',), ('key',), 4, 1, alpha=True)
+        self.assertEqual(cmd[cmd.index('--alpha-dir') + 1], os.path.join('/o', FR.ALPHA_SUB))
+
+    def run_job(self, glb, alpha=True):
+        tmp = tempfile.mkdtemp(prefix='tests_render_alpha_')
+        c = make_cfg(tmp)
+        pool = WR.Pool(KW.State(), c, WR.load_forms_render(c))
+        pool.submit('a1', glb, dict(PARAMS, alpha=alpha))
+        self.assertTrue(wait_for(pool, ['a1']))
+        return pool.jobs['a1']
+
+    def test_alpha_frames_in_zip(self):
+        j = self.run_job(GLB)
+        self.assertEqual(j['status'], 'done', j.get('error'))
+        names = zipfile.ZipFile(io.BytesIO(open(j['zip'], 'rb').read())).namelist()
+        self.assertEqual(sum(1 for n in names if n.startswith('alpha/')), 4)
+
+    def test_no_alpha_without_flag(self):
+        names = zipfile.ZipFile(io.BytesIO(open(self.run_job(GLB, alpha=False)['zip'], 'rb').read())).namelist()
+        self.assertFalse(any(n.startswith('alpha/') for n in names))
+
+    def test_missing_alpha_frames_fail(self):
+        j = self.run_job(GLB + b'NOALPHA')
+        self.assertEqual(j['status'], 'failed')
+        self.assertIn('с альфой', j['error'])
+
+    def test_mask_vs_alpha_excludes_shadow(self):
+        try:
+            import numpy as np
+        except ImportError:
+            self.skipTest('нет numpy')
+        import compare_render as CR
+        rules = CR.load_rules()
+        h, w = 90, 120
+        alpha = np.zeros((h, w), np.int16)
+        alpha[20:70, 40:80] = 255                                    # сама форма
+        shadow = np.zeros((h, w), bool)
+        shadow[62:70, 0:120] = True                                   # длинная тень на полу
+        empty_mask = np.logical_or(alpha > 0, shadow)
+        m = CR.mask_vs_alpha(alpha, rules['alpha_min'])
+        self.assertEqual(int(np.logical_and(m, ~(alpha > 0)).sum()), 0)                  # вне формы маска пуста
+        self.assertGreater(int(np.logical_and(empty_mask, ~(alpha > 0)).sum()), 0)       # а «по пустой сцене» тень берёт
+        al_half = alpha.copy()
+        al_half[25:30, 40:80] = 20                                   # стекло: слабое покрытие всё равно форма
+        self.assertTrue(CR.mask_vs_alpha(al_half, rules['alpha_min'])[26, 50])
+        img = np.zeros((h, w, 3), np.int16)
+        ours = CR.frame_metrics(img, img, rules, None, (alpha, alpha))
+        self.assertEqual(ours['iou'], 1.0)
+        moved = np.roll(alpha, 12, axis=1)
+        self.assertLess(CR.frame_metrics(img, img, rules, None, (alpha, moved))['iou'], rules['iou_min'])
 
 
 if __name__ == '__main__':
