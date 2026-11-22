@@ -2302,6 +2302,7 @@ def main(argv: list | None = None) -> int:
     ap.add_argument("--no-parts-npz", action="store_true")
     ap.add_argument("--cfg", default=None)
     ap.add_argument("--no-mirror", action="store_true")
+    ap.add_argument("--ut-glb", default=None, help="UltraTex-меш на НАШЕЙ форме (тот же V, F): донор невидимых панелей по оттенку и фактуре; нет — тон своей зоны")
     a = ap.parse_args(argv)
     base = os.path.join(a.run, PS.safe_name(a.sku))
     visible = a.visible or os.path.join(base, "06-visible")
@@ -2311,7 +2312,7 @@ def main(argv: list | None = None) -> int:
     parts_npz = None if a.no_parts_npz else (a.parts_npz or (default_npz if os.path.exists(default_npz) else None))      # --no-parts-npz: этап 3 отказал — parts.npz не брать, части по геометрии (+ сироты)
     cfg = dict({"erode_known": 0}, **(json.loads(a.cfg) if a.cfg else {}))      # вход этапа 6: маска «взято с фото» уже честная
     try:
-        r = run_stage(a.run, a.sku, os.path.join(visible, "visible.glb"), known=load_known_png(visible) or None, cfg=cfg, mirror=not a.no_mirror, parts_npz=parts_npz, prev_dir=visible)
+        r = run_stage(a.run, a.sku, os.path.join(visible, "visible.glb"), known=load_known_png(visible) or None, cfg=cfg, mirror=not a.no_mirror, ut_glb=a.ut_glb, parts_npz=parts_npz, prev_dir=visible)
     except Exception as e:                                                       # noqa: BLE001 — сбой запуска: в check.json, не молча
         d = PS.stage_dir(a.run, a.sku, STAGE)
         PS.write_check(d, STAGE, a.sku, False, None, f"сбой этапа 7: {type(e).__name__}: {e}"[:300], outputs=[])
