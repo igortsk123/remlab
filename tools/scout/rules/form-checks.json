@@ -161,7 +161,6 @@
       "count_mismatch",
       "skewed_body"
     ],
-    "budget_usd": 0.02,
     "cost": {
       "usd_per_m_in": 0.3,
       "usd_per_m_out": 2.5,
@@ -180,6 +179,8 @@
         ]
       },
       "measured": "22.11 по vlm-cache-block (81+81+96 вызовов): токены вход/выход на вызов; цена — публичная google/gemini-2.5-flash"
-    }
+    },
+    "budget_usd_per_form": 0.015,
+    "budget_usd_max": 0.3
   }
 }

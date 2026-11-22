@@ -115,7 +115,7 @@ class T(unittest.TestCase):
         mk(tmp, 'k_1')
         mk(tmp, 'k_2', gray=90)                                                       # другие кадры — иначе второй ответ берётся из кэша бесплатно
         ch = Chat()
-        recs = go(tmp, ['k_1', 'k_2'], {'k_1': 'шкаф', 'k_2': 'комод'}, chat=ch)        # потолок по умолчанию $0,02: на форму ≈ $0,0136 — вторая не влезает
+        recs = go(tmp, ['k_1', 'k_2'], {'k_1': 'шкаф', 'k_2': 'комод'}, chat=ch, vlm_budget=0.02)        # общий потолок задан явно $0,02: на форму ≈ $0,0136 — вторая не влезает
         self.assertEqual(ch.calls, 9)                                                 # первая форма — обе группы (6 вызовов), у второй остаток $0,0064: группа b (≈$0,0083) не влезла, c (≈$0,0052) — да
         self.assertNotIn('vlm_skipped_budget', [c['name'] for c in recs[0]['checks']])
         names1 = [c['name'] for c in recs[1]['checks']]
@@ -125,6 +125,35 @@ class T(unittest.TestCase):
         log = open(os.path.join(tmp, 'out', 'form_gate.log'), encoding='utf-8').read()
         self.assertIn('vlm оценка до запуска', log)                                   # оценка расхода — строкой в лог до вызовов
         self.assertIn('vlm итог', log)
+
+    def test_default_budget_is_per_form_and_capped(self):
+        tmp = tempfile.mkdtemp(prefix='tests_fg_')
+        skus = [f'p_{i}' for i in range(10)]
+        for i, s in enumerate(skus):
+            mk(tmp, s, gray=20 + 10 * i)                                              # у каждой формы свои кадры — кэш не помогает
+        ch = Chat()
+        recs = go(tmp, skus, {s: 'шкаф' for s in skus}, chat=ch)
+        self.assertEqual(ch.calls, 60)                                                # 10 форм × 6 вызовов: потолок 10 × $0,015 = $0,15 ≥ 10 × ≈$0,0136 — никто не пропущен
+        self.assertFalse(any(c['name'] == 'vlm_skipped_budget' for r in recs for c in r['checks']))
+        log = open(os.path.join(tmp, 'out', 'form_gate.log'), encoding='utf-8').read()
+        self.assertIn('оцениваемых 10', log)
+        self.assertIn('потолок $0.1500', log)
+
+    def test_per_form_budget_counts_only_judged_forms_and_hard_max(self):
+        tmp = tempfile.mkdtemp(prefix='tests_fg_')
+        mk(tmp, 'k_1')
+        mk(tmp, 'd_1', gray=60)
+        ch = Chat()
+        go(tmp, ['k_1', 'd_1'], {'k_1': 'шкаф', 'd_1': 'диван'}, chat=ch)
+        log = open(os.path.join(tmp, 'out', 'form_gate.log'), encoding='utf-8').read()
+        self.assertIn('оцениваемых 1', log)                                          # диван не оценивается — на него потолок не прибавляется
+        self.assertIn('потолок $0.0150', log)
+        tmp2 = tempfile.mkdtemp(prefix='tests_fg_')
+        mk(tmp2, 'k_1')
+        go(tmp2, ['k_1'], {'k_1': 'шкаф'}, chat=Chat(), vlm_budget=5.0)               # явный потолок выше общего предела — обрезается до $0,30
+        log2 = open(os.path.join(tmp2, 'out', 'form_gate.log'), encoding='utf-8').read()
+        self.assertIn('потолок $0.3000', log2)
+        self.assertIn('предел сработал', log2)
 
 
 if __name__ == '__main__':

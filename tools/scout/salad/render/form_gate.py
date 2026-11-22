@@ -4,7 +4,7 @@
   python form_gate.py --out <папка кадров приёмки> --glbs <папка GLB> --skus a,b [--roles roles.json] [--photos DIR] [--vlm-cache DIR] [--rules F]
 Проверки — `form_checks.run_sku` (пороги и виды — `tools/scout/rules/form-checks.json`). Оценщик по картинке (vlm_judge, платный, ответы кэшируются) идёт САМ: фото — `--photos` или рядом с прогоном (`find_photo`), кэш — `--vlm-cache` или `<out>/vlm-cache`;
 по умолчанию только 3 observe-вида (rules `vlm_judge.default_kinds`: no_gaps, count_mismatch, skewed_body) и только для корпусных ролей; остальные виды — `--vlm-all`; `--no-vlm` — без оценщика.
-Перед платным вызовом — строка оценки расхода в лог (`<out>/form_gate.log`), потолок на запуск `--vlm-budget` ($, по умолчанию rules `vlm_judge.budget_usd`): не влезает — группа пропускается с флагом `vlm_skipped_budget` (не ошибка).
+Перед платным вызовом — строка оценки расхода в лог (`<out>/form_gate.log`), потолок на запуск `--vlm-budget` ($; по умолчанию rules `vlm_judge.budget_usd_per_form` × число оцениваемых форм, не больше `budget_usd_max`; при `--vlm-all` — оценка запуска, тоже не больше предела): не влезает — группа пропускается с флагом `vlm_skipped_budget` (не ошибка).
 «К глазам» = статус needs_review/shape_reject (любой флаг, кроме чисто камерного) — такую форму директор смотрит сам; pass → «нет». Нужны numpy/trimesh/pillow (venv scout)."""
 from __future__ import annotations
 
@@ -59,15 +59,23 @@ def gate(out: str, glbs: str, skus: list[str], roles: dict | None = None, photos
     use_vlm = bool(vlm and J)
     kinds_only = None if vlm_all else list(J.get('default_kinds') or [])
     cache = vlm_cache or os.path.join(out, 'vlm-cache')
-    budget = {'limit': float(vlm_budget if vlm_budget is not None else J.get('budget_usd', 0.02))}
-    budget['left'] = budget['limit']
     have = [s for s in skus if os.path.isdir(os.path.join(out, s))]
+    kinds_of = {s: [k for k in VJ.applicable(roles.get(s, ''), J['kinds']) if kinds_only is None or k in kinds_only] for s in have} if use_vlm else {}
+    n_judged = sum(1 for ks in kinds_of.values() if ks)                              # формы, у которых вообще есть что спрашивать (по умолчанию — корпусные)
+    cap = float(J.get('budget_usd_max', 0.30))
+    up = sum(int(J['runs']) * VJ.call_cost(J, g) for ks in kinds_of.values() for g in {J['kinds'][k]['group'] for k in ks})       # верхняя оценка до запуска: оцениваемые × группы × прогоны × цена вызова, кэш не считаем
+    if vlm_budget is not None:
+        limit = float(vlm_budget)
+    elif vlm_all:
+        limit = up                                                                    # --vlm-all — осознанный выбор дорогого режима: потолок = оценка запуска, но не больше общего предела
+    else:
+        limit = float(J.get('budget_usd_per_form', 0.015)) * n_judged                  # по умолчанию: по форме × число оцениваемых (корпусных) форм
+    budget = {'limit': min(limit, cap), 'capped': limit > cap}
+    budget['left'] = budget['limit']
     if use_vlm:
-        up = 0.0                                                                      # верхняя оценка до запуска: корпусные × группы × прогоны × цена вызова, кэш не считаем
-        for s in have:
-            ks = [k for k in VJ.applicable(roles.get(s, ''), J['kinds']) if kinds_only is None or k in kinds_only]
-            up += sum(call_runs * VJ.call_cost(J, g) for g, call_runs in ((g, int(J['runs'])) for g in {J['kinds'][k]['group'] for k in ks}))
-        say(f"vlm оценка до запуска: форм {len(have)}, верхняя оценка без кэша ≈${up:.4f}, потолок ${budget['limit']:.4f}" + (' — если кэш пуст, потолок меньше: часть групп будет пропущена (vlm_skipped_budget)' if up > budget['limit'] else ''))
+        say(f"vlm оценка до запуска: форм {len(have)}, оцениваемых {n_judged}, верхняя оценка без кэша ≈${up:.4f}, потолок ${budget['limit']:.4f}"
+            + (f" (по ${J.get('budget_usd_per_form', 0.015)} на форму{', при --vlm-all — по оценке' if vlm_all else ''}, общий предел ${cap:.2f}" + (', предел сработал' if budget['capped'] else '') + ')')
+            + (' — если кэш пуст, потолок меньше: часть групп будет пропущена (vlm_skipped_budget)' if up > budget['limit'] + 1e-12 else ''))
     recs, rows = [], []
     for s in have:
         fr = os.path.join(out, s)
@@ -98,7 +106,7 @@ def main() -> int:
     ap.add_argument('--vlm-cache', default='', help='по умолчанию <out>/vlm-cache')
     ap.add_argument('--no-vlm', action='store_true', help='без оценщика по картинке (только геометрия)')
     ap.add_argument('--vlm-all', action='store_true', help='все виды оценщика (invented_detail, faceted …) и для всех ролей — дороже; по умолчанию 3 observe-вида × корпусные')
-    ap.add_argument('--vlm-budget', type=float, default=None, help='потолок оценки расхода оценщика на запуск, $ (по умолчанию rules vlm_judge.budget_usd)')
+    ap.add_argument('--vlm-budget', type=float, default=None, help='потолок оценки расхода оценщика на запуск, $ (по умолчанию rules: budget_usd_per_form × число оцениваемых форм); не больше rules budget_usd_max')
     ap.add_argument('--pose-roots', default='')
     ap.add_argument('--rules', default='')
     a = ap.parse_args()
