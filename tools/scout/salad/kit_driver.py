@@ -287,6 +287,49 @@ class Gateway:
             return -1, {}
 
 
+def salad_rules(key: str) -> dict:
+    """Раздел `key` из `rules/salad-groups.json` (числа сторожей — в правилах, не в коде); нет файла/раздела — пустой словарь, действуют умолчания в коде."""
+    try:
+        return json.load(open(os.path.join(os.path.dirname(os.path.abspath(__file__)), '..', 'rules', 'salad-groups.json'), encoding='utf-8')).get(key) or {}
+    except (OSError, ValueError):
+        return {}
+
+
+def gateway_post_rules() -> dict:
+    """Правила POST задания к шлюзу Salad: `gateway_post` {base_s, per_mb_s, max_s, retry_http}."""
+    return salad_rules('gateway_post')
+
+
+def post_timeout_s(body_chars: int, override: int = 0, rules: dict | None = None) -> int:
+    """Таймаут POST задания по размеру тела: base_s + per_mb_s × МБ (base64), не больше max_s — из `gateway_post` (T-178 22.11: шлюз Salad отвечает 76–90+ с на холодной ноде,
+    зашитые 90/120 с срывали первое задание). `override` > 0 — явное значение; нет правила — 90 + 30/МБ, ≤ 300."""
+    if override and override > 0:
+        return int(override)
+    g = gateway_post_rules() if rules is None else rules
+    base, per_mb, top = float(g.get('base_s', 90)), float(g.get('per_mb_s', 30)), float(g.get('max_s', 300))
+    return int(min(top, base + per_mb * body_chars / 2 ** 20))
+
+
+def post_job(gw, path: str, body: dict, check_path: str, override: int = 0, say_fn=say, rules: dict | None = None) -> tuple[int, dict, dict | None]:
+    """ОДИН общий вход «отправить задание» для обоих драйверов (trellis_trial, salad_trial): POST с таймаутом по размеру тела. Нет ответа (код -1) или ошибка ШЛЮЗА
+    (код из `gateway_post.retry_http`, по умолчанию 502/503/504 — HTML-страница шлюза, T-178 22.11) — это НЕ отказ воркера: спросить его `GET check_path` (его запись о задании).
+    200 → задание принято (вернём 202); иначе вернём исходный код, а повтор — решает вызывающий (один раз, в конец очереди той же ноды; второй раз → «не принято» с кодом в причине).
+    Возвращает (код, ответ, сведения или None); сведения (`job_id`, `code`, `timeout_s`, `worker_saw_job`) — для сводки; `worker_saw_job` False = повторять можно."""
+    g = gateway_post_rules() if rules is None else rules
+    retry_http = {int(x) for x in g.get('retry_http', [502, 503, 504])} | {-1}
+    to = post_timeout_s(sum(len(v) for v in body.values() if isinstance(v, str)), override, g)
+    c, r = gw.call('POST', path, body, timeout=to)
+    if c not in retry_http:
+        return c, r, None
+    cj, _ = gw.call('GET', check_path, timeout=30)
+    info = {'job_id': body.get('job_id'), 'code': c, 'timeout_s': to, 'worker_saw_job': cj == 200}
+    if cj == 200:
+        say_fn('задание', body.get('job_id'), f'→ POST: нет ответа/код {c} (таймаут {to} с), но воркер задание принял ({check_path} 200) — продолжаю')
+        return 202, {}, info
+    say_fn('задание', body.get('job_id'), f'→ POST: нет ответа/код {c} (таймаут {to} с), воркер задание не видит')
+    return c, r, info
+
+
 def head(url: str, token: str = '') -> int:
     h = {'User-Agent': UA}
     if token:
@@ -359,13 +402,14 @@ def weights_stalled(hist: list[tuple[float, float]], window_s: float, min_gb: fl
 # ---------------------------------------------------------------- сторож докачки ОБРАЗА (уроки 734/740/357; владелец 21.11, TG 1069/1070)
 # Образ тянется ДО running и не оплачивается, но 21.11 (проба d2) нода «downloading» 30 мин, у соседней пробы было 6,7 мин: драйвер ждал только running и погас по no_machine.
 # Здесь общее решение (чистая функция, тестируется без сети) и исполнитель: пересадка через ОБЩИЙ бюджет `node_health` (6/ч на пул мешей и пробы), не копия логики пула.
-PULL_AFTER_S = 480.0          # судить не раньше 8-й минуты наблюдений (урок 734)
-PULL_HEALTHY_MB_S = 17.5      # здоровая нода: образ UltraTex 6,87 ГиБ за ≈6,7 мин (проба d1 21.11) ≈ 17,5 МБ/с ≈ 15 % образа в минуту
-PULL_SLOW_FACTOR = 2.5        # ожидаемое время × 2,5 — нода медленная (владелец 21.11); ступени пула мешей (20 мин→5 % для образа 26 ГБ) для малого образа не годятся
-PULL_FLOOR_MIN = 10.0         # не строже 10 минут полной докачки (разброс сети)
-PULL_MIN_ETA_MIN = 3.0        # осталось меньше — доедет, пересадка с нуля дороже
-PULL_WINDOW_S = 300.0         # темп — по последним 5 минутам, не по среднему с начала
-PULL_MAX_CULLS = 3            # пересадок на запуск (общий бюджет node_health — отдельно)
+_PGR = salad_rules('pull_guard')                       # числа — `rules/salad-groups.json` → pull_guard (T-178 22.11: общий сторож и для TRELLIS.2, и для UltraTex)
+PULL_AFTER_S = float(_PGR.get('after_s', 480.0))                      # судить не раньше 8-й минуты наблюдений (урок 734)
+PULL_HEALTHY_MB_S = float(_PGR.get('healthy_mb_s', 17.5))             # здоровая нода: образ UltraTex 6,87 ГиБ за ≈6,7 мин (проба d1 21.11) ≈ 17,5 МБ/с ≈ 15 % образа в минуту
+PULL_SLOW_FACTOR = float(_PGR.get('slow_factor', 2.5))                # ожидаемое время × 2,5 — нода медленная (владелец 21.11); ступени пула мешей (20 мин→5 % для образа 26 ГБ) для малого образа не годятся
+PULL_FLOOR_MIN = float(_PGR.get('floor_min', 10.0))                   # не строже 10 минут полной докачки (разброс сети)
+PULL_MIN_ETA_MIN = float(_PGR.get('min_eta_min', 3.0))                # осталось меньше — доедет, пересадка с нуля дороже
+PULL_WINDOW_S = float(_PGR.get('window_s', 300.0))                    # темп — по последним 5 минутам, не по среднему с начала
+PULL_MAX_CULLS = int(_PGR.get('max_culls', 3))                        # пересадок на запуск (общий бюджет node_health — отдельно)
 
 
 STUCK_MIN = 10.0        # задание «зависло»: шаг не менялся и GPU < STUCK_GPU_PCT непрерывно дольше N мин (урок b1 21.11, P3-SAM: 15 мин молчания). Параметр `--stuck-min`; 0 — выключить

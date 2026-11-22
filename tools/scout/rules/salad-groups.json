@@ -1,5 +1,7 @@
 {
   "_about": "Группы Salad: тариф, цена $/ч, окно подъёма по UTC. Цена группы — по классу карты (`price_class` группы → `prices_by_class_usd_h`, прайс Salad 24.10); нет класса — по тарифу (`prices_usd_h`, RTX 3090 03.09). Имя группы — не контракт: тариф и окно берутся ОТСЮДА, а не из названия. Правила — ADR (план mesh-pool-hardening).",
+  "gateway_post": {"_about": "Таймаут POST /generate к шлюзу Salad: base_s + per_mb_s × МБ тела (base64), не больше max_s. Нет ответа (-1) или ошибка шлюза (retry_http) — не отказ: драйвер спрашивает /job/<id> и один раз повторяет в конец очереди (T-178 22.11: при зашитых 90 с первое задание сорвалось, шлюз отвечал 76–90+ с).", "base_s": 90, "per_mb_s": 30, "max_s": 300, "retry_http": [502, 503, 504]},
+  "pull_guard": {"_about": "Сторож докачки ОБРАЗА до running (kit_driver.pull_verdict/PullGuard; общий для trellis_trial и salad_trial): судим с after_s секунды наблюдений, темп — по последним window_s секундам; допустимое полное время = slow_factor × ожидаемое при healthy_mb_s (не меньше floor_min мин); осталось меньше min_eta_min — доедет; пересадок на запуск ≤ max_culls (деньги до running не списываются). T-178 22.11: образ 2 % на 15-й минуте — зависшая нода.", "after_s": 480, "window_s": 300, "healthy_mb_s": 17.5, "slow_factor": 2.5, "floor_min": 10, "min_eta_min": 3, "max_culls": 3},
   "prices_usd_h": {
     "batch": 0.09,
     "low": 0.143,
