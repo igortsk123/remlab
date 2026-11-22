@@ -1,0 +1,16 @@
+# ОБРАЗ ПРОБЫ SALAD «КАМЕРА ПО ФОТО» (T-184/1, очередь 2): чистый CPU, без torch/CUDA/весов — только python + numpy/opencv-headless/scipy/Pillow/trimesh ТЕХ ЖЕ ВЕРСИЙ, что в нашем venv
+# (python 3.14.4, numpy 2.5.1, cv2 5.0.0.93, scipy 1.18.0, Pillow 12.3.0, trimesh 5.0.0 — на них получены наши эталонные прогоны) и код цепочки pose_fit по списку `pose_files.txt`.
+# Правила набора (Dockerfile.kit-template): основа — по digest (ADR-0137); сжатый образ ≪ 35 ГиБ (здесь ≈0,4 ГиБ); воркер в образ НЕ запекаем — едет в env группы (kit_worker.bundle).
+# Контекст сборки готовит `stage_pose_code.py <корень репо> <ctx>/code` (CI: .github/workflows/build-pose-trial.yml): `code/tools/scout/...` — единый список файлов, без копии «на глаз».
+ARG BASE=python:3.14.4-slim@sha256:2ca02f32b4d9d893863367ce07ec1972819f476dd38d8612f2a9cb6a41cbb727
+FROM ${BASE}
+ENV PYTHONUNBUFFERED=1 PIP_NO_CACHE_DIR=1 PIP_DISABLE_PIP_VERSION_CHECK=1
+RUN pip install numpy==2.5.1 opencv-python-headless==5.0.0.93 scipy==1.18.0 pillow==12.3.0 trimesh==5.0.0
+COPY code/ /opt/scout-root/
+ARG GIT_SHA=unknown
+RUN printf 'pose-worker image\ncommit=%s\npython=%s\n' "$GIT_SHA" "$(python -V)" > /opt/BUILD_INFO_POSE.txt
+# проверка комплектности ВО ВРЕМЯ СБОРКИ: библиотеки и вся цепочка импортируются (без видеокарты, без torch)
+RUN python -I -c "import sys; sys.path[:0]=['/opt/scout-root/tools/scout/salad/trellis','/opt/scout-root/tools/scout/salad','/opt/scout-root/tools/scout']; \
+import numpy, cv2, scipy, PIL, trimesh, pose_fit, camera_check, stages_cpu, worker_trellis, tex_coverage, photo_front; \
+print('цепочка импортируется:', numpy.__version__, cv2.__version__, scipy.__version__, PIL.__version__, trimesh.__version__)"
+ENV POSE_CODE=/opt/scout-root/tools/scout/salad/trellis POSE_WORK=/tmp/pose

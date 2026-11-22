@@ -34,8 +34,10 @@ SCOUT = os.path.normpath(os.path.join(HERE, '..', '..'))
 sys.path.insert(0, os.path.join(SCOUT, 'salad'))
 sys.path.insert(0, os.path.join(SCOUT, 'render_gpu'))
 sys.path.insert(0, HERE)
+import kit_driver as KD  # noqa: E402 — общий вход «отправить задание» (post_job: таймаут по размеру тела, POST без ответа → вопрос воркеру)
 
 CARD = {'class_name': 'RTX 4090 (24 GB)', 'class_id': 'ed563892-aacd-40f5-80b7-90c9be6c759b'}
+WORK_TYPES = {'trellis2': 'trellis_shape', 'pixal3d': 'mesh_pixal3d', 'pixal3d-tex': 'mesh_pixal3d', 'localmesh': 'mesh_localmesh'}      # модель → профиль ресурсов rules/salad-resources.json (T-186/1); hunyuan21 — копия боевой группы-донора
 HF_GATED = {'trellis2': 'facebook/dinov3-vitl16-pretrain-lvd1689m/resolve/main/config.json',
             'pixal3d': 'facebook/dinov3-vitl16-pretrain-lvd1689m/resolve/main/config.json',
             'pixal3d-tex': 'facebook/dinov3-vitl16-pretrain-lvd1689m/resolve/main/config.json',
@@ -53,7 +55,7 @@ MV_YAWS = ('auto', '0', '90', '180', '270')           # mvadapter-i2tex, mvpaint
 MV_UV_SIZES = (1024, 2048, 4096)
 SUPRA_TEX_SIZES = (1024, 2048, 4096)                  # supratex: размер текстуры выпуска (по умолчанию 4096, как в апстриме)
 SUPRA_MEM_MB = 49152                                  # supratex: пик памяти процессов ≈ 32,4 ГиБ (замер апстрима на 3090) — 32768 МБ группы впритык; 48 ГиБ (лимит Salad 61440)
-MODEL_MEM_MB = {'supratex': SUPRA_MEM_MB}             # память группы по умолчанию для моделей, которым общих 32768 МБ мало
+MODEL_MEM_MB = {'supratex': SUPRA_MEM_MB}             # НЕ применяется (память группы — только из профиля, P-066): требование к будущей строке профиля supratex — memory_mb ≥ этого
 TEXTURE_MODELS = {'mvadapter-i2tex': '-mvtex', 'mvpainter': '-mvp', 'supratex': '-supra', 'pixal3d-tex': '-tex', 'trellis2': '-tex'}      # модели «краска готовой формы» и суффикс id задания (результат — `<id>.glb`)
 MULTI_TEX_MODELS = ('pixal3d-tex', 'mvadapter-i2tex', 'mvpainter', 'supratex')      # модели «краска готовой формы»: несколько товаров в одной группе, у каждого своя форма (T-20261119-06/5/2)
 SHAPE_KINDS = (('clean2', 'clean2 (правило очистки E)'), ('clean', 'clean (прежнее правило очистки; clean2 нет)'))      # каталог форм: сперва clean2, иначе clean
@@ -253,18 +255,21 @@ def resolve_shapes(a, skus: list[str]) -> tuple[dict | None, str]:
 
 
 def parse_tex_variant(tok: str) -> dict | None:
-    """pixal3d-tex: вариант прогона `<align>[+g<сила>][+s<повторов>]`: `fit+g3` — подгонка фото и сила направляющей 3 (по умолчанию 1), `fit+s40` — латент формы по копии,
-    сглаженной 40 проходами Тобина (краска ложится на настоящую форму). Неверная запись → None."""
+    """pixal3d-tex: вариант прогона `<align>[+g<сила>][+s<повторов>][+f<процент>]`: `fit+g3` — подгонка фото и сила направляющей 3 (по умолчанию 1), `fit+s40` — латент формы по копии,
+    сглаженной 40 проходами Тобина (краска ложится на настоящую форму), `fit+f75` — форма вписана в 75 % куба (T-20261119-92: активных вокселей ≈ 56 % от прежнего,
+    форма и число треугольников те же; 20…100, по умолчанию 100). Неверная запись → None."""
     parts = tok.strip().split('+')
     if parts[0] not in TEX_ALIGNS:
         return None
-    v = {'tok': tok.strip(), 'align': parts[0], 'guidance': 1.0, 'smooth': 0}
+    v = {'tok': tok.strip(), 'align': parts[0], 'guidance': 1.0, 'smooth': 0, 'fill': 1.0}
     for q in parts[1:]:
         try:
             if q[:1] == 'g' and 0 < float(q[1:]) <= 10:
                 v['guidance'] = float(q[1:])
             elif q[:1] == 's' and 0 < int(q[1:]) <= 500:
                 v['smooth'] = int(q[1:])
+            elif q[:1] == 'f' and 20 <= int(q[1:]) <= 100:
+                v['fill'] = int(q[1:]) / 100.0
             else:
                 return None
         except ValueError:
@@ -324,8 +329,39 @@ def supra_options(a) -> dict | None:
 
 def expand_align_jobs(jobs: list[dict], variants: list[dict]) -> list[dict]:
     """pixal3d-tex: по заданию на каждый вариант; вариантов несколько — id получает суффикс варианта (`…-fit`, `…-fit-g3`), один — id как был."""
-    return [dict(j, job_id=f'{j["job_id"]}-{v["tok"].replace("+", "-")}' if len(variants) > 1 else j['job_id'], align=v['align'], tex_guidance=v['guidance'], shape_smooth=v['smooth'])
+    return [dict(j, job_id=f'{j["job_id"]}-{v["tok"].replace("+", "-")}' if len(variants) > 1 else j['job_id'], align=v['align'], tex_guidance=v['guidance'], shape_smooth=v['smooth'], shape_fill=v['fill'])
             for j in jobs for v in variants]
+
+
+LADDER_KEYS = ('ss_steps', 'ss_guidance', 'ss_rescale', 'ss_rescale_t', 'shape_steps', 'shape_guidance', 'shape_rescale', 'shape_rescale_t', 'max_num_tokens', 'export_raw', 'variants', 'seed')
+
+
+def parse_ladder(path: str) -> list[dict]:
+    """T-20261119-94 — лесенка формы TRELLIS.2: JSON-список ступеней `{name, input: cur|hd, res: 1024|1536, ss_steps?, shape_steps?, shape_rescale?, max_num_tokens?, export_raw?, seed?}` (seed — на ступень: перекрывает `--seed` запуска, одна группа — разные seed). Имя ступени — в id задания
+    (`<товар>-<имя>`), у каждой ступени меняется РОВНО то, что записано; прочее — по умолчанию апстрима. Ошибка в файле → ValueError (до группы и денег)."""
+    items = json.load(open(os.path.expanduser(path), encoding='utf-8'))
+    if not isinstance(items, list) or not items:
+        raise ValueError('лесенка: нужен непустой JSON-список ступеней')
+    seen, out = set(), []
+    for it in items:
+        nm = str(it.get('name') or '')
+        if not nm or not all(c.isalnum() or c in '-_.' for c in nm) or nm in seen:
+            raise ValueError(f'лесенка: у ступени нужно уникальное имя из букв, цифр и «-_.»: {nm!r}')
+        seen.add(nm)
+        if it.get('input', 'cur') not in ('cur', 'hd') or int(it.get('res', 1024)) not in (512, 1024, 1536):
+            raise ValueError(f'лесенка {nm}: input — cur или hd, res — 512, 1024 или 1536')
+        bad = [k for k in it if k not in ('name', 'input', 'res') + LADDER_KEYS]
+        if bad:
+            raise ValueError(f'лесенка {nm}: неизвестные ключи {bad}')
+        if 'seed' in it and (isinstance(it['seed'], bool) or not isinstance(it['seed'], int) or not 0 <= it['seed'] < 2 ** 31):
+            raise ValueError(f'лесенка {nm}: seed — целое от 0 до 2^31-1 (правило «брак → до 2 новых seed» — seed на задание, не на запуск)')
+        out.append({'name': nm, 'input': it.get('input', 'cur'), 'res': int(it.get('res', 1024)), 'params': {k: it[k] for k in LADDER_KEYS if k in it}})
+    return out
+
+
+def expand_ladder_jobs(jobs: list[dict], ladder: list[dict]) -> list[dict]:
+    """Задание на каждую ступень лесенки для каждого товара (порядок — по ступеням: сперва все товары первой ступени, затем второй…): `res`, фото (`cur` — как в БД 30 товаров, `hd` — `<товар>.hd.rgba.png`) и параметры ступени."""
+    return [dict(j, job_id=f'{j["sku"].replace(":", "_")}-{r["name"]}', res=r['res'], input=r['input'], worker_params=r['params'], seed=r['params'].get('seed', j['seed'])) for r in ladder for j in jobs]
 
 
 def price_usd_h(tier: str) -> float | None:
@@ -464,13 +500,22 @@ def worker_command(path: str | None = None, python: str = 'python', pre: str = '
     return [python, '-u', '-c', code], z
 
 
-def build_body(name: str, image: str, tier: str, model: str, hf_token: str, cpu: int, mem_mb: int, run_note: str, auth: dict, donor: dict | None = None,
+def build_body(name: str, image: str, tier: str, model: str, hf_token: str, run_note: str, auth: dict, donor: dict | None = None,
                extra_env: dict | None = None) -> dict:
     """Тело группы Salad. `auth` — доступ к приватному реестру (`migrate_groups.ghcr_auth()`); приёмника на проде (`MESH_SINK_*`) в окружении НЕТ.
     `donor` (только hunyuan21) — боевая группа-образец: берём её переменные окружения (STAGED, PIPELINE_VERSION, …) БЕЗ секретов приёмника и очереди."""
     env = {'MODEL': model, 'IMAGE_NOTE': run_note, 'HF_TOKEN': hf_token, 'HF_HOME': '/data/hf', 'OUT_DIR': '/data/out',
            'NVIDIA_DRIVER_CAPABILITIES': 'all', 'DEPLOYMENT_EPOCH': f'20261118-{name}'}
-    res = {'cpu': cpu, 'memory': mem_mb, 'gpu_classes': [CARD['class_id']], 'storage_amount': 80 * 2 ** 30, 'shm_size': 1024}      # 80 ГиБ: кэш HF ≈ 42 ГиБ + запас на 30 результатов (директор 19.11)
+    if donor is None:                                      # ресурсы — ТОЛЬКО из профиля типа работы (T-186/1); нет профиля у модели или тариф вне low/medium — отказ до группы
+        prof = KD.resource_profile(WORK_TYPES.get(model, ''))
+        bad = KD.tier_refusal(prof, tier)
+        if bad:
+            raise KD.ProfileRefused(bad)
+        res = {**KD.profile_resources(prof), 'gpu_classes': [CARD['class_id']]}
+    else:
+        if tier in KD.FORBIDDEN_TIERS:
+            raise KD.ProfileRefused(f'тариф «{tier}» запрещён (владелец TG 1456/1457)')
+        res = {}
     command = None
     if donor is None and model in ('pixal3d', 'pixal3d-tex'):        # образ Pixal3D: transformers 4.57.3 требует huggingface-hub <1.0, а в образе оказался 2.4.0 (px0, 19.11: ImportError на прогреве) — пин при старте, пересборка не нужна
         pre = ('for i in 1 2 3; do python3 -m pip install -q "huggingface_hub==0.35.3" && break; echo "[pip] попытка $i не удалась"; sleep 5; done; '
@@ -497,7 +542,7 @@ def build_body(name: str, image: str, tier: str, model: str, hf_token: str, cpu:
         env.update({'MODEL': model, 'IMAGE_NOTE': run_note, 'OUT_DIR': '/tmp/trial-out', 'DEPLOYMENT_EPOCH': f'20261118-{name}'})
         command, env['TRIAL_WORKER_Z'] = worker_command()
         dres = donor['container']['resources']
-        res = {'cpu': dres.get('cpu', cpu), 'memory': dres.get('memory', mem_mb), 'gpu_classes': [CARD['class_id']],
+        res = {'cpu': dres.get('cpu', 8), 'memory': dres.get('memory', 32768), 'gpu_classes': [CARD['class_id']],
                'storage_amount': dres.get('storage_amount', 60 * 2 ** 30), 'shm_size': dres.get('shm_size', 1024)}
     body = {
         'name': name, 'display_name': name,
@@ -551,7 +596,7 @@ class Gateway:
             return -1, {}
 
 
-def run(a, MG, BR, gw_factory=Gateway, sleep=time.sleep, clock=time.time, hf_head=None) -> int:
+def run(a, MG, BR, gw_factory=Gateway, sleep=time.sleep, clock=time.time, hf_head=None, pull_guard=None, image_gib=None) -> int:
     """Весь замер. `MG` — `migrate_groups` (API Salad), `BR` — `bench_run` (состояние группы, остановка с проверкой). Подмена обоих + `gw_factory`/`sleep`/`clock`/`hf_head` — тесты."""
     inputs = json.load(open(os.path.join(a.inputs, 'inputs.json'), encoding='utf-8'))
     skus = a.skus or [k for k, v in inputs.items() if isinstance(v, dict) and v.get('input_png_sha256')]      # без --skus — весь набор из inputs.json (30 товаров)
@@ -564,6 +609,9 @@ def run(a, MG, BR, gw_factory=Gateway, sleep=time.sleep, clock=time.time, hf_hea
         say(f'ОТКАЗ: в {a.out} уже лежат файлы от другой модели для {len(clash)} заданий (первое: {clash[0]}) — укажи свою --out или --force-out')
         return 2
     aligns = [parse_tex_variant(x) for x in (getattr(a, 'tex_align', None) or 'fit').split(',') if x.strip()]
+    if getattr(a, 'hold_after', 0) and (not getattr(a, 'hold_file', None) or getattr(a, 'hold_max_min', 0) <= 0):          # пауза без файла-разрешения и срока — деньги шли бы без выхода
+        say('--hold-after требует --hold-file и --hold-max-min > 0 — группа не создаётся')
+        return 2
     shapes: dict = {}
     if a.model in MULTI_TEX_MODELS:                       # у каждого товара своя форма (clean2 → clean из каталога форм); нет у одного — отказ ДО группы и денег
         shapes, why = resolve_shapes(a, skus)
@@ -631,6 +679,21 @@ def run(a, MG, BR, gw_factory=Gateway, sleep=time.sleep, clock=time.time, hf_hea
         card = row['name']
         CARD.update(class_name=card, class_id=row['id'])
         say(f'--gpu cheapest: {card} (тариф {used}, ${row["prices"][used]}/ч)')
+    prof_name = WORK_TYPES.get(a.model)
+    if prof_name:                                          # профиль ресурсов (T-186/1): тариф и карта — из него; нет профиля у модели — отказ до группы и денег
+        try:
+            prof = KD.resource_profile(prof_name)
+            bad = KD.tier_refusal(prof, a.tier) or (KD.card_refusal(prof, card) if (getattr(a, 'card', None) or gpu) else None)
+        except KD.ProfileRefused as exc:
+            bad = str(exc)
+        if bad:
+            say('ОТКАЗ по профилю ресурсов:', bad, '— группа не создаётся')
+            return 3
+    elif a.model != 'hunyuan21':
+        say(f'ОТКАЗ по профилю ресурсов: у модели «{a.model}» нет профиля в rules/salad-resources.json — группа не создаётся')
+        return 3
+    if not getattr(a, 'card', None) and not gpu:           # карта не названа явно — из профиля (нет профиля: прежняя 4090 контролю hunyuan21)
+        card = prof['card'] if prof_name else CARD['class_name']
     if card != CARD['class_name']:                        # другая карта (localmesh — 4060 Ti 16 ГБ): id по полному имени среди классов организации
         import recreate_group as RG
         try:
@@ -667,12 +730,25 @@ def run(a, MG, BR, gw_factory=Gateway, sleep=time.sleep, clock=time.time, hf_hea
             j['job_id'] += TEXTURE_MODELS.get(a.model, '-tex')
     if a.model == 'pixal3d-tex':                          # варианты кадрирования фото (fit — подгонка по силуэту формы, official — как в апстриме): по заданию на вариант, id с суффиксом
         jobs = expand_align_jobs(jobs, aligns)
+    if getattr(a, 'ladder', None):                         # лесенка формы TRELLIS.2 (T-20261119-94): по заданию на ступень; HD-фото — файл `<товар>.hd.rgba.png` рядом с обычным
+        if a.model != 'trellis2':
+            say('--ladder только для --model trellis2 — группа не создаётся')
+            return 2
+        try:
+            ladder = parse_ladder(a.ladder)
+        except (ValueError, OSError, AttributeError) as e:
+            say(f'лесенка не разобрана ({e}) — группа не создаётся')
+            return 2
+        missing = [s for s in skus for r in ladder if r['input'] == 'hd' and not os.path.exists(os.path.join(a.inputs, f'{s.replace(":", "_")}.hd.rgba.png'))]
+        if missing:
+            say(f'нет HD-фото `<товар>.hd.rgba.png` в {a.inputs}: {sorted(set(missing))} — группа не создаётся')
+            return 2
+        jobs = expand_ladder_jobs(jobs, ladder)
     for j in jobs:
         j['role'] = (inputs.get(j['sku']) or {}).get('role') or meta.get(j['sku'], {}).get('role')
         j['dims_cm'] = meta.get(j['sku'], {}).get('dims_cm')
-    mem_mb = getattr(a, 'mem_mb', None) or MODEL_MEM_MB.get(a.model, 32768)
-    mem_limit_gb = round(mem_mb / 1024, 1)                # лимит памяти группы — в итог по товару рядом с пиками
-    body = build_body(name, a.image, a.tier, a.model, hf, a.cpu, mem_mb, a.image.split('@')[-1][:19], MG.ghcr_auth(), donor, extra_env=wenv)
+    body = build_body(name, a.image, a.tier, a.model, hf, a.image.split('@')[-1][:19], MG.ghcr_auth(), donor, extra_env=wenv)
+    mem_limit_gb = round((body['container']['resources'].get('memory') or 0) / 1024, 1)      # лимит памяти группы — из тела (профиль); в итог по товару рядом с пиками
     if wenv:
         say('окружение воркера (отладка/настройки):', wenv)
     say('группа', name, CARD['class_name'], 'тариф', a.tier, 'цена $/ч', price, f'[{price_src}]', 'заданий', len(jobs), 'потолок $', a.cap)
@@ -713,6 +789,15 @@ def run(a, MG, BR, gw_factory=Gateway, sleep=time.sleep, clock=time.time, hf_hea
                'stop_verified': False, 'stopped_by': None}
     os.makedirs(a.out, exist_ok=True)
     t_start = run_since = None
+    guard = (pull_guard or KD.PullGuard)(name) if getattr(a, 'pull_guard', True) else None     # сторож докачки образа до running (общий, kit_driver; числа — rules/salad-groups.json → pull_guard)
+    if guard is not None:
+        if image_gib is None:
+            try:
+                image_gib = KD.check_image(a.image, MG.ghcr_auth())[2]                           # манифест реестра, бесплатно; не прочитан — норма «размер неизвестен»
+            except Exception:  # noqa: BLE001
+                image_gib = None
+        guard.configure(image_gib)
+        say('сторож докачки образа: размер', f'{image_gib} ГиБ' if image_gib else 'неизвестен', f'→ допуск полной докачки {guard.verdict_kw["max_total_min"]:.0f} мин')
     gw = inflight = None                                  # finally: снимок незавершённого задания (нужен и при раннем выходе)
     try:
         create_wait_s = float(getattr(a, 'create_wait_min', None) or CREATE_WAIT_MIN) * 60
@@ -746,6 +831,8 @@ def run(a, MG, BR, gw_factory=Gateway, sleep=time.sleep, clock=time.time, hf_hea
         ever_ok, last_gb, last_gb_t, last_say = False, None, None, 0.0           # видимость воркера: был ли хоть один ответ /health, рост докачки весов
         last_hc = 0.0                                                             # последний опрос /health во время задания (воркер «сломан» после фатальной ошибки CUDA)
         pending = list(jobs)
+        last_wait_say = -1e9
+        hold_t0 = None                                                        # пауза «проба → ок → партия» на ТЁПЛОЙ ноде (T-20261121-172): момент начала ожидания файла-разрешения
         while True:
             t = clock()
             _, st, cnt = BR.group_state(name)
@@ -755,6 +842,18 @@ def run(a, MG, BR, gw_factory=Gateway, sleep=time.sleep, clock=time.time, hf_hea
                 summary['to_first_running_s'] = round(t - t_start, 1)
                 say(f'первый running: t+{t - t_start:.0f} с от /start')
             running_s = (t - run_since) if run_since is not None else 0.0
+            if guard is not None and run_since is None:
+                if guard.step(t, ins):                                   # образ качается слишком медленно (T-178 22.11: 2 % на 15-й минуте) → экземпляр пересажен (бесплатно: до running не списывается)
+                    summary['pull_culls'] = guard.culls
+                    last_wait_say = -1e9
+                if guard.give_up:
+                    say(f'!! {guard.give_up} — гашу')
+                    summary['stopped_by'] = 'pull_slow'
+                    break
+            if run_since is None and t - last_wait_say >= 120:          # до первого running лог молчал 15–25 мин (образ тянется): строка хода раз в 2 мин, P-039
+                last_wait_say = t
+                i0 = ins[0] if ins else {}
+                say(f'ждём running: группа {st}, счётчики {cnt}, экземпляр {i0.get("state")}, образ {round((i0.get("pulling_progress") or 0) * 100)} %, прошло {t - t_start:.0f} с от /start (деньги $0 до running)')
             cost = cost_usd(running_s, price)
             summary['cost_usd_est'] = round(cost, 3)
             if cost >= a.cap:
@@ -818,12 +917,29 @@ def run(a, MG, BR, gw_factory=Gateway, sleep=time.sleep, clock=time.time, hf_hea
                     summary['stopped_by'] = 'not_ready'
                     break
             if ready_at is not None:
+                if inflight is None and pending and getattr(a, 'hold_after', 0) and len(summary['jobs']) >= a.hold_after and not os.path.exists(a.hold_file):
+                    if hold_t0 is None:
+                        hold_t0 = t
+                        say(f'пауза: сделано {len(summary["jobs"])} из {len(jobs)}; нода тёплая и ждёт файл {a.hold_file} (дальше — партия) не дольше {a.hold_max_min} мин; деньги идут, потолок ${a.cap} действует')
+                    if t - hold_t0 > a.hold_max_min * 60:
+                        say(f'!! разрешения (файл {a.hold_file}) нет {a.hold_max_min} мин — гашу')
+                        summary['stopped_by'] = 'hold_timeout'
+                        break
+                    sleep(10)
+                    continue
                 if inflight is None and pending:
                     j = pending.pop(0)
-                    png = open(os.path.join(a.inputs, f'{j["sku"].replace(":", "_")}.rgba.png'), 'rb').read()
+                    png = open(os.path.join(a.inputs, f'{j["sku"].replace(":", "_")}.{"hd." if j.get("input") == "hd" else ""}rgba.png'), 'rb').read()
                     pl = {'job_id': j['job_id'], 'image_b64': base64.b64encode(png).decode(), 'pipeline_type': pipeline_type(j['res']), 'seed': j['seed'],
-                          'decimation_target': a.decimation, 'texture_size': a.texture, 'detail': getattr(a, 'detail', None), 'texture_mesh_b64': tex_by_sku.get(j['sku']), 'role': j.get('role'), 'dims_cm': j.get('dims_cm'), 'align': j.get('align'), 'tex_guidance': j.get('tex_guidance'), 'shape_smooth': j.get('shape_smooth'), **mvo, **supo}
-                    c, r = gw.call('POST', '/generate', pl, timeout=90)
+                          'decimation_target': a.decimation, 'texture_size': a.texture, 'detail': getattr(a, 'detail', None), 'texture_mesh_b64': tex_by_sku.get(j['sku']), 'role': j.get('role'), 'dims_cm': j.get('dims_cm'), 'align': j.get('align'), 'tex_guidance': j.get('tex_guidance'), 'shape_smooth': j.get('shape_smooth'), 'shape_fill': j.get('shape_fill'), **(j.get('worker_params') or {}), **mvo, **supo}
+                    c, r, pt = KD.post_job(gw, '/generate', pl, '/job/' + j['job_id'], getattr(a, 'post_timeout', 0), say_fn=say)
+                    if pt:
+                        summary.setdefault('post_timeouts', []).append(pt)
+                    if pt and not pt['worker_saw_job'] and not j.get('retried'):                      # воркер задание не видит: один повтор в конец очереди той же ноды (тот же job_id: гонка → 409 = принято)
+                        say('задание', j['job_id'], '→ один повтор в конец очереди')
+                        pending.append({**j, 'retried': True})
+                        sleep(10)
+                        continue
                     inflight = {**j, 'submitted': t, 'http': c}
                     say('задание', j['job_id'], '→ HTTP', c)
                     if c not in (202, 409):
@@ -861,6 +977,21 @@ def run(a, MG, BR, gw_factory=Gateway, sleep=time.sleep, clock=time.time, hf_hea
                                         open(fp[:-4] + '.views.jpg', 'wb').write(base64.b64decode(vb))
                                         r['metrics']['views_jpeg_b64'] = 'saved:' + os.path.basename(fp[:-4]) + '.views.jpg'
                                     inflight['glb_bytes'] = len(glb)
+                                    if (r.get('metrics') or {}).get('has_raw'):          # TRELLIS.2: сырая форма до упаковки (simplify/remesh/decimation) — вторым файлом, по ступеням с export_raw
+                                        cr, glb_raw = gw.call('GET', '/glb/' + inflight['job_id'] + '?v=raw', timeout=600, raw=True)
+                                        if cr == 200:
+                                            fp_raw = os.path.join(a.out, inflight['job_id'] + '.raw.glb')
+                                            open(fp_raw, 'wb').write(glb_raw)
+                                            inflight['glb_raw_path'] = fp_raw
+                                            inflight['glb_raw_bytes'] = len(glb_raw)
+                                        else:
+                                            inflight['glb_raw_error'] = f'HTTP {cr}'
+                                    for vn in (r.get('metrics') or {}).get('variant_files') or []:          # TRELLIS.2: варианты упаковки (T-94/2 шаг 02) — по файлу на вариант
+                                        cv, glb_v = gw.call('GET', '/glb/' + inflight['job_id'] + '?v=' + vn, timeout=600, raw=True)
+                                        if cv == 200:
+                                            open(os.path.join(a.out, f'{inflight["job_id"]}.{vn}.glb'), 'wb').write(glb_v)
+                                        else:
+                                            inflight.setdefault('variant_errors', []).append(f'{vn}: HTTP {cv}')
                                     if (r.get('metrics') or {}).get('stages'):                 # mvadapter-i2tex с --mv-keep-stages: архив стадий (А0) — тем же путём, что GLB, `?v=stages`
                                         cs, zb = gw.call('GET', '/glb/' + inflight['job_id'] + '?v=stages', timeout=900, raw=True)
                                         if cs == 200:
@@ -901,6 +1032,17 @@ def run(a, MG, BR, gw_factory=Gateway, sleep=time.sleep, clock=time.time, hf_hea
     finally:
         if gw is not None and inflight is not None and inflight.get('status') not in ('done', 'failed'):
             summary['unfinished'] = unfinished_snapshot(gw, inflight, clock())   # потолок/таймаут/исключение посреди задания: что видел воркер — ДО остановки группы
+        try:
+            if gw is not None:                                           # последний /health перед стопом: пики памяти/VRAM/диска для `resource_profile.py --suggest` (T-186/1)
+                c_fin, h_fin = gw.call('GET', '/health', timeout=20)
+                if c_fin == 200:
+                    summary['last_health'] = {'body': h_fin}
+                else:
+                    say('последний /health перед стопом: HTTP', c_fin, '— пики в итог не попали')
+        except Exception as exc:  # noqa: BLE001 — стоп группы важнее; причину пишем в журнал
+            say('последний /health перед стопом не получен:', repr(exc)[:160])
+        if prof_name:
+            summary['work_type'] = prof_name
         ok_stop = BR.stop_and_verify(name)
         summary['stop_verified'] = ok_stop
         if tex_by_sku:                                    # итог по товару (в группе их может быть несколько): статус, секунды, GLB, причина отказа; не дошедшие до запуска — not_run
@@ -944,8 +1086,9 @@ def main() -> int:
     ap.add_argument('--seed', type=int, default=42)
     ap.add_argument('--decimation', type=int, default=500000)
     ap.add_argument('--texture', type=int, default=2048)
-    ap.add_argument('--card', default=CARD['class_name'], help='класс карты по полному имени ("RTX 4060 Ti (16 GB)" для localmesh)')
+    ap.add_argument('--card', default=None, help='класс карты по полному имени ("RTX 4060 Ti (16 GB)" для localmesh)')
     ap.add_argument('--detail', default='high', choices=['draft', 'standard', 'high', 'max'], help='localmesh: ярус качества (high = форма 1024, 16 шагов, 250 тыс. граней)')
+    ap.add_argument('--ladder', default=None, help='trellis2: JSON со ступенями лесенки формы (имя, input cur|hd, res, шаги/rescale формы, max_num_tokens, export_raw) — по заданию на ступень на товар; HD-фото — `<товар>.hd.rgba.png` в --inputs')
     ap.add_argument('--texture-mesh', default=None, help='контроль: готовая форма (GLB) — TRELLIS.2 только перекрасит её по фото (один товар в --skus); у текстурных моделей (pixal3d-tex, mvadapter-i2tex, mvpainter, supratex) — форма ОДНОГО товара')
     ap.add_argument('--shape-dir', default=None, help='текстурные модели (pixal3d-tex, mvadapter-i2tex, mvpainter, supratex): каталог форм — у каждого товара из --skus своя форма `<магазин_товар>-1024-42-0.clean2.glb`, иначе `.clean.glb`; '
                     'товаров может быть несколько (одна группа, одна загрузка весов); нет формы хотя бы у одного — отказ до группы')
@@ -964,17 +1107,21 @@ def main() -> int:
     ap.add_argument('--mvp-pbr', default='1', choices=['0', '1'], help='mvpainter: 1 — PBR через IDArb (по умолчанию), 0 — только базовый цвет')
     ap.add_argument('--gpu', default=None, help='класс карты (для mvpainter по умолчанию RTX 5090 (32 GB); 4090 — только явно): полное имя («RTX 6000 Ada (48 GB)», то же, что --card), `cheapest` — самый дешёвый от 40 ГБ на тарифе --tier (нет на нём — тариф ниже, с предупреждением), `list` — только напечатать таблицу классов от 40 ГБ и выйти; без флага — --card (4090)')
     ap.add_argument('--gpu-min-gb', type=int, default=GPU_MIN_GB, help='порог видеопамяти для таблицы и для `--gpu cheapest` (по умолчанию 40 ГБ; в организации классов от 40 ГБ нет — самый большой RTX 5090 32 ГБ)')
-    ap.add_argument('--tier', default='high', choices=['batch', 'low', 'medium', 'high'])
-    ap.add_argument('--cpu', type=int, default=8)
-    ap.add_argument('--mem-mb', type=int, default=None, help='память группы, МБ; по умолчанию 32768, для supratex 49152 (пик процессов ≈ 32,4 ГиБ)')
+    ap.add_argument('--hold-after', type=int, default=0, help='пауза на тёплой ноде: после N готовых заданий (проба) не слать следующие, пока не появится файл --hold-file (разрешение партии); 0 — без паузы')
+    ap.add_argument('--hold-file', default=None, help='файл-разрешение (создаёт ведущий/рабочий после «ок» по пробе); нужен вместе с --hold-after')
+    ap.add_argument('--hold-max-min', type=int, default=30, help='сколько минут ждать файл-разрешение, иначе группа гасится (потолок денег --cap действует и в паузе)')
+    ap.add_argument('--tier', default='low', choices=['low', 'medium'], help='low; нет машин — повторить с medium вручную (платить не за что); batch/high запрещены (владелец TG 1456/1457)')
     ap.add_argument('--cap', type=float, default=2.0, help='потолок денег на ОДИН запуск (одну модель), $ — владелец TG 2064: $2 на модель, $10 на всю пробу')
     ap.add_argument('--max-min', type=int, default=180)
     ap.add_argument('--create-wait-min', type=float, default=CREATE_WAIT_MIN, help='сколько минут ждать, пока созданная группа станет stopped, прежде чем слать /start (деньги до running не идут)')
     ap.add_argument('--ready-min', type=int, default=75, help='сколько минут после running ждать прогрева модели (холодный старт с докачкой весов — часть результата пробы)')
     ap.add_argument('--health-min', type=int, default=20, help='сколько минут после running ждать ПЕРВОГО ответа /health, иначе стоп (воркер мёртв)')
     ap.add_argument('--disk-min-gb', type=float, default=3.0, help='стоп, если свободного места на диске контейнера меньше, ГиБ')
+    ap.add_argument('--no-pull-guard', dest='pull_guard', action='store_false', help='выключить сторож докачки образа до running (по умолчанию включён: медленная докачка → пересадка экземпляра)')
     ap.add_argument('--stall-min', type=int, default=10, help='сколько минут докачка весов может не расти, иначе стоп')
     ap.add_argument('--job-timeout', type=int, default=15)
+    ap.add_argument('--post-timeout', type=int, default=0, help='секунд ждать ответ на POST /generate; 0 (по умолчанию) — по размеру тела: base_s + per_mb_s × МБ, не больше max_s '
+                    '(`rules/salad-groups.json` → gateway_post). T-178 22.11: шлюз Salad отвечает 76–90+ с на холодной ноде, при зашитых 90 с первое задание сорвалось')
     ap.add_argument('--suffix', default=time.strftime('%m%d%H%M', time.gmtime()))
     ap.add_argument('--out', default=None, help='папка результатов; по умолчанию — ~/remlab-logs/mesh-models-1118/<модель>/')
     ap.add_argument('--force-out', action='store_true', help='писать, даже если там лежат файлы от другой модели (не нужно)')

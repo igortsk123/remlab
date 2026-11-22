@@ -67,6 +67,36 @@ def silhouette_shares(S: np.ndarray, A: np.ndarray, strip_frac: float) -> dict:
             'miss_bottom': sh(Ab & ~Sb, Ab, Sb), 'extra_bottom': sh(Sb & ~Ab, Sb, Ab), 'iou_top': iou_top, 'strip_rows': [y0, y1]}
 
 
+def _boundary(m: np.ndarray) -> np.ndarray:
+    import cv2
+    mu = m.astype(np.uint8)
+    return (mu > 0) & (cv2.erode(mu, np.ones((3, 3), np.uint8)) == 0)
+
+
+def thin_metrics(S: np.ndarray, A: np.ndarray, rules: dict) -> dict:
+    """Мерка тонкого предмета (rules `thin`, T-188/2). S — форма, A — фото в кадре камеры (bool). thin_share — доля пикселей маски ФОТО не глубже half_frac × высота силуэта фото от её края (EDT);
+    eligible = thin_share ≥ share_min. precision — доля контура формы в пределах tau = tau_frac × высота от контура фото; recall — доля контура фото в пределах tau от контура формы;
+    passed = eligible-независимо precision ≥ precision_min И recall ≥ recall_min (решение «спасать ли» — по eligible И passed в main)."""
+    import cv2
+    cfg = rules.get('thin') or {}
+    S = np.asarray(S, bool)
+    A = np.asarray(A, bool)
+    rows = np.flatnonzero(A.any(axis=1))
+    if rows.size == 0 or not S.any():
+        return {'eligible': False, 'passed': False, 'thin_share': None, 'precision': 0.0, 'recall': 0.0, 'height_px': 0, 'tau_px': 0.0}
+    hh = int(rows[-1] - rows[0] + 1)
+    d_in = cv2.distanceTransform(A.astype(np.uint8), cv2.DIST_L2, 3)
+    share = float((d_in[A] <= float(cfg['half_frac']) * hh).mean())
+    bS, bA = _boundary(S), _boundary(A)
+    dA = cv2.distanceTransform((~bA).astype(np.uint8), cv2.DIST_L2, 3)
+    dS = cv2.distanceTransform((~bS).astype(np.uint8), cv2.DIST_L2, 3)
+    tau = float(cfg['tau_frac']) * hh
+    prec = float((dA[bS] <= tau).mean()) if bS.any() else 0.0
+    rec = float((dS[bA] <= tau).mean()) if bA.any() else 0.0
+    return {'eligible': bool(share >= float(cfg['share_min'])), 'passed': bool(prec >= float(cfg['precision_min']) and rec >= float(cfg['recall_min'])), 'thin_share': round(share, 4),
+            'precision': round(prec, 4), 'recall': round(rec, 4), 'height_px': hh, 'tau_px': round(tau, 2)}
+
+
 def shape_mismatch(iou: float, ms: dict | None, rules: dict) -> tuple[bool, dict]:
     """«Форма не совпала с фото, позой не лечится» (стул 13195: все 36 стартов мультистарта сходятся на IoU 0,69–0,71). Признак: мультистарт шёл, `shape_top_k` лучших стартов по оценке лежат в узком коридоре
     (разброс их IoU силуэта ≤ `shape_corridor_eps`) И итоговый IoU кадра ниже iou_min. Отличает «форму» (много разных поз упираются в один потолок) от «не нашли позу» (старты разбросаны).
@@ -183,6 +213,13 @@ def main() -> int:
     pa = SL.warp_inv((photo[..., 3] > 127).astype(np.uint8) * 255, P, (w, h), interp=cv2.INTER_NEAREST) > 127
     shares = silhouette_shares(S, pa, rules['strip_frac'])
     ok, reason = verdict(iou, shares, edge, rules, unrel_why)
+    tm = thin_metrics(S, pa, rules) if (rules.get('thin') or {}).get('enabled') else None
+    thin_rescue = bool(tm and not ok and tm['eligible'] and tm['passed'] and not unrel_why)      # тонкий предмет: площадная мерка провалена, контур лёг → годна (только спасает, не отнимает)
+    if thin_rescue:
+        th = rules['thin']
+        ok = True
+        reason = ('камера легла по контуру (тонкий предмет: доля тонкого %.2f ≥ %s; контур формы на контуре фото %.2f ≥ %s, контур фото покрыт %.2f ≥ %s; IoU площади %.3f для тонкого не мерка)'
+                  % (tm['thin_share'], th['share_min'], tm['precision'], th['precision_min'], tm['recall'], th['recall_min'], iou))
     bq = bottom_mask_quality(ph, pa, shares['strip_rows'])
     coarse = bool(bq['thin_share'] is not None and bq['contrast'] is not None
                   and bq['thin_share'] < rules.get('coarse_thin_max', 0.3) and bq['contrast'] < rules.get('coarse_contrast_max', 0.35))
@@ -190,11 +227,12 @@ def main() -> int:
     if coarse_note:
         reason = reason + '; ' + coarse_note if not ok else reason + ' (' + coarse_note + ')'
     shm, shm_info = shape_mismatch(iou, pose.get('multistart'), rules)
+    shm = bool(shm and not thin_rescue)
     if shm:
         reason = ('shape_mismatch: форма не совпадает с фото, позой не лечится (%d лучших из %d стартов в коридоре IoU %.3f–%.3f) — в список на перегенерацию формы, этап 6 не красит; '
                   % (shm_info['top_k'], len(pose['multistart']['starts']), shm_info['iou_best'] - shm_info['iou_spread'], shm_info['iou_best'])) + reason
         ok = False
-    bsm = bottom_shape_mismatch(shares, coarse, rules)
+    bsm = bottom_shape_mismatch(shares, coarse, rules) and not thin_rescue
     if bsm:
         reason = 'bottom_shape_mismatch: форма низа не совпадает с фото (ножки), корпус лёг (IoU верха %.3f) — фото на ножки не переносить; ' % shares['iou_top'] + reason
         ok = False
@@ -224,7 +262,7 @@ def main() -> int:
                          reason=reason if not ok else '', seconds=round(time.time() - t0, 1), outputs=['frame.png'], frame='frame.png',
                          edge_ref_min=rules['edge_ref'], edge_below_ref=bool(edge is not None and edge < rules['edge_ref']), no_edges=no_edges, note=reason if ok else '', strip_rows=shares['strip_rows'], strip_frac=rules['strip_frac'],
                          bottom_mask_coarse=coarse, bottom_mask=bq, bottom_shape_mismatch=bsm, shape_mismatch=shm, shape_corridor=shm_info, regen_form=bool(shm), iou_top=None if shares['iou_top'] is None else round(shares['iou_top'], 4),
-                         bottom_top_iou_min=rules.get('bottom_top_iou_min', rules['iou_min']), unreliable=bool(unrel), unreliable_reason=unrel_why, rules_file='tools/scout/rules/camera-check.json',
+                         bottom_top_iou_min=rules.get('bottom_top_iou_min', rules['iou_min']), thin=tm, thin_rescue=thin_rescue, unreliable=bool(unrel), unreliable_reason=unrel_why, rules_file='tools/scout/rules/camera-check.json',
                          camera=pose['camera'], yaw=a.yaw if a.yaw is not None else pose.get('yaw'), pairs=None, photo=a.photo, method=reg.get('method'),
                          textured=pose.get('textured'), frame_note='фото 50 % + рендер 50 %; красный контур — рендер формы, зелёный — фото')
     print(f"{'OK ' if res['passed'] else 'НЕТ'} IoU {iou:.3f} miss {shares['miss']:.3f}/{shares['miss_bottom']:.3f} extra {shares['extra']:.3f}/{shares['extra_bottom']:.3f} (всё/низ) кромки {'нет' if edge is None else format(edge, '.3f')} — {reason}")

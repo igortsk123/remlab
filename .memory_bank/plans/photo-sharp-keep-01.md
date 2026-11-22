@@ -2,9 +2,11 @@
 workstream: demo-ui
 slug: photo-sharp-keep-01
 title: Фото на главной чёткие на компьютере; сделанное покупателем фото нейросети не пропадает при возврате в комнату
-status: in_progress
+status: partial
+pause_reason: без движения с 07.11; владелец 22.11 TG 1185 — на паузу, приоритет — конвейер покраски
+resume_trigger: слово владельца или задача в plan-zadach.md
 created: 2026-11-07
-updated: 2026-11-07
+updated: 2026-11-22
 completed:
 parent_plan: room-conveyor-02
 ---

@@ -1,0 +1,25 @@
+# ОБРАЗ ПРОБЫ SALAD «КАДРЫ ФОРМ» (T-184/1, очередь 3): Blender 4.5.9 (как у нашего локального счёта) + Cycles на CUDA-карте ноды; код — `render_files.txt` (forms_render.py + render_stand.py с --device GPU).
+# Правила набора (Dockerfile.kit-template): основа — по digest (ADR-0137); сжатый образ ≪ 35 ГиБ (здесь ≈1 ГиБ); воркер в образ НЕ запекаем — едет в env группы (kit_worker.bundle); весов нет.
+# Основа nvidia/cuda …-base (только драйверные переменные: NVIDIA_DRIVER_CAPABILITIES=compute,utility → видны CUDA и nvidia-smi); библиотеки X/GL нужны Blender даже в `-b` (без окна).
+# Tarball Blender закреплён по sha256 (с download.blender.org/release/Blender4.5/blender-4.5.9.sha256). Контекст готовит `stage_render_code.py <корень репо> <ctx>/code` (CI: build-render-trial.yml).
+ARG BASE=nvidia/cuda:12.6.3-base-ubuntu24.04@sha256:c87e78933f4c16e3272123bf2f75537306596d0fbaa395a29696a22786e5ee0e
+FROM ${BASE}
+ENV DEBIAN_FRONTEND=noninteractive PYTHONUNBUFFERED=1
+RUN apt-get update && apt-get install -y --no-install-recommends python3 python-is-python3 ca-certificates curl xz-utils libx11-6 libxi6 libxxf86vm1 libxfixes3 libxrender1 libxkbcommon0 libsm6 libgl1 libegl1 libgomp1 \
+    && rm -rf /var/lib/apt/lists/*
+# download.blender.org отдаёт 403 адресам GitHub Actions (CI 45040386297) → официальные зеркала по очереди; подлинность — sha256 (чужой файл не пройдёт).
+ARG BLENDER_PATH=release/Blender4.5/blender-4.5.9-linux-x64.tar.xz
+ARG BLENDER_SHA256=dcdc3eca6c9825bb35a8033b689c053f3cb5a9b0cd2a61b2eac2a49436b4ad3d
+RUN set -e; ok=0; \
+    for base in https://mirrors.ocf.berkeley.edu/blender https://ftp.nluug.nl/pub/graphics/blender https://mirror.freedif.org/blender https://download.blender.org; do \
+      echo "пробую $base"; \
+      if curl -fsSL -A "Mozilla/5.0" --retry 2 --max-time 600 -o /tmp/blender.tar.xz "$base/$BLENDER_PATH" && echo "$BLENDER_SHA256  /tmp/blender.tar.xz" | sha256sum -c -; then ok=1; break; fi; \
+    done; \
+    [ "$ok" = 1 ] || { echo "Blender не скачан ни с одного зеркала (или sha256 не сошёлся)"; exit 1; }; \
+    mkdir -p /opt/blender && tar -xJf /tmp/blender.tar.xz -C /opt/blender --strip-components=1 && rm /tmp/blender.tar.xz
+COPY code/ /opt/scout-root/
+ARG GIT_SHA=unknown
+RUN printf 'render-worker image\ncommit=%s\npython=%s\n' "$GIT_SHA" "$(python -V 2>&1)" > /opt/BUILD_INFO_RENDER.txt
+# проверка комплектности ВО ВРЕМЯ СБОРКИ (без видеокарты): Blender запускается, код на месте
+RUN /opt/blender/blender -b --version | head -1 && test -f /opt/scout-root/tools/ops/forms_render.py && test -f /opt/scout-root/tools/scout/stablegen/render_stand.py
+ENV BLENDER_BIN=/opt/blender/blender RENDER_CODE=/opt/scout-root RENDER_WORK=/tmp/render

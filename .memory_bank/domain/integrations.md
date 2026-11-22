@@ -225,6 +225,9 @@ PNG 512 от владельца (Drive `1l2j65g8…`) → `public/icons/`; вс�
   онбординга звать `codex exec --ephemeral --sandbox read-only -C /home/pakar/igor/remlab -o answer.md - < prompt.md`
   (подписка ChatGPT). **Профили `vercel*` ЗАПРЕЩЕНЫ (ADR-0301, 17.10):** деньги шлюза — только для продукта. **Исключение (ADR-0327, 23.10):**
   подписка исчерпана → экономно `--profile vercel-sol` (gpt-6-sol) как запасной; `vercel` (astra) не звать.
+  Запуск с router/`r`-оболочки (21.11, лимит подписки до 25.11 15:25): в оболочке нет `VERCEL_AI_GATEWAY_KEY` («Missing environment
+  variable») — как `tools/book-check.sh`: `set -a; . tools/scout/.env; set +a; codex exec --profile vercel-sol --ephemeral --sandbox read-only …`
+  (файл ключей не читать и не печатать).
 - **Как звали до 15.10:** `codex exec --sandbox read-only -C /home/pakar/igor/remlab -o answer.md resume 01a00a62-33e2-7051-93c6-37bff5c6937e - < prompt.md   (флаги — ДО resume)`
 - **[История] Через шлюз Vercel (13.10, ADR-0253; отменено ADR-0301):** когда у подписки ChatGPT кончился лимит или нужна gpt-6-astra —
   `set -a; . tools/scout/.env; set +a; codex exec --profile vercel --sandbox read-only -C … -o answer.md resume <ID> - < prompt.md`.

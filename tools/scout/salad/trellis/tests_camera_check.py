@@ -285,5 +285,52 @@ m_v, m_s = PF.splat_mask(cube_V, cam_c, 128), PF.splat_mask(S_pts, cam_c, 128)
 check('surf_points: маска по поверхности заполнена, по вершинам дырявая (плоские грани)', m_s.sum() > 10 * m_v.sum(), f'{int(m_s.sum())} vs {int(m_v.sum())} px')
 check('surf_points: воспроизводимо (seed)', np.array_equal(PF._surf_points(cube, 500), PF._surf_points(cube, 500)))
 
+
+# 10. тонкий предмет (T-188/2): площадная мерка проваливается на 1–2 px сдвига палки, мерка по контуру — нет
+check('rules: thin — числа из файла', all(isinstance(RULES['thin'].get(k), (int, float)) and RULES['thin'][k] > 0 for k in ('half_frac', 'share_min', 'tau_frac', 'precision_min', 'recall_min')) and RULES['thin']['enabled'] is True)
+
+
+def lamp() -> np.ndarray:
+    m = rect(20, 180, 100, 103)                                          # стойка 3 px
+    m |= rect(20, 23, 100, 150)                                          # рука
+    m |= rect(176, 180, 80, 124)                                         # плита
+    return m
+
+
+A_l = lamp()
+tm0 = CC.thin_metrics(A_l, A_l, RULES)
+check('thin: торшер — тонкий (доля ≥ порога), форма == фото: precision=recall=1, passed', tm0['eligible'] and tm0['passed'] and tm0['precision'] == 1.0 and tm0['recall'] == 1.0, str(tm0))
+S_l = np.roll(A_l, 1, axis=1)
+iou_l = float((S_l & A_l).sum()) / float((S_l | A_l).sum())
+tm1 = CC.thin_metrics(S_l, A_l, RULES)
+check('thin: сдвиг на 1 px — IoU площади ниже порога, контур годен', iou_l < RULES['iou_min'] and tm1['passed'], f'iou {iou_l:.3f} {tm1}')
+tm2 = CC.thin_metrics(np.roll(A_l, 12, axis=1), A_l, RULES)
+check('thin: сдвиг на 12 px (≫ допуска) — контур провален', tm2['eligible'] and not tm2['passed'], str(tm2))
+box = rect(40, 160, 40, 160)
+tm3 = CC.thin_metrics(np.roll(box, 25, axis=1), box, RULES)
+check('thin: компактный предмет — не тонкий (eligible=false), путь не включается', not tm3['eligible'], str(tm3))
+tm4 = CC.thin_metrics(np.zeros_like(A_l), A_l, RULES)
+check('thin: пустая форма — не годен, без исключения', not tm4['passed'] and not tm4['eligible'])
+with tempfile.TemporaryDirectory() as root:
+    r1 = e2e('lamp1', S_l, A_l, root)
+    check('e2e торшер сдвиг 1 px: passed=true по контуру, thin_rescue, причина названа', r1['passed'] and r1['extra']['thin_rescue'] is True and r1['extra']['thin']['eligible'] and not r1['extra']['shape_mismatch'] and 'по контуру' in r1["extra"]["note"], r1["extra"]["note"])
+    r2 = e2e('lamp2', np.roll(A_l, 12, axis=1), A_l, root)
+    check('e2e торшер сдвиг 12 px: провал, не спасён', not r2['passed'] and r2['extra']['thin_rescue'] is False, r2['reason'])
+    r3 = e2e('box', np.roll(box, 25, axis=1), box, root)
+    check('e2e компактный с плохим IoU: провал, не спасён', not r3['passed'] and r3['extra']['thin_rescue'] is False and r3['extra']['thin']['eligible'] is False)
+    r4 = e2e('lamp3', S_l, A_l, root, prep_plate=True)
+    check('e2e торшер, но 02-prep plate_found без среза (unreliable): провал остаётся', not r4['passed'] and r4['extra']['thin_rescue'] is False and r4['extra']['unreliable'] is True, r4['reason'])
+    r5 = e2e('good2', np.roll(A, 1, axis=1), A, root)
+    check('e2e годная по площади: путь не нужен, thin_rescue=false (спасение не отнимает и не подменяет)', r5['passed'] and r5['extra']['thin_rescue'] is False)
+    rules_off = json.loads(json.dumps(RULES))
+    rules_off['thin']['enabled'] = False
+    _lr = CC.load_rules
+    CC.load_rules = lambda path=CC.RULES_PATH: rules_off
+    try:
+        r6 = e2e('lamp4', S_l, A_l, root)
+    finally:
+        CC.load_rules = _lr
+    check('e2e enabled=false в правилах: торшер снова брак (путь выключается правилом)', not r6['passed'] and r6['extra']['thin_rescue'] is False and r6['extra']['thin'] is None, r6['reason'])
+
 print('all ok' if not bad else f'FAILED: {bad}')
 sys.exit(1 if bad else 0)

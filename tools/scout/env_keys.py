@@ -153,6 +153,9 @@ def _selftest() -> int:
     import remlab_tmp  # временное селфтеста — на диске, не в /tmp; папка убирается при выходе (T-20261107-13)
     remlab_tmp.use('env_keys-selftest')
     import tempfile
+    # самопроверка делает временный git-репо: из git-хука (pre-push) пришли бы GIT_DIR/GIT_INDEX_FILE и коммит «init» лёг бы в НАСТОЯЩИЙ репозиторий (21.11, T-20261121-184)
+    for _k in [k for k in os.environ if k.startswith('GIT_')]:
+        del os.environ[_k]
     bad = 0
 
     def ok(label: str, cond: bool) -> None:

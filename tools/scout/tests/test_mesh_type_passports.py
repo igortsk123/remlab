@@ -775,12 +775,99 @@ def test_shadow_k1_in_one():
 
 # ------------------------------------------------------------------ (е) код паспортов не зависит от salad/
 def test_e():
-    print('(е) код паспортов не зависит от salad/:')
-    # Прежняя часть «git diff --stat по tools/scout/salad пуст относительно merge-base с origin/main» (T-151/7) убрана 21.11 (T-170/2, по решению директора):
-    # она проверяла одну ветку T-151 и после её вливания ложно краснеет на любой ветке с правками salad (путь покраски живёт в salad/trellis) и на грязной копии.
-    # Остаётся статическая проверка: сам код паспортов в salad/worker не заходит.
+    print('(е) salad/ не изменён относительно базы ветки:')
+    r = subprocess.run(['git', '-C', ROOT, 'merge-base', 'HEAD', 'origin/main'], capture_output=True, text=True)
+    base = r.stdout.strip()
+    if r.returncode != 0 or not base:
+        # в CI копия обязана быть с историей (ci.yml: fetch-depth: 0) — отсутствие базы там = красный, а не тихий пропуск (Codex T-151/7)
+        ok(not os.environ.get('CI'), 'нет origin/main: в CI база обязана быть (fetch-depth: 0), локально проверка по diff пропущена — остаётся статическая')
+    else:
+        # смысл стража T-151: ПАСПОРТНАЯ работа не трогает платный путь. Поэтому судим коммиты, которые меняют файлы паспортов: ни один из них не меняет tools/scout/salad.
+        # Независимые законные правки salad (набор проб, T-178/2 и т.п.) в другом коммите стража не краснят — прежняя проверка «весь diff salad пуст» падала на любой из них.
+        pfiles = [f'tools/scout/{n}' for n in ('mesh_type_passports.py', 'passport_shadow.py', 'passport_measure.py')]
+        lg = subprocess.run(['git', '-C', ROOT, 'log', '--format=%H', f'{base}..HEAD', '--'] + pfiles, capture_output=True, text=True)
+        bad = []
+        for sha in lg.stdout.split():
+            st = subprocess.run(['git', '-C', ROOT, 'show', '--stat', '--format=', sha, '--', 'tools/scout/salad'], capture_output=True, text=True)
+            if st.returncode != 0 or st.stdout.strip():
+                bad.append(f'{sha[:8]}: {st.stdout.strip()[:120]}')
+        ok(lg.returncode == 0 and not bad, 'ни один коммит с файлами паспортов (от базы ветки) не меняет tools/scout/salad' + ('' if not bad else f': {bad}'))
     src = open(os.path.join(SCOUT, 'passport_shadow.py'), encoding='utf-8').read() + open(os.path.join(SCOUT, 'mesh_type_passports.py'), encoding='utf-8').read()
     ok('salad/worker' not in src, 'код паспортов не обращается к salad/worker.py (фаза 2)')
+    _guard_example()
+
+
+def _guard_example():
+    """Самопроверка стража на примере: коммит с паспортом И salad ловится, «только salad» не судится (иначе сужение превратило бы проверку в пустую)."""
+    # ВАЖНО (урок 21.11, T-178/2): git-хуки (pre-push/pre-commit) выставляют GIT_DIR / GIT_INDEX_FILE / GIT_WORK_TREE; унаследовав их, `git -C <tmp> init/add/commit` работает
+    # в НАСТОЯЩЕМ репозитории (тест выставил core.bare=true и наделал коммитов поверх HEAD). Поэтому в временном репо — окружение без всех GIT_*, `git init` с явным путём
+    # и проверка, что верхний каталог репо — именно временная папка, до любых записей.
+    genv = {k: v for k, v in os.environ.items() if not k.startswith('GIT_')}
+    genv['GIT_CEILING_DIRECTORIES'] = os.path.dirname(tempfile.gettempdir()) or '/'
+    with tempfile.TemporaryDirectory() as td:
+        td = os.path.realpath(td)
+
+        def g(*a):
+            return subprocess.run(['git', '-C', td] + list(a), capture_output=True, text=True, env=genv)
+        subprocess.run(['git', 'init', '-q', td], capture_output=True, text=True, env=genv)
+        top = g('rev-parse', '--show-toplevel').stdout.strip()
+        if os.path.realpath(top) != td:
+            ok(False, f'самопроверка стража: временное репо не изолировано (верх {top!r}) — прекращено без записей')
+            return
+        g('config', 'user.email', 't@t')
+        g('config', 'user.name', 't')
+        os.makedirs(os.path.join(td, 'tools/scout/salad'))
+        open(os.path.join(td, 'tools/scout/mesh_type_passports.py'), 'w').write('a')
+        open(os.path.join(td, 'tools/scout/salad/x.py'), 'w').write('a')
+        g('add', '-A')
+        g('commit', '-qm', 'один коммит: паспорт и salad')
+        sha = g('rev-parse', 'HEAD').stdout.strip()
+        st = g('show', '--stat', '--format=', sha, '--', 'tools/scout/salad')
+        lg = g('log', '--format=%H', '--', 'tools/scout/mesh_type_passports.py')
+        ok(sha in lg.stdout.split() and st.stdout.strip() != '', 'страж ловит коммит, где паспорт и salad вместе (пример)')
+        open(os.path.join(td, 'tools/scout/salad/x.py'), 'w').write('b')
+        g('add', '-A')
+        g('commit', '-qm', 'только salad')
+        sha2 = g('rev-parse', 'HEAD').stdout.strip()
+        lg2 = g('log', '--format=%H', '--', 'tools/scout/mesh_type_passports.py')
+        ok(sha2 not in lg2.stdout.split(), 'коммит только salad страж не судит (законная правка набора)')
+
+
+def test_e_hook_env():
+    """Под git-хуком (pre-push/pre-commit) в окружении стоят GIT_DIR/GIT_INDEX_FILE/GIT_WORK_TREE: самопроверка стража НЕ должна трогать репозиторий хука
+    (21.11 она выставила core.bare=true и сделала чужие коммиты). Подставной «репозиторий хука» — до и после: core.bare, HEAD, число коммитов, индекс."""
+    print('(е2) самопроверка стража изолирована от окружения git-хука:')
+    with tempfile.TemporaryDirectory() as td:
+        td = os.path.realpath(td)
+        clean = {k: v for k, v in os.environ.items() if not k.startswith('GIT_')}
+
+        def dg(*a):
+            return subprocess.run(['git', '-C', td] + list(a), capture_output=True, text=True, env=clean)
+        subprocess.run(['git', 'init', '-q', td], capture_output=True, text=True, env=clean)
+        dg('config', 'user.email', 'd@d')
+        dg('config', 'user.name', 'd')
+        open(os.path.join(td, 'f.txt'), 'w').write('x')
+        dg('add', '-A')
+        dg('commit', '-qm', 'база')
+
+        def snap():
+            return (dg('config', '--get', 'core.bare').stdout.strip(), dg('rev-parse', 'HEAD').stdout.strip(), dg('rev-list', '--count', 'HEAD').stdout.strip(),
+                    dg('status', '--porcelain').stdout)
+        before = snap()
+        keep = {k: os.environ.get(k) for k in ('GIT_DIR', 'GIT_INDEX_FILE', 'GIT_WORK_TREE')}
+        os.environ.update(GIT_DIR=os.path.join(td, '.git'), GIT_INDEX_FILE=os.path.join(td, '.git', 'index'), GIT_WORK_TREE=td)
+        try:
+            n0 = len(BAD)
+            _guard_example()
+            ran_ok = len(BAD) == n0
+        finally:
+            for k, v in keep.items():
+                if v is None:
+                    os.environ.pop(k, None)
+                else:
+                    os.environ[k] = v
+        ok(ran_ok, 'самопроверка стража прошла и под GIT_*-окружением хука')
+        ok(snap() == before, f'репозиторий «хука» не тронут (core.bare, HEAD, число коммитов, индекс): {before[:3]} → {snap()[:3]}')
 
 
 def _hang_cmd():
@@ -1004,7 +1091,7 @@ def test_shadow_reverdict():
 
 
 def main():
-    for f in (gold, chain_roles, synthetic, crop_box_test, test_a, test_b, test_g, test_d, test_d2, test_shadow_k1_in_one, test_e, test_shadow_reverdict,
+    for f in (gold, chain_roles, synthetic, crop_box_test, test_a, test_b, test_g, test_d, test_d2, test_shadow_k1_in_one, test_e, test_e_hook_env, test_shadow_reverdict,
               test_t7_timeouts, test_t7_claim, test_t7_observe, test_t7_failopen, test_t7_migration):
         f()
     print(f'\ntest_mesh_type_passports: {"ОШИБОК " + str(len(BAD)) if BAD else "всё зелёное"}')

@@ -866,6 +866,80 @@ def test_nail_twins():
     ok(not TF.nail_twins(lab5, known, cand, part, {0: 86.0}, c)['mask'].any(), "двойники другого цвета — кандидаты не перекрашиваются в красное")
 
 
+def test_borrow_donors():
+    print("вариант 1 Ш6: часть без блоков берёт микрофактуру у части того же материала (роль и тон), узорную и skip не трогает:")
+    tones = {0: [70, 2, 4], 1: [72, 2, 5], 2: [40, 10, -30], 3: [71, 3, 4], 4: [70, 2, 4]}
+    roles = {0: 'body', 1: 'body', 2: 'body', 3: 'legs', 4: 'body'}
+    r = TF.borrow_donors([1, 2, 3], [0, 4], tones, roles, set(), 6.0)
+    ok(r.get(1) in (0, 4), f"ч.1 (тон рядом, та же роль) берёт у ч.0 или 4 (взяла {r.get(1)})")
+    ok(2 not in r, "ч.2 (другой тон) не берёт")
+    ok(3 not in r, "ч.3 (другая роль, ножки) не берёт")
+    ok(TF.borrow_donors([1], [0], tones, roles, {0}, 6.0) == {}, "донор из «плохих» (узорная/skip) не годится")
+    ok(TF.borrow_donors([1], [0], tones, roles, {1}, 6.0) == {}, "сама часть из «плохих» не берёт")
+    ok(TF.borrow_donors([1], [0], {0: tones[0]}, roles, set(), 6.0) == {}, "нет своего тона у части — не берёт")
+    ok(TF.borrow_donors([1], [0, 4], tones, roles, set(), 0.5) == {}, "порог тона строже расстояния — не берёт")
+    tones2 = {1: [70, 2, 4], 0: [70.3, 2, 4], 4: [72, 2, 5]}
+    ok(TF.borrow_donors([1], [0, 4], tones2, {0: 'body', 1: 'body', 4: 'body'}, set(), 6.0)[1] == 0, "без границ — ближайший по тону (ч.0)")
+    ok(TF.borrow_donors([1], [0, 4], tones2, {0: 'body', 1: 'body', 4: 'body'}, set(), 6.0, {(1, 4): 120})[1] == 4, "общая граница важнее близости тона (берёт ч.4, соседнюю)")
+
+
+def test_tone_only():
+    print("tone_only (Ш6, р.8): цвет тон-слоя остаётся, фактура кладётся поверх; в известные и статистику не входит:")
+    rng = np.random.RandomState(5)
+    big = Quads()
+    big.quad([[0, 0, 0], [1, 0, 0], [1, 1, 0], [0, 1, 0]], (0, 0, .5, 1))
+    big.quad([[2, 0, 0], [3, 0, 0], [3, 1, 0], [2, 1, 0]], (.5, 0, 1, 1))
+    t2 = np.full((256, 256, 3), 120, np.uint8)
+    t2[:, :128] = np.clip(120 + rng.normal(0, 8, (256, 128, 3)), 0, 255)
+    to = np.zeros((256, 256), bool)
+    to[40:200, 150:230] = True
+    t2[to] = (150, 100, 100)                                   # тон-слой: другой цвет, чем «серая» заливка
+    gb = big.geom(t2)
+    kb = np.zeros((256, 256), bool)
+    kb[:, :128] = True
+    cfg = {'gutter': 0, 'erode_known': 0}
+    o0 = TF.fill([gb], [kb], None, cfg=cfg, mirror=False)
+    o1 = TF.fill([gb], [kb], None, cfg=cfg, mirror=False, tone_only=[to])
+    lab0 = TF.rgb2lab(o0['tex'][0][to].reshape(-1, 3))
+    lab1 = TF.rgb2lab(o1['tex'][0][to].reshape(-1, 3))
+    lab_in = TF.rgb2lab(t2[to].reshape(-1, 3))
+    ok(float(np.abs(lab1.mean(axis=0) - lab_in.mean(axis=0)).max()) < 2.0, f'среднее тон-слоя сохранено (Lab вход {lab_in.mean(axis=0).round(1)}, итог {lab1.mean(axis=0).round(1)})')
+    ok(float(np.abs(lab0.mean(axis=0) - lab_in.mean(axis=0)).max()) > 5.0, 'без tone_only тон-слой перекрашивается заливкой (контроль различимости)')
+    ok(float(lab1[:, 0].std()) > 0.5, f'фактура положена поверх (разброс L {lab1[:, 0].std():.2f})')
+    ok(o1['report'].get('tone_only_texels', 0) > 0, f'отчёт: тон-только тексели {o1["report"].get("tone_only_texels")}')
+    ok(np.array_equal(o1['tex'][0][kb], o0['tex'][0][kb]), 'известное не изменилось')
+    ok(o1['report']['parts'][0]['known_texels'] == int(kb.sum()), 'тон-слой не вошёл в статистику части (известных столько же)')
+
+
+def test_part_pattern_single_truth():
+    print("part_pattern: узорность части — одна функция на 07 и на мерку Б:")
+    rng = np.random.RandomState(9)
+    big = Quads()
+    big.quad([[0, 0, 0], [1, 0, 0], [1, 1, 0], [0, 1, 0]], (0, 0, .5, 1))
+    big.quad([[2, 0, 0], [3, 0, 0], [3, 1, 0], [2, 1, 0]], (.5, 0, 1, 1))
+    tex = np.full((256, 256, 3), 140, np.uint8)
+    tex[:, :128] = np.clip(140 + rng.normal(0, 4, (256, 128, 1)), 0, 255)                       # часть 0: серая однотонная (шум только по яркости: ткань без цветного рисунка)
+    sp = np.zeros((256, 128), bool)
+    sp[::16, ::16] = True
+    from scipy.ndimage import binary_dilation as _bd
+    sp = _bd(sp, iterations=3)
+    right = np.full((256, 128, 3), 140, np.uint8)
+    right[sp] = (210, 90, 120)                                                                  # часть 1: розовые пятна на сером
+    tex[:, 128:] = right
+    g = big.geom(tex)
+    kn = np.ones((256, 256), bool)
+    nf = len(g['F'])
+    pf = np.zeros(nf, np.int32)
+    pf[nf // 2:] = 1
+    tx = TF.Tex(g, np.asarray(g['V'], float), 256, pf)
+    labs = [TF.rgb2lab(tex.reshape(-1, 3)).reshape(256, 256, 3)]
+    c = dict(TF.FILL)
+    _, eff = TF.part_pattern([tx], labs, [kn], [0, 1], c, {0: 60.0, 1: 60.0})
+    ok(eff[1] > c['pattern_chroma'] >= eff[0], f'узорная часть выше порога, однотонная ниже (eff {eff[0]:.2f} / {eff[1]:.2f}, порог {c["pattern_chroma"]})')
+    o = TF.fill([g], [kn], [pf], cfg={'gutter': 0, 'erode_known': 0}, mirror=False)
+    ok(bool(o['report']['parts'][1]['pattern']) and not o['report']['parts'][0]['pattern'], 'отчёт 07 даёт тот же вердикт, что part_pattern')
+
+
 def test_pr_camera_and_winding():
     print("камера образца узора из этапа 4 (az, el) и обмотка граней:")
     cfg, note = TF.pr_camera_from_extra({'camera': {'az': 341.3, 'el': 8.5}}, {})
@@ -1132,7 +1206,7 @@ def test_render_low():
 
 
 def main() -> int:
-    for f in (test_color, test_photo, test_parts, test_no_known_part, test_mirror, test_texture, test_gutter_render, test_seam_steps_concavity, test_diffuse_quilt_far, test_draft_source, test_tone_mode_pattern, test_quilt_efros, test_quilt_holes, test_known_unchanged, test_render_pattern, test_outlier_blocks, test_dark_fabric, test_trellis_relief, test_part_roles_from_stage3, test_stage7_side_tone_smooth_rules, test_tone_from_neighbour, test_nail_twins, test_pr_camera_and_winding, test_hidden_visible, test_stage6_gate, test_cli_run_stage, test_orphan_parts, test_cli_parts_flags, test_run_stage_fallback, test_render_low):
+    for f in (test_color, test_photo, test_parts, test_no_known_part, test_mirror, test_texture, test_gutter_render, test_seam_steps_concavity, test_diffuse_quilt_far, test_draft_source, test_tone_mode_pattern, test_quilt_efros, test_quilt_holes, test_known_unchanged, test_render_pattern, test_outlier_blocks, test_dark_fabric, test_trellis_relief, test_part_roles_from_stage3, test_stage7_side_tone_smooth_rules, test_tone_from_neighbour, test_nail_twins, test_borrow_donors, test_tone_only, test_part_pattern_single_truth, test_pr_camera_and_winding, test_hidden_visible, test_stage6_gate, test_cli_run_stage, test_orphan_parts, test_cli_parts_flags, test_run_stage_fallback, test_render_low):
         f()
     print(f'tests_tex_fill: ошибок {bad}')
     return 1 if bad else 0

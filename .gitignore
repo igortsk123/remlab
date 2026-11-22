@@ -38,6 +38,9 @@ tools/scout/*
 !tools/scout/*.sh
 !tools/scout/*.sql
 !tools/scout/README.md
+# пробы на RunPod/Salad (образ, воркер, драйвер, веса кусками) — код, T-20261119-90/2, T-20261121-178/1
+!tools/scout/runpod/
+!tools/scout/runpod/**
 # заранее сжатые копии витрины /demo — код публикации (`publish_demo.sh` зовёт его), T-20261110-43/2
 !tools/scout/precompress.mjs
 # снимальщик карточек комнат тура — код воркера (`tools/floorplan/cards.py` зовёт его), T-20261112-29

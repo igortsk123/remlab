@@ -510,13 +510,16 @@ if have_tm:
 
 print('[3] драйвер')
 import trellis_trial as T  # noqa: E402
-b = T.build_body('trial-mvadapter-i2tex-x', 'ghcr.io/x/y:t', 'high', 'mvadapter-i2tex', 'hf_SECRET', 8, 32768, 'note', {'basic': {'username': 'u', 'password': 'PW'}}, extra_env={'MVTEX_OFFLOAD': '0'})
+T.WORK_TYPES.update({m: 'trellis_shape' for m in ('supratex', 'mvpainter', 'mvadapter-i2tex')})      # ТОЛЬКО в тесте: своих строк профиля у способа нет (отказ проверяет tests_trellis_trial); логика тела — на ресурсах trellis_shape
+_REAL_PROF = T.KD.resource_profile
+T.KD.resource_profile = lambda wt, path=None: {**_REAL_PROF(wt, path), 'card': T.CARD['class_name']}      # как в tests_trellis_trial: карта профиля = 4090 теста, без обращения к API классов
+b = T.build_body('trial-mvadapter-i2tex-x', 'ghcr.io/x/y:t', 'low', 'mvadapter-i2tex', 'hf_SECRET', 'note', {'basic': {'username': 'u', 'password': 'PW'}}, extra_env={'MVTEX_OFFLOAD': '0'})
 e = b['container']['environment_variables']
 ok('тело группы: MODEL=mvadapter-i2tex, код воркера в command (python3 -u -c, без pip: версии закреплены в образе), приёмника на проде нет, окружение воркера доехало',
    e['MODEL'] == 'mvadapter-i2tex' and b['container']['command'][:2] == ['python3', '-u'] and not any(k.startswith('MESH_SINK') for k in e) and e['MVTEX_OFFLOAD'] == '0'
    and __import__('zlib').decompress(__import__('base64').b64decode(e['TRIAL_WORKER_Z'])) == open(os.path.join(HERE, 'worker_trellis.py'), 'rb').read())
 ok('только 4090, образ тот же, веса открытые (закрытых весов проверять не надо)', b['container']['resources']['gpu_classes'] == [T.CARD['class_id']] and b['container']['image'] == 'ghcr.io/x/y:t' and 'mvadapter-i2tex' not in T.HF_GATED)
-b2 = T.build_body('trial-trellis2-x', 'ghcr.io/x/y:t', 'high', 'trellis2', 'hf_SECRET', 8, 32768, 'note', {'basic': {}}, extra_env={'MVTEX_OFFLOAD': '0'})
+b2 = T.build_body('trial-trellis2-x', 'ghcr.io/x/y:t', 'low', 'trellis2', 'hf_SECRET', 'note', {'basic': {}}, extra_env={'MVTEX_OFFLOAD': '0'})
 ok('окружение воркера чужим моделям не передаётся', 'MVTEX_OFFLOAD' not in b2['container']['environment_variables'])
 ok('--worker-env: MVTEX_* и PIXTEX_* проходят, чужое (HF_TOKEN, PATH) — отказ', T.parse_worker_env(['MVTEX_OFFLOAD=0', 'PIXTEX_LOW_VRAM=1']) == {'MVTEX_OFFLOAD': '0', 'PIXTEX_LOW_VRAM': '1'}
    and T.parse_worker_env(['HF_TOKEN=x']) is None and T.parse_worker_env(['PATH=/x']) is None)
@@ -538,7 +541,7 @@ class NoTouchMG:
         raise AssertionError('Salad тронут до проверки аргументов: ' + k)
 
 
-base = dict(model='mvadapter-i2tex', inputs=tp, skus=['a:1'], plan='1024:1', seed=42, texture_mesh=shape_path, set=None, suffix='t', tier='high', texture=2048, decimation=500000,
+base = dict(model='mvadapter-i2tex', inputs=tp, skus=['a:1'], plan='1024:1', seed=42, texture_mesh=shape_path, set=None, suffix='t', tier='low', texture=2048, decimation=500000,
             mv_yaw='auto', mv_uv_size=4096, mv_steps=50, mv_ref_scale=1.0, worker_env=[], debug_cuda=False, out=None, apply=False)
 for name, kw in (('без --texture-mesh', {'texture_mesh': None}), ('два товара', {'skus': ['a:1', 'b:2']}), ('--mv-yaw 45', {'mv_yaw': '45'}), ('--mv-uv-size 777', {'mv_uv_size': 777}),
                  ('--mv-steps 0', {'mv_steps': 0}), ('--worker-env с чужой переменной', {'worker_env': ['HF_TOKEN=x']})):

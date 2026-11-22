@@ -1,0 +1,32 @@
+# ОБРАЗ P3-SAM (Hunyuan3D-Part) ДЛЯ СРАВНЕНИЯ МОДЕЛЕЙ ЧАСТЕЙ — Ш5 / T-183, сборка T-20261121-179 (р.router-5): веса ВНУТРИ образа, сети внутри нет.
+# Окружение — как заявлено в README P3-SAM: Python 3.10, PyTorch 2.4.0+cu121, CUDA 12.1 → карты Ampere/Ada (sm_80/86/89: RTX 4090, 3090, A-класс). НА RTX 5090 (Blackwell, sm_120) torch 2.4 НЕ работает — для 5090 нужен отдельный порт на torch ≥2.7/cu128 (не делался).
+# Код: github.com/Tencent-Hunyuan/Hunyuan3D-Part @ e96be065 (папка P3-SAM + XPart/partgen, откуда берётся Sonata). Лицензия Tencent — не действует в ЕС/UK/Ю.Корее (владелец снял запрет для внутреннего сравнения, TG 909).
+# Веса (проверено по HF API 21.11): `tencent/Hunyuan3D-Part` @ 67717446 файл `p3sam/p3sam.safetensors` 0,42 ГиБ (НЕ 6,6 — 6,18 ГиБ это `model/model.safetensors` генератор X-Part, он не нужен) + `facebook/sonata` @ df998974 `sonata.pth` 0,4 ГиБ (код грузит его с HF по имени, кладём туда, где он ищет: /root/sonata).
+# Вход/выход: `p3sam-auto --mesh_path <glb|папка> --output_path <папка>` → маски частей без имён (код auto_mask.py демо). Воркера-сервера для Salad здесь нет — это следующий шаг после пробы.
+FROM nvidia/cuda:12.1.1-cudnn8-devel-ubuntu22.04
+ENV DEBIAN_FRONTEND=noninteractive PIP_NO_CACHE_DIR=1 PYTHONUNBUFFERED=1 TORCH_CUDA_ARCH_LIST="8.0;8.6;8.9"
+ARG CODE_COMMIT=e96be065375438962375b55326416291342958a7
+ARG P3SAM_REV=677174466c53571e8bacd5050dff5948734a1a4d
+ARG SONATA_REV=df99897472c09f91ba9288da0a034aacffc0b010
+RUN apt-get update && apt-get install -y --no-install-recommends python3 python3-pip python3-dev git ca-certificates build-essential ninja-build libgl1 libglib2.0-0 curl \
+    && rm -rf /var/lib/apt/lists/* && ln -sf /usr/bin/python3 /usr/local/bin/python
+RUN python -m pip install --upgrade pip setuptools wheel
+RUN pip install torch==2.4.0 torchvision==0.19.0 --index-url https://download.pytorch.org/whl/cu121
+RUN pip install "numpy<2" scipy scikit-learn addict timm "huggingface_hub<1.0" safetensors viser fpsample trimesh numba pillow tqdm omegaconf fast-simplification \
+    && pip install spconv-cu120 \
+    && pip install "https://data.pyg.org/whl/torch-2.4.0+cu121/torch_scatter-2.1.2+pt24cu121-cp310-cp310-linux_x86_64.whl" \
+    && pip install --no-deps "https://github.com/Dao-AILab/flash-attention/releases/download/v2.6.3/flash_attn-2.6.3+cu123torch2.4cxx11abiFALSE-cp310-cp310-linux_x86_64.whl"
+RUN git clone https://github.com/Tencent-Hunyuan/Hunyuan3D-Part.git /opt/Hunyuan3D-Part && cd /opt/Hunyuan3D-Part && git checkout ${CODE_COMMIT} \
+    && cd P3-SAM/utils/chamfer3D && python setup.py install
+# веса — отдельными слоями; Sonata кладётся ТЕМ ЖЕ вызовом, что в коде (local_dir=/root/sonata), чтобы офлайн-поиск его нашёл
+RUN python -c "from huggingface_hub import hf_hub_download as h; print(h('tencent/Hunyuan3D-Part','p3sam/p3sam.safetensors',revision='${P3SAM_REV}',local_dir='/opt/weights/hy3d-part'))"
+RUN python -c "from huggingface_hub import hf_hub_download as h; print(h('facebook/sonata','sonata.pth',revision='${SONATA_REV}',local_dir='/root/sonata'))"
+RUN test -s /opt/weights/hy3d-part/p3sam/p3sam.safetensors && test -s /root/sonata/sonata.pth && du -sh /opt/weights /root/sonata \
+    && { echo "P3-SAM: Hunyuan3D-Part ${CODE_COMMIT}; p3sam ${P3SAM_REV}; sonata ${SONATA_REV}; torch 2.4.0+cu121 py3.10"; python -m pip list 2>/dev/null | grep -i -E "^(torch|spconv|flash|numpy|timm|huggingface|fpsample|numba|trimesh) " | tr -s " "; } > /opt/BUILD_INFO_PARTS.txt
+# проверка импортов без видеокарты — НЕ валит сборку (на машине без CUDA часть модулей может не грузиться); итог в BUILD_INFO
+RUN { python -c "import sys; sys.path.insert(0,'/opt/Hunyuan3D-Part/XPart/partgen'); import torch, spconv.pytorch, torch_scatter, flash_attn, fpsample, numba, trimesh; from models import sonata; from utils.misc import smart_load_model; print('импорты P3-SAM ok, torch', torch.__version__)" || echo 'ПРЕДУПРЕЖДЕНИЕ: импорт без видеокарты не прошёл (проверка — на живой машине)'; } 2>&1 | tee -a /opt/BUILD_INFO_PARTS.txt
+RUN printf '#!/bin/bash\ncd /opt/Hunyuan3D-Part/P3-SAM/demo && exec python auto_mask.py --ckpt_path /opt/weights/hy3d-part/p3sam/p3sam.safetensors "$@"\n' > /usr/local/bin/p3sam-auto && chmod +x /usr/local/bin/p3sam-auto
+COPY worker_parts.py /app/worker_parts.py
+ENV HF_HUB_OFFLINE=1 HF_HOME=/data/hf OUT_DIR=/data/out MODEL=p3sam PORT=8000
+EXPOSE 8000
+CMD ["python", "-u", "/app/worker_parts.py"]

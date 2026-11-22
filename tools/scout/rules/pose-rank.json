@@ -1,0 +1,35 @@
+{
+  "version": 4,
+  "_about": "Пороги pose_rank.py (T-173/3 Ш2б); вхолостую, на выбор позы не влияют. orientation — «перёд или зад» (ТЕНЬ): sil_gap — разрыв силуэта, color_rel/color_abs — цвет, geom_gap — кромки геометрии, need_votes — сколько сигналов должны сойтись, sym_de/sym_shade/sym_iou — «две стороны выглядят одинаково», blur_frac — сглаживание цвета; все пороги пробные, не подгонялись, решение о включении — по перепрогону. choose — выбор позы (--rank-pick): flip_tol — на сколько градусов семейство считается зеркальным боевой (не выбирается), bf_gain — минимальный выигрыш Boundary-F(2 px), chamfer_tol_px — на сколько Chamfer может стать хуже; пороги пробные. dino — третий голос «перёд или зад» (pose_dino.py, DINOv2): gap — на сколько косинус CLS с фото у выбранной позы должен отличаться от +180°, чтобы это был голос; порог пробный.",
+  "fam_k": 5,
+  "fam_sep_az": 30.0,
+  "fam_sep_el": 12.0,
+  "floor_margin": 0.05,
+  "tie_score": 0.01,
+  "weak_gain_eps": 0.01,
+  "bf_tols": [
+    1,
+    2,
+    4,
+    8
+  ],
+  "orientation": {
+    "sil_gap": 0.02,
+    "color_rel": 0.1,
+    "color_abs": 0.5,
+    "geom_gap": 0.05,
+    "need_votes": 2,
+    "sym_de": 2.0,
+    "sym_iou": 0.9,
+    "blur_frac": 0.0078125,
+    "sym_shade": 3.0
+  },
+  "choose": {
+    "flip_tol": 30.0,
+    "bf_gain": 0.05,
+    "chamfer_tol_px": 0.5
+  },
+  "dino": {
+    "gap": 0.05
+  }
+}

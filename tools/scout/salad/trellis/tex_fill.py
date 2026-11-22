@@ -99,6 +99,12 @@ FILL = {
     'pattern_side_cos': 0.2,         # узорная часть: узор кладётся только на тексели, обращённые к фото (cos нормали с направлением камеры pr_az ≥ порога); обратная сторона/сиденье/низ — тон ткани без цветов (дефект Sakura 21.11: цветы спинки на заду и сиденье)
     'smooth_roles': ['legs', 'frame', 'handles'],   # роли без плитки фактуры на недостроенном: тон части без блоков («ёлочка» стыков на дереве, Sakura 21.11)
     'tone_share_roles': ['legs', 'frame', 'handles'],   # роли, у которых тон един на все части одной роли (один материал — один тон: задние ножки темнее передних из-за теней)
+    'tone_only_use': True,           # run_stage: читать `tone_only.png` из папки этапа 6 (нет файла — прежнее поведение)
+    'relief_calib_donor': False,     # Ш6 вариант 2: часть без своего фото берёт калибровку рельефа TRELLIS (σ/p95 чистой ткани) у донора тона той же роли; по умолчанию выкл. (без него рельеф у таких частей = stat)
+    'borrow_texture': False,         # Ш6 вариант 1: часть без чистых блоков (нет квилта/блока) берёт микрофактуру у части ТОЙ ЖЕ материальной зоны (роль и тон близки, не узорная); по умолчанию выкл.
+    'borrow_luma_only': True,        # заимствованный лоскут даёт только яркость (a/b — нет): цвет остаётся тоном части
+    'borrow_rescale': True,          # заимствованный лоскут читается в масштабе поверхности: шаг текселя части ÷ шаг текселя донора
+    'borrow_max_de': 6.0,            # …тон (Lab, евклид) донорской части ближе этого
     'nail_twins': True,              # мелкие тёмные компактные пятна (шляпки гвоздей) невидимой стороны: цвет — как у видимых двойников этой части с фото, форма — нативная (ряд гвоздей сзади не стирается тоном ткани)
     'nail_dark_drop': 25.0,          # пятно темнее тона части на столько L
     'nail_min_tone_L': 60.0,         # части темнее этого тона (тёмная ткань) — правило молчит: тёмное там не выделяется
@@ -289,6 +295,18 @@ def _blur_norm(img, known, sigma: float):
     num = np.stack([gaussian_filter(img[..., k] * w, sigma, mode='nearest') for k in range(3)], -1)
     den = gaussian_filter(w, sigma, mode='nearest')
     return num / np.maximum(den, 1e-9)[..., None], den
+
+
+def part_pattern(txs: list, labs: list, kn: list, part_ids: list, c: dict, tone_l: dict) -> tuple:
+    """Узорность частей — ОДНА истина для 07 и для мерки Б (Ш6, 21.11): хроматический разброс высоких частот известных текселей (a/b), с поправкой на тёмный тон.
+    tone_l {часть: L тона}. → ({часть: pat_std}, {часть: pat_eff}); часть узорная ⇔ pat_eff > c['pattern_chroma']."""
+    lowb = [_blur_norm(labs[gi], kn[gi], c['pattern_blur_px'])[0] for gi in range(len(txs))]
+    pat_std, pat_eff = {}, {}
+    for p in part_ids:
+        Hp = np.concatenate([(labs[gi] - lowb[gi]).reshape(-1, 3)[tx.ti[kn[gi].reshape(-1)[tx.ti] & (tx.part == p)]] for gi, tx in enumerate(txs)])
+        pat_std[p] = float(np.hypot(Hp[:, 1].std(), Hp[:, 2].std())) if len(Hp) else 0.0
+        pat_eff[p] = pat_std[p] * (min(1.0, max(float(tone_l.get(p, 0.0)), 0.0) / float(c['pattern_dark_ref'])) if float(c['pattern_dark_ref']) > 0 else 1.0)
+    return pat_std, pat_eff
 
 
 def tone_of(L, c) -> np.ndarray:
@@ -683,7 +701,7 @@ def _band(lab_l: np.ndarray, mask: np.ndarray, s_lo: float, s_hi: float) -> tupl
     return b1 - b2[..., 0], w2
 
 
-def draft_relief(txs: list, draft: dict, labs: list, kn: list, part_ids: list, pat_parts: set, c: dict, R: dict) -> tuple:
+def draft_relief(txs: list, draft: dict, labs: list, kn: list, part_ids: list, pat_parts: set, c: dict, R: dict, calib: dict | None = None) -> tuple:
     """Вариант C-gated (T-164, Codex+директор 21.11): цвет — как stat, фактура невидимого — рельеф яркости черновика TRELLIS (DoG-полоса в МАСШТАБЕ ПОВЕРХНОСТИ, без цвета и пятен), только там, где это безопасно.
     Ворота по части: узорная (pat_parts) → stat; класс материала части (`c['part_class']`: {часть: семья}) вне `allowed_families` (дерево, металл, стекло…) → без рельефа; класса нет → только «однотонная» (σ низкочастотной L известного ≤ homog_max_std).
     Полоса: σ_lo/σ_hi = band_lo/band_hi (доли размера предмета) ÷ шаг текселя части (texel_spacing, поправка плотности UV). Амплитуда: gain = min(gain_max, σ_фото / σ_черновика) — оба σ робастные (MAD), фото — только уверенно известное
@@ -714,6 +732,17 @@ def draft_relief(txs: list, draft: dict, labs: list, kn: list, part_ids: list, p
         s_hi = float(np.clip(R['band_hi'] / sp, 2.0 * s_lo, R['sigma_hi_max']))
         selk = [kn[gi].reshape(-1)[tx.ti] & (tx.part == p) for gi, tx in enumerate(txs)]
         Lk = np.concatenate([labs[gi].reshape(-1, 3)[tx.ti[selk[gi]], 0] for gi, tx in enumerate(txs)])
+        s_lo_k, s_hi_k, calib_q = s_lo, s_hi, None
+        if len(Lk) < c['min_known'] and calib and p in calib and calib[p] not in pat_parts:
+            # Ш6 вариант 2 для части БЕЗ своего фото: «чистую ткань» (σ и p95 полосы) берём у части-донора тона той же роли (этап 3), полосу фото считаем в масштабе ДОНОРА (его шаг текселя),
+            # полосу черновика — в масштабе этой части: сравниваются одинаковые физические размеры; своего фото нет → «ворота однотонности» смотрят на донора
+            calib_q = int(calib[p])
+            selk = [kn[gi].reshape(-1)[tx.ti] & (tx.part == calib_q) for gi, tx in enumerate(txs)]
+            Lk = np.concatenate([labs[gi].reshape(-1, 3)[tx.ti[selk[gi]], 0] for gi, tx in enumerate(txs)])
+            spq = float(np.median(np.concatenate([spacing[gi][tx.part == calib_q] for gi, tx in enumerate(txs)] or [np.zeros(0)]))) if any((tx.part == calib_q).any() for tx in txs) else 0.0
+            if spq > 0:
+                s_lo_k = float(np.clip(R['band_lo'] / spq, R['sigma_lo_min'], R['sigma_lo_max']))
+                s_hi_k = float(np.clip(R['band_hi'] / spq, 2.0 * s_lo_k, R['sigma_hi_max']))
         if len(Lk) < c['min_known']:
             rp[p] = {'fallback': f'мало известного ({len(Lk)} текселей) — stat'}
             continue
@@ -723,7 +752,7 @@ def draft_relief(txs: list, draft: dict, labs: list, kn: list, part_ids: list, p
             T = tx.T
             Lm = labs[gi][..., 0]
             m_vis = kn[gi] & (Lm >= shade)
-            band, w2 = _band(Lm, m_vis, s_lo, s_hi)
+            band, w2 = _band(Lm, m_vis, s_lo_k, s_hi_k)
             pb.append(band.reshape(-1)[tx.ti[selk[gi] & (w2.reshape(-1)[tx.ti] >= R['far_w']) & (Lm.reshape(-1)[tx.ti] >= shade)]])
             dl = draft['lab'][gi][..., 0]
             band_d, wd = _band(dl, dok[gi], s_lo, s_hi)
@@ -743,8 +772,8 @@ def draft_relief(txs: list, draft: dict, labs: list, kn: list, part_ids: list, p
             rp[p] = {'fallback': f'мало черновика в части ({len(DD)}) — stat', 'spacing': round(sp, 5)}
             continue
         sd = _mad_sigma(DD)
-        homog = float(np.concatenate([_blur_norm(np.repeat(labs[gi][..., 0][..., None], 3, axis=2), kn[gi], s_hi)[0][..., 0].reshape(-1)[tx.ti[selk[gi]]] for gi, tx in enumerate(txs)]).std())
-        info = {'family': fam, 'spacing': round(sp, 5), 'sigma_lo_px': round(s_lo, 2), 'sigma_hi_px': round(s_hi, 2), 'sigma_photo': round(sv, 3), 'sigma_draft': round(sd, 3), 'p95_photo': round(p95, 3), 'homog_std': round(homog, 2), 'fallback': None}
+        homog = float(np.concatenate([_blur_norm(np.repeat(labs[gi][..., 0][..., None], 3, axis=2), kn[gi], s_hi_k)[0][..., 0].reshape(-1)[tx.ti[selk[gi]]] for gi, tx in enumerate(txs)]).std())
+        info = {'family': fam, 'spacing': round(sp, 5), 'sigma_lo_px': round(s_lo, 2), 'sigma_hi_px': round(s_hi, 2), 'sigma_photo': round(sv, 3), 'sigma_draft': round(sd, 3), 'p95_photo': round(p95, 3), 'homog_std': round(homog, 2), 'calib_donor': calib_q, 'fallback': None}
         if fam is None and homog > R['homog_max_std']:
             info['fallback'] = f'класса нет, часть неоднотонная (σ низких частот {homog:.1f} > {R["homog_max_std"]}) — stat'
             rp[p] = info
@@ -797,10 +826,12 @@ def draft_relief(txs: list, draft: dict, labs: list, kn: list, part_ids: list, p
 
 
 # ---------------------------------------------------------------- заливка ---------------------------------------
-def fill(geoms: list, known: list, parts: list | None = None, cfg: dict | None = None, mirror: bool = True, draft: dict | None = None) -> dict:
+def fill(geoms: list, known: list, parts: list | None = None, cfg: dict | None = None, mirror: bool = True, draft: dict | None = None, tone_only: list | None = None) -> dict:
     """geoms — `tex_coverage.load_geoms`; known — по геометрии (T×T bool), parts — по геометрии номера частей ГРАНЕЙ (None — одна часть).
     draft — черновик TRELLIS на ту же форму/развёртку (`draft_texels`): {'lab': [(T,T,3) Lab], 'ok': [(T,T) bool]}; нужен при cfg['source']=='trellis': невидимое берёт цвет черновика,
     сдвинутый переносом статистики Lab (медиана/разброс части: черновик → видимое фото), детали черновика сохраняются; стыки — та же растушёвка. 'stat' (по умолчанию) — цвет части + лоскут фактуры.
+    tone_only — (Ш6, р.8) по геометриям T×T bool: тексели с ТОНОВЫМ полем этапа 6 (цвет есть в visible.glb, фото-правды нет; в `known` НЕ входят). Цвет такого тексела остаётся как есть (тон-поле, среднее сохраняется),
+    а фактура/заём кладутся поверх как на неизвестный (остаток без среднего); в статистику частей, пул блоков и доноры они не входят. Нет — поведение прежнее.
     → {'tex': [uint8 (T,T,3) по геометриям], 'report': {...}}. Форма и развёртка не меняются."""
     from scipy.ndimage import binary_erosion, distance_transform_edt
     from scipy.sparse import coo_matrix
@@ -823,6 +854,8 @@ def fill(geoms: list, known: list, parts: list | None = None, cfg: dict | None =
         if rgb.shape[0] != T:
             raise ValueError('текстура больше сетки карты (cap) — загрузите с её размером')
         k = np.asarray(known[gi], bool).copy()
+        if tone_only is not None and gi < len(tone_only):
+            k &= ~np.asarray(tone_only[gi], bool)              # тон-только — не фото-правда: в известные не входит (фактура и статистика — не отсюда)
         k0 = k & ~unpainted_mask(rgb)                      # известное этапа 6 и покрашенное — НЕ перезаписывается никогда (правило «заливка не меняет известное»)
         if c['erode_known'] > 0:
             k = binary_erosion(k, iterations=int(c['erode_known']))
@@ -841,11 +874,6 @@ def fill(geoms: list, known: list, parts: list | None = None, cfg: dict | None =
     glob_l = np.concatenate(glob_l) if glob_l else np.zeros((0, 3))
     g_mean = tone_of(glob_l, c)
     g_std = glob_l.std(axis=0) if len(glob_l) else np.zeros(3)
-    lowb = [_blur_norm(labs[gi], kn[gi], c['pattern_blur_px'])[0] for gi in range(len(txs))]
-    pat_std, pat_eff = {}, {}
-    for p in part_ids:
-        Hp = np.concatenate([(labs[gi] - lowb[gi]).reshape(-1, 3)[tx.ti[kn[gi].reshape(-1)[tx.ti] & (tx.part == p)]] for gi, tx in enumerate(txs)])
-        pat_std[p] = float(np.hypot(Hp[:, 1].std(), Hp[:, 2].std())) if len(Hp) else 0.0
     for p in part_ids:
         L = np.concatenate([labs[gi].reshape(-1, 3)[tx.ti[kn[gi].reshape(-1)[tx.ti] & (tx.part == p)]] for gi, tx in enumerate(txs)])
         if len(L) >= c['min_known']:
@@ -853,7 +881,9 @@ def fill(geoms: list, known: list, parts: list | None = None, cfg: dict | None =
         else:
             stat[p] = (g_mean, g_std, len(L), True)
             rep['fallback_global'] += 1
-        pat_eff[p] = pat_std[p] * (min(1.0, max(float(stat[p][0][0]), 0.0) / float(c['pattern_dark_ref'])) if float(c['pattern_dark_ref']) > 0 else 1.0)
+    pat_std, pat_eff = part_pattern(txs, labs, kn, part_ids, c, {p: float(stat[p][0][0]) for p in part_ids})              # одна функция на 07 и на мерку Б (мишень wholepart не узорная)
+    for p in part_ids:
+        L = np.concatenate([labs[gi].reshape(-1, 3)[tx.ti[kn[gi].reshape(-1)[tx.ti] & (tx.part == p)]] for gi, tx in enumerate(txs)])
         rep['parts'][p] = {'known_texels': int(len(L)), 'pattern': bool(pat_eff[p] > c['pattern_chroma']), 'pattern_chroma_std': round(float(pat_std[p]), 2), 'pattern_chroma_eff': round(float(pat_eff[p]), 2), 'mean_lab': [round(float(x), 2) for x in stat[p][0]], 'std_lab': [round(float(x), 2) for x in stat[p][1]], 'stats_from_global': stat[p][3]}
     rep['tone_shared'] = {}
     roles_ = c.get('part_role') or {}
@@ -1276,9 +1306,31 @@ def fill(geoms: list, known: list, parts: list | None = None, cfg: dict | None =
                 rep['quilt'] = rep.get('quilt', 0) + 1
             else:
                 rep['no_patch'] += 1
+    borrow_ratio = {}
+    if c.get('borrow_texture'):
+        tones_ = {int(q): np.asarray(stat[q][0], float) for q in part_ids if not stat[q][3]}
+        need_ = [q for q in part_ids if q not in patches]
+        bd = borrow_donors(need_, [q for q in part_ids if q in rep.get('quilt_info', {})], tones_, {int(q): roles_.get(q, roles_.get(str(q))) for q in part_ids}, set(skip_parts) | set(pat_parts), float(c['borrow_max_de']), part_borders(txs))
+        for q, d_ in bd.items():
+            patches[q] = patches[d_]
+            patch_gain[q] = patch_gain.get(d_, 1.0)
+        rep['borrowed'] = {int(q): int(d_) for q, d_ in bd.items()}
+        if bd:
+            sp_all = [texel_spacing(tx) for tx in txs]
+
+            def _msp(pp):
+                v = np.concatenate([sp_all[gi][tx.part == pp] for gi, tx in enumerate(txs)] or [np.zeros(0)])
+                return float(np.median(v)) if len(v) else 0.0
+            borrow_ratio = {int(q): (float(np.clip(_msp(q) / _msp(d_), 0.25, 4.0)) if _msp(q) > 0 and _msp(d_) > 0 else 1.0) for q, d_ in bd.items()}
+            bb_ = part_borders(txs)
+            rep['borrowed_info'] = {int(q): {'donor': int(d_), 'adjacent': bool(bb_.get((min(q, d_), max(q, d_)), 0) > 0), 'ratio': round(borrow_ratio[int(q)], 3)} for q, d_ in bd.items()}
+        else:
+            borrow_ratio = {}
+    rep['texture_src'] = {int(p): ('borrow' if p in rep.get('borrowed', {}) else 'quilt' if p in rep.get('quilt_info', {}) else ('patch' if p in patches else 'none')) for p in part_ids}      # чем даётся фактура на каждой части: квилт из чистых блоков / один блок / ничем (гладко, счётчик no_patch)
     relief = None
     if c['source'] == 'trellis_relief':
-        relief, rep['relief'] = draft_relief(txs, draft, labs, kn, part_ids, set(raw_mean) | set(pat_parts), c, RULES['trellis_relief'])
+        calib_ = {int(p_): int(v_['donor']) for p_, v_ in rep.get('tone_from_neighbour', {}).items()} if c.get('relief_calib_donor') else None
+        relief, rep['relief'] = draft_relief(txs, draft, labs, kn, part_ids, set(raw_mean) | set(pat_parts), c, RULES['trellis_relief'], calib=calib_)
         Rr = RULES['trellis_relief']
         spac = [texel_spacing(tx) for tx in txs]
         fade = []
@@ -1307,10 +1359,15 @@ def fill(geoms: list, known: list, parts: list | None = None, cfg: dict | None =
             ox1, oy1 = rng.randint(0, Bp, 2)
             ox2, oy2 = rng.randint(0, Bp, 2)
             t2 = np.rot90(tile)
-            r1 = tile[(py[sel] + oy1) % Bp, (px[sel] + ox1) % Bp]
-            r2 = t2[(py[sel] * 3 // 2 + oy2) % Bp, (px[sel] * 3 // 2 + ox2) % Bp]
+            qx_, qy_ = px[sel], py[sel]
+            if p in borrow_ratio and c.get('borrow_rescale', True):                                  # лоскут донора — в масштабе поверхности (физический размер зерна тот же)
+                qx_, qy_ = (qx_ * borrow_ratio[p]).astype(np.int64), (qy_ * borrow_ratio[p]).astype(np.int64)
+            r1 = tile[(qy_ + oy1) % Bp, (qx_ + ox1) % Bp]
+            r2 = t2[(qy_ * 3 // 2 + oy2) % Bp, (qx_ * 3 // 2 + ox2) % Bp]
             gain = float(np.clip(patch_gain[p], c['gain_min'], c['gain_max']))
             add[sel] = gain * (r1 + r2) / np.sqrt(2.0) if p not in raw_mean else r1                  # узорная: узор из фото целиком (отклонение от тона), без смешения двух сдвигов
+            if p in borrow_ratio and c.get('borrow_luma_only', True):
+                add[sel, 1:] = 0.0                                                                    # заём: только яркость
             if p in raw_mean:                                                                         # узор только на стороне фото: зад, сиденье, низ — тон без цветов
                 add[sel & ~side_ok] = 0.0
             smooth_p = smooth_part_rule(roles_.get(p, roles_.get(str(p))), rep.get('quilt_info', {}).get(p, {}).get('jump_L'), p in raw_mean, c)
@@ -1330,6 +1387,14 @@ def fill(geoms: list, known: list, parts: list | None = None, cfg: dict | None =
             add[m_, 1:] = 0.0
             rep.setdefault('relief_texels', 0)
             rep['relief_texels'] += int(m_.sum())
+        if tone_only is not None and gi < len(tone_only):
+            ts_ = np.asarray(tone_only[gi], bool).reshape(-1)[tx.ti][unk_flat] & ~unpainted_mask(tex_in[gi].reshape(-1, 3)[tx.ti[unk_flat]])
+            if ts_.any():                                                       # цвет тон-только тексела — его собственный (поле этапа 6), не геодезическая заливка; остаток (без среднего) — поверх
+                ob_ = out_lab[gi].reshape(-1, 3)
+                ti_ = tx.ti[unk_flat][ts_]
+                ob_[ti_] = labs[gi].reshape(-1, 3)[ti_]
+                rep.setdefault('tone_only_texels', 0)
+                rep['tone_only_texels'] += int(ts_.sum())
         out_lab[gi].reshape(-1, 3)[tx.ti[unk_flat]] += add
     rep['time_s']['texture'] = round(time.time() - t0, 2)
     # --- итог: RGB, желоб, проверка покрытия
@@ -1656,6 +1721,26 @@ def _compact_blobs(mask, c: dict):
     return acc, np.where(acc, lab, 0), int(keep.sum())
 
 
+def borrow_donors(need: list, quilted: list, tones: dict, roles: dict, bad: set, max_de: float, borders: dict | None = None) -> dict:
+    """Ш6 вариант 1: {часть без своей фактуры → часть-донор того же материала}. need — части без блока/квилта; quilted — части с квилтом (есть чему делиться);
+    tones {часть: Lab} (нет ключа — тон не свой, не берём); roles {часть: роль}; bad — части, которым/у которых брать нельзя (узорные, skip). Донор: та же роль, тон ближе max_de, самый близкий по тону."""
+    out = {}
+    for p in need:
+        if p in bad or p not in tones:
+            continue
+        best = None
+        for q in quilted:
+            if q == p or q in bad or q not in tones or roles.get(q) != roles.get(p):
+                continue
+            d = float(np.linalg.norm(np.asarray(tones[p], float) - np.asarray(tones[q], float)))
+            adj = 0 if borders and borders.get((min(p, q), max(p, q)), 0) > 0 else 1              # Ш6 п.2: часть с общей границей — материал почти наверняка тот же — идёт первой
+            if d <= max_de and (best is None or (adj, d) < best[0]):
+                best = ((adj, d), q)
+        if best is not None:
+            out[p] = best[1]
+    return out
+
+
 def nail_twins(lab_in, known, cand, partmap, tone_L: dict, c: dict) -> dict:
     """Шляпки гвоздей невидимой стороны (T-164, Sakura HD): у невидимых текселей нативный (TRELLIS) цвет в развёртке сохраняет мелкие тёмные пятна — ряд гвоздей, а заливка тоном ткани его стирает,
     и сзади гвоздей нет, спереди есть. Пятно-кандидат принимается, если тёмнее тона СВОЕЙ части на `nail_dark_drop` L, компактно и мелко (линии шва — нет), у части (или у товара) есть
@@ -1972,9 +2057,10 @@ def run_stage(run: str, sku: str, glb: str, known: list | None = None, parts=Non
     if (cfg or {}).get('source') in ('trellis', 'trellis_relief'):
         draft = draft_texels(geoms, TC.load_geoms(draft_glb), cfg)
     kback = known_from_photo(geoms, azimuths=(180.0,))
+    _to = load_tone_only_png(prev_dir) if (prev_dir and (cfg or {}).get('tone_only_use', True)) else None      # тон-слой этапа 6 (р.8): цвет оставить, фактуру положить поверх
 
     def one(cfg_, draft_):
-        r_ = fill(geoms, known, parts, cfg_, mirror, draft_)
+        r_ = fill(geoms, known, parts, cfg_, mirror, draft_, tone_only=_to)
         rp, tx_ = r_['report'], r_['tex']
         de_ = part_deltas(geoms, parts, known, kback, tex_before, tx_)
         kt = max(sum(v['known_texels'] for v in rp['parts'].values()), 1)
@@ -2029,6 +2115,18 @@ def run_stage(run: str, sku: str, glb: str, known: list | None = None, parts=Non
     check = PS.write_check(d, out_name or STAGE, sku, None, dict(metrics['empty_pct'], name='empty_pct'), '', metrics={k: v for k, v in metrics.items() if k != 'empty_pct'}, seconds=secs,
                            outputs=['filled.glb', 'report.json'], frame=PS.FRAME, known_pct=rep['known_pct'], mirrored_pct=rep['mirrored_pct'], empty_before_pct=rep['unpainted_before_pct'], empty_by_view=rep['unpainted_by_view'], steps=rep['steps'], parts=parts_note, source_used=used, source_tried=tried, pattern_metric=rep['pattern_metric'], pattern_src=rep.get('pattern_src'), stage6=s6, quilt_rejected=rep.get('quilt_rejected'))
     return {'check': check, 'report': rep, 'geoms': geoms, 'tex_before': tex_before, 'tex_after': tex_after, 'known': known, 'parts': parts, 'dir': d, 'deltaE': de, 'kback': kback}
+
+
+def load_tone_only_png(visible: str) -> list | None:
+    """Маски «тон-только» этапа 6 (р.8): `tone_only.png`, `tone_only1.png`, … (белое = цвет есть, фото-правды нет). Нет файла — None (прежнее поведение)."""
+    from PIL import Image
+    out = []
+    for i in range(64):
+        fp = os.path.join(visible, "tone_only.png" if i == 0 else f"tone_only{i}.png")
+        if not os.path.exists(fp):
+            break
+        out.append(np.asarray(Image.open(fp).convert("L")) > 127)
+    return out or None
 
 
 def load_known_png(visible: str) -> list:
