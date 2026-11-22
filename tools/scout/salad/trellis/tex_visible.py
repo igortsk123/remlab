@@ -65,7 +65,8 @@ DEPTH_PX = 3.0          # допуск «тексель не заслонён»:
 TONE_ON = bool(int(os.environ['TEX_VISIBLE_TONE'])) if 'TEX_VISIBLE_TONE' in os.environ else bool(R.get('tone_oblique', True))   # Ш3б: тон с острого угла (rules/tex-visible.json, _tone_doc); env 0 — контрольный прогон «без тона»
 TONE_COS_MIN = float(R.get('tone_cos_min', 0.08))           # острее — луч почти вдоль поверхности, наблюдение ничего не стоит
 TONE_WL = float(R.get('tone_wl', 0.3))                      # доверие наблюдению: светлота слабо (косой свет, тень) …
-TONE_WC = float(R.get('tone_wc', 0.8))                      # … цветность сильно
+TONE_WC = float(R.get('tone_wc', 0.8))                      # … цветность сильно (это доверие ВДАЛИ от наблюдавшихся граней)
+TONE_NEAR_FRAC = float(R.get('tone_near_frac', 0.05))       # у самой наблюдавшейся грани доверие 1,0 (фото — истина на этих пикселях), к этой доле габарита по поверхности спадает до tone_wl / tone_wc
 TONE_SMOOTH_ITERS = int(R.get('tone_smooth_iters', 12))    # сглаживание поля Δ по поверхности (шагов графа граней)
 TONE_REF_ITERS = int(R.get('tone_ref_iters', 12))           # сглаживание опорного цвета (известное рядом) по поверхности
 TONE_DIST_W = float(R.get('tone_dist_weight', 0.15))        # цена шага по поверхности: доля расстояния между центрами граней …
@@ -376,7 +377,9 @@ def tone_oblique(tex: np.ndarray, occ: np.ndarray, known: np.ndarray, fid: np.nd
     dn, dd = _gsmooth(B, delta0 * reached[:, None], reached.astype(np.float64), TONE_SMOOTH_ITERS)
     painted = reached & (dd > 0)
     delta = dn / np.maximum(dd, 1e-12)[:, None]
-    lab_new = ref + delta * np.array([TONE_WL, TONE_WC, TONE_WC])[None, :]
+    near = np.clip(1.0 - dist / max(TONE_NEAR_FRAC * ext, 1e-9), 0.0, 1.0)[:, None]                  # 1 на наблюдавшейся грани → 0 дальше tone_near_frac·габарит
+    wgt = near + (1.0 - near) * np.array([TONE_WL, TONE_WC, TONE_WC])[None, :]
+    lab_new = ref + delta * wgt
     frgb = LP.l2s8(LP.lab_to_lin(lab_new.astype(np.float32)[None]))[0]
     fcl = np.clip(fid, 0, nF - 1)
     take = occ & ~known & painted[fcl]
@@ -520,14 +523,33 @@ def frame_from_tex(st: dict, geoms: list, texs: list) -> np.ndarray:
     return out
 
 
+HATCH_TINT = 225      # светлота подмешиваемого серого: непросмотренное — мягкая заливка цветом заготовки с лёгкой серой вуалью (не штриховка: на рёбрах мелких островов штриховка читалась как «трещины»)
+HATCH_VEIL = 0.4
+
+
 def hatch(tex: np.ndarray, known: np.ndarray) -> np.ndarray:
-    """Только для показа: непросмотренные тексели — нейтральная серая штриховка (цвет заготовки не путать с цветом товара)."""
+    """Только для показа: непросмотренные тексели — цвет заготовки с лёгкой серой вуалью (подпись на листе — «не видно на фото»)."""
     out = tex.copy()
-    ty, tx = np.mgrid[0: tex.shape[0], 0: tex.shape[1]]
-    pat = np.where(((tx + ty) // 6) % 2 == 0, 205, 170).astype(np.uint8)
     miss = ~known
-    out[miss] = pat[miss][:, None]
+    out[miss] = np.clip((1.0 - HATCH_VEIL) * tex[miss].astype(np.float64) + HATCH_VEIL * HATCH_TINT, 0, 255).astype(tex.dtype)
     return out
+
+
+def caption(im: np.ndarray, text: str) -> np.ndarray:
+    """Подпись в левом нижнем углу плитки листа (шрифт с кириллицей; нет шрифта — стандартный)."""
+    from PIL import ImageDraw, ImageFont
+    pil = Image.fromarray(im)
+    d = ImageDraw.Draw(pil)
+    size = max(14, im.shape[0] // 40)
+    font = None
+    for fp in ('/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf', '/usr/share/fonts/dejavu/DejaVuSans.ttf'):
+        if os.path.exists(fp):
+            font = ImageFont.truetype(fp, size)
+            break
+    if font is None:
+        font = ImageFont.load_default()
+    d.text((8, im.shape[0] - size - 10), text, fill=(90, 90, 90), font=font)
+    return np.asarray(pil)
 
 
 def multi_material(L: np.ndarray) -> bool:
@@ -627,9 +649,10 @@ def frame(path: str, prgb: np.ndarray, pmask: np.ndarray, after: np.ndarray, dst
     sv = side_view_angles(cam)
     panels = [np.where(pmask[..., None], prgb, 255).astype(np.uint8), after]
     panels = [np.asarray(Image.fromarray(p).resize((size * 2, size * 2), Image.LANCZOS)) for p in panels]
+    panels[1] = caption(panels[1], 'светлая вуаль — не видно на фото')
     for yaw in (sv['left']['yaw'], sv['right']['yaw']):
         im = np.asarray(LP.render_unlit(view_glb or dst_glb, yaw, sv['pitch'], size * 2))
-        panels.append(np.where((im[..., 3] > 8)[..., None], im[..., :3], 255).astype(np.uint8))
+        panels.append(caption(np.where((im[..., 3] > 8)[..., None], im[..., :3], 255).astype(np.uint8), 'светлая вуаль — не видно на фото'))
     Image.fromarray(np.concatenate(panels, axis=1)).save(path)
     return sv
 
@@ -731,7 +754,7 @@ def _run(glb: str, photo: str, pose_run: str, run_dir: str, sku: str, cos_min: f
         Image.fromarray(pv).save(os.path.join(d, 'prov.png' if i == 0 else f'prov{i}.png'))
     after = frame_from_tex(st, geoms, tr['tex'])
     m = metrics(geoms, st, prgb, pmask, tr, after, cos_min)
-    view = os.path.join(d, '_view.glb')                                 # для показа: непросмотренное — штриховка; в visible.glb заготовка не тронута (этап 7 заливает её)
+    view = os.path.join(d, '_view.glb')                                 # для показа: непросмотренное — светлая вуаль + подпись; в visible.glb заготовка не тронута (этап 7 заливает её)
     write_glb(geoms, [hatch(t, k) for t, k in zip(tr['tex'], tr['known'])], view)
     after_vis = frame_from_tex(st, geoms, [hatch(t, k) for t, k in zip(tr['tex'], tr['known'])])
     side_views = frame(os.path.join(d, 'frame.png'), prgb, pmask, after_vis, dst, view_glb=view, cam=st['camera'])
@@ -765,7 +788,7 @@ def resheet_sides(stage_d: str, pose_run: str, size: int = 480) -> dict:
         panels = [old[:, :w4], old[:, w4: 2 * w4]]
         for yaw in (sv['left']['yaw'], sv['right']['yaw']):
             im = np.asarray(LP.render_unlit(view, yaw, sv['pitch'], w4))
-            panels.append(np.where((im[..., 3] > 8)[..., None], im[..., :3], 255).astype(np.uint8))
+            panels.append(caption(np.where((im[..., 3] > 8)[..., None], im[..., :3], 255).astype(np.uint8), 'светлая вуаль — не видно на фото'))
         Image.fromarray(np.concatenate(panels, axis=1)).save(os.path.join(stage_d, 'frame.png'))
     finally:
         os.remove(view)

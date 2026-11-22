@@ -133,8 +133,8 @@ class TestTexVisible(unittest.TestCase):
         self.assertEqual(int((tr['known_photo'][0] & cell).sum()), 0)               # с фото на верхе ничего не взято (острый угол)
         self.assertTrue(tr['known'][0][pv == TV.PROV['synth']].all())               # но known включает тон (этап 7 не перекрашивает)
         col = tex[cell & (pv == TV.PROV['synth'])].astype(float).mean(0)
-        self.assertTrue(130 < col[0] < 220)                                         # не копия наблюдения и не копия опоры
-        self.assertTrue(abs(col[0] - 220) < abs(col[0] - 130))                      # ближе к опоре: светлота доверена слабо (WL=0,3)
+        self.assertTrue(120 < col[0] < 220)                                         # не копия опоры (220): тон взят с наблюдения
+        self.assertTrue(abs(col[0] - 130) < abs(col[0] - 220))                      # у самой наблюдавшейся грани доверие 1,0 (tone_near_frac): цвет ≈ наблюдение, не светлее фото
         st0 = tr['stats'][0]
         self.assertEqual(st0['known'], int(tr['known_photo'][0].sum()))             # known_share считается без synth
         self.assertGreater(st0['known_synth'], 0)
@@ -397,6 +397,20 @@ class TestTexVisible(unittest.TestCase):
         self.assertGreaterEqual(new, 0.90, f'фото вдвое мельче кадра: {new:.3f}')
         self.assertGreaterEqual(eq, 0.90, f'фото = кадр: {eq:.3f}')
         self.assertLess(old, new - 0.03, f'контроль: линейная {old:.3f} должна быть хуже бикубики {new:.3f}')
+
+    def test_hatch_is_soft_veil_not_stripes(self):
+        """Лист 06: непросмотренное — цвет заготовки с лёгкой светлой вуалью (без штриховки: она читалась как «трещины»), просмотренное не тронуто; подпись не роняет."""
+        tex = np.zeros((32, 32, 3), np.uint8)
+        tex[:] = (20, 50, 90)
+        known = np.zeros((32, 32), bool)
+        known[:, :16] = True
+        out = TV.hatch(tex, known)
+        self.assertTrue((out[:, :16] == tex[:, :16]).all(), 'просмотренное изменено')
+        miss = out[:, 16:].reshape(-1, 3).astype(int)
+        self.assertEqual(len(np.unique(miss, axis=0)), 1, 'вуаль должна быть однородной, без штриховки')
+        self.assertTrue((miss[0] > np.array([20, 50, 90])).all(), 'вуаль светлее заготовки')
+        self.assertLess(int(np.abs(miss[0] - np.array([20, 50, 90])).max()), 120, 'остаётся цвет заготовки, не белое')
+        self.assertEqual(TV.caption(np.full((120, 160, 3), 255, np.uint8), 'тест').shape, (120, 160, 3))
 
 if __name__ == '__main__':
     unittest.main()
