@@ -33,6 +33,7 @@ DIGEST_RE = re.compile(r'^[A-Za-z0-9._\-/:]+@sha256:[0-9a-f]{64}$')
 DEFAULT_API_RULES = {'retries': 4, 'status_codes': [502, 503, 504], 'pauses_s': [5, 15, 30, 60]}
 SLOT_PRIO = 2                           # платные пробы — heavy-slot --prio 2 (P-038)
 SAFE_PREFIXES = ('mesh-', 'render-', 'trial-')       # чужие боевые группы не трогаем и не считаем «посторонними»
+HOLD = 'hold'                                         # before_job вернул HOLD → очередное задание пока не отправляем (нода прогрета и ждёт решения), цикл идёт дальше
 
 
 def say(*a) -> None:
@@ -738,6 +739,9 @@ class Watch:
     ready_min: float = 30
     stall_min: float = 5
     stall_gb: float = 0.05
+    slow_window_s: float = 0                         # сторож медленной сборки весов на running-ноде (0 — выключен): окно, с
+    slow_gb_min: float = 2.0                         # …и порог ГБ/мин (здоровая нода ≈7,5, медленная ≈0,95 — замер 22.11)
+    banked: float = 0.0                              # деньги, уже потраченные на пересаженные ноды (running_s считается заново на новой)
     last_cull: float | None = None                   # пересадка ноды при медленной докачке образа: «нода не выдана» считаем заново от неё
     run_since: float | None = None
     started_since: float | None = None
@@ -751,7 +755,7 @@ class Watch:
         return (t - self.run_since) if self.run_since is not None else 0.0
 
     def cost(self, t: float) -> float:
-        return cost_usd(self.running_s(t), self.price)
+        return self.banked + cost_usd(self.running_s(t), self.price)
 
     def cap_now(self) -> float:
         return effective_cap(self.first_done, self.probe_cap, self.cap)
@@ -782,6 +786,10 @@ class Watch:
                 self.events.append(('weights_gb', h['root_gb'], ''))
                 if weights_stalled(self.gb_hist, self.stall_min * 60, self.stall_gb):
                     return 'download_stalled', f'докачка весов не растёт {self.stall_min} мин (папка {h["root_gb"]} ГБ)'
+            if h.get('phase') == 'weights' and self.slow_window_s > 0:
+                rate = weights_slow(self.gb_hist, self.slow_window_s, self.slow_gb_min)
+                if rate is not None:
+                    return 'weights_slow', f'веса собираются {rate:.2f} ГБ/мин < {self.slow_gb_min} за {self.slow_window_s / 60:.0f} мин (папка {h["root_gb"]} ГБ) — нода медленная'
             if h.get('phase') == 'broken' or h.get('error'):
                 self.events.append(('warm_error', h.get('error'), ''))
                 return 'warm_failed', f'воркер сломан: {h.get("error")} (фаза {h.get("phase")})'
@@ -796,6 +804,36 @@ class Watch:
         if self.run_since is not None and self.ready_at is None and self.running_s(t) > self.ready_min * 60:
             return 'not_ready', f'{self.ready_min} мин после running модель не прогрелась'
         return None, ''
+
+
+def disk_guard_wanted(a) -> bool:
+    """DiskGuard (профиль, включён по умолчанию) и сторож `Watch.slow_window_s` (--slow-window-min, T-178/3) делают одно и то же: работает ОДИН. Явное окно сторожа весов выключает DiskGuard; `a.disk_guard=False` выключает его всегда."""
+    return bool(getattr(a, 'disk_guard', True)) and not float(getattr(a, 'slow_window_s', 0) or 0) > 0
+
+
+def weights_cull(w: 'Watch', guard, t: float, ins: list, why: str, say_fn=say) -> bool:
+    """Медленная сборка весов на running-ноде: пересадить (тот же бюджет `max_culls`, что у медленной докачки образа). Потраченное на эту ноду уходит в `banked`,
+    отсчёты «running/started/ответ/веса» начинаются заново на новой ноде. False — пересаживать нельзя (нет сторожа, бюджет исчерпан, нет running-инстанса): драйвер гасит группу."""
+    if guard is None or guard.culls >= guard.max_culls:
+        return False
+    run = [i for i in ins if i.get('state') == 'running' and i.get('id')]
+    if not run:
+        return False
+    guard._nh()
+    if not guard.take_slot():
+        say_fn('сторож весов: общий бюджет пересадок на час исчерпан — гашу')
+        return False
+    iid = run[0]['id']
+    say_fn(f'сторож весов: нода {iid[:8]} — {why} → пересаживаю (№{guard.culls + 1} из {guard.max_culls})')
+    if not guard.realloc(guard.group, iid, why):
+        return False
+    guard.culls += 1
+    w.banked = w.cost(t)
+    w.run_since = w.started_since = None
+    w.ever_ok = False
+    w.gb_hist = []
+    w.last_cull = t
+    return True
 
 
 # ---------------------------------------------------------------- общий учёт денег проб
@@ -988,13 +1026,16 @@ def _run_probe_once(a, MG, BR, spec: Spec, gw_factory=Gateway, sleep=time.sleep,
         say('ИТОГ', json.dumps({k: summary.get(k) for k in ('group', 'stopped_by', 'stop_verified')}, ensure_ascii=False))
         return 1
     w = Watch(t_start, price, a.probe_cap, a.cap, a.max_min, a.running_min, a.start_min, a.health_min, a.ready_min, a.stall_min, a.stall_gb)
+    w.slow_window_s = float(getattr(a, 'slow_window_s', 0) or 0)
+    w.slow_gb_min = float(getattr(a, 'slow_gb_min', 2.0) or 2.0)
     guard = (pull_guard or PullGuard)(name) if getattr(a, 'pull_guard', True) else None      # --no-pull-guard выключает (a.pull_guard=False)
-    dguard = (disk_guard or (lambda n: DiskGuard(n, min_gb_min=float((prof.get('expect') or {}).get('weights_gb_min_min') or DISK_MIN_GB_MIN))))(name) if getattr(a, 'disk_guard', True) else None
+    dguard = (disk_guard or (lambda n: DiskGuard(n, min_gb_min=float((prof.get('expect') or {}).get('weights_gb_min_min') or DISK_MIN_GB_MIN))))(name) if disk_guard_wanted(a) else None
     if guard is not None:
         guard.configure(image_gib)                                                           # норма докачки — от размера образа (ожидаемое × 2,5), не константы мешей
     gw = None
     streak = 0
     busy_waits = 0
+    post_retried: set = set()                                          # ключи, которым уже сделан повтор после POST без ответа (повтор — один)
     last_job_look = 0.0
     stall = JobStall(getattr(a, 'stuck_min', STUCK_MIN))
     pending = list(spec.jobs)
@@ -1046,6 +1087,11 @@ def _run_probe_once(a, MG, BR, spec: Spec, gw_factory=Gateway, sleep=time.sleep,
                 c, h = gw.call('GET', '/health', timeout=20)
                 last_h = (c, h)
                 why, detail = w.health(t, ins, c, h)
+                if why == 'weights_slow' and weights_cull(w, guard, t, ins, detail, say):
+                    gw = None                                              # новая нода — новый шлюз, отсчёт заново
+                    last_h = (None, {})
+                    summary['weights_culls'] = guard.culls
+                    why = None                                             # пересадили — дальше обычный шаг цикла (пауза в конце)
                 if why:
                     say(f'!! {detail} — гашу')
                     summary['stopped_by'] = why
@@ -1065,14 +1111,16 @@ def _run_probe_once(a, MG, BR, spec: Spec, gw_factory=Gateway, sleep=time.sleep,
                     say(msg)
             seen_ev = len(w.events)
             if w.ready_at is not None:
+                held = False                                                     # before_job вернул HOLD: задание пока не шлём (ждём решения, нода прогрета)
                 if cur is None and pending and spec.before_job:
                     why_plan = spec.before_job(pending[0], w.cost(t), w.cap_now())
-                    if why_plan:
+                    held = why_plan == HOLD
+                    if why_plan and not held:
                         say(f'новые задания не отправляю: {why_plan} — гашу')
                         summary['stopped_by'] = 'planned' if not str(why_plan).startswith('!') else str(why_plan)[1:]       # «!причина» — аварийный стоп (код 1), иначе плановый
                         summary['planned_reason'] = str(why_plan)
                         break
-                if cur is None and pending:
+                if cur is None and pending and not held:
                     k = pending.pop(0)
                     cur, info = spec.submit(gw, k, t)
                     if cur is None and info.get('http') == 429:
@@ -1081,6 +1129,12 @@ def _run_probe_once(a, MG, BR, spec: Spec, gw_factory=Gateway, sleep=time.sleep,
                         busy_waits += 1
                         if busy_waits in (1, 6) or busy_waits % 30 == 0:
                             say(f'задание {k}: нода занята (429) — жду, не провал (ожидание №{busy_waits})')
+                    elif cur is None and (info.get('post') or {}).get('worker_saw_job') is False and k not in post_retried:
+                        # POST без ответа/503 шлюза и воркер задание не видит (T-178 22.11): не провал — один повтор в конец очереди той же ноды
+                        post_retried.add(k)
+                        pending.append(k)
+                        summary.setdefault('post_timeouts', []).append({'key': k, **(info.get('post') or {})})
+                        say(f'задание {k}: POST без ответа — один повтор в конец очереди')
                     elif cur is None:
                         streak += 1
                         summary['jobs'][k] = {'status': 'not_accepted', **info}
@@ -1118,9 +1172,10 @@ def _run_probe_once(a, MG, BR, spec: Spec, gw_factory=Gateway, sleep=time.sleep,
                             say(f'задание {cur["key"]}: ОШИБКА', info.get('error') or info.get('status'))
                         cur = None
                 summary['failed'] = sum(1 for v in summary['jobs'].values() if v.get('status') != 'done')
-                if streak >= 2:
+                max_streak = int(getattr(a, 'fail_streak', 2) or 2)                # сколько отказов подряд до стопа (по умолчанию 2; пакет — --fail-streak 3)
+                if streak >= max_streak:
                     summary['stopped_by'] = 'fail_streak'
-                    say('!! 2 задания подряд не удались — гашу (чинить в коде)')
+                    say(f'!! {max_streak} задания подряд не удались — гашу (чинить в коде)')
                     break
                 if cur is None and not pending:
                     summary['stopped_by'] = 'done' if w.first_done and summary['failed'] == 0 else ('first_failed' if not w.first_done else 'done_with_failures')

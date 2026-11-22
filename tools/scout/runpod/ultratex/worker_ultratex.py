@@ -243,6 +243,7 @@ class Residency:
         self.torch, self.clock = torch_mod, clock
         self.phases: dict = {}
         self.moves: list = []
+        self.notes: list = []                                    # снимки памяти при OOM переноса, повтор удался (в метрики задания)
         self._phase = 'start'
         self.on_step = lambda name: None                         # ход задания в /health (kit_worker State.step): «te», «dit», «перенос dit→gpu 5с»
         self.labels: dict = {}                                   # подпись шага вместо имени фазы: {'dit': 'dit 7/25'} (ставит CfgDedup на каждом шаге DiT)
@@ -260,12 +261,54 @@ class Residency:
             self.torch.cuda.reset_peak_memory_stats()
         self._phase = name
 
+    def _tidy(self) -> None:
+        """Перед переносом на карту: собрать мусор, дождаться ядер, вернуть драйверу кэш аллокатора. T-178/3 (22.11): контрольный Блест упал на переносе модуля при 15,7 ГиБ свободных —
+        хвосты фазы VAE (6 видов 2048²) могли быть ещё живы, пауза фазы te (7+10 с) в режиме «пустой текст из файла» пропала."""
+        import gc
+        gc.collect()
+        if self._cuda():
+            self.torch.cuda.synchronize()
+            self.torch.cuda.empty_cache()
+
+    def _snap(self, name: str, exc: BaseException | None = None) -> dict:
+        """Снимок памяти карты для ошибки/метрик: что выделено, что зарезервировано, сколько свободно по драйверу, сколько веса модуля уже на карте."""
+        out: dict = {'module': name}
+        try:
+            cu = self.torch.cuda
+            free, total = cu.mem_get_info()
+            out.update(allocated_gb=round(cu.memory_allocated() / 2 ** 30, 2), reserved_gb=round(cu.memory_reserved() / 2 ** 30, 2),
+                       driver_free_gb=round(free / 2 ** 30, 2), total_gb=round(total / 2 ** 30, 2))
+            m = self.mods[name]
+            out['module_on_gpu_gb'] = round(sum(p.numel() * p.element_size() for p in m.parameters() if p.is_cuda) / 2 ** 30, 2)
+            out['module_total_gb'] = round(sum(p.numel() * p.element_size() for p in m.parameters()) / 2 ** 30, 2)
+            out['alloc_conf'] = os.environ.get('PYTORCH_CUDA_ALLOC_CONF', '')
+        except Exception as e:  # noqa: BLE001 — снимок не должен ронять разбор
+            out['snapshot_error'] = f'{type(e).__name__}: {e}'
+        if exc is not None:
+            out['error'] = f'{type(exc).__name__}: {str(exc)[:160]}'
+        return out
+
     def _move(self, name: str, to_gpu: bool) -> None:
         if self.on_gpu[name] == to_gpu:
             return
         t0 = self.clock()
         self.on_step(f'перенос {name}→{"gpu" if to_gpu else "cpu"}')
-        self.mods[name].to(self.device if to_gpu else 'cpu')
+        dev = self.device if to_gpu else 'cpu'
+        if to_gpu:
+            self._tidy()
+        try:
+            self.mods[name].to(dev)
+        except Exception as e:  # noqa: BLE001
+            low = str(e).lower()
+            if not (to_gpu and (type(e).__name__ == 'OutOfMemoryError' or ('out of memory' in low and 'cuda' in low))):
+                raise
+            first = self._snap(name, e)                              # снимок ДО очистки: что держало карту
+            self._tidy()
+            try:
+                self.mods[name].to(dev)                              # один повтор: переносит только то, что ещё на cpu
+            except Exception as e2:  # noqa: BLE001
+                raise RuntimeError(f'перенос {name}→gpu: OOM и после очистки; снимок после ошибки {first}; снимок после очистки {self._snap(name, e2)}') from e2
+            self.notes.append({'retry_after_oom': first, 'after_tidy': self._snap(name)})
         if not to_gpu and self._cuda():
             self.torch.cuda.empty_cache()
         self.on_gpu[name] = to_gpu
@@ -831,6 +874,9 @@ class Engine:
             res.use('ae')                                            # закрыть последнюю фазу и убрать DiT/энкодер с карты до запекания
             m['vram_phases_gb'] = dict(res.phases)
             m['offload_moves_s'] = [f'{n}→{w} {t}с' for n, w, t in res.moves]
+            if res.notes:
+                m['offload_oom_notes'] = list(res.notes)
+                res.notes.clear()
             res.phases.clear()
             res.moves.clear()
         mem = self.track.summary() if self.track is not None else {}

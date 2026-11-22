@@ -83,6 +83,10 @@ class BR:
 
 class GW:
     """ready_after — через сколько секунд после создания шлюза нода «готова»; job_s — длительность задания; fail — задание падает."""
+    post_code = -1                                                   # что отвечает POST /generate, пока post_fail > 0 (-1 = нет ответа, 503 = HTML шлюза)
+    post_fail = 0                                                    # сколько первых POST /generate остаются без ответа (-1)
+    accepted_on_timeout = False                                      # воркер при этом задание всё-таки принял
+
     def __init__(self, clock, ready_after=120.0, job_s=200.0, fail=False, stuck=False, silent=False, up=lambda: True):
         self.up = up
         self.clock, self.ready_after, self.job_s, self.fail, self.stuck, self.silent = clock, ready_after, job_s, fail, stuck, silent
@@ -111,6 +115,12 @@ class GW:
                 h['job'] = {'id': run[0], 'elapsed_s': round(t - self.jobs[run[0]], 1), 'step': 'sampling', 'step_s': 12.0, 'done': ['перенос encoder→gpu']}
             return 200, h
         if path in ('/generate', '/diag'):
+            if path == '/generate' and GW.post_fail > 0:                 # клиент не дождался ответа (-1); воркер мог при этом принять задание
+                GW.post_fail -= 1
+                if GW.accepted_on_timeout:
+                    self.dur[body['job_id']] = self._next_dur()
+                    self.jobs[body['job_id']] = t
+                return GW.post_code, {}
             if any(t - t0 < self.dur[j] for j, t0 in self.jobs.items()):    # как настоящий воркер: одно задание за раз
                 return 429, {'error': 'занят другим заданием'}
             self.dur[body['job_id']] = self._next_dur()
@@ -120,6 +130,8 @@ class GW:
             return 200, b'GLB'
         if path.startswith('/result/'):
             jid = path.split('/')[2]
+            if jid not in self.jobs:
+                return 404, {}
             if t - self.jobs[jid] < self.dur[jid]:
                 return 200, {'status': 'running'}
             if self.fail:
@@ -128,7 +140,7 @@ class GW:
         return 404, {}
 
 
-def setup(tmp, keys=('a', 'b')):
+def setup(tmp, keys=('a', 'b', 'c', 'd')):
     sh, inp = os.path.join(tmp, 'shapes'), os.path.join(tmp, 'inputs')
     os.makedirs(sh)
     os.makedirs(inp)
@@ -154,6 +166,7 @@ def drive(tmp, jobs, price=0.6, ready_after=120.0, job_s=200.0, fail=False, head
     sh, inp = setup(tmp)
     clock = Clock()
     mg, br = MG(), BR(clock, running_after, started_delay)
+    globals()['CLK'] = clock                                         # часы последнего прогона: тест затвора подменяет S.time.time
     KD.gpu_class = lambda MG_, name, tier, fetch=None: ('cls-5090', price)
     LEDGER.clear()
     orig_api = mg.api
@@ -207,6 +220,49 @@ buf2 = io.StringIO()
 with contextlib.redirect_stdout(buf2):
     S.safe_print(b2)
 check(len(buf2.getvalue()) < 5000 and 'код воркера' in buf2.getvalue(), 'разбор: код воркера в печати не раздувает вывод')
+
+# 2г. POST /generate без ответа (-1): таймаут по размеру тела, не отказ — воркера спрашиваем, один повтор в конец очереди (T-178 22.11, ваза Glasar)
+with tempfile.TemporaryDirectory() as tmp:
+    GW.post_fail, GW.accepted_on_timeout = 1, False
+    try:
+        rc, summ, out, mg, br = drive(tmp, 'a,b')
+    finally:
+        GW.post_fail = 0
+    st = {k: v.get('status') for k, v in summ.get('jobs', {}).items()}
+    check(st == {'a': 'done', 'b': 'done'} and summ.get('post_timeouts') and summ['post_timeouts'][0]['key'] == 'a' and 'один повтор в конец очереди' in out,
+          'POST без ответа, воркер задание не видит → не провал: один повтор в конец очереди, оба готовы')
+with tempfile.TemporaryDirectory() as tmp:
+    GW.post_fail, GW.accepted_on_timeout = 1, True
+    try:
+        rc, summ, out, mg, br = drive(tmp, 'a,b')
+    finally:
+        GW.post_fail, GW.accepted_on_timeout = 0, False
+    st = {k: v.get('status') for k, v in summ.get('jobs', {}).items()}
+    check(st == {'a': 'done', 'b': 'done'} and not summ.get('post_timeouts') and 'воркер задание принял' in out, 'POST без ответа, но воркер задание принял → без повтора, то же задание считается')
+with tempfile.TemporaryDirectory() as tmp:
+    GW.post_fail, GW.accepted_on_timeout = 99, False
+    try:
+        rc, summ, out, mg, br = drive(tmp, 'a')
+    finally:
+        GW.post_fail = 0
+    check(summ.get('jobs', {}).get('a', {}).get('status') == 'not_accepted' and len(summ.get('post_timeouts', [])) == 1, 'повтор тоже без ответа → not_accepted (повтор один, не бесконечный)')
+
+with tempfile.TemporaryDirectory() as tmp:
+    GW.post_fail, GW.post_code, GW.accepted_on_timeout = 1, 503, False
+    try:
+        rc, summ, out, mg, br = drive(tmp, 'a,b')
+    finally:
+        GW.post_fail, GW.post_code = 0, -1
+    st = {k: v.get('status') for k, v in summ.get('jobs', {}).items()}
+    check(st == {'a': 'done', 'b': 'done'} and summ.get('post_timeouts') and summ['post_timeouts'][0].get('code') == 503 and 'код 503' in out,
+          '503 (HTML шлюза) на POST → то же, что нет ответа: воркер задание не видит → один повтор в конец очереди, оба готовы, код 503 в сводке')
+with tempfile.TemporaryDirectory() as tmp:
+    GW.post_fail, GW.post_code = 99, 503
+    try:
+        rc, summ, out, mg, br = drive(tmp, 'a')
+    finally:
+        GW.post_fail, GW.post_code = 0, -1
+    check(summ.get('jobs', {}).get('a', {}).get('status') == 'not_accepted' and summ['jobs']['a'].get('http') == 503, '503 два раза подряд → not_accepted с кодом 503 в причине')
 
 # 3. разбор без --apply: группа не создаётся
 with tempfile.TemporaryDirectory() as tmp:
@@ -365,6 +421,85 @@ check(os.path.isfile(S.make_spec(_a).worker_file) and os.path.isfile(S.make_diag
 check(S.make_spec(_a).cuda_archs == ('12.0',) and S.make_diag_spec(_a).cuda_archs == ('12.0',) and S.KD.arch_refusal(S.CARD_NAME, S.CUDA_ARCHS) == ''
       and S.KD.arch_refusal('RTX 4090 (24 GB)', S.CUDA_ARCHS) != '', 'п.6: образ заявляет sm_120; карта 5090 проходит, чужая архитектура — отказ до группы')
 check('ULTRATEX_DIAG_FIRST' not in S.make_spec(_a).build_body('n', 'cls', {})['container']['environment_variables'], 'без --diag-first затвора нет')
+
+# 28. пакет 27 (T-178/3): --fail-streak (по умолчанию 2, пакет 3), файл-стоп STOP, затвор контроля --gate-first-min (остальные — только после GO)
+with tempfile.TemporaryDirectory() as tmp:
+    rc, summ, out, mg, br = drive(tmp, 'a,b,c,d', ready_after=20.0, job_s=60.0, fail=True)
+    check(summ.get('stopped_by') == 'fail_streak' and summ.get('failed') == 2, f'по умолчанию стоп на 2 отказах подряд ({summ.get("stopped_by")}, failed {summ.get("failed")})')
+with tempfile.TemporaryDirectory() as tmp:
+    rc, summ, out, mg, br = drive(tmp, 'a,b,c,d', ready_after=20.0, job_s=60.0, fail=True, fail_streak=3)
+    check(summ.get('stopped_by') == 'fail_streak' and summ.get('failed') == 3 and br.stopped >= 1 and summ.get('stop_verified'), f'--fail-streak 3: стоп на 3-м отказе, не на 2-м, нода погашена ({summ.get("failed")})')
+with tempfile.TemporaryDirectory() as tmp:
+    os.makedirs(os.path.join(tmp, 'out'))
+    open(os.path.join(tmp, 'out', 'STOP'), 'w').write('')
+    rc, summ, out, mg, br = drive(tmp, 'a,b', ready_after=20.0, job_s=60.0)
+    check(summ.get('stopped_by') == 'planned' and not summ.get('jobs') and 'файл-стоп' in summ.get('planned_reason', ''), 'файл STOP: плановый стоп до первого задания, ни одно не отправлено')
+import types
+_real_time = S.time
+with tempfile.TemporaryDirectory() as tmp:
+    S.time = types.SimpleNamespace(time=lambda: CLK.t, strftime=_real_time.strftime, gmtime=_real_time.gmtime)
+    try:
+        rc, summ, out, mg, br = drive(tmp, 'a,b,c', ready_after=20.0, job_s=60.0, gate_first_min=5)
+    finally:
+        S.time = _real_time
+    check(summ.get('stopped_by') == 'planned' and set(summ.get('jobs', {})) == {'a'} and summ['jobs']['a']['status'] == 'done' and 'GO' in summ.get('planned_reason', '')
+          and br.stopped >= 1, f'затвор: первое (контрольное) готово, GO нет → остальные не посланы, через 5 мин плановый стоп ({summ.get("stopped_by")}, {list(summ.get("jobs", {}))})')
+with tempfile.TemporaryDirectory() as tmp:
+    os.makedirs(os.path.join(tmp, 'out'))
+    open(os.path.join(tmp, 'out', 'GO'), 'w').write('')
+    S.time = types.SimpleNamespace(time=lambda: CLK.t, strftime=_real_time.strftime, gmtime=_real_time.gmtime)
+    try:
+        rc, summ, out, mg, br = drive(tmp, 'a,b,c', ready_after=20.0, job_s=60.0, gate_first_min=5)
+    finally:
+        S.time = _real_time
+    check(rc == 0 and summ.get('stopped_by') == 'done' and set(summ.get('jobs', {})) == {'a', 'b', 'c'}, 'затвор: файл GO есть → все три задания идут на той же ноде')
+with tempfile.TemporaryDirectory() as tmp:
+    S.time = types.SimpleNamespace(time=lambda: CLK.t, strftime=_real_time.strftime, gmtime=_real_time.gmtime)
+    try:
+        rc, summ, out, mg, br = drive(tmp, 'a,b,c', ready_after=20.0, job_s=60.0, fail=True, gate_first_min=5)
+    finally:
+        S.time = _real_time
+    check(set(summ.get('jobs', {})) == {'a'} and str(summ.get('stopped_by', '')).startswith('контрольное') and br.stopped >= 1, f'затвор: первое упало → остальные не шлём, аварийный стоп ({summ.get("stopped_by")})')
+
+# T-178/3 (22.11): параметры по заданию — пара «штатно | лёгкий» на одной группе
+check(S.split_job('112923_1@lite') == ('112923_1', 'lite') and S.split_job('112923_1') == ('112923_1', ''), 'задание key@вариант: товар и вариант разделяются, без @ — вариант пуст')
+V = S.parse_variants('{"std": {}, "lite": {"resolution": 1024, "steps": 12, "texture_size": 1024}}')
+_a = types.SimpleNamespace(resolution=2048, steps=25, seed=42, texture=4096)
+check(S.job_params(_a, V, 'x@lite') == {'resolution': 1024, 'steps': 12, 'seed': 42, 'texture_size': 1024} and S.job_params(_a, V, 'x@std') == {'resolution': 2048, 'steps': 25, 'seed': 42, 'texture_size': 4096}
+      and S.job_params(_a, V, 'x') == {'resolution': 2048, 'steps': 25, 'seed': 42, 'texture_size': 4096}, 'параметры задания: вариант переопределяет только свои ключи, остальное — общие')
+for bad in ('{"lite": {"foo": 1}}', '{"lite": {"steps": "12"}}', '{"li te": {"steps": 12}}', '[1]', 'не json'):
+    try:
+        S.parse_variants(bad)
+        check(False, f'--variants {bad}: должен отказать')
+    except SystemExit:
+        check(True, f'--variants {bad}: отказ до группы')
+try:
+    S.job_params(_a, V, 'x@нет')
+    check(False, 'неизвестный вариант: отказ')
+except SystemExit:
+    check(True, 'неизвестный вариант задания: отказ до денег')
+
+# в тело /generate уходят параметры варианта (проверка через настоящий submit спецификации, подставной шлюз)
+with tempfile.TemporaryDirectory() as tmp:
+    sh_, inp_ = setup(tmp)
+    got = []
+
+    class _G:
+        def call(self, method, path, body=None, timeout=60, raw=False):
+            if method == 'POST':
+                got.append(body)
+            return 202, {}
+    spec = S.make_spec(args(tmp, sh_, inp_, 'a@std,a@lite', variants='{"std": {}, "lite": {"resolution": 1024, "steps": 12, "texture_size": 1024}}'))
+    for j in ('a@std', 'a@lite'):
+        cur, _x = spec.submit(_G(), j, 1000.0)
+    ps = [{k: b[k] for k in ('resolution', 'steps', 'texture_size', 'seed')} for b in got if b and 'job_id' in b]
+    check(ps == [{'resolution': 2048, 'steps': 25, 'texture_size': 4096, 'seed': 42}, {'resolution': 1024, 'steps': 12, 'texture_size': 1024, 'seed': 42}]
+          and got[0]['job_id'] != got[1]['job_id'] and '@' not in got[1]['job_id'], f'submit: штатно 2048/25/4096, лёгкий 1024/12/1024, разные job_id без «@» ({ps})')
+    try:
+        S.make_spec(args(tmp, sh_, inp_, 'a@нет'))
+        check(False, 'make_spec: неизвестный вариант должен отказать')
+    except SystemExit:
+        check(True, 'make_spec: задание с неизвестным вариантом — отказ до группы')
 
 print('\nИТОГ:', 'ВСЁ ЗЕЛЁНОЕ' if not FAILS else f'ПАДЕНИЙ {len(FAILS)}')
 sys.exit(1 if FAILS else 0)

@@ -573,6 +573,30 @@ ok(any(_moved) and _rl == [('g', 'inst-1')] and _pg.culls == 1, 'PullGuard: те
 ok(KD.post_timeout_s(0) == 90 and KD.post_timeout_s(500 * 2 ** 20) == 300 and KD.post_timeout_s(10 ** 9, 45) == 45
    and KD.post_timeout_s(2 ** 20, rules={'base_s': 10, 'per_mb_s': 5, 'max_s': 100}) == 15, 'post_timeout_s: формула, потолок max_s, override и правила из rules')
 
+# --- T-178/3: сторож медленной сборки весов на running-ноде (замер 22.11: здоровая ≈7,5 ГБ/мин, медленная ≈0,95)
+ws = KD.Watch(0, 0.6, 9, 9, slow_window_s=180, slow_gb_min=2.0)
+ws.money_time(0, ins_run)
+_r = [ws.health(float(t), ins_run, 200, {'phase': 'weights', 'root_gb': t * 0.95 / 60}) for t in range(0, 241, 30)]
+ok(_r[-1][0] == 'weights_slow' and all(r[0] is None for r in _r[:5]), 'Watch: 0,95 ГБ/мин за 3 мин → weights_slow (раньше окна — нет)')
+wf = KD.Watch(0, 0.6, 9, 9, slow_window_s=180, slow_gb_min=2.0)
+wf.money_time(0, ins_run)
+ok(all(wf.health(float(t), ins_run, 200, {'phase': 'weights', 'root_gb': t * 7.5 / 60})[0] is None for t in range(0, 241, 30)), 'Watch: 7,5 ГБ/мин — здоровая нода не трогается')
+wo = KD.Watch(0, 0.6, 9, 9)
+wo.money_time(0, ins_run)
+ok(all(wo.health(float(t), ins_run, 200, {'phase': 'weights', 'root_gb': 1.0 + t * 0.0001})[0] in (None, 'download_stalled') for t in range(0, 100, 30)), 'Watch: slow_window_s=0 — сторож выключен (другие драйверы не меняются)')
+_rl2 = []
+_g2 = KD.PullGuard('g', take_slot=lambda: 1, realloc=lambda g, i, w: _rl2.append((g, i)) or True)
+_wc = KD.Watch(0, 0.6, 9, 9, slow_window_s=180)
+_wc.money_time(0, ins_run)
+_c0 = _wc.cost(600.0)
+ok(KD.weights_cull(_wc, _g2, 600.0, [{'id': 'iid-run', 'state': 'running'}], 'медленно', say_fn=lambda *x: None) and _rl2 == [('g', 'iid-run')] and _g2.culls == 1
+   and abs(_wc.banked - _c0) < 1e-9 and _wc.run_since is None and _wc.gb_hist == [] and _wc.last_cull == 600.0, 'weights_cull: пересадка running-ноды, деньги в banked, отсчёты заново')
+_wc.money_time(700.0, [{'state': 'running'}])
+ok(abs(_wc.cost(700.0) - (_c0 + 0.0)) < 1e-9 and _wc.cost(760.0) > _c0, 'banked: цена = потраченное + новая нода от её running')
+_g2.culls = _g2.max_culls
+ok(not KD.weights_cull(_wc, _g2, 800.0, [{'id': 'x', 'state': 'running'}], 'медленно', say_fn=lambda *x: None) and not KD.weights_cull(_wc, None, 800.0, [], 'м', say_fn=lambda *x: None),
+   'weights_cull: бюджет пересадок исчерпан или сторожа нет — False (драйвер гасит группу)')
+
 # ---------------------------------------------------------------- T-186/1: профиль ресурсов Salad по типу работы + сторож «мимо профиля»
 PROFS = KD.load_profiles()
 ok(len(PROFS) >= 5 and {'trellis_shape', 'ultratex', 'forms_render', 'pose_camera', 'parts_segment'} <= set(PROFS), f'профили на месте: {sorted(PROFS)}')
@@ -677,3 +701,9 @@ ok(any('не пришёл' in x for x in RP.suggest({'work_type': 'ultratex', 'l
 
 print('\nИТОГ:', 'ВСЁ ЗЕЛЁНОЕ' if not FAILS else f'ПРОВАЛОВ: {len(FAILS)}')
 sys.exit(1 if FAILS else 0)
+
+# --- T-186/1 × T-178/3: два сторожа медленных весов — не вместе
+import types as _types
+_ns = _types.SimpleNamespace
+ok(KD.disk_guard_wanted(_ns()) and KD.disk_guard_wanted(_ns(disk_guard=True, slow_window_s=0)) and not KD.disk_guard_wanted(_ns(slow_window_s=180)) and not KD.disk_guard_wanted(_ns(disk_guard=False)),
+   'DiskGuard включён по умолчанию; явный --slow-window-min или a.disk_guard=False выключают его (работает один из двух сторожей)')
