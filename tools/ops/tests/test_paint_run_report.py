@@ -598,3 +598,10 @@ def test_forms_retry_status_and_two_glb_dirs(tmp_path):
     a2[3] = str(tmp_path / 'glbs') + ',' + str(tmp_path / 'glbs2')
     s, errs = prr.forms_page(*a2, retry={'c_3'})
     assert errs == [] and s['retry'] == 0 and s['ok'] == 2
+
+
+def test_slug_adds_prefix_once():
+    """Слуг собирается только здесь: имя с префиксом не удваивается (урок 22.11: /test/paint-paint-forms-set40/); регистр сохраняется."""
+    assert prr.slug('forms-set40') == 'paint-forms-set40' and prr.slug('paint-forms-set40') == 'paint-forms-set40'
+    assert prr.slug('Paint-paint-forms-set40') == 'paint-forms-set40' and prr.slug('e2eHD-1121-union') == 'paint-e2eHD-1121-union'
+    assert 'paint-paint' not in prr.slug('paint-paint-x') and prr.slug('') == 'paint-run' and prr.slug('paint-') == 'paint-run'
