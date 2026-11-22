@@ -33,6 +33,7 @@ SCOUT = os.path.normpath(os.path.join(HERE, '..', '..'))
 sys.path.insert(0, os.path.join(SCOUT, 'salad'))
 sys.path.insert(0, os.path.join(SCOUT, 'render_gpu'))
 sys.path.insert(0, HERE)
+import kit_driver as KD  # noqa: E402 — общий вход «отправить задание» (post_job: таймаут по размеру тела, POST без ответа → вопрос воркеру)
 
 CARD = {'class_name': 'RTX 4090 (24 GB)', 'class_id': 'ed563892-aacd-40f5-80b7-90c9be6c759b'}
 HF_GATED = {'trellis2': 'facebook/dinov3-vitl16-pretrain-lvd1689m/resolve/main/config.json',
@@ -289,18 +290,6 @@ class Gateway:
             return -1, {}
 
 
-def post_timeout_s(body_chars: int, override: int = 0) -> int:
-    """Таймаут POST /generate по размеру тела (МБ base64) из `rules/salad-groups.json` → `gateway_post` {base_s, per_mb_s, max_s}; `override` > 0 — явное значение. Нет правила — 90 + 30/МБ, не больше 300."""
-    if override and override > 0:
-        return int(override)
-    try:
-        g = json.load(open(os.path.join(SCOUT, 'rules', 'salad-groups.json'), encoding='utf-8')).get('gateway_post') or {}
-    except (OSError, ValueError):
-        g = {}
-    base, per_mb, top = float(g.get('base_s', 90)), float(g.get('per_mb_s', 30)), float(g.get('max_s', 300))
-    return int(min(top, base + per_mb * body_chars / 2 ** 20))
-
-
 def run(a, MG, BR, gw_factory=Gateway, sleep=time.sleep, clock=time.time, hf_head=None) -> int:
     """Весь замер. `MG` — `migrate_groups` (API Salad), `BR` — `bench_run` (состояние группы, остановка с проверкой). Подмена обоих + `gw_factory`/`sleep`/`clock`/`hf_head` — тесты."""
     inputs = json.load(open(os.path.join(a.inputs, 'inputs.json'), encoding='utf-8'))
@@ -521,19 +510,14 @@ def run(a, MG, BR, gw_factory=Gateway, sleep=time.sleep, clock=time.time, hf_hea
                     png = open(os.path.join(a.inputs, f'{j["sku"].replace(":", "_")}.{"hd." if j.get("input") == "hd" else ""}rgba.png'), 'rb').read()
                     pl = {'job_id': j['job_id'], 'image_b64': base64.b64encode(png).decode(), 'pipeline_type': pipeline_type(j['res']), 'seed': j['seed'],
                           'decimation_target': a.decimation, 'texture_size': a.texture, 'detail': getattr(a, 'detail', None), 'texture_mesh_b64': tex_mesh_b64, 'role': j.get('role'), 'dims_cm': j.get('dims_cm'), 'align': j.get('align'), 'tex_guidance': j.get('tex_guidance'), 'shape_smooth': j.get('shape_smooth'), 'shape_fill': j.get('shape_fill'), **(j.get('worker_params') or {})}
-                    to = post_timeout_s(len(pl['image_b64']) + len(pl.get('texture_mesh_b64') or ''), getattr(a, 'post_timeout', 0))
-                    c, r = gw.call('POST', '/generate', pl, timeout=to)
-                    if c == -1:                                                   # клиент не дождался ответа: воркер мог принять задание — сперва спросить его, не считать отказом
-                        cj, _ = gw.call('GET', '/job/' + j['job_id'], timeout=30)
-                        summary.setdefault('post_timeouts', []).append({'job_id': j['job_id'], 'timeout_s': to, 'worker_saw_job': cj == 200})
-                        if cj == 200:
-                            say('задание', j['job_id'], f'→ POST без ответа за {to} с, но воркер его принял (/job 200) — продолжаю')
-                            c = 202
-                        elif not j.get('retried'):
-                            say('задание', j['job_id'], f'→ POST без ответа за {to} с, воркер задание не видит — один повтор в конец очереди')
-                            pending.append({**j, 'retried': True})
-                            sleep(10)
-                            continue
+                    c, r, pt = KD.post_job(gw, '/generate', pl, '/job/' + j['job_id'], getattr(a, 'post_timeout', 0), say_fn=say)
+                    if pt:
+                        summary.setdefault('post_timeouts', []).append(pt)
+                    if c == -1 and not j.get('retried'):                      # воркер задание не видит: один повтор в конец очереди той же ноды (тот же job_id: гонка → 409 = принято)
+                        say('задание', j['job_id'], '→ один повтор в конец очереди')
+                        pending.append({**j, 'retried': True})
+                        sleep(10)
+                        continue
                     inflight = {**j, 'submitted': t, 'http': c}
                     say('задание', j['job_id'], '→ HTTP', c)
                     if c not in (202, 409):

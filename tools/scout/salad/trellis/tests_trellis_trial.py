@@ -276,9 +276,9 @@ ok('POST без ответа, но воркер задание принял (/jo
 rc, mg, br, s = go(d3, suffix='p3', skus=['a:1'], plan='1024:1', script={'post_timeouts': 9})
 ok('повтор тоже без ответа → тогда failed с причиной «POST -1» (повтор один, не бесконечный), стоп с проверкой',
    s['failed'] == 1 and 'POST -1' in str(s['jobs'][0]['error']) and s['jobs'][0].get('retried') is True and len(s['post_timeouts']) == 2 and br.stops == ['trial-trellis2-p3'])
-ok('таймаут POST растёт с размером тела и ограничен max_s; --post-timeout > 0 перекрывает',
-   T.post_timeout_s(0) == 90 and 120 <= T.post_timeout_s(1 * 2 ** 20) <= 130 and T.post_timeout_s(2 * 2 ** 20) > T.post_timeout_s(1 * 2 ** 20)
-   and T.post_timeout_s(500 * 2 ** 20) == 300 and T.post_timeout_s(10 ** 9, 45) == 45)
+ok('драйвер зовёт ОБЩУЮ функцию kit_driver: таймаут POST растёт с телом, ограничен max_s, --post-timeout > 0 перекрывает',
+   T.KD.post_timeout_s(0) == 90 and 120 <= T.KD.post_timeout_s(1 * 2 ** 20) <= 130 and T.KD.post_timeout_s(2 * 2 ** 20) > T.KD.post_timeout_s(1 * 2 ** 20)
+   and T.KD.post_timeout_s(500 * 2 ** 20) == 300 and T.KD.post_timeout_s(10 ** 9, 45) == 45)
 
 print('[4б] драйвер: пауза «проба → разрешение → партия» на тёплой ноде (T-20261121-172)')
 d3 = tempfile.mkdtemp(prefix='tt-')
