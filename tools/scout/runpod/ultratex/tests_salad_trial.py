@@ -83,6 +83,9 @@ class BR:
 
 class GW:
     """ready_after — через сколько секунд после создания шлюза нода «готова»; job_s — длительность задания; fail — задание падает."""
+    post_fail = 0                                                    # сколько первых POST /generate остаются без ответа (-1)
+    accepted_on_timeout = False                                      # воркер при этом задание всё-таки принял
+
     def __init__(self, clock, ready_after=120.0, job_s=200.0, fail=False, stuck=False, silent=False, up=lambda: True):
         self.up = up
         self.clock, self.ready_after, self.job_s, self.fail, self.stuck, self.silent = clock, ready_after, job_s, fail, stuck, silent
@@ -111,6 +114,12 @@ class GW:
                 h['job'] = {'id': run[0], 'elapsed_s': round(t - self.jobs[run[0]], 1), 'step': 'sampling', 'step_s': 12.0, 'done': ['перенос encoder→gpu']}
             return 200, h
         if path in ('/generate', '/diag'):
+            if path == '/generate' and GW.post_fail > 0:                 # клиент не дождался ответа (-1); воркер мог при этом принять задание
+                GW.post_fail -= 1
+                if GW.accepted_on_timeout:
+                    self.dur[body['job_id']] = self._next_dur()
+                    self.jobs[body['job_id']] = t
+                return -1, {}
             if any(t - t0 < self.dur[j] for j, t0 in self.jobs.items()):    # как настоящий воркер: одно задание за раз
                 return 429, {'error': 'занят другим заданием'}
             self.dur[body['job_id']] = self._next_dur()
@@ -120,6 +129,8 @@ class GW:
             return 200, b'GLB'
         if path.startswith('/result/'):
             jid = path.split('/')[2]
+            if jid not in self.jobs:
+                return 404, {}
             if t - self.jobs[jid] < self.dur[jid]:
                 return 200, {'status': 'running'}
             if self.fail:
@@ -207,6 +218,32 @@ buf2 = io.StringIO()
 with contextlib.redirect_stdout(buf2):
     S.safe_print(b2)
 check(len(buf2.getvalue()) < 5000 and 'код воркера' in buf2.getvalue(), 'разбор: код воркера в печати не раздувает вывод')
+
+# 2г. POST /generate без ответа (-1): таймаут по размеру тела, не отказ — воркера спрашиваем, один повтор в конец очереди (T-178 22.11, ваза Glasar)
+with tempfile.TemporaryDirectory() as tmp:
+    GW.post_fail, GW.accepted_on_timeout = 1, False
+    try:
+        rc, summ, out, mg, br = drive(tmp, 'a,b')
+    finally:
+        GW.post_fail = 0
+    st = {k: v.get('status') for k, v in summ.get('jobs', {}).items()}
+    check(st == {'a': 'done', 'b': 'done'} and summ.get('post_timeouts') and summ['post_timeouts'][0]['key'] == 'a' and 'один повтор в конец очереди' in out,
+          'POST без ответа, воркер задание не видит → не провал: один повтор в конец очереди, оба готовы')
+with tempfile.TemporaryDirectory() as tmp:
+    GW.post_fail, GW.accepted_on_timeout = 1, True
+    try:
+        rc, summ, out, mg, br = drive(tmp, 'a,b')
+    finally:
+        GW.post_fail, GW.accepted_on_timeout = 0, False
+    st = {k: v.get('status') for k, v in summ.get('jobs', {}).items()}
+    check(st == {'a': 'done', 'b': 'done'} and not summ.get('post_timeouts') and 'воркер его принял' in out, 'POST без ответа, но воркер задание принял → без повтора, то же задание считается')
+with tempfile.TemporaryDirectory() as tmp:
+    GW.post_fail, GW.accepted_on_timeout = 99, False
+    try:
+        rc, summ, out, mg, br = drive(tmp, 'a')
+    finally:
+        GW.post_fail = 0
+    check(summ.get('jobs', {}).get('a', {}).get('status') == 'not_accepted' and len(summ.get('post_timeouts', [])) == 1, 'повтор тоже без ответа → not_accepted (повтор один, не бесконечный)')
 
 # 3. разбор без --apply: группа не создаётся
 with tempfile.TemporaryDirectory() as tmp:

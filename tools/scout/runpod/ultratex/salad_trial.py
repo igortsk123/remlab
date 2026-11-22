@@ -132,10 +132,11 @@ def make_spec(a, head_fn=head) -> KD.Spec:
         glb = open(os.path.join(a.shape_dir, a.shape_name.format(key=k)), 'rb').read()
         png = open(os.path.join(a.inputs, f'{k}.rgba.png'), 'rb').read()
         jid = f'{k}-{int(t)}'.replace('_', '-')[:150]
-        c, r = gw.call('POST', '/generate', {'job_id': jid, 'image_b64': base64.b64encode(png).decode(), 'glb_b64': base64.b64encode(glb).decode(),
-                                              'resolution': a.resolution, 'steps': a.steps, 'seed': a.seed, 'texture_size': a.texture}, timeout=120)
+        c, r, pt = KD.post_job(gw, '/generate', {'job_id': jid, 'image_b64': base64.b64encode(png).decode(), 'glb_b64': base64.b64encode(glb).decode(),
+                                                 'resolution': a.resolution, 'steps': a.steps, 'seed': a.seed, 'texture_size': a.texture}, f'/result/{jid}',
+                               getattr(a, 'post_timeout', 0))        # таймаут по размеру тела; -1 → сперва спросить воркера (kit_driver.post_job)
         say(f'задание {k}: POST /generate → {c}', str(r)[:120] if c != 202 else '')
-        return ({'key': k, 'id': jid, 't0': t}, {}) if c == 202 else (None, {'http': c, 'detail': r})
+        return ({'key': k, 'id': jid, 't0': t, 'post': pt}, {}) if c == 202 else (None, {'http': c, 'detail': r, 'post': pt})
 
     def poll(gw, cur, t):
         c, r = gw.call('GET', f'/result/{cur["id"]}', timeout=30)
@@ -184,6 +185,7 @@ def main() -> int:
     ap.add_argument('--stall-min', type=int, default=5, help='докачка весов: папка не выросла за столько минут — стоп')
     ap.add_argument('--stall-gb', type=float, default=0.05, help='минимальный рост папки весов за окно, ГБ')
     ap.add_argument('--worker-from-image', action='store_true', help='запускать воркер из образа, а не код из env группы')
+    ap.add_argument('--post-timeout', type=int, default=0, help='секунд ждать ответ на POST /generate; 0 (по умолчанию) — по размеру тела из rules/salad-groups.json → gateway_post (kit_driver.post_timeout_s)')
     ap.add_argument('--job-min', type=int, default=0, help='срезать задание дольше N минут; 0 (по умолчанию) — до потолка пробы (p4 21.11: срезка на 30-й минуте лишила результата)')
     ap.add_argument('--idle-s', type=int, default=900)
     ap.add_argument('--suffix', default=time.strftime('%m%d%H%M', time.gmtime()))
