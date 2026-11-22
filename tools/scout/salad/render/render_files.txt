@@ -1,0 +1,4 @@
+# Файлы кода в образе кадров форм (Dockerfile.render): ЕДИНЫЙ список для сборки (stage_render_code.py) и теста. Путь от корня репозитория.
+# forms_render.py — таблицы видов/света и сборка команды Blender (тот же файл, что у локального счёта); render_stand.py — сам рендер (в Blender).
+tools/ops/forms_render.py
+tools/scout/stablegen/render_stand.py
