@@ -1,0 +1,13 @@
+{
+  "_note": "Ш8м (T-187/4): пороги методики «суть с UltraTex» — ГИПОТЕЗЫ, калибруются на известных 3D-моделях Ш8′ и наших ~40 (P-061). Образец = UltraTex-меш на ТОЙ ЖЕ форме; его пиксели в товар не идут.",
+  "apply_to_fill": false,
+  "_apply": "false = решения только пишутся в ref_zone.json, 07 не меняют (вхолостую); true — карта зона×сторона×свойство применяется после заливки (apply_to_fill в ref_zone.py), только после приёмки на известных моделях (М8).",
+  "win": 48, "stride": 24, "min_windows": 6, "cos_min": 0.6, "normal_std_max": 0.12, "uv_jump_max": 0.02, "silhouette_px": 10,
+  "hf_floor": 0.8, "hf_same_ratio": [0.67, 1.5], "hf_diff_ratio": [0.4, 2.5],
+  "macro_floor": 1.2, "pattern_window_share": 0.5, "autocorr_peak": 0.35,
+  "scale_same_ratio": [0.75, 1.33], "scale_diff_ratio": [0.5, 2.0],
+  "coherence_min": 0.4, "direction_same_deg": 20.0, "direction_diff_deg": 45.0,
+  "uniform_same_dL": 2.5, "uniform_diff_dL": 6.0,
+  "photo_texture_ratio": [0.5, 2.0], "photo_scale_ratio": [0.6, 1.7], "photo_direction_deg": 25.0, "photo_uniform_dL": 4.0,
+  "seg_k_max": 4, "seg_merge_dE": 10.0, "seg_min_share": 0.02, "face_vote_min_px": 2, "face_vote_agree": 0.7, "max_dihedral_deg": 100.0, "conflict_ratio": 1.5, "win_good_share": 0.85, "win_zone_share": 0.9, "weld_eps": 1e-5
+}
