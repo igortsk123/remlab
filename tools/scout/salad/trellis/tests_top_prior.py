@@ -307,6 +307,30 @@ class RimCut(unittest.TestCase):
         out, depth = TP.rim_cut(q, lab, np.ones(4000, bool), 0.2, self.G)
         self.assertIsNone(depth)
 
+    def test_split_cuts_plane_too(self):
+        q, lab, sel = self.mk()
+        edge = sel & (0.2 - q < 0.012)                                   # узкая полоса у верха
+        plane = sel & (0.2 - q >= 0.004)                                 # полоса пониже, захватила и фасад
+        e2, p2, depth = TP.rim_split(q, lab, edge, plane, 0.2, self.G)
+        self.assertIsNotNone(depth)
+        self.assertGreater(float(np.median(lab[e2][:, 0])), 65.0)
+        self.assertGreater(float(np.median(lab[p2][:, 0])), 65.0)        # без среза plane выходил тёмным (фасад)
+        self.assertLess(float(np.median(lab[plane][:, 0])), 60.0)
+
+    def test_split_uniform_wood_untouched(self):
+        q, lab, sel = self.mk(rim_lab=(60.0, 10.0, 28.0), face_lab=(60.5, 10.2, 27.5))
+        edge, plane = sel & (0.2 - q < 0.01), sel & (0.2 - q >= 0.005)
+        e2, p2, depth = TP.rim_split(q, lab, edge, plane, 0.2, self.G)
+        self.assertIsNone(depth)
+        self.assertEqual((int(e2.sum()), int(p2.sum())), (int(edge.sum()), int(plane.sum())))
+
+    def test_split_off_when_rule_off(self):
+        q, lab, sel = self.mk()
+        cfg = dict(self.G, rim_de00=0)
+        e2, p2, depth = TP.rim_split(q, lab, sel, sel, 0.2, cfg)
+        self.assertIsNone(depth)
+        self.assertEqual(int(e2.sum()), len(q))
+
     def test_too_few_texels_untouched(self):
         q, lab, sel = self.mk(rim_n=50, face_n=100)
         out, depth = TP.rim_cut(q, lab, sel, 0.2, self.G)

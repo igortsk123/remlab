@@ -290,6 +290,13 @@ def rim_cut(q, lab, sel, ytop, cfg: dict):
     return sel, None
 
 
+def rim_split(q, lab, edge, plane, ytop, cfg: dict):
+    """Один срез на оба голоса верха: плита и фасад — одна часть, поэтому и полоса `edge`, и полоса `plane` (вертикальные тексели верхней трети) могут захватить фасад под светлой плитой.
+    Глубина считается на объединении (опора — самые верхние тексели), ниже неё в голоса ничего не берём. → (edge, plane, глубина | None)."""
+    both, depth = rim_cut(q, lab, edge | plane, ytop, cfg)
+    return edge & both, plane & both, depth
+
+
 def _real_known(run_dir: str, n: int):
     """Маски «взято с фото» этапа 6 (`06-visible/known.png`, known1.png…) — настоящий вход голосов. Нет файла — (None, None)."""
     from PIL import Image
@@ -349,9 +356,10 @@ def analyze(run_dir: str, card: dict | None, rules: dict | None = None, filled_g
         legs = np.isin(tx.part, [p for p, r in roles.items() if r in ('legs', 'handles', 'shade')]) if roles else np.zeros(len(lab), bool)
         same = np.isin(tx.part, np.unique(tx.part[lv['top']]))                    # «та же часть»: этап 3 развёл плиту верха и царгу/корпус — их цвета не одно и то же (Киннер: царга бежевая, верх медовый)
         edge = kn & vert & band & (tx.Q[:, 1] <= lv['ytop'] + cfg['edge_above']) & notbg & ~legs & same
-        edge, rim_depth = rim_cut(tx.Q[:, 1], lab, edge, lv['ytop'], cfg)
-        RIM.append({'gi': gi, 'cut_depth': None if rim_depth is None else round(float(rim_depth), 4), 'edge_texels': int(edge.sum())})
         plane = kn & vert & (tx.Q[:, 1] > lv['ymin'] + cfg['plane_from'] * (lv['ymax'] - lv['ymin'])) & ~band & notbg & ~legs & same
+        n_edge0, n_plane0 = int(edge.sum()), int(plane.sum())
+        edge, plane, rim_depth = rim_split(tx.Q[:, 1], lab, edge, plane, lv['ytop'], cfg)
+        RIM.append({'gi': gi, 'cut_depth': None if rim_depth is None else round(float(rim_depth), 4), 'edge_texels': int(edge.sum()), 'plane_texels': int(plane.sum()), 'edge_before': n_edge0, 'plane_before': n_plane0})
         other_vert = kn & vert & ~same & notbg & ~legs                              # соседняя часть (царга/корпус): только в отчёт, голосом не служит
         OV.append(lab[other_vert])
         E.append(lab[edge])
@@ -508,9 +516,10 @@ def main(argv: list[str]) -> int:
     d.add_argument('--card', default='')
     d.add_argument('--out', default='')
     d.add_argument('--length-cm', type=float, default=0.0)
+    d.add_argument('--rules', default='', help='файл правил вместо rules/top-prior.json (например, с rim_de00: 0 — прогон «как было»)')
     d.add_argument('--lib-raw', default='', help='папка со сканами бинов (<бин>/diff.jpg); по умолчанию data/flat3d/top-library/raw')
     a = ap.parse_args(argv)
-    rules = load_rules()
+    rules = load_rules(a.rules) if a.rules else load_rules()
     card = json.loads(a.card) if a.card else None
     an = analyze(a.run, card, rules, photo=a.photo or None)
     out = a.out or os.path.join(a.run, '07-fill')
