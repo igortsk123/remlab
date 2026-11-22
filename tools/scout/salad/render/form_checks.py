@@ -12,6 +12,7 @@
   holes         · грубые лишние сквозные просветы в силуэте против фото (приближение)  · «Дыры, рваный фасад»
   relief        · много мелкого рельефа на кадре 0° — рваный, «изъеденный» фасад   · «Дыры, рваный фасад»
   back_dup      · кадр 0° и кадр 180° (прямо или зеркально) совпадают по рельефу    · «фасад продублирован на задней стенке» (ловит только точную копию)
+  legs_match    · ножки: компоненты нижней полосы маски фото ↔ формы парой по центрам, макс. расстояние / ширина предмета (силуэт IoU этого не видит) · «Пропали ножки», «ножки не там» (р.3, T-191/1)
   relief_graze  · мелкий рельеф кадра 0° при боковом свете ВНУТРИ маски формы (альфа, без фона и тени)  · «Дыры, рваный фасад»
   back_relief   · то же на кадре 180°: у корпусной мебели с плоской спиной (`flat_back_roles`) сильный рельеф сзади — каркас/копия фасада · «Открытая сломанная спина», «фасад сзади»
   back_dup_mask · рельеф 0° и 180° внутри маски совпадает (прямо/зеркально), только для ролей с плоской спиной · «фасад продублирован на задней стенке»
@@ -212,6 +213,57 @@ def runs(mask: np.ndarray, R: dict) -> int:
     return n
 
 
+# ---------- ножки: внутренняя деталь, которой не видно по IoU (логика р.router-3, T-191/1) ----------
+def leg_centers(m: np.ndarray, y0: int, y1: int, min_area: int) -> list[tuple[float, float]]:
+    from scipy import ndimage
+    reg = np.zeros_like(m)
+    reg[y0:y1] = m[y0:y1]
+    lab, n = ndimage.label(reg, structure=np.ones((3, 3)))
+    out = []
+    for i in range(1, n + 1):
+        if int((lab == i).sum()) >= min_area:
+            cy, cx = ndimage.center_of_mass(lab == i)
+            out.append((cx, cy))
+    return out
+
+
+def legs_match(S: np.ndarray, pa: np.ndarray, R: dict) -> dict:
+    """S — маска формы с позы 04, pa — маска фото в тех же пикселях. Ножки = компоненты нижней полосы `leg_match_band` высоты предмета. Число ножек разное (скрыты/слиты) — значение не считается."""
+    from scipy.optimize import linear_sum_assignment
+    ys, xs = np.nonzero(pa)
+    if not len(ys):
+        return check('legs_match', None, R['legs_match'], False, 'маска фото пуста')
+    y0, y1, w = ys.min(), ys.max() + 1, float(xs.max() - xs.min() + 1)
+    ya = y1 - int((y1 - y0) * R['leg_match_band'])
+    cp, cs = leg_centers(pa, ya, y1, R['leg_match_area']), leg_centers(S, ya, y1, R['leg_match_area'])
+    if len(cp) < 2:
+        return check('legs_match', None, R['legs_match'], False, f'ножки фото не раздельны ({len(cp)}) — не применима')
+    if len(cp) != len(cs):
+        return check('legs_match', None, R['legs_match'], False, f'ножек фото/формы {len(cp)}/{len(cs)} — разное число (скрыты или слиты), значение не считается')
+    D = np.array([[math.hypot(a[0] - b[0], a[1] - b[1]) for b in cs] for a in cp])
+    r, c = linear_sum_assignment(D)
+    mx = float(D[r, c].max()) / w
+    return check('legs_match', mx, R['legs_match'], mx > R['legs_match'], f'ножек {len(cp)}, макс. смещение центра {float(D[r, c].max()):.1f} px при ширине {w:.0f} px (среднее {float(D[r, c].mean()):.1f})')
+
+
+def legs_checks(sku: str, photo: str | None, roots: list[str], R: dict) -> list[dict]:
+    """Маски с позы этапа 04 (stage_loss.json + stages/render_view0/mask.png) и фото в одних пикселях; нет прогона 04 или фото — пусто."""
+    import glob
+    run = next((os.path.dirname(p) for r in roots for p in [os.path.join(r, sku, 'stage_loss.json')] + sorted(glob.glob(os.path.join(r, 'g*', sku, 'stage_loss.json')))
+                if os.path.isfile(p) and os.path.isfile(os.path.join(os.path.dirname(p), 'stages', 'render_view0', 'mask.png'))), None)
+    if not run or not photo or not os.path.isfile(photo):
+        return []
+    sys.path.insert(0, os.path.normpath(os.path.join(HERE, '..', 'trellis')))
+    import stage_loss as SL                                       # noqa: PLC0415 — тянет cv2, нужен только здесь
+    import cv2
+    reg = json.load(open(os.path.join(run, 'stage_loss.json'), encoding='utf-8'))['registration']
+    S = np.asarray(Image.open(os.path.join(run, 'stages', 'render_view0', 'mask.png')).convert('L')) > 127
+    h, w = S.shape
+    ph = SL.read_rgba(photo)
+    pa = SL.warp_inv((ph[..., 3] > 127).astype(np.uint8) * 255, np.array(reg['P'], np.float64).reshape(3, 3), (w, h), interp=cv2.INTER_NEAREST) > 127
+    return [legs_match(S, pa, R)]
+
+
 # ---------- задняя стенка по кадрам ----------
 def back_dup(frames_dir: str, R: dict) -> list[dict]:
     """Кадр 0° и зеркальный кадр 180° (вид с другой стороны, тот же свет относительно камеры): продублированный фасад даёт почти одинаковый рельеф. Корреляция высокочастотной части
@@ -326,6 +378,7 @@ def run_sku(sku: str, glb: str | None, photo: str | None, frames: str | None, ru
         if m is not None:
             rec['checks'] += [open_edges(m, R), detached(m, R)]
             rec['checks'] += pose_checks(sku, pose_roots or [])
+            rec['checks'] += legs_checks(sku, photo, pose_roots or [], R)
             if photo and os.path.isfile(photo):
                 pm = photo_mask(photo)
                 fs, az = best_front(surface_points(m, int(R['sil_points'])), pm, R)
@@ -397,7 +450,7 @@ def main() -> int:
     json.dump(recs, open(os.path.join(a.out, 'all.json'), 'w', encoding='utf-8'), ensure_ascii=False, indent=1)
     if a.table:
         eye = json.load(open(a.eye, encoding='utf-8')) if a.eye else {}
-        open(a.table, 'w', encoding='utf-8').write(table(recs, eye, ['open_edges', 'detached', 'sil_iou', 'sil_extra', 'sil_miss', 'legs', 'sil_extra~', 'sil_miss~', 'holes', 'relief', 'back_dup', 'relief_graze', 'back_relief', 'back_dup_mask']) + '\n\n' + summary(recs, eye) + '\n')
+        open(a.table, 'w', encoding='utf-8').write(table(recs, eye, ['open_edges', 'detached', 'sil_iou', 'sil_extra', 'sil_miss', 'legs', 'sil_extra~', 'sil_miss~', 'holes', 'relief', 'back_dup', 'legs_match', 'relief_graze', 'back_relief', 'back_dup_mask']) + '\n\n' + summary(recs, eye) + '\n')
     return 0
 
 

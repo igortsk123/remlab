@@ -38,7 +38,7 @@ class Rules(unittest.TestCase):
     def test_block_list_and_complete(self):
         self.assertFalse(RULES['observe'])
         self.assertEqual(sorted(RULES['block']), ['detached', 'glb_sane', 'open_edges'])          # block — только GLB-проверки с 0 ложных на 27 годных (T-184/7)
-        for k in ('alpha_min', 'mask_erode', 'relief_graze', 'back_relief', 'back_dup_mask', 'flat_back_roles'):
+        for k in ('legs_match', 'leg_match_band', 'leg_match_area', 'alpha_min', 'mask_erode', 'relief_graze', 'back_relief', 'back_dup_mask', 'flat_back_roles'):
             self.assertIn(k, R)
         for k in ('min_extent', 'open_edge_share', 'detached_share', 'detached_piece_min', 'detached_gap', 'az_step', 'sil_points', 'holes_extra', 'leg_band', 'leg_fill', 'leg_min_w',
                   'back_dup_corr', 'bd_win', 'bd_sigma', 'bd_energy', 'relief_energy', 'sil_extra', 'sil_miss'):
@@ -173,6 +173,41 @@ class Frames(unittest.TestCase):
     def test_missing_frames(self):
         ch = FC.back_dup(tempfile.mkdtemp(prefix='tests_fc_none_'), R)
         self.assertIsNone(ch[0]['value'])
+
+
+class LegsMatch(unittest.TestCase):
+    """«Ножки» (T-184/8): синтетические маски; логика р.3."""
+
+    def masks(self, shift=0, n_mesh=3):
+        pa = np.zeros((200, 300), bool)
+        pa[10:140, 20:280] = True
+        for x in (30, 140, 250):
+            pa[140:190, x:x + 14] = True
+        S = np.zeros_like(pa)
+        S[10:140, 20:280] = True
+        for x in (30, 140, 250)[:n_mesh]:
+            S[140:190, x + shift:x + shift + 14] = True
+        return S, pa
+
+    def test_matching_legs_ok_shifted_flagged(self):
+        S, pa = self.masks(0)
+        self.assertFalse(FC.legs_match(S, pa, R)['flag'])
+        S, pa = self.masks(shift=20)
+        c = FC.legs_match(S, pa, R)
+        self.assertTrue(c['flag'])                                               # 20 px при ширине 260 = 0,077 > порога; силуэт-IoU такого почти не видит
+        self.assertGreater(c['value'], R['legs_match'])
+
+    def test_different_count_or_single_leg_not_counted(self):
+        S, pa = self.masks(0, n_mesh=2)
+        c = FC.legs_match(S, pa, R)
+        self.assertIsNone(c['value'])
+        self.assertFalse(c['flag'])
+        one = np.zeros((100, 100), bool)
+        one[:90, 20:80] = True
+        self.assertIsNone(FC.legs_match(one, one, R)['value'])
+
+    def test_no_run_gives_nothing(self):
+        self.assertEqual(FC.legs_checks('нет', None, [tempfile.mkdtemp(prefix='tests_fc_legs_')], R), [])
 
 
 class MaskChecks(unittest.TestCase):
