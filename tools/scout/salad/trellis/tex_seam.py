@@ -83,19 +83,35 @@ def panel_zone(tx, crease_deg: float, smooth_iters: int = 3, min_faces: int = 30
             lab[nb] = nxt
             fr = nb
         nxt += 1
-    size = np.bincount(lab, minlength=nxt)
-    tiny = np.nonzero(size < min_faces)[0]
-    if len(tiny) and nxt > len(tiny):
+    for _ in range(12):                                             # обрывки < min_faces вливаем в соседа с наибольшей общей границей (сосед тоже может быть обрывком — раунды)
+        size = np.bincount(lab, minlength=nxt)
+        small = size < min_faces
         ca, cb = lab[a], lab[b]
         d = ca != cb
-        pk, pc = np.unique(np.concatenate([ca[d] * nxt + cb[d], cb[d] * nxt + ca[d]]), return_counts=True)
+        if not small.any() or not d.any():
+            break
+        ca, cb = ca[d], cb[d]
+        x, y = np.concatenate([ca, cb]), np.concatenate([cb, ca])
+        m = small[x]
+        x, y = x[m], y[m]
+        if not len(x):
+            break
+        pk, pc = np.unique(x * nxt + y, return_counts=True)
         r0, r1 = pk // nxt, pk % nxt
-        best = {}
-        for r_, n_, c_ in zip(r0, r1, pc):
-            if size[r_] < min_faces and size[n_] >= min_faces and c_ > best.get(int(r_), (0, 0))[0]:
-                best[int(r_)] = (int(c_), int(n_))
-        for r_, (_, n_) in best.items():
-            lab[lab == r_] = n_
+        o = np.lexsort((-pc, r0))
+        r0, r1 = r0[o], r1[o]
+        first = np.r_[True, r0[1:] != r0[:-1]]
+        src, dst = r0[first], r1[first]
+        tgt = np.arange(nxt)
+        tgt[src] = dst
+        mut = (tgt[tgt[src]] == src) & small[dst] & (src < dst)     # два обрывка выбрали друг друга — меньший номер остаётся корнем
+        tgt[src[mut]] = src[mut]
+        for _k in range(30):
+            nt = tgt[tgt]
+            if (nt == tgt).all():
+                break
+            tgt = nt
+        lab = tgt[lab]
     _, lab = np.unique(lab, return_inverse=True)
     z = lab.reshape(-1)[tx.f].astype(np.int64)
     tx._seam_zone, tx._seam_zone_key = z, key_

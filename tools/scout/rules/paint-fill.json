@@ -92,7 +92,7 @@
     "de_bad": 3.0,
     "poisson": false,
     "crease_deg": 15.0,
-    "normal_smooth_iters": 3,
-    "min_panel_faces": 30
+    "normal_smooth_iters": 10,
+    "min_panel_faces": 400
   }
 }
