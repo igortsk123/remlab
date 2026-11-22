@@ -166,6 +166,11 @@ def render_md(s: dict, W: dict | None = None) -> str:
         out.append(f"  - {stage_name(W, x['stage'])} (`{x['stage']}`) — {x['count']}: " + '; '.join(f"{i.get('name') or i['sku']} (`{i['sku']}`) — {say(W, i['reason'])}" for i in x['items']))
     out.append(f"- **Покрашено (есть итоговая модель этапа 8): {s['painted']}** — итог проверки: прошли {f['ok']} · с замечаниями {f['soft']} · не прошли {f['refused']}"
                + (f" · проверка не запускалась {f['missing']}" if f.get('missing') else '') + f"; без замечаний ни на одном этапе: {s['painted_strict']}")
+    ch = s.get('stage_chain') or {}
+    if ch:
+        out.append('- **Цепочка по этапам** (вошло(следующий) = вошло − встало):')
+        for k, v in ch.items():
+            out.append(f"  - {stage_name(W, k)} (`{k}`): вошло {v['entered']} · прошло {v['ok']} · с замечаниями {v['soft']} · встало {v['refused']}" + (f" · нет данных этапа {v['nodata']}" if v['nodata'] else '') + f" · не дошло {v['not_reached']}")
     out.append(f"- **Кадров «фото | наш 3D»: {'не строились' if s['frames'] is None else s['frames']}** · карточек на странице: {'—' if s.get('cards') is None else s['cards']}")
     out.append('')
     if s['errors']:
@@ -346,8 +351,8 @@ def render_page(s: dict, cards: list, stopped_cards: list, title: str, W: dict |
             + (f'<ul>{li}</ul>' if li else '') + (f"<div class='why'><b>ОШИБКА СВОДКИ:</b> {e('; '.join(s['errors']))}</div>" if s['errors'] else '') + '</div>')
     nav = ''
     if stage_links:
-        nav = ("<div class='sum'><b>По этапам</b> (весь набор на каждом):<ul>" + ''.join(
-            f"<li><a href='{e(k)}/'>{e(stage_name(W, k))}</a> <small>({e(k)})</small> — вошло {v['entered']}, встало {v['refused']}</li>" for k, v in stage_links.items()) + '</ul></div>')
+        nav = ("<div class='sum'><b>По этапам</b> (вошло в следующий этап = вошло − встало; «нет данных» — этап пропущен в данных):<ul>" + ''.join(
+            f"<li><a href='{e(k)}/'>{e(stage_name(W, k))}</a> <small>({e(k)})</small> — вошло {v['entered']}, встало {v['refused']}{(', нет данных ' + str(v['nodata'])) if v['nodata'] else ''}</li>" for k, v in stage_links.items()) + '</ul></div>')
     body = []
     for c in cards:
         verdict = VERDICT.get(c['final'], c['final'])
@@ -364,44 +369,83 @@ def render_page(s: dict, cards: list, stopped_cards: list, title: str, W: dict |
 
 
 # ---------- страницы по этапам (T-180/4 доп., владелец TG 1258): после КАЖДОГО этапа — «фото | результат этапа» по всем товарам набора ----------
+# Цепочка этапов (директор 22.11, владелец ловил несходящиеся числа): товар идёт по этапам, пока не встанет; всё, что в данных ПОСЛЕ его остановки (раннер порой гнал дальше отказа), на странице этапа не считается.
+#   вошло(этап) = товары, не вставшие раньше; из них: прошёл · с замечаниями · встал · «нет данных этапа» (check.json не записан, а дальше товар шёл);
+#   вошло(следующий) = вошло(этап) − встало(этап) — это самопроверка `verify_table`; «покрашено» = вошло(08) − встало(08).
+# Товар с итоговой моделью (08-material/material.glb) не встаёт до этапа 9: отказ его этапа ≤ 8 при готовой модели — «с замечаниями» (модель есть, проверка не прошла), отказ этапа 9 — его итог.
 
-def stage_summary(per: dict, stage: str) -> dict:
-    """Сводка одного этапа по `per`: вошло (этап запускался: есть check.json) · прошло (ok) · с замечаниями · встало (refused) · не дошло. Самопроверка: вошло = прошло+с замечаниями+встало; вошло+не дошло = N."""
-    c = {'ok': 0, 'soft': 0, 'refused': 0, 'missing': 0}
-    items = {}
-    entered = 0
-    for sku, rows in per.items():
-        r = next((x for x in rows if x['stage'] == stage), None)
-        st = r['status'] if r else 'missing'
-        if stage == pf.NINE:                                          # проверку «вошли» только дошедшие до материала; отказ у остановившихся раньше — не их проверка (директор 22.11)
-            m = next((x for x in rows if x['stage'] == MATERIAL), None)
-            if not m or m['status'] == 'missing':
-                st, r = 'missing', None
-            else:
-                entered += 1
+NOTE_PAINTED_REFUSED = 'итоговая модель есть, а проверка этапа не прошла'
+
+
+def effective(rows: list, painted: bool) -> dict:
+    """{этап: {'status': ok|soft|refused|nodata|after, 'reason', 'note'}} по решениям этапов одного товара. `after` — этап после остановки товара (не считается)."""
+    out = {}
+    order = [r['stage'] for r in rows]
+    stop = None if painted else stop_of(rows)
+    for r in rows:
+        st, why, note = r['status'], (r.get('reason') or '').strip(), ''
+        if painted:
+            if st == 'refused' and r['stage'] != pf.NINE:
+                st, note = 'soft', NOTE_PAINTED_REFUSED
+            elif st == 'missing':
+                st = 'nodata'
         else:
-            entered += st != 'missing'
-        c[st] = c.get(st, 0) + 1
-        items[sku] = {'status': st, 'reason': ((r or {}).get('reason') or '').strip()}
-    reached = c['ok'] + c['soft'] + c['refused']
-    entered = entered if stage == pf.NINE else reached
-    s = {'stage': stage, 'n': len(per), 'entered': entered, 'reached': reached, 'ok': c['ok'], 'soft': c['soft'], 'refused': c['refused'], 'not_reached': c['missing'], 'no_frame': 0, 'items': items, 'errors': []}
-    if reached + c['missing'] != len(per):
-        s['errors'].append(f'{stage}: проверено/вошло {reached} + не дошло {c["missing"]} ≠ N {len(per)}')
-    if reached > entered:
-        s['errors'].append(f'{stage}: проверено {reached} > вошло {entered}')
-    return s
+            si = order.index(stop[0]) if stop[0] in order else len(order)
+            i = order.index(r['stage'])
+            if i > si:
+                st = 'after'
+            elif i == si:
+                st, why = 'refused', stop[1] if st != 'refused' else why          # остановка: отказ; нет данных/«всё прошло, а модели нет» — тоже остановка со своей причиной
+            elif st == 'missing':
+                st = 'nodata'
+        out[r['stage']] = {'status': st, 'reason': why, 'note': note}
+    return out
 
 
-def stage_cards(runof: dict, per: dict, stage: str, out: str, photos: dict, names: dict) -> tuple:
-    """Карточки одного этапа: фото и `<товар>/<этап>/frame.png`. Возвращает (карточки, ошибки обработки файлов). Нет кадра — карточка с пометкой «кадра нет» (считается в `no_frame`)."""
+def stage_table(per: dict, painted: set) -> tuple:
+    """(этапы по порядку, {этап: сводка}) для набора. Сводка: entered, ok, soft, refused, nodata, not_reached (= N − вошло), items {товар: effective}."""
+    stages = sorted({r['stage'] for rows in per.values() for r in rows})
+    eff = {sku: effective(rows, sku in painted) for sku, rows in per.items()}
+    table = {}
+    for st in stages:
+        c = {'ok': 0, 'soft': 0, 'refused': 0, 'nodata': 0, 'after': 0}
+        items = {}
+        for sku in per:
+            e = eff[sku].get(st) or {'status': 'nodata', 'reason': '', 'note': ''}
+            c[e['status']] += 1
+            items[sku] = e
+        entered = c['ok'] + c['soft'] + c['refused'] + c['nodata']
+        table[st] = {'stage': st, 'n': len(per), 'entered': entered, 'ok': c['ok'], 'soft': c['soft'], 'refused': c['refused'], 'nodata': c['nodata'], 'not_reached': c['after'], 'no_frame': 0, 'items': items}
+    return stages, table
+
+
+def verify_table(stages: list, table: dict, n: int, painted: int | None = None) -> list:
+    """Самопроверка цепочки: вошло(1) = N; сумма статусов этапа = вошло; вошло(N+1) = вошло(N) − встало(N); вошло(08) − встало(08) = покрашено. Пустой список — сошлось."""
+    e = []
+    if stages and table[stages[0]]['entered'] != n:
+        e.append(f"этап {stages[0]}: вошло {table[stages[0]]['entered']} ≠ N {n}")
+    for a, b in zip(stages, stages[1:]):
+        want = table[a]['entered'] - table[a]['refused']
+        if table[b]['entered'] != want:
+            e.append(f"цепочка: {a} вошло {table[a]['entered']} − встало {table[a]['refused']} = {want}, а {b} вошло {table[b]['entered']}")
+    for st in stages:
+        t = table[st]
+        if t['ok'] + t['soft'] + t['refused'] + t['nodata'] != t['entered'] or t['entered'] + t['not_reached'] != n:
+            e.append(f'этап {st}: прошло+замечания+встало+нет данных ≠ вошло, или вошло+не дошло ≠ N')
+    if painted is not None and MATERIAL in table:
+        t = table[MATERIAL]
+        if t['entered'] - t['refused'] != painted:
+            e.append(f"вошло в {MATERIAL} {t['entered']} − встало {t['refused']} = {t['entered'] - t['refused']} ≠ покрашено {painted}")
+    return e
+
+
+def stage_cards(runof: dict, table: dict, stage: str, W: dict, out: str, photos: dict, names: dict) -> tuple:
+    """Карточки одного этапа: фото и `<товар>/<этап>/frame.png` (только у вошедших в этап). Возвращает (карточки, ошибки обработки файлов). Нет кадра — карточка с пометкой «кадра нет» (считается в `no_frame`)."""
     d = os.path.join(out, stage, 'img')
     os.makedirs(d, exist_ok=True)
     cards, errs = [], []
-    for sku in sorted(per):
-        r = next((x for x in per[sku] if x['stage'] == stage), None)
-        st = r['status'] if r else 'missing'
-        c = {'sku': sku, 'name': names.get(sku) or sku, 'status': st, 'reason': ((r or {}).get('reason') or '').strip(), 'foto': None, 'frame': None}
+    for sku, e in sorted(table[stage]['items'].items()):
+        c = {'sku': sku, 'name': names.get(sku) or sku, 'status': e['status'], 'reason': e['reason'], 'note': e['note'], 'foto': None, 'frame': None, 'stop': e.get('stop')}
         try:
             if photos.get(sku):
                 _jpeg(photos[sku], os.path.join(d, f'{sku}_1-foto.jpg'))
@@ -409,7 +453,7 @@ def stage_cards(runof: dict, per: dict, stage: str, out: str, photos: dict, name
         except Exception as ex:  # noqa: BLE001
             errs.append(f'{stage}: фото {sku}: {type(ex).__name__}: {ex}')
         fr = os.path.join(runof[sku], sku, stage, 'frame.png')
-        if os.path.exists(fr):
+        if e['status'] != 'after' and os.path.exists(fr):
             try:
                 _jpeg(fr, os.path.join(d, f'{sku}_2-{stage[:2]}.jpg'))
                 c['frame'] = f'img/{sku}_2-{stage[:2]}.jpg'
@@ -419,37 +463,54 @@ def stage_cards(runof: dict, per: dict, stage: str, out: str, photos: dict, name
     return cards, errs
 
 
+STAGE_WORDS = {'ok': 'прошёл', 'soft': 'прошёл с замечаниями', 'refused': 'встал', 'nodata': 'нет данных этапа', 'after': 'не дошёл'}
+
+
 def render_stage_page(s: dict, cards: list, stages: list, label: str, W: dict) -> str:
     e = html.escape
     st = s['stage']
     pct = stage_pct(W, st)
     cap = f"этап {st[:2]} · {stage_name(W, st)} · готовность этапа " + (f'{pct} %' if pct is not None else 'не задана')
     nav = f"<a href='../'>весь прогон</a> · " + ' · '.join((f"<b>{e(x[:2])}</b>" if x == st else f"<a href='../{e(x)}/' title='{e(stage_name(W, x))}'>{e(x[:2])}</a>") for x in stages)
-    head = (f"<b>вошло {s['entered']}</b> (дошли до материала) · проверено {s['reached']} из {s['entered']}" if st == pf.NINE else f"<b>вошло {s['reached']}</b>")
     legend = frame_caption(W, st)
-    summ = (f"<div class='sum'><div>{head} · <b>прошло {s['ok']}</b> · с замечаниями {s['soft']} · <b>встало {s['refused']}</b> · не дошло {s['not_reached']} (из {s['n']})"
+    summ = (f"<div class='sum'><div><b>вошло {s['entered']}</b> · <b>прошло {s['ok']}</b> · с замечаниями {s['soft']} · <b>встало {s['refused']}</b>"
+            + (f" · <b>нет данных этапа {s['nodata']}</b>" if s['nodata'] else '') + f" · не дошло {s['not_reached']} (встали раньше; из {s['n']})"
             + (f" · без кадра этапа {s['no_frame']}" if s['no_frame'] else '') + '</div>'
-            + (f"<div class='why'><b>ОШИБКА СВОДКИ:</b> {e('; '.join(s['errors']))}</div>" if s['errors'] else '') + (f"<div class='why'><b>На кадре:</b> {e(legend)}</div>" if legend else '') + f"<div class='meta'>готовность обновлена: {e(str(W.get('updated') or '—'))}</div></div>")
+            + (f"<div class='why'><b>На кадре:</b> {e(legend)}</div>" if legend else '') + f"<div class='meta'>готовность обновлена: {e(str(W.get('updated') or '—'))}</div></div>")
     body = []
     for c in cards:
-        body.append(_card(c, c['status'], STAGE_VERDICT.get(c['status'], c['status']), W, cap, 'фото товара', frame_caption(W, st) or f'после этапа {st[:2]}',
-                          say(W, c['reason']) if c['status'] in ('refused', 'soft') and c['reason'] else '', c['reason'] if c['status'] in ('refused', 'soft') else ''))
+        why = say(W, c['reason']) if c['status'] in ('refused', 'soft') and c['reason'] else ''
+        if c['note']:
+            why = c['note'] + ('; ' + why if why else '')
+        if c['status'] == 'after':
+            why = f"встал раньше: {stage_name(W, c['stop'][0])} ({c['stop'][0]})" if c.get('stop') else 'встал раньше'
+        if c['status'] == 'nodata':
+            why = 'check.json этапа не записан, хотя товар шёл дальше'
+        body.append(_card(c, 'missing' if c['status'] in ('after', 'nodata') else c['status'], STAGE_WORDS[c['status']], W, cap, 'фото товара', frame_caption(W, st) or f'после этапа {st[:2]}',
+                          why, c['reason'] if c['status'] in ('refused', 'soft') else ''))
     return _head(f'{label}: {cap}', f"<h1>{e(cap)}</h1><nav>{nav}</nav>{summ}{''.join(body)}")
 
 
-def stage_pages(per: dict, runof: dict, out: str, W: dict, label: str, names: dict, photos: dict) -> tuple:
-    """Страницы всех этапов набора в `<out>/<этап>/index.html`. Возвращает ({этап: сводка}, ошибки)."""
-    stages = sorted({r['stage'] for rows in per.values() for r in rows})
-    sums, errs = {}, []
+def stage_pages(per: dict, painted: set, runof: dict, out: str, W: dict, label: str, names: dict, photos: dict) -> tuple:
+    """Страницы всех этапов набора в `<out>/<этап>/index.html`. Возвращает ({этап: сводка}, ошибки). Цепочка не сошлась — страницы НЕ строятся, вернутся только ошибки."""
+    stages, table = stage_table(per, painted)
+    for sku in per:                                                  # у остановившегося — где встал (подпись у карточек «не дошёл»)
+        if sku not in painted:
+            stop = stop_of(per[sku])
+            for st in stages:
+                if table[st]['items'][sku]['status'] == 'after':
+                    table[st]['items'][sku]['stop'] = stop
+    errs = verify_table(stages, table, len(per), len(painted & set(per)))
+    sums = {st: {k: v for k, v in t.items() if k != 'items'} for st, t in table.items()}
+    if errs:
+        return sums, errs
     for st in stages:
-        s = stage_summary(per, st)
-        cards, e = stage_cards(runof, per, st, out, photos, names)
-        s['errors'] += e
-        s['no_frame'] = sum(1 for c in cards if c['status'] != 'missing' and not c['frame'])
-        errs += s['errors']
+        s = table[st]
+        cards, e = stage_cards(runof, table, st, W, out, photos, names)
+        errs += e
+        s['no_frame'] = sums[st]['no_frame'] = sum(1 for c in cards if c['status'] in ('ok', 'soft', 'refused') and not c['frame'])
         os.makedirs(os.path.join(out, st), exist_ok=True)
         open(os.path.join(out, st, 'index.html'), 'w', encoding='utf-8').write(render_stage_page(s, cards, stages, label, W))
-        sums[st] = {k: v for k, v in s.items() if k != 'items'}
     json.dump(sums, open(os.path.join(out, 'stages.json'), 'w', encoding='utf-8'), ensure_ascii=False, indent=1)
     return sums, errs
 
@@ -501,11 +562,15 @@ def report(runs: list, per_by_label: dict, out: str, repo: str, name: str | None
     s['errors'] = verify(s) + extra
     stage_sums = {}
     if with_stages:                                                    # страницы по этапам: `<out>/<этап>/index.html` — фото | результат этапа по всем товарам набора
-        stage_sums, serrs = stage_pages(per, runof, out, W, label, names, photos)
+        stage_sums, serrs = stage_pages(per, painted, runof, out, W, label, names, photos)
         s['errors'] += serrs
+    s['stage_chain'] = {k: {x: y for x, y in v.items() if x != 'items'} for k, v in stage_sums.items()}
     open(os.path.join(out, 'summary.md'), 'w', encoding='utf-8').write(render_md(s, W))
     json.dump(s, open(os.path.join(out, 'summary.json'), 'w', encoding='utf-8'), ensure_ascii=False, indent=1)
-    open(os.path.join(out, 'index.html'), 'w', encoding='utf-8').write(render_page(s, cards, stopped_cards, f'Прогон покраски {label}', W, stage_sums))
+    if s['errors']:                                                  # не сошлось — страница прогона не строится (вместо неё — причина), выкладка заблокирована
+        open(os.path.join(out, 'index.html'), 'w', encoding='utf-8').write(_head('Страница не построена', '<h1>Страница не построена: сводка не сошлась</h1><ul>' + ''.join(f'<li>{html.escape(x)}</li>' for x in s['errors']) + '</ul>'))
+    else:
+        open(os.path.join(out, 'index.html'), 'w', encoding='utf-8').write(render_page(s, cards, stopped_cards, f'Прогон покраски {label}', W, stage_sums))
     print(render_md(s, W))
     print(f'страница: {os.path.join(out, "index.html")}')
     if do_publish and not s['errors']:
