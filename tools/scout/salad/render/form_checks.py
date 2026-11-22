@@ -12,6 +12,11 @@
   holes         · грубые лишние сквозные просветы в силуэте против фото (приближение)  · «Дыры, рваный фасад»
   relief        · много мелкого рельефа на кадре 0° — рваный, «изъеденный» фасад   · «Дыры, рваный фасад»
   back_dup      · кадр 0° и кадр 180° (прямо или зеркально) совпадают по рельефу    · «фасад продублирован на задней стенке» (ловит только точную копию)
+  relief_graze  · мелкий рельеф кадра 0° при боковом свете ВНУТРИ маски формы (альфа, без фона и тени)  · «Дыры, рваный фасад»
+  back_relief   · то же на кадре 180°: у корпусной мебели с плоской спиной (`flat_back_roles`) сильный рельеф сзади — каркас/копия фасада · «Открытая сломанная спина», «фасад сзади»
+  back_dup_mask · рельеф 0° и 180° внутри маски совпадает (прямо/зеркально), только для ролей с плоской спиной · «фасад продублирован на задней стенке»
+Режим: `block` в rules — проверки, чей флаг даёт статус `shape_reject` (в списке только то, у чего 0 ложных на годных формах); остальные — `observe`.
+Статус формы: shape_reject (сработала block-проверка) · camera_or_mask_uncertain (только провал контура из этапа 04: поза/маска/перёд-зад — не доказательство брака формы) · needs_review (прочие флаги) · pass.
 Запуск: python3 form_checks.py --glbs DIR --glb-name '{sku}-hd.glb' --photos DIR --frames DIR --skus a,b | --skus-file F --out DIR [--eye eye.json --table table.md]
 """
 from __future__ import annotations
@@ -235,10 +240,84 @@ def back_dup(frames_dir: str, R: dict) -> list[dict]:
     return [relief, check('back_dup', c, R['back_dup_corr'], bool(R.get('back_dup_flag', True)) and c > R['back_dup_corr'], f'корреляция рельефа 0°↔180°: прямая {cd:.3f}, зеркальная {cm:.3f}; энергия {ea:.2f}/{eb:.2f}')]
 
 
+# ---------- по маске формы (альфа-кадры T-184/5) ----------
+def hp_in_mask(frame: str, alpha: str, R: dict):
+    """Высокочастотная часть кадра ВНУТРИ маски формы (альфа, сжатая на `mask_erode` долей стороны — край и тень не мешают). → (карта, маска) или (None, None)."""
+    from scipy import ndimage
+    if not (os.path.isfile(frame) and os.path.isfile(alpha)):
+        return None, None
+    g = np.asarray(Image.open(frame).convert('L'), float)
+    a = np.asarray(Image.open(alpha).convert('RGBA'))[:, :, 3] > R['alpha_min']
+    if a.shape != g.shape or a.sum() < 100:
+        return None, None
+    k = max(2, int(R['mask_erode'] * min(a.shape)))
+    inner = ndimage.binary_erosion(a, iterations=k)
+    if inner.sum() < 100:
+        return None, None
+    return g - ndimage.gaussian_filter(g, R['bd_sigma']), inner
+
+
+def energy(hp, inner) -> float:
+    return float(hp[inner].std())
+
+
+def mask_checks(sku_dir: str, role: str, R: dict) -> list[dict]:
+    """Проверки по кадрам с альфой (`<sku>/alpha/NN_<вид>_clay_graze.png` рядом с обычным кадром). Нет кадров — пусто."""
+    ad = os.path.join(sku_dir, 'alpha')
+    if not os.path.isdir(ad):
+        return []
+
+    def pick(az):
+        return next((f for f in sorted(os.listdir(sku_dir)) if f'_{az}_clay_graze.png' in f), None)
+    f0, f1 = pick('az000'), pick('az180')
+    if not f0 or not f1:
+        return [check('relief_graze', None, R['relief_graze'], False, 'нет кадров 0°/180° при боковом свете')]
+    a, ma = hp_in_mask(os.path.join(sku_dir, f0), os.path.join(ad, f0), R)
+    b, mb = hp_in_mask(os.path.join(sku_dir, f1), os.path.join(ad, f1), R)
+    if a is None or b is None:
+        return [check('relief_graze', None, R['relief_graze'], False, 'маска формы пуста или кадр другого размера')]
+    ea, eb = energy(a, ma), energy(b, mb)
+    out = [check('relief_graze', ea, R['relief_graze'], ea > R['relief_graze'], f'энергия рельефа 0° внутри маски {ea:.2f} (боковой свет)')]
+    flat = any((role or '').lower().startswith(x) for x in R['flat_back_roles'])
+    out.append(check('back_relief', eb, R['back_relief'], flat and eb > R['back_relief'],
+                     f'энергия рельефа 180° внутри маски {eb:.2f}; роль «{role or "?"}» {"с плоской спиной" if flat else "— проверка не применима"}'))
+    c = None
+    if flat and min(ea, eb) >= R['bd_energy']:
+        both = ma & ma[:, ::-1] & mb
+        if both.sum() > 100:
+            c = max(float(np.corrcoef(a[both], b[both])[0, 1]), float(np.corrcoef(a[both], b[:, ::-1][both])[0, 1]))
+    out.append(check('back_dup_mask', c, R['back_dup_mask'], c is not None and c > R['back_dup_mask'],
+                     'нет рельефа или роль без плоской спины — не применима' if c is None else f'корреляция рельефа 0°↔180° внутри маски {c:.3f}'))
+    return out
+
+
+def status_of(checks: list[dict], block: list[str]) -> str:
+    flagged = [c['name'] for c in checks if c['flag']]
+    if any(n in block for n in flagged):
+        return 'shape_reject'
+    pose = {'sil_iou', 'sil_extra', 'sil_miss', 'legs'}
+    if flagged and set(flagged) <= pose:
+        return 'camera_or_mask_uncertain'
+    return 'needs_review' if flagged else 'pass'
+
+
+def summary(recs: list[dict], eye: dict) -> str:
+    """Проверка × поймала брак × ложных на годных: по этой таблице выбирают, что можно ставить в block (только 0 ложных)."""
+    names = sorted({c['name'] for r in recs for c in r['checks']})
+    bad = [r for r in recs if eye.get(r['sku'], {}).get('verdict') == 'брак']
+    good = [r for r in recs if eye.get(r['sku'], {}).get('verdict') == 'годна']
+    lines = [f'| проверка | поймала брак (из {len(bad)}) | ложных на годных (из {len(good)}) |', '|---|---|---|']
+    for n in names:
+        fl = lambda rs: sum(1 for r in rs for c in r['checks'] if c['name'] == n and c['flag'])
+        lines.append(f'| {n} | {fl(bad)} | {fl(good)} |')
+    return '\n'.join(lines)
+
+
 # ---------- один товар ----------
-def run_sku(sku: str, glb: str | None, photo: str | None, frames: str | None, rules: dict, pose_roots: list[str] | None = None) -> dict:
+def run_sku(sku: str, glb: str | None, photo: str | None, frames: str | None, rules: dict, pose_roots: list[str] | None = None, alpha_dir: str | None = None, role: str = '') -> dict:
     R = rules['thresholds']
-    rec: dict = {'sku': sku, 'observe': rules.get('observe', True), 'checks': []}
+    block = rules.get('block', [])
+    rec: dict = {'sku': sku, 'observe': not block, 'block': block, 'checks': []}
     if not glb or not os.path.isfile(glb):
         rec['checks'].append(check('glb_sane', None, None, True, 'GLB не найден'))
     else:
@@ -255,8 +334,11 @@ def run_sku(sku: str, glb: str | None, photo: str | None, frames: str | None, ru
                 rec['checks'].append(check('sil_extra~', None, R['sil_extra'], False, 'нет маски фото — приближённые силуэтные проверки пропущены'))
     if frames:
         rec['checks'] += back_dup(frames, R)
+    if alpha_dir:
+        rec['checks'] += mask_checks(alpha_dir, role, R)
     flags = [c['name'] for c in rec['checks'] if c['flag']]
     rec['auto'] = 'flag' if flags else 'ok'
+    rec['status'] = status_of(rec['checks'], block)
     rec['flags'] = flags
     return rec
 
@@ -294,6 +376,8 @@ def main() -> int:
     ap.add_argument('--eye', default='', help='JSON {sku: {verdict: годна|брак, note}} — вердикт глазом для таблицы')
     ap.add_argument('--table', default='')
     ap.add_argument('--pose-roots', default='', help='папки прогонов этапа 04 камеры (<root>/<sku>/04-camera/check.json или <root>/g*/<sku>/…) через запятую — точная сверка контура с фото')
+    ap.add_argument('--alpha-root', default='', help='папка <sku>/NN_…_clay_graze.png + <sku>/alpha/ (кадры формы с альфой, T-184/5)')
+    ap.add_argument('--roles', default='', help='JSON {sku: роль каталога} — для проверок спины (flat_back_roles)')
     ap.add_argument('--rules', default=RULES)
     a = ap.parse_args()
     rules = load_rules(a.rules)
@@ -301,17 +385,19 @@ def main() -> int:
     if a.skus_file:
         skus += [ln.split()[0] for ln in open(a.skus_file, encoding='utf-8') if ln.strip()]
     os.makedirs(a.out, exist_ok=True)
+    roles = json.load(open(a.roles, encoding='utf-8')) if a.roles else {}
     recs = []
     for s in skus:
-        rec = run_sku(s, os.path.join(a.glbs, a.glb_name.format(sku=s)), os.path.join(a.photos, a.photo_name.format(sku=s)), os.path.join(a.frames, s) if a.frames else None, rules, [x for x in a.pose_roots.split(',') if x])
+        rec = run_sku(s, os.path.join(a.glbs, a.glb_name.format(sku=s)), os.path.join(a.photos, a.photo_name.format(sku=s)), os.path.join(a.frames, s) if a.frames else None, rules, [x for x in a.pose_roots.split(',') if x],
+                      os.path.join(a.alpha_root, s) if a.alpha_root else None, roles.get(s, ''))
         os.makedirs(os.path.join(a.out, s), exist_ok=True)
         json.dump(rec, open(os.path.join(a.out, s, 'form_checks.json'), 'w', encoding='utf-8'), ensure_ascii=False, indent=1)
         recs.append(rec)
-        print(f"{s} {rec['auto']} {rec['flags']}", flush=True)
+        print(f"{s} {rec['status']} {rec['flags']}", flush=True)
     json.dump(recs, open(os.path.join(a.out, 'all.json'), 'w', encoding='utf-8'), ensure_ascii=False, indent=1)
     if a.table:
         eye = json.load(open(a.eye, encoding='utf-8')) if a.eye else {}
-        open(a.table, 'w', encoding='utf-8').write(table(recs, eye, ['open_edges', 'detached', 'sil_iou', 'sil_extra', 'sil_miss', 'legs', 'sil_extra~', 'sil_miss~', 'holes', 'relief', 'back_dup']) + '\n')
+        open(a.table, 'w', encoding='utf-8').write(table(recs, eye, ['open_edges', 'detached', 'sil_iou', 'sil_extra', 'sil_miss', 'legs', 'sil_extra~', 'sil_miss~', 'holes', 'relief', 'back_dup', 'relief_graze', 'back_relief', 'back_dup_mask']) + '\n\n' + summary(recs, eye) + '\n')
     return 0
 
 
