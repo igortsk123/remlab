@@ -198,11 +198,15 @@ def _vote(gap, thr: float) -> str:
     return 'за' if gap >= thr else ('против' if gap <= -thr else '—')
 
 
-def orientation_votes(gap_sil, cues_pick: dict, cues_flip: dict | None, R: dict) -> dict:
+def orientation_votes(gap_sil, cues_pick: dict, cues_flip: dict | None, R: dict, dino: dict | None = None) -> dict:
     """Голоса сигналов за выбранную позу против yaw+180°: силуэт (разрыв оценки), цвет (de сглаженный: у +180° − у выбранной), геометрия (кромки: у выбранной − у +180°).
     Порог цвета — max(color_rel·de выбранной, color_abs); геометрии — geom_gap; силуэта — sil_gap. Все — в `rules/pose-rank.json` → orientation."""
     O = R['orientation']
-    out = {'silhouette': _vote(gap_sil, O['sil_gap']), 'color': 'нет', 'geom': 'нет', 'gap': {'silhouette': gap_sil, 'color': None, 'geom': None}}
+    out = {'silhouette': _vote(gap_sil, O['sil_gap']), 'color': 'нет', 'geom': 'нет', 'dino': 'нет', 'gap': {'silhouette': gap_sil, 'color': None, 'geom': None, 'dino': None}}
+    if dino and dino.get('pick') is not None and dino.get('flip') is not None:        # DINOv2: косинус CLS с фото у выбранной позы минус у +180° (pose_dino; считается отдельным шагом)
+        g = round(dino['pick'] - dino['flip'], 4)
+        out['gap']['dino'] = g
+        out['dino'] = _vote(g, R['dino']['gap'])
     if not cues_flip:
         return out
     pc, fc = (cues_pick.get('color') or {}), (cues_flip.get('color') or {})
@@ -227,7 +231,7 @@ def orientation_verdict(votes: dict, pair: dict | None, R: dict) -> dict:
       ambiguous        — иначе, в т.ч. сигналы спорят между собой (ORIENTATION_AMBIGUOUS).  ambiguous=True только у `ambiguous`."""
     O = R['orientation']
     need = int(O['need_votes'])
-    cues = [votes['color'], votes['geom']]
+    cues = [votes['color'], votes['geom'], votes.get('dino', 'нет')]      # DINO — необязательный третий голос: нет данных → «нет», на счёт не влияет
     pro, con = cues.count('за'), cues.count('против')
     sym = False
     if pair is not None and pair.get('mask_iou', 0.0) >= O['sym_iou'] and pair.get('shade_mad') is not None and pair['shade_mad'] < O['sym_shade']:
@@ -244,7 +248,7 @@ def orientation_verdict(votes: dict, pair: dict | None, R: dict) -> dict:
         v = 'flip_suggested'
     else:
         v = 'ambiguous'
-    return {'verdict': v, 'ambiguous': v == 'ambiguous', 'code': 'ORIENTATION_AMBIGUOUS' if v == 'ambiguous' else None, 'votes': {k: votes[k] for k in ('silhouette', 'color', 'geom')},
+    return {'verdict': v, 'ambiguous': v == 'ambiguous', 'code': 'ORIENTATION_AMBIGUOUS' if v == 'ambiguous' else None, 'votes': {k: votes[k] for k in ('silhouette', 'color', 'geom', 'dino') if k in votes},
             'gap': votes['gap'], 'pair': pair, 'shadow': True}
 
 

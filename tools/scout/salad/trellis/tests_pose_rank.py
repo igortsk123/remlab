@@ -162,5 +162,35 @@ x1 = PR.orientation_verdict(PR.orientation_votes(0.0, cues(2.0, 0.30), cues(2.1,
 x2 = PR.orientation_verdict(PR.orientation_votes(0.0, cues(2.0, 0.30), cues(2.1, 0.10), R), None, R)
 check('итог: need_votes 1 — одного «за» (геометрия) без «против» достаточно; при 2 — ambiguous', x1['verdict'] == 'front_cues' and x2['verdict'] == 'ambiguous')
 
+# ---------- DINOv2: чистое ядро (без torch) ----------
+import pose_dino as PD  # noqa: E402
+
+im = np.zeros((200, 300, 3), np.uint8) + 50
+mk = np.zeros((200, 300), bool)
+mk[40:120, 100:260] = True
+cr = PD.crop_masked(im, mk, size=64)
+check('dino.crop_masked: квадрат нужного размера, маска предмета в центре, вне маски — нейтральный фон', cr.shape == (64, 64, 3) and abs(int(cr[32, 32, 0]) - 50) <= 1 and int(cr[0, 0, 0]) == 235, str(cr.shape))
+check('dino.crop_masked: пустая маска → None', PD.crop_masked(im, np.zeros((200, 300), bool)) is None)
+mk2 = np.zeros((200, 300), bool)
+mk2[0:60, 0:80] = True
+check('dino.crop_masked: предмет у края кадра — не падает, размер тот же', PD.crop_masked(im, mk2, size=64).shape == (64, 64, 3))
+px = PD.prep(np.full((28, 28, 3), 255, np.uint8))
+check('dino.prep: форма [1, 3, H, W], белый → (1 − среднее) / σ по каналам (нормализация ImageNet)', px.shape == (1, 3, 28, 28) and abs(float(px[0, 0, 0, 0]) - (1 - 0.485) / 0.229) < 1e-4 and px.dtype == np.float32)
+va = np.array([1.0, 0.0, 0.0])
+check('dino.cosine: одинаковые = 1, ортогональные = 0, противоположные = −1', abs(PD.cosine(va, va) - 1) < 1e-9 and abs(PD.cosine(va, np.array([0, 1.0, 0]))) < 1e-9 and abs(PD.cosine(va, -va) + 1) < 1e-9)
+check('dino.dino_vote: выбранная ближе к фото на ≥ gap — «за»; дальше — «против»; иначе «—»; нет данных — «нет»',
+      (PD.dino_vote(0.80, 0.70, 0.03), PD.dino_vote(0.70, 0.80, 0.03), PD.dino_vote(0.80, 0.79, 0.03), PD.dino_vote(None, 0.5, 0.03)) == ('за', 'против', '—', 'нет'))
+
+check('правила: dino.gap в одном месте', R['dino']['gap'] > 0)
+vd = PR.orientation_votes(0.0, cues(2.0, 0.30), cues(5.0, 0.10), R, dino={'pick': 0.8, 'flip': 0.5})
+check('голоса: DINO у выбранной ближе к фото на ≥ gap → «за», разрыв в gap.dino', vd['dino'] == 'за' and abs(vd['gap']['dino'] - 0.3) < 1e-9)
+check('голоса: DINO без данных → «нет», без аргумента то же', PR.orientation_votes(0.0, cues(2, .3), cues(2, .3), R)['dino'] == 'нет' and PR.orientation_votes(0.0, cues(2, .3), cues(2, .3), R, dino={'pick': None, 'flip': 0.5})['dino'] == 'нет')
+x = PR.orientation_verdict(PR.orientation_votes(0.0, cues(2.0, 0.10), cues(2.1, 0.10), R, dino={'pick': 0.8, 'flip': 0.5}), None, R)
+check('итог: ничья, DINO «за» один → ambiguous (нужно 2 голоса), метка содержит голос DINO', x['verdict'] == 'ambiguous' and x['votes']['dino'] == 'за')
+x = PR.orientation_verdict(PR.orientation_votes(0.0, cues(2.0, 0.30), cues(2.1, 0.10), R, dino={'pick': 0.8, 'flip': 0.5}), None, R)
+check('итог: ничья, геометрия и DINO «за» → front_cues', x['verdict'] == 'front_cues')
+x = PR.orientation_verdict(PR.orientation_votes(0.05, cues(2.0, 0.30), cues(2.1, 0.30), R, dino={'pick': 0.4, 'flip': 0.8}), None, R)
+check('итог: силуэт «за», но DINO «против» → ambiguous (спор)', x['verdict'] == 'ambiguous')
+
 print('all ok' if not bad else f'FAILED: {bad}')
 sys.exit(1 if bad else 0)
