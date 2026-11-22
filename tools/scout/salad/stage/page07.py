@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """СТРАНИЦА ЭТАПА 07 «залить невидимое» (T-189/2, P-065): на товар — фото | 06 с камеры | 07 с камеры | 07 слева 40° | 07 справа 40°, строка проверок и времени, легенда.
-Ракурсы ±40° — от АЗИМУТА НАЙДЕННОЙ КАМЕРЫ (az из `pose.json` этапа 4), не от осей формы (урок 848): `tex_visible.side_view_angles`, рендер — тот же `recolor_lp.render_unlit`, что у листа этапа 6.
+Ракурсы ±40° — от АЗИМУТА НАЙДЕННОЙ КАМЕРЫ (az из `pose.json` этапа 4), не от осей формы (урок 848): `tex_visible.side_view_angles`, рендер — `mesh_render.render` без света (как `recolor_lp.render_unlit` листа этапа 6), но рамка по габариту предмета и поле от силуэта ≥ 3 % со всех сторон (`render_framed`, T-189/3).
 Фото и «06 с камеры» режутся из готового `06-visible/frame.png` (4 панели по 960 px: фото | 06 с камеры | слева | справа); 07 — рендерится здесь из `07-fill/filled.glb`.
 Запуск (на pakardev, python venv scout, под heavy-slot — рендер на процессоре):
   python page07.py --vis-root <папка с <товар>/06-visible> --fill-root <папка с <товар>/07-fill> --pose-root <папка камер <товар>/pose.json> --set set40.json --out <папка страницы> [--times items-07.json]
@@ -58,13 +58,88 @@ def side_view_angles(cam: dict, side_deg: float = SIDE_DEG) -> dict:
     return {'az_cam': az, 'pitch': el, 'left': {'yaw': -(az - side_deg)}, 'right': {'yaw': -(az + side_deg)}}
 
 
-def render_07(glb: str, cam: dict, size: int = PANEL) -> dict[str, Image.Image]:
-    """Три кадра 07: с камеры фото и слева/справа 40° от её азимута (pitch = el камеры). Рендер без света — `recolor_lp.render_unlit`, как у листа этапа 6."""
-    import recolor_lp as LP
+MARGIN_MIN = 0.03                                             # поле от силуэта до края кадра, доля стороны (владелец TG 1661: край не должен обрезаться)
+PAD_START = 0.05                                              # запас «отдаления» при первой отрисовке: поле ≈ 8 % (≈ запас 10 % от габарита)
+PAD_TRIES = 5
+
+
+def silhouette_margins(im: Image.Image, thr: int = 8) -> dict | None:
+    """Поля от силуэта (альфа > thr) до краёв кадра, доли стороны кадра: left/right/top/bottom. None — силуэта нет."""
+    a = np.asarray(im.convert('RGBA'))[..., 3] > thr
+    if not a.any():
+        return None
+    ys, xs = np.where(a)
+    h, w = a.shape
+    return {'left': xs.min() / w, 'right': 1 - (xs.max() + 1) / w, 'top': ys.min() / h, 'bottom': 1 - (ys.max() + 1) / h}
+
+
+def frame_ok(im: Image.Image, need: float = MARGIN_MIN) -> bool:
+    m = silhouette_margins(im)
+    return m is not None and min(m.values()) >= need
+
+
+def zoom_out(im: Image.Image, pad: float) -> Image.Image:
+    """Отдалить: добавить прозрачное поле pad·сторона со всех сторон и сжать обратно до прежней стороны (проекция ортографическая — расстояние = масштаб)."""
+    w, h = im.size
+    px, py = round(w * pad), round(h * pad)
+    big = Image.new('RGBA', (w + 2 * px, h + 2 * py), (0, 0, 0, 0))
+    big.paste(im.convert('RGBA'), (px, py))
+    return big.resize((w, h), Image.LANCZOS)
+
+
+def with_bbox_centering(parts: list, yaw: float, pitch: float) -> list:
+    """`mesh_render.render` центрирует кадр по СРЕДНЕЙ вершин, а масштаб берёт по габариту: у предмета со смещённой массой (одна сторона плотнее сетка) силуэт уходит к краю и обрезается.
+    Добавляем «груз без площади» — одну вырожденную грань с вершинами в точке, зеркальной среднему относительно середины габарита (она внутри габарита: габарит и масштаб те же, средняя = середина габарита).
+    Никакой пиксель груз не рисует (площадь 0)."""
+    import math
+    import trimesh
+    cy, sy = math.cos(math.radians(yaw)), math.sin(math.radians(yaw))
+    cp, sp = math.cos(math.radians(pitch)), math.sin(math.radians(pitch))
+    ry = np.array([[cy, 0, sy], [0, 1, 0], [-sy, 0, cy]], np.float32)
+    rx = np.array([[1, 0, 0], [0, cp, -sp], [0, sp, cp]], np.float32)
+    rot = ry.T @ rx.T
+    allp = np.vstack([np.asarray(m.vertices, np.float32) @ rot for m in parts])
+    mean = allp.mean(axis=0)
+    centre = (allp.min(axis=0) + allp.max(axis=0)) / 2
+    n = len(allp)
+    q = np.array([2 * centre[0] - mean[0], 2 * centre[1] - mean[1], mean[2]], np.float32)       # n точек в q: средняя всех = середина габарита по x, y
+    v = np.tile(q @ rot.T, (n, 1)).astype(np.float32)
+    ballast = trimesh.Trimesh(vertices=v, faces=[[0, 1, 2]], process=False)
+    return list(parts) + [ballast]
+
+
+def render_framed(glb_or_parts, yaw: float, pitch: float, size: int = PANEL, pad: float = PAD_START) -> tuple[Image.Image, dict]:
+    """Кадр без света, силуэт по центру габарита, поле ≥ MARGIN_MIN со всех сторон. Не прошло — отдаляем (pad ×1,6) и рисуем заново. Возвращает (RGB поверх белого, {'margins', 'pad', 'tries', 'ok'})."""
+    import mesh_render as MR
+    parts = MR.load_parts(glb_or_parts) if isinstance(glb_or_parts, str) else glb_or_parts
+    framed = with_bbox_centering(parts, yaw, pitch)
+    prev = os.environ.get('UNLIT')
+    os.environ['UNLIT'] = '1'
+    try:
+        raw = MR.render(framed, yaw_deg=yaw, pitch_deg=pitch, size=(size, size))
+    finally:
+        if prev is None:
+            os.environ.pop('UNLIT', None)
+        else:
+            os.environ['UNLIT'] = prev
+    p, im = pad, raw
+    for t in range(1, PAD_TRIES + 1):
+        im = zoom_out(raw, p)
+        if frame_ok(im):
+            break
+        p *= 1.6
+    m = silhouette_margins(im)
+    return over_white(im), {'margins': m, 'pad': p, 'tries': t, 'ok': frame_ok(im)}
+
+
+def render_07(glb: str, cam: dict, size: int = PANEL) -> dict[str, tuple[Image.Image, dict]]:
+    """Три кадра 07: с камеры фото и слева/справа 40° от её азимута (pitch = el камеры). Рендер без света, рамка по габариту с полем ≥3 % (`render_framed`)."""
+    import mesh_render as MR
+    parts = MR.load_parts(glb)
     sv = side_view_angles(cam)
     out = {}
     for name, yaw in (('cam', -sv['az_cam']), ('left', sv['left']['yaw']), ('right', sv['right']['yaw'])):
-        out[name] = over_white(LP.render_unlit(glb, yaw, sv['pitch'], size))
+        out[name] = render_framed(parts, yaw, sv['pitch'], size)
     return out
 
 
@@ -116,6 +191,26 @@ def status06(chk: dict, cov: dict | None) -> str:
     return ' · '.join(out) or 'нет данных'
 
 
+FAIL_WORDS = {
+    'filled_faces_step_pct': 'в залитой части много резких цветовых «ступенек» между соседними гранями: {value:g} % граней (допуск {op} {threshold:g} %)',
+    'far_excess_pct': 'в залитой части больше «чужого» цвета (далеко от типичного цвета детали), чем в части с фото: на {value:g} п. п. (допуск {op} {threshold:g})',
+    'dE00_front_back': 'перед и зад разного цвета: разница {value:g} (допуск {op} {threshold:g})',
+    'known_changed_share_pct': 'заливка тронула то, что уже взято с фото: {value:g} % (допуск {op} {threshold:g})',
+    'pool_rejected_pct': 'часть кусков для заливки отбракована: {value:g} % (допуск {op} {threshold:g})',
+    'time_s': 'заливка шла дольше допуска: {value:g} с (допуск {op} {threshold:g})',
+}
+
+
+def fail_words(key: str, m: dict) -> str:
+    t = FAIL_WORDS.get(key)
+    try:
+        if t:
+            return html.escape(t.format(value=float(m.get('value')), op=m.get('op', '<='), threshold=float(m.get('threshold'))))
+    except (TypeError, ValueError):
+        pass
+    return html.escape(f'{key}: {m.get("value")} (допуск {m.get("op")} {m.get("threshold")})')
+
+
 def status07(chk: dict, secs) -> str:
     if not chk:
         return 'нет данных'
@@ -130,9 +225,9 @@ def status07(chk: dict, secs) -> str:
     if secs:
         parts.append(f'считалось на Salad {round(float(secs))} с')
     if not ok:
-        bad = [k for k, v in (chk.get('metrics') or {}).items() if isinstance(v, dict) and v.get('ok') is False]
-        if bad:
-            parts.append('не прошло: ' + ', '.join(html.escape(b) for b in bad))
+        for k, v in (chk.get('metrics') or {}).items():
+            if isinstance(v, dict) and v.get('ok') is False:
+                parts.append('НЕ ПРОШЛО — ' + fail_words(k, v))
     return '; '.join(parts)
 
 
@@ -183,7 +278,10 @@ def build(a) -> int:
         else:
             panels = crop_panels(os.path.join(v06, 'frame.png'))
             r07 = render_07(os.path.join(f07, 'filled.glb'), cam)
-            imgs = {'photo': panels[0], 'v06': panels[1], 'c07': r07['cam'], 'l07': r07['left'], 'r07': r07['right']}
+            imgs = {'photo': panels[0], 'v06': panels[1], 'c07': r07['cam'][0], 'l07': r07['left'][0], 'r07': r07['right'][0]}
+            for k in ('cam', 'left', 'right'):
+                mm = r07[k][1]
+                print(f'{sku}: кадр {k}: поле мин {min(mm["margins"].values()) * 100:.1f} %, отдалений {mm["tries"] - 1}, {"ок" if mm["ok"] else "НЕ ПРОШЁЛ (силуэт у края)"}')
             for k, im in imgs.items():
                 sizes.append(save_webp(im, paths[k]))
         n, role = items.get(sku, (0, ''))
