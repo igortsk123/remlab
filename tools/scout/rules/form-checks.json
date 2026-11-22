@@ -44,7 +44,10 @@
     ],
     "leg_match_band": 0.18,
     "leg_match_area": 25,
-    "legs_match": 0.2
+    "legs_match": 0.2,
+    "body_skew_deg": 3.0,
+    "body_skew_points": 300000,
+    "body_skew_leg_cut": 0.12
   },
   "block": [
     "glb_sane",
@@ -53,7 +56,7 @@
   ],
   "_about_block": "block — проверки, чей флаг даёт статус shape_reject: только GLB-проверки с 0 ложных на 27 годных формах (T-184/7); проверки по рельефу/контуру — observe (на 4 браках директора пока ничего не поймано без ложных)",
   "vlm_judge": {
-    "version": "2026-11-22.1",
+    "version": "2026-11-22.2",
     "model": "google/gemini-2.5-flash",
     "runs": 2,
     "groups": {
