@@ -340,6 +340,27 @@ try:
 except ImportError as exc:
     ok(False, f'сверка: не импортируется ({exc})')
 
+
+# ---------------------------------------------------------------- режим «только 07 по готовому 06»
+ok(ST.stages_of(type('A', (), {})()) == ['06', '07'] and ST.stages_of(type('A', (), {'stages': '07'})()) == ['07'], 'драйвер: этапы по умолчанию 06,07; «07» — только заливка')
+try:
+    ST.stages_of(type('A', (), {'stages': '09'})())
+    ok(False, 'драйвер: неизвестный этап — отказ')
+except ValueError:
+    ok(True, 'драйвер: неизвестный этап в --stages — отказ')
+vr = tmpdir('visroot')
+for sku, full in (('skuA', True), ('skuB', True), ('skuC', False)):
+    vd = os.path.join(vr, sku, '06-visible')
+    os.makedirs(vd, exist_ok=True)
+    open(os.path.join(vd, 'check.json'), 'w').write('{}')
+    if full:
+        open(os.path.join(vd, 'visible.glb'), 'wb').write(b'glTF')
+open(os.path.join(vr, 'skuA.06.log'), 'w').write('x')
+ok(sorted(ST.vis_inputs(vr)) == ['skuA', 'skuB'], 'vis_inputs: берёт только папки с visible.glb и check.json (файлы-логи и неполные — нет)')
+ok(sorted(ST.vis_inputs(vr, 'skuB,skuZ')) == ['skuB'], 'vis_inputs: --skus сужает список')
+cur07, why07 = ST.submit_stage(FakeGW({}), type('A', (), {'out': tmpdir('o7'), 'vis_root': vr, 'threads': 1})(), {'skuC': {}}, '07', 0.0)
+ok(cur07 is None and 'нечего отправлять' in why07['detail'], 'submit 07: у товара нет visible.glb — не отправляется, причина в ответе')
+
 print()
 print('ПРОВАЛЕНО: ' + str(len(FAILS)) if FAILS else 'ВСЕ ТЕСТЫ ЗЕЛЁНЫЕ')
 sys.exit(1 if FAILS else 0)

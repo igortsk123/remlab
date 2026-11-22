@@ -8,6 +8,7 @@
 Без --apply — только разбор: тело группы без секретов, проверка образа и входов (группа НЕ создаётся). `--stop-only --suffix X` — погасить группу X и проверить «0 нод».
 Тариф: low; нет машин → medium (автоматически, ядро набора); batch и high запрещены (владелец 22.11, TG 1456/1457).
 Входы — файл `inputs.json`: {"<товар>": {"glb": путь, "photo": путь RGBA-вырезки, "pose_run": папка камеры этапа 4, "body_only": false}} (список — аргументом, в код не зашит).
+Только этап 07 по готовому 06: `--stages 07 --vis-root <папка с <товар>/06-visible/>` (без `--inputs`; товары — все папки с visible.glb и check.json, сузить — `--skus a,b`): вход 07 берётся оттуда, выход — в `--out`.
 Выход: `<out>/<товар>/06-visible/…`, `<out>/<товар>/07-fill/…` (sha256 сверен), `<out>/items-06.json`, `<out>/items-07.json` (время, пик памяти этапа, метрики).
 """
 from __future__ import annotations
@@ -124,7 +125,7 @@ def submit_stage(gw, a, inputs: dict, stage: str, t: float) -> tuple[dict | None
         if stage == '06':
             data = input_zip_06(v)
         else:
-            vis = os.path.join(a.out, sku, '06-visible')
+            vis = os.path.join(getattr(a, 'vis_root', '') or a.out, sku, '06-visible')
             if not os.path.isfile(os.path.join(vis, 'visible.glb')):
                 skipped[sku] = 'нет выхода этапа 06 — 07 не запускался'
                 continue
@@ -192,18 +193,39 @@ def poll_stage(gw, a, cur: dict, t: float) -> tuple[str, dict]:
     return ('failed', {'status': 'failed', 'error': f'отказов {len(fails)} из {len(items)}: {list(fails)}', **info}) if fails else ('done', info)
 
 
+def stages_of(a) -> list[str]:
+    st = [x for x in str(getattr(a, 'stages', '06,07')).split(',') if x]
+    if not st or any(x not in WS.STAGES for x in st):
+        raise ValueError(f'--stages: список из {list(WS.STAGES)}, получено {st}')
+    return st
+
+
+def vis_inputs(root: str, only: str = '') -> dict[str, dict]:
+    """Товары для «только 07»: папки `<root>/<товар>/06-visible/` с visible.glb и check.json (выход этапа 06 любого прогона)."""
+    want = {s for s in only.split(',') if s}
+    out = {}
+    for sku in sorted(os.listdir(root)):
+        v = os.path.join(root, sku, '06-visible')
+        if os.path.isfile(os.path.join(v, 'visible.glb')) and os.path.isfile(os.path.join(v, 'check.json')) and (not want or sku in want):
+            out[sku] = {}
+    return out
+
+
 def make_spec(a, inputs: dict) -> KD.Spec:
     def build(name, class_id, auth):
         return build_body(name, a.image, a.tier, class_id, auth, min(a.max_min * 60 + 600, 3 * 3600), a.idle_s, a.procs, a.fill_procs, a.threads, a.stage_timeout_s,
                           worker_z=None if getattr(a, 'worker_from_image', False) else worker_command()[1])
 
     def preflight():
-        bad = input_problems(inputs)
+        bad = input_problems(inputs) if '06' in stages_of(a) else []
+        if '06' not in stages_of(a):
+            root = getattr(a, 'vis_root', '')
+            bad += [f'{s}: нет {root}/{s}/06-visible/visible.glb' for s in inputs if not os.path.isfile(os.path.join(root, s, '06-visible', 'visible.glb'))]
         if bad:
             return False, f'входы не готовы: {bad[:4]}'
         return True, f'входы на месте: {len(inputs)} товаров'
 
-    return KD.Spec(prefix=PREFIX, card=a.card, model='cpu-stage', jobs=['06', '07'], build_body=build, submit=lambda gw, k, t: submit_stage(gw, a, inputs, k, t),
+    return KD.Spec(prefix=PREFIX, card=a.card, model='cpu-stage', jobs=stages_of(a), build_body=build, submit=lambda gw, k, t: submit_stage(gw, a, inputs, k, t),
                    poll=lambda gw, cur, t: poll_stage(gw, a, cur, t), preflight=preflight, ready_keys=('version', 'libs', 'procs', 'fill_procs'), z_keys=('KIT_WORKER_Z',),
                    worker_file=WORKER, work_type=WORK_TYPE)
 
@@ -212,6 +234,9 @@ def main() -> int:
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument('--image', help='образ группы: имя@sha256:digest (по тегу — отказ, ADR-0137)')
     ap.add_argument('--inputs', default='', help='inputs.json: {товар: {glb, photo, pose_run, body_only}}')
+    ap.add_argument('--stages', default='06,07', help='какие этапы гнать: 06,07 | 07 (только заливка по готовому 06 — нужен --vis-root)')
+    ap.add_argument('--vis-root', default='', help='папка с <товар>/06-visible/ (вход 07 при --stages 07)')
+    ap.add_argument('--skus', default='', help='при --vis-root: только эти товары (по умолчанию все с готовым 06)')
     ap.add_argument('--out', default=os.path.expanduser('~/remlab-logs/t189-1122/salad-out'))
     ap.add_argument('--card', default=CARD_NAME, help='класс Salad из профиля cpu_stage (запасные — в профиле)')
     ap.add_argument('--tier', default='low', choices=['low', 'medium'], help='low; нет машин → medium (автоматически); batch и high запрещены правилом владельца 22.11')
@@ -240,9 +265,12 @@ def main() -> int:
     if a.stop_only:
         MG.env_from_file()
         return 0 if KD.stop_and_verify(BR, f'{PREFIX}-{a.suffix}') else 1
-    if not a.inputs or not a.image:
-        sys.exit('нужны --image и --inputs')
-    return KD.run_probe(a, MG, BR, make_spec(a, load_inputs(a.inputs)))
+    if not a.image or not (a.inputs or (a.vis_root and stages_of(a) == ['07'])):
+        sys.exit('нужны --image и --inputs (или --stages 07 --vis-root)')
+    inputs = load_inputs(a.inputs) if a.inputs else vis_inputs(a.vis_root, a.skus)
+    if not inputs:
+        sys.exit('нет товаров для пакета')
+    return KD.run_probe(a, MG, BR, make_spec(a, inputs))
 
 
 if __name__ == '__main__':
