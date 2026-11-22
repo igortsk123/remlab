@@ -47,7 +47,11 @@
     "edge_above": 0.01,
     "plane_from": 0.4,
     "edge_band_k": 1.5,
-    "edge_band_min": 0.004
+    "edge_band_min": 0.004,
+    "rim_de00": 8.0,
+    "rim_bin": 0.004,
+    "rim_ref_texels": 150,
+    "rim_bin_min": 30
   },
   "decision": {
     "min_edge_texels": 200,

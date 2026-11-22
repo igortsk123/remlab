@@ -275,5 +275,62 @@ class Library(unittest.TestCase):
         self.assertNotRegex(txt, r'\d{5,}_\d{6,}')
 
 
+class RimCut(unittest.TestCase):
+    """Полоса edge режется до скачка цвета: фасад под светлой плитой в голос не попадает (правило типа «комод с контрастным верхом», Ш3в)."""
+    G = RULES['geometry']
+
+    def mk(self, rim_n=600, face_n=3000, rim_lab=(70.0, 4.5, 23.0), face_lab=(34.0, 0.0, 1.3), seed=1):
+        rng = np.random.RandomState(seed)
+        depth = np.concatenate([rng.uniform(0, 0.008, rim_n), rng.uniform(0.012, 0.03, face_n)])
+        q = 0.2 - depth
+        lab = np.vstack([np.tile(rim_lab, (rim_n, 1)), np.tile(face_lab, (face_n, 1))]) + rng.normal(0, 0.5, (rim_n + face_n, 3))
+        return q, lab, np.ones(len(q), bool)
+
+    def test_dark_facade_below_light_top_is_cut(self):
+        q, lab, sel = self.mk()
+        out, depth = TP.rim_cut(q, lab, sel, 0.2, self.G)
+        self.assertIsNotNone(depth)
+        self.assertLessEqual(depth, 0.012 + 1e-9)
+        self.assertEqual(int(out.sum()), 600)                           # осталась только светлая кромка
+        self.assertGreater(float(np.median(lab[out][:, 0])), 65.0)
+
+    def test_uniform_wood_is_untouched(self):
+        q, lab, sel = self.mk(rim_lab=(60.0, 10.0, 28.0), face_lab=(60.5, 10.2, 27.5))
+        out, depth = TP.rim_cut(q, lab, sel, 0.2, self.G)
+        self.assertIsNone(depth)
+        self.assertEqual(int(out.sum()), len(q))
+
+    def test_grain_noise_does_not_cut(self):
+        rng = np.random.RandomState(3)
+        q = 0.2 - rng.uniform(0, 0.03, 4000)
+        lab = np.array([60.0, 10.0, 28.0]) + rng.normal(0, 3.0, (4000, 3))      # текстура дерева: разброс, но тот же тон
+        out, depth = TP.rim_cut(q, lab, np.ones(4000, bool), 0.2, self.G)
+        self.assertIsNone(depth)
+
+    def test_too_few_texels_untouched(self):
+        q, lab, sel = self.mk(rim_n=50, face_n=100)
+        out, depth = TP.rim_cut(q, lab, sel, 0.2, self.G)
+        self.assertIsNone(depth)
+
+    def test_disabled_by_rule(self):
+        q, lab, sel = self.mk()
+        out, depth = TP.rim_cut(q, lab, sel, 0.2, dict(self.G, rim_de00=0))
+        self.assertIsNone(depth)
+        self.assertEqual(int(out.sum()), len(q))
+
+    def test_sparse_layer_is_skipped_not_cut(self):
+        q, lab, sel = self.mk(face_n=0)
+        extra = np.array([[34.0, 0.0, 1.3]] * 5)                          # пять случайных тёмных текселей ниже — не фасад
+        q2 = np.concatenate([q, np.full(5, 0.2 - 0.02)])
+        lab2 = np.vstack([lab, extra])
+        out, depth = TP.rim_cut(q2, lab2, np.ones(len(q2), bool), 0.2, self.G)
+        self.assertIsNone(depth)
+
+    def test_rule_has_no_ids(self):
+        import inspect
+        src = inspect.getsource(TP.rim_cut)
+        self.assertNotRegex(src, r'\d{9,}')
+
+
 if __name__ == '__main__':
     unittest.main(verbosity=1)

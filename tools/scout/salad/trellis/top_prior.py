@@ -263,6 +263,33 @@ def _levels(tx, cfg: dict) -> dict:
     return {'up': up, 'top': top, 'ytop': ytop, 'ymin': float(tx.Q[:, 1].min()), 'ymax': float(tx.Q[:, 1].max())}
 
 
+def rim_cut(q, lab, sel, ytop, cfg: dict):
+    """Полоса `edge` — кромка плиты верха. Если на этапе 3 плита и корпус — одна часть, а под светлой плитой тёмный фасад (комод с контрастным верхом), в полосу попадает фасад и голос берёт его тон.
+    Общее правило (не по товару): идём от верха вниз слоями `rim_bin`; опорный цвет — медиана первых `rim_ref_texels` текселей; первый слой (≥ `rim_bin_min` текселей), чья медиана ушла от опорной больше `rim_de00` (ΔE00),
+    — начало фасада: всё ниже него из голоса убираем. `rim_de00` ≤ 0 — правило выключено. → (маска, глубина среза в единицах кадра | None)."""
+    de0 = float(cfg.get('rim_de00', 0) or 0)
+    idx = np.flatnonzero(sel)
+    if de0 <= 0 or len(idx) < 2 * cfg['rim_ref_texels']:
+        return sel, None
+    layer = (np.maximum(ytop - q[idx], 0.0) / cfg['rim_bin']).astype(int)
+    ref, got = None, 0
+    for li in range(int(layer.max()) + 1):
+        m = layer == li
+        n = int(m.sum())
+        if ref is None:
+            got += n
+            if got >= cfg['rim_ref_texels']:
+                ref = np.median(lab[idx[layer <= li]], axis=0)
+            continue
+        if n < cfg['rim_bin_min']:
+            continue
+        if _de(np.median(lab[idx[m]], axis=0), ref) > de0:
+            out = np.zeros_like(sel)
+            out[idx[layer < li]] = True
+            return out, li * cfg['rim_bin']
+    return sel, None
+
+
 def _real_known(run_dir: str, n: int):
     """Маски «взято с фото» этапа 6 (`06-visible/known.png`, known1.png…) — настоящий вход голосов. Нет файла — (None, None)."""
     from PIL import Image
@@ -305,6 +332,7 @@ def analyze(run_dir: str, card: dict | None, rules: dict | None = None, filled_g
         draft = TF.draft_texels(geoms, TC.load_geoms(dg), None)
     bg_lab = np.asarray(TC.rgb2lab(np.asarray([rules['background_rgb']], np.uint8)))[0]
     E, PL, TR, OV, top_all, texs = [], [], [], [], [], []
+    RIM = []
     top_part_roles, n_top = {}, 0
     for gi, g in enumerate(geoms):
         T = TF._grid(g)
@@ -321,6 +349,8 @@ def analyze(run_dir: str, card: dict | None, rules: dict | None = None, filled_g
         legs = np.isin(tx.part, [p for p, r in roles.items() if r in ('legs', 'handles', 'shade')]) if roles else np.zeros(len(lab), bool)
         same = np.isin(tx.part, np.unique(tx.part[lv['top']]))                    # «та же часть»: этап 3 развёл плиту верха и царгу/корпус — их цвета не одно и то же (Киннер: царга бежевая, верх медовый)
         edge = kn & vert & band & (tx.Q[:, 1] <= lv['ytop'] + cfg['edge_above']) & notbg & ~legs & same
+        edge, rim_depth = rim_cut(tx.Q[:, 1], lab, edge, lv['ytop'], cfg)
+        RIM.append({'gi': gi, 'cut_depth': None if rim_depth is None else round(float(rim_depth), 4), 'edge_texels': int(edge.sum())})
         plane = kn & vert & (tx.Q[:, 1] > lv['ymin'] + cfg['plane_from'] * (lv['ymax'] - lv['ymin'])) & ~band & notbg & ~legs & same
         other_vert = kn & vert & ~same & notbg & ~legs                              # соседняя часть (царга/корпус): только в отчёт, голосом не служит
         OV.append(lab[other_vert])
@@ -359,6 +389,7 @@ def analyze(run_dir: str, card: dict | None, rules: dict | None = None, filled_g
     res['library'] = library_bin(res['tone_lab'], cc.get('group') or 'library', json.load(open(lib_path, encoding='utf-8')), rules, cc.get('class'), pat_spec['bin_classes']) if os.path.exists(lib_path) else {'bin': None, 'note': 'нет library.json'}
     res['other_part_vertical'] = {'n': int(len(ov)), 'lab': [round(float(x), 1) for x in TF.tone_of(ov, TF.FILL)] if len(ov) else None, 'note': 'вертикальные видимые тексели ДРУГИХ частей (царга/корпус); голосом не служат'}
     res['top_texels'] = n_top
+    res['edge_rim'] = RIM
     res['known_source'] = known_src
     res['evidence_std_L'] = photo_band_std(photo, rules)
     res['evidence_source'] = 'photo_band' if res['evidence_std_L'] is not None else 'default'
