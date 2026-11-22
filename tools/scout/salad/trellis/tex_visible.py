@@ -63,6 +63,8 @@ W_TAKE = 0.25           # вес меньше — тексель не берём
 HOLE_R = 2.5            # дыры между взятыми текселями (пикселей кадра реже текселей) закрываются ближайшим взятым не дальше этого, текселей
 DEPTH_PX = 3.0          # допуск «тексель не заслонён»: расхождение глубины точки и буфера глубины камеры не больше стольких пикселей предмета (у косых граней — шире)
 GREY = 128
+PHOTO_INTERP = str(R.get('photo_interp', 'lanczos'))   # перевод фото в кадр: lanczos (T-197: линейная теряла ~⅓ мелкого контраста при растяжке фото ×2) | cubic | linear
+SAMPLE_ORDER = int(R.get('sample_order', 3))             # выборка цвета в тексель из кадра: порядок сплайна (3 — бикубика; 1 — билинейная, теряла 15–40 % мелкого контраста; T-197)
 FRONT_COS = 0.80       # мерка света «перёд↔бок»: перёд — cos ≥ этого, бок — от cos_min до SIDE_COS
 SIDE_COS = 0.65
 GATE = {                # (порог, op) — провизорно, см. шапку
@@ -127,7 +129,7 @@ def photo_to_frame(photo_rgba: np.ndarray, P: np.ndarray, px: int) -> tuple[np.n
     import cv2
     a = photo_rgba[..., 3:4].astype(np.float32) / 255.0
     src = np.concatenate([photo_rgba[..., :3].astype(np.float32) * a, a], axis=2)
-    fl = cv2.INTER_LINEAR | cv2.WARP_INVERSE_MAP
+    fl = {'lanczos': cv2.INTER_LANCZOS4, 'cubic': cv2.INTER_CUBIC, 'linear': cv2.INTER_LINEAR}[PHOTO_INTERP] | cv2.WARP_INVERSE_MAP
     w = cv2.warpAffine(src, np.asarray(P, np.float64)[:2], (px, px), flags=fl, borderMode=cv2.BORDER_CONSTANT, borderValue=0)
     al = w[..., 3]
     rgb = np.where(al[..., None] > 1e-3, w[..., :3] / np.maximum(al[..., None], 1e-3), 0.0)
@@ -297,7 +299,7 @@ def transfer(geoms: list, st: dict, prgb: np.ndarray, pmask: np.ndarray, cos_min
         w_edge = np.clip((map_coordinates(dist_edge.astype(np.float32), [y - 0.5, x - 0.5], order=1, mode='nearest') - EDGE_ERODE) / edge_px, 0.0, 1.0)
         w = np.where(inside & front & (depth[yi, xi] > 0) & pmask[yi, xi] & ~nogo[yi, xi], w_ang * w_edge, 0.0)
         use = w >= W_TAKE
-        col = np.stack([map_coordinates(prgb[..., c].astype(np.float32), [y[use] - 0.5, x[use] - 0.5], order=1, mode='nearest') for c in range(3)], 1)
+        col = np.clip(np.stack([map_coordinates(prgb[..., c].astype(np.float32), [y[use] - 0.5, x[use] - 0.5], order=SAMPLE_ORDER, mode='nearest') for c in range(3)], 1), 0.0, 255.0)   # бикубика выходит за 0..255 у резких границ
         tex = g['tex'].astype(np.float64).copy()
         sel = (ty[use], tx[use])
         tex[sel] = col
