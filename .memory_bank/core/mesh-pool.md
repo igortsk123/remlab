@@ -3,7 +3,7 @@ tier: 1
 topic: mesh-pool
 scope: Пул нод Salad — группы, тарифы, деньги, стопоры
 tier2: "../domain/mesh-pool-ops.md"
-updated: 2026-11-18
+updated: 2026-11-22
 importance: high
 source: manual
 status: working
@@ -36,5 +36,7 @@ review_after: 2026-12-05
 держит потолок lease и гасит пробу (`money_guard.py:budget_breach`); конец волны — `launched` следующей (`wave_guard.py`, Tier 2 § 9). **ADR-0198:** `/start` — только `stopped/failed` и «незнакомым» (`batch_show.py:ensure_group_started`).
 
 **Чистка приёмника** — только через API `DELETE /prefix/...` (ADR-0178), сторож `sink_keeper.sh`, порог — `sink_health.tight` (предел−2 ГБ; ADR-0199).
+
+**Этапы 06/07 на Salad (профиль `cpu_stage`, T-189/T-193, 22.11).** Код этапа едет В ЗАДАНИИ: `code.tar` по SHA (`tools/scout/salad/stage/code_tar.py`) + `code_sha`/sha256 обязательны, команда из whitelist; образ — только среда; результат несёт `code_sha`. Подробно и замеры — Tier 2 § «Замеры карт и режимов 22.11».
 
 **Tier 2:** `../domain/mesh-pool-ops.md` (регламент, замеры, остановки) · ADR-0135, 0154, 0174–0178, 0198–0200, 0313–0317.
