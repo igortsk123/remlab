@@ -401,5 +401,28 @@ class Seamless(unittest.TestCase):
         self.assertTrue(np.array_equal(TP.seamless_pattern(p, [0.5, 0.5]), p))     # перекрытие больше трети — не применяется
 
 
+class Gutter(unittest.TestCase):
+    """Желоб вокруг перекрашенного верха (линия на шве островков UV): непокрытые текселы рядом с перекрашенными дублируют их цвет, остальные — нет."""
+
+    def test_gutter_follows_painted_only(self):
+        t = 16
+        img = np.zeros((t, t, 4), np.uint8)
+        img[..., 3] = 255
+        occ = np.zeros((t, t), bool)
+        occ[4:8, 2:14] = True                     # островок A (перекрашен)
+        occ[10:14, 2:14] = True                   # островок B (не трогали)
+        img[occ, :3] = (200, 100, 50)
+        painted = np.zeros((t, t), bool)
+        painted[4:8, 2:14] = True
+        img[painted, :3] = (10, 220, 30)
+        n = TP.gutter_into(img, np.flatnonzero(occ.reshape(-1)), np.flatnonzero(painted.reshape(-1)), 2)
+        self.assertGreater(n, 0)
+        self.assertTrue((img[8, 5, :3] == (10, 220, 30)).all())                  # строка сразу под A — цвет A
+        self.assertTrue((img[3, 5, :3] == (10, 220, 30)).all())                  # и над A
+        self.assertTrue((img[9, 5, :3] == (0, 0, 0)).all() or (img[9, 5, :3] == (10, 220, 30)).all())  # третий пиксель до B: у B нет перекрашенного соседа
+        self.assertTrue((img[10:14, 2:14, :3] == (200, 100, 50)).all())            # B не тронут
+        self.assertEqual(TP.gutter_into(img.copy(), np.flatnonzero(occ.reshape(-1)), np.array([], int), 2), 0)
+
+
 if __name__ == '__main__':
     unittest.main(verbosity=1)

@@ -1457,7 +1457,14 @@ def test_top_prior_hook():
     ok(rep.get('applied') is True and rep['top_source'] == 'same_part_inference' and rep['texels_changed'] > 1000, f'дерево + голос фасада → верх покрашен, top_source={rep.get("top_source")}', str(rep)[:300])
     ok(np.array_equal(out[0][kn], tex[kn]), 'известные тексели не изменились (known — на нуле)')
     ch = (out[0] != tex).any(-1)
-    ok(not (ch & ~top_px).any(), 'изменились только тексели верха')
+    from scipy.ndimage import distance_transform_edt
+    covered = np.zeros(top_px.shape, bool)
+    for q_ in ((0, 0, 1.0, .9), (0, .92, 1.0, 1.0)):
+        covered |= tile_mask(q_)
+    dist_top = distance_transform_edt(~top_px)
+    gut = ch & ~top_px
+    ok(not (gut & covered).any() and (dist_top[gut] <= TF.FILL['gutter']).all(), 'изменились только тексели верха и его желоб (непокрытые в пределах gutter от верха; фасад не тронут)')
+    ok(rep.get('gutter_texels', 0) == int(gut.sum()), f'желоб после покраски верха посчитан в отчёте: {rep.get("gutter_texels")} = {int(gut.sum())}')
     ph = rep.get('hidden_after_lab')
     ok(ph is not None and ph[0] > 45 and ph[1] > 5, f'верх теплее и светлее серого заливки (Lab {ph}) — тон фасада дерева')
     o2, r2 = TF.top_prior_hook([g], [tex.copy()], [kn], None, {}, None)

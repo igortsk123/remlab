@@ -467,6 +467,25 @@ def seam_jump(pat: np.ndarray) -> float:
     return float(max(out))
 
 
+def gutter_into(img: np.ndarray, ti_all, painted_idx, gutter: int) -> int:
+    """Желоб после покраски верха (T-187/7: видимая линия на столе у шва островков UV): `fill()` дублирует цвет островка в `gutter` пикселей вокруг него ДО хуков, а хук красит верх позже — желоб у
+    перекрашенных текселей оставался старым, билинейная выборка у шва брала его цвет. Здесь: непокрытые текселы атласа в пределах `gutter` от ближайшего ПЕРЕКРАШЕННОГО тексела получают его цвет.
+    `img` (T,T,C) правится на месте; `ti_all` — плоские индексы покрытых текселей геометрии, `painted_idx` — перекрашенных. → число текселей желоба."""
+    from scipy.ndimage import distance_transform_edt
+    t = img.shape[0]
+    occ = np.zeros(t * t, bool)
+    occ[np.asarray(ti_all)] = True
+    pm = np.zeros(t * t, bool)
+    pm[np.asarray(painted_idx)] = True
+    occ, pm = occ.reshape(t, t), pm.reshape(t, t)
+    if gutter <= 0 or not pm.any():
+        return 0
+    dist, (iy, ix) = distance_transform_edt(~occ, return_indices=True)
+    g = (~occ) & (dist <= gutter) & pm[iy, ix]
+    img[g, :3] = img[iy[g], ix[g], :3]
+    return int(g.sum())
+
+
 def hypothesis_textures(an: dict, rules: dict, base_texs: list, length_cm: float, library_dir: str | None = None) -> list:   # length_cm — габарит для подписи; масштаб узора — по плитке бина
     """Копия текстур с верхом, закрашенным гипотезой: тон (Lab) + узор бина (отклонение его Lab от среднего), волокна вдоль длинной стороны. Известные по фото тексели не трогаем."""
     import tex_coverage as TC
@@ -499,6 +518,7 @@ def hypothesis_textures(an: dict, rules: dict, base_texs: list, length_cm: float
     if retint:
         delta = tone - np.asarray(tr['lab'], np.float64)
         rep['applied'] = f"сдвиг тона существующего верха на ΔLab {np.round(delta, 1).tolist()} (узор модели не заменён)"
+    painted: dict = {}
     for t in an['top_all']:
         tx, top, kn = t['tx'], t['top'], t['kn']
         sel = top & ~kn
@@ -551,6 +571,9 @@ def hypothesis_textures(an: dict, rules: dict, base_texs: list, length_cm: float
         idx = tx.ti[sel]
         flat[idx, :3] = rgb
         out[t['gi']] = flat.reshape(img.shape)
+        painted.setdefault(t['gi'], []).append((tx.ti, idx))
+    gut = int(TF.FILL.get('gutter', 0))
+    rep['gutter_texels'] = sum(gutter_into(out[gi], np.concatenate([a for a, _b in lst]), np.concatenate([b for _a, b in lst]), gut) for gi, lst in painted.items())
     return out
 
 
@@ -630,7 +653,7 @@ def stage07(geoms: list, tex_after: list, known: list, parts, roles: dict | None
         return [np.asarray(t) for t in tex_after], rep
     rep.update(ta)
     ch = int(sum(int((np.asarray(o)[..., :3] != np.asarray(b)[..., :3]).any(axis=-1).sum()) for o, b in zip(out, tex_after)))
-    rep.update(pattern='library' if res.get('pattern_amp') is not None else 'tone_only', applied=True, top_source=res['source'], texels_changed=ch, pattern_amp=res.get('pattern_amp'), applied_note=res.get('applied'))
+    rep.update(pattern='library' if res.get('pattern_amp') is not None else 'tone_only', applied=True, top_source=res['source'], texels_changed=ch, pattern_amp=res.get('pattern_amp'), applied_note=res.get('applied'), gutter_texels=res.get('gutter_texels'))
     return out, rep
 
 
