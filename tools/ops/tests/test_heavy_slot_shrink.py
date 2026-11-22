@@ -174,3 +174,21 @@ def test_repo_rules_file_matches_defaults():
     raw = json.load(open(os.path.join(HERE, '..', 'rules', 'heavy-slot.json'), encoding='utf-8'))
     for k, v in hs._RULES_DEF.items():
         assert raw[k] == v, k
+
+
+def test_late_spike_shrink_does_not_stick(env):
+    """Держит 20 мин на 0,5 ГБ — бронь урезана; потом пик растёт — бронь возвращается к заявке/пику со следующего замера."""
+    def share():
+        return hs._holder_share(env.d, hs._read_kv(hs._holder_file(env.d, 1)))
+    env.holder(1, 'late', 6.0, 0.5, peak=0.5, held_min=20)
+    s = share()
+    assert s['shrunk'] and s['th'] == pytest.approx(0.75)
+    env.holder(1, 'late', 6.0, 3.0, peak=3.0, held_min=21, peak_ago_min=0.0)           # пик вырос (÷ ещё ниже заявки): страж роста — заявка целиком
+    s = share()
+    assert not s['shrunk'] and s['th'] == 6.0 and s['part'] == pytest.approx(3.0)
+    env.holder(1, 'late', 6.0, 6.5, peak=6.5, held_min=22, peak_ago_min=0.0)           # пик выше заявки — max(заявка, пик)
+    s = share()
+    assert s['over'] and s['th'] == 6.5
+    env.holder(1, 'late', 6.0, 1.0, peak=6.5, held_min=40, peak_ago_min=18.0)          # память упала, пик прогона не падает — бронь остаётся по пику, урезание не возвращается
+    s = share()
+    assert s['over'] and s['th'] == 6.5
