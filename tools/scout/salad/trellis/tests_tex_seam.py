@@ -236,8 +236,8 @@ def test_feather():
     ok(float(on['lab'][mid, 0].mean()) < 62.0 - 1.0, 'заливка у границы плавно подтянута к фото (вытяжка фото в заливку)', f"{float(on['lab'][mid, 0].mean()):.1f}")
 
 
-def test_reflect():
-    print('фактура фото продолжается в гладкую заливку (отражение через границу), живая заливка и дальняя часть не трогаются:')
+def test_patch():
+    print('фактура гладкой заливки у границы — куски рисунка из своей зоны фото (не зеркало); живая заливка, далёкая часть и середина фото не трогаются:')
     g, tx, smm, x = panel(n=96, width_mm=400.0)
     col = tx.ti % T
     rng = np.random.default_rng(5)
@@ -245,30 +245,50 @@ def test_reflect():
     lab = np.zeros((len(col), 3))
     lab[:, 0] = np.where(k0, 55.0 + rng.normal(0, 4.0, len(col)), 55.0)          # слева фото с фактурой, справа гладкая заливка
     cw = 400.0 / T
-    c = dict(SEAM, feather_mm=0.0, reflect=True, reflect_reach_mm=40.0, contrast_decay_mm=40.0, contrast_gmin=1.0, contrast_gmax=1.0, tone_max=[0.0, 0.0, 0.0])
+    c = dict(SEAM, feather_mm=0.0, patch_texture=True, patch_reach_mm=40.0, patch_mm=14.0, contrast_decay_mm=40.0, contrast_gmin=1.0, contrast_gmax=1.0, tone_max=[0.0, 0.0, 0.0])
     out = TS.blend_seam(tx, lab.copy(), lab.copy(), k0, np.ones(len(col)), np.zeros(len(col), bool), c, smm)
-    rp = out['report'].get('reflect') or {}
-    ok(rp.get('applied', 0) > 0, 'отражение нашло пары по ту сторону границы', str(rp))
+    rp = out['report'].get('patch') or {}
+    ok(rp.get('applied', 0) > 0 and rp.get('pool_blocks', 0) > 0, 'куски рисунка взяты из блоков фото той же зоны', str(rp))
     near = (col >= 64) & (col < 64 + int(15.0 / cw))
     far = col >= 64 + int(60.0 / cw)
     ok(float(out['lab'][near, 0].std()) > 1.0, 'гладкая заливка у границы получила фактуру', f"{float(out['lab'][near, 0].std()):.2f}")
-    ok(float(np.abs(out['lab'][far, 0] - 55.0).max()) < 1e-9, 'далёкая заливка не тронута отражением')
+    ok(float(np.abs(out['lab'][far, 0] - 55.0).max()) < 1e-9, 'далёкая заливка не тронута')
     ok(float(np.abs(out['lab'][k0, 0] - lab[k0, 0]).max()) < 1e-9, 'середина фото не тронута')
-    c2 = dict(c, reflect=False)
+    c2 = dict(c, patch_texture=False)
     off = TS.blend_seam(tx, lab.copy(), lab.copy(), k0, np.ones(len(col)), np.zeros(len(col), bool), c2, smm)
-    ok(float(np.abs(off['lab'][near, 0] - 55.0).max()) < 1e-9, 'reflect=false — заливка как была')
+    ok(float(np.abs(off['lab'][near, 0] - 55.0).max()) < 1e-9, 'patch_texture=false — заливка как была')
+    ok(not hasattr(TS, 'reflect_detail'), 'зеркала в коде нет (владелец снял, ADR-0464)')
+
+
+def test_step_texture_metrics():
+    print('мерки «ступенька» и «фактура» в seam_metric: около цели на ровном шве, ступенька яркости поднимает step_ratio:')
+    g, tx, smm, x = panel(n=96, width_mm=400.0)
+    col = tx.ti % T
+    rng = np.random.default_rng(9)
+    k0 = col < 64
+    lab = np.zeros((len(col), 3))
+    lab[:, 0] = 55.0 + rng.normal(0, 3.0, len(col))                              # одинаковая фактура по обе стороны шва
+    s_out, s_in = TS.surface_dist(tx, k0, smm, 1000.0), TS.surface_dist(tx, ~k0, smm, 1000.0)
+    c = dict(SEAM)
+    mv = metric(tx, lab, k0, s_in, s_out, c, smm)
+    ok(mv.get('step_ratio') is not None, 'step_ratio посчитан', str(mv.get('step_ratio')))
+    ok(mv.get('texture_ratio') is not None and 0.6 < mv['texture_ratio'] < 1.6, 'texture_ratio ≈ 1 при одинаковой фактуре', str(mv.get('texture_ratio')))
+    lab2 = lab.copy()
+    lab2[~k0, 0] += 12.0                                                         # ступенька яркости на шве
+    mv2 = metric(tx, lab2, k0, s_in, s_out, c, smm)
+    ok(mv2['step_ratio'] > 2.0 * max(mv['step_ratio'], 0.5), 'скачок яркости на шве поднимает step_ratio', f"{mv['step_ratio']} → {mv2['step_ratio']}")
 
 
 def test_rules():
     print('правила — в rules/paint-fill.json:')
     s = TF.RULES['seam']
-    ok(all(k in s for k in ('conf_min', 'conf_full', 'probe_mm', 'tone_decay_mm', 'contrast_gmax', 'de_bad', 'poisson', 'feather_mm', 'rough_sigma_mm', 'reflect', 'accept_p95_abs')), 'блок seam полон')
+    ok(all(k in s for k in ('conf_min', 'conf_full', 'probe_mm', 'tone_decay_mm', 'contrast_gmax', 'de_bad', 'poisson', 'feather_mm', 'rough_sigma_mm', 'patch_texture', 'accept_p95_abs')), 'блок seam полон')
     ok(s['poisson'] is False, 'Пуассон выключен (только если скачок остаётся после ③)')
     ok(0.0 < s['conf_min'] < s['conf_full'] <= 1.0, 'conf_min < conf_full')
 
 
 def main():
-    for f in (test_surface_dist, test_tone, test_crease, test_other_zone, test_contrast, test_confidence, test_fallback_conf, test_fill_end_to_end, test_feather, test_reflect, test_rules):
+    for f in (test_surface_dist, test_tone, test_crease, test_other_zone, test_contrast, test_confidence, test_fallback_conf, test_fill_end_to_end, test_feather, test_patch, test_step_texture_metrics, test_rules):
         print(f.__name__)
         f()
     print(f'tests_tex_seam: ошибок {bad}')

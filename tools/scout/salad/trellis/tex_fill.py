@@ -852,13 +852,13 @@ def seam_pass(txs: list, out_lab: list, labs: list, kn_keep: list, conf: list | 
         m_before = _metric(before, k0f & ~skip_, sb, so)
         # варианты сведения (T-196/1): полный (тон + контраст) | без контраста | только граница (feather); берём тот, у кого шов по мерке лучше; ни один не лучше «как было» — оставляем «как было»
         # (мерка шва — ΔE00 p95 пар через границу; шов, который уже не виден, не трогаем: на 112923/114082 полный вариант портил шов, p95 6,7→8,2 и 3,0→5,5)
-        variants = [('full', seam_c), ('no_reflect', dict(seam_c, reflect=False)), ('no_contrast', dict(seam_c, reflect=False, contrast_gmin=1.0, contrast_gmax=1.0)),
-                    ('feather_only', dict(seam_c, reflect=False, contrast_gmin=1.0, contrast_gmax=1.0, tone_max=[0.0, 0.0, 0.0]))]
+        variants = [('full', seam_c), ('no_patch', dict(seam_c, patch_texture=False)), ('no_contrast', dict(seam_c, patch_texture=False, contrast_gmin=1.0, contrast_gmax=1.0)),
+                    ('feather_only', dict(seam_c, patch_texture=False, contrast_gmin=1.0, contrast_gmax=1.0, tone_max=[0.0, 0.0, 0.0]))]
         tried, best = {}, None
         for vname, vc in variants:
             rv = TS.blend_seam(tx, before, labs[gi].reshape(-1, 3)[ti], k0f, cf, skip_, vc, size_mm)
             mv = _metric(rv['lab'], rv['solid'], rv['s_in'], rv['s_out'])
-            tried[vname] = {'dE00_median': mv['dE00_median'], 'dE00_p95': mv['dE00_p95'], 'bad_share_pct': mv['bad_share_pct'], 'contrast_ratio': mv['contrast_ratio']}
+            tried[vname] = {k_: mv.get(k_) for k_ in ('dE00_median', 'dE00_p95', 'bad_share_pct', 'contrast_ratio', 'texture_ratio', 'step_ratio', 'step_ratio_p95')}
             key = (round((mv['dE00_p95'] if mv['dE00_p95'] is not None else 99.0) * 4.0) / 4.0, abs((mv['contrast_ratio'] or 0.0) - 1.0))     # p95 с шагом 0,25 (шум не решает), при равенстве — ближе контраст фактуры к 1
             if best is None or key < best[0]:
                 best = (key, vname, rv, mv)
@@ -1652,7 +1652,7 @@ def load_rules(path: str | None = None) -> dict:
     if 'trellis_relief' not in r:
         raise KeyError("rules/paint-fill.json: нет ключа 'trellis_relief'")
     for k in ('enabled', 'size_mm_default', 'conf_min', 'conf_full', 'edge_mm', 'probe_mm', 'cell_mm', 'reach_mm', 'tone_decay_mm', 'tone_max', 'min_cell', 'hi_sigma_mm', 'contrast_decay_mm',
-              'contrast_gmin', 'contrast_gmax', 'contrast_floor', 'pair_mm', 'pair_cos', 'de_bad', 'poisson', 'crease_deg', 'normal_smooth_iters', 'min_panel_faces', 'feather_mm', 'feather_lo', 'feather_hi', 'rough_sigma_mm', 'accept_p95_ratio', 'accept_p95_abs', 'reflect', 'reflect_reach_mm', 'reflect_strength'):
+              'contrast_gmin', 'contrast_gmax', 'contrast_floor', 'pair_mm', 'pair_cos', 'de_bad', 'poisson', 'crease_deg', 'normal_smooth_iters', 'min_panel_faces', 'feather_mm', 'feather_lo', 'feather_hi', 'rough_sigma_mm', 'accept_p95_ratio', 'accept_p95_abs', 'patch_texture', 'patch_reach_mm', 'patch_strength', 'patch_mm', 'texture_band_mm'):
         if k not in (r.get('seam') or {}):
             raise KeyError(f'rules/paint-fill.json: seam.{k} не задан')
     for k in ('gain_max', 'clip_k', 'patch_frac', 'patch_dl', 'dilate_px', 'part_max_share', 'band_lo', 'band_hi', 'sigma_lo_min', 'sigma_lo_max', 'sigma_hi_max', 'far_w', 'p95_cap',

@@ -299,6 +299,31 @@ def seam_metric(tx, zone: np.ndarray, lab_full: np.ndarray, lab_mip: np.ndarray,
     hp, hf = high_pass(tx, lab_full[:, 0], solid, sig), high_pass(tx, lab_full[:, 0], ~solid, sig)
     sp, sf = _mad_sigma(hp[ph]), _mad_sigma(hf[fl])
     res['contrast_ratio'] = round(sf / sp, 3) if sp > 1e-6 else None
+    # «фактура» шире: σ мелкого рельефа L заливки / фото в полосе texture_band_mm от границы (цель ≈ 1)
+    tb = float(c.get('texture_band_mm', 25.0))
+    sp2, sf2 = _mad_sigma(hp[solid & (s_in <= tb)]), _mad_sigma(hf[~solid & (s_out <= tb)])
+    res['texture_ratio'] = round(sf2 / sp2, 3) if sp2 > 1e-6 else None
+    # «ступенька»: скачок яркости поперёк шва в сравнении с тем, как яркость меняется на таком же расстоянии внутри фото (цель ≈ 1; > 1,5 — ступенька видна)
+    dm = float(np.median(d[ok]))
+    dL = np.abs(lf[:, 0] - lp[:, 0])
+    if len(ph) >= 10 and dm > 0:
+        rng = np.random.default_rng(7)
+        smp = ph[rng.choice(len(ph), size=min(len(ph), 6000), replace=False)]
+        kk = min(40, len(ph))
+        dd, nn = kp.query(tx.Q[smp], k=kk)
+        dd, nn = np.asarray(dd).reshape(len(smp), -1), np.asarray(nn).reshape(len(smp), -1)
+        good = (dd >= 0.7 * dm) & (dd <= 1.5 * dm)
+        has = good.any(axis=1)
+        if has.sum() >= 10:
+            first = np.argmax(good, axis=1)
+            nb = nn[np.arange(len(smp)), first]
+            ref = np.abs(smooth(kp, ph, lab_mip, smp[has])[:, 0] - smooth(kp, ph, lab_mip, ph[nb[has]])[:, 0])      # то же сглаживание 5 ближайших, что у пар через шов (mip склеивает соседние строки — без сглаживания медиана = 0)
+            mref = float(np.median(ref))
+            if mref > 1e-6:
+                res['step_ratio'] = round(float(np.median(dL)) / mref, 3)
+                res['step_ratio_p95'] = round(float(np.percentile(dL, 95)) / float(np.percentile(ref, 95)), 3) if float(np.percentile(ref, 95)) > 1e-6 else None
+    res.setdefault('step_ratio', None)
+    res.setdefault('step_ratio_p95', None)
     return res
 
 
@@ -356,18 +381,18 @@ def boundary_rough(tx, mask: np.ndarray, occ: np.ndarray, tmm: float, sigma_mm: 
             'perimeter_mm': round(per, 1), 'rough_per_perimeter': round(float((d ** 2).mean() ** 0.5 / max(sigma_mm, 1e-6)), 4)}
 
 
-def reflect_detail(tx, zone: np.ndarray, lab: np.ndarray, solid: np.ndarray, fillpure: np.ndarray, s_out: np.ndarray, c: dict, size_mm: float, tmm: float) -> tuple:
-    """③б Фактура гладкой заливки у границы: к яркости заливки добавляется высокочастотная часть ФОТО, отражённая через границу (точка заливки на глубине s ← фото на той же глубине s по ту сторону),
-    с затуханием exp(−s/contrast_decay_mm) и долей `1 − σ_заливки/σ_фото` по зоне (уже живая заливка не трогается). Это продолжение фактуры фото в заливку, без полос и повторов плиткой.
-    → (добавка к L (n,), отчёт: доля текселей, получивших фактуру). Нет парного фото (не нашлось на отражённой точке) — тексель не меняется."""
-    from scipy.spatial import cKDTree
+def patch_detail(tx, zone: np.ndarray, lab: np.ndarray, solid: np.ndarray, fillpure: np.ndarray, s_out: np.ndarray, c: dict, size_mm: float, tmm: float) -> tuple:
+    """③б Фактура гладкой заливки у границы: к яркости заливки добавляется высокочастотная часть КУСКА рисунка из СВОЕЙ зоны фото (блок растра B×B, целиком фото той же зоны; блок выбирается детерминированно
+    по номеру блока заливки — куски разные, повтора рядом нет; зеркала нет — владелец снял, ADR-0464), с затуханием exp(−s/contrast_decay_mm) и долей `1 − σ_заливки/σ_фото` по зоне
+    (уже живая заливка не трогается). → (добавка к L (n,), отчёт: зоны, цели, получившие фактуру, блоков в пуле)."""
     n = len(lab)
+    T = tx.T
     add = np.zeros(n)
     sig = max(c['hi_sigma_mm'] / max(tmm, 1e-6), 1.0)
     L = lab[:, 0]
     hp = high_pass(tx, L, solid, sig)
     hf = high_pass(tx, L, fillpure, sig)
-    reach = float(c.get('reflect_reach_mm', 40.0))
+    reach = float(c.get('patch_reach_mm', 40.0))
     stp, stf = solid & (s_out <= c['probe_mm']), fillpure & (s_out <= c['probe_mm'])
     gz = {}
     for p in np.unique(zone[fillpure & np.isfinite(s_out)]):
@@ -378,24 +403,39 @@ def reflect_detail(tx, zone: np.ndarray, lab: np.ndarray, solid: np.ndarray, fil
         if sp < 1e-6:
             continue
         gz[int(p)] = float(np.clip(1.0 - sf / sp, 0.0, 1.0))
-    src = np.nonzero(solid)[0]
+    rep = {'zones': len(gz), 'targets': 0, 'applied': 0, 'pool_blocks': 0}
     tgt = np.nonzero(fillpure & np.isfinite(s_out) & (s_out <= reach) & np.isin(zone, list(gz)))[0] if gz else np.zeros(0, int)
-    rep = {'zones': len(gz), 'targets': int(len(tgt)), 'applied': 0}
-    if not len(src) or not len(tgt):
+    rep['targets'] = int(len(tgt))
+    if not len(tgt):
         return add, rep
-    tr = cKDTree(tx.Q[src])
-    d0, j0 = tr.query(tx.Q[tgt], k=1, distance_upper_bound=(c['probe_mm'] + reach) / size_mm)
-    ok0 = np.isfinite(d0)
-    t1, j1 = tgt[ok0], src[j0[ok0]]
-    qr = 2.0 * tx.Q[j1] - tx.Q[t1]                                # точка заливки, отражённая через ближайшую точку фото
-    d1, j2 = tr.query(qr, k=1, distance_upper_bound=max(3.0 * tmm, 3.0) / size_mm)
-    ok1 = np.isfinite(d1)
-    t2, j3 = t1[ok1], src[j2[ok1]]
-    same = zone[t2] == zone[j3]
-    t2, j3 = t2[same], j3[same]
-    k = np.array([gz[int(zone[t])] for t in t2]) * np.exp(-s_out[t2] / c['contrast_decay_mm']) * float(c.get('reflect_strength', 1.0))
-    add[t2] = k * hp[j3]
-    rep['applied'] = int(len(t2))
+    Bk = max(6, int(round(float(c.get('patch_mm', 14.0)) / max(tmm, 1e-6))))
+    NB = (T + Bk - 1) // Bk
+    row, col = tx.ti // T, tx.ti % T
+    bid = (row // Bk) * NB + (col // Bk)
+    pos = np.full(T * T, -1, np.int64)
+    pos[tx.ti] = np.arange(n)
+    need = int(0.9 * Bk * Bk)
+    strength = float(c.get('patch_strength', 1.0))
+    for p, gp in gz.items():
+        zt = tgt[zone[tgt] == p]
+        if not len(zt):
+            continue
+        cnt = np.bincount(bid[solid & (zone == p)], minlength=NB * NB)
+        cand = np.nonzero(cnt >= need)[0]                              # блоки целиком из фото этой зоны
+        rep['pool_blocks'] += int(len(cand))
+        if not len(cand):
+            continue
+        tb = bid[zt]
+        pick = cand[((tb.astype(np.int64) * 2654435761) % (2 ** 32)) % len(cand)]
+        src_r = (pick // NB) * Bk + row[zt] % Bk
+        src_c = (pick % NB) * Bk + col[zt] % Bk
+        sj = pos[np.clip(src_r, 0, T - 1) * T + np.clip(src_c, 0, T - 1)]
+        okj = (sj >= 0) & (src_r < T) & (src_c < T)
+        sj2 = np.where(okj, sj, 0)
+        okj &= solid[sj2] & (zone[sj2] == p)
+        k = gp * np.exp(-s_out[zt] / c['contrast_decay_mm']) * strength
+        add[zt[okj]] = (k * hp[sj2])[okj]
+        rep['applied'] += int(okj.sum())
     return add, rep
 
 
@@ -430,8 +470,8 @@ def blend_seam(tx, out_lab: np.ndarray, photo_lab: np.ndarray, keep0: np.ndarray
         lab[fillpure] += dl[fillpure]
         add, rep['contrast'] = contrast_gain(tx, zone, lab, solid, fillpure, s_in, s_out, c, size_mm, tmm)
         lab[fillpure, 0] += add[fillpure]
-        if c.get('reflect', False):
-            addr, rep['reflect'] = reflect_detail(tx, zone, lab, solid, fillpure, s_out, c, size_mm, tmm)
+        if c.get('patch_texture', False):
+            addr, rep['patch'] = patch_detail(tx, zone, lab, solid, fillpure, s_out, c, size_mm, tmm)
             lab[fillpure, 0] += addr[fillpure]
     if fe > 0 and solid.any():                                    # заливка у границы, куда вес границы ещё >0: цвет — ближайшее фото (≤ 2·feather), плавно к заливке (wb)
         ext = np.nonzero(fillpure & (wb > 1e-3))[0]
@@ -451,7 +491,7 @@ def blend_seam(tx, out_lab: np.ndarray, photo_lab: np.ndarray, keep0: np.ndarray
     else:
         keep = solid
     rep['zones'] = int(len(np.unique(zone)))
-    fin = (keep | (fillpure & (wb > 0.5)))
+    fin = ((k0 | fillpure) & (wb > 0.5)) if fe > 0 else keep
     rep['rough_before'] = boundary_rough(tx, k0, np.ones(n, bool), tmm, c['rough_sigma_mm'])
     rep['rough_after'] = boundary_rough(tx, fin, np.ones(n, bool), tmm, c['rough_sigma_mm'])
     return {'lab': lab, 'keep': keep, 'solid': solid, 'zone': zone, 's_in': s_in, 's_out': s_out, 'tmm': tmm, 'report': rep}
