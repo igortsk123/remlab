@@ -6,9 +6,10 @@
     heavy-slot.sh <метка> --prio 2 -- salad_trial.py … --apply                                               # создать, прогнать по очереди, ПОГАСИТЬ и проверить 0 нод
     salad_trial.py --stop-only --suffix <метка>
 
-Платное — ТОЛЬКО под `heavy-slot --prio 2` (драйвер сам проверяет), образ — только по digest, сжатый ≤ 30 ГиБ (манифест, бесплатно). ПРЕДОХРАНИТЕЛИ — `kit_driver.Watch`: потолок `--probe-cap` ($1) до первого готового
+Платное — ТОЛЬКО под `heavy-slot --prio 2` (драйвер сам проверяет), образ — только по digest, сжатый ≤ 35 ГиБ (kit_driver.MAX_IMAGE_GIB) (манифест, бесплатно). ПРЕДОХРАНИТЕЛИ — `kit_driver.Watch`: потолок `--probe-cap` ($1) до первого готового
 задания, затем `--cap` ($4); деньги — по времени `running` × ЖИВАЯ цена; `--running-min` выдача ноды, `--start-min` запуск контейнера, `--health-min` без /health, `--ready-min` прогрев, `--stall-min` докачка, `--job-min` задание,
 2 неудачи подряд — стоп; ИТОГ, «стоп с проверкой stopped» и строка в общий учёт денег — всегда. Допуск к закрытым весам FLUX.2 (HEAD с токеном) — ДО создания группы. Ключи Salad и HF — из `~/scout-scenes/salad.env`.
+Образ С ВЕСАМИ (сборка 22.11 `build-ultratex-weights`, run 45010968680): `ghcr.io/igortsk123/mesh-ultratex-trial@sha256:64532605855c623d5dfb3df7081b08e31005ccc4a09d4446783aa3dbe6940aa4` — 28 слоёв, сжатый 20,88 ГиБ (≤35), крупнейший слой 3,9; DiT+AE+LoRA вшиты, Qwen3-8B нет (пустой текст — `text-cache/`, посчитан на ЦП; контроль k2 — перед пакетом).
 В метриках задания (из воркера): `vram_peak_gb`, `vram_phases_gb`, `sample_s`, `offload_moves_s`, `sparse`, `total_s`.
 """
 from __future__ import annotations
@@ -55,7 +56,7 @@ def build_body(name: str, image: str, tier: str, class_id: str, cpu: int, mem_mb
     if worker_z:
         command, env['KIT_WORKER_Z'] = worker_command()[0], worker_z
     return KD.group_body(name, image, tier, class_id, PORT, env,
-                         {'cpu': cpu, 'memory': mem_mb, 'storage_amount': (20 if diag else 80) * 2 ** 30, 'shm_size': 2048},     # 80 ГиБ: веса ≈36 + запас
+                         {'cpu': cpu, 'memory': mem_mb, 'storage_amount': (20 if diag else 80) * 2 ** 30, 'shm_size': 2048},     # 80 ГиБ: веса в образе ≈18 без Qwen3-8B (его заменяет text-cache) + запас
                          auth, command)
 
 
