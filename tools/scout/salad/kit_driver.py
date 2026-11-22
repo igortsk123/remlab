@@ -287,12 +287,17 @@ class Gateway:
             return -1, {}
 
 
-def gateway_post_rules() -> dict:
-    """Правила POST задания к шлюзу Salad: `rules/salad-groups.json` → `gateway_post` {base_s, per_mb_s, max_s, retry_http}; нет файла/ключа — пустой словарь (умолчания в коде)."""
+def salad_rules(key: str) -> dict:
+    """Раздел `key` из `rules/salad-groups.json` (числа сторожей — в правилах, не в коде); нет файла/раздела — пустой словарь, действуют умолчания в коде."""
     try:
-        return json.load(open(os.path.join(os.path.dirname(os.path.abspath(__file__)), '..', 'rules', 'salad-groups.json'), encoding='utf-8')).get('gateway_post') or {}
+        return json.load(open(os.path.join(os.path.dirname(os.path.abspath(__file__)), '..', 'rules', 'salad-groups.json'), encoding='utf-8')).get(key) or {}
     except (OSError, ValueError):
         return {}
+
+
+def gateway_post_rules() -> dict:
+    """Правила POST задания к шлюзу Salad: `gateway_post` {base_s, per_mb_s, max_s, retry_http}."""
+    return salad_rules('gateway_post')
 
 
 def post_timeout_s(body_chars: int, override: int = 0, rules: dict | None = None) -> int:
@@ -397,13 +402,14 @@ def weights_stalled(hist: list[tuple[float, float]], window_s: float, min_gb: fl
 # ---------------------------------------------------------------- сторож докачки ОБРАЗА (уроки 734/740/357; владелец 21.11, TG 1069/1070)
 # Образ тянется ДО running и не оплачивается, но 21.11 (проба d2) нода «downloading» 30 мин, у соседней пробы было 6,7 мин: драйвер ждал только running и погас по no_machine.
 # Здесь общее решение (чистая функция, тестируется без сети) и исполнитель: пересадка через ОБЩИЙ бюджет `node_health` (6/ч на пул мешей и пробы), не копия логики пула.
-PULL_AFTER_S = 480.0          # судить не раньше 8-й минуты наблюдений (урок 734)
-PULL_HEALTHY_MB_S = 17.5      # здоровая нода: образ UltraTex 6,87 ГиБ за ≈6,7 мин (проба d1 21.11) ≈ 17,5 МБ/с ≈ 15 % образа в минуту
-PULL_SLOW_FACTOR = 2.5        # ожидаемое время × 2,5 — нода медленная (владелец 21.11); ступени пула мешей (20 мин→5 % для образа 26 ГБ) для малого образа не годятся
-PULL_FLOOR_MIN = 10.0         # не строже 10 минут полной докачки (разброс сети)
-PULL_MIN_ETA_MIN = 3.0        # осталось меньше — доедет, пересадка с нуля дороже
-PULL_WINDOW_S = 300.0         # темп — по последним 5 минутам, не по среднему с начала
-PULL_MAX_CULLS = 3            # пересадок на запуск (общий бюджет node_health — отдельно)
+_PGR = salad_rules('pull_guard')                       # числа — `rules/salad-groups.json` → pull_guard (T-178 22.11: общий сторож и для TRELLIS.2, и для UltraTex)
+PULL_AFTER_S = float(_PGR.get('after_s', 480.0))                      # судить не раньше 8-й минуты наблюдений (урок 734)
+PULL_HEALTHY_MB_S = float(_PGR.get('healthy_mb_s', 17.5))             # здоровая нода: образ UltraTex 6,87 ГиБ за ≈6,7 мин (проба d1 21.11) ≈ 17,5 МБ/с ≈ 15 % образа в минуту
+PULL_SLOW_FACTOR = float(_PGR.get('slow_factor', 2.5))                # ожидаемое время × 2,5 — нода медленная (владелец 21.11); ступени пула мешей (20 мин→5 % для образа 26 ГБ) для малого образа не годятся
+PULL_FLOOR_MIN = float(_PGR.get('floor_min', 10.0))                   # не строже 10 минут полной докачки (разброс сети)
+PULL_MIN_ETA_MIN = float(_PGR.get('min_eta_min', 3.0))                # осталось меньше — доедет, пересадка с нуля дороже
+PULL_WINDOW_S = float(_PGR.get('window_s', 300.0))                    # темп — по последним 5 минутам, не по среднему с начала
+PULL_MAX_CULLS = int(_PGR.get('max_culls', 3))                        # пересадок на запуск (общий бюджет node_health — отдельно)
 
 
 STUCK_MIN = 10.0        # задание «зависло»: шаг не менялся и GPU < STUCK_GPU_PCT непрерывно дольше N мин (урок b1 21.11, P3-SAM: 15 мин молчания). Параметр `--stuck-min`; 0 — выключить
