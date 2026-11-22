@@ -57,3 +57,11 @@ data/flat3d/top-library/pat512/Wood056.jpg
 data/flat3d/top-library/pat512/Wood057.jpg
 data/flat3d/top-library/pat512/Wood069.jpg
 data/flat3d/top-library/pat512/Wood071.jpg
+tools/assets/material_parts.py
+tools/assets/parts_refine.py
+tools/assets/parts_vote.py
+tools/assets/part_shapes.py
+data/flat3d/material-part-rules.json
+data/flat3d/parts-sam-rules.json
+data/flat3d/material-recipes.json
+data/flat3d/furniture.json

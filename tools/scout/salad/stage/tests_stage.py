@@ -721,5 +721,30 @@ except Exception as exc:  # noqa: BLE001
     ok(False, f'верх Ш3в: проверка равенства не выполнена: {type(exc).__name__}: {exc}')
 
 
+# ---- T-193/4: «тихие» откаты ленивых импортов этапа 07 — из code.tar части/сироты считаются так же, как у нас (причина прежнего Salad ≠ локально: material_parts/parts_refine не ехали в срезе → молча «одна часть»)
+def _lazy_imports_equal():
+    td = tmpdir('lazyimp')
+    code = os.path.join(td, 'code')
+    WS.safe_untar(CT.build(ROOT, 'HEAD')['tar'], code)
+    snippet = ('import sys, json; r = sys.argv[1]; sys.path.insert(0, r + "/tools/scout/salad/trellis"); sys.path.insert(0, r + "/tools/scout")\n'
+               'import numpy as np, trimesh, tex_fill as TF\n'
+               'm = trimesh.creation.box(); g = [{"mesh": m, "F": np.asarray(m.faces)}]\n'
+               'p, note = TF.parts_from_geometry(g); q, n2 = TF.merge_orphan_parts(m, np.zeros(len(m.faces), np.int32))\n'
+               'print(json.dumps({"note": note, "orphan": n2}))')
+    res = {}
+    for nm, root in (('дерево', ROOT), ('code.tar', code)):
+        r = subprocess.run([sys.executable, '-I', '-c', snippet, root], capture_output=True, cwd=td, timeout=300)
+        ok(r.returncode == 0, f'ленивые импорты 07: {nm} — запуск ' + ('' if r.returncode == 0 else r.stderr.decode('utf-8', 'replace')[-300:]))
+        res[nm] = json.loads(r.stdout.decode().strip().splitlines()[-1]) if r.returncode == 0 else {}
+    ok(res['code.tar'] == res['дерево'] and res['code.tar'] != {}, f'ленивые импорты 07: части и сироты из code.tar = у нас ({res["code.tar"]})')
+    ok('частей нет' not in res['code.tar'].get('note', 'частей нет') and 'нет parts_refine' not in res['code.tar'].get('orphan', 'нет parts_refine'), 'ленивые импорты 07: в code.tar есть material_parts и parts_refine/parts_vote (не «одна часть» молча)')
+
+
+try:
+    _lazy_imports_equal()
+except Exception as exc:  # noqa: BLE001
+    ok(False, f'ленивые импорты 07: проверка не выполнена: {type(exc).__name__}: {exc}')
+
+
 print('ПРОВАЛЕНО: ' + str(len(FAILS)) if FAILS else 'ВСЕ ТЕСТЫ ЗЕЛЁНЫЕ')
 sys.exit(1 if FAILS else 0)
