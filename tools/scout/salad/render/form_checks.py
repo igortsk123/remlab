@@ -15,6 +15,7 @@
   legs_match    · ножки: компоненты нижней полосы маски фото ↔ формы парой по центрам, макс. смещение центра / шаг между соседними ножками фото (силуэт IoU этого не видит; нормировка на ширину предмета не разводила) · «Пропали ножки», «ножки не там» (р.3, T-191/1)
   relief_graze  · мелкий рельеф кадра 0° при боковом свете ВНУТРИ маски формы (альфа, без фона и тени)  · «Дыры, рваный фасад»
   back_relief   · то же на кадре 180°: у корпусной мебели с плоской спиной (`flat_back_roles`) сильный рельеф сзади — каркас/копия фасада · «Открытая сломанная спина», «фасад сзади»
+  vlm_<вид>     · оценщик по картинке (vlm_judge.py, T-184/9): «да» в обоих прогонах VLM по виду брака из паспорта, виды и роли — в rules `vlm_judge` · «Дыры, рваный фасад», «грани», «фасад без щелей», «перекос корпуса», «зад=копия», «выдуманная деталь»
   back_dup_mask · рельеф 0° и 180° внутри маски совпадает (прямо/зеркально), только для ролей с плоской спиной · «фасад продублирован на задней стенке»
 Режим: `block` в rules — проверки, чей флаг даёт статус `shape_reject` (в списке только то, у чего 0 ложных на годных формах); остальные — `observe`.
 Статус формы: shape_reject (сработала block-проверка) · camera_or_mask_uncertain (только провал контура из этапа 04: поза/маска/перёд-зад — не доказательство брака формы) · needs_review (прочие флаги) · pass.
@@ -367,7 +368,7 @@ def summary(recs: list[dict], eye: dict) -> str:
 
 
 # ---------- один товар ----------
-def run_sku(sku: str, glb: str | None, photo: str | None, frames: str | None, rules: dict, pose_roots: list[str] | None = None, alpha_dir: str | None = None, role: str = '') -> dict:
+def run_sku(sku: str, glb: str | None, photo: str | None, frames: str | None, rules: dict, pose_roots: list[str] | None = None, alpha_dir: str | None = None, role: str = '', vlm_cache: str | None = None, chat=None) -> dict:
     R = rules['thresholds']
     block = rules.get('block', [])
     rec: dict = {'sku': sku, 'observe': not block, 'block': block, 'checks': []}
@@ -390,6 +391,9 @@ def run_sku(sku: str, glb: str | None, photo: str | None, frames: str | None, ru
         rec['checks'] += back_dup(frames, R)
     if alpha_dir:
         rec['checks'] += mask_checks(alpha_dir, role, R)
+    if vlm_cache and frames and rules.get('vlm_judge'):
+        import vlm_judge as VJ
+        rec['checks'] += VJ.judge(sku, glb, photo, frames, role, rules['vlm_judge'], vlm_cache, chat)
     flags = [c['name'] for c in rec['checks'] if c['flag']]
     rec['auto'] = 'flag' if flags else 'ok'
     rec['status'] = status_of(rec['checks'], block)
@@ -432,6 +436,7 @@ def main() -> int:
     ap.add_argument('--pose-roots', default='', help='папки прогонов этапа 04 камеры (<root>/<sku>/04-camera/check.json или <root>/g*/<sku>/…) через запятую — точная сверка контура с фото')
     ap.add_argument('--alpha-root', default='', help='папка <sku>/NN_…_clay_graze.png + <sku>/alpha/ (кадры формы с альфой, T-184/5)')
     ap.add_argument('--roles', default='', help='JSON {sku: роль каталога} — для проверок спины (flat_back_roles)')
+    ap.add_argument('--vlm-cache', default='', help='папка кэша оценщика по картинке (включает vlm_judge: платные вызовы шлюза, ответы кэшируются по хешу GLB/фото и версии вопроса)')
     ap.add_argument('--rules', default=RULES)
     a = ap.parse_args()
     rules = load_rules(a.rules)
@@ -443,7 +448,7 @@ def main() -> int:
     recs = []
     for s in skus:
         rec = run_sku(s, os.path.join(a.glbs, a.glb_name.format(sku=s)), os.path.join(a.photos, a.photo_name.format(sku=s)), os.path.join(a.frames, s) if a.frames else None, rules, [x for x in a.pose_roots.split(',') if x],
-                      os.path.join(a.alpha_root, s) if a.alpha_root else None, roles.get(s, ''))
+                      os.path.join(a.alpha_root, s) if a.alpha_root else None, roles.get(s, ''), a.vlm_cache or None)
         os.makedirs(os.path.join(a.out, s), exist_ok=True)
         json.dump(rec, open(os.path.join(a.out, s, 'form_checks.json'), 'w', encoding='utf-8'), ensure_ascii=False, indent=1)
         recs.append(rec)
