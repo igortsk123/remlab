@@ -20,6 +20,8 @@
 «Покрашено» = у товара есть итоговая модель этапа 8 (решение директора 22.11): именно её можно показать. Остальные — «не дошли»: этап — первый отказ (при отказе и «нет check.json»
 берётся отказ), причина — слова самого конвейера (`paint_check`). ID товаров в код не попадают.
 
+  ②в страница этапа «вырезка» — `paint_run_report.py cutout --set <набор.json> --run <папка прогона вырезки> [--publish]`: «исходное фото | вырезка» по всем товарам набора + сводка.
+
 Запуск (обычно — само, в конце `paint_funnel.py`; отдельно так):
   python3 paint_run_report.py <прогон> [<прогон> …] [--out <папка>] [--name <имя>] [--publish]     # несколько прогонов — один набор (повтор sku берётся из первого)
 Код возврата 0 — всё сошлось; 1 — самопроверка нашла расхождение или кадр не построился."""
@@ -513,7 +515,126 @@ def report(runs: list, per_by_label: dict, out: str, repo: str, name: str | None
     return 1 if s['errors'] else 0
 
 
+# ---------- страница этапа «вырезка» (до конвейера покраски; вход — набор товаров и журнал вырезки, а не папки прогона) ----------
+
+def read_chain(path: str) -> dict:
+    """Журнал вырезки (`chain.jsonl` / `cut.jsonl`: по строке на товар {sku, sha, status, verdict, reason, mask_verdict, hybrid_error}) → {id с «_»: строка}; повтор — последняя строка."""
+    out = {}
+    for ln in open(os.path.expanduser(path), encoding='utf-8'):
+        try:
+            r = json.loads(ln)
+        except Exception:  # noqa: BLE001
+            continue
+        if isinstance(r, dict) and r.get('sku'):
+            out[str(r['sku']).replace(':', '_', 1)] = r
+    return out
+
+
+def cut_reason(r: dict) -> str:
+    """Причина вырезки из полей журнала словами-кодами (фразы — в paint-reasons.json): только то, что не «ок»."""
+    bits = []
+    if r.get('status') != 'ok':
+        bits.append(f"status={r.get('status')}")
+    if r.get('verdict') not in (None, 'ok'):
+        bits.append(f"verdict={r.get('verdict')}")
+    if r.get('mask_verdict') not in (None, 'ok'):
+        bits.append(f"mask_verdict={r.get('mask_verdict')}")
+    if r.get('hybrid_error'):
+        bits.append(f"hybrid_error={r.get('hybrid_error')}")
+    if r.get('reason'):
+        bits.append(str(r['reason']))
+    return '; '.join(bits)
+
+
+def cut_status(r: dict | None, has_file: bool) -> str:
+    """ok — вырезка есть и журнал чист; soft — есть, но фото маленькое / маска под вопросом; refused — сбой, коллаж, плохая маска или файла нет; missing — товара нет в журнале."""
+    if r is None:
+        return 'missing'
+    if r.get('status') != 'ok' or not has_file or r.get('verdict') == 'collage' or r.get('mask_verdict') == 'bad':
+        return 'refused'
+    if r.get('verdict') not in (None, 'ok') or r.get('mask_verdict') not in (None, 'ok'):
+        return 'soft'
+    return 'ok'
+
+
+def cutout_page(items: list, chain: dict, photos: str, cuts: str, out: str, W: dict, label: str, names: dict | None = None) -> tuple:
+    """Страница `<out>/index.html`: по каждому товару набора «исходное фото | вырезка» + сводка вошло/есть вырезка/нет. Возвращает (сводка, ошибки); самопроверка: сумма статусов = N, карточек = N."""
+    e = html.escape
+    d = os.path.join(out, 'img')
+    os.makedirs(d, exist_ok=True)
+    cards, errs = [], []
+    c = {'ok': 0, 'soft': 0, 'refused': 0, 'missing': 0}
+    for it in items:
+        sku = it['id']
+        r = chain.get(sku)
+        sha = (r or {}).get('sha')
+        cutf = os.path.join(cuts, f'{sha}.png') if sha else ''
+        st = cut_status(r, bool(sha) and os.path.exists(cutf))
+        c[st] += 1
+        reason = cut_reason(r) if r is not None and st != 'ok' else ('нет в журнале вырезки — будет сделана заново' if r is None else '')
+        card = {'sku': sku, 'name': (names or {}).get(sku) or it.get('name') or sku, 'status': st, 'reason': reason, 'foto': None, 'frame': None}
+        for key, src, tag in (('foto', os.path.join(photos, f'{sha}.img') if sha else '', '1-foto'), ('frame', cutf, '2-cut')):
+            if src and os.path.exists(src):
+                try:
+                    _jpeg(src, os.path.join(d, f'{sku}_{tag}.jpg'))
+                    card[key] = f'img/{sku}_{tag}.jpg'
+                except Exception as ex:  # noqa: BLE001
+                    errs.append(f'{sku}: {tag}: {type(ex).__name__}: {ex}')
+        cards.append(card)
+    n = len(items)
+    s = {'stage': 'cutout', 'n': n, 'ok': c['ok'], 'soft': c['soft'], 'refused': c['refused'], 'missing': c['missing'], 'made': c['ok'] + c['soft'], 'cards': len(cards), 'errors': errs}
+    if sum(c.values()) != n:
+        s['errors'].append(f'вырезка: сумма статусов {sum(c.values())} ≠ N {n}')
+    if len(cards) != n:
+        s['errors'].append(f'вырезка: карточек {len(cards)} ≠ N {n}')
+    pct = stage_pct(W, 'cutout')
+    cap = f"этап вырезка · {stage_name(W, 'cutout')} · готовность этапа " + (f'{pct} %' if pct is not None else 'не задана')
+    legend = frame_caption(W, 'cutout')
+    summ = (f"<div class='sum'><div><b>вошло {n}</b> · <b>вырезка есть {s['made']}</b> (чистая {c['ok']}, с замечаниями {c['soft']}) · <b>не получилась {c['refused']}</b> · нет в журнале {c['missing']}</div>"
+            + (f"<div class='why'><b>На кадре:</b> {e(legend)}</div>" if legend else '') + (f"<div class='why'><b>ОШИБКА СВОДКИ:</b> {e('; '.join(s['errors']))}</div>" if s['errors'] else '') + '</div>')
+    words = {'ok': 'вырезка чистая', 'soft': 'вырезка с замечаниями', 'refused': 'вырезка не получилась', 'missing': 'нет в журнале'}
+    body = ''.join(_card(cd, cd['status'], words[cd['status']], W, cap, 'исходное фото', legend or 'вырезка', say(W, cd['reason']) if cd['reason'] else '', cd['reason']) for cd in cards)
+    open(os.path.join(out, 'index.html'), 'w', encoding='utf-8').write(_head(f'{label}: {cap}', f"<h1>{e(cap)}</h1>{summ}{body}"))
+    json.dump({k: v for k, v in s.items()}, open(os.path.join(out, 'summary.json'), 'w', encoding='utf-8'), ensure_ascii=False, indent=1)
+    return s, s['errors']
+
+
+def main_cutout(argv: list) -> int:
+    ap = argparse.ArgumentParser(prog='paint_run_report.py cutout', description='страница этапа «вырезка»: исходное фото | вырезка по всем товарам набора (самопроверка: сумма = N, карточек = N)')
+    ap.add_argument('--set', required=True, help='набор: JSON {items:[{id,name,…}]} или список (как set40.json)')
+    ap.add_argument('--run', help='папка прогона вырезки: chain.jsonl, photos/<sha>.img, cut/<sha>.png (например ~/remlab-logs/t104-1119/1119-a)')
+    ap.add_argument('--chain')
+    ap.add_argument('--photos')
+    ap.add_argument('--cuts')
+    ap.add_argument('--out')
+    ap.add_argument('--name')
+    ap.add_argument('--repo')
+    ap.add_argument('--publish', action='store_true')
+    a = ap.parse_args(argv)
+    run = os.path.expanduser(a.run) if a.run else None
+    chain_p = a.chain or (os.path.join(run, 'chain.jsonl') if run else None)
+    photos = os.path.expanduser(a.photos or (os.path.join(run, 'photos') if run else ''))
+    cuts = os.path.expanduser(a.cuts or (os.path.join(run, 'cut') if run else ''))
+    if not chain_p or not photos or not cuts:
+        ap.error('нужен --run или все три: --chain, --photos, --cuts')
+    repo = a.repo or os.path.abspath(os.path.join(HERE, '..', '..'))
+    raw = json.load(open(os.path.expanduser(a.set), encoding='utf-8'))
+    items = raw['items'] if isinstance(raw, dict) else raw
+    name = a.name or ('cutout-' + os.path.splitext(os.path.basename(a.set))[0])
+    out = os.path.expanduser(a.out or os.path.join(os.path.dirname(os.path.abspath(os.path.expanduser(a.set))), '_report-' + name))
+    W = load_words(repo)
+    s, errs = cutout_page(items, read_chain(os.path.expanduser(chain_p)), photos, cuts, out, W, name)
+    print(f"вошло {s['n']} · вырезка есть {s['made']} (чистая {s['ok']}, с замечаниями {s['soft']}) · не получилась {s['refused']} · нет в журнале {s['missing']} · карточек {s['cards']}")
+    print('ОШИБКА СВОДКИ: ' + '; '.join(errs) if errs else 'Самопроверка сошлась.')
+    print(f'страница: {os.path.join(out, "index.html")}')
+    if a.publish and not errs:
+        print('выложено:', publish(out, slug(name)))
+    return 1 if errs else 0
+
+
 def main(argv: list) -> int:
+    if argv and argv[0] == 'cutout':
+        return main_cutout(argv[1:])
     ap = argparse.ArgumentParser(description='сводка и страницы прогона покраски (самопроверка: сумма сходится, кадров = покрашено, карточек = вошло)')
     ap.add_argument('runs', nargs='+')
     ap.add_argument('--out')

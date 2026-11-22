@@ -238,3 +238,41 @@ def test_removed_product_name(tmp_path):
 
 def test_slug_keeps_case():
     assert prr.slug('e2eHD-1121-union') == 'paint-e2eHD-1121-union' and prr.slug('a b/c') == 'paint-a-b-c' and prr.slug('') == 'paint-run'
+
+
+def test_cutout_status_and_reason():
+    ok = {'sku': 'a:1', 'sha': 'h', 'status': 'ok', 'verdict': 'ok', 'mask_verdict': 'ok'}
+    assert prr.cut_status(ok, True) == 'ok' and prr.cut_status(ok, False) == 'refused' and prr.cut_status(None, False) == 'missing'
+    assert prr.cut_status({**ok, 'verdict': 'photo_too_small'}, True) == 'soft' and prr.cut_status({**ok, 'mask_verdict': 'suspect'}, True) == 'soft'
+    assert prr.cut_status({**ok, 'verdict': 'collage'}, True) == 'refused' and prr.cut_status({**ok, 'mask_verdict': 'bad'}, True) == 'refused' and prr.cut_status({**ok, 'status': 'fail'}, True) == 'refused'
+    W = prr.load_words(REPO)
+    assert prr.say(W, prr.cut_reason({**ok, 'verdict': 'collage', 'mask_verdict': 'bad'})) == 'на фото коллаж, а не один товар; вырезка плохая' and prr.cut_reason(ok) == ''
+
+
+def test_cutout_page(tmp_path):
+    from PIL import Image
+    (tmp_path / 'photos').mkdir()
+    (tmp_path / 'cut').mkdir()
+    chain = {}
+    for sku, verdict in (('a_1', 'ok'), ('b_2', 'photo_too_small'), ('c_3', 'collage')):
+        sha = 'sha' + sku
+        Image.new('RGB', (30, 20), (9, 9, 9)).save(tmp_path / 'photos' / f'{sha}.img', 'JPEG')
+        Image.new('RGBA', (30, 20), (200, 0, 0, 255)).save(tmp_path / 'cut' / f'{sha}.png')
+        chain[sku] = {'sku': sku.replace('_', ':'), 'sha': sha, 'status': 'ok', 'verdict': verdict, 'mask_verdict': 'ok'}
+    items = [{'id': k, 'name': f'Товар {k}'} for k in ('a_1', 'b_2', 'c_3', 'd_4')]                                  # d_4 нет в журнале
+    W = prr.load_words(REPO)
+    s, errs = prr.cutout_page(items, chain, str(tmp_path / 'photos'), str(tmp_path / 'cut'), str(tmp_path / 'o'), W, 'T')
+    assert errs == [] and (s['n'], s['ok'], s['soft'], s['refused'], s['missing'], s['made'], s['cards']) == (4, 1, 1, 1, 1, 2, 4)
+    page = (tmp_path / 'o' / 'index.html').read_text(encoding='utf-8')
+    assert 'готовность этапа 90 %' in page and 'вошло 4' in page and 'на фото коллаж, а не один товар' in page and 'нет в журнале вырезки' in page and '<script' not in page
+    assert page.count('<img ') == 6 and 'слева исходное фото' in page
+
+
+def test_read_chain(tmp_path):
+    p = tmp_path / 'c.jsonl'
+    p.write_text('{"sku":"112923:5","sha":"x","status":"fail"}\nмусор\n{"sku":"112923:5","sha":"y","status":"ok"}\n', encoding='utf-8')
+    assert read_chain_ok(prr.read_chain(str(p)))
+
+
+def read_chain_ok(d):
+    return list(d) == ['112923_5'] and d['112923_5']['sha'] == 'y'                                                   # повтор — последняя строка
