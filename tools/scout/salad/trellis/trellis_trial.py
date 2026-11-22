@@ -289,6 +289,18 @@ class Gateway:
             return -1, {}
 
 
+def post_timeout_s(body_chars: int, override: int = 0) -> int:
+    """Таймаут POST /generate по размеру тела (МБ base64) из `rules/salad-groups.json` → `gateway_post` {base_s, per_mb_s, max_s}; `override` > 0 — явное значение. Нет правила — 90 + 30/МБ, не больше 300."""
+    if override and override > 0:
+        return int(override)
+    try:
+        g = json.load(open(os.path.join(SCOUT, 'rules', 'salad-groups.json'), encoding='utf-8')).get('gateway_post') or {}
+    except (OSError, ValueError):
+        g = {}
+    base, per_mb, top = float(g.get('base_s', 90)), float(g.get('per_mb_s', 30)), float(g.get('max_s', 300))
+    return int(min(top, base + per_mb * body_chars / 2 ** 20))
+
+
 def run(a, MG, BR, gw_factory=Gateway, sleep=time.sleep, clock=time.time, hf_head=None) -> int:
     """Весь замер. `MG` — `migrate_groups` (API Salad), `BR` — `bench_run` (состояние группы, остановка с проверкой). Подмена обоих + `gw_factory`/`sleep`/`clock`/`hf_head` — тесты."""
     inputs = json.load(open(os.path.join(a.inputs, 'inputs.json'), encoding='utf-8'))
@@ -509,7 +521,19 @@ def run(a, MG, BR, gw_factory=Gateway, sleep=time.sleep, clock=time.time, hf_hea
                     png = open(os.path.join(a.inputs, f'{j["sku"].replace(":", "_")}.{"hd." if j.get("input") == "hd" else ""}rgba.png'), 'rb').read()
                     pl = {'job_id': j['job_id'], 'image_b64': base64.b64encode(png).decode(), 'pipeline_type': pipeline_type(j['res']), 'seed': j['seed'],
                           'decimation_target': a.decimation, 'texture_size': a.texture, 'detail': getattr(a, 'detail', None), 'texture_mesh_b64': tex_mesh_b64, 'role': j.get('role'), 'dims_cm': j.get('dims_cm'), 'align': j.get('align'), 'tex_guidance': j.get('tex_guidance'), 'shape_smooth': j.get('shape_smooth'), 'shape_fill': j.get('shape_fill'), **(j.get('worker_params') or {})}
-                    c, r = gw.call('POST', '/generate', pl, timeout=90)
+                    to = post_timeout_s(len(pl['image_b64']) + len(pl.get('texture_mesh_b64') or ''), getattr(a, 'post_timeout', 0))
+                    c, r = gw.call('POST', '/generate', pl, timeout=to)
+                    if c == -1:                                                   # клиент не дождался ответа: воркер мог принять задание — сперва спросить его, не считать отказом
+                        cj, _ = gw.call('GET', '/job/' + j['job_id'], timeout=30)
+                        summary.setdefault('post_timeouts', []).append({'job_id': j['job_id'], 'timeout_s': to, 'worker_saw_job': cj == 200})
+                        if cj == 200:
+                            say('задание', j['job_id'], f'→ POST без ответа за {to} с, но воркер его принял (/job 200) — продолжаю')
+                            c = 202
+                        elif not j.get('retried'):
+                            say('задание', j['job_id'], f'→ POST без ответа за {to} с, воркер задание не видит — один повтор в конец очереди')
+                            pending.append({**j, 'retried': True})
+                            sleep(10)
+                            continue
                     inflight = {**j, 'submitted': t, 'http': c}
                     say('задание', j['job_id'], '→ HTTP', c)
                     if c not in (202, 409):
@@ -628,6 +652,8 @@ def main() -> int:
     ap.add_argument('--disk-min-gb', type=float, default=3.0, help='стоп, если свободного места на диске контейнера меньше, ГиБ')
     ap.add_argument('--stall-min', type=int, default=10, help='сколько минут докачка весов может не расти, иначе стоп')
     ap.add_argument('--job-timeout', type=int, default=15)
+    ap.add_argument('--post-timeout', type=int, default=0, help='секунд ждать ответ на POST /generate; 0 (по умолчанию) — по размеру тела: base_s + per_mb_s × МБ, не больше max_s '
+                    '(`rules/salad-groups.json` → gateway_post). T-178 22.11: шлюз Salad отвечает 76–90+ с на холодной ноде, при зашитых 90 с первое задание сорвалось')
     ap.add_argument('--suffix', default=time.strftime('%m%d%H%M', time.gmtime()))
     ap.add_argument('--out', default=os.path.expanduser('~/remlab-logs/mesh-models-1118/trellis'))
     ap.add_argument('--worker-env', action='append', default=[], metavar='ИМЯ=ЗНАЧЕНИЕ', help='pixal3d-tex: переменная окружения воркера (повторяемая), только PIXTEX_ALLOC_CONF / PIXTEX_LOW_VRAM / PIXTEX_INFERENCE_MODE / PIXTEX_OOM_PROBE512 '

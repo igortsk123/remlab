@@ -159,10 +159,16 @@ class FakeGW:
             return 200, {'gpu': {'name': 'RTX 4090'}}
         if path == '/generate':
             self.k += 1
+            if self.k <= s.get('post_timeouts', 0):                    # клиент не дождался ответа (-1); воркер мог при этом принять задание
+                if s.get('accepted_on_timeout'):
+                    self.jobs[body['job_id']] = 'done'
+                return -1, {}
             self.jobs[body['job_id']] = 'failed' if self.k <= s['fail_jobs'] else 'done'
             return 202, {'status': 'queued'}
         if path.startswith('/job/'):
-            st = self.jobs[path[5:]]
+            st = self.jobs.get(path[5:])
+            if st is None:
+                return 404, {}
             if s['job_hangs']:
                 return 200, {'status': 'running'}
             if st == 'failed' and s['fatal_jobs']:
@@ -258,6 +264,21 @@ ok('/health «сломан» во время задания → гашу сра�
    and s['failed'] == 1 and s['jobs'][0]['status'] == 'failed' and br.stops == ['trial-trellis2-t13'])
 rc, mg, br, s = go(d, suffix='t4', script={'raise_on': '/generate'})
 ok('исключение посреди замера → стоп с проверкой всё равно сделан', isinstance(rc, str) and rc.startswith('exc:') and br.stops == ['trial-trellis2-t4'])
+d3 = tempfile.mkdtemp(prefix='tt-')
+make_inputs(d3, ('a:1', 'b:2'))
+rc, mg, br, s = go(d3, suffix='p1', skus=['a:1', 'b:2'], plan='1024:1', script={'post_timeouts': 1})
+ok('POST без ответа (-1), воркер задание НЕ видит → не отказ: один повтор в конец очереди, оба готовы, failed=0, stopped_by=done',
+   rc == 0 and s['failed'] == 0 and s['stopped_by'] == 'done' and len(s['jobs']) == 2 and [j['status'] for j in s['jobs']] == ['done', 'done']
+   and s['jobs'][-1].get('retried') is True and s['jobs'][-1]['job_id'].startswith('a') and s['post_timeouts'][0]['worker_saw_job'] is False)
+rc, mg, br, s = go(d3, suffix='p2', skus=['a:1', 'b:2'], plan='1024:1', script={'post_timeouts': 1, 'accepted_on_timeout': True})
+ok('POST без ответа, но воркер задание принял (/job 200) → без повтора, продолжаем то же задание, failed=0',
+   rc == 0 and s['failed'] == 0 and len(s['jobs']) == 2 and not any(j.get('retried') for j in s['jobs']) and s['post_timeouts'][0]['worker_saw_job'] is True)
+rc, mg, br, s = go(d3, suffix='p3', skus=['a:1'], plan='1024:1', script={'post_timeouts': 9})
+ok('повтор тоже без ответа → тогда failed с причиной «POST -1» (повтор один, не бесконечный), стоп с проверкой',
+   s['failed'] == 1 and 'POST -1' in str(s['jobs'][0]['error']) and s['jobs'][0].get('retried') is True and len(s['post_timeouts']) == 2 and br.stops == ['trial-trellis2-p3'])
+ok('таймаут POST растёт с размером тела и ограничен max_s; --post-timeout > 0 перекрывает',
+   T.post_timeout_s(0) == 90 and 120 <= T.post_timeout_s(1 * 2 ** 20) <= 130 and T.post_timeout_s(2 * 2 ** 20) > T.post_timeout_s(1 * 2 ** 20)
+   and T.post_timeout_s(500 * 2 ** 20) == 300 and T.post_timeout_s(10 ** 9, 45) == 45)
 
 print('[4б] драйвер: пауза «проба → разрешение → партия» на тёплой ноде (T-20261121-172)')
 d3 = tempfile.mkdtemp(prefix='tt-')
