@@ -616,14 +616,15 @@ for model in ('supratex', 'mvpainter', 'mvadapter-i2tex'):                      
     rc, mgx, brx, _ = go(d, mg=mgx, model=model, skus=['a:1', 'b:2'], shape_dir=cat, texture_mesh=None, apply=False, suffix='np-' + model)
     ok(f'{model}: нет профиля ресурсов — отказ (код 3) до группы, к Salad ни одного обращения', rc == 3 and mgx.calls == [] and brx.stops == [], str((rc, mgx.calls)))
 T.WORK_TYPES.update({m: 'trellis_shape' for m in ('supratex', 'mvpainter', 'mvadapter-i2tex')})      # ТОЛЬКО в этом тесте: проверяем логику способов на ресурсах профиля trellis_shape; в боевом коде строк у них нет
+_PM = T.KD.resource_profile('trellis_shape')['memory_mb']          # память группы — из профиля (замер T-186/1: 40960), числа в тестах не зашиты
 mg1 = FakeMG()
 rc, mg1, br1, _ = go(d, mg=mg1, model='supratex', skus=['a:1', 'b:2'], shape_dir=cat, texture_mesh=None, apply=False, suffix='dry')
 ok('сухой прогон двух товаров: код 0, ничего не создано', rc == 0 and not [c for c in mg1.calls if c[0] in ('POST', 'PATCH')])
 buf5 = io.StringIO()
 with __import__('contextlib').redirect_stdout(buf5):
     go(d, model='supratex', skus=['a:1', 'b:2'], shape_dir=cat, texture_mesh=None, apply=False, mem_mb=None, suffix='dry2')
-ok('сухой прогон: два задания (по товару), общая группа trial-supratex-dry2, память группы из профиля (32768)', buf5.getvalue().count('  задание ') == 2 and 'a_1-1024-42-0-supra' in buf5.getvalue()
-   and 'b_2-1024-42-0-supra' in buf5.getvalue() and 'trial-supratex-dry2' in buf5.getvalue() and '"memory": 32768' in buf5.getvalue(), buf5.getvalue()[:300])
+ok('сухой прогон: два задания (по товару), общая группа trial-supratex-dry2, память группы из профиля', buf5.getvalue().count('  задание ') == 2 and 'a_1-1024-42-0-supra' in buf5.getvalue()
+   and 'b_2-1024-42-0-supra' in buf5.getvalue() and 'trial-supratex-dry2' in buf5.getvalue() and f'"memory": {_PM}' in buf5.getvalue(), buf5.getvalue()[:300])
 buf6 = io.StringIO()
 with __import__('contextlib').redirect_stdout(buf6):
     rc, *_ = go(d, model='pixal3d-tex', skus=['a:1', 'b:2'], shape_dir=cat, texture_mesh=None, tex_align='fit,official', apply=False, suffix='dry3')
@@ -689,10 +690,10 @@ buf7 = io.StringIO()
 with __import__('contextlib').redirect_stdout(buf7):
     rc, mg7, br7, _ = go(d, model='mvadapter-i2tex', skus=['a:1', 'b:2', 'c:3'], shape_dir=cat2, texture_mesh=None, gw=MemGW, script={'fail_jobs': 0}, mem_mb=None, fail_streak=9, suffix='q1')
 sm7 = json.load(open(os.path.join(d, 'out', 'summary-trial-mvadapter-i2tex-q1.json')))
-ok('итог по товару: пики видео/процесса/группы и лимит группы (32 ГБ) у каждого товара', all(sm7['by_sku'][k]['peak_rss_gb'] == 22.5 and sm7['by_sku'][k]['peak_cgroup_gb'] == 26.0 and sm7['by_sku'][k]['peak_vram_gb'] == 17.0
-                                                                                      and sm7['by_sku'][k]['mem_limit_gb'] == 32.0 for k in ('a:1', 'b:2', 'c:3')), str(sm7['by_sku']))
+ok('итог по товару: пики видео/процесса/группы и лимит группы (из профиля) у каждого товара', all(sm7['by_sku'][k]['peak_rss_gb'] == 22.5 and sm7['by_sku'][k]['peak_cgroup_gb'] == 26.0 and sm7['by_sku'][k]['peak_vram_gb'] == 17.0
+                                                                                      and sm7['by_sku'][k]['mem_limit_gb'] == _PM / 1024 for k in ('a:1', 'b:2', 'c:3')), str(sm7['by_sku']))
 ok('счётчик отказов в summary: все категории и not_run есть, при успехе — нули', sm7['fail_classes'] == {'uvatlas': 0, 'oom_gpu': 0, 'oom_ram': 0, 'shape_changed': 0, 'cuda': 0, 'other': 0, 'not_run': 0}, str(sm7['fail_classes']))
-ok('в строке «товар …» память видна: видео, процесс, группа из лимита', 'видео 17.0 ГБ, процесс 22.5 ГБ, группа 26.0 из 32.0 ГБ' in buf7.getvalue() and '"fail_classes"' in buf7.getvalue())
+ok('в строке «товар …» память видна: видео, процесс, группа из лимита', 'видео 17.0 ГБ, процесс 22.5 ГБ, группа 26.0 из ' + f'{_PM / 1024:.1f} ГБ' in buf7.getvalue() and '"fail_classes"' in buf7.getvalue())
 buf8 = io.StringIO()
 with __import__('contextlib').redirect_stdout(buf8):
     rc, mg8, br8, _ = go(d, model='mvadapter-i2tex', skus=['a:1', 'b:2', 'c:3'], shape_dir=cat2, texture_mesh=None, gw=MemGW, script={'fail_jobs': 2}, mem_mb=None, fail_streak=9, suffix='q2')
@@ -783,7 +784,7 @@ _SAVE_PICK, _SAVE_GPUC = _RG.pick_gpu_exact, _RG.gpu_classes
 _BIG = 'RTX 5090 (32 GB)'
 T.KD.resource_profile = lambda wt, path=None: {**_REAL_PROF(wt, path), 'card': _SAVE_CARD['class_name'], 'card_fallbacks': [_BIG],
                                                'card_rule': {'small': _SAVE_CARD['class_name'], 'large': [_BIG], 'small_max_gb': 10}}
-T.live_price_usd_h = lambda MG, name, tier: 0.4
+T.live_price_usd_h = lambda MG, name, tier, items=None: 0.4
 _RG.gpu_classes = lambda: []
 _RG.pick_gpu_exact = lambda classes, names: ['big-class-id']
 
