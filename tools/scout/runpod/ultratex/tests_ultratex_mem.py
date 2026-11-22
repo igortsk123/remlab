@@ -129,6 +129,53 @@ r.use('dit')
 r.use('te')
 ok('dit 3/25' in names and names[-1] == 'te', 'подпись шага DiT выходит в ход задания вместо голого «dit»')
 
+# ---- T-178/3 (22.11): перенос на карту — очистка перед ним; OOM → снимок и один повтор; снова OOM — ошибка со снимками
+class _OomM:
+    """Модуль: первые fail_n попыток переноса на карту падают OOM (как контрольный Блест: 128 МиБ при 15,7 ГиБ свободных)."""
+    def __init__(self, fail_n):
+        self.fail_n, self.tries = fail_n, 0
+
+    def to(self, d):
+        if d == 'cuda':
+            self.tries += 1
+            if self.tries <= self.fail_n:
+                raise torch.OutOfMemoryError('CUDA out of memory. Tried to allocate 128.00 MiB. GPU 0 has a total capacity of 31.82 GiB of which 15.67 GiB is free.')
+        return self
+
+    def parameters(self):
+        return iter(())
+
+    def __call__(self, *a, **k):
+        return 1
+
+
+_log = []
+_tc = types.SimpleNamespace(cuda=types.SimpleNamespace(is_available=lambda: True, synchronize=lambda: _log.append('sync'), empty_cache=lambda: _log.append('empty'),
+                                                       mem_get_info=lambda: (15 * 2 ** 30, 32 * 2 ** 30), memory_allocated=lambda: 14 * 2 ** 30, memory_reserved=lambda: 15 * 2 ** 30,
+                                                       max_memory_allocated=lambda: 0, reset_peak_memory_stats=lambda: None))
+_r1 = W.Residency(_OomM(0), _OomM(0), _M(), 'cuda', _tc)
+_r1.use('dit')
+ok(_log[:2] == ['sync', 'empty'] and _r1.on_gpu['dit'] and not _r1.notes, 'перенос на карту: сперва сборка мусора + sync + empty_cache; без OOM заметок нет')
+_log.clear()
+_r2 = W.Residency(_OomM(1), _OomM(0), _M(), 'cuda', _tc)
+_r2.use('dit')
+ok(_r2.on_gpu['dit'] and _r2.mods['dit'].tries == 2 and len(_r2.notes) == 1 and _r2.notes[0]['retry_after_oom']['allocated_gb'] == 14.0
+   and 'out of memory' in _r2.notes[0]['retry_after_oom']['error'].lower() and _log.count('empty') >= 2, 'OOM при переносе: снимок до очистки, очистка, один повтор удался, заметка пошла в метрики')
+_r3 = W.Residency(_OomM(5), _OomM(0), _M(), 'cuda', _tc)
+try:
+    _r3.use('dit')
+    ok(False, 'повторный OOM поднимается наверх')
+except RuntimeError as _e:
+    ok('OOM и после очистки' in str(_e) and 'снимок после ошибки' in str(_e) and _r3.mods['dit'].tries == 2 and not _r3.on_gpu['dit'], 'повторный OOM → ошибка со снимками, ровно два захода, модуль не помечен «на карте»')
+class _NoOom:
+    def to(self, d):
+        raise ValueError('не OOM')
+try:
+    W.Residency(_NoOom(), _OomM(0), _M(), 'cuda', _tc).use('dit')
+    ok(False, 'не-OOM ошибки не глотаются')
+except ValueError:
+    ok(True, 'не-OOM ошибка переноса идёт наверх как была (без повтора)')
+
 # ---- учёт пиков (подмена torch.cuda)
 class _Cuda:
     peak = [5 * 2 ** 30]
@@ -161,7 +208,7 @@ s = mt.summary()
 ok(s['peak_allocated_gb'] == 9.0 and s['peak_reserved_gb'] == 10.0 and s['min_driver_free_gb'] == 12.0 and [m[0] for m in s['marks']] == ['a', 'b'],
    'пики копятся за задание и переживают сброс счётчика при смене фазы; свободное по драйверу — минимум')
 res_t = W.Residency(_M(), _M(), _M(), 'cuda', types.SimpleNamespace(cuda=types.SimpleNamespace(is_available=lambda: True, max_memory_allocated=lambda: 7 * 2 ** 30,
-                                                                                          reset_peak_memory_stats=lambda: None, empty_cache=lambda: None)))
+                                                                                          reset_peak_memory_stats=lambda: None, empty_cache=lambda: None, synchronize=lambda: None)))
 tr = []
 res_t.track = types.SimpleNamespace(update=lambda tag=None: tr.append(1))
 res_t.use('dit')
