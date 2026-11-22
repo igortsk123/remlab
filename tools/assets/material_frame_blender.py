@@ -15,6 +15,15 @@ from mathutils import Vector
 
 argv = sys.argv[sys.argv.index('--') + 1:]
 glb, out = argv[0], argv[1]
+def _render_threads() -> int:
+    """Потоки рендера = ядра заявки heavy-slot (HEAVY_SLOT_CORES; Blender наследует окружение), нет заявки/мусор — 2. Настройка сцены FIXED сильнее ключа `-t`: жёсткие числа здесь давали 3,7–3,8 ядра при заявке 2."""
+    try:
+        n = int(os.environ.get('HEAVY_SLOT_CORES') or 0)
+    except ValueError:
+        n = 0
+    return n if n > 0 else 2
+
+
 opt = {'--size': 768, '--samples': 48, '--az': 35.0, '--el': 12.0}
 i = 2
 while i < len(argv):
@@ -47,7 +56,7 @@ sc.cycles.use_denoising = True
 sc.cycles.transmission_bounces = 8
 sc.cycles.glossy_bounces = 6
 sc.render.threads_mode = 'FIXED'
-sc.render.threads = 2
+sc.render.threads = _render_threads()
 sc.render.resolution_x = sc.render.resolution_y = size
 sc.render.image_settings.file_format = 'PNG'
 sc.view_settings.view_transform = 'Standard'

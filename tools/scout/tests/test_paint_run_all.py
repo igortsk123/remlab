@@ -294,5 +294,31 @@ c2 = RA.make_ctx('/r', 'k', {'native': 'n', 'photo': 'p', 'root': '/x'}, rules2)
 ok(c2['py'] == os.path.join(HOME, 'b/py'), 'default_python меняет интерпретатор по умолчанию без правки кода')
 ok('/venvs/' not in open(os.path.join(HERE, '..', 'paint_run_all.py'), encoding='utf-8').read().replace("'venvs'", ''), 'в коде обвязки нет путей к venv')
 
+# 8. потоки Blender = ядра заявки heavy-slot (22.11): у Blender-шага в команде `-t N`, у прочих — ничего не добавляется
+ctx_b = RA.make_ctx('/r', 'k', {'native': 'n', 'photo': 'p', 'product_role': '', 'channels': '', 'root': '/x'}, REAL)
+n_bl = n_bl_checked = 0
+for stg in REAL['stages']:
+    n_bl += sum(1 for x in REAL['stages'][stg]['steps'] if x['argv'][0] == '{blender}')
+    try:
+        res_b = RA.resolve_steps(REAL['stages'][stg], ctx_b, {'cam_az_args': []})
+    except KeyError:
+        continue                                                                    # этапу нужны подстановки из dynamic_ctx (парс. аргументы и т.п.) — Blender-шагов в нём нет, см. счётчик ниже
+    for i, s in enumerate(res_b):
+        raw0 = REAL['stages'][stg]['steps'][i]['argv'][0]
+        h = s['heavy']
+        n_bl_checked += raw0 == '{blender}'
+        if raw0 == '{blender}':
+            ok(s['argv'][1] == '-t' and s['argv'][2] == str((h or {}).get('cores', 2)) and s['argv'].index('-t') < s['argv'].index('-P'), f'этап {stg} шаг {i}: Blender с `-t {(h or {}).get("cores", 2)}` до `-P`')
+        else:
+            ok('-t' not in s['argv'][:2], f'этап {stg} шаг {i}: не Blender — `-t` не добавлен')
+ok(n_bl == n_bl_checked and n_bl >= 2, f'все Blender-шаги правил проверены на `-t` (шагов {n_bl}, проверено {n_bl_checked})')
+st3 = RA.resolve_steps(REAL['stages']['03'], ctx_b, {'cam_az_args': []})[0]
+ok(st3['argv'][:3] == [ctx_b['blender'], '-t', '2'] and 'parts_orbit_blender.py' in ' '.join(st3['argv']), 'этап 3 шаг 0 (parts_orbit_blender, cores 2): команда Blender содержит `-t 2`')
+fk = {'steps': [{'argv': ['{blender}', '-b', '-P', 'x.py'], 'heavy': {'cores': 4}}, {'argv': ['{blender}', '-b', '-P', 'y.py']}, {'argv': ['{blender}', '--threads', '3', '-b']}]}
+r4 = RA.resolve_steps(fk, ctx_b)
+ok(r4[0]['argv'][1:3] == ['-t', '4'], 'заявка cores 4 → `-t 4`')
+ok(r4[1]['argv'][1:3] == ['-t', '2'], 'без heavy → `-t 2` (по умолчанию)')
+ok(r4[2]['argv'].count('--threads') == 1 and '-t' not in r4[2]['argv'], 'явный --threads не дублируем')
+
 print(f'paint_run_all: ошибок {FAIL}')
 sys.exit(1 if FAIL else 0)

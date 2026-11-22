@@ -17,6 +17,15 @@ import numpy as np
 from mathutils import Vector
 from mathutils.bvhtree import BVHTree
 
+
+def _render_threads() -> int:
+    """Потоки рендера = ядра заявки heavy-slot (HEAVY_SLOT_CORES; Blender наследует окружение), нет заявки/мусор — 2. Настройка сцены FIXED сильнее ключа `-t`: жёсткие числа здесь давали 3,7–3,8 ядра при заявке 2."""
+    try:
+        n = int(os.environ.get('HEAVY_SLOT_CORES') or 0)
+    except ValueError:
+        n = 0
+    return n if n > 0 else 2
+
 argv = sys.argv[sys.argv.index('--') + 1:]
 glb, out = argv[0], argv[1]
 here = os.path.dirname(os.path.abspath(__file__))
@@ -68,7 +77,7 @@ sc.render.engine = 'CYCLES'
 sc.cycles.device = 'CPU'
 sc.cycles.samples = int(R['samples'])
 sc.render.threads_mode = 'FIXED'
-sc.render.threads = 4
+sc.render.threads = _render_threads()
 sc.render.resolution_x = sc.render.resolution_y = size
 sc.render.film_transparent = True
 sc.render.image_settings.file_format = 'PNG'

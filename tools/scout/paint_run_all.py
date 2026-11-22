@@ -163,6 +163,18 @@ def _subst(argv: list, ctx: dict) -> list:
     return out
 
 
+BLENDER_THREADS_DEFAULT = 2          # потоков Blender без заявки heavy-slot: Blender без `-t` берёт ВСЕ ядра машины и занимает больше, чем записано в заявке (обход 22.11: 3,7–3,8 при cores 2)
+
+
+def with_blender_threads(argv: list, blender: str, heavy: dict | None) -> list:
+    """Шаг запускает Blender (argv[0] — бинарь) → после него `-t N`: N = ядра заявки heavy-slot шага (`heavy.cores`, как в `_heavy`), без heavy — 2. Явный `-t`/`--threads` не трогаем.
+    `-t` стоит ДО `-P`: Blender разбирает ключи по порядку, скрипт уже должен видеть число потоков. OMP_* на Blender не действует."""
+    if not argv or argv[0] != blender or '-t' in argv or '--threads' in argv:
+        return argv
+    n = int((heavy or {}).get('cores', BLENDER_THREADS_DEFAULT))
+    return [argv[0], '-t', str(n)] + list(argv[1:])
+
+
 def resolve_steps(stage: dict, ctx: dict, extra: dict | None = None) -> list:
     """Шаги этапа с подставленными путями: [{argv, heavy, retry_extra}]. Пустое `{channels}`/`{product_role}` — соответствующие флаги выпадают (`optional`)."""
     steps = []
@@ -183,7 +195,7 @@ def resolve_steps(stage: dict, ctx: dict, extra: dict | None = None) -> list:
                     argv.pop()                                              # убрать и сам флаг без значения
                 continue
             argv.append(tok)
-        steps.append({'argv': _subst(argv, ctx), 'heavy': s.get('heavy'), 'retry_extra': s.get('retry_extra'), 'cwd': s.get('cwd')})
+        steps.append({'argv': with_blender_threads(_subst(argv, ctx), str(ctx.get('blender', '')), s.get('heavy')), 'heavy': s.get('heavy'), 'retry_extra': s.get('retry_extra'), 'cwd': s.get('cwd')})
     return steps
 
 

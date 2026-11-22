@@ -418,8 +418,56 @@ def test_stage_geometry_and_inherited():
         ok(isinstance(doc["extra"].get("shape"), dict) and "share" in doc["extra"]["shape"], "check.json хранит разбивку формы")
 
 
+def test_blender_scripts_threads():
+    """Скрипты Blender: потоки рендера не зашиты числом (4 в parts_orbit_blender давало 3,7–3,8 ядра при заявке 2), а идут из HEAVY_SLOT_CORES."""
+    import re
+    for f in ("parts_orbit_blender.py", "material_frame_blender.py"):
+        src = open(os.path.join(HERE, "..", f), encoding="utf-8").read()
+        ok(re.search(r"render\.threads\s*=\s*\d", src) is None, f"{f}: render.threads не число")
+        ok("render.threads = _render_threads()" in src and "HEAVY_SLOT_CORES" in src, f"{f}: потоки из HEAVY_SLOT_CORES (по умолчанию 2)")
+        ns = {"os": os}
+        m = re.search(r"def _render_threads\(\).*?return n if n > 0 else 2\n", src, re.S)
+        ok(m is not None, f"{f}: функция _render_threads найдена")
+        exec(m.group(0), ns)
+        got = {}
+        for env in ("4", None, "мусор", "-3"):
+            os.environ.pop("HEAVY_SLOT_CORES", None)
+            if env is not None:
+                os.environ["HEAVY_SLOT_CORES"] = env
+            got[env] = ns["_render_threads"]()
+        os.environ.pop("HEAVY_SLOT_CORES", None)
+        ok(got == {"4": 4, None: 2, "мусор": 2, "-3": 2}, f"{f}: _render_threads {got}")
+
+
+def test_blender_threads():
+    """Кадр Blender: `-t` = ядра заявки heavy-slot (HEAVY_SLOT_CORES), без заявки 2 (22.11): без -t Blender занимал все ядра машины."""
+    import subprocess
+    seen = {}
+    real_run, real_bl, real_env = subprocess.run, MS.BLENDER, os.environ.get("HEAVY_SLOT_CORES")
+
+    def fake_run(cmd, **kw):
+        seen["cmd"] = cmd
+        class P:
+            returncode, stdout, stderr = 1, "", ""
+        return P()
+    subprocess.run, MS.BLENDER = fake_run, sys.executable
+    try:
+        for env, want in (("4", "4"), (None, "2"), ("мусор", "2"), ("0", "2")):
+            os.environ.pop("HEAVY_SLOT_CORES", None)
+            if env is not None:
+                os.environ["HEAVY_SLOT_CORES"] = env
+            MS.render_frame("a.glb", "/nonexistent/o.png", R)
+            c = seen["cmd"]
+            ok("-t" in c and c[c.index("-t") + 1] == want and c.index("-t") < c.index("-P"), f"render_frame: HEAVY_SLOT_CORES={env!r} → `-t {want}` до `-P`")
+    finally:
+        subprocess.run, MS.BLENDER = real_run, real_bl
+        os.environ.pop("HEAVY_SLOT_CORES", None)
+        if real_env is not None:
+            os.environ["HEAVY_SLOT_CORES"] = real_env
+
+
 if __name__ == "__main__":
-    for t in (test_rules_complete, test_no_ids_in_code, test_resolve, test_legs_and_colour, test_bake, test_patch_glb, test_stage_end_to_end, test_shapes_without_stage3, test_top_zone_shade, test_stand_junction_is_metal, test_unsure_parts_report, test_soft_body_inherits_upholstery, test_stage3_roles, test_merge_roles_file, test_top_zone_bigger_than_body, test_inherit_unseen, test_stage_geometry_and_inherited):
+    for t in (test_blender_scripts_threads, test_blender_threads, test_rules_complete, test_no_ids_in_code, test_resolve, test_legs_and_colour, test_bake, test_patch_glb, test_stage_end_to_end, test_shapes_without_stage3, test_top_zone_shade, test_stand_junction_is_metal, test_unsure_parts_report, test_soft_body_inherits_upholstery, test_stage3_roles, test_merge_roles_file, test_top_zone_bigger_than_body, test_inherit_unseen, test_stage_geometry_and_inherited):
         print(t.__name__)
         t()
     print(f"material_stage tests: ошибок {FAIL}")

@@ -930,12 +930,21 @@ def run_stage(glb: str, run: str, sku: str, product: dict, parts_dir: str | None
     return doc
 
 
+def blender_threads() -> int:
+    """Потоков Blender = ядрам заявки heavy-slot (переменная HEAVY_SLOT_CORES, её выдаёт heavy-slot.sh держателю); нет заявки/мусор — 2. Без `-t` Blender берёт все ядра машины."""
+    try:
+        n = int(os.environ.get("HEAVY_SLOT_CORES") or 0)
+    except ValueError:
+        n = 0
+    return n if n > 0 else 2
+
+
 def render_frame(glb: str, out_png: str, recipes: dict) -> tuple[str | None, str]:
     """Кадр «перёд при студийном свете» в Blender (CPU, без окна). → (имя файла | None, причина)."""
     f = recipes["frame"]
     if not os.path.exists(BLENDER):
         return None, f"нет Blender: {BLENDER}"
-    cmd = [BLENDER, "-b", "-P", FRAME_SCRIPT, "--", glb, out_png, "--size", str(f["size"]), "--samples", str(f["samples"]),
+    cmd = [BLENDER, "-b", "-t", str(blender_threads()), "-P", FRAME_SCRIPT, "--", glb, out_png, "--size", str(f["size"]), "--samples", str(f["samples"]),
            "--az", str(f["azimuthDeg"]), "--el", str(f["elevationDeg"])]
     p = subprocess.run(cmd, capture_output=True, text=True, timeout=3000)
     if p.returncode != 0 or not os.path.exists(out_png):
