@@ -47,7 +47,7 @@
     "legs_match": 0.2,
     "body_skew_deg": 3.0,
     "body_skew_points": 300000,
-    "body_skew_leg_cut": 0.12
+    "body_skew_leg_cut": 0.45
   },
   "block": [
     "glb_sane",

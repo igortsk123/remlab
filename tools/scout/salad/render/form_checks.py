@@ -316,13 +316,15 @@ def energy(hp, inner) -> float:
     return float(hp[inner].std())
 
 
-def edge_slopes(u: np.ndarray, y: np.ndarray, ylo: float, yhi: float, nb: int = 14) -> tuple[float, float] | None:
+def edge_slopes(u: np.ndarray, y: np.ndarray, ylo: float, yhi: float, nb: int = 14, min_share: float = 0.5) -> tuple[float, float] | None:
     """Левая/правая кромка u(y): перцентили по полосам высоты → линейная подгонка → углы от вертикали, градусы (знак +, если верх смещён вправо)."""
     edges = np.linspace(ylo, yhi, nb + 1)
     ys, lo, hi = [], [], []
-    for a, b in zip(edges[:-1], edges[1:]):
+    cnt = [int(((y >= a) & (y < b)).sum()) for a, b in zip(edges[:-1], edges[1:])]
+    med = float(np.median([c for c in cnt if c > 0])) if any(cnt) else 0.0
+    for (a, b), c in zip(zip(edges[:-1], edges[1:]), cnt):
         s = (y >= a) & (y < b)
-        if s.sum() < 200:
+        if c < 200 or c < min_share * med:                             # полосы с редкими точками — ножки/опоры/проём, не корпус: в подгонку не берём
             continue
         ys.append((a + b) / 2)
         lo.append(np.percentile(u[s], 0.3))
