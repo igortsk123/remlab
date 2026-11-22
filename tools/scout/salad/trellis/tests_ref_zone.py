@@ -141,6 +141,48 @@ def box(nx=4, ny=3, nz=4, w=2.0, h=1.0, d=1.0):
 BASIS = (np.array([1.0, 0, 0]), np.array([0, 1.0, 0]), np.array([0, 0, -1.0]))      # right, up, fwd: камера смотрит вдоль -z, лицо — грани +z
 
 
+def rot_y(V, deg):
+    a = np.radians(deg)
+    R_ = np.array([[np.cos(a), 0, np.sin(a)], [0, 1, 0], [-np.sin(a), 0, np.cos(a)]])
+    return V @ R_.T
+
+
+def test_object_basis():
+    print('оси предмета при камере под углом:')
+    V, F, side = box()
+    for deg in (0, 25, -33):
+        Vr = rot_y(V, deg)
+        b, delta = RZ.object_basis(Vr, F, BASIS)
+        ok(abs(abs(delta) - abs(deg)) < 2.0 and np.allclose(np.linalg.norm(b[0]), 1.0), f'поворот {deg}°: найден δ={delta:.1f}°')
+        sc = RZ.mirror_score(Vr, F, b[0], 0.015)[0]
+        ok(sc > 0.9, f'поворот {deg}°: симметрия по осям предмета {sc:.2f} (по осям камеры была бы ниже)')
+        sd = RZ.face_sides(Vr, F, b)
+        ok((sd[side == 'front'] == -1).all() and (sd[side == 'back'] == 0).all() and (sd[side == 'right'] == 1).all() and (sd[side == 'left'] == 2).all(), f'поворот {deg}°: стороны лицо/зад/правый/левый определены верно')
+    Vr = rot_y(V, 25)
+    fz = np.full(len(F), -1, np.int32)
+    fz[side == 'front'] = 0
+    fz[side == 'left'] = 1
+    out = RZ.panel_zones(Vr, F, fz, None, BASIS)
+    ok((out[side == 'right'] == 1).all() and (out[side == 'back'] == 1).all(), 'коробка под углом 25°: бок по симметрии и зад по боковым панелям работают')
+
+
+def test_inconsistent_winding():
+    print('меши TRELLIS: обмотка граней не согласована (≈50 % нормалей внутрь) — результат тот же:')
+    V, F, side = box()
+    rng = np.random.default_rng(3)
+    Fz = F.copy()
+    flip = rng.random(len(F)) < 0.5
+    Fz[flip] = Fz[flip][:, [0, 2, 1]]
+    fz = np.full(len(F), -1, np.int32)
+    fz[side == 'front'] = 0
+    fz[side == 'left'] = 1
+    a = RZ.panel_zones(V, F, fz, None, BASIS)
+    b = RZ.panel_zones(V, Fz, fz, None, BASIS)
+    ok((a == b).all(), 'случайно перевёрнутая обмотка не меняет зоны (панели, стороны, симметрия — без знака нормали)')
+    sd = RZ.face_sides(V, Fz, BASIS)
+    ok((sd[side == 'front'] == -1).all() and (sd[side == 'back'] == 0).all(), 'стороны лицо/зад по положению, не по знаку нормали')
+
+
 def test_panels():
     print('зоны по панелям (Б): метки в панели, симметрия бока, зад от боков, остальное unknown:')
     V, F, side = box()
@@ -256,7 +298,7 @@ def test_ultratex_full():
 
 
 def main():
-    for f in (test_same_mesh, test_decide, test_gate_per_property, test_propagate, test_panels, test_apply_to_fill, test_relief_source, test_ultratex_full):
+    for f in (test_same_mesh, test_decide, test_gate_per_property, test_propagate, test_object_basis, test_inconsistent_winding, test_panels, test_apply_to_fill, test_relief_source, test_ultratex_full):
         f()
     print(f'tests_ref_zone: ошибок {len(FAILS)}')
     return 1 if FAILS else 0

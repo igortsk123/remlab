@@ -297,7 +297,7 @@ def face_graph(V: np.ndarray, F: np.ndarray):
     cen = Vc[F_orig].mean(1)
     n = np.cross(Vc[F_orig[:, 1]] - Vc[F_orig[:, 0]], Vc[F_orig[:, 2]] - Vc[F_orig[:, 0]])
     n /= np.maximum(np.linalg.norm(n, axis=1, keepdims=True), 1e-12)
-    dih = np.degrees(np.arccos(np.clip((n[i] * n[j]).sum(1), -1, 1)))
+    dih = np.degrees(np.arccos(np.clip(np.abs((n[i] * n[j]).sum(1)), 0, 1)))      # без знака: обмотка мешей TRELLIS не согласована (≈50 % нормалей внутрь)
     return i, j, np.linalg.norm(cen[i] - cen[j], axis=1) + 1e-9, dih, n
 
 
@@ -445,7 +445,7 @@ def compare(form_geo: dict, ref_tex: np.ndarray, form_geoms: list, ref_geoms: li
     _C, _rt, _up, _fw = PF.cam_basis(float(cam0['az']), 0.0, float(cam0['d']))
     basis = (_rt, _up, _fw)
     fz_all, pinfo = panel_zones(form_geo['V'], form_geo['F'], fz, parts, basis, return_info=True)
-    fside = face_sides(form_geo['V'], form_geo['F'], basis)
+    fside = face_sides(form_geo['V'], form_geo['F'], object_basis(form_geo['V'], form_geo['F'], basis)[0])
     # М2: рендеры образца: вид фото (из камеры 04) и стороны при том же масштабе
     tex2k = ref_tex if max(ref_tex.shape[:2]) <= 2048 else cv2.resize(ref_tex, (2048, 2048), interpolation=cv2.INTER_AREA)
     tex2k = tex2k.astype(np.float32)
@@ -507,20 +507,46 @@ def _face_area_cen_normal(V, F):
     return ar, V[F].mean(1), c / np.maximum(2 * ar[:, None], 1e-12)
 
 
-def face_sides(V, F, basis) -> np.ndarray:
-    """Сторона грани по нормали при камере фото: -1 лицо (в сторону камеры), 0 зад, 1 правый, 2 левый, 3 верх (крышка), 4 низ, -2 косая. basis = (right, up, fwd) мира; fwd — от камеры к предмету."""
+def object_basis(V, F, basis) -> tuple:
+    """Оси ПРЕДМЕТА в мире по горизонтальным нормалям граней: угол θ нормали в плоскости (right, fwd) камеры; прямоугольный предмет даёт пики через 90° → ψ = arg Σ w·e^{i4θ} / 4 (w — площадь × горизонтальность).
+    Лицо — ось (из четырёх), ближайшая к направлению на камеру (−fwd). → (basis предмета (right, up, fwd), δ в градусах: поворот предмета от камеры; −45…45)."""
     right, up, fwd = (np.asarray(b, np.float64) for b in basis)
-    _a, _c, n = _face_area_cen_normal(V, F)
-    d = {'front': -(n @ fwd), 'back': n @ fwd, 'right': n @ right, 'left': -(n @ right), 'top': n @ up, 'bottom': -(n @ up)}
-    names = ['front', 'back', 'right', 'left', 'top', 'bottom']
-    m = np.stack([d[k] for k in names], 1)
-    best = m.argmax(1)
-    code = np.array([-1, 0, 1, 2, 3, 4])[best]
-    code[m.max(1) < PANEL_SIDE_COS] = -2
+    ar, _c, n = _face_area_cen_normal(V, F)
+    x, z = n @ right, n @ fwd
+    hz = np.sqrt(np.maximum(1 - (n @ up) ** 2, 0.0))
+    th = np.arctan2(z, x)
+    w = ar * hz ** 2
+    psi = np.angle((w * np.exp(4j * th)).sum()) / 4.0
+    best = None
+    for k in range(4):
+        a = psi + k * np.pi / 2
+        vec = np.cos(a) * right + np.sin(a) * fwd
+        score = float(vec @ (-fwd))
+        if best is None or score > best[0]:
+            best = (score, vec)
+    front = best[1]
+    delta = float(np.arctan2(front @ right, front @ (-fwd)))
+    cd, sd = np.cos(delta), np.sin(delta)
+    return (cd * right + sd * fwd, up, cd * fwd - sd * right), float(np.degrees(delta))
+
+
+def face_sides(V, F, basis) -> np.ndarray:
+    """Сторона грани: ось по нормали БЕЗ знака (обмотка мешей не согласована), знак — по положению центра грани относительно центра габарита. -1 лицо (в сторону камеры), 0 зад, 1 правый, 2 левый,
+    3 верх (крышка), 4 низ, -2 косая (нормаль к ближайшей оси < PANEL_SIDE_COS). basis = (right, up, fwd) предмета; fwd — от камеры к предмету."""
+    right, up, fwd = (np.asarray(b, np.float64) for b in basis)
+    Vv = np.asarray(V, np.float64)
+    _a, cen, n = _face_area_cen_normal(Vv, F)
+    rel = cen - 0.5 * (Vv.min(0) + Vv.max(0))
+    axes = [-fwd, right, up]
+    dots = np.stack([np.abs(n @ a_) for a_ in axes], 1)
+    k = dots.argmax(1)
+    sg = np.stack([rel @ a_ for a_ in axes], 1)[np.arange(len(k)), k] >= 0
+    code = np.select([(k == 0) & sg, (k == 0) & ~sg, (k == 1) & sg, (k == 1) & ~sg, (k == 2) & sg], [-1, 0, 1, 2, 3], 4)
+    code[dots.max(1) < PANEL_SIDE_COS] = -2
     return code.astype(np.int32)
 
 
-def mirror_score(V, F, right, eps_frac: float, n_samples: int = 60000) -> tuple:
+def mirror_score(V, F, right, eps_frac: float, n_samples: int = 60000, cos_min: float = 0.7) -> tuple:
     """Симметрия формы плоскостью, перпендикулярной `right` через середину габарита, по ТОЧКАМ поверхности (триангуляция лево/право не зеркальна): доля площади, у которой отражённая точка
     ближе eps·диагональ к поверхности с нормалью, отражённой с cos ≥ 0,7. → (доля, функция twin(грани) → (индекс грани-двойника, ok))."""
     from scipy.spatial import cKDTree
@@ -551,11 +577,11 @@ def mirror_score(V, F, right, eps_frac: float, n_samples: int = 60000) -> tuple:
         faces = np.asarray(faces)
         d, k = tree.query(refl_pt(cen[faces]), k=1)
         jf = fi[k]
-        ok = (d <= eps_frac * diag) & ((refl_n(n[faces]) * n[jf]).sum(1) >= 0.7)
+        ok = (d <= eps_frac * diag) & (np.abs((refl_n(n[faces]) * n[jf]).sum(1)) >= cos_min)
         return jf, ok
 
     d, k = tree.query(refl_pt(pts), k=1)
-    okp = (d <= eps_frac * diag) & ((refl_n(n[fi]) * n[fi[k]]).sum(1) >= 0.7)
+    okp = (d <= eps_frac * diag) & (np.abs((refl_n(n[fi]) * n[fi[k]]).sum(1)) >= cos_min)
     return float(okp.mean()), twin
 
 
@@ -591,11 +617,13 @@ def panel_zones(V, F, fz: np.ndarray, parts, basis, return_info: bool = False):
     (4) крышка, низ, косые, всё прочее без меток — -1 (unknown → нейтральный тон, 07 решает сам). → карта (+ info)."""
     fz = np.asarray(fz, np.int32)
     nF = len(F)
+    basis, delta_deg = object_basis(V, F, basis)                  # оси предмета, не камеры (фото под углом)
     pid = panel_ids(V, F, parts)
     out, info = propagate_zones(V, F, fz, pid, return_info=True)         # шаг 1: границы продолжения = панели
     ar, cen, nrm = _face_area_cen_normal(V, F)
     sd = face_sides(V, F, basis)
     right = np.asarray(basis[0], np.float64)
+    info['object_yaw_deg'] = round(delta_deg, 1)
     info['steps'] = {'photo_panels': int((out >= 0).sum()), 'mirror': 0, 'back': 0}
     info['sym_score'] = None
     labelled = out >= 0
