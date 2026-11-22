@@ -336,6 +336,7 @@ jobs:
       - run: python tools/scout/salad/tests_kit_loop.py   # цикл заданий run_probe: 429 «занят» — не провал, --job-min 0 = до потолка, ход задания из /health (дефекты p4 21.11)
       - run: python tools/scout/salad/tests_kit.py   # общий набор проб Salad (kit_driver/kit_worker): образ по digest ≤30 ГиБ, heavy-slot prio 2, повтор 502/503/504, ожидание образа, сторожа, учёт денег; СТОРОЖ РЕПО: каждый воркер с HTTP — через kit_worker или на `::`, каждый драйвер платных проб — через kit_driver (T-20261121-178/2)
       - run: pip install numpy trimesh pyyaml && python tools/scout/salad/parts/tests_parts.py   # воркер разметки частей на kit (Ш5/T-183): сервер ::, ход задания в /health, POST /run→/job→/file, 429 на занятой ноде, после CUDA задания не берёт (MODEL=fake, без GPU)
+      - run: pip install numpy trimesh scipy pillow && python tools/scout/salad/render/tests_form_checks.py   # автопроверки формы Ш0 в режиме observe (T-184/3): синтетические меши и кадры; пороги в rules/form-checks.json, ID нет
       - run: pip install fast-simplification && python tools/scout/tests/test_mesh_lite.py   # эскиз меша: LITE_TEXTURE_SAFE — текстурный меш, который не ужать с границей, полным (T-20261105-51/2)
       - run: python tools/scout/unfit.py --selftest        # пригодность для гостиной: одно правило у подбора и лечения демо
       - run: python tools/scout/env_keys.py --selftest     # ключи и журнал расходов из worktree — основной копии, чужой mltest последним с WARN (T-20261105-52)
