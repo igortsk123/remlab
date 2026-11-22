@@ -41,8 +41,11 @@ def suggest(summary: dict, prof: dict | None = None) -> list[str]:
         out.append(f'VRAM: пик {vram} ГБ' + (f' (ожидали {exp})' if exp else '') + f'; карта профиля «{prof["card"]}» — если пик < 12 ГБ, кандидат 16-ГБ карта')
     free = h.get('disk_free_gb')
     if free is not None:
-        used = prof['storage_gb'] - free
-        out.append(f'диск: свободно {free} ГБ из {prof["storage_gb"]} ГБ профиля (занято ≈ {used:.0f}); {"можно меньше" if free > prof["storage_gb"] * 0.6 else "запас нужен"}')
+        if free > prof['storage_gb']:
+            out.append(f'диск: нода показала {free} ГБ свободно при {prof["storage_gb"]} ГБ профиля — Salad отдаёт общий диск хоста, пик занятого этим не измерить (меряй размер папок весов и результатов)')
+        else:
+            used = prof['storage_gb'] - free
+            out.append(f'диск: свободно {free} ГБ из {prof["storage_gb"]} ГБ профиля (занято ≈ {used:.0f}); {"можно меньше" if free > prof["storage_gb"] * 0.6 else "запас нужен"}')
     mbs = h.get('disk_mb_s')
     if mbs is not None:
         out.append(f'скорость диска ноды: запись {mbs} МБ/с, чтение {h.get("disk_read_mb_s")} МБ/с')
@@ -52,7 +55,9 @@ def suggest(summary: dict, prof: dict | None = None) -> list[str]:
         out.append(f'докачка весов: {wgm} ГБ/мин, нижняя норма сторожа {low}' + (' — НИЖЕ нормы, нода медленная' if wgm < low else ''))
     if summary.get('disk_culls'):
         out.append(f'сторож диска пересаживал {summary["disk_culls"]} раз(а), скорости медленных нод {summary.get("disk_slow_rates")} ГБ/мин')
-    done = [v.get('wall_s') for v in (summary.get('jobs') or {}).values() if v.get('status') == 'done' and v.get('wall_s')]
+    jobs = summary.get('jobs') or {}
+    jobs = list(jobs.values()) if isinstance(jobs, dict) else list(jobs)                  # kit-драйверы пишут словарь, trellis_trial — список
+    done = [v.get('wall_s') or v.get('seconds') for v in jobs if v.get('status') == 'done' and (v.get('wall_s') or v.get('seconds'))]
     exp_job = (prof.get('expect') or {}).get('job_s')
     if done:
         mean = sum(done) / len(done)

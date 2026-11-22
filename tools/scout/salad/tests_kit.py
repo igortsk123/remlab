@@ -703,12 +703,25 @@ ok(any('RAM' in x and 'не влезает' in x for x in _sg), 'suggest: пик
 ok(any('НИЖЕ нормы' in x for x in _sg) and any('пересаживал 1' in x for x in _sg) and any('среднее 341' in x for x in _sg), 'suggest: медленная докачка, пересадка и время задания видны')
 ok(any('по оценке' in x for x in _sg), 'suggest: напоминает, что основание профиля — «по оценке»')
 ok(any('не пришёл' in x for x in RP.suggest({'work_type': 'ultratex', 'last_health': {'body': {}}})), 'suggest: нет замера — так и говорит')
-
-print('\nИТОГ:', 'ВСЁ ЗЕЛЁНОЕ' if not FAILS else f'ПРОВАЛОВ: {len(FAILS)}')
-sys.exit(1 if FAILS else 0)
+_sl = RP.suggest({'work_type': 'trellis_shape', 'last_health': {'body': {'peak_rss_gb': 30.2, 'peak_vram_gb': 11.6}}, 'jobs': [{'status': 'done', 'seconds': 200.0}, {'status': 'failed', 'seconds': 300.0}, {'status': 'done', 'seconds': 100.0}]})
+ok(any('среднее 150' in x and 'n=2' in x for x in _sl), 'suggest: итог trellis_trial (jobs — список, время в seconds) тоже читается')
 
 # --- T-186/1 × T-178/3: два сторожа медленных весов — не вместе
 import types as _types
 _ns = _types.SimpleNamespace
 ok(KD.disk_guard_wanted(_ns()) and KD.disk_guard_wanted(_ns(disk_guard=True, slow_window_s=0)) and not KD.disk_guard_wanted(_ns(slow_window_s=180)) and not KD.disk_guard_wanted(_ns(disk_guard=False)),
    'DiskGuard включён по умолчанию; явный --slow-window-min или a.disk_guard=False выключают его (работает один из двух сторожей)')
+
+# --- T-186/2: повтор тяжёлого задания на большой карте — признак OOM, карта повтора, правило в профиле
+ok(KD.is_oom_error('RuntimeError: CUDA driver error: out of memory') and KD.is_oom_error('CUDA out of memory. Tried to allocate 2.00 GiB')
+   and KD.is_oom_error('RuntimeError: !handles_.at(i) INTERNAL ASSERT FAILED at "/pytorch/c10/cuda/CUDACachingAllocator.cpp":432'), 'is_oom_error: out of memory и сбой аллокатора CUDA — память карты')
+ok(not KD.is_oom_error('RuntimeError: нет входа') and not KD.is_oom_error(None) and not KD.is_oom_error('HTTP 503'), 'is_oom_error: прочие ошибки — не память (повтор на большой карте им не поможет)')
+_tp = KD.resource_profile('trellis_shape')
+ok(KD.retry_card(_tp, 'RTX 5060 Ti (16 GB)') == 'RTX 5090 (32 GB)' and KD.retry_card(_tp, 'RTX 5090 (32 GB)') is None and KD.retry_card(_tp, 'RTX 4090 (24 GB)') is None
+   and KD.retry_card(KD.resource_profile('ultratex'), 'RTX 5090 (32 GB)') is None, 'retry_card: с малой карты — на первую большую; с большой и без правила — повтора нет')
+ok(not KD.profile_problems(_tp) and KD.profile_problems(dict(_tp, card_rule={'small': 'X', 'large': ['RTX 5090 (32 GB)']})) and KD.profile_problems(dict(_tp, card_rule={'small': 'RTX 5060 Ti (16 GB)', 'large': []})),
+   'card_rule: малая и большие карты — из карт профиля, large не пуст')
+
+
+print('\nИТОГ:', 'ВСЁ ЗЕЛЁНОЕ' if not FAILS else f'ПРОВАЛОВ: {len(FAILS)}')
+sys.exit(1 if FAILS else 0)
