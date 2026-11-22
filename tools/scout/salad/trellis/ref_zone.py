@@ -716,6 +716,104 @@ def ultratex_full(geoms: list, tex_after: list, known: list, ut_geoms: list, par
     return out, rep
 
 
+def _texel_points(g: dict, T: int) -> tuple:
+    """Занятые тексели карты T×T: (плоские индексы, 3D-точки центров текселей по барицентрам грани)."""
+    import tex_coverage as TC
+    V, F, UV = np.asarray(g['V'], np.float64), np.asarray(g['F'], np.int64), np.asarray(g['UV'], np.float64)
+    xy = np.stack([UV[:, 0] * T, (1.0 - UV[:, 1]) * T], 1)
+    fid, _ = TC.raster(xy, F, T)
+    idx = np.flatnonzero(fid >= 0)
+    f = fid[idx].astype(np.int64)
+    px, py = (idx % T) + 0.5, (idx // T) + 0.5
+    a, b, c = xy[F[f, 0]], xy[F[f, 1]], xy[F[f, 2]]
+    den = (b[:, 1] - c[:, 1]) * (a[:, 0] - c[:, 0]) + (c[:, 0] - b[:, 0]) * (a[:, 1] - c[:, 1])
+    den = np.where(np.abs(den) < 1e-12, 1e-12, den)
+    w0 = ((b[:, 1] - c[:, 1]) * (px - c[:, 0]) + (c[:, 0] - b[:, 0]) * (py - c[:, 1])) / den
+    w1 = ((c[:, 1] - a[:, 1]) * (px - c[:, 0]) + (a[:, 0] - c[:, 0]) * (py - c[:, 1])) / den
+    w2 = 1.0 - w0 - w1
+    P = w0[:, None] * V[F[f, 0]] + w1[:, None] * V[F[f, 1]] + w2[:, None] * V[F[f, 2]]
+    return idx, P
+
+
+def _yaw_rotate(P: np.ndarray, center: np.ndarray, deg: float) -> np.ndarray:
+    a = np.radians(deg)
+    c, s = np.cos(a), np.sin(a)
+    x, z = P[:, 0] - center[0], P[:, 2] - center[2]
+    out = P.copy()
+    out[:, 0] = center[0] + c * x + s * z
+    out[:, 2] = center[2] - s * x + c * z
+    return out
+
+
+def align_ut(geoms: list, tex_after: list, known: list, ut_geoms: list | None) -> tuple:
+    """UltraTex → поза НАШЕГО фото (владелец TG 1744 п.①). UltraTex красит ту же форму, но «перёд» кладёт на ту сторону, которую считает фото-стороной, — она может не совпасть с нашей.
+    Перебор поворота UltraTex вокруг вертикали (`align.cands`, град.): для каждого берётся цвет UltraTex в повёрнутой 3D-точке каждого нашего текселя (ближайший тексель UltraTex); оценка — корреляция
+    детали L (L − маскированный низкий пас σ `full.sigma`, лёгкое размытие) UltraTex и ФОТО на известных текселях. Лучший поворот принят, если корреляция ≥ `align.min_corr` и лучше нулевого на ≥ `align.margin`
+    (симметричный предмет — любой поворот одинаков, берётся 0); нет отрыва/нет детали → 'uncertain' (UltraTex дальше не используется). → (список {'V','F','UV','tex'} в НАШЕЙ раскладке | None, отчёт)."""
+    import cv2
+    from scipy.spatial import cKDTree
+    A = dict({'cands': [0, 90, 180, 270], 'min_corr': 0.15, 'margin': 0.08, 'samples': 40000, 'ut_points_max': 1500000, 'seed': 3}, **R.get('align', {}))
+    FU = dict({'sigma': 12.0}, **R.get('full', {}))
+    rep = {'status': 'no_ut', 'yaw_deg': None, 'corr': {}}
+    if ut_geoms is None:
+        return None, rep
+    rng = np.random.RandomState(int(A['seed']))
+    res = []
+    scores = {int(d): [] for d in A['cands']}
+    cache = []
+    for gi, g in enumerate(geoms):
+        tex = np.asarray(tex_after[gi], np.uint8)
+        T = int(tex.shape[0])
+        ug = ut_geoms[gi]
+        ut = np.asarray(ug['tex'])[..., :3]
+        ut = np.clip(ut, 0, 255).astype(np.uint8) if ut.dtype != np.uint8 else ut
+        Tu = int(ut.shape[0])
+        idx_o, Po = _texel_points(g, T)
+        idx_u, Pu = _texel_points(ug, Tu)
+        if len(idx_u) > A['ut_points_max']:
+            keep = rng.choice(len(idx_u), int(A['ut_points_max']), replace=False)
+            idx_u, Pu = idx_u[keep], Pu[keep]
+        tree = cKDTree(Pu)
+        kn = np.asarray(known[gi], bool).ravel()
+        center = 0.5 * (np.asarray(g['V']).min(0) + np.asarray(g['V']).max(0))
+        Lp = cv2.cvtColor(tex.astype(np.float32) / 255.0, cv2.COLOR_RGB2Lab)[..., 0]
+        kmask = np.asarray(known[gi], bool)
+        hp_p = cv2.GaussianBlur((Lp - _nconv(Lp, kmask, FU['sigma'])).astype(np.float32), (0, 0), 1.5).ravel()
+        Lu = cv2.cvtColor(ut.astype(np.float32) / 255.0, cv2.COLOR_RGB2Lab)[..., 0]
+        occu = np.zeros(Tu * Tu, bool)
+        occu[_texel_points(ug, Tu)[0]] = True
+        su = FU['sigma'] * Tu / T
+        hp_u = cv2.GaussianBlur((Lu - _nconv(Lu, occu.reshape(Tu, Tu), su)).astype(np.float32), (0, 0), 1.5 * Tu / T).ravel()
+        kn_idx = np.flatnonzero(kn[idx_o])
+        if len(kn_idx) > A['samples']:
+            kn_idx = rng.choice(kn_idx, int(A['samples']), replace=False)
+        for d in scores:
+            _dist, j = tree.query(_yaw_rotate(Po[kn_idx], center, d))
+            a_, b_ = hp_p[idx_o[kn_idx]], hp_u[idx_u[j]]
+            scores[d].append((a_, b_))
+        cache.append((g, ug, ut, T, Tu, idx_o, Po, idx_u, tree, center))
+    corr = {}
+    for d, lst in scores.items():
+        a_, b_ = np.concatenate([x[0] for x in lst]), np.concatenate([x[1] for x in lst])
+        corr[d] = round(float(np.corrcoef(a_, b_)[0, 1]), 3) if len(a_) > 200 and a_.std() > 1e-6 and b_.std() > 1e-6 else None
+    rep['corr'] = {str(k): v for k, v in corr.items()}
+    ok_ = {d: c for d, c in corr.items() if c is not None}
+    best, c_best = (max(ok_.items(), key=lambda kv: kv[1]) if ok_ else (None, None))
+    c0 = ok_.get(0, -1.0)
+    if best is None or c_best < A['min_corr']:
+        rep.update({'status': 'uncertain', 'yaw_deg': None, 'why': 'нет детали на фото/UltraTex для сверки'})
+        return None, rep
+    yaw = int(best) if (best == 0 or c_best - c0 >= A['margin']) else 0
+    rep.update({'status': 'aligned' if yaw else 'identity', 'yaw_deg': yaw, 'corr_best': c_best})
+    for g, ug, ut, T, Tu, idx_o, Po, idx_u, tree, center in cache:
+        _dist, j = tree.query(_yaw_rotate(Po, center, yaw))
+        flat = ut.reshape(Tu * Tu, 3)
+        img = np.zeros((T * T, 3), np.uint8)
+        img[idx_o] = flat[idx_u[j]]
+        res.append({'V': g['V'], 'F': g['F'], 'UV': g['UV'], 'tex': img.reshape(T, T, 3)})
+    return res, rep
+
+
 def own_panel_tone(geoms: list, tex_after: list, known: list, ut_geoms: list | None, parts: list | None) -> tuple:
     """Невидимые панели (T-187/6, владелец 22.11 TG 1737/1741/1744): зеркала и чужого квилта нет. Панель, у которой фото закрывает меньше `min_known` текселей, — «невидимая».
     Для неё среди ВИДИМЫХ панелей ищется донор по UltraTex (тот же меш, та же поза): тот же ОТТЕНОК (ΔE по a,b медиан UltraTex ≤ `donor_hue_de`) И та же ФАКТУРА (σ детали L−низкий пас σ `full.sigma`,
@@ -727,7 +825,7 @@ def own_panel_tone(geoms: list, tex_after: list, known: list, ut_geoms: list | N
     import tex_coverage as TC
     import tex_fill as TF
     O = dict({'enabled': True, 'min_known': 0.05, 'min_visible_texels': 200, 'min_hidden_texels': 300, 'donor_hue_de': 6.0, 'donor_tex_ratio': 1.6, 'quilt_block': 16, 'quilt_cells': 6,
-              'quilt_overlap': 4, 'quilt_pool': 300, 'quilt_tries': 40, 'ut_detail': True, 'max_panels': 80, 'seed': 7}, **R.get('own_panel', {}))
+              'quilt_overlap': 4, 'quilt_pool': 300, 'quilt_tries': 40, 'ut_detail': True, 'max_panels': 80, 'seed': 7, 'edge_px': 4, 'wins_k': 2.5}, **R.get('own_panel', {}))
     FU = dict({'sigma': 12.0, 'clip': 35.0, 'photo_floor': 0.8}, **R.get('full', {}))
     out, rep = [], {'panels': {}, 'texels_changed': 0, 'hidden': 0, 'with_donor': 0}
     if not O['enabled']:
@@ -756,13 +854,21 @@ def own_panel_tone(geoms: list, tex_after: list, known: list, ut_geoms: list | N
         m[r - y0, c - x0] = True
         return y0, y1, x0, x1, m
 
-    def detail(Lflat, idx, T):
-        """ΔL = L − маскированный низкий пас по панели (σ full.sigma) на текселях idx; → (det по idx, σ det)."""
+    def detail(Lflat, idx, T, clean=False):
+        """ΔL = L − маскированный низкий пас по панели (σ full.sigma) на текселях idx; → (det по idx, σ det). `clean` (применяемая ΔL, владелец 22.11): без края панели (плавно `edge_px`), без бликов выше p99 L панели,
+        выбросы (кляксы, резкие пятна) режутся на ±`wins_k`·σ_устойчивая (MAD)."""
         y0, y1, x0, x1, m = crop(idx, T, int(3 * FU['sigma']))
         Lc = Lflat.reshape(T, T)[y0:y1, x0:x1].astype(np.float32)
         det = Lc - _nconv(Lc, m, FU['sigma'])
         r, c = idx // T, idx % T
         d = det[r - y0, c - x0]
+        if clean and len(d):
+            dist = cv2.distanceTransform(m.astype(np.uint8), cv2.DIST_L2, 3)[r - y0, c - x0]
+            d = d * np.clip(dist / max(float(O['edge_px']), 1.0), 0.0, 1.0)
+            lp = Lc[r - y0, c - x0]
+            d = np.where(lp > np.percentile(lp, 99.0), 0.0, d)
+            s = 1.4826 * float(np.median(np.abs(d - np.median(d)))) + 1e-6
+            d = np.clip(d, -float(O['wins_k']) * s, float(O['wins_k']) * s)
         return d, float(d.std())
 
     for gi, g in enumerate(geoms):
@@ -850,7 +956,7 @@ def own_panel_tone(geoms: list, tex_after: list, known: list, ut_geoms: list | N
                 if hue_only:
                     info.update({'hue_only_panel': int(hue_only[0]), 'hue_dE_ab': round(hue_only[1], 2), 'tex_ratio': round(hue_only[2], 2)})
                 if O['ut_detail'] and lu is not None and k in ugrp:
-                    d, _ = detail(lu[:, 0], ugrp[k], T)                          # суть UltraTex на месте: тот же шаг, что в каноне (тексель в тексель — тот же меш и раскладка)
+                    d, _ = detail(lu[:, 0], ugrp[k], T, clean=True)              # суть UltraTex на месте: тот же шаг, что в каноне (тексель в тексель — тот же меш и раскладка)
                     dm_ = np.zeros(T * T, np.float32)
                     dm_[ugrp[k]] = np.clip(d, -FU['clip'], FU['clip'])
                     newlab[sel, 0] += dm_[sel]

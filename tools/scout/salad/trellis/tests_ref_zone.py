@@ -406,8 +406,66 @@ def test_own_panel_tone():
     ok(cv2.cvtColor(out4[0].astype(np.float32) / 255.0, cv2.COLOR_RGB2Lab)[..., 0][mk['back']].std() > 4.0, 'нет донора, но у UltraTex на заду есть зерно — суть UltraTex на месте (ΔL)')
 
 
+def test_align_ut():
+    print('UltraTex в позу фото: поворот вокруг вертикали по совпадению детали с фото; симметричный/без детали — не используется:')
+    sys.path[:0] = [os.path.join(HERE, '..'), os.path.join(HERE, '..', '..')]
+    import cv2
+    T = 192
+    g, side, mk = box_uv_geom(T)
+    rng = np.random.default_rng(11)
+    cw, ch = T // 3, T // 2
+    stripes = np.full((ch, cw), 110.0)
+    stripes[:, ::8] = 190.0
+    stripes[::16, :] = 60.0                                          # «двери и швы»: вертикальные полосы и горизонтальные линии
+    stripes[10:30, 4:20] = 220.0                                     # «ручка» слева сверху: тайл не зеркально-симметричен
+    base = np.stack([np.clip(stripes + rng.normal(0, 2, stripes.shape), 0, 255)] * 3, -1).astype(np.uint8)
+    photo = np.full((T, T, 3), 90, np.uint8)
+    photo[0:ch, 0:cw] = base                                         # перёд (тайл 0,0)
+    known = [mk['front']]
+    ut_same = np.full((T, T, 3), 100, np.uint8)
+    ut_same[0:ch, 0:cw] = base                                       # UltraTex: перёд там же, где фото
+    ut_rot = np.full((T, T, 3), 100, np.uint8)
+    ut_rot[0:ch, cw:2 * cw] = base[:, ::-1]                          # UltraTex повернут на 180°: «перёд» лежит на задней стороне (u зеркален)
+    al0, r0 = RZ.align_ut([dict(g, tex=photo)], [photo], known, [dict(g, tex=ut_same)])
+    ok(r0['status'] == 'identity' and r0['yaw_deg'] == 0, f'UltraTex уже в позе фото → поворот 0 ({r0["status"]}, корреляции {r0["corr"]})')
+    al1, r1 = RZ.align_ut([dict(g, tex=photo)], [photo], known, [dict(g, tex=ut_rot)])
+    ok(r1['status'] == 'aligned' and r1['yaw_deg'] == 180, f'UltraTex повернут на 180° → найден поворот 180 ({r1["status"]}, {r1["yaw_deg"]}, корреляции {r1["corr"]})')
+    if al1:
+        fr = al1[0]['tex'][mk['front']].astype(float).mean(1)
+        ok(np.corrcoef(fr.ravel(), photo[mk['front']].astype(float).mean(1).ravel())[0, 1] > 0.8, 'после поворота UltraTex на лице совпадает с фото')
+    flat_ut = np.full((T, T, 3), 100, np.uint8)
+    al2, r2 = RZ.align_ut([dict(g, tex=photo)], [photo], known, [dict(g, tex=flat_ut)])
+    ok(al2 is None and r2['status'] == 'uncertain', f'у UltraTex нет детали — не уверены, UltraTex не используется ({r2["status"]})')
+    ok(RZ.align_ut([dict(g, tex=photo)], [photo], known, None)[0] is None, 'нет UltraTex — None')
+
+
+def test_own_panel_clean_detail():
+    print('«суть UltraTex»: край панели, блики и выбросы режутся (кляксы на заду):')
+    sys.path[:0] = [os.path.join(HERE, '..'), os.path.join(HERE, '..', '..')]
+    import cv2
+    T = 192
+    g, side, mk = box_uv_geom(T)
+    rng = np.random.default_rng(5)
+    lab = np.stack([50 + rng.normal(0, 3, (T, T)), np.full((T, T), 1.0), np.full((T, T), 2.0)], -1).astype(np.float32)
+    ut_img = np.clip(cv2.cvtColor(lab, cv2.COLOR_Lab2RGB) * 255 + 0.5, 0, 255).astype(np.uint8)
+    blue = np.clip(cv2.cvtColor(np.array([[[50.0, -10.0, -35.0]]], np.float32), cv2.COLOR_Lab2RGB)[0, 0] * 255 + 0.5, 0, 255).astype(np.uint8)
+    ut_img[mk['front']] = blue                                                               # у UltraTex перёд другого оттенка → донора нет, на заду «суть» UltraTex
+    bk = mk['back']
+    ys, xs = np.nonzero(bk)
+    ut_bl = ut_img.copy()
+    ut_bl[ys.min() + 30:ys.min() + 45, xs.min() + 20:xs.min() + 40] = 8                      # тёмная клякса (шов/ручка ДВП)
+    photo = np.full((T, T, 3), 90, np.uint8)
+    wood = np.clip(cv2.cvtColor(np.stack([np.full((T, T), 55.0), np.full((T, T), 14.0), np.full((T, T), 30.0)], -1).astype(np.float32), cv2.COLOR_Lab2RGB) * 255 + 0.5, 0, 255).astype(np.uint8)
+    photo[mk['front']] = wood[mk['front']]
+    out_a, _ = RZ.own_panel_tone([dict(g, tex=photo)], [photo], [mk['front']], [dict(g, tex=ut_img)], None)
+    out_b, _ = RZ.own_panel_tone([dict(g, tex=photo)], [photo], [mk['front']], [dict(g, tex=ut_bl)], None)
+    La = cv2.cvtColor(out_a[0].astype(np.float32) / 255.0, cv2.COLOR_RGB2Lab)[..., 0][bk]
+    Lb = cv2.cvtColor(out_b[0].astype(np.float32) / 255.0, cv2.COLOR_RGB2Lab)[..., 0][bk]
+    ok(Lb.min() > La.min() - 12, f'тёмная клякса UltraTex не переносится в полную силу (мин L {Lb.min():.0f}, без кляксы {La.min():.0f}, клякса была L≈8)')
+
+
 def main():
-    for f in (test_own_panel_tone, test_same_mesh, test_decide, test_gate_per_property, test_propagate, test_object_basis, test_inconsistent_winding, test_outer_only, test_panel_with_bottom, test_panels, test_apply_to_fill, test_relief_source, test_ultratex_full):
+    for f in (test_align_ut, test_own_panel_clean_detail, test_own_panel_tone, test_same_mesh, test_decide, test_gate_per_property, test_propagate, test_object_basis, test_inconsistent_winding, test_outer_only, test_panel_with_bottom, test_panels, test_apply_to_fill, test_relief_source, test_ultratex_full):
         f()
     print(f'tests_ref_zone: ошибок {len(FAILS)}')
     return 1 if FAILS else 0

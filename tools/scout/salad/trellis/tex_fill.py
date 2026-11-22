@@ -2132,7 +2132,10 @@ def own_panel_tone_hook(geoms: list, tex_after: list, known: list, ut_g: list | 
     """Хук 07 (T-187/6): невидимые панели — донор по оттенку+фактуре UltraTex (тон и куски фото донора) или тон своей зоны + суть UltraTex; чужого квилта нет (ref_zone.own_panel_tone). Сбой не роняет этап."""
     import ref_zone as RZ
     try:
-        return RZ.own_panel_tone(geoms, tex_after, known, ut_g, parts)
+        ut_al, al = RZ.align_ut(geoms, tex_after, known, ut_g)                # UltraTex → поза фото; нет уверенности — UltraTex не используется (тон своей зоны)
+        out, rep = RZ.own_panel_tone(geoms, tex_after, known, ut_al, parts)
+        rep['ut_align'] = al
+        return out, rep
     except Exception as e:  # noqa: BLE001
         return tex_after, {'error': f'{type(e).__name__}: {e}'}
 
