@@ -477,7 +477,8 @@ def report(runs: list, per_by_label: dict, out: str, repo: str, name: str | None
     W = load_words(repo)
     cat = load_catalog(catalog)
     ru = load_names_ru(repo)
-    names = {sku: product_meta(runof[sku], sku).get('name') or (cat.get(sku) or {}).get('name') or ru.get(sku) or sku for sku in per}
+    gone = 'товар снят с продажи' if cat else ''                      # выгрузка базы дана, а товара в ней нет — он снят (директор 22.11); без выгрузки честно показываем id
+    names = {sku: product_meta(runof[sku], sku).get('name') or (cat.get(sku) or {}).get('name') or ru.get(sku) or gone or sku for sku in per}
     painted = painted_set(per, runof)
     os.makedirs(out, exist_ok=True)
     photos = photo_paths(per, runof)

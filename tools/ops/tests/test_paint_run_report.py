@@ -222,3 +222,15 @@ def test_frame_captions():
     assert prr.frame_caption(W, '04-camera') == 'красное — наша форма, зелёная линия — контур фото'
     assert all(prr.frame_caption(W, st) for st in ('01-trellis', '02-prep', '03-parts', '05-delight', '06-visible', '07-fill', '08-material', '09-check'))
     assert prr.frame_caption({}, '04-camera') == ''
+
+
+def test_removed_product_name(tmp_path):
+    run = tmp_path / 'run'
+    _fake_run(run, ['a', 'z'], {'a'})
+    cat = tmp_path / 'cat.json'
+    cat.write_text(json.dumps([{'id': 'a', 'name': 'Стул'}]), encoding='utf-8')
+    ok = lambda repo, runof, skus, out: {'ok': {k: {'foto': 'x', 'view3d': 'y'} for k in skus}, 'errors': {}}       # noqa: E731
+    per = {'a': PER['a'], 'z': PER['c']}
+    assert prr.report([str(run)], {'run': per}, str(tmp_path / 'o'), str(REPO), frames_fn=ok, with_stages=False, catalog=str(cat)) == 0
+    page = (tmp_path / 'o' / 'index.html').read_text(encoding='utf-8')
+    assert '>Стул<' in page and 'товар снят с продажи' in page and "class='id'>z<" in page                         # нет в базе — «снят с продажи» + id мелко
