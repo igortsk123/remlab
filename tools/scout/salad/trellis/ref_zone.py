@@ -825,7 +825,7 @@ def own_panel_tone(geoms: list, tex_after: list, known: list, ut_geoms: list | N
     import tex_coverage as TC
     import tex_fill as TF
     O = dict({'enabled': True, 'min_known': 0.05, 'min_visible_texels': 200, 'min_hidden_texels': 300, 'donor_hue_de': 6.0, 'donor_tex_ratio': 1.6, 'quilt_block': 16, 'quilt_cells': 6,
-              'quilt_overlap': 4, 'quilt_pool': 300, 'quilt_tries': 40, 'ut_detail': True, 'max_panels': 80, 'seed': 7, 'edge_px': 4, 'wins_k': 2.5}, **R.get('own_panel', {}))
+              'quilt_overlap': 4, 'quilt_pool': 300, 'quilt_tries': 40, 'ut_detail': True, 'max_panels': 80, 'seed': 7, 'edge_px': 4, 'wins_k': 2.5, 'quilt_min_sigma': 1.5}, **R.get('own_panel', {}))
     FU = dict({'sigma': 12.0, 'clip': 35.0, 'photo_floor': 0.8}, **R.get('full', {}))
     out, rep = [], {'panels': {}, 'texels_changed': 0, 'hidden': 0, 'with_donor': 0}
     if not O['enabled']:
@@ -926,7 +926,7 @@ def own_panel_tone(geoms: list, tex_after: list, known: list, ut_geoms: list | N
                     same_tex = (sh < FU['photo_floor'] and sv < FU['photo_floor']) or (1.0 / O['donor_tex_ratio'] <= ratio <= O['donor_tex_ratio'])
                     if same_tex:
                         if best is None or de < best[1]:
-                            best = (v, de, ratio)
+                            best = (v, de, ratio, min(sh, sv) >= O['quilt_min_sigma'])
                     elif hue_only is None or de < hue_only[1]:
                         hue_only = (v, de, ratio)
             if best is not None:
@@ -939,7 +939,7 @@ def own_panel_tone(geoms: list, tex_after: list, known: list, ut_geoms: list | N
                 pool = [tex[y * (B // 2):y * (B // 2) + B, x * (B // 2):x * (B // 2) + B] for y, x in zip(ys, xs)]
                 info.update({'tone_from': 'donor', 'donor_panel': int(v), 'hue_dE_ab': round(best[1], 2), 'tex_ratio': round(best[2], 2), 'donor_blocks': len(pool), 'ut_sigma': [round(float(ustat[k][1]), 2), round(float(ustat[v][1]), 2)]})
                 rep['with_donor'] += 1
-                if len(pool) >= 4:
+                if len(pool) >= 4 and best[3]:                                   # куски фасада — только если у обеих панелей по UltraTex есть фактура; две гладкие → плоский тон донора (22.11)
                     if len(pool) > O['quilt_pool']:
                         pool = [pool[i] for i in rng.choice(len(pool), int(O['quilt_pool']), replace=False)]
                     q = TF.wrap_soften(TF.quilt_image(np.stack(pool).astype(np.float64), int(O['quilt_cells']), int(O['quilt_overlap']), rng, int(O['quilt_tries'])))
@@ -948,7 +948,7 @@ def own_panel_tone(geoms: list, tex_after: list, known: list, ut_geoms: list | N
                     info['texture'] = 'куски донора (квилт)'
                 else:
                     newlab[sel] = photo_med[v]
-                    info['texture'] = 'плоский тон донора (мало блоков)'
+                    info['texture'] = 'плоский тон донора (мало блоков)' if len(pool) < 4 else 'плоский тон донора (обе гладкие по UltraTex)'
             else:
                 tone = np.median(lab[sel], axis=0)
                 newlab[sel] = tone
