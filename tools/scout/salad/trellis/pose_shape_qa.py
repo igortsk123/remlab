@@ -193,9 +193,13 @@ def better_camera(ref: dict, starts: list, th: dict, bottom_fn) -> dict:
     return out
 
 
-def pose_verdict(flip_gap_v, max_disp: float, max_region: float, th: dict) -> str:
+def pose_verdict(flip_gap_v, max_disp: float, max_region: float, th: dict, edge_agree: float | None = None) -> str:
+    """edge_agree — согласие кромок ПРОИЗВОДСТВЕННОЙ позы (pose.json picked.edge.agree). Почти равный старт через ~180° — ORIENTATION_AMBIGUOUS («глазам»),
+    только если запас по кромкам мал: edge_agree < th['edge_agree_min'] (порог из распределения, не под товар) или его нет. Кромки подтвердили ориентацию → флаг не ставим."""
     if flip_gap_v is not None and flip_gap_v <= th['flip_gap_max']:
-        return 'ORIENTATION_AMBIGUOUS'
+        em = th.get('edge_agree_min')
+        if not (em is not None and edge_agree is not None and edge_agree >= em):
+            return 'ORIENTATION_AMBIGUOUS'
     if max_disp > th['disp_max'] or max_region > th['region_max']:
         return 'POSE_UNCERTAIN'
     return 'GOOD'
@@ -474,7 +478,11 @@ def audit_product(glb: str, photo: str, out: str, rules: dict | None = None, log
         regs.append(g)
         cand.append({'cam': s['cam'], 'score': s['score'], 'disp': round(d, 4), 'region_dis': round(g, 4)})
     d_pick = cam_displacement(Vv, ref_cam, cam, n, scale_px)
-    pose_status = pose_verdict(gap, max(disps + [0.0]), max(regs + [0.0]), th)
+    edge_prod = ((json.load(open(ref_pose, encoding='utf-8')) if ref_pose else pj).get('picked') or {}).get('edge') or {}   # кромки производственной позы (без ref_pose — позы аудита)
+    edge_agree = edge_prod.get('agree')
+    if edge_agree is not None and (edge_agree < 0 or edge_prod.get('no_edges')):
+        edge_agree = None                                  # «кромок нет» (заглушка −1) — не подтверждение
+    pose_status = pose_verdict(gap, max(disps + [0.0]), max(regs + [0.0]), th, edge_agree)
     res = residual_components(S, Mp, rules)
     shift = global_shift_explained(S, Mp, rules)
     iou_tri = iou(S, Mp)
@@ -505,7 +513,7 @@ def audit_product(glb: str, photo: str, out: str, rules: dict | None = None, log
            'pose_status': pose_status, 'shape_status': shape_status, 'projection_safe': safe, 'safe_zone': zone, 'recommendation': rec,
            'camera_model': (pj.get('rank') or {}).get('weak', {}).get('camera_model'), 'focal_distance_ambiguous': (pj.get('rank') or {}).get('weak', {}).get('focal_distance_ambiguous'),
            'silhouette_iou_tri': round(iou_tri, 4), 'silhouette_iou_fit': pj.get('iou_frame'), 'boundary_chamfer_px': cm.get('chamfer_px'), 'boundary_bf': cm.get('bf'),
-           'front_back_margin': gap, 'flip_cam': (flip or {}).get('cam'), 'near_best': cand, 'cam_pick_vs_ref_disp': round(d_pick, 4),
+           'front_back_margin': gap, 'edge_agree_prod': edge_agree, 'flip_cam': (flip or {}).get('cam'), 'near_best': cand, 'cam_pick_vs_ref_disp': round(d_pick, 4),
            'max_disp': round(max(disps + [0.0]), 4), 'max_region_dis': round(max(regs + [0.0]), 4), 'n_starts': len(starts), 'n_near': len(nb),
            'ref_mode': 'production' if ref_start is not None else 'audit_refit', 'ref_score': None if ref_start is None else ref_start['score'], 'better_camera': bc,
            'zbuf_check': zb, 'strip': strip, 'residual': res, 'shift': shift, 'probe': pr, 'evidence': ev, 'camera': cam}

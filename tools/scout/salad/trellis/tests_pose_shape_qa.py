@@ -43,6 +43,10 @@ check('az_flip: переход через 360°', Q.az_flip({'az': 350.0}, {'az'
 check('pose: почти равный старт через 180° → ORIENTATION_AMBIGUOUS', Q.pose_verdict(0.005, 0.0, 0.0, TH) == 'ORIENTATION_AMBIGUOUS')
 check('pose: большой сдвиг проекций → POSE_UNCERTAIN', Q.pose_verdict(0.3, 0.2, 0.0, TH) == 'POSE_UNCERTAIN')
 check('pose: нет стартов-соперников → GOOD', Q.pose_verdict(None, 0.0, 0.0, TH) == 'GOOD')
+check('pose: равный флип, кромки подтвердили (agree ≥ порога) → не ORIENTATION_AMBIGUOUS', Q.pose_verdict(0.005, 0.0, 0.0, TH, 0.7) == 'GOOD')
+check('pose: равный флип, кромки слабые → ORIENTATION_AMBIGUOUS', Q.pose_verdict(0.005, 0.0, 0.0, TH, 0.1) == 'ORIENTATION_AMBIGUOUS')
+check('pose: равный флип, кромок нет (None) → ORIENTATION_AMBIGUOUS', Q.pose_verdict(0.005, 0.0, 0.0, TH, None) == 'ORIENTATION_AMBIGUOUS')
+check('pose: кромки подтвердили, но проекции сдвинуты → POSE_UNCERTAIN (кромки не отменяют сдвиг)', Q.pose_verdict(0.005, 0.5, 0.5, TH, 0.7) == 'POSE_UNCERTAIN')
 st = [{'cam': {'az': 10.0}, 'score': 0.9}, {'cam': {'az': 190.0}, 'score': 0.85}, {'cam': {'az': 100.0}, 'score': 0.5}]
 best, nb = Q.near_best(st, 0.03)
 gap, fl = Q.flip_gap(st, best, 30.0)
