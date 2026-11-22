@@ -7,11 +7,16 @@ FROM ${BASE}
 ENV DEBIAN_FRONTEND=noninteractive PYTHONUNBUFFERED=1
 RUN apt-get update && apt-get install -y --no-install-recommends python3 python-is-python3 ca-certificates curl xz-utils libx11-6 libxi6 libxxf86vm1 libxfixes3 libxrender1 libxkbcommon0 libsm6 libgl1 libegl1 libgomp1 \
     && rm -rf /var/lib/apt/lists/*
-ARG BLENDER_URL=https://download.blender.org/release/Blender4.5/blender-4.5.9-linux-x64.tar.xz
+# download.blender.org отдаёт 403 адресам GitHub Actions (CI 45040386297) → официальные зеркала по очереди; подлинность — sha256 (чужой файл не пройдёт).
+ARG BLENDER_PATH=release/Blender4.5/blender-4.5.9-linux-x64.tar.xz
 ARG BLENDER_SHA256=dcdc3eca6c9825bb35a8033b689c053f3cb5a9b0cd2a61b2eac2a49436b4ad3d
-RUN curl -fsSL -o /tmp/blender.tar.xz "$BLENDER_URL" \
-    && echo "$BLENDER_SHA256  /tmp/blender.tar.xz" | sha256sum -c - \
-    && mkdir -p /opt/blender && tar -xJf /tmp/blender.tar.xz -C /opt/blender --strip-components=1 && rm /tmp/blender.tar.xz
+RUN set -e; ok=0; \
+    for base in https://mirrors.ocf.berkeley.edu/blender https://ftp.nluug.nl/pub/graphics/blender https://mirror.freedif.org/blender https://download.blender.org; do \
+      echo "пробую $base"; \
+      if curl -fsSL -A "Mozilla/5.0" --retry 2 --max-time 600 -o /tmp/blender.tar.xz "$base/$BLENDER_PATH" && echo "$BLENDER_SHA256  /tmp/blender.tar.xz" | sha256sum -c -; then ok=1; break; fi; \
+    done; \
+    [ "$ok" = 1 ] || { echo "Blender не скачан ни с одного зеркала (или sha256 не сошёлся)"; exit 1; }; \
+    mkdir -p /opt/blender && tar -xJf /tmp/blender.tar.xz -C /opt/blender --strip-components=1 && rm /tmp/blender.tar.xz
 COPY code/ /opt/scout-root/
 ARG GIT_SHA=unknown
 RUN printf 'render-worker image\ncommit=%s\npython=%s\n' "$GIT_SHA" "$(python -V 2>&1)" > /opt/BUILD_INFO_RENDER.txt
