@@ -1,6 +1,6 @@
 {
   "_about": "Автопроверки формы TRELLIS.2 (Ш0, T-184/3): режим OBSERVE — пишут вердикт рядом (form_checks.json), НИЧЕГО не бракуют. Пороги СТАРТОВЫЕ, калибруются по таблице «авто ↔ глаз» (директор 22.11, P-064 п.4). Код: tools/scout/salad/render/form_checks.py.",
-  "observe": true,
+  "observe": false,
   "thresholds": {
     "min_extent": 0.0001,
     "floor_tol": 0.02,
@@ -19,9 +19,120 @@
     "leg_min_w": 0.03,
     "back_dup_corr": 0.6,
     "back_dup_flag": false,
-    "bd_win": [0.2, 0.2, 0.8, 0.8],
+    "bd_win": [
+      0.2,
+      0.2,
+      0.8,
+      0.8
+    ],
     "bd_sigma": 6,
     "bd_energy": 3.0,
-    "relief_energy": 13.0
+    "relief_energy": 13.0,
+    "alpha_min": 8,
+    "mask_erode": 0.01,
+    "relief_graze": 999.0,
+    "back_relief": 999.0,
+    "back_dup_mask": 0.99,
+    "flat_back_roles": [
+      "шкаф",
+      "комод",
+      "тумб",
+      "стеллаж",
+      "сервант",
+      "буфет",
+      "витрин"
+    ],
+    "leg_match_band": 0.18,
+    "leg_match_area": 25,
+    "legs_match": 0.2
+  },
+  "block": [
+    "glb_sane",
+    "open_edges",
+    "detached"
+  ],
+  "_about_block": "block — проверки, чей флаг даёт статус shape_reject: только GLB-проверки с 0 ложных на 27 годных формах (T-184/7); проверки по рельефу/контуру — observe (на 4 браках директора пока ничего не поймано без ложных)",
+  "vlm_judge": {
+    "version": "2026-11-22.1",
+    "model": "google/gemini-2.5-flash",
+    "runs": 2,
+    "groups": {
+      "a": {
+        "frames": [
+          "01_az000_clay.png",
+          "03_az090_clay.png",
+          "05_az180_clay.png",
+          "07_az225_clay.png"
+        ]
+      },
+      "b": {
+        "frames": [
+          "01_az000_clay.png",
+          "02_az000_clay_graze.png",
+          "09_top40_clay.png"
+        ]
+      }
+    },
+    "kinds": {
+      "invented_detail": {
+        "group": "a",
+        "roles": []
+      },
+      "ragged_facade": {
+        "group": "a",
+        "roles": [
+          "шкаф",
+          "комод",
+          "тумб",
+          "стеллаж",
+          "сервант",
+          "буфет",
+          "витрин"
+        ]
+      },
+      "back_copy": {
+        "group": "a",
+        "roles": [
+          "шкаф",
+          "комод",
+          "тумб",
+          "стеллаж",
+          "сервант",
+          "буфет",
+          "витрин"
+        ]
+      },
+      "faceted": {
+        "group": "a",
+        "roles": [
+          "ваза"
+        ]
+      },
+      "no_gaps": {
+        "group": "b",
+        "roles": [
+          "шкаф",
+          "комод",
+          "тумб",
+          "стеллаж",
+          "сервант",
+          "буфет",
+          "витрин"
+        ]
+      },
+      "skewed_body": {
+        "group": "b",
+        "roles": [
+          "шкаф",
+          "комод",
+          "тумб",
+          "стеллаж",
+          "сервант",
+          "буфет",
+          "витрин"
+        ]
+      }
+    },
+    "_about": "Оценщик по картинке, OBSERVE (T-184/9): флаг vlm_<вид> = «да» в обоих прогонах. Версию менять при ЛЮБОЙ правке вопроса (ключ кэша). Роли — подстроки роли каталога, пусто = все. legs_wrong и «рельеф» не спрашиваем: на 31 форме 12 ложных из 27 (шум)."
   }
 }

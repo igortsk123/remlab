@@ -35,8 +35,11 @@ def by(checks, name):
 
 
 class Rules(unittest.TestCase):
-    def test_observe_and_complete(self):
-        self.assertTrue(RULES['observe'])
+    def test_block_list_and_complete(self):
+        self.assertFalse(RULES['observe'])
+        self.assertEqual(sorted(RULES['block']), ['detached', 'glb_sane', 'open_edges'])          # block — только GLB-проверки с 0 ложных на 27 годных (T-184/7)
+        for k in ('legs_match', 'leg_match_band', 'leg_match_area', 'alpha_min', 'mask_erode', 'relief_graze', 'back_relief', 'back_dup_mask', 'flat_back_roles'):
+            self.assertIn(k, R)
         for k in ('min_extent', 'open_edge_share', 'detached_share', 'detached_piece_min', 'detached_gap', 'az_step', 'sil_points', 'holes_extra', 'leg_band', 'leg_fill', 'leg_min_w',
                   'back_dup_corr', 'bd_win', 'bd_sigma', 'bd_energy', 'relief_energy', 'sil_extra', 'sil_miss'):
             self.assertIn(k, R)
@@ -172,13 +175,113 @@ class Frames(unittest.TestCase):
         self.assertIsNone(ch[0]['value'])
 
 
+class LegsMatch(unittest.TestCase):
+    """«Ножки» (T-184/8): синтетические маски; логика р.3."""
+
+    def masks(self, shift=0, n_mesh=3):
+        pa = np.zeros((200, 300), bool)
+        pa[10:140, 20:280] = True
+        for x in (30, 140, 250):
+            pa[140:190, x:x + 14] = True
+        S = np.zeros_like(pa)
+        S[10:140, 20:280] = True
+        for x in (30, 140, 250)[:n_mesh]:
+            S[140:190, x + shift:x + shift + 14] = True
+        return S, pa
+
+    def test_matching_legs_ok_shifted_flagged(self):
+        S, pa = self.masks(0)
+        self.assertFalse(FC.legs_match(S, pa, R)['flag'])
+        S, pa = self.masks(shift=30)
+        c = FC.legs_match(S, pa, R)
+        self.assertTrue(c['flag'])                                               # 30 px при шаге между ножками 110 px = 0,27 > порога 0,2; силуэт-IoU такого почти не видит
+        self.assertGreater(c['value'], R['legs_match'])
+
+    def test_different_count_or_single_leg_not_counted(self):
+        S, pa = self.masks(0, n_mesh=2)
+        c = FC.legs_match(S, pa, R)
+        self.assertIsNone(c['value'])
+        self.assertFalse(c['flag'])
+        one = np.zeros((100, 100), bool)
+        one[:90, 20:80] = True
+        self.assertIsNone(FC.legs_match(one, one, R)['value'])
+
+    def test_no_run_gives_nothing(self):
+        self.assertEqual(FC.legs_checks('нет', None, [tempfile.mkdtemp(prefix='tests_fc_legs_')], R), [])
+
+
+class MaskChecks(unittest.TestCase):
+    """Проверки по кадрам с альфой (T-184/7): синтетические кадры, без видеокарты."""
+
+    def sku_dir(self, a0, a180, same_mask=True):
+        d = tempfile.mkdtemp(prefix='tests_fc_mask_')
+        os.makedirs(os.path.join(d, 'alpha'))
+        for n, a in (('02_az000_clay_graze.png', a0), ('06_az180_clay_graze.png', a180)):
+            Image.fromarray(np.clip(a, 0, 255).astype(np.uint8)).save(os.path.join(d, n))
+            m = np.zeros((a.shape[0], a.shape[1], 4), np.uint8)
+            m[30:210, 40:280, 3] = 255                                                # форма — прямоугольник; вне него альфа 0
+            Image.fromarray(m).save(os.path.join(d, 'alpha', n))
+        return d
+
+    def noise(self, seed, amp):
+        return 128 + np.random.RandomState(seed).normal(0, amp, (240, 320))
+
+    def test_values_inside_mask_only(self):
+        a = self.noise(1, 1.0)
+        b = self.noise(2, 1.0)
+        loud_bg = self.noise(3, 60.0)
+        loud_bg[30:210, 40:280] = 128                                                # шум только ВНЕ маски — на значение не влияет
+        ch = FC.mask_checks(self.sku_dir(loud_bg, b), 'шкаф', dict(R, relief_graze=5.0, back_relief=5.0))
+        self.assertFalse(by(ch, 'relief_graze')['flag'])
+        self.assertLess(by(ch, 'relief_graze')['value'], 1.0)
+
+    def test_flat_back_role_flagged_on_rough_back_only(self):
+        smooth, rough = self.noise(1, 1.0), self.noise(2, 40.0)
+        rules = dict(R, back_relief=10.0)
+        self.assertTrue(by(FC.mask_checks(self.sku_dir(smooth, rough), 'шкаф', rules), 'back_relief')['flag'])
+        self.assertFalse(by(FC.mask_checks(self.sku_dir(smooth, rough), 'торшер', rules), 'back_relief')['flag'])   # роль без плоской спины — не применима
+        self.assertFalse(by(FC.mask_checks(self.sku_dir(smooth, smooth), 'шкаф', rules), 'back_relief')['flag'])
+
+    def test_back_dup_mask_copy_only_for_flat_back(self):
+        a = self.noise(5, 30.0)
+        rules = dict(R, back_dup_mask=0.9)
+        ch = FC.mask_checks(self.sku_dir(a, a), 'комод', rules)
+        self.assertTrue(by(ch, 'back_dup_mask')['flag'])
+        self.assertFalse(by(FC.mask_checks(self.sku_dir(a, a), 'ваза', rules), 'back_dup_mask')['flag'])
+        self.assertFalse(by(FC.mask_checks(self.sku_dir(a, self.noise(6, 30.0)), 'комод', rules), 'back_dup_mask')['flag'])
+
+    def test_no_alpha_frames_gives_nothing(self):
+        self.assertEqual(FC.mask_checks(tempfile.mkdtemp(prefix='tests_fc_none_'), 'шкаф', R), [])
+
+
+class Status(unittest.TestCase):
+    def test_status_levels(self):
+        ck = lambda *names: [FC.check(n, 1.0, 0.5, True) for n in names]
+        self.assertEqual(FC.status_of([], ['open_edges']), 'pass')
+        self.assertEqual(FC.status_of(ck('open_edges'), ['open_edges']), 'shape_reject')
+        self.assertEqual(FC.status_of(ck('sil_iou', 'sil_extra'), ['open_edges']), 'camera_or_mask_uncertain')   # провал контура этапа 04 — не доказательство брака формы
+        self.assertEqual(FC.status_of(ck('sil_iou', 'relief'), ['open_edges']), 'needs_review')
+        self.assertEqual(FC.status_of(ck('sil_iou', 'open_edges'), ['open_edges']), 'shape_reject')
+
+    def test_summary_counts_caught_and_false(self):
+        recs = [{'sku': 'a', 'checks': [FC.check('x', 1, 0, True)]}, {'sku': 'b', 'checks': [FC.check('x', 1, 0, True)]}, {'sku': 'c', 'checks': [FC.check('x', 0, 0, False)]}]
+        t = FC.summary(recs, {'a': {'verdict': 'брак'}, 'b': {'verdict': 'годна'}, 'c': {'verdict': 'годна'}})
+        self.assertIn('| x | 1 | 1 |', t)
+
+
 class Run(unittest.TestCase):
+    def test_block_status_for_unreadable_glb(self):
+        d = tempfile.mkdtemp(prefix='tests_fc_blk_')
+        rec = FC.run_sku('s', os.path.join(d, 'нет.glb'), None, None, RULES)
+        self.assertEqual(rec['status'], 'shape_reject')
+        self.assertFalse(rec['observe'])
+
     def test_observe_verdict_written_not_blocking(self):
         d = tempfile.mkdtemp(prefix='tests_fc_run_')
         g = os.path.join(d, 'a.glb')
         box().export(g)
         rec = FC.run_sku('s', g, None, None, RULES)
-        self.assertTrue(rec['observe'])
+        self.assertEqual(rec['status'], rec['status'] if rec['auto'] == 'flag' else 'pass')
         self.assertIn(rec['auto'], ('ok', 'flag'))
         self.assertTrue(by(rec['checks'], 'open_edges'))
         bad = FC.run_sku('s2', os.path.join(d, 'нет.glb'), None, None, RULES)
