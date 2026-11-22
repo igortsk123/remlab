@@ -198,6 +198,28 @@ def test_outer_only():
     ok((sc[:-1] == sd).all(), 'остальные грани не изменились')
 
 
+def test_panel_with_bottom():
+    print('панель «бок + днище» (слитая) не блокирует зеркало и зад:')
+    V, F, side = box()
+    fz = np.full(len(F), -1, np.int32)
+    fz[side == 'front'] = 0
+    fz[side == 'left'] = 1
+    # сливаем правый бок и низ в одну панель: общие вершины по ребру + одинаковая плоскость не нужна — проверяем на уровне пары (pid подменой)
+    orig = RZ.panel_ids
+    try:
+        def merged(V_, F_, parts_):
+            pid = np.asarray(orig(V_, F_, parts_)).copy()
+            m = (side == 'right') | (side == 'bottom')
+            pid[m] = pid[side == 'right'][0]
+            return pid
+        RZ.panel_ids = merged
+        out = RZ.panel_zones(V, F, fz, None, BASIS)
+    finally:
+        RZ.panel_ids = orig
+    ok((out[side == 'right'] == 1).all(), 'правый бок в слитой панели — зона по симметрии')
+    ok((out[side == 'bottom'] == -1).all(), 'низ той же панели — unknown')
+
+
 def test_panels():
     print('зоны по панелям (Б): метки в панели, симметрия бока, зад от боков, остальное unknown:')
     V, F, side = box()
@@ -313,7 +335,7 @@ def test_ultratex_full():
 
 
 def main():
-    for f in (test_same_mesh, test_decide, test_gate_per_property, test_propagate, test_object_basis, test_inconsistent_winding, test_outer_only, test_panels, test_apply_to_fill, test_relief_source, test_ultratex_full):
+    for f in (test_same_mesh, test_decide, test_gate_per_property, test_propagate, test_object_basis, test_inconsistent_winding, test_outer_only, test_panel_with_bottom, test_panels, test_apply_to_fill, test_relief_source, test_ultratex_full):
         f()
     print(f'tests_ref_zone: ошибок {len(FAILS)}')
     return 1 if FAILS else 0

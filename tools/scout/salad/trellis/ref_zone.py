@@ -635,9 +635,10 @@ def panel_zones(V, F, fz: np.ndarray, parts, basis, return_info: bool = False):
     sc, twin = mirror_score(V, F, right, SYM_EPS)
     info['sym_score'] = round(sc, 3)
     if sc >= SYM_MIN:
-        for p in np.unique(pid):
-            m = pid == p
-            if labelled[m].any() or not np.isin(sd[m], (1, 2)).all():
+        sidef = np.isin(sd, (1, 2))
+        for p in np.unique(pid[sidef]):
+            m = (pid == p) & sidef                                    # грани БОКА этой панели (панель бок+днище не блокирует)
+            if labelled[pid == p].any() or ar[m].sum() < 0.3 * ar[pid == p].sum():
                 continue
             fm = np.flatnonzero(m)
             jf, okt = twin(fm)
@@ -650,13 +651,14 @@ def panel_zones(V, F, fz: np.ndarray, parts, basis, return_info: bool = False):
                 out[m] = int(zs[shares.argmax()])
                 info['steps']['mirror'] += int(m.sum())
     # шаг 3: зад без меток — зона боковых панелей, если обе стороны одной зоны
-    back = [p for p in np.unique(pid) if not (out[pid == p] >= 0).any() and (sd[pid == p] == 0).all()]
+    backf = sd == 0
+    back = [p for p in np.unique(pid[backf]) if not (out[pid == p] >= 0).any() and ar[backf & (pid == p)].sum() >= 0.3 * ar[pid == p].sum()]
     if back:
         zr, pr = _dominant(np.where(sd == 1, out, -1), ar, PANEL_PURITY)
         zl, pl = _dominant(np.where(sd == 2, out, -1), ar, PANEL_PURITY)
         if zr is not None and zr == zl and pr >= PANEL_PURITY and pl >= PANEL_PURITY:
             for p in back:
-                m = pid == p
+                m = (pid == p) & backf
                 out[m] = zr
                 info['steps']['back'] += int(m.sum())
     info['unknown'] = int((out < 0).sum())
