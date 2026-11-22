@@ -192,3 +192,31 @@ def test_tour_prefilter_never_stricter_than_engine(name, spec):
         if placed and not TBR.fits_core(TBR.frame_need({'w': w, 'd': d}, purpose), {'w': spec['w'], 'd': spec['d']}):
             stricter.append((w, purpose))
     assert not stricter, f'{name}: движок ставит кровать {stricter}, а предпроверка тура её отсекает'
+
+
+# ───────────────────────── правила страницы: тур получает ровно то, что /demo (T-20261119-98, П1.23) ─────────────────────────
+
+def test_page_rules_tour_same_as_demo():
+    """`D.rules` тура = набор /demo без полос размера: новое правило страницы (было `photo_pick`, 18.11) не может лечь только в /demo.
+    Красный = тур собран «не как /demo» — сверка `tools/ops/tour_reissue_check.py` покажет «правила страницы отличаются»."""
+    tour = TB.default_ctx()['rules']
+    demo = {k: v for k, v in FD.page_rules().items() if k != 'slot_band_cm'}
+    assert tour == demo
+    assert 'photo_pick' in tour and 'soft_roles' in tour
+
+
+def test_demo_build_takes_rules_from_page_rules_only():
+    """Сборка /demo не добавляет правила страницы мимо `page_rules()`: в `build` у `rules` — только он и полосы размера."""
+    import re
+    src = open(os.path.join(SCOUT, 'flat215_demo.py'), encoding='utf-8').read()
+    lines = re.findall(r"^\s+'rules': (.+),$", src, flags=re.M)
+    assert lines == ["{**page_rules(), 'slot_band_cm': {**_slot_band(liv), **rules_extra}}"], lines
+
+
+def test_tour_vs_demo_check_has_no_rules_drift():
+    """Сторож перевыпуска на настоящих правилах: тур, собранный по `default_ctx`, не расходится с /demo ни по одному правилу страницы."""
+    sys.path.insert(0, os.path.join(ROOT, 'tools', 'ops'))
+    import tour_reissue_check as TRC
+    demo = {'rules': {**FD.page_rules(), 'slot_band_cm': {'диван': {'lo': 1}}}}
+    tour = {'rules': {**TB.default_ctx()['rules'], 'slot_band_cm': {'диван': {'lo': 2}}}, 'trial': {'panels': [{'rooms': [1], 'openings': [{'kind': 'door'}]}]}}
+    assert not [x for x in TRC.check_data('t', tour, demo) if x.startswith('правила страницы')]

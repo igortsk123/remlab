@@ -195,7 +195,7 @@ def _cy():
             ex = RX.make_executor()
             store = RJ.RenderStore(os.path.join(os.path.dirname(DR.FRAMES_DIR), 'render-jobs.json'), RENDER_DIR)
             n = store.load()
-            q = RJ.RenderQueue(store, ex, workers=int(os.environ.get('RENDER_WORKERS', 1)))
+            q = RJ.RenderQueue(store, ex, workers=int(os.environ.get('RENDER_WORKERS', 1)), warm_workers=int(os.environ.get('RENDER_WARM_WORKERS', 0)))
             q.start()
             wp = getattr(ex, 'warm_prep', None)
             if callable(wp):
@@ -1204,6 +1204,8 @@ def _render_prewarm_start() -> None:
 
 
 if __name__ == '__main__':
+    import log_stamp as _LS
+    _LS.install()                           # каждая строка журнала — с временем и номером задания/тура (T-20261118-22/8); LOG_STAMP=0 — прежний журнал
     port = int(os.environ.get('DRAFT_PORT', 8099))
     print(f'черновой рендер слушает :{port}', flush=True)
     if os.environ.get('PREWARM', '1') == '1':

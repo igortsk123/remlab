@@ -93,7 +93,7 @@ ROOMS = ('bedroom', 'hall')
 CHAIN = ('bank_prepare', 'mesh_cand', 'room_bindings', 'bank_pending', 'bank_promote', 'bank_refresh')
 # сторож цвета мешей (T-20261107-14/2) — сразу перед первой привязкой комнат: его таблицу читает room_bindings --build;
 # сторож изголовья кроватей (T-20261110-20/3) — перед ним: его доворот/блок (orientation_state) читает та же привязка
-ROOM_BANK = ('orient_bed_guard', 'mesh_color_guard', 'room_bindings', *(f'{s}_{r}' for r in ROOMS for s in ('compose', 'room_check', *CHAIN,
+ROOM_BANK = ('orient_bed_guard', 'mesh_color_guard', 'grey_sync', 'room_bindings', *(f'{s}_{r}' for r in ROOMS for s in ('compose', 'room_check', *CHAIN,
                                                                                          'bank_rehearse', 'bank_state')))
 # проверка СОБРАННОЙ (сжатой) страницы в браузере (T-20261112-90) — сразу за сборкой витрины
 # ворота «без ракурсов не выкладываем» (T-20261113-17/2) — сразу за demo_rt, до платной досъёмки
@@ -308,8 +308,9 @@ def _rooms_bank(text: str, ok) -> int:
        fn.index('room_catalog') < fn.index('room_bindings') < fn.index('compose_bedroom') < fn.index('bank_prepare_bedroom')
        < fn.index('bank_refresh_bedroom') < fn.index('bank_state_bedroom') < fn.index('demo_band') < fn.index('mesh_publish')
        < fn.index('flat215_demo') < fn.index('flat215_publish') and 'цепочка ok' in dig(log, 'спальня'), dig(log, 'спальня'))
-    ok('банки комнат: сторож изголовья кроватей → сторож цвета → первая привязка (доворот и блок кровати — в ту же ночь, T-20/3)',
-       fn.index('orient_bed_guard') + 1 == fn.index('mesh_color_guard') and fn.index('mesh_color_guard') + 1 == fn.index('room_bindings'),
+    ok('банки комнат: сторож изголовья кроватей → сторож цвета → мягкий карантин серой крышки → первая привязка (доворот и блок кровати — в ту же ночь, T-20/3; серая крышка — T-101/3)',
+       fn.index('orient_bed_guard') + 1 == fn.index('mesh_color_guard') and fn.index('mesh_color_guard') + 1 == fn.index('grey_sync')
+       and fn.index('grey_sync') + 1 == fn.index('room_bindings'),
        fn[max(fn.index('room_bindings') - 3, 0):fn.index('room_bindings') + 1])
     ok('банки комнат: при полной цепочке остальная ночь — та же и тем же порядком',
        [n for n in fn if n not in ROOM_BANK] == [n for n in living if n not in ROOM_BANK])

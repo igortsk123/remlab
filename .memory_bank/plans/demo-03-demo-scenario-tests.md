@@ -2,16 +2,14 @@
 workstream: demo
 slug: demo-03-demo-scenario-tests
 title: Демо отлажено по карте сценариев — дефекты прогона 14.10 закрыты, каждая кнопка под живой проверкой на проде
-status: partial
-pause_reason: "всё сделано и выкачено 14.10; ждём критерий «demo_live зелёный три ночи подряд» (15–17.10)"
-resume_trigger: "три утренних сводки подряд без WARN:demo_live и WARN:demo_map_uncovered → completed + /memory-check"
+status: in_progress
 created: 2026-10-14
-updated: 2026-10-14
+updated: 2026-11-20
 completed:
 plan_kind: sub
 parent_plan: MASTER-cost-first
 assignee: opus-5.5
-review_after: 2026-10-18
+review_after: 2026-11-27
 ---
 
 ## Цель
@@ -81,6 +79,7 @@ review_after: 2026-10-18
       § «Известные дефекты» переписан; урок про DEV-рендер и earlyoom; `/memory-check`, audit чисто
 
 ## Лог выполнения
+- 2026-11-20 — вернули в работу (П1.102 / T-20261119-115, разбор у router рабочий 5; решение директора 20.11): критерий «demo_live зелёный три ночи подряд» НЕ выполнен — `STEPTIME name=demo_live res=warn` каждую ночь 13–19.11 (28 WARN в refresh.log); 19.11: 13 failed / 38 passed (`~/scout-scenes/demo-live/2026-11-19.log`), 17.11 — 10, 14.11 — 11, 12.11 — 7. Часть красного — устаревшие локаторы/ожидания после demo-20…30 (`VW.mode`≠"walk" `demo-scenarios.live.ts:96`; CTA «Сделать фото» `demo-map-rest.live.ts:254`; 2.20 `flat-rooms.live.ts:173`). Цель: разобрать красное — баг продукта или локатор, обновить живые тесты; закрыть, когда три утренних сводки подряд без WARN:demo_live и WARN:demo_map_uncovered → /memory-check.
 - 2026-10-14 — план создан (draft), Fable 5.1; прогон кнопок — `tools/ops/demo-walk/`, карта — `domain/demo-scenario-map.md`
 
 - 2026-10-14 — деплой (Opus 5.5, по поручению владельца через сессию d8): коммиты eafcc65, 9f84247, 07a7dd2, e8683fe и

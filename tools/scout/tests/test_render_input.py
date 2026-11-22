@@ -67,7 +67,17 @@ if not LIVE:
     P = os.path.join(REPO, 'tools/scout/cycles_probe')
     for n in ('demo_scene_entry.ts', 'build_entry.mjs', 'demo_scene_dump.mjs', 'file_sig.mjs', 'render_cycles.py', 'export_server.py'):
         w(os.path.join(P, n), '# ' + n)
-    w(os.path.join(P, 'export_scene.py'), 'import helper\nfrom pkg import mod\n\ndef f():\n    import lazy\n')
+    w(os.path.join(P, 'export_scene.py'), 'import helper\nfrom pkg import mod\nimport draft_render\nimport scene_mesh\nimport render_config\n\ndef f():\n    import lazy\n')
+    # платная ветка «Улучшить» и всё, что за ней (лента, цены, банк, каталог): ребро draft_render → improve_mode исключено (`RI.EXCLUDED_EDGES`)
+    w(os.path.join(REPO, 'tools/scout/draft_render.py'), 'def scene():\n    return 1\n\ndef paid():\n    import improve_mode\n')
+    w(os.path.join(REPO, 'tools/scout/scene_mesh.py'), 'v = 1')
+    w(os.path.join(REPO, 'tools/scout/render_config.py'), 'SIZE_ENV = "IMPROVE_SIZE"')
+    w(os.path.join(REPO, 'tools/scout/improve_mode.py'), 'import render_config\ndef apply():\n    import demo_band\n    import bank_pending\n    import catalog_items\n    import mesh_queue\n')
+    w(os.path.join(REPO, 'tools/scout/demo_band.py'), 'import demo_swap_pool\nimport flat215_demo\n')
+    w(os.path.join(REPO, 'tools/scout/demo_swap_pool.py'), 'import price_tiers\n')
+    w(os.path.join(REPO, 'tools/scout/bank_pending.py'), 'import bank_keep\n')
+    for n in ('price_tiers', 'flat215_demo', 'bank_keep', 'catalog_items', 'mesh_queue'):
+        w(os.path.join(REPO, 'tools/scout', n + '.py'), 'q = 1')
     w(os.path.join(REPO, 'tools/scout/helper.py'), 'x = 1')
     w(os.path.join(REPO, 'tools/scout/lazy.py'), 'y = 1')
     w(os.path.join(REPO, 'tools/scout/pkg/__init__.py'), '')
@@ -245,6 +255,79 @@ check('общее окружение (outside.webp) — все комнаты', 
 check('вид за окном — только комнаты с этим видом', all(consumers(f'view:{v}') == {x for x in VIDS if (DATA['rooms_geo'].get(ROOM_OF[x]) or DATA['room']).get('window_view') == v}
                                                   for v in {(DATA['rooms_geo'].get(r) or {}).get('window_view') for r in rooms} if v))
 
+# вид по умолчанию (T-20261118-22/5): окно есть, `window_view` нет (комнаты тура) — страница читает `yard`; файл вида — во входе, правка его файла — ключ ровно этих комнат
+if not LIVE:
+    def no_view(d):
+        g = d['rooms_geo'][R0]
+        g.pop('window_view', None)
+        g['openings'] = [{'kind': 'window', 'wall': 'west', 'offset_cm': 10, 'width_cm': 120}]
+    Kw = keys(mut(no_view))
+    Sw = {v: RS.canonicalize(mut(no_view), {'v': 1, 'variant_id': v}) for v in VIDS}
+    ru = users(R0)
+    check('комната с окном без window_view: вид по умолчанию (yard) во входе', all(any(a['logical'] == f'view:{RI.DEFAULT_VIEW}' for a in Sw[v]['frame_inputs']['assets']) for v in ru))
+    ch0 = diff(K0, Kw)
+    check('…её ключи отличаются от прежних (вид теперь в ключе), чужие комнаты — те же', ch0 == ru)
+    with open(SI.public_file(f'scene/views/{RI.DEFAULT_VIEW}.webp'), 'ab') as _f:
+        _f.write(b'-edit')
+    SI._FULL_MEMO.clear()
+    try:
+        Ke = keys(mut(no_view))
+    finally:
+        with open(SI.public_file(f'scene/views/{RI.DEFAULT_VIEW}.webp'), 'rb') as _f:
+            _b = _f.read()
+        with open(SI.public_file(f'scene/views/{RI.DEFAULT_VIEW}.webp'), 'wb') as _f:
+            _f.write(_b[:-5])
+        SI._FULL_MEMO.clear()
+    explicit_yard = {v for v in VIDS if ROOM_OF[v] != R0 and (DATA['rooms_geo'].get(ROOM_OF[v]) or {}).get('window_view') == RI.DEFAULT_VIEW}      # комнаты, где этот вид задан явно, читают тот же файл
+    check('правка файла вида по умолчанию меняет ключи ровно комнат с окном без вида и комнат с этим видом явно', diff(Kw, Ke) == ru | explicit_yard)
+
+    def no_window(d):
+        g = d['rooms_geo'][R0]
+        g.pop('window_view', None)
+        g['openings'] = [{'kind': 'door', 'wall': 'west', 'offset_cm': 10, 'width_cm': 90}, {'kind': 'window', 'wall': 'north', 'offset_cm': 5, 'width_cm': 0}]
+    Sn = RS.canonicalize(mut(no_window), {'v': 1, 'variant_id': sorted(ru)[0]})
+    check('без окна (дверь, окно нулевой ширины) и без window_view — вида во входе нет', not any(a['logical'].startswith('view:') for a in Sn['frame_inputs']['assets']))
+    # сторож: страница читает yard у комнаты с окном без вида — чисто; у комнаты без окна это чтение по-прежнему «вне входа»
+    inp_w = Sw[sorted(ru)[0]]['frame_inputs']
+    ysha = [a['sha256'] for a in inp_w['assets'] if a['logical'] == 'view:yard'][0]
+    rd_y = {'v': 1, 'reads': [{'url': '/scene/views/yard.webp', 'sha256': ysha, 'kind': 'local'}]}
+    check('сторож: чтение yard комнатой с окном без вида — чисто', RI.check_reads(inp_w, rd_y) == [])
+    check('сторож: то же чтение у комнаты без окна — по-прежнему «вне входа: view:yard»', RI.check_reads(Sn['frame_inputs'], rd_y) == ['вне входа: view:yard'])
+    # общее правило с страницей: вид по умолчанию и набор видов — те же, что в `lib/viewer3d/window-views.ts`
+    import re as _re
+    _ts = open(os.path.join(HERE, '..', '..', '..', 'lib', 'viewer3d', 'window-views.ts'), encoding='utf-8').read()
+    _def = _re.search(r'DEFAULT_WINDOW_VIEW\s*=\s*"([a-z0-9-]+)"', _ts)
+    check('вид по умолчанию в Python = DEFAULT_WINDOW_VIEW страницы', bool(_def) and _def.group(1) == RI.DEFAULT_VIEW)
+
+# меш двери набора (T-20261118-22/5): у комнаты БЕЗ `openings_ir` Python-выгрузчик берёт `kit-door` — файл во входе; у комнаты с описанием проёмов — нет
+if not LIVE:
+    _kit = os.path.join(MC, RI.DOOR_KIT_MESH + '.glb')
+    w(_kit, b'GLB' * 500)
+    SI._FULL_MEMO.clear()
+    try:
+        K1 = keys(DATA)
+
+        def with_ir(d):
+            d['rooms_geo'][R0]['openings_ir'] = [{'k': 1}]
+        Kir = keys(mut(with_ir))
+        Sk = RS.canonicalize(DATA, {'v': 1, 'variant_id': sorted(users(R0))[0]})
+        has_kit = lambda s: any(a['logical'] == f'mesh:{RI.DOOR_KIT_MESH}' for a in s['frame_inputs']['assets'])  # noqa: E731
+        Sir = RS.canonicalize(mut(with_ir), {'v': 1, 'variant_id': sorted(users(R0))[0]})
+        check('комната без openings_ir: меш двери набора во входе', has_kit(Sk) and not has_kit(Sir))
+        check('…файл меша двери есть → ключи комнат без openings_ir изменились; с описанием проёмов — нет', diff(K0, K1) >= users(R0) and not (diff(K1, Kir) - users(R0)))
+        ch_k = diff(K1, poke(_kit, 'kit'))
+        check('правка файла меша двери меняет ключи ровно комнат без openings_ir', ch_k and all(not (DATA['rooms_geo'].get(ROOM_OF[v]) or {}).get('openings_ir') for v in ch_k))
+        inp_k = Sk['frame_inputs']
+        sha_k = [a['sha256'] for a in inp_k['assets'] if a['logical'] == f'mesh:{RI.DOOR_KIT_MESH}'][0]
+        rd_k = {'v': 1, 'hermetic': True, 'violations': [], 'reads': [{'path': _kit, 'sha256': sha_k, 'kind': 'file'}]}
+        check('сторож Python-выгрузчика: чтение kit-door комнатой без openings_ir — чисто', RI.check_reads_py(inp_k, rd_k) == [])
+        check('…комнатой с openings_ir — «вне входа: mesh:kit-door»', any('вне входа: mesh:kit-door' in b for b in RI.check_reads_py(Sir['frame_inputs'], rd_k)))
+        _src = open(os.path.join(HERE, '..', 'draft_render.py'), encoding='utf-8').read()
+        check('имя меша двери в Python = FIXTURE_MESH["дверь"] выгрузчика', f"'дверь': ('{RI.DOOR_KIT_MESH}'," in _src)
+    finally:
+        os.remove(_kit)
+        SI._FULL_MEMO.clear()
+
 # лишние файлы: ни одного ключа
 if not LIVE:
     w(os.path.join(MC, 'unused-sid.glb'), b'GLB' * 500)
@@ -407,6 +490,56 @@ if not LIVE:
     check('программа: правка модуля из пакета (pkg/mod.py) — меняет', renderer_changes(os.path.join(S, 'pkg/mod.py'), 'z = 2', 'm'))
     check('программа: правка отложенного импорта внутри функции (lazy.py) — меняет', renderer_changes(os.path.join(S, 'lazy.py'), 'y = 2', 'l'))
     check('программа: правка постороннего модуля (unrelated.py) — НЕ меняет', not renderer_changes(os.path.join(S, 'unrelated.py'), 'u = 2', 'u'))
+    # ——— T-20261119-100/2: ключ программы не зависит от ленты, цен, банка и каталога (ребро draft_render → improve_mode исключено), размер кадра — в ключе значением
+    pyf = set(RI.program_files('b')['py'])
+    check('программа: лента/цены/банк/каталог/«Улучшить» в замыкание не входят (исключённое ребро draft_render → improve_mode)',
+          not any(os.path.basename(x)[:-3] in ('improve_mode', 'demo_band', 'demo_swap_pool', 'price_tiers', 'flat215_demo', 'bank_pending', 'bank_keep', 'catalog_items', 'mesh_queue') for x in pyf))
+    check('программа: render_config, draft_render, scene_mesh в замыкании', {'tools/scout/render_config.py', 'tools/scout/draft_render.py', 'tools/scout/scene_mesh.py'} <= pyf)
+    for nm in ('demo_swap_pool', 'price_tiers', 'bank_pending', 'bank_keep', 'catalog_items', 'flat215_demo', 'mesh_queue', 'demo_band', 'improve_mode'):
+        check(f'программа: правка {nm}.py (не картинка) — НЕ меняет ключ', not renderer_changes(os.path.join(S, nm + '.py'), 'q = 99  # правка', nm))
+    for nm in ('cycles_probe/export_server.py', 'cycles_probe/render_cycles.py', 'draft_render.py', 'scene_mesh.py', 'render_config.py', 'cycles_probe/export_scene.py'):
+        check(f'программа: правка {nm} — меняет ключ', renderer_changes(os.path.join(S, nm), open(os.path.join(S, nm)).read() + '\n# правка\n', nm))
+    old_sz = os.environ.get('IMPROVE_SIZE')
+    os.environ['IMPROVE_SIZE'] = '1024x1536'
+    SI._FULL_MEMO.clear()
+    RI.clear_memo()
+    size_changed = RI.renderer_digest('b') != r0 and RI.renderer_parts('b')['frame_size'] == '1024x1536'
+    if old_sz is None:
+        os.environ.pop('IMPROVE_SIZE')
+    else:
+        os.environ['IMPROVE_SIZE'] = old_sz
+    RI.clear_memo()
+    check('программа: смена IMPROVE_SIZE — меняет ключ (значение размера в renderer_parts)', size_changed and RI.renderer_digest('b') == r0)
+    # исключаем МОДУЛЬ целиком нельзя: тот же improve_mode, импортированный из другого файла программы, — в ключе
+    old_es = open(os.path.join(P, 'export_scene.py'), 'rb').read()
+    w(os.path.join(P, 'export_scene.py'), old_es + b'\nimport improve_mode\n')
+    RI.clear_memo()
+    check('программа: новый настоящий импорт improve_mode из export_scene — в ключе (исключено ребро, а не модуль)', 'tools/scout/improve_mode.py' in set(RI.program_files('b')['py']))
+    w(os.path.join(P, 'export_scene.py'), old_es)
+    RI.clear_memo()
+    check('программа: таблица исключённых рёбер — только пары путей с причиной', all(isinstance(k, tuple) and len(k) == 2 and isinstance(v, str) and len(v) > 20 for k, v in RI.EXCLUDED_EDGES.items()))
+    # рантайм-сверка: незахешированный repo-модуль, загруженный динамически, даёт WARN; известный и посторонний — нет
+    import types
+    fake = os.path.join(S, 'unrelated.py')
+    mods = {'known': types.SimpleNamespace(__file__=os.path.join(S, 'helper.py')), 'dyn': types.SimpleNamespace(__file__=fake), 'sys_lib': types.SimpleNamespace(__file__=os.__file__),
+            'tst': types.SimpleNamespace(__file__=os.path.join(S, 'tests', 'x.py')), 'builtin': types.SimpleNamespace()}
+    un = RI.unhashed_program_modules(mods)
+    check('рантайм-сверка: динамически загруженный незахешированный repo-модуль — в списке (путь и sha256)', [u['path'] for u in un] == ['tools/scout/unrelated.py'] and bool(un[0]['sha256']))
+    check('рантайм-сверка: известный модуль программы, библиотека и тесты — не в списке', 'tools/scout/helper.py' not in [u['path'] for u in un])
+    # настоящий выгрузчик: свежий процесс, прогрев (`preload`) не загружает improve_mode, а сверка модулей не видит незахешированных (рантайм-гейт, пока WARN)
+    import subprocess
+    SC = os.path.abspath(os.path.join(HERE, '..'))
+    pr = subprocess.run([sys.executable, '-c', 'import sys, json; sys.path[:0] = [sys.argv[1], sys.argv[1] + "/cycles_probe", sys.argv[1] + "/../../services/planner-solver"]; import os; '
+                         'os.environ.pop("RENDER_INPUT_REPO", None); import export_scene as ES; ES.preload(); import render_input as RI; '
+                         'print(json.dumps({"im": "improve_mode" in sys.modules, "unh": RI.unhashed_program_modules(), "n": len(RI.program_files("b")["py"])}))', SC],
+                        capture_output=True, text=True, env={k: v for k, v in os.environ.items() if k != 'RENDER_INPUT_REPO'})
+    try:
+        rep = json.loads(pr.stdout.strip().splitlines()[-1])
+    except (ValueError, IndexError):
+        rep = {'im': True, 'unh': ['ошибка: ' + (pr.stderr or pr.stdout)[-300:]], 'n': 0}
+    check('выгрузчик: свежий процесс — прогрев `export_scene.preload` не загружает improve_mode', rep['im'] is False)
+    check('выгрузчик: после прогрева все загруженные модули репо входят в renderer_digest (рантайм-сверка пуста)', rep['unh'] == [])
+    check(f'выгрузчик: живой список программы ≤ 40 .py ({rep["n"]})', 0 < rep['n'] <= 40)
     check('программа: правка JS движка (lib/viewer3d/a.ts) — меняет', renderer_changes(os.path.join(REPO, 'lib/viewer3d/a.ts'), 'export const a = 2', 'a'))
     check('программа: правка общих правил (data/flat3d/light-rules.json) — меняет', renderer_changes(os.path.join(REPO, 'data/flat3d/light-rules.json'), '{"k": 2}', 'l'))
     check('программа: правка данных, что читает Python-выгрузчик (rules/asset-strategies.json, occupancy.json), — меняет у всех',

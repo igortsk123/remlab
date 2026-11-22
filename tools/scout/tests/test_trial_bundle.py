@@ -1111,8 +1111,8 @@ def test_stage_keys_carry_sid_but_page_never():
 
 
 def test_catalog_goods_like_demo_sku_bank_first_price_from_catalog(monkeypatch, tmp_path):
-    """Как `flat215_demo._sku`: название, фото, ссылка, магазин — из товара банка; цена — из каталога, нет — из банка. Товара нет
-    в банке — всё из каталога (ушёл из продажи — нейтрально). Банк спальни (`sid` «mid:eid», в `alternates`) — тоже находится."""
+    """Как `flat215_demo._sku`: фото, ссылка, магазин — из товара банка; название и цена — из каталога (T-20261119-97: единое правило
+    `product_names.pick_name`, банк отстаёт от фида), нет — из банка. Товара нет в банке — всё из каталога (ушёл из продажи — нейтрально). Банк спальни (`sid` «mid:eid», в `alternates`) — тоже находится."""
     import catalog_media as CM
     cat = {('1', 'a'): {'name': 'Каталог', 'price': 900, 'url': 'https://cat.example/x', 'shop': 'cat', 'state': 'available'},
            ('3', 'c'): {'name': 'Ушёл', 'price': 5, 'url': 'https://c/y', 'state': 'gone'},
@@ -1127,7 +1127,7 @@ def test_catalog_goods_like_demo_sku_bank_first_price_from_catalog(monkeypatch, 
     idx = TB.bank_index([str(bank), str(tmp_path / 'нет.json')])
     assert set(idx) == {'1_a', '2_b'}
     g = TB.catalog_goods('1_a', 'диван', idx)
-    assert g == {'name': 'Банк', 'name_en': 'Sofa', 'colour_en': None, 'price': 900, 'img': None, 'url': 'https://bank.example/x', 'shop': 'divan.ru'}
+    assert g == {'name': 'Каталог', 'name_en': 'Sofa', 'colour_en': None, 'price': 900, 'img': None, 'url': 'https://bank.example/x', 'shop': 'divan.ru'}
     assert TB.catalog_goods('2_b', 'кровать', idx)['price'] == 300
     assert TB.catalog_goods('3_c', 'диван', idx) is None
     cat[('1', 'a')]['state'] = 'gone'                     # товар банка снят с продажи — в туре его нет, как в демо (T-96)
@@ -1346,6 +1346,39 @@ def _counting_node(seen):
     return run
 
 
+def test_conveyor_v3_takes_living_cams_from_v2_file_only_bedrooms_computed(tmp_path, monkeypatch):
+    """R1 tour-speed-01: `--old` = файл версии 2 (гостиная с парами) → версия 3 (те же гостиные + спальни, `rooms_geo` шире) считает ракурсы ТОЛЬКО спален."""
+    monkeypatch.setattr(TB, 'camfit_sig', lambda root=None: 'fit1')
+    v2 = {'rooms_geo': {'living': GEO['living']}, 'variants': _vars(('set1', 'living', 10), ('set2', 'living', 30))}
+    v2 = _old_with_cams(v2)
+    f2 = tmp_path / 'bundle-3-v2-living.json'
+    TB.write_atomic(str(f2), v2)
+    v3 = {'rooms_geo': GEO, 'variants': _vars(('set1', 'living', 10), ('set2', 'living', 30), ('b1', 'bedroom-1', 20), ('b2', 'bedroom-1', 40))}
+    p = tmp_path / 'bundle-4-v3.json'
+    TB.write_atomic(str(p), v3)
+    seen = []
+    line = TB.add_cams(str(p), [], runner=_counting_node(seen), old=TB.load_old(str(f2)))
+    assert seen == ['b1', 'b2'] and 'перенесено из прежней версии 2' in line
+    assert [v['cams'] for v in json.load(open(p))['variants']] == [PAIR] * 4
+
+
+def test_load_old_tolerates_missing_broken_and_foreign(tmp_path):
+    """`--old` — ускорение, не условие: нет пути / файла, не JSON, не данные тура → None (ракурсы считаются все, как раньше)."""
+    assert TB.load_old(None) is None and TB.load_old('') is None and TB.load_old(str(tmp_path / 'нет.json')) is None
+    bad = tmp_path / 'bad.json'
+    bad.write_text('{oops')
+    assert TB.load_old(str(bad)) is None
+    foreign = tmp_path / 'foreign.json'
+    foreign.write_text('[1, 2]')
+    assert TB.load_old(str(foreign)) is None
+    nov = tmp_path / 'nov.json'
+    nov.write_text('{"variants": "x"}')
+    assert TB.load_old(str(nov)) is None
+    ok = tmp_path / 'ok.json'
+    ok.write_text('{"variants": []}')
+    assert TB.load_old(str(ok)) == {'variants': []}
+
+
 def test_reuse_cams_same_inputs_carried_changed_recomputed(tmp_path, monkeypatch):
     monkeypatch.setattr(TB, 'camfit_sig', lambda root=None: 'fit1')
     data = {'rooms_geo': GEO, 'variants': _vars(('set1', 'living', 10), ('set2', 'bedroom-1', 20))}
@@ -1462,13 +1495,30 @@ def test_cams_jobs_respects_outer_slot(monkeypatch):
 def test_main_out_prints_json_last(tmp_path, monkeypatch, capsys):
     """Конвейер и перевыпуск читают ПОСЛЕДНЮЮ строку вывода: строка ракурсов — до неё."""
     monkeypatch.setattr(TB, 'build', lambda *a, **k: {'rooms_geo': {'living': {}}, 'variants': []})
-    monkeypatch.setattr(TB, 'add_cams', lambda path, tokens: 'ракурсы окна в данных: вариантов 0')
+    got_old = []
+    monkeypatch.setattr(TB, 'add_cams', lambda path, tokens, old=None: got_old.append(old) or 'ракурсы окна в данных: вариантов 0')
     res = tmp_path / 'r.json'
     res.write_text('{}')
     monkeypatch.setattr(sys, 'argv', ['trial_bundle.py', JOB, str(res), '--out', str(tmp_path / 'b.json')])
     assert TB.main() == 0
     lines = capsys.readouterr().out.strip().splitlines()
     assert lines[0].startswith('ракурсы окна') and json.loads(lines[-1])['ok'] is True
+    assert got_old == [None]                                        # без `--old` — всё считается, как раньше
+
+
+def test_main_old_flag_passes_previous_version_to_add_cams(tmp_path, monkeypatch, capsys):
+    """R1: `--old <файл>` читается и уходит в `add_cams(old=…)`; сломанный файл — None (не валит сборку); с `--no-cams` не читается."""
+    monkeypatch.setattr(TB, 'build', lambda *a, **k: {'rooms_geo': {'living': {}}, 'variants': []})
+    got_old = []
+    monkeypatch.setattr(TB, 'add_cams', lambda path, tokens, old=None: got_old.append(old) or 'ракурсы окна в данных: вариантов 0')
+    res = tmp_path / 'r.json'
+    res.write_text('{}')
+    prev = tmp_path / 'prev.json'
+    prev.write_text('{"variants": [{"id": "set1"}]}')
+    for extra in (['--old', str(prev)], ['--old', str(tmp_path / 'нет.json')], ['--old', str(prev), '--no-cams']):
+        monkeypatch.setattr(sys, 'argv', ['trial_bundle.py', JOB, str(res), '--out', str(tmp_path / 'b.json')] + extra)
+        assert TB.main() == 0
+    assert got_old == [{'variants': [{'id': 'set1'}]}, None]
 
 
 def test_door_between_two_neighbours_does_not_refuse_core():
@@ -1731,3 +1781,192 @@ def test_carried_pids_catalog_tiles_union_and_refusal():
     tiles = {'img/dddddddddddddddd.jpg': {'R_4'}, 'img/eeeeeeeeeeeeeeee.jpg': {'R_8'}}
     assert TB.carried_pids([{'items': [{'sku': a}, {'sku': b}, {'sku': c}]}], demo, tiles) == {'set': 1, 'none': 1, 'ambiguous': 1}
     assert a['pid'] == TB.pid_of('R_4') and 'pid' not in b and 'pid' not in c
+
+
+# ——— ОДНА КАРТОЧКА НА pid (T-20261119-07/5 п.2, план product-names-01) ———
+def _uc_card(sid, name, price=1000, **kw):
+    c = {'name': name, 'name_en': 'EN ' + name, 'price': price, 'img': 'img/aaaaaaaaaaaaaaaa.jpg', 'url': 'https://s/x', 'shop': 'S',
+         'w': 100, 'd': 50, 'h': 80, 'msid': 'm1', 'pid': TB.pid_of(sid), '_sid': sid, **kw}
+    return c
+
+
+def _uc_data(var_name='Кровать Далти-П', feed_name='Кровать Далти', **feed_kw):
+    sid = '1_100'
+    var = {'room_id': 'bedroom-1', 'style': 'лофт', 'items': [{'role': 'кровать', 'sku': _uc_card(sid, var_name)}], 'decor': []}
+    row = {k: v for k, v in _uc_card(sid, feed_name, **feed_kw).items() if k != '_sid'}
+    return sid, [var], {'bedroom-1:кровать': [row]}
+
+
+def _uc_live(sid, name='Кровать Далти-П', price=1200):
+    g = {'name': name, 'name_en': 'EN ' + name, 'price': price, 'img': 'img/bbbbbbbbbbbbbbbb.jpg', 'url': 'https://s/live', 'shop': 'S'}
+    return lambda s, role: dict(g) if s == sid else None
+
+
+def test_unify_cards_one_name_from_live_catalog_everywhere():
+    sid, variants, feeds = _uc_data()
+    st = TB.unify_cards(variants, feeds, _uc_live(sid), [sid])
+    card, row = variants[0]['items'][0]['sku'], feeds['bedroom-1:кровать'][0]
+    assert card['name'] == row['name'] == 'Кровать Далти-П'
+    assert card['name_en'] == row['name_en'] and card['price'] == row['price'] == 1200
+    assert card['img'] == row['img'] == 'img/bbbbbbbbbbbbbbbb.jpg' and card['url'] == row['url'] == 'https://s/live'
+    assert st['names_unified'] == 1 and st['live_cards'] == 1 and st['names_conflict'] == 0 and st['identity_suspect'] == 0
+    assert card['msid'] == 'm1' and (card['w'], card['d'], card['h']) == (100, 50, 80)      # модель и размеры сцены не тронуты
+
+
+def test_unify_cards_counts_names_that_differ_from_live_catalog_even_when_all_copies_agree():
+    """Сторож «тур = каталог» (T-20261119-97): все копии несут ОДНО, но устаревшее имя (магазин переименовал) — внутри файла расхождения нет, а от каталога — есть:
+    считается `names_catalog`, имя исправлено; совпало с каталогом — 0 (повтор не считает дважды)."""
+    sid, variants, feeds = _uc_data(var_name='Кровать Далти', feed_name='Кровать Далти')
+    st = TB.unify_cards(variants, feeds, _uc_live(sid, 'Кровать Далти-П'), [sid])
+    assert variants[0]['items'][0]['sku']['name'] == feeds['bedroom-1:кровать'][0]['name'] == 'Кровать Далти-П'
+    assert st['names_catalog'] == 1 and st['names_unified'] == 0 and st['names_conflict'] == 0
+    assert TB.unify_cards(variants, feeds, _uc_live(sid, 'Кровать Далти-П'), [sid])['names_catalog'] == 0
+    assert TB.unify_cards(variants, feeds, lambda s, r: None, [sid])['names_catalog'] == 0        # каталога нет — сравнивать не с чем
+
+
+def test_reissue_check_counts_names_that_differ_between_demo_and_tours(tmp_path):
+    """Сторож перевыпуска (`tour_reissue_check.check_names`): по всем собранным турам число товаров, у которых название не равно /demo; совпало — 0 и без WARN."""
+    sys.path.insert(0, os.path.join(os.path.dirname(HERE), '..', 'ops'))
+    import tour_reissue_check as TRC
+    pid = TB.pid_of('1_b')
+    demo = {'feeds': {'bedroom:кровать': [{'sid': '1_b', 'name': 'Далти 160'}, {'sid': '2_c', 'name': 'Шкаф'}]}}
+    for jid, nm in (('t1', 'Далти-П 160'), ('t2', 'Далти 160')):
+        (tmp_path / jid).mkdir()
+        (tmp_path / jid / 'bundle-new.json').write_text(json.dumps({'feeds': {'bedroom:кровать': [{'pid': pid, 'name': nm, 'price': 1}]}}))
+    rows = [{'id': 't1', 'status': 'published'}, {'id': 't2', 'status': 'published'}, {'id': 't3', 'status': 'skipped'}]
+    line, warns = TRC.check_names(rows, tmp_path, demo)
+    assert 'туров 2' in line and 'с разным названием 1' in line and len(warns) == 1 and 'WARN:tour_reissue: названия: у 1 товаров' in warns[0]
+    demo['feeds']['bedroom:кровать'][0]['name'] = 'Далти-П 160'
+    (tmp_path / 't2' / 'bundle-new.json').write_text(json.dumps({'feeds': {'bedroom:кровать': [{'pid': pid, 'name': 'Далти-П 160', 'price': 1}]}}))
+    line, warns = TRC.check_names(rows, tmp_path, demo)
+    assert 'с разным названием 0' in line and warns == []
+
+
+def test_demo_and_tour_take_name_from_one_rule(monkeypatch, tmp_path):
+    """Витрина (`product_names.unify`, финальный проход сборки /demo) и тур (`catalog_goods` / `room_goods`) дают ОДНО название одного товара — и когда банк отстал от фида
+    (live 19.11: /demo «Далти», туры «Далти-П»). Лишние пробелы фида (табуляция) схлопываются одинаково."""
+    import catalog_media as CM
+    import product_names as PN
+    name = 'Кровать divan.ru Далти-П 160\tВелюр Серый'
+    cat = {('1', 'b'): {'name': name, 'price': 900, 'url': 'https://c/x', 'shop': 'S', 'state': 'available'}}
+    monkeypatch.setattr(CM, 'media', lambda mid, eid: cat.get((str(mid), str(eid))))
+    monkeypatch.setattr(TB.TD, '_names_en', lambda it, role: {'name_en': 'Bed'})
+    bank = tmp_path / 'b.json'
+    bank.write_text(json.dumps({'sets': [{'items': {'кровать': {'mid': 1, 'eid': 'b', 'name': 'Кровать divan.ru Далти 160 Велюр Серый', 'price': 800, 'url': 'https://bank.example/x'}}}]}))
+    idx = TB.bank_index([str(bank)])
+    tour = TB.catalog_goods('1_b', 'кровать', idx)['name']
+    room = TB.room_goods('1_b', 'кровать', 'bedroom', bank={}, rows={'1_b': ('1', 'b', name, 'S', 900, 'https://c/x', 'https://i/x.jpg', None)})['name']
+    N = PN.Names({('1', 'b'): cat[('1', 'b')]}, {})
+    demo = {'feeds': {'bedroom:кровать': [{'sid': '1_b', 'name': 'Кровать divan.ru Далти 160 Велюр Серый'}]}}
+    assert PN.unify(demo, N)['fixed'] == 1
+    assert tour == room == demo['feeds']['bedroom:кровать'][0]['name'] == 'Кровать divan.ru Далти-П 160 Велюр Серый'
+
+
+def test_whitespace_in_names_one_rule_when_catalog_has_no_name_tour_and_demo():
+    """T-20261119-105/1: у товара нет каталожного названия (ушёл из продажи, банк) — имя из банка/ленты всё равно чистится ТЕМ ЖЕ правилом `product_names.clean`:
+    табуляция, двойной пробел, NBSP, пробелы по краям → один пробел; обычное имя не меняется. Тур (`unify_cards`) и витрина (`product_names.unify`) дают одно и то же (live 19.11:
+    «Лео Кровать 160*200<TAB>Вельвет Корд» в турах и /demo)."""
+    import product_names as PN
+    ok_name = 'Лео Кровать 160*200 Вельвет Корд'
+    # тур: каталога нет, у карточки варианта и ленты «разные» по пробелам названия — после правила одно имя, не конфликт и не «переименование»
+    sid, variants, feeds = _uc_data(var_name='Лео Кровать 160*200\tВельвет  Корд', feed_name='\u00a0Лео Кровать 160*200 Вельвет\u00a0Корд ')
+    st = TB.unify_cards(variants, feeds, lambda s, r: None, [sid])
+    assert variants[0]['items'][0]['sku']['name'] == feeds['bedroom-1:кровать'][0]['name'] == ok_name
+    assert st['names_conflict'] == 0 and st['names_unified'] == 0 and st['identity_suspect'] == 0
+    # строка ленты БЕЗ `pid` (товар без ключа — live 19.11, «Лео Кровать…<TAB>…» в лентах спален) тоже чистится: правило не зависит от наличия `pid`
+    feeds['bedroom-1:кровать'].append({'name': 'Лео Кровать 160*200\tШенилл  Смарт серый', 'price': 19999})
+    TB.unify_cards(variants, feeds, lambda s, r: None, [sid])
+    assert feeds['bedroom-1:кровать'][-1]['name'] == 'Лео Кровать 160*200 Шенилл Смарт серый'
+    # обычное имя тур не меняет
+    sid, variants, feeds = _uc_data(var_name='Кровать Далти-П 160, Велюр', feed_name='Кровать Далти-П 160, Велюр')
+    TB.unify_cards(variants, feeds, lambda s, r: None, [sid])
+    assert variants[0]['items'][0]['sku']['name'] == feeds['bedroom-1:кровать'][0]['name'] == 'Кровать Далти-П 160, Велюр'
+    # витрина: карточки с `sid`, каталожного названия нет — те же четыре случая и то же имя
+    N = PN.Names({}, {})
+    demo = {'feeds': {'k': [{'sid': '5_5', 'name': 'Лео Кровать 160*200\tВельвет Корд'}, {'sid': '5_6', 'name': 'Лео Кровать 160*200  Вельвет Корд'},
+                            {'sid': '5_7', 'name': '\u00a0Лео Кровать 160*200 Вельвет Корд\u00a0'}, {'sid': '5_8', 'name': ' Лео Кровать 160*200 Вельвет Корд '},
+                            {'sid': '5_9', 'name': ok_name, 'name_en': 'Bed'}]}}
+    rep = PN.unify(demo, N)
+    assert [r['name'] for r in demo['feeds']['k']] == [ok_name] * 5 and rep['ws'] == 4 and rep['fixed'] == 0 and demo['feeds']['k'][4]['name_en'] == 'Bed'
+    assert PN.unify(demo, N)['ws'] == 0                     # повтор ничего не меняет
+    assert PN.name_of('9_9', 'Свое\tимя ', N) == 'Свое имя'  # и запасное имя вызывающего (`flat215_demo`: роли комплекта)
+
+
+def test_unify_cards_live_wins_over_variant_card_and_no_live_falls_back_to_variant():
+    sid, variants, feeds = _uc_data(var_name='Кровать Далти', feed_name='Кровать Далти-П')
+    TB.unify_cards(variants, feeds, _uc_live(sid, 'Кровать Далти-ПП'), [sid])
+    assert variants[0]['items'][0]['sku']['name'] == feeds['bedroom-1:кровать'][0]['name'] == 'Кровать Далти-ПП'    # источник — каталог, не карточка варианта
+    sid, variants, feeds = _uc_data(var_name='Кровать Далти', feed_name='Кровать Далти-П')
+    st = TB.unify_cards(variants, feeds, lambda s, r: None, [sid])                       # каталога нет (ушёл/недоступен): первая карточка варианта
+    assert variants[0]['items'][0]['sku']['name'] == feeds['bedroom-1:кровать'][0]['name'] == 'Кровать Далти'
+    assert st['live_cards'] == 0 and st['names_unified'] == 1
+
+
+def test_unify_cards_idempotent_and_swatch_follows_new_photo():
+    sid, variants, feeds = _uc_data(swatch='#112233')
+    TB.unify_cards(variants, feeds, _uc_live(sid), [sid])
+    assert 'swatch' not in feeds['bedroom-1:кровать'][0]                                 # фото сменилось — цвет по фото считается заново
+    snap = json.dumps([variants, feeds], sort_keys=True, ensure_ascii=False)
+    st = TB.unify_cards(variants, feeds, _uc_live(sid), [sid])
+    assert json.dumps([variants, feeds], sort_keys=True, ensure_ascii=False) == snap and st['names_unified'] == 0
+
+
+def test_unify_cards_neutral_item_is_not_a_card_and_not_overwritten():
+    sid = '1_100'
+    neutral = {'name': 'Кровать 160 см', 'name_en': 'Bed 160 cm', 'pid': TB.pid_of(sid), '_sid': sid, 'msid': 'm1'}          # товара нет: без цены
+    row = {k: v for k, v in _uc_card(sid, 'Кровать Далти').items() if k != '_sid'}
+    variants = [{'room_id': 'bedroom-1', 'items': [{'role': 'кровать', 'sku': neutral}], 'decor': []}]
+    TB.unify_cards(variants, {'bedroom-1:кровать': [row]}, _uc_live(sid, 'Кровать Далти'), [sid])
+    assert neutral['name'] == 'Кровать 160 см' and 'price' not in neutral                # настоящее имя ленты не затёрто нейтральным и наоборот
+
+
+def test_unify_cards_pid_only_in_decor_or_feed():
+    sid = '2_200'
+    lamp = _uc_card(sid, 'Лампа А')
+    row = {k: v for k, v in _uc_card(sid, 'Лампа Б').items() if k != '_sid'}
+    variants = [{'room_id': 'living', 'items': [], 'decor': [{'role': 'лампа', 'sku': lamp}]}]
+    feeds = {'лампа': [row]}
+    TB.unify_cards(variants, feeds, _uc_live(sid, 'Лампа В'), [sid])
+    assert lamp['name'] == row['name'] == 'Лампа В'
+    only = {'лампа': [row]}                                                              # товар только в ленте
+    TB.unify_cards([], only, _uc_live(sid, 'Лампа Г'), [sid])
+    assert only['лампа'][0]['name'] == 'Лампа Г'
+
+
+def test_unify_cards_identity_suspect_quarantines_only_that_product():
+    sid, variants, feeds = _uc_data(feed_name='Кровать Совсем Другая', w=260)           # название и габариты разошлись — не переименование
+    other = {k: v for k, v in _uc_card('3_300', 'Кровать Ещё').items() if k != '_sid'}
+    feeds['bedroom-1:кровать'].append(other)
+    st = TB.unify_cards(variants, feeds, _uc_live(sid), [sid, '3_300'])
+    assert st['identity_suspect'] == 1 and st['names_conflict'] == 0
+    assert [r['name'] for r in feeds['bedroom-1:кровать']] == ['Кровать Ещё']            # из ленты вон; чужой товар на месте
+    sk = variants[0]['items'][0]['sku']
+    assert sk['name'] == TB.neutral_names('кровать')[0] and 'price' not in sk and 'img' not in sk   # в предмете — нейтральное «недоступен»
+
+
+def test_unify_cards_residual_conflict_refuses_publication():
+    sid, variants, feeds = _uc_data()
+    real_cards = TB._cards_of
+
+    def broken(v, f):                                                                    # сведение «не сработало»: ошибка кода → отказ, не молчаливая выдача
+        out = real_cards(v, f)
+        return [(dict(c, name='Кровать Иная') if w[0] == 'feed' else c, w) for c, w in out]
+    TB._cards_of = lambda v, f: broken(v, f) if not getattr(TB, '_uc_done', False) else real_cards(v, f)
+    try:
+        TB._uc_done = True
+        TB.unify_cards(variants, feeds, _uc_live(sid), [sid])                            # норма: одна карточка
+        TB._uc_done = False
+        with pytest.raises(TB.BundleRefused) as e:
+            TB.unify_cards(variants, feeds, _uc_live(sid), [sid])
+        assert e.value.code == 'names_conflict'
+    finally:
+        TB._cards_of = real_cards
+        TB._uc_done = False
+
+
+def test_unify_cards_peek_does_not_count_offers():
+    calls = []
+    g = TB._Goods(lambda sid, role: calls.append(sid) or {'name': 'Х', 'price': 1, 'img': 'img/cccccccccccccccc.jpg'})
+    assert g.peek('1_1', 'диван')['name'] == 'Х' and g.states == {} and g.want_img == {}
+    g.offer('1_1', 'диван')
+    assert g.states == {'products': {'available': 1}}

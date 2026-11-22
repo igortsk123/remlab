@@ -25,6 +25,7 @@ HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, os.path.join(HERE, 'salad'))
 sys.path.insert(0, HERE)   # корень побеждает salad/ (см. render_strategy.py)
 import dimless as DL  # noqa: E402 — категория без размеров вне спроса мешей (catalog-holes-bank Н1)
+import mesh_photo as MP  # noqa: E402 — ЕДИНОЕ правило выбора фото меша (ADR-0452)
 # Источник привязки — реестр поколений `mesh_generations` (05.09), не обход диска: диск читает
 # `salad/ingest_registry.py` шагом раньше, и «текущее поколение» решается в одном месте.
 PSQL = ['docker', 'exec', '-i', 'remlab-devdb', 'psql', '-U', 'remlab',
@@ -71,7 +72,7 @@ def catalog_gates_sql(need: list, square: list) -> str:
     (T-20261023-08: сборка кандидата пускает товар, которому до мешепригодности не хватает только обогащения)."""
     lit = _lit
     return f"""p.cat_role in ({lit(need)})
-   and p.in_stock and p.image_url is not null and coalesce(p.photo_alive, true) and p.h_cm is not null  -- фото скачивается (conv-05)
+   and p.in_stock and {MP.photo_sql('p')} is not null and coalesce(p.photo_alive, true) and p.h_cm is not null  -- фото есть (HD или превью, ADR-0452) и скачивается (conv-05)
    -- КРУГЛОЕ ДОПУСКАЕМ ПО ДИАМЕТРУ (11.10). Генератору нужен горизонтальный габарит, а у
    -- света/кашпо/ваз его присылают как «Диаметр», а не «Ширину»: 108 из 125 торшеров без
    -- габаритов имели высоту и диаметр. Предикат `(w или dia) и h` уже жил в mesh_pilot.py:67 —
@@ -125,7 +126,7 @@ def mark_required() -> tuple[int, int]:
     # только по роли завышала число (17 379 против настоящих 12 092).
     # NB: переменная не используется (условия продублированы в SQL ниже) — держим её в
     # согласии с рабочим предикатом, иначе читатель поверит старой формулировке.
-    GATES = ("p.in_stock and p.image_url is not null and coalesce(p.photo_alive, true) and p.h_cm is not null "
+    GATES = ("p.in_stock and " + MP.photo_sql('p') + " is not null and coalesce(p.photo_alive, true) and p.h_cm is not null "
              "and (p.w_cm is not null or p.dia_cm is not null) and e.enriched_at is not null "
              "and e.payload->'model'->'styles' is not null")
     JOIN = ("from products p join product_enrichment e "

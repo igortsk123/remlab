@@ -24,6 +24,7 @@ SCENE_DIR = os.environ.get('SCENE_DIR', os.path.expanduser('~/scout-scenes'))
 CURSOR = os.path.join(SCENE_DIR, 'orientation', 'decisions.cursor')
 
 from mesh_queue import db, q  # noqa: E402
+import mesh_photo as MP  # noqa: E402 — ЕДИНОЕ правило выбора фото меша (ADR-0452)
 
 
 def _env() -> tuple[str, str]:
@@ -76,8 +77,8 @@ def _photo(sku: str) -> str | None:
     rows = db(f"select image_url from mesh_demand where sku={q(sku)} and image_url is not null")
     url = rows[0][0] if rows and rows[0][0] else None
     if not url:   # SKU вне текущего спроса (старый кэш) — фото из каталога
-        rows = db(f"""select image_url from products
-                      where shop_mid||':'||external_id={q(sku)} and image_url is not null""")
+        rows = db(f"""select {MP.photo_sql(None)} from products
+                      where shop_mid||':'||external_id={q(sku)} and {MP.photo_sql(None)} is not null""")
         url = rows[0][0] if rows and rows[0][0] else None
     if not url:
         return None

@@ -564,6 +564,28 @@ def _heal_pod(s: dict, members: list[str], dead: dict, alive: set, apply: bool =
     return out or None
 
 
+def _dead_reasons(ids) -> dict:
+    """Выбывшие товары из списка пар (mid, eid) → причина. ОДНО место для лечения и контрактов (T-20261119-89):
+    причину читает `heal_policy.suspicious` — надёжна ли она для предохранителя. Выбыл = пропал из фида (status)
+    ИЛИ карточка мертва (health.py гасит in_stock поверх фида)."""
+    vals = ','.join(f"({m},'{e}')" for m, e in ids)
+    dead = {}
+    if not vals:
+        return dead
+    for row in _rows(f"""select e.shop_mid, e.external_id,
+                    case when e.status <> 'active' then e.status
+                         when p.cat_role is null then 'роль снята каталогом'
+                         when p.availability_state = 'out_of_stock' then 'нет в наличии (страница)'
+                         else 'карточка мертва' end
+             from product_enrichment e
+             join products p on p.shop_mid=e.shop_mid and p.external_id=e.external_id
+             join (values {vals}) v(mid,eid) on e.shop_mid=v.mid and e.external_id=v.eid
+            where e.status <> 'active' or not p.in_stock or p.cat_role is null"""):
+        if len(row) >= 3:
+            dead[key(row[0], row[1])] = row[2]
+    return dead
+
+
 def heal(apply: bool = False, only_trusted: bool = False) -> None:
     """Лечение комплектов: выбывший товар меняем на запасной той же роли.
 
@@ -578,20 +600,7 @@ def heal(apply: bool = False, only_trusted: bool = False) -> None:
     idx = _load()
     sets = json.load(open(SETS))
     ids = [k.split(':') for k in idx if idx[k]['used']]
-    vals = ','.join(f"({m},'{e}')" for m, e in ids)
-    # выбыл = пропал из фида (status) ИЛИ карточка мертва (health.py гасит in_stock поверх фида)
-    dead = {}
-    for row in _rows(f"""select e.shop_mid, e.external_id,
-                    case when e.status <> 'active' then e.status
-                         when p.cat_role is null then 'роль снята каталогом'
-                         when p.availability_state = 'out_of_stock' then 'нет в наличии (страница)'
-                         else 'карточка мертва' end
-             from product_enrichment e
-             join products p on p.shop_mid=e.shop_mid and p.external_id=e.external_id
-             join (values {vals}) v(mid,eid) on e.shop_mid=v.mid and e.external_id=v.eid
-            where e.status <> 'active' or not p.in_stock or p.cat_role is null"""):
-        if len(row) >= 3:
-            dead[key(row[0], row[1])] = row[2]
+    dead = _dead_reasons(ids)
     if not dead:
         print('выбывших товаров в комплектах нет — лечить нечего')
         return
@@ -863,9 +872,29 @@ def pairs_step(apply: bool = False) -> None:
     print('sets3.json обновлён (бэкап .bak-pairs)')
 
 
+def _contracts_state_path() -> str:
+    """Состояние шага между прогонами (сколько прогонов подряд что-то отложено) — рядом с банком, не в git."""
+    return os.path.join(os.path.dirname(os.path.abspath(SETS)), 'contracts-state.json')
+
+
+def _contracts_streak(left: int, apply: bool) -> int:
+    """Сколько прогонов ПОДРЯД шаг что-то отложил или остановил (`left` > 0 в этом прогоне). Пишется только при --apply:
+    сухой показ счёт не двигает. Нет файла или он не читается — счёт с нуля."""
+    path = _contracts_state_path()
+    try:
+        prev = int(json.load(open(path, encoding='utf-8')).get('streak') or 0)
+    except Exception:  # noqa: BLE001
+        prev = 0
+    streak = prev + 1 if left else 0
+    if apply:
+        try:
+            json.dump({'streak': streak, 'left': left}, open(path, 'w', encoding='utf-8'))
+        except Exception as e:  # noqa: BLE001 — без записи счёт «подряд» не копится, но молчать об этом нельзя
+            print(f'WARN:contracts_state: состояние шага не записано ({type(e).__name__}: {str(e)[:80]})')
+    return streak
+
+
 def enforce_contracts(apply: bool = False, roles: tuple = ()) -> None:
-    _c_touched: set = set()
-    _c_journal: list = []
     """ПОЧИНКА БАНКА ПОД КОНТРАКТЫ ПОДБОРА (25.08). Лечение месяцами подменяло товары мимо ворот
     сборки, и банк накопил негодные позиции: диван 110 см в комнате 15 м² (конверт слота 144–198),
     ковёр 120×120 под диван 195 (канон передних ножек требует ≥ диван+30). Симптомы в галерее —
@@ -873,16 +902,43 @@ def enforce_contracts(apply: bool = False, roles: tuple = ()) -> None:
 
     Проходим банк, для каждой роли со слотом проверяем `_slot_ok`; нарушение — ищем живую замену
     (`_live_candidates`), проходящую ворота; не нашли — снимаем роль и пишем явный `coverage_gap`
-    (честная дыра лучше негодного товара)."""
+    (честная дыра лучше негодного товара).
+
+    ТРИ ШАГА (T-20261119-89, Codex 19.11 `_intake/codex/2026-11-19-contracts-fuse-answer.md`; шаг 32 ночи стоял на предохранителе
+    «110 из 126 комплектов» при 50 выбывших из 452 отдельных товаров — одна подушка стоит в 63 комплектах):
+      ПЛАН      — что заменить и чем, без записи. Ненадёжная причина выбытия (как у лечения: `_dead_reasons` +
+                  `heal_policy.suspicious`, напр. «карточка мертва») — позицию НЕ трогаем, WARN:contracts_deferred. Снятие
+                  без замены, после которого у комплекта больше пробелов обязательного ядра (`bank_invariants.core_missing`:
+                  диван, столик, носитель ТВ, пара кресел), — держим, WARN:contracts_core_held;
+      ПОРЦИЯ    — товары по ВОЗРАСТАНИЮ охвата (число комплектов), пока объединение комплектов ≤ `MAX_CONTRACT_SETS_SHARE`;
+                  остальные ждут следующего прогона. Товар, который ОДИН трогает больше этой доли, не применяется никогда
+                  (авария «один товар выбросило из всех комплектов», инцидент 29.08) — WARN:contracts_fuse;
+      ПРИМЕНЕНИЕ— предохранитель `heal_policy.contracts_allowed`: доля отдельных затронутых товаров (весь план, до порции),
+                  комплекты порции, ядро без регрессии; отказ — файл и бэкап не трогаем. Два прогона подряд что-то
+                  отложено — WARN:contracts_stuck (первой строкой: в дайджест refresh_daily идёт первая `WARN:`)."""
+    import collections as _col
     import shutil
     from proportions import check as prop_check
     from item_function import subtype as _sub
+    from heal_policy import (suspicious as _susp, trusted_archive_mids as _tam, contracts_allowed as _ca,
+                             MAX_CONTRACT_SETS_SHARE as _MAXS)
+    import bank_invariants as _bi
+    _c_touched: set = set()
+    _c_journal: list = []
     sets = json.load(open(SETS))
     alive = {key(r[0], r[1]) for r in _rows(
         "select e.shop_mid, e.external_id from product_enrichment e "
         "join products p using (shop_mid, external_id) "
         "where e.status='active' and p.in_stock and p.cat_role is not null") if len(r) >= 2}   # без роли — не живой (demo-05)
-    fixed = dropped = 0
+    _trusted = _tam()
+    _all = [it for s in sets for it in (s.get('items') or {}).values()]
+    _dead = _dead_reasons({(str(it.get('mid')), str(it.get('eid'))) for it in _all})
+    total_skus = {key(it.get('mid'), it.get('eid')) for it in _all}
+    _core_before = [set(_bi.core_missing(s)) for s in sets]
+    plan: list = []               # решения без записи: {n, role, it, sku, kind: repl|drop, repl}
+    _deferred: list = []          # (комплект, роль, причина): ненадёжная причина — ждёт проверки
+    _core_held: list = []         # (комплект, роль, товар): снятие ухудшило бы ядро
+    _gone: dict = _col.defaultdict(set)   # комплект → роли, уже снятые планом (для проверки ядра внутри одного комплекта)
     for n, s in enumerate(sets, 1):
         items = s.get('items') or {}
         for role in list(items):
@@ -890,6 +946,11 @@ def enforce_contracts(apply: bool = False, roles: tuple = ()) -> None:
                 continue
             it = items[role]
             if _slot_ok(role, it, s, current=True):
+                continue
+            sku = key(it.get('mid'), it.get('eid'))
+            _why = _dead.get(sku)
+            if _why is not None and _susp(_why, it.get('mid'), _trusted):
+                _deferred.append((n, role, _why))
                 continue
             repl = None
             # кандидатов сортируем по БЛИЗОСТИ К ИДЕАЛУ СЛОТА, а не по стилю/цене: замена «первым
@@ -916,30 +977,62 @@ def enforce_contracts(apply: bool = False, roles: tuple = ()) -> None:
                     repl = cand
                     break
             if repl:
-                fixed += 1
-                print(f'  сет {n}: {role} {it.get("w")}x{it.get("d")} «{it["name"][:28]}» → '
-                      f'{repl.get("w")}x{repl.get("d")} «{repl["name"][:28]}»')
-                if apply:
-                    if (repl.get('w'), repl.get('d')) != (it.get('w'), it.get('d')):
-                        s['_dims_changed'] = True
-                    items[role] = repl
-                    _c_touched.add(s.get('set_id') or n)
-                    _c_journal.append((s.get('set_id'), role,
-                                       f"{it.get('mid')}:{it.get('eid')}",
-                                       f"{repl.get('mid')}:{repl.get('eid')}"))
-            else:
-                dropped += 1
-                print(f'  сет {n}: {role} {it.get("w")}x{it.get("d")} вне контракта, замены нет → снят')
-                if apply:
-                    items.pop(role, None)
-                    s['_dims_changed'] = True
-                    _c_touched.add(s.get('set_id') or n)
-                    _c_journal.append((s.get('set_id'), role,
-                                       f"{it.get('mid')}:{it.get('eid')}", None))
-                    g = s.setdefault('gaps', [])
-                    msg = f'coverage_gap: {role} — нет живого SKU в конверте слота'
-                    if msg not in g:
-                        g.append(msg)
+                plan.append(dict(n=n, role=role, it=it, sku=sku, kind='repl', repl=repl))
+                continue
+            # снятие без замены: ядро комплекта не должно ухудшиться (ноль регрессии обязательного ядра)
+            _now = {r: v for r, v in items.items() if r not in _gone[n]}
+            _aft = {r: v for r, v in _now.items() if r != role}
+            if set(_bi.core_missing({'items': _aft, 'm2': s.get('m2')})) - set(_bi.core_missing({'items': _now, 'm2': s.get('m2')})):
+                _core_held.append((n, role, sku))
+                continue
+            _gone[n].add(role)
+            plan.append(dict(n=n, role=role, it=it, sku=sku, kind='drop', repl=None))
+
+    # ПОРЦИЯ: товары по возрастанию охвата, пока объединение комплектов в пределе; один товар сверх предела — никогда
+    by_sku: dict = _col.defaultdict(set)
+    for a in plan:
+        by_sku[a['sku']].add(a['n'])
+    cap = _MAXS * len(sets)
+    never = sorted(k for k, v in by_sku.items() if len(v) > cap)
+    take: set = set()
+    used: set = set()
+    for k, v in sorted(by_sku.items(), key=lambda kv: (len(kv[1]), kv[0])):
+        if k in never:
+            continue
+        if len(used | v) <= cap:
+            take.add(k)
+            used |= v
+    postponed = sorted(k for k in by_sku if k not in take and k not in never)
+
+    # ПРИМЕНЕНИЕ в памяти (в файл — только ниже, после предохранителя)
+    fixed = dropped = 0
+    for a in plan:
+        if a['sku'] not in take:
+            continue
+        n, role, it, repl = a['n'], a['role'], a['it'], a['repl']
+        s = sets[n - 1]
+        items = s['items']
+        if a['kind'] == 'repl':
+            fixed += 1
+            print(f'  сет {n}: {role} {it.get("w")}x{it.get("d")} «{it["name"][:28]}» → '
+                  f'{repl.get("w")}x{repl.get("d")} «{repl["name"][:28]}»')
+            if (repl.get('w'), repl.get('d')) != (it.get('w'), it.get('d')):
+                s['_dims_changed'] = True
+            items[role] = repl
+            _c_touched.add(s.get('set_id') or n)
+            _c_journal.append((s.get('set_id'), role, f"{it.get('mid')}:{it.get('eid')}",
+                               f"{repl.get('mid')}:{repl.get('eid')}"))
+        else:
+            dropped += 1
+            print(f'  сет {n}: {role} {it.get("w")}x{it.get("d")} вне контракта, замены нет → снят')
+            items.pop(role, None)
+            s['_dims_changed'] = True
+            _c_touched.add(s.get('set_id') or n)
+            _c_journal.append((s.get('set_id'), role, f"{it.get('mid')}:{it.get('eid')}", None))
+            g = s.setdefault('gaps', [])
+            msg = f'coverage_gap: {role} — нет живого SKU в конверте слота'
+            if msg not in g:
+                g.append(msg)
     # ПОСЛЕ ЗАМЕН — синхронизация экземпляров пары (та же функция, что у шага --sync-pairs)
     synced = len(sync_pairs(sets, apply))
     if synced:
@@ -958,18 +1051,53 @@ def enforce_contracts(apply: bool = False, roles: tuple = ()) -> None:
         if s.pop('_dims_changed', False):
             s['_relayout_pending'] = True
     print(f'\nвне контракта: заменено {fixed}, снято {dropped}')
-    if apply and (fixed or dropped):
-        # Предохранитель на прогон и журнал (Codex P1-8): contracts умел молча переписать
-        # ВСЕ 126 сетов — без записи в set_changes точечная пересборка не узнала бы об этом,
-        # и сцены остались бы от старых составов. Без модуля предохранителя писать нельзя — шаг падает
-        # (раньше `except` пропускал запись без проверки и журнала).
-        from heal_policy import record as _rec, run_allowed as _ra
-        ok_run, why = _ra(len(_c_touched), len(sets))
-        if not ok_run:
-            # ОТКАЗ — WARN, не тихий return (conv-12 п.1): с 05.09 шаг 46 ночей писал `ok`, не применив ничего.
-            # Строку `WARN:` refresh_daily.sh переводит в статус шага warn и в дайджест Telegram.
-            print(f'WARN:contracts_fuse: {why} — contracts НЕ применены')
-            return
+    _by_role = _col.Counter((a['role'], 'заменить' if a['kind'] == 'repl' else 'снять') for a in plan if a['sku'] in take)
+    if _by_role:
+        print('по ролям: ' + ', '.join(f'{r} — {k} {c}' for (r, k), c in sorted(_by_role.items())))
+    _sets_post = set().union(*[by_sku[k] for k in postponed]) if postponed else set()
+    if postponed:
+        print(f'отложено порцией: {len(postponed)} товаров / {len(_sets_post - used)} комплектов сверх порции '
+              f'(охват порции {len(used)} из {len(sets)} комплектов, предел {_MAXS:.0%}) — ждут следующего прогона')
+
+    # ПРЕДОХРАНИТЕЛЬ: ширина — весь план (до порции), радиус — порция, ядро — итоговое состояние в памяти
+    _core_regress = [i for i, s in enumerate(sets, 1) if set(_bi.core_missing(s)) - _core_before[i - 1]]
+    _top = sorted(((k, len(v)) for k, v in by_sku.items()), key=lambda kv: -kv[1])
+    ok_run, why = _ca(len(by_sku), len(total_skus), len(used), len(sets), core_regress=_core_regress, top=_top)
+    _fuse_line = None
+    if never:
+        ok_run = False
+        why = (f'товар(ы) {", ".join(never[:3])} в одиночку трогают больше {_MAXS:.0%} комплектов '
+               f'({", ".join(str(len(by_sku[k])) for k in never[:3])} из {len(sets)}) — это авария «один товар выбит из всех '
+               f'комплектов», а не лечение; такой товар автоматически не применяется')
+    if not ok_run:
+        _fuse_line = f'WARN:contracts_fuse: {why} — contracts НЕ применены'
+    # слева — всё, что не сделано по ЛЮБОЙ причине: отложено порцией, держится по ядру, ненадёжная причина, остановка
+    left = len(postponed) + len(never) + len(_core_held) + len(_deferred) + (len(by_sku) if _fuse_line else 0)
+    streak = _contracts_streak(left, apply)
+    # ПОРЯДОК WARN: в дайджест refresh_daily идёт ПЕРВАЯ строка `WARN:` шага — самое важное первым
+    if streak >= 2:
+        print(f'WARN:contracts_stuck: уже {streak} прогона подряд контракты что-то отложили или остановили '
+              f'(порцией {len(postponed)} товаров, ядро {len(_core_held)} позиций, ненадёжная причина {len(_deferred)} позиций'
+              f'{", остановка предохранителя" if _fuse_line else ""}) — нужна проверка человеком')
+    if _fuse_line:
+        # ОТКАЗ — WARN, не тихий return (conv-12 п.1): с 05.09 шаг 46 ночей писал `ok`, не применив ничего.
+        print(_fuse_line)
+    if _core_held:
+        _ck = sorted({k for _n, _r, k in _core_held})
+        print(f'WARN:contracts_core_held: снятие без замены ухудшило бы ядро комплекта — не тронуто {len(_core_held)} позиций '
+              f'({len(_ck)} отдельных товаров, ждут замены в каталоге): ' + ', '.join(sorted({r for _n, r, _k in _core_held})))
+    if _deferred:
+        # молчаливых отказов нет (conv-12 п.1): отложенное — строкой WARN, refresh_daily переводит шаг в warn и в дайджест
+        _skus_def = len({key(sets[n - 1]['items'][r]['mid'], sets[n - 1]['items'][r]['eid']) for n, r, _w in _deferred})
+        _by = _col.Counter(w for _n, _r, w in _deferred)
+        print(f'WARN:contracts_deferred: ненадёжная причина выбытия — не тронуто {len(_deferred)} позиций '
+              f'({_skus_def} отдельных товаров), ждут проверки пробы/импорта; причины: '
+              + ', '.join(f'{w} — {c}' for w, c in sorted(_by.items())))
+    if apply and (fixed or dropped) and not _fuse_line:
+        # Журнал (Codex P1-8): contracts умел молча переписать ВСЕ 126 сетов — без записи в set_changes точечная
+        # пересборка не узнала бы об этом, и сцены остались бы от старых составов. Без модуля предохранителя
+        # писать нельзя — шаг падает (раньше `except` пропускал запись без проверки и журнала).
+        from heal_policy import record as _rec
         shutil.copy(SETS, SETS + '.bak-contracts')   # бэкап — только перед реальной записью
         _ensure_ids(sets)          # новый сет обязан получить стабильный id сразу
         for sid, slot, old_sku, new_sku in _c_journal:

@@ -462,6 +462,7 @@ STEPTIME читается разборщиком, статика связей з
 (`refresh_step_times.py --days 7 --split demo_band --cpu`). После: понедельник 23.11 (первый после влития) — ① дневная сборка: вечер без `solver_full` (ожидание ≈ 133 − 58 = ~75 мин, прогон ≈ 300 мин, ≈ 83 CPU-мин);
 ② недельная: `refresh_step_times.py --log solver-weekly.log --cpu --days 8` (ожидание 55–65 мин, ~64 CPU-мин, старт 05:30, конец ≈ 06:30, до срока 10:10 с запасом 3,5 ч); ③ сводка понедельника: строка `DIGEST:недельная проверка…`
 без `WARN:solver_weekly`; ④ ожидание слота тяжёлых для недельной — 0 с (`~/remlab-logs/heavy-slot.log`, метка `solver-weekly`). Не сошлось (недельная >90 мин, пропуск, срок) — разбор по статусу и журналу до следующего понедельника.
+- 19.11 (router): `stock_check` и `price_truth` rc=0 (17–18.11 FAIL); res=warn — `price_stale` 27 товаров и карантин магазина 114667 (сторож на прогон, `tools/scout/stock_check.py:581`); ERROR БД 3 — ручные запросы разбора T-89, не прогон.
 
 ## Definition of Done — память (без этого `completed` запрещён)
 - [ ] Memory Bank обновлён: `core/catalog.md`, `core/pipeline-order.md`, `deployment.md`, ADR о делении (том + строка в `decisions.md`), `project-state.md`

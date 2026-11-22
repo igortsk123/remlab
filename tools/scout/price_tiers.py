@@ -8,10 +8,13 @@
 комнат (`flat215_demo._catalog_pick`), `demo-data.json` (поле `price_segment` и диапазоны роли для чипов страницы).
 Этот модуль — только чтение правила + ключ семейства + популяция каталога; DB и PIL не нужны до вызова `family_prices`.
 
+БАНК НАБОРОВ читает ступени через `bank_tiers.py` (там же режим и класс роли) — этот модуль банк не знает и его настройки не читает.
+
   python3 price_tiers.py --selftest
 """
 import json
 import os
+import re
 import statistics
 import sys
 
@@ -188,7 +191,7 @@ def _selftest() -> int:
     if segment_of('диван', 'f1', 10, {'диван': {'f1': 60000}}, R) != 'mid' or segment_of('диван', 'zz', 95000, {'диван': {}}, R) != 'hi':
         bad += 1
         print('  FAIL: ступень товара — по цене семейства, нет семейства — по своей цене')
-    print(f'price_tiers selftest: случаев 10, ошибок {bad}')
+    print(f'price_tiers selftest: случаев 11, ошибок {bad}')
     return 1 if bad else 0
 
 

@@ -3,6 +3,7 @@
 
 from __future__ import annotations
 
+import os
 import subprocess
 import sys
 from datetime import UTC, date, datetime
@@ -44,8 +45,10 @@ def test_idy_diapazony_i_imena_zadach() -> None:
     assert nazvaniya.idy("T-20261104-02…05, -07…08") == {f"T-20261104-0{n}" for n in (2, 3, 4, 5, 7, 8)}
 
 
-def test_nazvaniya_s_doski_i_iz_istorii_git(tmp_path: Path) -> None:
+def test_nazvaniya_s_doski_i_iz_istorii_git(tmp_path: Path, monkeypatch) -> None:
     """Завершённую строку свод памяти удаляет — название берётся из истории доски; прочие таблицы файла — мимо."""
+    for k in [k for k in os.environ if k.startswith("GIT_")]:   # git-хук ставит GIT_DIR/GIT_INDEX_FILE: `git init` лёг бы в настоящий репо (T-20261121-184)
+        monkeypatch.delenv(k)
     doska = tmp_path / "README.md"
     git = ["git", "-C", str(tmp_path), "-c", "user.name=t", "-c", "user.email=t@t"]
     subprocess.run([*git, "init", "-q"], check=True)

@@ -40,6 +40,21 @@ def strategy(role: str | None) -> str:
     return r.get(base_role(role), r.get('_default', 'hunyuan3d'))
 
 
+def mesh_strategies() -> tuple:
+    """Стратегии, которые дают роли 3D-модель (`mesh_strategies` канона): лёгкая копия на /rt/ и показ в галерее мешей — вместо
+    литерала `== 'hunyuan3d'` у потребителей (T-20261120-150/1). Ключа нет — прежнее поведение: только `hunyuan3d`."""
+    return tuple(_load().get('mesh_strategies') or ('hunyuan3d',))
+
+
+def has_mesh(role: str | None) -> bool:
+    return strategy(role) in mesh_strategies()
+
+
+def painted_source() -> dict:
+    """Источник «крашеная модель» (`painted_source` канона): source в manifest.json склада, store, значения поля guard."""
+    return dict(_load()['painted_source'])
+
+
 def policy_version() -> int:
     return int(_load().get('policy_version', 0))
 

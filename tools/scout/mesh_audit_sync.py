@@ -32,6 +32,7 @@ import urllib.request
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, HERE)
+import mesh_photo as MP  # noqa: E402 — ЕДИНОЕ правило выбора фото меша (ADR-0452)
 STATE_DIR = os.path.expanduser('~/scout-scenes/mesh-audit')
 CURSOR = os.path.join(STATE_DIR, 'decisions.cursor')
 PUSH_STATE = os.path.join(STATE_DIR, 'push-state.json')
@@ -245,7 +246,7 @@ def current_items() -> list[dict]:
       select c.sku, c.generation_key, c.source_sha, c.seed, to_char(c.generated_at at time zone 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS"Z"'),
              att.n, to_char(att.first_at at time zone 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS"Z"'),
              coalesce(p.cat_role,''), regexp_replace(coalesce(p.name,''), E'[\\n\\r\\x1f]', ' ', 'g'),
-             coalesce(p.image_url_hd, p.image_url, ''),
+             coalesce(""" + MP.photo_sql('p') + """, ''),
              case when pc.source_sha is null then 'unknown'
                   when pc.source_sha like c.source_sha||'%' then 'fresh' else 'stale' end,
              coalesce((select string_agg(regexp_replace(coalesce(v.name,''), E'[\\n\\r\\x1f]', ' ', 'g'), '\x1e' order by v.name)

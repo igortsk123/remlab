@@ -104,6 +104,9 @@ ap.add_argument('--smooth-deg', type=float, default=50.0, help='угол сгл�
 ap.add_argument('--denoise', type=int, default=1, help='0 — без шумоподавления OIDN (разбор причины артефактов)')
 ap.add_argument('--mr', type=int, default=1, help='1: у мебели своя карта шероховатости/металла меша (как есть), иначе таблица ROUGH')
 ap.add_argument('--qa', type=int, default=1, help='сторож кадров (render-qa-gate-01, frame_qa.py): до рендера — оплачиваемые позиции против выгрузки и сцены; после — маска предметов каждого кадра, отчёт `<кадр>.qa.json`; только отчёт, кадр не блокирует (шаг 5 не включён)')
+ap.add_argument('--lens-hide-roles', default='', help='роли предметов оболочки (через запятую, например door = «дверь», window = «окно»; латиницей — воркер не принимает кириллицу в аргументах), которые не рисуем в кадре, если объектив ближе `--lens-hide-cm` к их габариту (камера в проёме двери: створка в 2–3 см от линзы на косых лучах чернеет — T-20261119-106); пусто — правило выключено')
+ap.add_argument('--lens-hide-cm', type=float, default=15.0, help='порог правила `--lens-hide-roles`, см до габаритного ящика предмета')
+ap.add_argument('--behind-hide', default='', help='ключевые слова цепочки узлов демо-сцены (например «curtains») и роли предметов, которые камера видит в основном с ИЗНАНКИ (камера за шторой/в проёме): в этом кадре не рисуем (T-20261119-106); пусто — правило выключено')
 ap.add_argument('--qa-inject', default='', help='проверка сторожа: art_nomap[:слот],art_white[:слот],curtain_remove,hide_item:слот,camera,rug_shards[:слот] (через запятую)')
 a = ap.parse_args(argv)
 if a.orig and (a.lamp_k == 2800.0 or a.sheen == 0.4 or (a.fabric and a.fabric_tile == 12.0)):
@@ -703,6 +706,12 @@ def soft_tweaks(mat, fabric=None):
 # ---------------- предметы (меши с текстурами) ----------------
 mat_cache = {}
 ROLE_OBJ = {}
+# воркер пропускает в аргументах только латиницу (`jobs_proto._ARG`), поэтому роль в пресете — латинским именем, а не «дверь»
+ROLE_ALIAS = {'door': 'дверь', 'window': 'окно'}
+LENS_ROLES = {ROLE_ALIAS.get(r_.strip(), r_.strip()) for r_ in a.lens_hide_roles.split(',') if r_.strip()}
+LENS_OBJ = []          # предметы этих ролей: в кадре, где объектив ближе порога, скрываются (`apply_lens_hide`)
+BEHIND_KW = {k_.strip() for k_ in a.behind_hide.split(',') if k_.strip()}
+BEHIND_OBJ = []        # предметы оболочки (роль или цепочка узла демо-сцены из `--behind-hide`): скрываются в кадре, где камера видит их в основном с изнанки
 for o in M['objs']:
     z = np.load(os.path.join(a.scene_dir, o['file']))
     role = o['role'].split(' ')[0]
@@ -729,6 +738,10 @@ for o in M['objs']:
         vv = vv.mean(axis=0) + (vv - vv.mean(axis=0)) * (1.0 + 0.0006 * (1 + k_ % 4))
     ob = make_obj(o['file'], vv, z['f'], uvs=z['uv'] if 'uv' in z.files else None, mat=mat, smooth=False)
     ROLE_OBJ.setdefault(o['role'], ob)
+    if role in LENS_ROLES:
+        LENS_OBJ.append(ob)
+    if role in BEHIND_KW:
+        BEHIND_OBJ.append(ob)
     if o['tex'] and a.smooth_deg > 0:
         smooth_by_angle(ob, a.smooth_deg)
     _orig = dict(s.split(':', 1) for s in a.orig)
@@ -847,6 +860,8 @@ if a.demo_glb:
             continue
         uu = ob.name.split('__')[-1].split('.')[0]
         slot = (info.get(uu) or {}).get('slot', '')
+        if BEHIND_KW and any(k_ in str((info.get(uu) or {}).get('chain', '')) or k_ in slot for k_ in BEHIND_KW):
+            BEHIND_OBJ.append(ob)
         for m in ob.data.materials:
             if m and m.use_nodes:
                 bs_ = next((n for n in m.node_tree.nodes if n.type == 'BSDF_PRINCIPLED'), None)
@@ -973,6 +988,54 @@ if a.demo_glb:
         print('люстра: свет в', lo.location, 'Вт', a.chandelier)
 
 # ---------------- камера ----------------
+def apply_lens_hide(camobj):
+    """Камера в «кармане» оболочки (T-20261119-106): два общих правила, состояние пересчитывается под КАЖДУЮ камеру (и сторожем перед маской кадра):
+    ① `--lens-hide-roles`: предмет ближе `--lens-hide-cm` к линзе (камера в проёме, створка в 2–3 см) не рисуем — на косых лучах он чернеет перед линзой и закрывает треть кадра;
+    ② `--behind-hide`: предмет оболочки (шторы), который камера видит в основном с изнанки (камера стоит за шторой), не рисуем — он закрывает мебель за ним."""
+    if not LENS_OBJ and not BEHIND_OBJ:
+        return
+    import frame_qa as _fq
+    eye = camobj.matrix_world.translation
+    hide, why = set(), {}
+    for ob_ in LENS_OBJ:
+        pts_ = [ob_.matrix_world @ Vector(c_) for c_ in ob_.bound_box]
+        mn_ = [min(p_[i_] for p_ in pts_) for i_ in range(3)]
+        mx_ = [max(p_[i_] for p_ in pts_) for i_ in range(3)]
+        if _fq.lens_hidden(tuple(eye), mn_, mx_, a.lens_hide_cm):
+            hide.add(ob_.name)
+            why[ob_.name] = f'до габарита {_fq.aabb_dist_cm(tuple(eye), mn_, mx_):.1f} см, порог {a.lens_hide_cm:g}'
+    if BEHIND_OBJ:
+        names_ = {o_.name for o_ in BEHIND_OBJ}
+        dg_ = bpy.context.evaluated_depsgraph_get()
+        cdat_, rm_ = camobj.data, camobj.matrix_world.to_3x3()
+        T_ = math.tan(cdat_.angle / 2)
+        ratio_ = sc.render.resolution_y / sc.render.resolution_x
+        hits_ = []
+        for iu_ in range(21):
+            for iv_ in range(15):
+                u_, v_ = (iu_ + 0.5) / 21, (iv_ + 0.5) / 15
+                d_ = (rm_ @ Vector(((2 * u_ - 1) * T_, (1 - 2 * v_) * T_ * ratio_ + cdat_.shift_y * 2 * T_, -1.0))).normalized()
+                p_ = eye.copy()
+                for _k in range(8):
+                    h_ = sc.ray_cast(dg_, p_, d_)
+                    if not h_[0]:
+                        break
+                    if (h_[1] - eye).length < cdat_.clip_start:      # ближе ближней плоскости — рендер этого не рисует, идём дальше по лучу
+                        p_ = h_[1] + d_ * 1e-4
+                        continue
+                    if h_[4].name in names_:
+                        hits_.append((h_[4].name, h_[2].dot(d_) > 0))
+                    break
+        for n_ in _fq.seen_from_behind(hits_):
+            hide.add(n_)
+            why[n_] = f'камера видит с изнанки: {sum(1 for h in hits_ if h[0] == n_ and h[1])} из {sum(1 for h in hits_ if h[0] == n_)} лучей'
+    for ob_ in LENS_OBJ + BEHIND_OBJ:
+        want_ = ob_.name in hide
+        if want_ != ob_.hide_render:
+            print(f'ОБЪЕКТИВ: {ob_.name} {"скрыт" if want_ else "показан"} ({why.get(ob_.name, "камера вне кармана")})', flush=True)
+        ob_.hide_render = want_
+
+
 def setup_camera(cam_name):
     """Ракурс `cam_name` целиком (поза, правила позы «Б», объектив) — глобальные cd/cam/co/right/up/fwd/pose_b обновляются."""
     global cd, pose_b, cam, co, right, up, fwd, rot, mat4, _wins
@@ -1161,6 +1224,7 @@ def setup_camera(cam_name):
                 else:
                     cam.shift_y = sh0
         print(log)
+    apply_lens_hide(co)         # камера окончательная (поза «Б» могла сдвинуть) — скрыть предметы оболочки, мешающие именно из этой точки
 
 
 
@@ -1277,6 +1341,7 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import frame_qa
 QA = frame_qa.Guard(a, M, bool(a.qa and a.demo_nodes and a.export))
 QA.scene_ready(bpy, np)
+QA.frame_hook = apply_lens_hide      # маска сторожа строится при том же скрытии у объектива, что и кадр
 for _i, _cn in enumerate(CAMS):
     setup_camera(_cn)
     QA.camera_ready(bpy, co, _cn)

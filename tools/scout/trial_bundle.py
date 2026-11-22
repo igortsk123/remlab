@@ -58,6 +58,7 @@ if HERE not in sys.path:
     sys.path.insert(0, HERE)
 import trial_room as TR  # noqa: E402  (кладёт солвер в sys.path)
 import trial_demo as TD  # noqa: E402  (исход гостиной — `outcome_of`: «нет места» / «нет товаров», T-20261110-09)
+import product_names as PN  # noqa: E402  (ЕДИНОЕ правило названия товара: витрина и туры, T-20261119-97)
 
 LIVING = 'living'
 BEDROOM = 'bedroom'
@@ -240,7 +241,7 @@ SCENE_SKU_KEYS = {'tint', 'yaw', 'hung', 'fam'}            # fam — семья 
 # (`NEVER_KEYS`) — а заказ «Сделать фото» из тура должен назвать товар каждого предмета. `pid` — односторонний хеш `sid` с пространством имён (по нему
 # ключ поставщика не восстановить; 96 бит), одинаковый между перевыпусками; цена, корзина и подбор от него не зависят (поле только для ссылки заказа)
 PID_KEY = 'pid'
-PID_NS = 'p1:'                               # пространство имён и версия ключа: сменится схема — `p2:`, старые не спутаются
+from product_pid import PID_NS, pid_of  # noqa: E402,F401 — ОДНО определение ключа товара (вынесено, T-20261119-97); здесь — для прежних обращений `TB.pid_of`
 PID_RE = re.compile(r'p1:[0-9a-f]{24}')
 PUBLIC_SKU_KEYS = SKU_KEYS | PRODUCT_KEYS | SCENE_SKU_KEYS | {PID_KEY}
 # куски стадий (внутренние файлы DEV, в выход не идут): плюс ключ товара `sid` — по нему сборщик берёт товар из каталога — и его
@@ -282,7 +283,7 @@ def quiz_rule() -> dict:
 def default_ctx() -> dict:
     """Что берётся у живого демо: числа правил страницы, модель товара, правило опроса. Импорт `flat215_demo` тяжёлый — только здесь."""
     import flat215_demo as FD
-    return {'rules': {**FD._rules(), 'soft_roles': FD.soft_roles()}, 'msid_of': FD._msid, 'slot_band': FD._slot_band, 'quiz': quiz_rule(),
+    return {'rules': FD.page_rules(), 'msid_of': FD._msid, 'slot_band': FD._slot_band, 'quiz': quiz_rule(),
             'goods': _demo_goods, 'room_goods': _demo_room_goods, 'img_queue': queue_images, 'money_en': uk_money(), 'demo_feeds': _demo_feeds, 'dev_flat': dev_flat(), 'scene_live': scene_live}
 
 
@@ -489,11 +490,13 @@ def catalog_goods(sid: str | None, role: str, bank: dict | None = None, tile=Non
         src, price = m, m.get('price')
     else:
         return None
-    if not src.get('name') or not isinstance(price, (int, float)) or not price > 0:
+    # НАЗВАНИЕ — ПО ЕДИНОМУ ПРАВИЛУ (`product_names.pick_name`, T-20261119-97): живой каталог, а не имя из банка (банк обновляется оборотом и отстаёт от фида)
+    name = PN.pick_name(m) or PN.clean(src.get('name') or '') or None   # нет в каталоге — имя банка, но пробелы по тому же правилу (T-20261119-105/1)
+    if not name or not isinstance(price, (int, float)) or not price > 0:
         return None
     url = src.get('url') if URL_RE.fullmatch(str(src.get('url') or '')) else None
-    ne = TD._names_en({'name': src['name'], 'mid': mid, 'eid': eid}, role)
-    return {'name': src['name'], 'name_en': ne.get('name_en') or None, 'colour_en': ne.get('colour_en') or None, 'price': int(price),
+    ne = TD._names_en({'name': name, 'mid': mid, 'eid': eid}, role)
+    return {'name': name, 'name_en': ne.get('name_en') or None, 'colour_en': ne.get('colour_en') or None, 'price': int(price),
             'img': demo_img(goods_img_urls(b, m)) or (tile(sid) if tile else None), 'url': url, 'shop': (src.get('shop') or None)}
 
 
@@ -526,7 +529,7 @@ def room_goods(sid: str | None, role: str, room: str, bank: dict | None = None, 
     if r is None:
         return None
     mid, eid = sid.split('_', 1)
-    name, shop, url = r[2], r[3], r[5]
+    name, shop, url = PN.clean(r[2]) if r[2] else r[2], r[3], r[5]   # строка room_catalog — комнатная ветка единого правила `product_names`; пробелы — как у витрины
     try:
         price = float(r[4]) if r[4] not in (None, '') else None
     except (TypeError, ValueError):
@@ -629,7 +632,14 @@ class _Goods:
         self.states: dict = {}
         self.want_img: dict = {}
 
-    def offer(self, sid, role, origin=None) -> tuple:
+    def peek(self, sid, role, origin=None):
+        """Товар как `offer`, но без счёта состояний (`states`) и без очереди фото: для сверки карточек (`unify_cards`) — журнал сборки не искажается."""
+        want = dict(self.want_img)
+        g = self.offer(sid, role, origin, count=False)[1]
+        self.want_img = want
+        return g
+
+    def offer(self, sid, role, origin=None, count=True) -> tuple:
         """→ (состояние, товар | None)."""
         origin = offer_origin(origin)
         room = origin.split(':', 1)[1] if origin.startswith('room_catalog:') else None
@@ -649,21 +659,13 @@ class _Goods:
             except Exception as e:  # noqa: BLE001 — сбой каталога не роняет тур: без товаров, с флагом
                 self.down = str(e)[:200]
                 st, g = 'catalog_down', None
-        if sid:
+        if sid and count:
             c = self.states.setdefault(origin, {})
             c[st] = c.get(st, 0) + 1
         return st, g
 
     def __call__(self, sid, role, origin=None):
         return self.offer(sid, role, origin)[1]
-
-
-def pid_of(sid) -> str | None:
-    """Публичный ключ товара по `sid` (`PID_KEY`): `p1:` + 24 hex от пространства имён и нормализованного `sid` (двоеточие источника — как у
-    `_sid`: `a:b` и `a_b` — один товар). НИКОГДА не кладётся в `sid`/`msid`: меш и экспорт сцены читают `msid or sid` как файл модели."""
-    if not sid:
-        return None
-    return PID_NS + hashlib.sha256((PID_NS + str(sid).replace(':', '_', 1)).encode()).hexdigest()[:24]
 
 
 def put_pid(sku: dict, sid) -> dict:
@@ -1672,6 +1674,164 @@ def feeds_for(variants: list, demo: dict | None = None, room_keys: bool = True, 
     return feeds, short
 
 
+# ───────────────────── ОДНА КАРТОЧКА ТОВАРА НА `pid` (T-20261119-07/5 п.2, план `product-names-01`) ─────────────────────
+# Копии одного товара живут в разных местах и обновляются в разное время: предмет варианта (`room_catalog`/банк), лента замен (`/demo/demo-data.json`),
+# декор. Магазин переименовал товар — название у копий разошлось, а `pid` (хеш `sid`) у всех одинаков. Финальный проход сводит ВСЕ вхождения
+# одного `pid` к одной карточке по ЖИВОМУ каталогу на момент сборки (а нет живой — к первой настоящей карточке варианта) и считает; остаток —
+# отказ публикации (ошибка кода, не данных); подозрение на подмену товара под тем же номером — карантин только этого товара.
+CARD_KEYS = ('name', 'name_en', 'colour_en', 'price', 'url', 'shop', 'img')     # что сводится (поля товара; модель и размеры сцены не трогаем)
+DIM_TOL_CM = 1.0
+
+
+def _is_card(c) -> bool:
+    """Настоящая карточка товара: `pid`, название и цена. Нейтральный предмет («Кровать 160 см», товара нет) карточкой не считается."""
+    return (isinstance(c, dict) and isinstance(c.get(PID_KEY), str) and isinstance(c.get('name'), str)
+            and isinstance(c.get('price'), (int, float)) and not isinstance(c.get('price'), bool))
+
+
+def _cards_of(variants: list, feeds: dict):
+    """Все вхождения товаров данных страницы → [(карточка, откуда: ('var'|'feed', вид комнаты, роль))]; порядок детерминирован
+    (варианты по порядку, затем ленты по ключу): от него зависит, какая карточка станет эталоном, если живой нет."""
+    out = []
+    for v in variants:
+        rid = v.get('room_id') or ''
+        kind = rid.split('-')[0] if rid.split('-')[0] in ('bedroom', 'hall') else 'living'
+        for part, is_decor in (('items', False), ('decor', True)):
+            for it in v.get(part) or []:
+                sk = it.get('sku') if isinstance(it, dict) else None
+                if isinstance(sk, dict):
+                    out.append((sk, ('var', 'products' if is_decor or kind == 'living' else f'room_catalog:{kind}', _base_role(it.get('role') or ''))))
+    for key in sorted(feeds or {}):
+        kind, _, base = key.partition(':')
+        origin = {'bedroom': 'room_catalog:bedroom', 'hall': 'room_catalog:hall'}.get(kind.split('-')[0], 'products') if base else 'products'
+        for row in feeds[key]:
+            if isinstance(row, dict):
+                out.append((row, ('feed', origin, _base_role(base or key))))
+    return out
+
+
+def _same_identity(a: dict, b: dict) -> bool:
+    """Две карточки с разным названием — тот же товар (переименование) или другой: модель `msid` (если названа у обеих) и габариты `w/d/h`
+    (у обеих; допуск 1 см). Плитка фото и цена не в счёте: фото-плитка у товара законно разная, цена меняется."""
+    ma, mb = a.get('msid'), b.get('msid')
+    if ma not in (None, '') and mb not in (None, '') and ma != mb:
+        return False
+    for k in ('w', 'd', 'h'):
+        x, y = a.get(k), b.get(k)
+        if isinstance(x, (int, float)) and isinstance(y, (int, float)) and not isinstance(x, bool) and not isinstance(y, bool) \
+                and abs(x - y) > DIM_TOL_CM:
+            return False
+    return True
+
+
+def known_sids(demo: dict | None = None) -> list:
+    """Ключи товаров, которые сборка знает: банки пробы и ленты витрины — для хода `pid` → `sid` в `unify_cards` (у перенесённых при перевыпуске
+    предметов `_sid` уже нет). Банк недоступен — только ленты."""
+    out: list = []
+    try:
+        out += list(_bank())
+    except Exception:  # noqa: BLE001 — нет банка (тесты без окружения): сверка пойдёт по тому, что есть
+        pass
+
+    def walk(o):
+        if isinstance(o, dict):
+            s = o.get('sid')
+            if isinstance(s, str) and s:
+                out.append(s)
+            for v in o.values():
+                walk(v)
+        elif isinstance(o, list):
+            for v in o:
+                walk(v)
+    walk(demo or {})
+    return out
+
+
+def unify_cards(variants: list, feeds: dict, goods=None, sids=()) -> dict:
+    """Одна полная карточка на `pid` во всех вхождениях (предметы, декор, ленты). `goods` — резолвер сборки (`_Goods` или `fn(sid, role)`): живой
+    каталог на момент сборки; `sids` — известные ключи товаров (для обратного хода `pid` → `sid`; плюс `_sid` у предметов варианта).
+    Правило по `pid`: карточек с названием меньше двух — нечего сводить; два названия и тот же товар по `_same_identity` — переименование, поля
+    `CARD_KEYS` ставятся из живого каталога (нет живой — из первой карточки варианта, иначе первой по порядку); другая модель или габариты под тем
+    же ключом — подозрение на подмену: товар вон из лент, в предметах — нейтральное имя без товара (`identity_suspect`). Остаток после сведения
+    (у одного `pid` два названия) — `BundleRefused('names_conflict')`. Данные меняются на месте. → {names_unified, identity_suspect, names_conflict,
+    live_cards, pids, names_catalog}."""
+    st = {'names_unified': 0, 'identity_suspect': 0, 'names_conflict': 0, 'live_cards': 0, 'pids': 0, 'names_catalog': 0}
+    cards = _cards_of(variants, feeds)
+    for c, _ in cards:                          # пробелы названий — по единому правилу (`product_names.clean`) у ВСЕХ вхождений, и без `pid`/цены (строки лент витрины): ДО сравнения,
+        PN.clean_card(c)                        # табуляция и двойной пробел не делают два названия (T-20261119-105/1)
+    by_pid: dict = {}
+    for c, where in cards:
+        if _is_card(c):
+            by_pid.setdefault(c[PID_KEY], []).append((c, where))
+    st['pids'] = len(by_pid)
+    sid_of: dict = {}
+    for s in list(sids) + [c.get('_sid') for c, _ in cards]:
+        if isinstance(s, str) and s:
+            sid_of.setdefault(pid_of(s), s.replace(':', '_', 1))
+    live_cache: dict = {}
+
+    def live(sid, role, origins):
+        for o in origins:
+            k = (sid, o)
+            if k not in live_cache:
+                try:
+                    g = goods.peek(sid, role, o) if isinstance(goods, _Goods) else (goods(sid, role) if goods else None)
+                except Exception:  # noqa: BLE001 — каталог недоступен: эталон — карточка варианта, сборку не роняем
+                    g = None
+                live_cache[k] = g
+            if live_cache[k]:
+                return live_cache[k]
+        return None
+
+    suspects = set()
+    for pid, lst in by_pid.items():
+        names = {c['name'] for c, _ in lst}
+        if len(names) > 1 and not all(_same_identity(lst[0][0], c) for c, _ in lst[1:]):
+            suspects.add(pid)
+            continue
+        sid = sid_of.get(pid)
+        g = live(sid, lst[0][1][2], list(dict.fromkeys(w[1] for _, w in lst))) if sid else None
+        ref = ({k: g[k] for k in CARD_KEYS if g.get(k) not in (None, '')} if g else None)
+        if ref is None:
+            first = next((c for c, w in lst if w[0] == 'var'), lst[0][0])
+            ref = {k: first[k] for k in CARD_KEYS if first.get(k) not in (None, '')}
+        else:
+            st['live_cards'] += 1
+            # СТОРОЖ «ТУР = КАТАЛОГ» (T-20261119-97): у скольких товаров название в собранных карточках не равно живому каталожному (то же правило, что у витрины, —
+            # `product_names.pick_name`); после сведения расхождений нет, число в отчёт сборки/перевыпуска
+            st['names_catalog'] += 1 if any(n != ref.get('name') for n in names) and ref.get('name') else 0
+        changed = False
+        for c, _ in lst:
+            for k, v in ref.items():
+                if c.get(k) != v:
+                    if k == 'img':
+                        c.pop('swatch', None)              # цвет по фото считается заново по новому фото (`put_swatches`)
+                    c[k] = v
+                    changed = True
+            if 'name_en' not in ref and c.get('name') != ref.get('name'):
+                c.pop('name_en', None)
+        st['names_unified'] += 1 if changed and len(names) > 1 else 0
+    for pid in suspects:                                        # карантин: ленты — вон, предметы — нейтральное имя без товара
+        st['identity_suspect'] += 1
+        for key in list(feeds or {}):
+            feeds[key] = [r for r in feeds[key] if not (isinstance(r, dict) and r.get(PID_KEY) == pid)]
+        for c, w in by_pid[pid]:
+            if w[0] == 'var':
+                ru, en = neutral_names(w[2])
+                for k in ('price', 'url', 'shop', 'img', 'swatch', 'colour_en'):
+                    c.pop(k, None)
+                c['name'], c['name_en'] = ru, en
+    left = {}
+    for c, _ in _cards_of(variants, feeds):
+        if _is_card(c):
+            left.setdefault(c[PID_KEY], set()).add(c['name'])
+    bad = sorted(p for p, n in left.items() if len(n) > 1)
+    st['names_conflict'] = len(bad)
+    if bad:
+        raise BundleRefused('names_conflict', f'у {len(bad)} товаров после сведения два названия (первый pid {bad[0]})')
+    return st
+
+
 # ───────────────────────── сборка ─────────────────────────
 
 def _check_input(job_id: str, result: dict, scene: dict | None) -> None:
@@ -1973,6 +2133,7 @@ def build(job_id: str, result: dict, scene: dict | None = None, ctx: dict | None
     # ленты — как у /demo под слот этой комнаты (T-37); меньше 20 на стиль позиции — `feeds_short` в журнал сборки (`stats`)
     bands: dict = {}
     feeds, short = feeds_for(variants, demo, geo=rooms_geo, bands=bands)
+    names = unify_cards(variants, feeds, goods, known_sids(demo))   # одна карточка на pid во всех вхождениях (до `put_swatches`: цвет — по итоговому фото)
     rules['slot_band_cm'] = {**(rules.get('slot_band_cm') or {}), **bands}   # полоса «по размеру» — от места, как у ленты (T-40)
     # цвет предмета на плане — цвет товара по фото, не условная палитра (T-20261112-29): у предметов вариантов и у товаров лент (замена)
     put_swatches(variants + [{'items': [{'sku': f} for f in lst if isinstance(f, dict)]} for lst in feeds.values()])
@@ -1980,7 +2141,7 @@ def build(job_id: str, result: dict, scene: dict | None = None, ctx: dict | None
     scene_st = scene_fields(variants, ctx.get('scene_live'))
     if stats is not None:
         stats.update(feeds={k: len(v) for k, v in feeds.items()}, feeds_short=short, goods_from_feeds=got, scene_fields=scene_st,
-                     offers=goods.states)
+                     offers=goods.states, names=names)
     if goods.want_img and ctx.get('img_queue'):      # фото поставленного товара без плитки — в очередь ночного кэша (T-96/3)
         try:
             n = ctx['img_queue'](goods.want_img)
@@ -2263,6 +2424,18 @@ def rt_watch(path: str, table: str | None = None, queue: str | None = None) -> s
             f'{" ".join(miss[:8])} — {where}')
 
 
+def load_old(path: str | None) -> dict | None:
+    """Прежняя версия для переноса ракурсов (`--old`): нет пути / нет файла / не читается / не данные тура → None (считаем всё, как раньше). Перенос — ускорение, не условие."""
+    if not path:
+        return None
+    try:
+        with open(path, encoding='utf-8') as f:
+            d = json.load(f)
+    except (OSError, ValueError):
+        return None
+    return d if isinstance(d, dict) and isinstance(d.get('variants'), list) else None
+
+
 def feeds_line(stats: dict) -> str:
     """Строка журнала сборки: товаров в лентах по позициям и `feeds_short` (позиция → стиль → n, где меньше 20)."""
     return 'feeds ' + json.dumps(stats.get('feeds') or {}, ensure_ascii=False) + ' feeds_short ' + \
@@ -2285,6 +2458,7 @@ def main() -> int:
         return 0
     scene_path, parts_path, out = _arg(args, '--scene'), _arg(args, '--parts'), _arg(args, '--out')
     release = [x for x in (_arg(args, '--release') or '').split(',') if x]
+    old_path = _arg(args, '--old')                 # прежняя СОБРАННАЯ версия этого же задания (конвейер тура): её пары ракурсов с тем же ключом входов переносятся (R1, tour-speed-01)
     cams = '--no-cams' not in args                 # версия не для страницы (проверка / промежуточная пересборки) — без ракурсов
     if not cams:
         args.remove('--no-cams')
@@ -2306,7 +2480,7 @@ def main() -> int:
         data['build'] = BS.stamp()
         write_atomic(out, data)
         if cams:
-            print(add_cams(out, shop_tokens(scene)), flush=True)   # до итоговой строки: конвейер читает последнюю
+            print(add_cams(out, shop_tokens(scene), old=load_old(old_path)), flush=True)   # до итоговой строки: конвейер читает последнюю
             print(rt_watch(out), flush=True)                       # версия для страницы — её модели без копии в очередь ночи
         print(feeds_line(stats), flush=True)
         print(json.dumps({'ok': True, 'rooms': list(data['rooms_geo']), 'variants': len(data['variants'])}, ensure_ascii=False))

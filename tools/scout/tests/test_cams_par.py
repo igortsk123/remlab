@@ -44,6 +44,19 @@ def test_parallel_all_done(tmp_path):
     assert not [f for f in os.listdir(tmp_path) if 'cams-par' in f]   # временные файлы убраны
 
 
+def test_reused_pairs_are_not_reported_missing_and_shared_flag_kept(tmp_path):
+    """R1 tour-speed-01: варианты с парой, перенесённой из прежней версии (их куски не считались), — не «без пары»; перенесённая общая пара (`cams_shared`) не стирается."""
+    fake, data = _setup(tmp_path, ['a', 'b', 'c'])
+    D = json.load(open(data))
+    D['variants'][0]['cams'] = [{'name': 'C1', 'x': 9}, {'name': 'C2', 'x': 9}]      # 'a' перенесён
+    D['cams_shared'] = True
+    json.dump(D, open(data, 'w'))
+    line = CP.cams('/root', data, 2, 30, units=[['b'], ['c']], cmd_of=_cmd(fake, lambda ids: 0.1))
+    assert line.startswith('ракурсы окна в данных: вариантов 3 из 3'), line
+    D = json.load(open(data))
+    assert D['variants'][0]['cams'][0]['x'] == 9 and D['cams_shared'] is True       # перенесённое не тронуто
+
+
 def test_deadline_keeps_finished_and_kills_rest(tmp_path):
     """Срок вышел: готовые куски — в данные, долгий процесс снят, его вариант без пары (страница досчитает)."""
     ids = ['living', 'b1', 'slow']

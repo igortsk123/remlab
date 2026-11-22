@@ -69,6 +69,8 @@ def _run(mod, room: str, td: str, bank: list, problems: list, argv: list, gaps: 
     RCov.live_styles = lambda *a, **k: live
     SEEN.clear()
     extra = {'load_items': lambda *a, **k: ([], []) if mod is CB else []}
+    if hasattr(mod, 'mesh_quarantine'):     # карантин моделей спальни читает базу; подставной банк его не использует (T-20261119-114)
+        extra['mesh_quarantine'] = lambda *a, **k: set()
     saved.update({k: getattr(mod, k) for k in extra})
     out = os.path.join(td, f'sets-{room}.next.json')
     os.environ['ROOM_SETS_OUTPUT'] = out

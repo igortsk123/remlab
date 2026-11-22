@@ -20,6 +20,8 @@ import traceback
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, HERE)
+sys.path.insert(0, os.path.dirname(HERE))
+import mesh_photo as MP  # noqa: E402 — ЕДИНОЕ правило выбора фото меша (ADR-0452)
 sys.path.insert(0, os.path.join(HERE, '..'))
 
 MESH = os.path.expanduser('~/scout-scenes/meshes-hunyuan/meshes/hunyuan21/v2')
@@ -84,8 +86,8 @@ def main() -> None:
     os.makedirs(OUT, exist_ok=True)
 
     info = {}
-    rows = db("select shop_mid||':'||external_id, coalesce(name,''), coalesce(cat_role,''), "
-              "coalesce(image_url_hd, image_url), coalesce(w_cm,0), coalesce(d_cm,0), "
+    rows = db("select shop_mid||':'||external_id, coalesce(name,''), coalesce(cat_role,''), " +
+              MP.photo_sql(None) + ", coalesce(w_cm,0), coalesce(d_cm,0), "
               "coalesce(h_cm,0), coalesce(mesh_status,'none'), coalesce(url,'') from products "
               "where shop_mid||':'||external_id in (" +
               ','.join("'" + s + "'" for s in skus) + ");")

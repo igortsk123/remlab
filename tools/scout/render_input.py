@@ -26,6 +26,7 @@ import hashlib
 import json
 import os
 import re
+import sys
 import threading
 import time
 
@@ -166,6 +167,17 @@ def orient_pins(assets: list) -> tuple:
     return {sid: table.get(sid) for sid in sids}, []
 
 
+DEFAULT_VIEW = 'yard'      # вид из окна по умолчанию = `DEFAULT_WINDOW_VIEW` страницы (`lib/viewer3d/window-views.ts`); тест `test_render_input.py` сверяет их
+
+
+DOOR_KIT_MESH = 'kit-door'   # меш двери для комнат БЕЗ `openings_ir`: Python-выгрузчик берёт его всегда (`draft_render._fixture_openings` → `FIXTURE_MESH['дверь']`); тест сверяет имя
+
+
+def has_window(room: dict) -> bool:
+    """Есть ли у комнаты окно так, как его видит страница (`fromDemo.openings`: `kind: window`, ширина > 0) — только такая комната рисует вид из окна (`scene-export.ts`)."""
+    return any(isinstance(o, dict) and o.get('kind') == 'window' and (o.get('width_cm') or 0) > 0 for o in (room.get('openings') or []))
+
+
 def assets_of(scene: dict) -> list:
     out: list = []
     seen: set = set()
@@ -188,8 +200,12 @@ def assets_of(scene: dict) -> list:
     room, style = scene['room'], scene['style']
     _asset('env', 'env:outside', SI.public_file('flat3d/env/outside.webp'), out)
     view = room.get('window_view')
-    if view and re.fullmatch(r'[A-Za-z0-9._-]+', str(view)):
+    if not (view and re.fullmatch(r'[A-Za-z0-9._-]+', str(view))):
+        view = DEFAULT_VIEW if has_window(room) else None        # у комнаты есть окно, а вида в данных нет (комнаты тура) — страница берёт вид по умолчанию и читает его файл: он во входе (T-20261118-22/5)
+    if view:
         _asset('view', f'view:{view}', SI.public_file(f'scene/views/{view}.webp'), out)
+    if not room.get('openings_ir') and once(('mesh', DOOR_KIT_MESH)) and SI.mesh_file(DOOR_KIT_MESH):      # нет описания проёмов со страницы (комнаты тура) — выгрузчик ставит дверь мешем набора и читает его файл
+        _asset('mesh', f'mesh:{DOOR_KIT_MESH}', SI.mesh_file(DOOR_KIT_MESH), out)
     ft = ((((room.get('finish') or {}).get('floor') or {}).get('tex')) or {}).get('src')       # фактура пола ночной сборки: `draft_render._floor_image` берёт её с диска
     if isinstance(ft, str) and re.fullmatch(r'[a-z0-9-]{2,60}\.(?:webp|jpg|png)', ft) and once(('mat', ft)):
         _asset('material-map', f'material:{ft}', SI.public_file(f'flat3d/materials/{ft}'), out)
@@ -236,9 +252,22 @@ def build(room: dict, variant: dict, cams: list, rules: dict | None = None) -> d
 
 
 # ——— программа рендера и пресет
+# ИСКЛЮЧЁННЫЕ РЁБРА ИМПОРТА (T-20261119-100/2, план `render-key-01`, Codex `_intake/codex/2026-11-19-render-digest-answer.md`): {(кто импортирует, что импортирует): причина}, пути от корня репо.
+# Замыкание `renderer_digest` идёт по ВСЕМ импортам (в том числе внутри функций); отсюда ребро не берётся. Исключать МОДУЛЬ целиком нельзя: новый настоящий импорт того же модуля
+# из другого файла программы молча выпал бы из ключа — поэтому исключается ровно одно ребро. Новое ребро — с причиной и тестом (`test_render_input.py`, «исключённые рёбра»).
+EXCLUDED_EDGES = {
+    ('tools/scout/draft_render.py', 'tools/scout/improve_mode.py'):
+        'платное «Улучшить» (`draft_render.py`: отложенные `import improve_mode` в платной ветке и `build`), в сборке сцены и кадра Cycles (`scene3d_frame`) не участвует; '
+        'тянет ленту/цены/банк/каталог (131 файл). Размер кадра, единственное, что нужно выгрузчику, — `render_config.py` (в ключе значением).',
+    ('tools/scout/cycles_probe/export_scene.py', 'tools/scout/render_input.py'):
+        'рантайм-сверка программы (`export_scene.warn_unhashed_modules`) читает сам расчёт ключа; он картинку не рисует, а его правка иначе меняла бы ключ всех комнат.',
+}
+
+
 def _py_closure(starts: list, roots: list) -> list:
-    """Файлы репозитория, до которых доходят импорты `starts` (статический разбор, без запуска): [(относительный путь, путь)]."""
+    """Файлы репозитория, до которых доходят импорты `starts` (статический разбор, без запуска): [(относительный путь, путь)]. Рёбра из `EXCLUDED_EDGES` не берутся."""
     seen: dict = {}
+    repo_root = repo()
     todo = [p for p in starts if os.path.isfile(p)]
 
     def find(mod: str, base_dir: str | None, level: int) -> list:
@@ -276,7 +305,7 @@ def _py_closure(starts: list, roots: list) -> list:
                 mods = [(n.module or '', n.level)] + [((n.module + '.' if n.module else '') + a.name, n.level) for a in n.names]
             for m, lv in mods:
                 for f in find(m, os.path.dirname(p), lv):
-                    if f not in seen:
+                    if f not in seen and (os.path.relpath(p, repo_root).replace(os.sep, '/'), os.path.relpath(f, repo_root).replace(os.sep, '/')) not in EXCLUDED_EDGES:
                         todo.append(f)
     r = repo()
     return sorted((os.path.relpath(p, r), p) for p in seen)
@@ -334,8 +363,9 @@ def renderer_parts(blender: str = '') -> dict:
     py = [f'{rel}:{SI.full_sha(p)}' for rel, p in _py_closure(starts, roots)]
     rules = [f'{rel}:{SI.full_sha(os.path.join(r, rel))}' for rel in PROGRAM_DATA]
     m = re.search(r'SCENE_EXPORT_VERSION\s*=\s*(\d+)', _read(os.path.join(r, 'lib', 'viewer3d', 'scene-export.ts')))
+    import render_config as RC          # размер кадра (раньше шёл через `improve_mode`): фактическое значение с учётом `IMPROVE_SIZE` — часть ключа; файл `render_config.py` — в замыкании
     parts = {'js': sha('\n'.join(js)), 'py': sha('\n'.join(py)), 'rules': sha('\n'.join(rules)), 'scene_export': m.group(1) if m else '', 'input': INPUT_VERSION, 'blender': blender,
-             'n_js': len(js), 'n_py': len(py)}
+             'frame_size': RC.frame_size(), 'n_js': len(js), 'n_py': len(py)}
     with _LOCK:
         _MEMO[key] = (time.time(), parts)
     return parts
@@ -355,6 +385,29 @@ def _read(p: str) -> str:
         return open(p, encoding='utf-8').read()
     except OSError:
         return ''
+
+
+def unhashed_program_modules(modules: dict | None = None) -> list:
+    """РАНТАЙМ-СВЕРКА (T-20261119-100/2; Codex п.3): какие модули репо (`tools/scout`, `services/planner-solver`), реально загруженные процессом (`sys.modules`), НЕ входят в
+    `program_files()['py']` — то есть программа картинки их использует, а ключ кадра их не видит (динамический `importlib`/`__import__`, новое ребро за исключённым). → [{'path', 'sha256'}].
+    Сам `render_input.py` и модули-помощники сверки не считаются. Пока только отчёт (WARN в журнал выгрузки), не отказ: жёсткий гейт включаем отдельным шагом после прогона на живом."""
+    r = repo()
+    roots = tuple(os.path.join(r, *x) + os.sep for x in (('tools', 'scout'), ('services', 'planner-solver')))
+    known = set(program_files()['py'])
+    skip = {os.path.relpath(os.path.abspath(__file__), r).replace(os.sep, '/')}
+    out = []
+    for mod in list((modules if modules is not None else sys.modules).values()):
+        f = getattr(mod, '__file__', None)
+        if not f or not f.endswith('.py'):
+            continue
+        f = os.path.abspath(f)
+        if not f.startswith(roots) or os.sep + 'tests' + os.sep in f:
+            continue
+        rel = os.path.relpath(f, r).replace(os.sep, '/')
+        if rel in known or rel in skip:
+            continue
+        out.append({'path': rel, 'sha256': SI.full_sha(f) or None})
+    return sorted(out, key=lambda x: x['path'])
 
 
 def renderer_digest(blender: str = '') -> str:

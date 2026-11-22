@@ -16,13 +16,14 @@
 
 Исключения — `tools/ops/conveyor-exceptions.yml`: путь и (имя `symbol` у .py — функция/класс/переменная верхнего уровня —
 или точный литерал `literal`), детектор, причина, ADR или план, срок `until`. Звёздочек нет: путь и имя — точные. Истёкшее
-и лишнее (ничего не покрывает) — WARN. Реестр кривой — код 1 в любом режиме.
+— красное в режиме блок, лишнее (ничего не покрывает) — WARN. Реестр кривой — код 1 в любом режиме.
 
-РЕЖИМ (план: «неделю предупреждение, затем блок»): `MODE = 'warn'` — находки печатаются строкой WARN, код 0; переключение
-на 'block' (находка или истёкшее исключение → код 1) — решением директора после замера ложных срабатываний.
+РЕЖИМ: `MODE = 'block'` (с 20.11.2026, T-20261120-157: неделя замера прошла, ложных срабатываний на main 0, единственная старая
+находка — `cycles_probe/probe_soft.sh` — в реестре исключений со сроком): находка или истёкшее исключение → код 1 (CI
+scout-selftest и prepush). `MODE = 'warn'` — находки строкой WARN, код 0 (откат одной строкой, только решением директора).
 
-  python tools/ops/conveyor_ids.py              # проверка дерева (CI scout-selftest, prepush — всегда)
-  python tools/ops/conveyor_ids.py --block      # как будет после переключения
+  python tools/ops/conveyor_ids.py              # проверка дерева (CI scout-selftest, prepush — всегда); режим — `MODE`
+  python tools/ops/conveyor_ids.py --block      # блок независимо от `MODE`
   python tools/ops/conveyor_ids.py --selftest
 """
 from __future__ import annotations
@@ -37,7 +38,7 @@ import sys
 HERE = os.path.dirname(os.path.abspath(__file__))
 ROOT_DEFAULT = os.path.abspath(os.path.join(HERE, '..', '..'))
 EXC_FILE = 'tools/ops/conveyor-exceptions.yml'
-MODE = 'warn'
+MODE = 'block'
 
 CODE = re.compile(r'\.(py|ts|tsx|mjs|cjs|js|sh|html)$')
 NOT_CODE = re.compile(r'(^|/)(tests?|__tests__|fixtures|e2e)/|(^|/)tests?_[^/]*\.py$|_test\.py$|\.(test|spec)\.(ts|tsx|mjs|cjs|js)$'
@@ -262,6 +263,8 @@ def validate_exceptions(items, root: str) -> list[str]:
             errs.append(f'{tag}: plan — slug плана')
         if bool(e.get('symbol')) == bool(e.get('literal')):
             errs.append(f'{tag}: ровно одно из symbol (имя в .py) или literal (точный ID)')
+        if e.get('literal') and not isinstance(e['literal'], str):
+            errs.append(f'{tag}: literal — строкой в кавычках (YAML читает «магазин_товар» без кавычек как число и ломает совпадение)')
         for k in ('path', 'symbol', 'literal'):
             if re.search(r'[*?\[\]{}]', str(e.get(k) or '')):
                 errs.append(f'{tag}: {k} без звёздочек и масок')
@@ -431,6 +434,34 @@ def _selftest() -> int:
         with open(os.path.join(d, EXC_FILE), 'w', encoding='utf-8') as f:
             f.write('exceptions:\n  - {path: "*.py", detector: msid, symbol: SKU, why: x, plan: p, until: 2026-12-01}\n')
         ok(run(d, block=False, files=['a.py'], out=io.StringIO()) == 1, 'кривой реестр — код 1 и в режиме предупреждения')
+        # --- режим блок по умолчанию и срок исключения (T-20261120-157): попытка → отказ с объяснением, срок в прошлом → красный
+        ok(MODE == 'block', 'режим по умолчанию — блок (CI и prepush зовут линт без ключей)', MODE)
+        with open(os.path.join(d, EXC_FILE), 'w', encoding='utf-8') as f:
+            f.write('exceptions: []\n')
+        ok(validate_exceptions([dict(base, symbol=None, literal=112923100033980523)], d) != [], 'реестр: литерал числом (без кавычек) — отказ')
+        with open(os.path.join(d, 'probe.sh'), 'w', encoding='utf-8') as f:
+            f.write('SOFA=$(orig 112923_1000339805231639017)\n')
+        buf = io.StringIO()
+        ok(run(d, block=True, files=['probe.sh'], out=buf) == 1 and 'FAIL:special-id: probe.sh:1 msid 112923_1000339805231639017' in buf.getvalue()
+           and 'исключение в tools/ops/conveyor-exceptions.yml' in buf.getvalue(), 'блок: номер в .sh без исключения — код 1 и объяснение, куда его деть',
+           buf.getvalue()[:300])
+        exc = ('exceptions:\n  - {path: probe.sh, detector: msid, literal: "112923_1000339805231639017", why: проба, plan: render-materials-01, '
+               'until: %s}\n')
+        with open(os.path.join(d, EXC_FILE), 'w', encoding='utf-8') as f:
+            f.write(exc % '2026-12-11')
+        ok(run(d, block=True, today=dt.date(2026, 11, 20), files=['probe.sh'], out=io.StringIO()) == 0,
+           'блок: исключение по литералу в .sh со сроком в будущем — код 0')
+        buf = io.StringIO()
+        ok(run(d, block=True, today=dt.date(2026, 12, 12), files=['probe.sh'], out=buf) == 1 and 'FAIL:special-id: исключение истекло' in buf.getvalue(),
+           'блок: срок исключения в прошлом — код 1 и «исключение истекло»', buf.getvalue()[:300])
+        ok(run(d, block=False, today=dt.date(2026, 12, 12), files=['probe.sh'], out=io.StringIO()) == 0,
+           'предупреждение: срок в прошлом — только WARN, код 0 (откат режима не красит)')
+        with open(os.path.join(d, EXC_FILE), 'w', encoding='utf-8') as f:
+            f.write(exc % '2026-12-11')
+        with open(os.path.join(d, 'probe.sh'), 'w', encoding='utf-8') as f:
+            f.write('SOFA=$(orig 112923_1000339805231639018)\n')    # другой номер — исключение его не покрывает
+        ok(run(d, block=True, today=dt.date(2026, 11, 20), files=['probe.sh'], out=io.StringIO()) == 1,
+           'блок: исключение держит только свой точный литерал, соседний номер — красный')
     print('итог:', 'OK' if not bad else f'FAIL ({len(bad)})')
     return 1 if bad else 0
 

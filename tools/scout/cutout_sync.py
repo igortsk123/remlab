@@ -14,7 +14,9 @@
 пересчёт происходит сам, а старые замеры остаются в истории.
 
 ИСТОЧНИК МАСКИ СМЕННЫЙ (`CUTOUT_BACKEND`):
-  fal    — сейчас: `birefnet/v2`, те же веса BiRefNet, что в образе Salad. ~$0.0005/фото.
+  fal    — сейчас: `birefnet/v2` с настройками fal по умолчанию (модель «General Use (Light)», 1024×1024; тело запроса — только `image_url`).
+           Это НЕ те же веса, что в образе Salad (там полный ZhengPeng7/BiRefNet, `BIREFNET_REVISION` ниже). Проба T-99/3 (19.11): на тонких деталях
+           (тросы люстры) Light, Heavy и Heavy-2K дают одинаково — смена модели ничего не меняет; ~$0.0008/фото.
   local  — BiRefNet на CPU, ~14 с/фото на 12 ядрах. Бесплатно, если некуда спешить.
   salad  — когда подключим ноду: маска считается там же, где меши, и бесплатно.
 
@@ -51,10 +53,14 @@ sys.path.insert(0, HERE)
 
 import collage            # noqa: E402
 import components         # noqa: E402
+import studio_bg          # noqa: E402  («известный студийный фон», T-104/5)
+import soft_edge          # noqa: E402  (мягкий край по известному фону, T-104/5)
 import hybrid_mask        # noqa: E402
 import preprocess as PRE  # noqa: E402  (defringe/trim_alpha/mask_verdict — они без GPU)
 import photo_hash as PH   # noqa: E402  (единственный писатель хеша фото, план mesh-14)
 import pool_gate as PG    # noqa: E402  (ворота пула и граница 0.65)
+import mesh_photo as MP    # noqa: E402  (ЕДИНОЕ правило фото меша и сторож размера, ADR-0452)
+import passport_shadow as PS  # noqa: E402  (тень паспортов типов, без torch; фаза 1)
 
 CACHE = os.path.expanduser(os.environ.get('CUTOUT_CACHE', '~/scout-scenes/cutouts'))
 BACKEND = os.environ.get('CUTOUT_BACKEND', 'fal')
@@ -187,39 +193,121 @@ BACKENDS = {'fal': mask_fal, 'local': mask_local, 'salad': mask_salad}
 
 # ------------------------------------------------------------------ цепочка и запись
 
-def chain(src: Image.Image, net: Image.Image, role: str | None = None) -> tuple[Image.Image, dict]:
-    """Наша цепочка — ровно та же, что в `salad/preprocess._cut_chain`, но с готовой маской.
-
-    `role` нужен точечным правкам: рост по связности — только коврам, заливка силуэта —
-    только вазам/кашпо/статуэткам. Остальные 95% товаров идут ровно как раньше.
-    """
+def chain_shape(src: Image.Image, net: Image.Image, role: str | None = None) -> tuple[Image.Image, dict]:
+    """Цепочка до обрезки: полнокадровая RGBA-вырезка + info. Отдельно от `chain`, чтобы замеры считали маску в координатах кадра."""
     try:
         refined, info = hybrid_mask.refine(src, net, role=role)
     except Exception as e:  # noqa: BLE001 — гибрид не должен ронять шаг; факт отказа виден
         refined, info = net, {'hybrid_error': f'{type(e).__name__}: {str(e)[:100]}'}
     a = np.asarray(refined)[..., 3].astype(np.float32) / 255.0
     cleaned, comp = components.clean(a)
+    # «Известный студийный фон» (T-20261119-104/5, Ч.1): строгий признак ровного белого фона по кольцу кадра; Rcore/Rsoft — заливка от рамки.
+    # Считаем ВСЕГДА (для замера «загрязнения» по шагам); правим вырезку только при включённом правиле. bg_mode: white_flat | net_only (+ причина).
+    src_rgb = np.asarray(src)
+    ms = {}
+    t0 = time.time()
+    bg, st = studio_bg.detect(src_rgb)
+    rcore = rsoft = None
+    act = studio_bg.enabled() and bg is not None
+    info['bg_mode'] = 'white_flat' if bg is not None else 'net_only'
+    info['studio'] = dict(st)
+    if bg is not None:
+        rcore, rsoft = studio_bg.regions(src_rgb, bg, st['t_core'], st['t_soft'])
+        info['studio']['pollution'] = {'raw': studio_bg.pollution(np.asarray(net)[..., 3].astype(np.float32) / 255.0, rcore),
+                                       'hybrid': studio_bg.pollution(a, rcore), 'clean': studio_bg.pollution(cleaned, rcore)}
+    if not studio_bg.enabled():
+        info['studio']['applied'] = False
+        info['studio']['skipped'] = 'выключено CUTOUT_STUDIO_BG=0'
+    ms['detect_regions'] = round(time.time() - t0, 3)
     # Дырки, внутри которых НЕ фон, — это потерянная основа товара (серый ковёр, узор которого
     # сеть удержала, а поле потеряла). Просветы проволоки и реек внутри показывают фон и
     # остаются нетронутыми — различаем по содержимому, а не по размеру (урок 307).
     cleaned, holes = components.fill_holes_unlike_bg(cleaned, np.asarray(src), role=role)
     comp.update(holes)
+    # дыры внутри тела корпусной мебели (светлые фасады «как фон», T-20261119-104/3): замкнутые телом возвращаются; стул/стеллаж/стол не трогаются
+    cleaned, bh = components.fill_body_holes(cleaned, np.asarray(refined)[..., :3], role=role)
+    comp.update(bh)
+    # щели 1–2 px у кромки (светлое на белом рвётся «пунктиром», T-20261119-104/2); внутренние дырки и пустоты от 3 px остаются.
+    # С известным фоном — только пикселями «не фон» (T-104/5: белая крупа вокруг трубки торшера склеивалась в «бусины»).
+    t0 = time.time()
+    cleaned, rgb, gap = components.close_edge_gaps(cleaned, np.asarray(refined)[..., :3], rcore=rcore if act else None)
+    comp.update(gap)
+    ms['close_gaps'] = round(time.time() - t0, 3)
+    if rcore is not None:
+        info['studio']['pollution']['closing'] = studio_bg.pollution(cleaned, rcore)
+    # Ч.2 (T-104/5): осторожно вернуть крупное потерянное тело (белый щит на белом); до вычитателя — он потом чистит и край добавки
+    if act:
+        t0 = time.time()
+        cleaned, prop = studio_bg.propose(cleaned, np.asarray(net)[..., 3].astype(np.float32) / 255.0, src_rgb, bg, rsoft)
+        info['studio'].update(prop)
+        ms['propose'] = round(time.time() - t0, 3)
+        info['studio']['pollution']['proposal'] = studio_bg.pollution(cleaned, rcore)
+    # вычитатель — ПОСЛЕДНИЙ из растущих шагов: чистый фон у кромки, связанный с краем кадра, в полосе ≤ 2 px (T-104/5)
+    if act:
+        t0 = time.time()
+        cleaned, sub = studio_bg.subtract(cleaned, src_rgb, bg, rcore)
+        info['studio'].update(sub)
+        ms['subtract'] = round(time.time() - t0, 3)
+        info['studio']['pollution']['subtract'] = studio_bg.pollution(cleaned, rcore)
+        # Ч.3: белые островки цвета фона у тёмного тела, отделённые от рамки тенью (не в Rcore)
+        cleaned, cc = studio_bg.contrast_cut(cleaned, src_rgb, bg, rsoft)
+        info['studio'].update(cc)
+        # клин пола между ножками под плотным телом (T-104/7)
+        cleaned, hw = studio_bg.hang_wedge(cleaned, src_rgb, bg, rsoft)
+        info['studio'].update(hw)
     info['components'] = comp
-    refined = Image.fromarray(np.dstack([np.asarray(refined)[..., :3],
-                                         (np.clip(cleaned, 0, 1) * 255).astype(np.uint8)]), 'RGBA')
+    refined = Image.fromarray(np.dstack([rgb, (np.clip(cleaned, 0, 1) * 255).astype(np.uint8)]), 'RGBA')
     is_col, why, feats = collage.is_collage(np.asarray(src).astype(np.float32), cleaned)
     info['collage'] = {'verdict': bool(is_col), 'why': why, 'features': feats}
-    shape = PRE.defringe(refined)
+    shape = PRE.defringe(refined, info)
+    # мягкий край по известному белому фону (аналитика, T-104/5): α = min(α, α_цвет) в полосе кромки, цвет — F; F ≈ B → α сети не трогаем
+    if act:
+        t0 = time.time()
+        sa = np.asarray(shape)
+        al, rg, soft = studio_bg.soft_alpha(sa[..., 3].astype(np.float32) / 255.0, sa[..., :3], bg, rsoft)
+        shape = Image.fromarray(np.dstack([rg, (np.clip(al, 0, 1) * 255).astype(np.uint8)]), 'RGBA')
+        info['studio'].update(soft)
+        ms['soft'] = round(time.time() - t0, 3)
+        if soft_edge.enabled():                       # опциональный A/B pymatting (по умолчанию выключен)
+            shape = soft_edge.apply(shape, src_rgb, bg, info)
+    if rcore is not None:
+        info['studio']['pollution']['final'] = studio_bg.pollution(np.asarray(shape)[..., 3].astype(np.float32) / 255.0, rcore)
+    info['studio']['applied'] = bool(act)
+    info['studio']['ms'] = ms
+    return shape, info
+
+
+def crop_box(shape: Image.Image, pad: int = 8) -> tuple[int, int, int, int]:
+    """Рамка обрезки, ЗЕРКАЛО `PRE.trim_alpha` (альфа > 8, поле `pad`, в пределах кадра; пустая альфа → весь кадр) — а не `getbbox()`.
+    Смещение вырезки в исходном кадре (`photo.object_xy` = левый верх рамки) нужно сторожам паспортов (К1: сравнить исходник с вырезкой без поиска совмещения).
+    Совпадение с `trim_alpha` по байтам держит тест (`shape.crop(crop_box(shape)).tobytes() == trim_alpha(shape).tobytes()`)."""
+    a = np.asarray(shape)[..., 3]
+    ys, xs = np.where(a > 8)
+    if not len(ys):
+        return 0, 0, shape.width, shape.height
+    return (int(max(0, xs.min() - pad)), int(max(0, ys.min() - pad)),
+            int(min(shape.width, xs.max() + pad + 1)), int(min(shape.height, ys.max() + pad + 1)))
+
+
+def chain(src: Image.Image, net: Image.Image, role: str | None = None) -> tuple[Image.Image, dict]:
+    """Наша цепочка — ровно та же, что в `salad/preprocess._cut_chain`, но с готовой маской.
+
+    `role` нужен точечным правкам: рост по связности — только коврам, заливка силуэта —
+    только вазам/кашпо/статуэткам. Остальные 95% товаров идут ровно как раньше.
+    """
+    shape, info = chain_shape(src, net, role=role)
     cut = PRE.trim_alpha(shape)
+    box = crop_box(shape)
     info.update(PRE.mask_verdict(cut))
-    if is_col:
-        info.update(verdict='bad', reason='фото-коллаж: ' + ', '.join(why[1:] or ['баннер']))
+    if info['collage']['verdict']:
+        info.update(verdict='bad', reason='фото-коллаж: ' + ', '.join(info['collage']['why'][1:] or ['баннер']))
     fw, fh = src.size
     cw, ch = cut.size
     info['photo'] = {'frame_wh': [fw, fh], 'object_wh': [cw, ch],
                      'object_share': round(cw * ch / max(fw * fh, 1), 4),
                      'object_rel_side': round(max(cw, ch) / max(max(fw, fh), 1), 3),
-                     'object_min_side': int(min(cw, ch))}
+                     'object_min_side': int(min(cw, ch)),
+                     'object_xy': [box[0], box[1]]}   # смещение вырезки в кадре — для сторожей паспортов (фаза 1 «тень»)
     return cut, info
 
 
@@ -301,6 +389,9 @@ def one(job) -> tuple[str, str | None]:
         if net.size != src.size:
             net = net.resize(src.size, Image.LANCZOS)
         cut, info = chain(src, net, role=role)
+        he = MP.hybrid_error(info)
+        if he:      # ADR-0452: сбой гибридной маски — видим в журнале ночи, а не только внутри измерений
+            print(f'WARN:hybrid_error {sku}: {he}', flush=True)
         os.makedirs(CACHE, exist_ok=True)
         cut.save(dst)
         info['backend'] = BACKEND
@@ -311,6 +402,9 @@ def one(job) -> tuple[str, str | None]:
            f"{q(json.dumps(info, ensure_ascii=False))}::jsonb, {q(verdict)}) "
            "on conflict (source_sha, assessor_version) do update set "
            "metrics=excluded.metrics, verdict=excluded.verdict")
+        # ТЕНЬ паспортов (план mesh-type-passports-01, фаза 1): вердикты сторожей роли — только в `passport_shadow`, в СВОЁМ try внутри
+        # `after_assessment` (не бросает; сбой = WARN + счётчик shadow_fail, вырезка остаётся `ok`, FAIL_STREAK_MAX не трогаем).
+        PS.after_assessment(role, sku, sha, raw, dst, info)
         return 'ok', None
     except FatalBackend as e:
         STOP.set()
@@ -360,6 +454,8 @@ def run_jobs(jobs: list[tuple[str, str, str, str]], label: str = '', fn=None) ->
                       f"фото сменилось {stat['moved']}", flush=True)
     print(f"вырезано{label} {stat['ok']}, фото сменилось у {stat['moved']}, отказов {stat['fail']}"
           + (f", не начато {stat['skipped']}" if stat['skipped'] else ''))
+    if PS.RUN.ok or PS.RUN.fail or PS.RUN.table_missing:
+        print(PS.run_line(), flush=True)    # строка тени в ночном отчёте (сбои тени ≠ отказы вырезки)
     if why:
         print(f'WARN:cutout: прогон остановлен — {why}', flush=True)
     for e in errs[:10]:
@@ -474,6 +570,17 @@ def main() -> int:
     if '--report' in sys.argv:
         report()
         return 0
+    if '--shadow-backfill' in sys.argv:
+        # ТЕНЬ паспортов по уже вырезанному (без нового запроса к fal/Salad и без записи в photo_assessment и кэш вырезок): состояние — в passport_shadow
+        if '--retry-quarantine' in sys.argv:
+            try:
+                print(f'карантин тени возвращён в повтор: {PS.STORE.release_quarantine()}', flush=True)
+            except PS.TableMissing:
+                print('WARN:passport_shadow: таблицы passport_shadow нет (миграция 018 не применена) — карантин не возвращён', flush=True)
+            except Exception as e:  # noqa: BLE001 — fail-open: сбой возврата карантина не валит проход
+                print(f'WARN:passport_shadow: карантин не возвращён ({type(e).__name__}: {str(e)[:100]})', flush=True)
+        PS.run_backfill(PRE.ASSESSOR_VERSION, CACHE, fetch)
+        return 0   # сбой тени не валит ночную цепочку (сам проход не бросает; причины — WARN в журнале)
     if BACKEND not in BACKENDS:
         print(f'неизвестный источник маски: {BACKEND}')
         return 1

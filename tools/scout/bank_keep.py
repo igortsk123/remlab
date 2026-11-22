@@ -84,6 +84,14 @@ def load_meta(candidate: str) -> dict:
         return {}
 
 
+def load_stamp(candidate: str) -> str:
+    """Метка режима ступеней, по которому собран кандидат (`bank_tiers.mode_stamp`); нет метки — прежние квантили ('')."""
+    try:
+        return str((json.load(open(meta_path(candidate), encoding='utf-8')) or {}).get('tier_mode') or '')
+    except (OSError, ValueError):
+        return ''
+
+
 def load_stats(path: str) -> dict:
     try:
         return (json.load(open(path, encoding='utf-8')) or {}).get('stats') or {}
@@ -91,10 +99,10 @@ def load_stats(path: str) -> dict:
         return {}
 
 
-def write_meta(path: str, cells: dict, now: float, stats: dict | None = None) -> None:
+def write_meta(path: str, cells: dict, now: float, stats: dict | None = None, tier_mode: str = '') -> None:
     tmp = path + '.tmp'
     with open(tmp, 'w', encoding='utf-8') as f:
-        json.dump({'version': 1, 'updated_at': round(now), 'stats': stats or {}, 'cells': cells}, f, ensure_ascii=False,
+        json.dump({'version': 1, 'updated_at': round(now), 'stats': stats or {}, 'cells': cells, **({'tier_mode': tier_mode} if tier_mode else {})}, f, ensure_ascii=False,
                   indent=1, sort_keys=True)
         f.flush()
         os.fsync(f.fileno())

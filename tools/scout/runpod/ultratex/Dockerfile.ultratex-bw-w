@@ -1,0 +1,39 @@
+# ОБРАЗ UltraTex С ВЕСАМИ ВНУТРИ (RTX 5090, Blackwell) — T-20261121-178/1; владелец TG 1143: «веса внутрь и всё как у мешей — конвейер» (образец — salad/Dockerfile.weights).
+# Поверх уже собранного `ultratex-bw` (код авторов, torch, воркер): ТОЛЬКО веса слоями. Прогрев ноды = бесплатная фаза скачивания образа (Salad биллит только `running`),
+# платной остаётся загрузка в память и сам расчёт. Qwen3-8B (16,4 ГБ) в образ НЕ кладём: воркер всегда шлёт пустую подпись, её эмбеддинг посчитан заранее (text-cache/, ≈12 МБ).
+# Слои (каждый ≤ ~4 ГиБ, пуш и докачка ретраятся кусками): LoRA+декодер (0,6 ГБ) · DiT FLUX.2-klein-base-9B — 5 кусков по тензорам (weights_pack.py, байты те же) · AE · пустой текст.
+# Токен HF — ТОЛЬКО секретом сборки (`--secret id=hf_token`), в слои и историю не попадает. Образ ПРИВАТНЫЙ (веса FLUX non-commercial; ADR-0458); запуск — по digest (ADR-0137).
+# Собирается на GitHub Actions (`.github/workflows/build-ultratex-weights.yml`), НЕ на pakardev (lesson 722).
+ARG BASE
+FROM ${BASE}
+
+ARG DIT_URL=https://huggingface.co/black-forest-labs/FLUX.2-klein-base-9B/resolve/8e4154e4c94c6eb08644d0761d404e1c28d325c2/flux-2-klein-base-9b.safetensors
+ARG AE_URL=https://huggingface.co/black-forest-labs/FLUX.2-dev/resolve/e8af80c9dd820ab07ee4171d024f03e5c4b3024b/ae.safetensors
+ARG DIT_SHARDS=5
+ENV ULTRATEX_ROOT=/opt/ultratex-w \
+    ULTRATEX_TEXT_CACHE=/opt/text-cache/empty_qwen3_8b_bf16.pt \
+    ULTRATEX_OFFLOAD=swap \
+    PYTHONPATH=/app
+ENV DIT_DIR=/opt/ultratex-w/base/flux2/flux-2-klein-base-9b.safetensors.shards \
+    AE_DIR=/opt/ultratex-w/base/flux2/ae.safetensors.shards
+
+COPY weights_pack.py bake_weights.py worker_ultratex.py /app/
+COPY text-cache /opt/text-cache
+
+# слой 1: LoRA и декодер UltraTex (ModelScope, без токена)
+RUN python /app/bake_weights.py small
+
+# слои 2–6: DiT по кускам (заголовок исходника читается Range-запросом; кусок K — только его тензоры, потоком)
+RUN --mount=type=secret,id=hf_token python /app/weights_pack.py shard --url "$DIT_URL" --token-file /run/secrets/hf_token --out "$DIT_DIR" --k 0
+RUN --mount=type=secret,id=hf_token python /app/weights_pack.py shard --url "$DIT_URL" --token-file /run/secrets/hf_token --out "$DIT_DIR" --k 1
+RUN --mount=type=secret,id=hf_token python /app/weights_pack.py shard --url "$DIT_URL" --token-file /run/secrets/hf_token --out "$DIT_DIR" --k 2
+RUN --mount=type=secret,id=hf_token python /app/weights_pack.py shard --url "$DIT_URL" --token-file /run/secrets/hf_token --out "$DIT_DIR" --k 3
+RUN --mount=type=secret,id=hf_token python /app/weights_pack.py shard --url "$DIT_URL" --token-file /run/secrets/hf_token --out "$DIT_DIR" --k 4
+
+# слой 7: AE (0,34 ГБ, один кусок)
+RUN --mount=type=secret,id=hf_token python /app/weights_pack.py shard --url "$AE_URL" --token-file /run/secrets/hf_token --out "$AE_DIR" --k 0 --max-gb 2
+
+# проверки (слой не создают значимого размера): куски целы по sha256 и сходятся с заголовком исходника; число кусков = числу RUN-шагов; воркер видит всё без сети и без Qwen
+RUN python /app/weights_pack.py verify --out "$DIT_DIR" --expect-shards "$DIT_SHARDS" && python /app/weights_pack.py verify --out "$AE_DIR" --expect-shards 1 \
+    && python /app/bake_weights.py check && du -sh /opt/ultratex-w /opt/text-cache \
+    && { echo "ВЕСА В ОБРАЗЕ (без Qwen3-8B)"; echo "DiT $DIT_URL"; echo "AE $AE_URL"; cat "$DIT_DIR/manifest.json" | python -c "import json,sys; m=json.load(sys.stdin); print({k: v['sha256'] for k, v in m['shards'].items()})"; } > /opt/BUILD_INFO_WEIGHTS.txt

@@ -135,17 +135,6 @@ def slot_sizes(slot: dict) -> list:
     return out
 
 
-def tier_range(prices: list, q: tuple) -> tuple:
-    """Квантили цены тира (как `compose2.tier_band`): q = (низ, верх) доли."""
-    ps = sorted(prices)
-    if not ps:
-        return (0, 10 ** 9)
-
-    def pc(p):
-        return ps[max(0, min(len(ps) - 1, int(p * len(ps))))]
-    return (pc(q[0]), pc(q[1]))
-
-
 def dominated(it: dict, cands: list) -> set:
     """Не встал предмет Ш×Г — не встанут и все, что не меньше по обеим сторонам (спальня 2, 13,2 м²: 12 попыток подряд
     на кроватях 220–230 в глубину, ячейка пустела, хотя 213 встаёт). Отсекаем их разом, а не по одной."""
@@ -289,6 +278,13 @@ def color_eval(it: dict, role: str, style: str, P: dict | None = None, ctx: dict
             tier = 'discouraged'
             why += f' → discouraged (цветных якорей в наборе уже {ctx["chroma"]}, предел {lim})'
     rank = ((S.get('rank') or {}).get(g) or {}).get(tier, P['tier_rank'].get(tier))
+    tone = (S.get('tone') or {}).get(role)               # тон роли стиля (лофт: тёмные шторы) — поправка к рангу внутри яруса
+    if tone and rank is not None and tier != 'forbidden':
+        rgb = it.get('rgb')
+        dark = bool(re.search(tone['names'], it.get('name') or '', re.I)) or bool(
+            rgb and (0.299 * rgb[0] + 0.587 * rgb[1] + 0.114 * rgb[2]) / 255 <= tone['lum_max'])
+        why += ' · тон: тёмный' if dark else ' · тон: светлый (тёмный — раньше)'
+        rank = rank if dark else rank + tone.get('else_rank', 0.5)
     return {'tier': tier, 'rank': rank, 'delta': P['delta'].get(tier, 0.0), 'why': why, 'cat': cat, 'family': fam, 'group': g,
             'major': major, 'anchor': anchor}
 

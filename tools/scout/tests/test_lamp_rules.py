@@ -220,3 +220,67 @@ def test_lamp_without_model_goes_to_mesh_demand_once_per_product(monkeypatch):
     dem = BP.demand(state, set(), set())
     assert sorted(d['sku'] for d in dem) == ['9:y', '9:z']                      # по одному разу на товар: две ячейки с 9:z и «лампа 2» — один заказ
     assert BP.update({}, [cell(1, 'z')], _facts(False), now=1000)[0]['cells'].popitem()[1]['mesh_missing'] == 0   # флаг выключен — спроса нет
+
+
+# ---- витрина: набор без лампы, но слот лампы объявлен и пуст — лампа соседнего стиля с моделью (T-20261120-118, П1.70)
+def _bed_items():
+    def it(role, x, y, w, d, h):
+        return {'role': role, 'x': x, 'y': y, 'rot': 0, 'w': w, 'd': d, 'h': h, 'sku': {'name': role}}
+    return [it('кровать', 200.0, 150.0, 170.0, 210.0, 90.0), it('тумба прикроватная', 80.0, 60.0, 45.0, 40.0, 50.0),
+            it('тумба прикроватная', 320.0, 60.0, 45.0, 40.0, 50.0)]
+
+
+def _vdecor(monkeypatch):
+    import flat215_demo as FD
+    import textile_abstract as TX
+    monkeypatch.setattr(FD, '_basis', lambda mid, eid: 'feed')
+    monkeypatch.setattr(FD, 'decor_model', lambda it: (True, None))
+    monkeypatch.setattr(FD, 'decor_base', lambda it: None)
+    monkeypatch.setattr(TX, 'annotate', lambda *a, **k: None)
+    return FD
+
+
+def _run(FD, rec, bank, decor=None):
+    v = {'id': 'bedroom-x-loft', 'items': _bed_items(), 'decor': list(decor or [])}
+    FD.room_dependent_decor('bedroom', v, {'w': 400, 'd': 350}, bank, rec)
+    return v
+
+
+def test_absent_lamp_row_with_declared_gap_takes_neighbour_lamp_on_every_bedside_table(monkeypatch, capsys):
+    FD = _vdecor(monkeypatch)
+    nb = demo_room.neighbour_styles('лофт')[0]
+    rec = {'style': 'лофт', 'items': {}, 'gaps': ['лампа: нет подходящей']}
+    bank = [rec, {'style': nb, 'items': {'лампа': lamp(7)}}]
+    v = _run(FD, rec, bank)
+    lamps = [d for d in v['decor'] if d['role'].startswith('лампа')]
+    assert [d['role'] for d in lamps] == ['лампа', 'лампа 2']                       # по лампе на каждую тумбу
+    assert {d['place']['parent_slot_instance_id'] for d in lamps} == {'sleep.ns#0', 'sleep.ns#1'}
+    assert all(d['sku']['style_from'] == nb for d in lamps)                         # честная пометка «не своего стиля»
+    assert 'в наборе лампы не было' in capsys.readouterr().out
+
+
+def test_absent_lamp_row_without_declared_gap_stays_without_lamp(monkeypatch):
+    """Назначение без слота лампы (нет `gaps` про лампу) строки не получает — правило не придумывает слот."""
+    FD = _vdecor(monkeypatch)
+    nb = demo_room.neighbour_styles('лофт')[0]
+    rec = {'style': 'лофт', 'items': {}, 'gaps': []}
+    v = _run(FD, rec, [rec, {'style': nb, 'items': {'лампа': lamp(7)}}])
+    assert not [d for d in v['decor'] if d['role'].startswith('лампа')]
+
+
+def test_absent_lamp_nowhere_means_explicit_missing_line_and_no_row(monkeypatch, capsys):
+    FD = _vdecor(monkeypatch)
+    rec = {'style': 'лофт', 'items': {}, 'gaps': ['лампа: нет подходящей']}
+    v = _run(FD, rec, [rec])
+    assert not [d for d in v['decor'] if d['role'].startswith('лампа')]
+    assert 'WARN:lamp_missing: bedroom-x-loft — без лампы:' in capsys.readouterr().out
+
+
+def test_absent_lamp_without_model_is_not_added(monkeypatch, capsys):
+    FD = _vdecor(monkeypatch)
+    monkeypatch.setattr(FD, 'decor_model', lambda it: (None, 'нет модели на сервере'))
+    nb = demo_room.neighbour_styles('лофт')[0]
+    rec = {'style': 'лофт', 'items': {}, 'gaps': ['лампа: нет подходящей']}
+    v = _run(FD, rec, [rec, {'style': nb, 'items': {'лампа': lamp(7)}}])
+    assert not [d for d in v['decor'] if d['role'].startswith('лампа')]
+    assert 'нет модели на сервере' in capsys.readouterr().out

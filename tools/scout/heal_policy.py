@@ -173,6 +173,36 @@ def run_allowed(planned_sets: int, total_sets: int) -> tuple[bool, str]:
     return True, ''
 
 
+# ПРЕДОХРАНИТЕЛЬ КОНТРАКТОВ — ТРИ НЕЗАВИСИМЫХ ПРЕДЕЛА, ОТДЕЛЬНО ОТ `run_allowed` (T-20261119-89, Codex 19.11
+# `_intake/codex/2026-11-19-contracts-fuse-answer.md`; `run_allowed` читают heal и pairs — не трогаем).
+# Один предел по комплектам плохо: выбывший товар стоит в десятках комплектов (подушка — в 63 из 126), и шаг 32 ночи подряд
+# стопорился на «110 из 126» при 50 выбывших из 452 отдельных товаров. Один предел по товарам тоже плохо: он пропустит ту
+# аварию, ради которой предохранитель (инцидент 29.08: ОДИН товар выбросило из ВСЕХ 126 комплектов = 1 из 452).
+#   ширина  — доля ОТДЕЛЬНЫХ затронутых товаров (сломанная проверка бьёт по многим разным);
+#   радиус  — жёсткая доля затронутых комплектов (авария на одном товаре или роли);
+#   ядро    — ноль комплектов, у которых после прогона стало больше пробелов обязательного ядра (`bank_invariants.core_missing`).
+MAX_SKUS_SHARE = float(os.environ.get('HEAL_MAX_SKUS_SHARE', '0.25'))
+MAX_CONTRACT_SETS_SHARE = float(os.environ.get('HEAL_MAX_CONTRACT_SETS_SHARE', '0.60'))
+
+
+def contracts_allowed(planned_skus: int, total_skus: int, planned_sets: int, total_sets: int,
+                      core_regress=(), top=()) -> tuple[bool, str]:
+    """Можно ли применять контракты этим прогоном. Вызывать ПЕРЕД записью изменений. `core_regress` — номера комплектов, чьё
+    ядро ухудшилось; `top` — [(товар, комплектов)] крупнейших по охвату (только для текста отказа — человеку видна причина)."""
+    bad = []
+    if total_skus and planned_skus > MAX_SKUS_SHARE * total_skus:
+        bad.append(f'отдельных товаров {planned_skus} из {total_skus} (предел {MAX_SKUS_SHARE:.0%})')
+    if total_sets and planned_sets > MAX_CONTRACT_SETS_SHARE * total_sets:
+        bad.append(f'комплектов {planned_sets} из {total_sets} (предел {MAX_CONTRACT_SETS_SHARE:.0%})')
+    if core_regress:
+        bad.append(f'ядро (диван, столик, носитель ТВ, пара кресел) ухудшилось в {len(core_regress)} комплектах')
+    if not bad:
+        return True, ''
+    tail = ('; крупнейшие по охвату: ' + ', '.join(f'{k} — {n} компл.' for k, n in list(top)[:3])) if top else ''
+    return False, ('контракты затронули бы ' + '; '.join(bad) + tail +
+                   ' — это похоже на сломанный предикат или слишком большой разовый сдвиг; прогон остановлен')
+
+
 def affected_sets(since_hours: int = 24) -> list[str]:
     """Комплекты, изменившиеся за период — вход для точечной пересборки."""
     try:

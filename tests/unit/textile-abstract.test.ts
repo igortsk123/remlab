@@ -77,7 +77,7 @@ describe("условная ткань: мост витрины → места с
     const specs = planObjects(apartment, catalogue, sc).filter((s) => s.kind === "textile");
     expect(specs.map((s) => s.kind === "textile" && [s.shape, s.sheer, !!s.label])).toEqual([["curtain", true, false], ["throw", false, true]]);
     expect(TEXTILE_RULES.render).toEqual({ curtain: true, throw: false, pillow: true });
-    expect(TEXTILE_RULES.label).toEqual({ throw: true });
+    expect(TEXTILE_RULES.label).toEqual({ throw: true, curtain: true });   // у штор ярлык ПОВЕРХ геометрии (T-20261117-17), у пледа — вместо неё
     // флаг — данные: нет записи или true — форма рисуется (откат без правки кода)
     expect(textileRenders("throw", { render: { throw: true } })).toBe(true);
     expect(textileRenders("throw", {})).toBe(true);

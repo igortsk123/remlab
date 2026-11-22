@@ -24,7 +24,7 @@
 
 ## Как записать новый урок
 
-- **Следующий номер: 722.** (480 — бывший второй «472» из demo-planner, перенумерован 13.10) Номер берётся отсюда и сразу двигается здесь же (`414` → `415`).
+- **Следующий номер: 737.** (480 — бывший второй «472» из demo-planner, перенумерован 13.10) Номер берётся отсюда и сразу двигается здесь же (`414` → `415`).
 - Формат: `**N. Заголовок** — ситуация → пробовали → почему не сработало → правило` (одна запись — один абзац).
 - Куда: в конец файла своей темы `lessons/<тема>.md` (под заголовком `## Новые (после 2026-09-05)` — завести при первой записи).
 - Затем при необходимости — одна строка в `../core/lessons.md` (Tier 1, ≤3 КБ: только живые правила, не пересказ).
@@ -524,3 +524,93 @@ _Скрипты переноса и проверки (parse/split/verify) — в
 - 720 — ключ кэша в Python (86.0) ≠ на странице (86): заготовка тура вхолостую; «N/N совпало» без счёта отказов → `lessons/viz-render.md`
 - 721 — dev-БД с лимитом 512 МБ вместо 1g: OOM postgres каждый день, наличие не применялось 13 дней → `lessons/dev-ops.md`
 - 528, 530 — дополнены 07.11 (gltfpack и `/tmp`; «как в CI» — py3.12, чистый venv, golden `--record`, e2e) без новых номеров
+- 722 — сборка GPU-образа на pakardev съела общий диск до 8,7 ГБ; такие образы — только GitHub Actions → `lessons/dev-ops.md`
+- 723 — Grep/Glob субагентов по sshfs-папке на common → EPERM у всех сессий; поиск только `r git grep` → `lessons/dev-ops.md`
+- 724 — сервер в образе Salad слушал только IPv4 — шлюз и пробы ходят по IPv6 (503 на всё); слушать `::`, проба `/health`, порог ≤ 20 → `lessons/mesh-salad-pool.md`
+- 725 — живое поколение меша — по sha ревизии/привязки/файла, не по `seed`; tint пишет только ночь → `lessons/mesh-salad-pool.md`
+- 726 — чтения сцены по умолчанию (вид из окна, меш двери) не объявлены во входе ключа → брак первого кадра → `lessons/viz-render.md`
+- 727 — у семейств с `sku_scene.tint` перекраска к фото представителя ломает светлые варианты (множитель в потолке 5,0); запись — только через гейт по вариантам → `lessons/mesh-salad-pool.md`
+- 728 — id задания пробы `randomToken()` base64url начинается с `_`/`-` → `bad_job_id` в сборке тура, ≈3 % загрузок без тура → `lessons/floorplan-trial.md`
+- 729 — машина рендера `enum "CYCLES" not found` на каждом кадре — служба не признаёт ноду битой и платит за тики → `lessons/viz-render.md`
+- 730 — логов GitHub Actions агентам не видно (нет токена, `gh` 401) — хвост лога при ошибке в `::error::` и `$GITHUB_STEP_SUMMARY` → `lessons/dev-ops.md`
+- 731 — у товара два названия: обновление банков синхронизирует фото/ссылку/размеры, но не имя → `bad_item`; синхронизировать все поля → `lessons/catalog-stock.md`
+- 732 — замена мебели в туре копировала sid, но не pid → «Сделать фото» после замены 422 у каждого → `lessons/viz-render.md`
+- 733 — драйвер пробы мешей писал все модели в одну папку с одним именем → затёр GLB → `lessons/mesh-salad-pool.md`
+- 734 — «нет машины» на Salad = медленная докачка образа 30 ГБ; сторож прогноза докачки → `lessons/mesh-salad-pool.md`
+- 735 — краска Pixal3D на форме TRELLIS: 17,6 млн вокселей против ≤1 млн → OOM; «нет входа» от Codex было неверно → `lessons/mesh-salad-pool.md`
+- 736 — очистка «тонкие куски» сносила основания у пола; правила D+E (плита по следу корпуса) → `lessons/mesh-salad-pool.md`
+- 737 — деньги проб по снимку цен Salad занижены на треть; «карта X есть» — только по списку классов → `lessons/mesh-salad-pool.md`
+- 738 — правка общего драйвера пробы уронила чужой тест; гонять все тесты папки из ci.yml → `lessons/mesh-salad-pool.md`
+- 739 — апстримы клонировали в /tmp algor — место кончилось; копии только на pakardev ~/ext-src → `lessons/mesh-salad-pool.md`
+- 740 — сторож докачки жил в одной ветке, пилот сгорел на докачке; сторожа — в общем драйвере → `lessons/mesh-salad-pool.md`
+- 741 — очистка мусора у пола резала основания и вазу; проверка на чужой модели и стекле → `lessons/mesh-salad-pool.md`
+- 742 — образ под одну архитектуру CUDA на чужих картах «no kernel image»; сверка до группы → `lessons/mesh-salad-pool.md`
+- 743 — директор выдал часть плана, уже сделанную другим работником; перед выдачей спросить исполнителя → `lessons/memory-process.md`
+- 744 — после CUDA OOM воркер TRELLIS.2 роняет следующее задание; выходить после OOM → `lessons/mesh-salad-pool.md`
+- 745 — 5090 (sm_120) требует torch ≥ 2.7/cu128 и пересборки расширений → `lessons/mesh-salad-pool.md`
+- 746 — очистка clean3 резала обивку дивана; принимать по clay-кадрам дивана → `lessons/mesh-salad-pool.md`
+- 747 — «мятая» форма: вход 450 px и молчаливое снижение каскада TRELLIS.2 → `lessons/mesh-salad-pool.md`
+- 748 — RunPod 403 на Python-urllib, тихий простой платной машины; `platnoe-hod` → `lessons/mesh-salad-pool.md`
+- 749 — свои параллельные процессы под общей очередью heavy-slot не ускоряют → `lessons/mesh-salad-pool.md`
+- 750 — ключ RunPod спросили повторно: инвентарь не видел ACCESS.md → `lessons/memory-process.md`
+- 751 — вопрос владельцу о решённом; OOM → сразу большая карта → `lessons/memory-process.md`
+- 752 — заглушка мягче настоящего Popen скрыла TypeError → `lessons/mesh-salad-pool.md`
+- 753 — чужой код правит read-only массивы; читать Traceback внутри контейнера → `lessons/mesh-salad-pool.md`
+- 754 — Salad молчит: воркер слушал только IPv4 (не «slim-база») → `lessons/mesh-salad-pool.md`
+- 755 — «создано» = 201 + в списке; молчащий драйвер и тест-сирота → `lessons/mesh-salad-pool.md`
+- 756 — дефект формы искать во входе; тросы рвала 4-связность, не fal → `lessons/mesh-salad-pool.md`
+- 757 — тест на DEV ходил в живую базу, CI красный; аннотации шага → `lessons/devops-deploy.md`
+- 758 — подпись кадра со входом; принцип метода — после сверки → `lessons/memory-process.md`
+- 759 — «мыло» покраски = предмет 10 % кадра; смотреть сырые виды → `lessons/mesh-salad-pool.md`
+- 760 — кадр покраски только рядом с фото; детектор «ok» не приёмка → `lessons/mesh-salad-pool.md`
+- 761 — платный под: очередь до создания, простой между прогонами, старт по размеру образа → `lessons/mesh-salad-pool.md`
+- 762 — дыру судить по содержимому (фон), не по площади → `lessons/mesh-salad-pool.md`
+- 763 — осиротевший Xvfb держал замок heavy_slot → `lessons/dev-ops.md`
+- 764 — ручной драйвер Salad без замка конвейера гасит сторож → `lessons/dev-ops.md`
+- 765 — покраска: фото только видам той же стороны, задние — без фото, подпись из каталога → `lessons/mesh-salad-pool.md`
+- 766 — зерно покраски только в передней полусфере → `lessons/mesh-salad-pool.md`
+- 767 — забытый fake_comfy на порту моста: «кто ответил» до разбора → `lessons/mesh-salad-pool.md`
+- 768 — вырезка: мерить остаточную грязь, добавка тела только при резкой границе → `lessons/mesh-salad-pool.md`
+- 769 — tmux send-keys в занятую сессию: Enter отдельно и проверка → `lessons/dev-ops.md`
+- 770 — router встал при 6 сессиях: поднимать по одному, обрыв — владельцу сразу → `lessons/dev-ops.md`
+- 771 — место на диске считать по inode: жёсткие ссылки → `lessons/dev-ops.md`
+- 772 — новый --selftest в общем job: зависимости job явно → `lessons/devops-deploy.md`
+- 773 — малиновое покраски = служебная заливка StableGen, искать в исходнике → `lessons/mesh-salad-pool.md`
+- 774 — рабочий не усекает общий блокнот → `lessons/memory-process.md`
+- 775 — план конвейера: Codex сверяет с реальными точками входа → `lessons/memory-process.md`
+- 776 — живая проверка доски владельца без своих отметок → `lessons/dev-ops.md`
+- 777 — самопроверка с временным репо: без GIT_DIR из хука → `lessons/dev-ops.md`
+- 778 — приоритет машины = и очередь heavy-slot → `lessons/dev-ops.md`
+- 779 — TaskStop не снимает заявку heavy-slot на pakardev → `lessons/dev-ops.md`
+- 780 — Xvfb унаследовал fd замка слота → `lessons/dev-ops.md`
+- 781 — правка правил спальни → весь planner tests до push → `lessons/dev-ops.md`
+- 782 — правила только Edit через окно, не sed → `lessons/dev-ops.md`
+- 783 — общий порт моста sg_salad → `lessons/mesh-salad-pool.md`
+- 784 — плита-подложка TRELLIS ломает камеру/материал/заливку → `lessons/mesh-salad-pool.md`
+- 785 — тест образа пропускал __main__ модуля CMD → `lessons/dev-ops.md`
+- 786 — фото покупателя за фоном в heavy-slot (старение, потоки) → `lessons/dev-ops.md`
+- 787 — питон в слоте: *_NUM_THREADS = --cores → `lessons/dev-ops.md`
+- 788 — полосы формы от швов родных GLB, мерка + p99 → `lessons/mesh-salad-pool.md`
+- 789 — «30/30 по числам» ≠ красиво, показывать цвет всех → `lessons/mesh-salad-pool.md`
+- 790 — «платного не было» только после журнала → `lessons/memory-process.md`
+- 791 — каналы каталога не доходили до этапа 3 → `lessons/mesh-salad-pool.md`
+- 792 — «Белый ≠ опал» Codex против счёта каталога → `lessons/mesh-salad-pool.md`
+- 793 — HD-формы по глубине хуже превью → `lessons/mesh-salad-pool.md`
+- 794 — заливка узора с камерой az 0 → `lessons/mesh-salad-pool.md`
+- 795 — этап 5: мерка — сходимость верх−бок одной части → `lessons/mesh-salad-pool.md`
+- 796 — кадры по этапам только у контрольных → `lessons/memory-process.md`
+- 797 — пакет из живого worktree: товар из двух версий → `lessons/dev-ops.md`
+- 798 — PNG RGBA 2 МБ не уходит фото в TG → `lessons/dev-ops.md`
+- 799 — причина цвета владельцу до замера по этапам → `lessons/mesh-salad-pool.md`
+- 800 — камера 04: IoU по точкам вершин, ложная поза ящиков → `lessons/mesh-salad-pool.md`
+- 801 — edge_agree как вердикт позы: 75 % ложных → `lessons/mesh-salad-pool.md`
+- 802 — образ TRELLIS.2 без рецепта прогрева Hunyuan → `lessons/mesh-salad-pool.md`
+- 803 — UltraTex учителем на 40 и эталон со страниц магазинов → `lessons/memory-process.md`
+- 804 — rsync -a без -H раздувает жёсткие ссылки → `lessons/dev-ops.md`
+- 805 — UltraTex считал две одинаковые ветки CFG → `lessons/mesh-salad-pool.md`
+- 806 — растр (z-буфер) не причина «камера не легла» → `lessons/mesh-salad-pool.md`
+- 807 — родная текстура TRELLIS красит невидимое цветом фона → `lessons/mesh-salad-pool.md`
+- 808 — стоп платного драйвера сигналом не работает → `lessons/mesh-salad-pool.md`
+- 809 — тест с временным git под хуком наследует GIT_* → `lessons/dev-ops.md`
+- 810 — база веток покраски: merge/paint-1121 vs main → `lessons/dev-ops.md`
+- 811 — Telegram: длинная подпись к фото → IMAGE_PROCESS_FAILED → `lessons/dev-ops.md`

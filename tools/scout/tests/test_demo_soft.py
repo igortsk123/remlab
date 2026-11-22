@@ -29,6 +29,11 @@ import asset_strategy as AS  # noqa: E402
 import draft_render as DR  # noqa: E402
 import flat215_demo as F  # noqa: E402
 import improve_mode as IM  # noqa: E402
+import catalog_media as CM  # noqa: E402
+
+# Каталог — без базы (в CI её нет, DEV-база в тест не ходит): товаров теста (mid 1 / eid c, 112923:vigge, …) в живом каталоге нет —
+# `media()` отдаёт None и `_price` берёт цену самой карточки; пустой кэш даёт то же самое без обращения к `remlab-devdb` (T-20261119-114)
+CM._CACHE = {}
 
 # 1) роли
 check('канон: мягкое = cutout без настольных часов', AS.soft_roles() == {'плед', 'подушка', 'покрывало', 'полка', 'шторы'},
@@ -97,7 +102,8 @@ SRC = open(os.path.join(HERE, '..', 'flat215_demo.py'), encoding='utf-8').read()
 FUNCS = {n.name: ast.get_source_segment(SRC, n) for n in ast.parse(SRC).body if isinstance(n, ast.FunctionDef)}
 check('экспорт варианта: мягкое — в список варианта, модель обнулена',
       "soft = soft_role(role)" in FUNCS['build'] and "sk['msid'] = None" in FUNCS['build'])
-check('данные: правило ролей уходит странице (rules.soft_roles)', "'soft_roles': soft_roles()" in FUNCS['build'])
+check('данные: правило ролей уходит странице (rules.soft_roles)',   # один набор правил страницы (T-20261119-98): page_rules() зовёт build
+      "'soft_roles': soft_roles()" in FUNCS['page_rules'] and "**page_rules()" in FUNCS['build'])
 check('сборка: мягкое без роли в каталоге меняется из ленты сборки, нечем — строка снята; показуемой вазой мягкое не меняем',
       '_SOFT_LOST.update(soft_lost(sets))' in FUNCS['build'] and "p.get('soft') and p.get('sid') not in taken" in FUNCS['build']
       and 'soft_dropped.append' in FUNCS['build'] and "if soft_role(d.get('role')):\n                continue" in FUNCS['build'])

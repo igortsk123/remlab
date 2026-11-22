@@ -3,12 +3,12 @@ tier: 2
 topic: catalog-enrichment
 scope: Обогащение каталога — реестр моделей и цен, каскад, дельта, статусы
 tier1: "../core/catalog.md"
-updated: 2026-11-18
+updated: 2026-11-19
 importance: high
 source: manual
 status: working
 source_of_truth: canonical
-last_verified: 2026-11-12
+last_verified: 2026-11-19
 ---
 
 # Обогащение каталога — детали
@@ -181,7 +181,7 @@ https://remont-lab.online/test/golden/golden.html, выкладка вне ск�
 - `feed_taxonomy.py` разбирает `<categories>` всех семи фидов: **1 931 категория, дерево до 5
   уровней, 1 013 листьев с товарами**. Атрибут родителя у магазинов бывает и `parentId`, и
   `parent_id` — читаем оба, иначе дерево схлопывается в один уровень.
-- `category_map.py` — решение принимается один раз НА КАТЕГОРИЮ (`build`: ручные `OVERRIDES` сильнее всего, иначе
+- `category_map.py` — решение принимается один раз НА КАТЕГОРИЮ (`build`: ручные `OVERRIDES` сильнее всего (кроме ключа из `MIXED` — он обнуляет роль даже поверх, `category_map.py:401-410`), иначе
   `classify`: точечные `ALLOW_FIRST` (кашпо из садовой ветки, кроме рассады/уличного) → запреты `DENY` → разрешения
   `ALLOW` сперва по листу, потом по пути; смешанные ветки `MIXED` — роль по названию товара `role_by_name` (`tools/scout/category_map.py:261`, вызывается из `load3.py:244`))
   и пишется в `products.cat_role` (`category_map.py:apply`, upsert `load3.py`).
@@ -336,7 +336,7 @@ credit_balance_exhausted), 3 Traceback подряд = алерт+выход, г�
 ступень (снапшот-запасной вне индекса кандидатов) не штрафуется.
 
 Зачем это нужно демо `/demo/`: страница берёт 3D-модель по `msid` (представитель семейства, ADR-0196):
-`/rt/<msid>.glb`, иначе `/test/mesh-pilot10/<msid>/model.glb` (`lib/configurator/mesh-url.ts:meshUrl`), а
+`/rt/<msid>.glb`, иначе `/test/mesh-pilot10/<msid>/model.glb` (`lib/configurator/mesh-url.ts:meshUrl`; есть ещё явный `runtimeUrl`, вариант `-lite` и `?v=<sha>`, `:34-42`), а
 без модели рисует серую коробку по габаритам (`lib/viewer3d/meshes.ts:stubBox`). Замена без меша чинит каталожную правду и портит
 картинку — отсюда предпочтение при равном стиле.
 
@@ -380,7 +380,7 @@ credit_balance_exhausted), 3 Traceback подряд = алерт+выход, г�
 
 ### Как устроено после починки (ADR-0141)
 `in_stock` = статус `active` (`product_enrichment.status`, нет строки — `products.status`) И `shop_status.program_state<>'retired'` И
-`product_page_status.state` не в (`gone`,`oos`) по ТЕКУЩЕЙ ссылке (`stock_truth.py:TRUTH_SQL`). Материализует **только**
+`product_page_status.state` не в (`gone`,`oos`) по ТЕКУЩЕЙ ссылке (`stock_truth.py:DERIVED_SQL`; `TRUTH_SQL` в коде осталась, но не используется). Материализует **только**
 `stock_truth.reconcile()` (новым строкам `load3` при вставке ставит заглушку `'t'`, обновление `in_stock` не трогает, `reconcile`
 в конце того же прогона пересчитывает всё); прочие прямые записи `in_stock` сняты,
 `resurrect.py` удалён (воскрешение — обычный переход reducer'а по положительному свидетельству).

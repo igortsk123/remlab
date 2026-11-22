@@ -87,6 +87,8 @@ decide() {
 }
 
 selftest() {
+  # из pre-push хука приходят GIT_DIR и др.: с ними «git -C временный» пишет в НАСТОЯЩИЙ репо (21.11 — ветка tgt)
+  unset GIT_DIR GIT_WORK_TREE GIT_INDEX_FILE GIT_OBJECT_DIRECTORY GIT_COMMON_DIR GIT_PREFIX
   local fail=0 t s
   ok_() { echo "  ok: $1"; }
   bad() { echo "  FAIL: $1" >&2; fail=1; }

@@ -24,13 +24,19 @@ elif [ "$waited" -gt 0 ]; then echo "demo_live: ждал свободного р
 LOGD=${DEMO_LIVE_LOGS:-$HOME/scout-scenes/demo-live}
 mkdir -p "$LOGD"
 LOGF="$LOGD/$(date +%F).log"
+# ШАПКА — В НАЧАЛЕ ЗАПУСКА (T-20261119-115/2): раньше «=== … rc=N ===» писалась после прогона, и упавший или оборванный запуск в журнале
+# не оставлял следа; теперь строка старта есть всегда, вывод идёт в журнал по ходу, итог — отдельной строкой в конце
+echo "=== $(date '+%F %T') demo_live старт ===" >> "$LOGF"
+RAW="$LOGD/.last-run.raw"
 # один браузер: --workers=1 дублирует playwright.live.config.ts — не дать параллели вернуться флагом/правкой конфига
-out=$(pnpm exec playwright test -c playwright.live.config.ts --workers=1 2>&1); rc=$?
-{ echo "=== $(date '+%F %T') demo_live rc=$rc ==="; printf '%s\n' "$out" | sed 's/\x1b\[[0-9;]*[A-Za-z]//g'; } >> "$LOGF"
-if [ "$rc" -ne 0 ]; then
-  echo "$out" | tail -25
-  echo "WARN:demo_live: живая проверка демо на проде не прошла — полный вывод: $LOGF"
-  exit 0
-fi
-echo "$out" | tail -2
+pnpm exec playwright test -c playwright.live.config.ts --workers=1 2>&1 | tee "$RAW" | sed -u 's/\x1b\[[0-9;]*[A-Za-z]//g' >> "$LOGF"
+rc=${PIPESTATUS[0]}
+echo "=== $(date '+%F %T') demo_live rc=$rc ===" >> "$LOGF"
+# СТОРОЖ (T-20261119-115/2): красных ≥ порога (`tools/scout/rules/demo-live.json`) — rc 1 (шаг FAIL) и строка DIGEST:! в сводку;
+# раньше шаг кончался rc 0 при любых красных, и 7–13 красных каждую ночь 12–19.11 стали «нормой»
+[ "$rc" -ne 0 ] && tail -25 "$RAW"
+python3 tools/ops/demo-live-gate.py --file "$RAW" --rc "$rc"
+grc=$?
+[ "$rc" -eq 0 ] && tail -2 "$RAW"
 echo "полный вывод: $LOGF"
+exit "$grc"

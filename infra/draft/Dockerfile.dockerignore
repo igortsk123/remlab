@@ -17,11 +17,13 @@
 !tools/scout/asset_strategy.py
 !tools/scout/falmini.py
 !tools/scout/improve_mode.py
+!tools/scout/render_config.py
 !tools/scout/mesh_render.py
 !tools/scout/scene_mesh.py
 !tools/scout/opening_ir.py
 !tools/scout/view_consistency.py
 !tools/scout/post_stall.py
+!tools/scout/log_stamp.py
 !tools/scout/refs_check.py
 !tools/scout/env_keys.py
 !tools/scout/orient_policy.py

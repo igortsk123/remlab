@@ -56,8 +56,8 @@ y вглубь; x/y предмета = ЦЕНТР; rot по часовой, 0 �
 
 ## Ассеты
 `tools/assets/runtime_mesh.py`: текстуры ужимаются до 1024 (desktop) / 512 (lite) — это потолок,
-уменьшение только сверху вниз; в таблице `data/flat3d/runtime-meshes.json` 116 моделей: 85 — 1024 (+ lite 512),
-31 — 512 без lite. metallicRoughness → в
+уменьшение только сверху вниз; в таблице `data/flat3d/runtime-meshes.json` 116 в HEAD (117 в рабочей копии 18.11): 85 — 1024 (+ lite-текстура 512),
+31 — 512 без отдельной lite-текстуры (`size-lite` есть). metallicRoughness → в
 скаляры, картинки переносятся в бинарный чанк, затем `gltfpack -cc -tc` (Meshopt + KTX2).
 Замер 28.09: 3,94 → 0,29 МБ (desktop) и 0,15 МБ (lite); 40 моделей 158 → 12 МБ.
 Публикация — `tools/assets/publish_rt.sh` (`rsync` в `/opt/remlab/test/rt/`, без удаления); маршрут `/rt/*` в Caddy:

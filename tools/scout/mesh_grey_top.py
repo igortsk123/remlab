@@ -83,14 +83,14 @@ def top_faces(V: np.ndarray, F: np.ndarray, R: dict) -> tuple:
     return top, side, float(ar[top].sum()), foot
 
 
-def analyze_arrays(V, F, UV, albedo, mr=None, R: dict | None = None) -> dict:
+def analyze_arrays(V, F, UV, albedo, mr=None, R: dict | None = None, photo_lab=None) -> dict:
     """Вердикт модели: верх (калиброванное ядро `analyze_top_arrays`) + дыры на ВСЕХ поверхностях (`surfaces_arrays`). Общий вердикт — худший из двух;
     числа верха остаются как были (поля верха), поверхности — списком `surfaces`, где — `where`. Нет верха, но есть видимые поверхности — вердикт по ним
     (стулья, диваны, кресла: раньше `na`)."""
     R = R or rules()
     top = analyze_top_arrays(V, F, UV, albedo, mr, R)
-    sf = surfaces_arrays(V, F, UV, albedo, mr, R)
-    order = {'na': -1, 'ok': 0, 'candidate': 1, 'reject': 2}
+    sf = surfaces_arrays(V, F, UV, albedo, mr, R, photo_lab)
+    order ={'na': -1, 'ok': 0, 'candidate': 1, 'reject': 2}
     out = dict(top)
     out['surfaces'] = sf['surfaces']
     out['where'] = sf['where']
@@ -210,7 +210,121 @@ def face_roles(V: np.ndarray, F: np.ndarray, R: dict) -> np.ndarray:
     return roles
 
 
-def surfaces_arrays(V, F, UV, albedo, mr=None, R: dict | None = None) -> dict:
+def _demote_grey_goods(out: list, R: dict) -> None:
+    """gt-v3: кандидат (не отказ) на поверхности, которая НЕ похожа на пустой фон сети, — настоящий серый товар (диван, кровать, кашпо):
+    для верха нужен чистый фон ≥ cand_top_pure_min ИЛИ контраст с остальным изделием ≥ cand_top_edge_min; для боковых ролей — чистый фон ≥ cand_side_pure_min И (MR 0,5/0,5 ≥ cand_side_mr_min ИЛИ контраст ≥ cand_side_edge_min): бок серой ткани — без этих признаков не пустота (разметка глазами T-04/16/3: 12 серых товаров из 41 → 5 снято).
+    Иначе вердикт → ok, `demoted`=True (было 3 из 6 ложных на контроле; настоящие серые крышки — чистое окно 124–134 — остаются)."""
+    for x in out:
+        if x['verdict'] != 'candidate':
+            continue
+        ec = x.get('edge_contrast')
+        if x['role'] == 'верх':
+            keep = x['pure_share'] >= R['cand_top_pure_min'] or (ec is not None and ec >= R['cand_top_edge_min'])
+        else:
+            keep = x['pure_share'] >= R['cand_side_pure_min'] and ((x.get('mr_share') or 0) >= R['cand_side_mr_min'] or (ec is not None and ec >= R['cand_side_edge_min']))
+        if not keep:
+            x['verdict'], x['demoted'] = 'ok', True
+
+
+def _extra_top_rules(out: list, R: dict) -> None:
+    """gt-v3: три признака пустого верха, которых не видит «≥80 % окна 117–141» (калибровка T-20261118-04/16, 3 пропуска из 81 известных):
+    1) однотонный низкосатурированный верх светлее остальных поверхностей изделия на ≥ flat_body_dL (графитовая тумба с серой крышкой);
+    2) однотонный верх с MR≈0,5/0,5 и серым медианом 110–141 (чёрная столешница, у которой фон сети чуть темнее 117);
+    3) частичная дыра: ≥ partial_share верха — чистый фон 124–134 (дуб, у которого пол-крышки серое);
+    4) серость ≥ gedge_share верха (окно 117–141) при контрасте с остальным ≥ gedge_edge_min (графитовая тумба, серая крышка 140).
+    Только роль «верх»; вердикт — candidate (отказ — по прежнему правилу), причина — поле `why`."""
+    top = next((x for x in out if x['role'] == 'верх' and x['verdict'] == 'ok' and not x.get('demoted')), None)
+    if top is None:
+        return
+    import mesh_color_check as MC
+    med = top['median_rgb']
+    lab = MC.lab(med)[0]
+    rest = [x for x in out if x['role'] not in ('верх', 'низ') and x.get('median_rgb')]
+    if rest:
+        tot = sum(x['area_px'] for x in rest)
+        body = sum(float(MC.lab(x['median_rgb'])[0][0]) * x['area_px'] for x in rest) / tot
+        if (top['std'] <= R['flat_std_max'] and float(np.hypot(lab[1], lab[2])) <= R['flat_chroma_max']
+                and R['flat_lo'] <= min(med) and max(med) <= R['flat_hi'] and float(lab[0]) - body >= R['flat_body_dL']):
+            top['verdict'], top['why'] = 'candidate', 'lighter-than-body'
+            return
+    if ((top.get('mr_share') or 0) >= R['mrflat_share'] and top['std'] <= R['mrflat_std_max']
+            and R['mrflat_lo'] <= min(med) and max(med) <= R['mrflat_hi'] and max(med) - min(med) <= R['mrflat_spread']):
+        top['verdict'], top['why'] = 'candidate', 'mr-flat'
+        return
+    if top['pure_share'] >= R['partial_share'] and top['grey_share'] >= R['partial_share']:
+        top['verdict'], top['why'] = 'candidate', 'partial'
+        return
+    ec = top.get('edge_contrast')
+    if top['grey_share'] >= R['gedge_share'] and ec is not None and ec >= R['gedge_edge_min'] and top['std'] <= R['gedge_std_max']:
+        top['verdict'], top['why'] = 'candidate', 'grey-edge'      # серость ≥70 % верха (не чистое окно) при контрасте с остальным изделием: графитовая тумба с серой крышкой
+
+
+def photo_has_share(photo_lab, rgb, R: dict) -> float | None:
+    """Доля пикселей ВЫРЕЗКИ фото товара (Lab, массив n×3), у которых цвет в ΔE76 ≤ neutral_photo_dE от цвета `rgb`. Нет фото — None (правило «серость вообще» молчит)."""
+    if photo_lab is None or not len(photo_lab):
+        return None
+    import mesh_color_check as MC
+    t = MC.lab(rgb)[0]
+    return float((np.linalg.norm(np.asarray(photo_lab) - t, axis=1) <= R['neutral_photo_dE']).mean())
+
+
+def photo_palette(glb: str, n: int = 40000):
+    """Lab пикселей вырезки товара (`cutout.png` рядом с model.glb, альфа > 128; уменьшена до 400 px, не больше n точек). Нет файла/пусто — None."""
+    p = os.path.join(os.path.dirname(os.path.abspath(glb)), 'cutout.png')
+    if not os.path.exists(p):
+        return None
+    from PIL import Image
+    import mesh_color_check as MC
+    im = Image.open(p).convert('RGBA')
+    im.thumbnail((400, 400))
+    a = np.asarray(im)
+    px = a[..., :3][a[..., 3] > 128]
+    if not len(px):
+        return None
+    if len(px) > n:
+        px = px[np.random.default_rng(1).choice(len(px), n, replace=False)]
+    return MC.lab(px)
+
+
+def _neutral_rules(out: list, R: dict, photo_lab) -> None:
+    """gt-v5 «серость вообще» (T-20261119-113; решение директора 19.11 после T-102: шкаф стал тёмно-серым, медиана 112 — детектор молчал, он ловит серое только в окне 117–141).
+    Любая видимая поверхность (кроме «низ»), которая сразу: нейтральна (хрома C* ≤ neutral_chroma_max при ЛЮБОЙ яркости), однотонна (σ ≤ neutral_std_max — ткань/дерево/бетон дают
+    σ ≥ 8), заметна (доля площади видимых ≥ neutral_share_min — не ножка/ручка), резко отличается от остального изделия (ΔE76 до площадь-взвешенного «тела» ≥ neutral_dE_min; в «тело»
+    не входят такие же нейтрально-плоские — Codex 19.11) и ЕЁ ЦВЕТА НЕТ НА ФОТО товара (доля пикселей вырезки в ΔE ≤ neutral_photo_dE меньше neutral_photo_share_max; нет фото — правило молчит:
+    без него честно чёрные/серые детали дают ложные, замер T-113) → `candidate` (причина `neutral-flat`). Крайняя яркость (L* < neutral_L_lo или > neutral_L_hi) — усиленные пороги
+    (ΔE ≥ neutral_ext_dE и доля ≥ neutral_ext_share). Только кандидат: отказ остаётся за чистым окном 124–134. Строки, уже ставшие кандидатом/отказом, не трогает (в т. ч. снятые «серым товаром»)."""
+    if photo_lab is None:
+        return
+    import mesh_color_check as MC
+    vis = [x for x in out if x['role'] != 'низ' and x.get('median_rgb')]
+    tot = sum(x['area_px'] for x in vis)
+    if not tot:
+        return
+    lab = {id(x): MC.lab(x['median_rgb'])[0] for x in vis}
+    flat = {id(x) for x in vis if float(np.hypot(lab[id(x)][1], lab[id(x)][2])) <= R['neutral_chroma_max'] and x['std'] <= R['neutral_std_max']}
+    for x in vis:
+        if x['verdict'] != 'ok' or id(x) not in flat:
+            continue
+        L, share = float(lab[id(x)][0]), x['area_px'] / tot
+        ext = L < R['neutral_L_lo'] or L > R['neutral_L_hi']
+        if share < (R['neutral_ext_share'] if ext else R['neutral_share_min']):
+            continue
+        rest = [y for y in vis if y is not x and id(y) not in flat]
+        t2 = sum(y['area_px'] for y in rest)
+        if not t2 or t2 < R['neutral_body_min'] * tot:
+            continue
+        body = sum(lab[id(y)] * y['area_px'] for y in rest) / t2
+        de = float(np.linalg.norm(lab[id(x)] - body))
+        if de < (R['neutral_ext_dE'] if ext else R['neutral_dE_min']):
+            continue
+        ps = photo_has_share(photo_lab, x['median_rgb'], R)
+        if ps is None or ps >= R['neutral_photo_share_max']:
+            continue
+        x['verdict'], x['why'] = 'candidate', 'neutral-flat'
+        x['neutral'] = {'L': round(L, 1), 'dE_body': round(de, 1), 'share': round(share, 3), 'photo_share': round(ps, 4)}
+
+
+def surfaces_arrays(V, F, UV, albedo, mr=None, R: dict | None = None, photo_lab=None) -> dict:
     """Дыры покраски по ВСЕМ поверхностям: грани делятся на роли (`face_roles`), для каждой роли — её собственные тексели UV (без швов и полей),
     в них: доля текселей «фона сети» (окно grey_lo–grey_hi по всем каналам), чистого фона (pure), разброс, MR≈0,5/0,5, крупнейшая СВЯЗНАЯ дыра (текселей
     исходной карты и доля площади роли), контраст с остальной поверхностью, доля «пересвета» (все каналы ≥ bright_min на однотонной области).
@@ -263,6 +377,10 @@ def surfaces_arrays(V, F, UV, albedo, mr=None, R: dict | None = None) -> dict:
         if r == 'низ':
             row['verdict'] = 'ok'                      # дно не видно: считаем, но не судим
         out.append(row)
+    _demote_grey_goods(out, R)
+    _extra_top_rules(out, R)
+    _neutral_rules(out, R, photo_lab)
+    for row in out:
         if row['verdict'] != 'ok' and (worst is None or order[row['verdict']] > order[worst['verdict']]
                                        or (order[row['verdict']] == order[worst['verdict']] and row['area_px'] > worst['area_px'])):
             worst = row
@@ -298,7 +416,7 @@ def analyze(glb: str, R: dict | None = None) -> dict:
     albedo = np.asarray(tex.convert('RGB'))
     if mr is not None:
         mra = np.asarray(mr.convert('RGB').resize((albedo.shape[1], albedo.shape[0])))
-    return analyze_arrays(g.vertices, g.faces, uv, albedo, mra, R)
+    return analyze_arrays(g.vertices, g.faces, uv, albedo, mra, R, photo_palette(glb))
 
 
 def _one(glb: str):
@@ -453,7 +571,21 @@ def _selftest() -> int:
     r = analyze_arrays(V, F, UV, _atlas((196, 150, 90), (150, 100, 40)), mrg, R)
     ok('дубовая крышка → ok', r['verdict'] == 'ok' and r['grey_share'] < 0.05)
     r = analyze_arrays(V, F, UV, _atlas((120, 120, 120), (150, 100, 40)), mrg, R)
-    ok('серый 114 (за окном 117–141) → ok: граница окна держится', analyze_arrays(V, F, UV, _atlas((114, 114, 114), (150, 100, 40)), mrg, R)['verdict'] == 'ok')
+    ok('серый 100 (за всеми окнами) → ok: граница держится', analyze_arrays(V, F, UV, _atlas((100, 100, 100), (150, 100, 40)), mrg, R)['verdict'] == 'ok')
+    _rows = [{'role': 'верх', 'verdict': 'candidate', 'pure_share': 0.17, 'edge_contrast': 1.0},
+             {'role': 'вертикаль-z', 'verdict': 'candidate', 'pure_share': 0.17, 'edge_contrast': 69.0},
+             {'role': 'верх', 'verdict': 'candidate', 'pure_share': 0.17, 'edge_contrast': 40.0},
+             {'role': 'верх', 'verdict': 'candidate', 'pure_share': 0.9, 'edge_contrast': 1.0},
+             {'role': 'верх', 'verdict': 'reject', 'pure_share': 0.17, 'edge_contrast': 1.0},
+             {'role': 'сиденье', 'verdict': 'candidate', 'pure_share': 0.9, 'edge_contrast': 2.0, 'mr_share': 0.0},
+             {'role': 'сиденье', 'verdict': 'candidate', 'pure_share': 0.9, 'edge_contrast': 40.0, 'mr_share': 0.0},
+             {'role': 'сиденье', 'verdict': 'candidate', 'pure_share': 0.9, 'edge_contrast': 2.0, 'mr_share': 1.0}]
+    _demote_grey_goods(_rows, R)
+    ok('gt-v3: серый товар (верх без контраста и чистого фона; бок с размытым серым) → ok; контраст/чистый фон/reject остаются',
+       [x['verdict'] for x in _rows] == ['ok', 'ok', 'candidate', 'candidate', 'reject', 'ok', 'candidate', 'candidate'])
+    ok('gt-v3: серый 114 с MR 0,5/0,5 и плоский → candidate (mr-flat), с настоящим MR → ok',
+       analyze_arrays(V, F, UV, _atlas((114, 114, 114), (150, 100, 40)), mrg, R)['verdict'] == 'candidate'
+       and analyze_arrays(V, F, UV, _atlas((114, 114, 114), (150, 100, 40)), mro, R)['verdict'] == 'ok')
     r = analyze_arrays(V, F, UV, _atlas((134, 124, 129), (150, 100, 40)), mrg, R)
     ok('чистый фон 124/134 на краях окна — reject (чистая доля ≥ 95 %)', r['verdict'] == 'reject')
     r = analyze_arrays(V, F, UV, _atlas((122, 136, 129), (150, 100, 40)), mrg, R)
@@ -519,6 +651,33 @@ def _selftest() -> int:
        and effective({'verdict': 'reject', 'median_rgb': [130, 130, 130]}, [75, 76, 80], R) == 'reject'
        and effective({'verdict': 'ok', 'median_rgb': [130, 130, 130]}, [75, 76, 80], R) == 'ok' and effective(None, [1, 1, 1], R) is None)
     ok('digest: числа в строке', 'отказ 3' in digest_part({'grey_top_reject': 3, 'grey_top_candidate': 5, 'grey_top_shown': 2}))
+    # ---- gt-v5 «серость вообще» (T-20261119-113): тёмно-серый 112 — вне окна 117–141, раньше ok; фото без серого → candidate
+    import mesh_color_check as MC
+    Rn = {**R, 'neutral_body_min': 0.1}                                  # в тестовой коробке бока мелкие (≈15 % следа) — «тело» берём от 10 %
+    oak = MC.lab(np.tile(np.array([[196, 150, 90]], np.uint8), (500, 1)))
+    oak_grey = MC.lab(np.vstack([np.tile(np.array([[196, 150, 90]], np.uint8), (300, 1)), np.tile(np.array([[112, 112, 110]], np.uint8), (200, 1))]))
+    sides = (196, 150, 90)
+    r = analyze_arrays(V, F, UV, _atlas((112, 112, 110), sides), mro, Rn, oak)
+    ok('gt-v5: тёмно-серый верх 112 (σ≈0), остальное дуб, на фото серого нет → candidate neutral-flat (раньше ok)',
+       r['verdict'] == 'candidate' and 'верх' in r['where'] and next(x for x in r['surfaces'] if x['role'] == 'верх').get('why') == 'neutral-flat')
+    ok('gt-v5: то же без фото (нет вырезки) → ok: правило молчит, не гадает',
+       analyze_arrays(V, F, UV, _atlas((112, 112, 110), sides), mro, Rn, None)['verdict'] == 'ok')
+    ok('gt-v5: серый ЕСТЬ на фото (честная серая крышка при дубовом корпусе, 40 % вырезки) → ok',
+       analyze_arrays(V, F, UV, _atlas((112, 112, 110), sides), mro, Rn, oak_grey)['verdict'] == 'ok')
+    ok('gt-v5: весь предмет серый (крышка и бока одного серого) → ok: «тела» нет',
+       analyze_arrays(V, F, UV, _atlas((112, 112, 110), (112, 112, 110)), mro, Rn, oak)['verdict'] == 'ok')
+    ok('gt-v5: серый с фактурой (бетон/ткань σ 14) → ok',
+       analyze_arrays(V, F, UV, _atlas((112, 112, 110), sides, noise=14), mro, Rn, oak)['verdict'] == 'ok')
+    ok('gt-v5: пустой чёрный верх (L*<20, σ≈0) при дубовом корпусе и фото без чёрного → candidate; хромой цвет (синий 40,60,140) → ok',
+       analyze_arrays(V, F, UV, _atlas((8, 8, 8), sides), mro, Rn, oak)['verdict'] == 'candidate'
+       and analyze_arrays(V, F, UV, _atlas((40, 60, 140), sides), mro, Rn, oak)['verdict'] == 'ok')
+    ok('gt-v5: светлее окна (серый 190) при дубовом корпусе → candidate; светлый серый на фото есть → ok',
+       analyze_arrays(V, F, UV, _atlas((190, 190, 190), sides), mro, Rn, oak)['verdict'] == 'candidate'
+       and analyze_arrays(V, F, UV, _atlas((190, 190, 190), sides), mro, Rn, MC.lab(np.tile(np.array([[190, 190, 190]], np.uint8), (500, 1))))['verdict'] == 'ok')
+    ok('gt-v5: старый reject (128) не меняется новым правилом',
+       analyze_arrays(V, F, UV, _atlas((128, 128, 128), (150, 100, 40)), mrg, Rn, oak)['verdict'] == 'reject')
+    ok('gt-v5: photo_has_share считает долю цвета на вырезке; нет фото — None',
+       abs(photo_has_share(oak_grey, [112, 112, 110], R) - 0.4) < 0.01 and photo_has_share(None, [1, 1, 1], R) is None)
     print('итог:', 'чисто' if not bad else f'ПРОВАЛЕНО {len(bad)}')
     return 1 if bad else 0
 

@@ -32,6 +32,7 @@ if __name__ == '__main__':
 import bank_paths as _BP  # noqa: E402
 import atomic_io as _AIO  # noqa: E402 — выходные json сборки пишутся подменой, не обрезкой (T-20261105-59)
 import room_bindings as _RB  # noqa: E402 — привязка, индекс прода и правило годности модели (одно с банком, T-20261106-70)
+import product_names as _PN  # noqa: E402 — ЕДИНОЕ правило названия товара: витрина и туры (T-20261119-97)
 BANK = _BP.demo_plan(os.environ, OUT)
 # ОДНА РАССТАНОВКА НА ВСЕ СТИЛИ (demo-31, `demo_one_layout.py`): включено — солвер берёт только гипотезы опорной подписи
 # (`rules/demo-layout.json`), раскладки — со своим суффиксом `-one` (общие `v3set{n}-layout.json` пересчитывают другие прогоны)
@@ -109,6 +110,14 @@ def _photo_pick() -> dict:
         r = {}
     w, h = r.get('window_old_key_photo'), r.get('home_old_key_photo')
     return {'window_old_key_photo': w if w in ('hide', 'dim') else 'hide', 'home_old_key_photo': h if h in ('keep', 'hide') else 'keep'}
+
+
+def page_rules() -> dict:
+    """ПРАВИЛА СТРАНИЦЫ ОДНИМ НАБОРОМ (T-20261119-98, П1.23): всё, что `D.rules` получает от файлов правил, кроме полос размера
+    (`slot_band_cm` — по каталогу своей квартиры). Зовут и сборка /demo (`build`), и тур (`trial_bundle.default_ctx`) — новое правило
+    страницы добавлять СЮДА, иначе тур его не получит и сверка «демо = туры» покажет «правила страницы отличаются»
+    (так `photo_pick` 18.11 лёг только в /demo)."""
+    return {**_rules(), 'soft_roles': soft_roles(), 'photo_pick': _photo_pick()}
 
 
 def _rules() -> dict:
@@ -568,6 +577,19 @@ def carrier_caps(o: dict) -> dict | None:
     return {'foot_h_cm': h} if top is not DD.RT._MISSING and 0 < h <= max(top) else None
 
 
+LAMP_STATE: dict = {}      # тег варианта → ('ok', ламп, тумб) | ('missing', причина, тумб) | ('partial', причина, тумб); сводка сборки (T-20261120-118)
+
+
+def lamp_summary(state: dict) -> str:
+    """Сводка ламп вариантов одной строкой: с лампой на каждой тумбе / без лампы с причиной / не на всех тумбах."""
+    ok = sorted(t for t, x in state.items() if x[0] == 'ok')
+    miss = sorted(t for t, x in state.items() if x[0] == 'missing')
+    part = sorted(t for t, x in state.items() if x[0] == 'partial')
+    return (f'лампы на тумбах: у {len(ok)} из {len(state)} вариантов лампа на каждой тумбе'
+            + (f'; без лампы (причина в WARN:lamp_missing) {len(miss)}: {", ".join(miss)}' if miss else '')
+            + (f'; не на всех тумбах (WARN:lamp) {len(part)}: {", ".join(part)}' if part else ''))
+
+
 def room_dependent_decor(room_type: str, v: dict, geo: dict, bank: list, rec: dict) -> None:
     """ЗАВИСИМЫЙ ДЕКОР КОМНАТЫ КРОМЕ ГОСТИНОЙ (T-20261113-22, владелец TG 1619/1623 «всё видно: предметы мешами, шторы — абстракцией»):
     по паспорту типа (`dependent_decor.ROOM_DEPS`; нет типа — ничего). ЛАМПЫ — на тумбах по размеру (`lamp_pick_all`: лампа набора, иначе
@@ -580,6 +602,18 @@ def room_dependent_decor(room_type: str, v: dict, geo: dict, bank: list, rec: di
         return
     tag = v.get('id') or rec.get('room_id')
     rows = [d for d in v.get('decor') or [] if DD.is_lamp(d.get('role'))]
+    # В НАБОРЕ ЛАМПЫ НЕТ, А НОСИТЕЛЬ ЕСТЬ (T-20261120-118, П1.70): живая ячейка банка могла остаться без лампы («лампа: нет подходящей»),
+    # пока кандидат с лампой соседнего стиля ждёт чужих мешей (комод/шкаф), которые витрина подменяет сама. Подбор тот же, что у
+    # набора с лампой (свои лампы стиля из банка → запас соседнего стиля, модель обязательна, по лампе на каждый носитель), а не
+    # «нет строки — нет лампы»; не нашлось — явная строка `WARN:lamp_missing` с причиной, цена прежняя (без лампы)
+    # только там, где набор сам записал «слот лампы объявлен, но пуст» (`gaps`: «лампа: нет подходящей»); назначения без слота лампы
+    # (кабинет, детская) строки не получают — новых входов правил у сборки нет
+    absent = not rows and any(DD.LAMP_ROLE in str(g) for g in rec.get('gaps') or [])
+    if absent:
+        cfg = DD.ROOM_DEPS[room_type]
+        pid = cfg['carriers'][cfg['lamp_carrier']]
+        n_car = sum(1 for k, _o in DD.carrier_objs(v['items'], cfg['carriers']) if k.startswith(f'{pid}#'))
+        rows = [{'role': DD.LAMP_ROLE if k == 0 else f'{DD.LAMP_ROLE} {k + 1}'} for k in range(n_car)]
     if rows:
         sets = [rec] + [b for b in bank if b is not rec]
         import demo_room
@@ -591,15 +625,24 @@ def room_dependent_decor(room_type: str, v: dict, geo: dict, bank: list, rec: di
             for row, pl in zip(rows, pls):
                 keep.append(DD.lamp_row(pl, v['items'], sk, room_type, row.get('role') or DD.LAMP_ROLE))
             own = (rows[0].get('sku') or {}).get('sid')
-            swap = '' if sk.get('sid') == own else f" (вместо «{(rows[0].get('sku') or {}).get('name')}»: {'; '.join(why)})"
+            frm = f" (соседний стиль «{it['style_from']}»)" if it.get('style_from') else ''
+            swap = (f' (в наборе лампы не было{frm})' if absent else
+                    '' if sk.get('sid') == own else f" (вместо «{(rows[0].get('sku') or {}).get('name')}»: {'; '.join(why)})")
             print(f"  лампа {tag}: «{it.get('name')}» × {len(keep)} на " + ', '.join(p.parent_slot_instance_id for p in pls) + swap,
                   flush=True)
         dropped = rows[len(keep):]
-        if dropped:
+        LAMP_STATE[tag] = (('ok', len(keep), len(rows)) if not dropped else
+                           ('missing' if not keep else 'partial', '; '.join(why) or 'тумб меньше, чем ламп', len(rows)))
+        if dropped and absent:
+            print(f"WARN:lamp_missing: {tag} — без лампы: {'; '.join(why) or 'нет кандидатов с моделью'}", flush=True)
+        elif dropped:
             print(f"WARN:lamp: {tag} — {len(dropped)} из {len(rows)} ламп сняты из набора и цены (в 3D им места нет): "
                   f"{'; '.join(why) or 'тумб меньше, чем ламп'}", flush=True)
-        placed = {id(r): k for r, k in zip(rows, keep)}         # строка набора → её лампа на тумбе; лишние строки — прочь
-        v['decor'] = [placed.get(id(d), d) for d in v['decor'] if not DD.is_lamp(d.get('role')) or id(d) in placed]
+        if absent:
+            v['decor'] = keep + list(v.get('decor') or [])
+        else:
+            placed = {id(r): k for r, k in zip(rows, keep)}     # строка набора → её лампа на тумбе; лишние строки — прочь
+            v['decor'] = [placed.get(id(d), d) for d in v['decor'] if not DD.is_lamp(d.get('role')) or id(d) in placed]
     TX.annotate(v['decor'], v['items'], geo, tag, demo_ceiling(), decor_sku_model, room_type, carrier_caps)
 
 
@@ -1924,6 +1967,8 @@ def room_variants(room_type: str, apt: dict, flags: dict, variants: list, feeds:
                           f"{(it.get('sku') or {}).get('sid')} — {w} (сторож выключен, предмет в варианте)", flush=True)
         variants.append(v)
         made += 1
+    if LAMP_STATE and room_type == 'bedroom':
+        print(f'{room_type}_lamps: {lamp_summary(LAMP_STATE)}', flush=True)
     any_mesh = os.environ.get(FEED_ANY_MESH_ENV) == '1'
     # ЛЕНТА — ТЕМ ЖЕ СТОРОЖЕМ, ЧТО ВАРИАНТ (T-20261106-77 Д1): замена на товар без годной модели ставила на место кровати коробку
     # (/test/t32f). Сторож выключен (`<ТИП>_MESH_GATE=0`) — прежняя проверка индекса прода
@@ -2130,6 +2175,8 @@ def build() -> dict:
             if old is not None:
                 if p['style'] not in old['styles']:
                     old['styles'].append(p['style'])
+                    if p.get('style_soft'):    # балл стиля 6,0–6,6 у голодной пары (`demo_swap_pool.extend_hungry`)
+                        old.setdefault('style_soft', []).append(p['style'])
                     if p.get('rug_universal'):   # запасной нейтральный этому стилю (`universal_rugs`) — список таких стилей
                         old.setdefault('rug_universal', []).append(p['style'])
                 continue
@@ -2148,7 +2195,8 @@ def build() -> dict:
                   'sid': p['sid'], 'msid': p['msid'], 'sub': p['sub'], 'src': 'pool',
                   'basis': _basis(mid, eid), 'hung': _hung(p['name']),
                   'pack': _pack_of(mid, eid, p['name']),
-                  **({'rug_universal': [p['style']]} if p.get('rug_universal') else {})}
+                  **({'rug_universal': [p['style']]} if p.get('rug_universal') else {}),
+                  **({'style_soft': [p['style']]} if p.get('style_soft') else {})}
             have[(base, p['sid'])] = it
             n[0] += 1
             target.setdefault(base, []).append(it)
@@ -2158,6 +2206,7 @@ def build() -> dict:
     # (своя копия: пул дописывает им стили) плюс прежний пул `pool_top`
     dec_feeds = {r: [dict(p, styles=list(p['styles'])) for p in lst] for r, lst in feeds.items()}
     added, off_env = 0, 0
+    hungry_log: list = []        # порог голодных пар: было→стало по парам «роль × стиль» (`demo_swap_pool.hungry_report`) → в данные → отчёт ночи
     try:
         import demo_swap_pool
         added, off_env = glue(demo_swap_pool.pool(swap_ok, band=_slot_band(liv), ceiling_cm=demo_ceiling()), feeds, have)   # в группе сперва в полосе (demo-20 В)
@@ -2170,6 +2219,10 @@ def build() -> dict:
         import demo_swap_pool
         rugs = demo_swap_pool.rug_pool(swap_rug_ok, band=_slot_band(liv))
         n_rug = glue(rugs, feeds, have)
+        hungry_log = demo_swap_pool.hungry_report()
+        _hs = [x for x in hungry_log if x['soft']]
+        print(f"порог голодных пар (балл стиля от {demo_swap_pool.HUNGRY_STYLE_MIN:g}): пар посчитано {len(hungry_log)}, "
+              f"подтянуто {len(_hs)}: " + (', '.join(f"{x['role']}/{x['style']} {x['before']}→{x['after']}" for x in _hs) or '—'))
         print(f'ковры ленты замен: из пула {len(rugs)}, добавлено {n_rug[0]} (потолок длинной стороны {rug_ceiling():g} см)')
     except Exception as e:  # noqa: BLE001
         print(f'WARN:rug_pool: ковры пула в ленту не попали: {repr(e)[:160]}')
@@ -2309,7 +2362,8 @@ def build() -> dict:
             base = role.split(' ')[0]
             if base not in ENV or not it or not it.get('img'):
                 continue
-            roles[role] = {'name': it.get('name'), 'w': it.get('w'), 'd': it.get('d'),
+            roles[role] = {'name': _PN.name_of(f"{it['mid']}_{it['eid']}" if it.get('mid') and it.get('eid') else None, it.get('name')),
+                           'w': it.get('w'), 'd': it.get('d'),
                            'h': it.get('h'), 'price': _price(it)[0], 'img': it.get('img'),
                            'url': it.get('url'), 'shop': it.get('shop')}
         if roles:
@@ -2349,13 +2403,14 @@ def build() -> dict:
             # ФЛАГИ НОВЫХ КОМНАТ И ОПРОСА (ADR-0330 п.5): всё выключено — полей нет вовсе (данные гостиной прежние)
             **flags,
             'variants': variants, 'sets': product_sets, 'sofa_feed': feed, 'feeds': feeds,
+            **({'hungry_style': hungry_log} if hungry_log else {}),     # было→стало по парам при пороге голодных (отчёт ночи `demo_band`)
             # ЦЕНОВЫЕ СТУПЕНИ РОЛИ (T-61/3, план price-segments-01): `price_segment` у каждой карточки лент (lo/mid/hi — по цене её семейства),
             # а здесь — границы и подписи по ролям для чипов страницы «Комфорт · 56 000–95 999 ₽» (премиум — «от …»); правила нет — полей нет
             **({'price_segments': _price_segment_ranges()} if _price_segment_ranges() else {}),
             # ПОЛОСА «ПОДХОДЯЩИХ ПО РАЗМЕРУ» ленты замен (решение владельца 22.10, demo-20 А4; частично отменяет ADR-0271): ширина
             # 0.8–1.1 идеала слота этой комнаты — одно правило со сборкой комплектов (`slot_rules.slot_band`); лента в данных
             # остаётся широкой (`DEMO_ENV`), страница фильтрует по полосе, пока включён чип «Подходящие по размеру»
-            'rules': {**_rules(), 'slot_band_cm': {**_slot_band(liv), **rules_extra}, 'soft_roles': soft_roles(), 'photo_pick': _photo_pick()},
+            'rules': {**page_rules(), 'slot_band_cm': {**_slot_band(liv), **rules_extra}},
             **cats,
             # ОПРОС-ЗНАКОМСТВО (onb-03 Т1, ADR-0330): правило и тексты вопросов — `rules/quiz.json` целиком (страница: `D.quiz`, подбор —
             # блок QUIZPICK). Показ решает флаг квартиры в карточке `/api/apartments` (`quiz.enabled`) или `?quiz=1`, не наличие правила
@@ -2576,11 +2631,9 @@ def cache_images(data: dict) -> dict:
     for v in data.get('variants') or []:
         for it in v['items']:
             fix(it.get('sku'))
-            # предмет комнаты без фото остаётся (он расставлен, у него меш, размеры, цена и ссылка): страница рисует плашку
-            # «нет фото» (T-65); замена другим товаром сдвинула бы расстановку и 3D
-            sk = it.get('sku') or {}
-            if sk and not sk.get('img'):
-                no_photo.append(f"{v.get('id')} {it.get('role')}: {sk.get('name')}")
+            # предмет комнаты без фото остаётся, если замены нет (он расставлен, у него меш, размеры, цена и ссылка): страница рисует
+            # плашку «нет фото» (T-65). Замена — ниже, после пересчёта лент (`photo_replace`): ближайшим из ленты того же стиля и роли
+            # с картинкой, в допуске габаритов — место и размеры предмета те же, расстановка и 3D не сдвигаются
         for x in v.get('decor') or []:              # не скачалось — остаётся адрес магазина: строка декора из списка не пропадает
             sk = x.get('sku') or {}
             if sk.get('img'):
@@ -2627,6 +2680,15 @@ def cache_images(data: dict) -> dict:
         if not data['feeds'][role]:
             data['feeds'].pop(role)
     data['sofa_feed'] = data.get('feeds', {}).get('диван', [])
+    # ПРЕДМЕТ ВАРИАНТА БЕЗ СКАЧАННОЙ КАРТИНКИ → БЛИЖАЙШИЙ ИЗ ЛЕНТЫ С КАРТИНКОЙ (T-20261119-115/3, живая 2.20: ковёр set10): после пересчёта лент,
+    # когда в них остались только товары с картинкой; допуск габаритов — `rules/demo-swap.json → no_photo_replace`
+    import demo_room as _DRR
+    import photo_replace as _PRP
+    _pr = _PRP.replace_no_photo(data.get('variants') or [], data.get('feeds') or {}, _DRR.room_key,
+                                _SWAP_RULES['no_photo_replace']['max_size_gap_cm'])
+    no_photo = [row.split(' — замены нет')[0] for row in _pr['left_rows']]
+    print(f"предметов вариантов без картинки: {_pr['without']}, заменено ближайшим из ленты: {_pr['replaced']}"
+          + (' — ' + '; '.join(_pr['replaced_rows']) if _pr['replaced_rows'] else ''))
     swapped = 0
     for kit in (data.get('sets') or []):
         fixed = {}
@@ -2653,7 +2715,7 @@ def cache_images(data: dict) -> dict:
           + (' — ' + '; '.join(no_photo) if no_photo else ''))
     data['_img_cached'] = {'ok': ok, 'total': len(urls), 'dropped_no_photo': dropped,
                            'capped': capped, 'retried': retried, 'from_published': rescued,
-                           'variant_items_no_photo': len(no_photo)}
+                           'variant_items_no_photo': len(no_photo), 'variant_items_photo_replaced': _pr['replaced']}
     large = sum(1 for v in got.values() if v and os.path.exists(os.path.join(OUT, v[:-4] + '-l.jpg')))
     print(f'крупных копий для карточки товара: {large} из {ok}')
     data['_img_large'] = large > 0                 # страница пробует `<id>-l.jpg` только при этом флаге (нет файла — остаётся плитка)
@@ -2966,6 +3028,13 @@ def main() -> None:
     except Exception as e:  # noqa: BLE001 — замер не валит сборку
         print(f'  замер цвета семейств в лентах не удался: {repr(e)[:100]}', flush=True)
     print(scene_family_digest(data, _bind_rows()), flush=True)
+    # ОДНО НАЗВАНИЕ У ТОВАРА (T-20261119-97, П1.92): финальный проход — каждой карточке с `sid` название по единому правилу (`product_names`: живой каталог →
+    # `room_catalog`), то же, что у сборки туров; банки (спальня, прихожая) отстают от фида до оборота — витрина больше не показывает прежнее имя.
+    # Число исправлений — в журнал ночи (WARN, если не 0); английское считается ниже по русскому (`name_en` исправленных снят)
+    try:
+        print(_PN.report_line(_PN.unify(data), 'витрины (/demo)'), flush=True)
+    except Exception as e:  # noqa: BLE001 — каталог недоступен: витрина с названиями банка, но громко (не молча)
+        print(f'WARN:names_catalog_error: названия витрины не сверены с каталогом: {repr(e)[:160]}', flush=True)
     # АНГЛИЙСКИЕ НАЗВАНИЯ (план demo-31, владелец 30.10): `name_en`/`colour_en` каждому товару — для английского демо.
     # Без кириллицы и магазина по построению (нет перевода — нейтральное по роли, строка WARN); публикацию не останавливает
     try:

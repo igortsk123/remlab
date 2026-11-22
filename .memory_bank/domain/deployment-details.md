@@ -3,10 +3,10 @@ tier: 2
 topic: deployment-details
 scope: Деплой exit-fi — подробности конвейера, сторожа, история правок сервера
 tier1: "../deployment.md"
-updated: 2026-11-18
+updated: 2026-11-21
 importance: med
 source: manual
-last_verified: 2026-11-06
+last_verified: 2026-11-18
 ---
 
 # Деплой — подробности
@@ -27,8 +27,8 @@ last_verified: 2026-11-06
    выкатанной версии (CI кончились не по порядку, T-20261110-01) → тоже пропуск, проверяется ДО здоровья: старый
    коммит сам не выкатывается никогда (`deploy-need.sh:older_than_prod`). Прочее сомнение (версия не 40-hex, `ok≠true`,
    draft ≠ сайт, коммит не найден, шаг упал) → выкладка; история глубже `HIST_DEPTH` (`order=2`) — только «старой не признана»
-   + хвост «порядок не доказан», дальше обычные проверки: разница лишь в доках → `skip` (`deploy-need.sh:70-84`; комментарии
-   `deploy-need.sh:11-12` и `deploy.yml:47` здесь неточны); `workflow_dispatch` — всегда.
+   + хвост «порядок не доказан», дальше обычные проверки: разница лишь в доках → `skip` (`deploy-need.sh:70-85`, комментарии
+   `deploy-need.sh:11-13`, `deploy.yml:46-48`); `workflow_dispatch` — всегда.
    «Прод не позади main» — `bash tools/ops/deploy-need.sh --status` (rc 0 — разница только документы), не `version == HEAD`.
    Caddy (`caddy/Caddyfile` сниппет `retry_restart`): app и draft — повтор до 15 с при пересоздании контейнера;
    `request_buffers 1MB` обязателен — без него повтор POST падает «invalid Read on closed Body» (проба 06.11).
@@ -106,7 +106,7 @@ sshd, iptables-туннель DEV-рендера, `remlab-draft` через dock
 
 ## Секреты
 `.env` в `/opt/remlab` (вне git): `POSTGRES_PASSWORD` / `GEMINI_API_KEY` / `TRACE_ADMIN_TOKEN` и др. (полный список —
-`environment:` app в `docker-compose.yml`; без `MESH_SINK_TOKEN` compose не стартует). Кадры — `/opt/remlab/draft/.env`.
+`environment:` app в `docker-compose.yml`; без `MESH_SINK_TOKEN` не стартует сервис `mesh-receiver`, `docker-compose.yml:183`). Кадры — `/opt/remlab/draft/.env`.
 Compose передаёт app ЯВНЫЙ `environment:`-список — новый ключ = правка compose.
 
 ## Caddy, статик и контейнеры — детали (вынесено из сводки 2026-09-05, сверено с кодом)
@@ -168,7 +168,7 @@ flock /opt/remlab/.deploy.lock env REMLAB_IMAGE=remlab-app:prev APP_VERSION=prev
   фото в production; токен трейса — только заголовком `x-trace-token`.
 - Заголовки на весь сайт: `frame-ancestors 'self'` (Caddy ставит его, только если приложение не поставило свой CSP — страница
   встраивания `/embed/…` ставит `frame-ancestors` с доменами партнёра, ADR-0283), `nosniff`, `Referrer-Policy` (`caddy/Caddyfile`).
-- Ежечасный `infra/server/disk-watchdog.sh`: чистит просроченные `share_requests`/старые `rate_limits`, будит
+- Ежечасный `infra/server/disk-watchdog.sh`: чистит просроченные `share_requests`/старые `rate_limits` (и `dedup_marks`, `tg_updates`, `collections`, `page_counters` — `disk-watchdog.sh:71`), будит
   владельца при файлах `_queue` под веб-корнем и при расхождении `Caddyfile` со снимком `Caddyfile.deployed`.
 - После деплоя — шаг `tools/security-smoke.sh` (13 проверок снаружи, без отката).
 - `remlab-draft` с 14.10 — сервис compose (ADR-0278): образ `ghcr.io/…/remlab-draft:<sha>` собирает CI, деплой ждёт
@@ -187,6 +187,8 @@ flock /opt/remlab/.deploy.lock env REMLAB_IMAGE=remlab-app:prev APP_VERSION=prev
 Не зависит от DEV: сайт, демо, 3D, коллекции, ссылки менеджеров и сигналы (таймер на сервере), отчёт застройщику.
 
 **DEV-рендер как юниты systemd пользователя (18.10, T-04):** `remlab-render` (draft_service, 127.0.0.1:8600, OOMScoreAdjust=200 — первая жертва earlyoom) и `remlab-render-tunnel` (ssh -R 172.18.0.1:8601, OOMScoreAdjust=100, RestartSec=3). Исходники — `tools/scout/systemd/*.service`; ставит и чинит `tools/scout/dev_render_backend.sh` (крон `*/10` — `infra/dev/crontab`; строки @reboot в копии crontab нет). Статус: `systemctl --user status remlab-render remlab-render-tunnel`; логи — `~/scout-scenes/dev-render.log`, `dev-tunnel.log`. Живой ли туннель — с сервера `curl 172.18.0.1:8601/health` (version "dev"); `/api/draft/paid` жив ли туннель прямо не показывает: без своего ключа шлюза прод берёт баланс у DEV `GET /credits` через туннель (кэш 30 с), туннель мёртв → `{available:false, code:"unavailable"}` — неотличимо от других причин (`tools/scout/draft_service.py`). Юнит пользователя не может получить OOMScoreAdjust ниже 100; защита ssh — `--avoid` в `/etc/default/earlyoom` (sudo).
+
+**Диск DEV — чистка docker (19.11, владелец TG 2150–2152):** user-таймер `docker-prune.timer` (вс 05:30 Лондон, `~/.config/systemd/user/docker-prune.service`) — `docker image prune -a` и `builder prune` старше 7 дней; первый раз освободил 11→17 ГБ. Меши и логи проб (`~/remlab-logs`) без явного слова владельца НЕ удалять (TG 2152).
 
 **Память DEV (18.10, по слову владельца; к 10.11 RAM 15 ГБ — `free -g`):** было RAM 9,8 ГБ; своп `/swap.img` 4 ГБ + `/swap2.img` 8 ГБ (в `/etc/fstab`, копия `/etc/fstab.bak-20261018-1805`); zram 4,8 ГБ zstd, приоритет 100 (`/etc/systemd/zram-generator.conf`, `dev-zram0.swap`). Зачем: earlyoom (`-m 10,5 -s 10,5`) при полном свопе убивал draft_service и браузеры проверок. Перед пробами браузера — урок 512.
 earlyoom (`/etc/default/earlyoom`, сверено 10.11): `-r 3600 -m 10,5 -s 10,5 --avoid (sshd|ssh|autossh|systemd…) --prefer (qemu|buildkitd|containerd-shim)` —
@@ -297,6 +299,8 @@ Claude и тысячи `playwright_*`. При квоте запись падае
   деление пополам; отчёт `report.md` + `~/remlab-logs/mq/journal.tsv`; код 0/1/2. Режим «тень» — не пушит, вливает директор. Шаг без
   кода возврата (обрыв, снятая заявка, таймаут) = провал (до `8b3c8f25` давал ложный зелёный).
 
+**venv для python-тестов «как в CI» на DEV (20.11):** `tests_sg` — `~/venvs/comfy` (numpy+aiohttp), mv/tex — `~/venvs/ci-check`, `conveyor_*` — `~/venvs/scout`. Новый `--selftest` в общем цикле job `scout-selftest` — зависимости прописать в этом job (урок 772).
+
 ## CI красный 17–18.11: выкатка стояла ~17 ч незаметно (T-20261118-20/7, урок 713, ADR-0433)
 - Прод `app`+`draft` = `15ce289b` (17.11 18:18); образов ghcr для коммитов позже не было — CI красный, деплой не шёл (~205 коммитов).
   Не видно: `gh` на pakardev 401 (шаги job можно смотреть публичным API Actions без токена — `tools/ops/ci-status.sh`), а `deploy-need.sh --status`
@@ -341,7 +345,7 @@ DEV `GET /credits` через туннель (снаружи `/api/draft/credits
 (`{available, code}`). Порог — env `REALISTIC_MIN_BALANCE` (0,30 $) и `REALISTIC_COST_USD` (0,25 $ на идущее платное).
 **DEV-рендер (14.10, урок 485; с 18.10 — юниты systemd, см. выше):** крон DEV раз в 10 минут — `tools/scout/dev_render_backend.sh`
 — теперь сторож: ставит юниты, убивает процессы вне юнита, делает `systemctl --user restart remlab-render`, если `/health`
-молчит; дайджест — `tools/ops/dev-checks.sh` `WARN:dev_render_down|tunnel|fallback|restart`. Перезапуск руками —
+молчит; дайджест — `tools/ops/dev-checks.sh` `WARN:dev_render_down|dev_render_tunnel|dev_render_fallback|dev_render_restart`. Перезапуск руками —
 `systemctl --user restart remlab-render` (юнит `Restart=always`: убитый PID поднимется сам). [История до 18.10: убить PID
 с порта 8600, затем `bash tools/scout/dev_render_backend.sh`.] Память: фоновый лист для
 «Улучшить» не собирается без денег на шлюзе, сборщику — потолок `SRC_MEM_EXTRA_MB` (+1,5 ГБ), урок 485.
@@ -361,3 +365,6 @@ DEV `GET /credits` через туннель (снаружи `/api/draft/credits
 - **Стенд паритета сам убирает прогоны (T-48, 07.11):** хранит `keep_runs` (4) последних `run-*` плюс прогоны свежего эталона каждой
   комнаты (`tools/scout/parity_living.py` prune); эталон, указывающий на удалённый прогон, — WARN, переснять. Ловушки сверки — урок 646.
 
+## Диск HDD и бэкапы на pakardev (20.11, владелец TG 50/58–60)
+- Второй диск `sdb1` ext4 → `/mnt/hdd` (fstab `nofail`). Неактивное переносится копия→сверка→ссылка на месте (`~/remlab-logs/hdd_move.sh`).
+- `~/.local/bin/bekap-hdd` (cron 06:20): rsync без delete `remlab-backups`, `~/backups`, VPN/backups, tamara/data/backups → `/mnt/hdd/backups`; `git bundle --all` по воскресеньям; логи `~/remlab-logs` старше 7 сут → HDD со ссылкой. Журнал `/mnt/hdd/backups/bekap-hdd.log`.

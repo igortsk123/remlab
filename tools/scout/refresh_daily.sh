@@ -412,6 +412,11 @@ room_digest() {                 # room_digest <комната> <метка=ша�
 }
 room_digest спальня каталог=room_catalog фото=rooms_alive стиль=style_bedroom вырезка=rooms_cutout
 room_digest прихожая каталог=hall_catalog фото=rooms_alive стиль=style_hall вырезка=rooms_cutout
+# ТЕНЬ ПАСПОРТОВ ТИПОВ, фаза 1 (T-20261120-151/6–7, план mesh-type-passports-01): проход по УЖЕ вырезанным фото (кровать К1, подушка К3) — вердикты сторожей в таблицу
+# `passport_shadow`, ничего не блокирует и не платное (нового запроса к fal/Salad нет; скачивается только исходник кровати). Квота: ≤400 строк и ≤1800 с (SHADOW_BACKFILL_*),
+# внешний потолок `timeout` 2400 с; один проход за раз (замок), `attempts` — не чаще раза в сутки. Без миграции 018 — одна WARN и пропуск. Выключатель PASSPORT_SHADOW=0.
+# Сбой шага (в т.ч. FAIL от timeout) вырезку и очередь мешей не останавливает: стоит после вырезки и не влияет на спрос.
+step shadow_backfill timeout -k 20 2400 env SHADOW_BACKFILL_MAX="${SHADOW_BACKFILL_MAX:-400}" SHADOW_BACKFILL_BUDGET_S="${SHADOW_BACKFILL_BUDGET_S:-1800}" "$PY" cutout_sync.py --shadow-backfill
 step sets_index "$PY" sets_incremental.py --index
 step sets_check "$PY" sets_incremental.py --check
 # 6→5b. Отчёт по комплектам: что из показываемого пользователю мертво/ждёт подтверждения
@@ -464,6 +469,8 @@ else
 fi
 # после замен индекс и медиа обязаны сойтись с банком СЕГОДНЯ
 step bank_media2 "$PY" catalog_media.py $MEDIA_APPLY
+# один товар — одно название во всех копиях (T-20261119-07/5 п.5): только отчёт, ничего не чинит; WARN — в сводку дня
+step names_drift "$PY" names_drift.py
 fi
 bank_index_steps() {
 # W5: после замен индекс обязан сойтись с sets3 СЕГОДНЯ, а не завтра
@@ -588,6 +595,11 @@ for room in bedroom hall; do [ "$(room_flag "$room" enabled)" = 1 ] && rooms_on+
 # числом, без WARN: К8 отложен, T-14/3; список own-mismatch.tsv рядом с таблицей). Сбой — FAIL
 # шага, привязка идёт без отметок (fail-open). Только когда привязку пересобирают (иначе таблицу никто не прочтёт)
 [ -n "$rooms_on" ] && step mesh_color_guard "$PY" mesh_color_check.py guard
+# СЕРАЯ КРЫШКА — МЯГКИЙ КАРАНТИН (T-20261119-101/3, Codex 19.11): по ВСЕМ мешам детектора (`current.json` сторожа: owner + glb_sha, варианты семьи
+# наследуют owner), а не по списку осей; строка только с причиной grey_top статус ревизии НЕ меняет (модель в индексе, замену ищут, роль не пустеет —
+# `room_bindings.soft_sql`), прежние quarantine «только из-за grey_top» возвращаются в prev_status общим правилом; автоснятие auto_release_* решением не
+# считается; пишет список удержания болванок (читает прополка `salad/prune_shapes.py`). Сразу после сторожа, ДО первой привязки — её индекс читает мягкий набор
+[ -n "$rooms_on" ] && step grey_sync "$PY" mesh_quarantine.py --sync-grey
 [ -n "$rooms_on" ] && step room_bindings "$PY" room_bindings.py --build --digest   # DIGEST правил роли и запасного пути (T-25/5)
 for room in bedroom hall; do
   if [[ " $rooms_on " != *" $room "* ]]; then

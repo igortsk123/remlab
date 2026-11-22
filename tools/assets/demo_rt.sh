@@ -33,6 +33,8 @@ fi
 "$PY" tools/assets/runtime_mesh.py --ids-from-demo "$DATA" --manifest "$M" --out "$OUT" --size 1024 2>&1 | grep -E "$SUM"
 "$PY" tools/assets/runtime_mesh.py --ids-from-demo "$DATA" --manifest "$M" --out "$OUT" --size 512 --suffix=-lite 2>&1 | grep -E "$SUM"
 bad=0
+# П-4: сводка веса по таблице копий — в отчёт ночи (WARN:rt_weight; ворота публикации — `--check` ниже, он тоже считает вес)
+"$PY" tools/assets/runtime_mesh.py --check-weight --manifest "$M" 2>&1 | grep -E "$SUM|^вес копий"
 # вывод выкладки — в REMLAB_TMP на диске, не в /tmp (T-20261107-02: ночью 07.11 запись сюда упала на квоте tmpfs — EDQUOT,
 # и демо не опубликовалось); свой файл убираем при любом выходе
 . tools/ops/remlab-tmp.sh

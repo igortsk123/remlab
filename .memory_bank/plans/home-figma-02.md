@@ -2,9 +2,11 @@
 workstream: demo-ui
 slug: home-figma-02
 title: Главная и окно комнаты — точно по живому макету дизайнера (Фигма 07.11): липкий низ «Отправить выбор риелтору», чат в шапке, карточка с «›»
-status: in_progress
+status: partial
+pause_reason: без движения с 07.11; владелец 22.11 TG 1185 — на паузу, приоритет — конвейер покраски
+resume_trigger: слово владельца или задача в plan-zadach.md
 created: 2026-11-07
-updated: 2026-11-07
+updated: 2026-11-22
 completed:
 parent_plan: home-mix-01
 ---

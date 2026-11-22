@@ -27,6 +27,7 @@ import sys
 HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, HERE)
 sys.path.insert(0, os.path.join(HERE, 'salad'))
+import mesh_photo as MP  # noqa: E402 — ЕДИНОЕ правило выбора фото меша (ADR-0452)
 MAX_JOBS = 50   # предохранитель: этот путь — для проб и канареек, массовый прогон идёт своей очередью (onb-10)
 
 
@@ -66,7 +67,7 @@ def fetch(skus: list, room: str) -> list:
     lit = ','.join("'" + s.replace("'", "''") + "'" for s in skus)
     cols = ('shop_mid', 'external_id', 'role', 'name', 'image_url', 'w_cm', 'd_cm', 'h_cm', 'footprint_ok', 'shown',
             'in_products', 'has_mesh')
-    rows = RC.sql(f"""select r.shop_mid, r.external_id, r.role, r.name, coalesce(r.image_url_hd, r.image_url),
+    rows = RC.sql(f"""select r.shop_mid, r.external_id, r.role, r.name, {MP.photo_sql('r')},
         r.w_cm, r.d_cm, r.h_cm, coalesce(r.footprint_ok, false), ({RC.shown_where()}),
         exists(select 1 from products p where p.shop_mid = r.shop_mid and p.external_id = r.external_id),
         exists(select 1 from mesh_generations g where g.sku = r.shop_mid || ':' || r.external_id)

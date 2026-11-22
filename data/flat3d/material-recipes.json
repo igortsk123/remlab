@@ -1,0 +1,63 @@
+{
+ "_about": "PBR-рецепты этапа 8 «материал» (paint-photo-fill-01, T-20261121-170/1): класс материала (`material-classes.json`) → roughness / metallic / sheen / transmission. Цвет НЕ из рецепта — он из фото и заливки (этапы 6–7). Исполняет `tools/assets/material_stage.py`; значения подобраны по обычной физике материалов (дерево и ЛДСП — полуматовые диэлектрики, ткань — шероховатая с блеском ворса sheen, металл — metallic ≥ 0,85, стекло — transmission 1 и малая шероховатость), правятся здесь, не в коде. Один рецепт на класс — на все товары, ID товаров здесь нет.",
+ "version": 1,
+ "recipes": {
+  "rogozhka": {"roughness": 0.92, "metallic": 0.0, "sheen": 0.25, "sheenRoughness": 0.6, "transmission": 0.0},
+  "velour": {"roughness": 0.78, "metallic": 0.0, "sheen": 0.75, "sheenRoughness": 0.4, "transmission": 0.0},
+  "velvet": {"roughness": 0.82, "metallic": 0.0, "sheen": 0.9, "sheenRoughness": 0.35, "transmission": 0.0},
+  "boucle": {"roughness": 0.97, "metallic": 0.0, "sheen": 0.3, "sheenRoughness": 0.7, "transmission": 0.0},
+  "chenille": {"roughness": 0.9, "metallic": 0.0, "sheen": 0.55, "sheenRoughness": 0.5, "transmission": 0.0},
+  "faux_fur": {"roughness": 0.98, "metallic": 0.0, "sheen": 0.6, "sheenRoughness": 0.8, "transmission": 0.0},
+  "fabric": {"roughness": 0.9, "metallic": 0.0, "sheen": 0.35, "sheenRoughness": 0.55, "transmission": 0.0},
+  "leather": {"roughness": 0.45, "metallic": 0.0, "sheen": 0.15, "sheenRoughness": 0.3, "transmission": 0.0},
+  "wood_solid": {"roughness": 0.55, "metallic": 0.0, "sheen": 0.0, "sheenRoughness": 0.5, "transmission": 0.0},
+  "wood_veneer": {"roughness": 0.45, "metallic": 0.0, "sheen": 0.0, "sheenRoughness": 0.5, "transmission": 0.0},
+  "rattan": {"roughness": 0.8, "metallic": 0.0, "sheen": 0.0, "sheenRoughness": 0.5, "transmission": 0.0},
+  "ldsp": {"roughness": 0.5, "metallic": 0.0, "sheen": 0.0, "sheenRoughness": 0.5, "transmission": 0.0},
+  "mdf_film": {"roughness": 0.38, "metallic": 0.0, "sheen": 0.0, "sheenRoughness": 0.5, "transmission": 0.0},
+  "metal": {"roughness": 0.4, "metallic": 0.85, "sheen": 0.0, "sheenRoughness": 0.5, "transmission": 0.0},
+  "chrome": {"roughness": 0.08, "metallic": 1.0, "sheen": 0.0, "sheenRoughness": 0.5, "transmission": 0.0},
+  "glass": {"roughness": 0.05, "metallic": 0.0, "sheen": 0.0, "sheenRoughness": 0.5, "transmission": 1.0},
+  "ceramic": {"roughness": 0.2, "metallic": 0.0, "sheen": 0.0, "sheenRoughness": 0.5, "transmission": 0.0},
+  "stone": {"roughness": 0.7, "metallic": 0.0, "sheen": 0.0, "sheenRoughness": 0.5, "transmission": 0.0},
+  "plastic": {"roughness": 0.42, "metallic": 0.0, "sheen": 0.0, "sheenRoughness": 0.5, "transmission": 0.0},
+  "neutral": {"roughness": 0.65, "metallic": 0.0, "sheen": 0.0, "sheenRoughness": 0.5, "transmission": 0.0}
+ },
+ "fallback_class": "neutral",
+ "_vl_about": "Метки частей от Qwen3-VL (`parts.json: vl`, когда этап 3 их даст) → класс. Слово метки ищется в нижнем регистре; нет совпадения — часть «не уверен». Сейчас метки не заполняются.",
+ "vl_labels": {
+  "ткан": "fabric", "обивк": "fabric", "велюр": "velour", "кож": "leather", "дерев": "wood_solid", "древес": "wood_solid",
+  "металл": "metal", "хром": "chrome", "стекл": "glass", "плафон": "glass", "пластик": "plastic", "камен": "stone", "керами": "ceramic"
+ },
+ "confidence": {
+  "legs_catalog": 0.85,
+  "vl": 0.8,
+  "main_part_scale": 1.0,
+  "same_colour_as_main": 0.6,
+  "unsure": 0.2,
+  "no_parts_body": 0.55,
+  "no_parts_conflict": 0.25
+ },
+ "classify": {
+  "_about": "Часть без метки наследует класс главной части ТОЛЬКО если её цвет по текстуре (медиана Lab из parts.json) близок к главной: ΔE76 ≤ этот порог. Иначе — «не уверен», запасной рецепт neutral.",
+  "same_material_dE": 12.0,
+  "confident_from": 0.5,
+  "legs_part_share": 0.6
+ },
+ "check": {
+  "_about": "Мерки check.json этапа 08. recipe_share — доля граней с любым рецептом (не должно быть граней без части). confident_share — доля граней, чей класс уверен (≥ classify.confident_from); ниже порога — товар дальше не идёт (причина «не уверен: …»).",
+  "recipe_share_min": 0.999,
+  "confident_share_min": 0.85,
+  "max_seconds": 3600
+ },
+ "bake": {
+  "mapSize": 1024,
+  "_mapSize_about": "размер карт metallicRoughness / sheen / transmission; карта цвета остаётся как есть (цвет не трогаем)"
+ },
+ "frame": {
+  "size": 768,
+  "samples": 48,
+  "azimuthDeg": 35,
+  "elevationDeg": 12
+ }
+}

@@ -16,7 +16,7 @@ last_verified: 2026-11-18
 # User Flow — детали (Tier 2 к [[user-flow]])
 
 > Tier 1: `../core/user-flow.md`. Полный CJM (все состояния, события, acceptance criteria) —
-> `../../docs/cjm-ux-v0.2.md`. Сверено с кодом 2026-07-09.
+> `../../docs/cjm-ux-v0.2.md`. Сверено с кодом 2026-11-18.
 
 ## Укороченный Stage 1 flow (7 экранов, целевой дизайн)
 1. **Landing** — за 5с объяснить пользу; пример «фото→preview→товары(3 из 18)→бюджет→CTA».

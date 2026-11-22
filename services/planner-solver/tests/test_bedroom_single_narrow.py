@@ -75,6 +75,15 @@ ADDED_T13 = {
 }
 
 
+# добавки T-20261120-163 (шторы: фотопечать нигде, рулонные лофта по стилю, по окну, запас соседа) — дописаны последними
+# ключами штор каждого назначения; пояснение верхнего уровня `_curtain_spare_why` на «_» снимается без проверки порядка
+_CURTAIN = ["deny_all", "deny_by_style", "per_window", "neighbour_spare", "neighbour_pool"]
+ADDED_T163 = {
+    "tools/scout/rules/bedroom-composition.json": [(("purposes", p, "decor", "шторы"), k) for p in ("couple", "single", "guest", "single_narrow")
+                                                   for k in _CURTAIN] + [(None, "_curtain_spare_why")],
+}
+
+
 def _sec(d: dict, sec):
     if sec is None:
         return d
@@ -85,7 +94,7 @@ def _sec(d: dict, sec):
 
 def _drop_t38(name: str, d: dict, check_order: bool = False) -> dict:
     d = copy.deepcopy(d)
-    for sec, key in reversed(ADDED_T38.get(name, []) + ADDED_T68.get(name, []) + ADDED_T95.get(name, []) + ADDED_T13.get(name, [])):
+    for sec, key in reversed(ADDED_T38.get(name, []) + ADDED_T68.get(name, []) + ADDED_T95.get(name, []) + ADDED_T13.get(name, []) + ADDED_T163.get(name, [])):
         tgt = _sec(d, sec)
         if check_order and not key.startswith("_"):
             assert list(k for k in tgt if not k.startswith("_"))[-1] == key, f"{name}: {key} — не последним ключом"

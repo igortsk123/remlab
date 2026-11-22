@@ -86,7 +86,6 @@ def preload():
     import mesh_render as MR
     import opening_ir as OIR
     from planner.scene import Camera  # noqa: F401
-    import improve_mode  # noqa: F401
     _wrap_once(MR, DR, OIR)
 
 
@@ -301,6 +300,24 @@ def tint_of(sk):
     return None
 
 
+_WARNED_MODULES: set = set()
+
+
+def warn_unhashed_modules(where: str = '', file=None) -> list:
+    """РАНТАЙМ-СВЕРКА ПРОГРАММЫ (T-20261119-100/2): модули репо, загруженные этим процессом, но не вошедшие в `renderer_digest` (`render_input.unhashed_program_modules`) —
+    строка `WARN program_module_not_in_digest <путь> sha256=…` в журнал (один раз на модуль и процесс). Пока только отчёт, не отказ; сбой самой сверки заказ не роняет."""
+    try:
+        import render_input as RI
+        miss = [m for m in RI.unhashed_program_modules() if m['path'] not in _WARNED_MODULES]
+        for m in miss:
+            _WARNED_MODULES.add(m['path'])
+            print(f"WARN program_module_not_in_digest {m['path']} sha256={m['sha256']} ({where})", file=file or sys.stdout, flush=True)
+        return miss
+    except Exception as e:  # noqa: BLE001 — сверка необязательна
+        print(f'WARN program_module_check_failed {e!r}', file=file or sys.stdout, flush=True)
+        return []
+
+
 def main_export(D, idx, out):
     """Выгрузка одной сцены. `D['hermetic']` (ключ кадра v2): сторож чтений (`read_guard`) пишет `<job>/reads-py.json`, сеть запрещена, фото/пол/меш/разворот — только из входа комнаты (`draft_render.HERMETIC`)."""
     import read_guard as RG
@@ -313,6 +330,7 @@ def main_export(D, idx, out):
             if DR is not None:
                 DR.HERMETIC.update(on=False, orient={}, demo_base='', violate=None, mesh_file=None, img_file=None, public_file=None)
             RG.end(out)
+            warn_unhashed_modules('заказ')
 
 
 def _main_export(D, idx, out, hermetic=False):
@@ -322,7 +340,7 @@ def _main_export(D, idx, out, hermetic=False):
     import mesh_render as MR
     import opening_ir as _OIR
     from planner.scene import Camera as Cam
-    import improve_mode as IM
+    import render_config as RC          # размер кадра (раньше `improve_mode.SIZE`: тащило ленту/цены/банк в ключ кадра, T-20261119-100/2)
     trace('imports_scene')
     DR.S3_LITE[0] = False                      # ПОЛНЫЕ меши — как у платного кадра
     if hermetic:
@@ -335,7 +353,7 @@ def _main_export(D, idx, out, hermetic=False):
     room, placements, photos = DR.scene_from_request(payload)
     trace('plan_scene_from_request')
     cams = DR.cams_from_request(room, placements, payload)[:2]
-    rw, rh_total = (int(x) for x in IM.SIZE.split('x'))
+    rw, rh_total = RC.frame_wh()
     per = (rh_total - DR.BAND_PX) // 2
     cams = [Cam(name=c.name, eye=c.eye, target=c.target, fov_deg=c.fov_deg, width=rw, height=per, shift_y=getattr(c, 'shift_y', 0.0))
             for c in cams]

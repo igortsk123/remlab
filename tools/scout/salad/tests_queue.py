@@ -694,7 +694,10 @@ def stage2_cases() -> None:
     for g in off:
         r = subprocess.run([sys.executable, os.path.join(HERE, 'salad_groups.py'), '--can-start', g],
                            capture_output=True, text=True)
-        check(r.returncode == (1 if live[g].get('disabled') else 0),
+        # включённую группу на живой машине законно держит и денежный запрет (`price_halted`: «запрет цены» по сегодняшним тратам) —
+        # это не про флаг disabled; проверяем только соответствие флагу (19.11: prepush падал на DEV из-за живой цены меша)
+        priced = 'запрет цены' in r.stdout
+        check(r.returncode == (1 if live[g].get('disabled') else 0) or (priced and r.returncode == 1 and not live[g].get('disabled')),
               f'{g}: --can-start {r.returncode} ({"выключена" if live[g].get("disabled") else "включена"} в rules) {r.stdout.strip()}')
 
 

@@ -61,6 +61,7 @@ HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, HERE)
 sys.path.insert(0, os.path.join(HERE, 'salad'))
 import room_profile as _RP  # noqa: E402
+import mesh_photo as MP  # noqa: E402 — ЕДИНОЕ правило выбора фото меша (ADR-0452)
 
 K_DEFAULT = 3
 BUDGET_RUB = 1000.0         # ОБЩИЙ потолок владельца на меши всех комнат (план room-pipeline-01 § Деньги) — см. ledger;
@@ -225,7 +226,7 @@ def facts(skus: list, fetch) -> dict:
     rows = fetch(f"""select s.sku, (p.external_id is not null), p.mesh_family_rep,
         exists(select 1 from mesh_generations g where g.sku = s.sku), a.verdict, pc.image_url,
         (select bool_or(coalesce(r.footprint_ok, false)) from room_catalog r where r.shop_mid || ':' || r.external_id = s.sku),
-        (select coalesce(r.image_url_hd, r.image_url) from room_catalog r where r.shop_mid || ':' || r.external_id = s.sku
+        (select {MP.photo_sql('r')} from room_catalog r where r.shop_mid || ':' || r.external_id = s.sku
            order by r.room limit 1),
         exists(select 1 from mesh_generations g where g.sku = p.mesh_family_rep)
       from unnest(array[{arr}]::text[]) s(sku)
@@ -602,8 +603,8 @@ def want_rows(skus: list, room: str, fetch, missing_after: int = 1, assessor: st
         assessor = PRE.ASSESSOR_VERSION
     arr = ','.join("'" + s.replace("'", "''") + "'" for s in skus)
     rows = fetch(f"""select s.sku, r.role, r.name, r.w_cm, r.d_cm, r.h_cm, coalesce(r.footprint_ok, false),
-        (r.price_rub is not null and coalesce(r.image_url_hd, r.image_url) is not null and r.missing_runs < {int(missing_after)}),
-        (p.external_id is not null), p.mesh_family_rep, pc.source_sha, coalesce(pc.image_url, r.image_url_hd, r.image_url),
+        (r.price_rub is not null and {MP.photo_sql('r')} is not null and r.missing_runs < {int(missing_after)}),
+        (p.external_id is not null), p.mesh_family_rep, pc.source_sha, coalesce(pc.image_url, {MP.photo_sql('r')}),
         a.verdict, (select string_agg(distinct g.source_sha, ',') from mesh_generations g where g.sku = s.sku),
         (select max(g.seed) from mesh_generations g where g.sku = s.sku), r.external_id is not null, '.'
       from unnest(array[{arr}]::text[]) s(sku)

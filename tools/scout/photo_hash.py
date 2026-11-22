@@ -30,6 +30,7 @@ from concurrent.futures import ThreadPoolExecutor
 HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, HERE)
 import pool_gate as PG  # noqa: E402
+import mesh_photo as MP  # noqa: E402 — ЕДИНОЕ правило выбора фото меша (ADR-0452): HD, иначе превью, пустая строка = нет адреса
 
 PSQL = ['docker', 'exec', '-i', 'remlab-devdb', 'psql', '-U', 'remlab',
         '-d', os.environ.get('REMLAB_DEVDB_NAME', 'remlab'),   # одноразовая база --dbtest, как у mesh_queue/mesh_bind
@@ -39,7 +40,7 @@ SHA_MAX_AGE_DAYS = int(os.environ.get('SHA_MAX_AGE_DAYS', '30'))   # магаз�
 # С КАКОГО ВРЕМЕНИ товар без хеша (для сторожа `pipeline_map`): в базе такой отметки нет, держим рядом с состоянием
 MISSING = os.path.expanduser(os.environ.get('PHOTO_HASH_MISSING', '~/scout-scenes/photo-hash-missing.json'))
 SKU = "p.shop_mid||':'||p.external_id"
-URL = 'coalesce(p.image_url_hd, p.image_url)'
+URL = MP.photo_sql('p')
 REP = f'coalesce(p.mesh_family_rep, {SKU}) = {SKU}'      # вариант семейства получает меш и статус от представителя
 
 
@@ -199,11 +200,11 @@ def hash_skus(skus: list[str], dry: bool = False) -> dict:
 # с причиной «нет адреса фото» (у гостиной пустых адресов нет; в комнатах есть null — 73 на 05.11).
 ROOMS_LIMIT = int(os.environ.get('PHOTO_ROOMS_LIMIT', '0'))
 RSKU = "r.shop_mid||':'||r.external_id"
-RURL = "coalesce(nullif(r.image_url_hd, ''), nullif(r.image_url, ''))"
+RURL = MP.photo_sql('r')
 # адрес хеша комнатной цели: у товара из products с фото — его адрес в products (как у гостиной: HD, иначе обычный; пустых
 # там нет); у товара без фото в products (прихожая: 26 на 05.11) — адрес комнаты: гостиная такой не хеширует, спорить некому
-P_HAS = "coalesce(p.image_url_hd, p.image_url) is not null"
-PURL = (f"case when {P_HAS} then coalesce(nullif(p.image_url_hd, ''), nullif(p.image_url, '')) else {RURL} end")
+P_HAS = f"{MP.photo_sql('p')} is not null"
+PURL = (f"case when {P_HAS} then {URL} else {RURL} end")
 IN_PRODUCTS = 'из них в products'
 SKIP_NO_URL = 'нет адреса фото'
 
@@ -252,7 +253,7 @@ def pick_rooms(rows: list[dict]) -> tuple[list[dict], dict[str, collections.Coun
     out, skip = [], {SKIP_NO_URL: collections.Counter()}
     for sku in sorted(best, key=lambda s: (best[s]['room'], s)):
         r = best[sku]
-        url = r['hd'] or r['sd']
+        url = MP.pick(r['hd'], r['sd'])[0]
         if not url:
             skip[SKIP_NO_URL][r['room']] += 1
             continue

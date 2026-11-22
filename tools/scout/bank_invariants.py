@@ -231,14 +231,17 @@ def check(sets: list, ref: list | None, media, slot_ok, sync_pairs, fits=None, i
                 seen.add(sku(a))
     pairs = sync_pairs(json.loads(json.dumps(sets)), apply=False)
     miss = collections.Counter(x for s in sets for x in core_missing(s))
+    import bank_tiers as BT   # цена по ступеням: при включённом режиме позиция strict вне ступени ячейки без `tier_relaxed` — нарушение (T-61/7)
+    tier_bad = BT.tier_problems(sets)
     r.update(gone=len(gone), gone_rows=gone[:30], url_stale=len(url_stale), url_rows=url_stale[:30],
              contracts=len(contracts), contracts_rows=contracts[:30], role_mismatch=len(role_bad), role_rows=role_bad[:30],
              pair_mismatch=len(pairs), pair_rows=pairs[:30],
              alt_bad=len(alt_bad), alt_why=dict(collections.Counter(x[3] for x in alt_bad)), alt_rows=alt_bad[:30],
              core_missing=dict(miss),
+             tier_price=len(tier_bad), tier_rows=tier_bad[:30],
              gaps_declared=dict(collections.Counter(str(g).split(' — ')[0] for s in sets for g in (s.get('gaps') or []))))
     r['ok'] = (not ident and r.get('map_ok', True) and not gone and not url_stale and not contracts and not role_bad
-               and not pairs and not alt_bad and not miss)
+               and not pairs and not alt_bad and not miss and not tier_bad)
     return r
 
 
@@ -272,7 +275,7 @@ def _line(side: str, r: dict) -> str:
             + f"; ушедших {r['gone']}, ссылок не текущих {r['url_stale']}, вне контракта {r['contracts']}, "
               f"не той роли каталога {r['role_mismatch']}, "
               f"пар разошлось {r['pair_mismatch']}, запасных негодных {r['alt_bad']} {r['alt_why'] or ''}; "
-              f"без ключевых ролей {r['core_missing'] or 0}; итог {'OK' if r['ok'] else 'НЕ ГОДЕН'}")
+              f"без ключевых ролей {r['core_missing'] or 0}; цена вне ступени {r.get('tier_price', 0)}; итог {'OK' if r['ok'] else 'НЕ ГОДЕН'}")
 
 
 def main() -> int:

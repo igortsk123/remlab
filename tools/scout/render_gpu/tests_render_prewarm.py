@@ -336,6 +336,56 @@ try:
     p.hot_fn = lambda e: calls.append(1) or 0
     ok(p.refresh_hot(dict(pwr, hot_refresh=0)) == 'skip', 'prewarm.hot_refresh = 0 — не трогаем')
     q.close()
+
+    # R8 (T-20261118-22/4): дополнительные потоки берут ТОЛЬКО заготовки — пока машина считает один кадр, DEV готовит и шлёт следующий; заказы человека и число кадров те же
+    class Par(FakeEx):
+        def __init__(self, *a, **k):
+            super().__init__(*a, **k)
+            self.now = self.peak = 0
+            self.lk = threading.Lock()
+
+        def render(self, snap, out_dir, progress):
+            with self.lk:
+                self.now += 1
+                self.peak = max(self.peak, self.now)
+            try:
+                return super().render(snap, out_dir, progress)
+            finally:
+                with self.lk:
+                    self.now -= 1
+
+    def run_par(ww, human=False):
+        d = tempfile.mkdtemp(dir=TMP)
+        st_ = RJ.RenderStore(os.path.join(d, 'jobs.json'), os.path.join(d, 'res'))
+        ex_ = Par(st_, 0.3)
+        ex_.up = True
+        q_ = RJ.RenderQueue(st_, ex_, workers=1, warm_workers=ww)
+        q_.start()
+        t0 = time.time()
+        for i in range(4):
+            q_.submit(snap(f'p{i}'), f'kp{i}', tour=f'demo:p{i}', warm=True)
+        done = wait_for(lambda: all(st_.cached(f'kp{i}') is not None for i in range(4)), 8)
+        dt = time.time() - t0
+        q_.close()
+        return done, ex_.peak, dt, sorted(ex_.calls)
+    d1, p1, t1, c1 = run_par(0)
+    d2, p2, t2, c2 = run_par(1)
+    ok(d1 and p1 == 1 and c1 == ['p0', 'p1', 'p2', 'p3'], 'без дополнительных потоков (по умолчанию) — по одному кадру за раз, как раньше')
+    ok(d2 and p2 == 2 and c2 == c1, 'один дополнительный поток: два кадра одновременно, набор и число кадров те же (деньги не растут)')
+    ok(t2 < t1 * 0.8, f'4 кадра по 0,3 с: {t2:.2f} с вместо {t1:.2f} с')
+    d = tempfile.mkdtemp(dir=TMP)
+    st_ = RJ.RenderStore(os.path.join(d, 'jobs.json'), os.path.join(d, 'res'))
+    ex_ = Par(st_, 0.0)
+    ex_.up = True
+    q_ = RJ.RenderQueue(st_, ex_, workers=1, warm_workers=1)
+    h = q_.submit(snap('hum'), 'khum', ip='1.2.3.4')
+    th = threading.Thread(target=q_._loop, args=(True,), daemon=True)      # только дополнительный поток, основного нет
+    th.start()
+    time.sleep(0.4)
+    ok((q_.view(h['job']) or {}).get('status') == 'queued' and ex_.calls == [], 'дополнительный поток заказ человека не берёт — только заготовки')
+    w = q_.submit(snap('wm'), 'kwm', tour='demo:wm', warm=True)
+    ok(wait_for(lambda: st_.cached('kwm') is not None) and ex_.calls == ['wm'], 'тот же поток берёт заготовку, а человеку остаётся основной')
+    q_.close()
 finally:
     shutil.rmtree(TMP, ignore_errors=True)
 

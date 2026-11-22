@@ -186,6 +186,42 @@ try:
     ok(st.cached(key) is not None, 'кадры лежат под ключом `frame_key_of` — тем же, что спросит страница')
     q.close()
 
+    # R6 (T-20261118-22/3): порядок постановки — по кругам комнат; набор кадров и число — те же; отказ одной комнаты остальных не валит
+    def multi(bad=None):
+        rooms = [('living', 2), ('bedroom-1', 3), ('bedroom-2', 3), ('bedroom-3', 2)]
+        d = {'apartment_id': 'a1', 'build': 'b1', 'room': {'w': 439, 'd': 325}, 'rules': {'soft_roles': ['плед']},
+             'rooms_geo': {r: {'w': 380, 'd': 300} for r, _ in rooms}, 'apartment_rooms': [{'id': r, 'photo_ok': True} for r, _ in rooms], 'variants': []}
+        for r, n in rooms:
+            for i in range(n):
+                v = variant(f'{r}-{i}', r, f's{i}', f'{r}{i}')
+                if bad == v['id']:
+                    v['items'][0]['sku'] = {'sid': 'x', 'msid': 'x', 'name': 'без размеров'}      # снимок не принят: нет размеров
+                    v['items'][0].pop('w'), v['items'][0].pop('d')
+                d['variants'].append(v)
+        return d
+
+    def order_of(st, q, snaps):
+        ids = {RX.frame_key_of(s, {'preset': 3}): lb.rsplit('/', 1)[-1] for lb, s in snaps}
+        return [ids[st.jobs[j]['key']] for j in q._order()]
+    st, ex, q, m, tw, spool = build()
+    data = multi()
+    flat = RT.eligible_snaps(data, f'tour:{JID}', log)
+    r = tw.ingest(JID, put_bundle(spool, JID, data), 1800, 80)
+    got = order_of(st, q, flat)
+    ok(r['queued'] == 10 and r['variants'] == 10, f'R6: поставлено столько же кадров, сколько вариантов (10): {r}')
+    ok(got == ['living-0', 'bedroom-1-0', 'bedroom-2-0', 'bedroom-3-0', 'living-1', 'bedroom-1-1', 'bedroom-2-1', 'bedroom-3-1', 'bedroom-1-2', 'bedroom-2-2'], f'R6: первый кадр каждой комнаты — первыми, потом вторые и так далее: {got}')
+    ok(sorted(got) == sorted(lb.rsplit('/', 1)[-1] for lb, _ in flat), 'R6: набор кадров тот же, что при порядке «комната за комнатой» (деньги не растут)')
+    ok([lb for lb, _ in RT.by_rounds(flat)][:2] == [flat[0][0], flat[2][0]] and RT.by_rounds([]) == [], 'by_rounds: комнаты в порядке данных; пусто — пусто')
+    q.close()
+    st, ex, q, m, tw, spool = build()
+    data = multi(bad='bedroom-2-0')
+    r = tw.ingest(JID, put_bundle(spool, JID, data), 1800, 80)
+    left = {RX.frame_key_of(s, {'preset': 3}): lb.rsplit('/', 1)[-1] for lb, s in RT.eligible_snaps(data, f'tour:{JID}', log)}
+    got = [left[st.jobs[j]['key']] for j in q._order()]
+    ok(r['queued'] == 9 and 'bedroom-2-0' not in got and got[:3] == ['living-0', 'bedroom-1-0', 'bedroom-2-1'] and 'bedroom-3-0' in got,
+       f'R6: у одного варианта снимок не принят — остальные комнаты и кадры стоят, у комнаты следующий вариант идёт первым: {got}')
+    q.close()
+
     # потолок дня — не ставим, машина выключена
     st, ex, q, m, tw, spool = build()
     m.spent = 3.2

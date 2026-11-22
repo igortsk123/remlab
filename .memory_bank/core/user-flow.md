@@ -8,7 +8,7 @@ importance: high
 source: manual
 status: working
 source_of_truth: supporting
-last_verified: 2026-11-06
+last_verified: 2026-11-18
 review_after: 2026-12-05
 ---
 
@@ -33,12 +33,11 @@ review_after: 2026-12-05
 «Освежить» и вар.2/3 нет, оплата — заглушка (`unlockPack`; YooKassa — лишь у виз., `app/viz-actions.ts`).
 
 **Избранное (18.10, ADR-0306/0307):** ♡ → коллекция «<Комната> #N» с секретом (`modules/collections/repository.ts`; v3 `roomId/styleId` — `contracts/collection.ts`);
-корзина сертификата по комнатам (`lib/basket/basket.ts`); главная — стили → комнаты, липкая шапка, «назад» через `history.state`.
+корзина сертификата по комнатам (`lib/basket/basket.ts`); главная — стили и назначенные комнаты (home-mix-01, `tools/scout/flat215-demo/index.html:3585`), липкая шапка, «назад» через `history.state`.
 Карта 1.1, 1.5, 2.13–2.15, 2.33–2.36.
 
 ## Аналитика
-`lib/analytics.ts` (PostHog, no-op без ключа), сверка 11.10: 17 событий объявлено (`EventName`), 12 эмитится
-(estimate_created/deleted, lab_tab, lead_*, quiz_completed, app_error, viz_started, project_started, preview_ready…); цель Метрики `calc_started` — `lib/calc/started-goal.ts`.
+`lib/analytics.ts` (PostHog, no-op без ключа), сверка 18.11: 17 событий объявлено (`EventName`), 12 эмитится (перечень — Tier 2); цель Метрики `calc_started` — `lib/calc/started-goal.ts`.
 
 **Отчёт застройщику (ADR-0265):** `/partner/report#<ключ>` — воронка по ссылкам менеджеров
 (`modules/partner-report/report.ts:buildReport`) + анонимные счётчики `/api/events`; детали — Tier 2.

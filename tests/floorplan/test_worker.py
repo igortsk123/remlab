@@ -99,7 +99,7 @@ a = sys.argv[1:]
 def opt(n):
     if n in a:
         i = a.index(n); v = a[i + 1]; del a[i:i + 2]; return v
-scene, parts, out = opt('--scene'), opt('--parts'), opt('--out')
+scene, parts, out, old = opt('--scene'), opt('--parts'), opt('--out'), opt('--old')
 release = (opt('--release') or '').split(',')
 cams = '--no-cams' not in a
 if not cams:
@@ -139,6 +139,8 @@ for p in result['panels']:
         rooms.append({'id': rid, 'kind': r['kind'], 'furniture_state': st, 'furniture_code': code})
 data = {'apartment_rooms': rooms, 'pad': 'x' * int(os.environ.get('FAKE_BUNDLE_PAD', '0')), 'cams': cams,
         'trial': {'job_id': jid, 'complete': all(x['furniture_state'] != 'pending' for x in rooms), 'panels': pages}}
+if os.environ.get('FAKE_BUNDLE_OLD'):                 # проверка R1: какую прежнюю версию получила сборка (в байтах версии она бы ломала повтор «та же версия»)
+    data['old'] = old and os.path.basename(old)
 json.dump(data, open(out, 'w'))
 print(json.dumps({'ok': True}))
 '''
@@ -663,6 +665,19 @@ def test_conveyor_versions_in_order_then_done(prod, mk):
     assert all(hashlib.sha256(s['bundle'].encode()).hexdigest() == s['sha256'] for s in sent)
     # стадии живут, пока идёт heartbeat: аренда продлевается и во время мебели
     assert prod.by('/api/trial/worker/fail') == []
+
+
+def test_conveyor_each_version_takes_cams_from_previous_built_one(prod, mk, monkeypatch):
+    """R1 tour-speed-01: сборка версии получает `--old` = файл прежней СОБРАННОЙ версии этого же задания (v2 — v1, v3 — v2): пары ракурсов гостиной не считаются заново
+    на каждую версию. У первой версии прежней нет; сборка без ракурсов (`--no-cams`) `--old` не получает."""
+    monkeypatch.setenv('FAKE_BUNDLE_OLD', '1')
+    prod.add_job()
+    w = mk(furnish=True)
+    w.loop(max_iter=1)
+    olds = [b['data']['old'] for b in prod.bundles]
+    assert len(olds) == 3 and olds[0] is None
+    assert olds[1].endswith('-v1-walls.json') and olds[2].endswith('-v2-living.json')
+    assert olds[1] != olds[2]                                              # v3 берёт у v2, а не у v1: гостиная в v2 уже с парами
 
 
 class _TourSpy:

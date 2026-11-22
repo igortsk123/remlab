@@ -3,12 +3,12 @@ tier: 2
 topic: integrations-details
 scope: Детали внешних интеграций — эндпоинты, форматы запросов/ответов, env-переменные, конфиги, цены
 tier1: ../core/access-and-integrations.md
-updated: 2026-11-12
+updated: 2026-11-19
 importance: high
 source: manual
 status: working
 source_of_truth: canonical
-last_verified: 2026-11-12
+last_verified: 2026-11-19
 ---
 
 # Интеграции — детали (Tier 2)
@@ -125,8 +125,9 @@ last_verified: 2026-11-12
   Compose образ = `${REMLAB_IMAGE:-remlab-app:latest}`.
 - **CI-деплой-ключ:** `~/.ssh/remlab_ci_deploy` (создан 2026-07-01) — публичная часть в `authorized_keys`
   сервера (вход проверен). Приватную часть нужно положить в GitHub-секрет `DEPLOY_SSH_KEY`, чтобы раннер
-  заходил на сервер. Секрет задан — авто-деплой работает по push в `main` (`.github/workflows/deploy.yml`;
-  шаги пропускаются, только если секрета нет). [История: до заведения секрета деплой шаги пропускал.]
+  заходил на сервер. Секрет задан — авто-деплой идёт после зелёного «CI gate» на `main` (`.github/workflows/deploy.yml`: `workflow_run`,
+  `conclusion == 'success'`); шаги пропускаются, если секрета нет ИЛИ шаг «Нужна ли выкладка» (`tools/ops/deploy-need.sh`) решил, что
+  менялись только память/доки или цель — предок уже выкатанной версии). [История: до заведения секрета деплой шаги пропускал.]
   Значения секретов в память НЕ пишем.
 - **GitHub PAT (наблюдение CI):** владелец выдал fine-grained токен (у Клода локально, вне репо;
   read-only Actions на 2026-07-01) — хватает читать логи/прогоны, не хватает писать секреты/запускать workflow.
@@ -178,7 +179,7 @@ last_verified: 2026-11-12
 - `products.direct_url` = полный unquote goto= (для SPA-пары — обрезка до серии); реф-переход
   строить deeplink'ом `sf.gdeslon.ru/cf/<токен>?mid=&goto=<direct_url>` — комиссия сохраняется.
 - Автоцикл: `tools/scout/refresh_daily.sh` (cron 10:40 — `infra/dev/crontab`; защита от повторного запуска в самом скрипте) → load3.py (upsert,
-  снятие исчезнувших) → health.py (карточки, автозамены sets2) → sync_metrics.py (цены/размеры/
+  снятие исчезнувших) → health.py (только отчёт о живости товаров комплектов `health-report.json`, без записи; карточки — `stock_check.py`, замены — `sets_incremental.py --heal --apply`) → sync_metrics.py (цены/размеры/
   площади/перцентили тиров). XML API search — точечная перепроверка.
 
 ## UI-иконки (перенос из Tier1-сводки, 2026-08-02)
@@ -224,6 +225,9 @@ PNG 512 от владельца (Drive `1l2j65g8…`) → `public/icons/`; вс�
   онбординга звать `codex exec --ephemeral --sandbox read-only -C /home/pakar/igor/remlab -o answer.md - < prompt.md`
   (подписка ChatGPT). **Профили `vercel*` ЗАПРЕЩЕНЫ (ADR-0301, 17.10):** деньги шлюза — только для продукта. **Исключение (ADR-0327, 23.10):**
   подписка исчерпана → экономно `--profile vercel-sol` (gpt-6-sol) как запасной; `vercel` (astra) не звать.
+  Запуск с router/`r`-оболочки (21.11, лимит подписки до 25.11 15:25): в оболочке нет `VERCEL_AI_GATEWAY_KEY` («Missing environment
+  variable») — как `tools/book-check.sh`: `set -a; . tools/scout/.env; set +a; codex exec --profile vercel-sol --ephemeral --sandbox read-only …`
+  (файл ключей не читать и не печатать).
 - **Как звали до 15.10:** `codex exec --sandbox read-only -C /home/pakar/igor/remlab -o answer.md resume 01a00a62-33e2-7051-93c6-37bff5c6937e - < prompt.md   (флаги — ДО resume)`
 - **[История] Через шлюз Vercel (13.10, ADR-0253; отменено ADR-0301):** когда у подписки ChatGPT кончился лимит или нужна gpt-6-astra —
   `set -a; . tools/scout/.env; set +a; codex exec --profile vercel --sandbox read-only -C … -o answer.md resume <ID> - < prompt.md`.
@@ -348,7 +352,7 @@ Standard, `isDownloadable:false`, платная модель магазина.
   отправленного листа — по нему видно, разные ли сцены ушли в модель.
 
 ## Гдеслон — фиды vs API (сверено 03.09, ADR-0171)
-- Фиды (9 постоянных ссылок кабинета; nonton `777e580d` удалён 29.08; `e2fccbea` пуст): у каждого оффера
+- Фиды (10 хешей в `FEEDS` — `tools/scout/refresh_daily.sh`, сверено 18.11; nonton `777e580d` удалён 29.08; `e2fccbea` пуст): у каждого оффера
   атрибуты `merchant_id`, `id` (точный), `article`, `gs_category_id`; поля `picture` 450×338,
   `original_picture` 800×600 с CDN магазина (100 %), `description` (43 %), `params`. Гдеслон пересобирает
   выгрузки ежедневно ≈12:35–12:39 МСК (штамп `yml_catalog date` по МСК).
@@ -371,7 +375,7 @@ Standard, `isDownloadable:false`, платная модель магазина.
   читают `tools/scout/mesh_audit_sync.py --tick` (крон раз в минуту, `infra/dev/crontab`) и `tools/scout/mesh_review_sync.py`
   (шаги `review_push`/`review_pull` в `tools/scout/refresh_daily.sh` — раз в сутки).
 - Ручки: `/api/lab/mesh-review/{tasks,decisions,session}`, `/api/lab/mesh-audit/{items,decisions,
-  batch,seen,cancellations}` — решения append-only, конвейер забирает курсором `after_id` (у `cancellations` — свой). Статика приёмки —
+  batch,seen,cancellations,marks,notes}` (`marks` — «ок/брак» с `/lab/mesh-check`, T-20261112-118) — решения append-only, конвейер забирает курсором `after_id` (у `cancellations` — свой). Статика приёмки —
   `/test/mesh-audit/*` (Caddy, кэш immutable; каталог `/opt/remlab/test/mesh-audit/`).
 
 ## OpenAI — реестры цен и запрет mini под картинки (ротационная сверка 11.10)
@@ -411,14 +415,41 @@ base 2833 против 85 у `gpt-4o`, то есть в долларах как 
 
 ## UptimeRobot и клиентский бот (14.10)
 - **UptimeRobot:** аккаунт владельца (igortsk12345@gmail.com), ключ API — `_secrets/ACCESS.md`; мониторы: главная, `/api/health` (ключевое слово `"ok":true`, тревога при отсутствии), `/demo/`; интервал 5 мин (лимит бесплатного: 50 мониторов, 5 мин; только некоммерческое использование с конца 2024); тревога — письмом, Telegram подключается в интерфейсе.
-- **@remlabservice_bot как клиентский бот:** вебхук `https://remont-lab.online/api/leads/tg-client` с секретом `LEADS_TG_WEBHOOK_SECRET`; `/start sh_<10 hex>` → ссылка на подборку `/test/share/<id>/` (`app/api/leads/tg-client/route.ts`); сервис кадров отдаёт `tg_link` при `SHARE_TG_BOT` в /opt/remlab/draft/.env и только для канала `telegram` (`tools/scout/draft_service.py:790`). Тот же бот шлёт алерты DEV/сервера (sendMessage, без getUpdates — вебхук им не мешает).
+- **@remlabservice_bot как клиентский бот:** вебхук `https://remont-lab.online/api/leads/tg-client` с секретом `LEADS_TG_WEBHOOK_SECRET`; `/start sh_<10 hex>` → ссылка на подборку `/test/share/<id>/` (`app/api/leads/tg-client/route.ts`); сервис кадров отдаёт `tg_link` при `SHARE_TG_BOT` в /opt/remlab/draft/.env и только для канала `telegram` (`tools/scout/draft_service.py:35,1139`). Тот же бот шлёт алерты DEV/сервера (sendMessage, без getUpdates — вебхук им не мешает).
 
 ## env_keys — откуда скрипты scout берут ключи (T-52, 05.11)
 Резолвер `tools/scout/env_keys.py`: окружение → своё дерево → основная копия (из worktree, через git common-dir) → mltest последним с WARN; `--where` — откуда возьмётся (только путь), `--ping` — бесплатная проверка; журнал трат `openai-spend.jsonl` — всегда основной копии (`openai_budget.SPEND_LOG`). 12 старых скриптов (fixone.py, judge.py, pipeline.py, pipeline2.py, viz5/7/8/9/10/11.py, viz_frame.py, viz_plan.py; у pipeline2 и viz_frame сперва свой `.env`) ещё берут OpenAI-ключ из `v0-health-card/backend/.env` — вопрос владельцу.
 - GHCR (02.10): в CI вход на сервере — `GHCR_TOKEN` = `secrets.GITHUB_TOKEN` (`.github/workflows/deploy.yml:142`, `docker login ghcr.io` — :148); ручной вход — `GHCR_TOKEN` из `_secrets/`, не `gh auth token`: токену под пакеты `gh` требует ещё `read:org` (ADR-0232).
+- Hugging Face (18.11, аккаунт владельца): `HF_TOKEN` в `~/scout-scenes/salad.env` на DEV (chmod 600, только там: не в git, не в банке).
+  Нужен для закрытых весов DINOv3 (`facebook/dinov3-vitl16-pretrain-lvd1689m`, доступ выдаёт Meta по заявке), которые требуют
+  TRELLIS.2 и Pixal3D (план `plans/mesh-models-trial-01.md`). Доступ проверять HEAD-запросом до любой платной сборки: 403 значит «заявку ещё не одобрили».
 
 ## Вырезка фона: BiRefNet local и fal (свод недели 06–12.11 по журналам, T-20261112-85)
 - Веса и код BiRefNet закреплены ревизией (`tools/scout/cutout_sync.py:BIREFNET_REVISION`, T-46/3): модель грузится с
   `trust_remote_code=True`, без ревизии transformers сам скачивал новый `birefnet.py`. На ноде Salad (`tools/scout/salad/preprocess.py`) ревизия НЕ закреплена.
-- `CUTOUT_BACKEND=local` — CPU, 18–23 с на фото, порциями по 100 (вызова `heavy-slot` в коде вырезки нет — не подтверждено 18.11); fal ≈ $0,0005–0,0008
-  за фото (4 потока: 372 фото за 624 с).
+- `CUTOUT_BACKEND` по умолчанию `fal` (`tools/scout/cutout_sync.py:63`; у fal веса Light, не те, что в образе Salad — `:17`); `local` — CPU
+  ≈14 с на фото на 12 ядрах (`:20`), до `DAILY_MAX=400` за ночь (`:65`); вызова `heavy-slot` в коде вырезки нет. fal ≈ $0,0008 за фото, по
+  умолчанию 2 потока (`:64`; на 6 потоках — 376 отказов из 508).
+- Цепочка после маски (19.11, T-99/T-107): 8-связность в `components.clean` (`tools/scout/salad/components.py`, тросы люстр целы);
+  в `clean_edges` — ореол, крошки и `clean_islands.clean_bg_like_specks` (крупинка на кромке, похожая на фон, `tools/scout/salad/preprocess.py:clean_edges`);
+  затем `refine_foreground` (blur fusion у кромки). `cutout_sync.chain` — та же цепочка, но без `components.prune_attached` (есть только в `_cut_chain`).
+
+## RunPod — карты ≥40 ГБ (19.11.2026, владелец TG 2178–2182)
+- Ключ `RUNPOD_API_KEY` — в `_secrets/ACCESS.md`. Скопирован из архивного проекта julia по слову владельца. В коде remlab клиента пока нет.
+- Проверка ключа 19.11: GraphQL `https://api.runpod.io/graphql`, запрос `myself`, заголовок `Authorization: Bearer`. Аккаунт живой, баланс ≈$0, подов 0. Перед запуском — попросить владельца пополнить.
+- Цены community на 19.11:
+  - 48 ГБ: A6000 $0,33/ч, A40 $0,35/ч;
+  - 80 ГБ: A100 PCIe $1,19/ч, H100 PCIe $1,99/ч.
+  - Для сравнения, в Salad самая большая карта — 5090 32 ГБ, $0,60/ч.
+- **Обновление 19.11 вечер (T-90/2):** ключ живой, баланс пополнен владельцем ($10, TG 1823); копия для драйверов — `~/scout-scenes/salad.env`
+  (chmod 600, вне git). Клиент — runpod/ultratex/runpod_trial.py в ветке trial/trellis2-ultratex (пока не в main). По живому каталогу
+  дешевле всего подходит A100 PCIe 80 ГБ SECURE **$2,09/ч** (community $1,19 — нет в наличии). Прокси `https://<pod>-8000.proxy.runpod.net`
+  отвечает 403 на User-Agent Python-urllib — нужен UA как у curl (урок 748). Веса UltraTex (~50 ГБ) качаются ~13 мин при каждом новом поде.
+- Когда звать: метод не влезает в 32 ГБ (кандидат — MVPainter, «от 40 ГБ» у авторов). Сначала проба на 5090 в Salad.
+
+## GitHub — логи CI (19.11.2026, владелец TG 2117/2118)
+- Fine-grained ключ `GITHUB_ACTIONS_READ_TOKEN`: только репо remlab, Actions — Read-only, 90 дней (истекает ≈17.02.2027); значение — `_secrets/ACCESS.md`.
+- `gh` на pakardev вошёл этим ключом: `gh run view <id> -R igortsk123/remlab --log-failed` — строки ошибки упавшего шага.
+- Напоминание владельцу обновить ключ — user-таймер systemd `github-token-remind.timer` (10.02.2027 10:00 Лондон, `tools/scout/alert.sh`).
+- Без ключа видны только аннотации `::error::` (`.github/workflows/ci.yml`: шаги test_mesh_photo и memory-project-audit) — публичны через API check-runs.
+- Дальше: сигнал «CI красный» сам прикладывает строки ошибки (план задач П1.100).

@@ -34,6 +34,13 @@ def mk(p: Path, body=b'x' * 5000):
     return p
 
 
+@pytest.fixture(autouse=True)
+def _no_git_hook_env(monkeypatch):
+    """Из git-хука (pre-push) приходят GIT_DIR/GIT_INDEX_FILE/GIT_WORK_TREE: и тест, и сам disk_clean (git -C …) читали бы НАСТОЯЩИЙ репозиторий (T-20261121-184)."""
+    for k in [k for k in os.environ if k.startswith('GIT_')]:
+        monkeypatch.delenv(k)
+
+
 @pytest.fixture()
 def home(tmp_path, monkeypatch):
     monkeypatch.setenv('DISK_CLEAN_HOME', str(tmp_path))
@@ -41,7 +48,9 @@ def home(tmp_path, monkeypatch):
 
 
 def git(*a, cwd):
-    env = dict(os.environ, GIT_AUTHOR_NAME='t', GIT_AUTHOR_EMAIL='t@t', GIT_COMMITTER_NAME='t', GIT_COMMITTER_EMAIL='t@t')
+    # из git-хука пришли бы GIT_DIR/GIT_INDEX_FILE и `init` лёг бы в НАСТОЯЩИЙ репозиторий (21.11, T-20261121-184): GIT_* убираем, свои ставим
+    env = {k: v for k, v in os.environ.items() if not k.startswith('GIT_')}
+    env.update(GIT_AUTHOR_NAME='t', GIT_AUTHOR_EMAIL='t@t', GIT_COMMITTER_NAME='t', GIT_COMMITTER_EMAIL='t@t')
     subprocess.run(['git', *a], cwd=cwd, check=True, capture_output=True, env=env)
 
 

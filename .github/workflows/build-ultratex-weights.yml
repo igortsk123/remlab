@@ -1,0 +1,108 @@
+# СБОРКА ОБРАЗА UltraTex С ВЕСАМИ ВНУТРИ НА GITHUB ACTIONS (T-20261121-178/1; владелец TG 1143: «веса внутрь и всё как у мешей — конвейер»). НЕ на pakardev (lesson 722).
+# Поверх готового образа кода `ultratex-bw` (ввод `base` — его digest) кладёт ТОЛЬКО веса слоями (`Dockerfile.ultratex-bw-w`): LoRA+декодер, DiT 5 кусков, AE; Qwen3-8B НЕ кладём (пустой текст — файл text-cache/).
+# Токен HF — секрет репозитория `HF_TOKEN` (аккаунт с принятыми условиями FLUX.2-klein-base-9B и FLUX.2-dev), в образ и логи не попадает (BuildKit secret, файл-токен читает только weights_pack.py).
+# Образ ПРИВАТНЫЙ: метки `org.opencontainers.image.source` НЕТ (иначе пакет унаследует публичность репозитория); после первого пуша проверить в настройках пакета «Private».
+# Запуск — только вручную (workflow_dispatch) из ветки `trial/trellis2*`. Выход: digest и сжатый размер (лимит набора 35 ГБ, ADR-0137). Деплоя нет, боевые группы не затрагивает.
+name: build-ultratex-weights
+
+on:
+  workflow_dispatch:
+    inputs:
+      base:
+        description: 'Образ кода ultratex-bw по digest (имя@sha256:…)'
+        required: true
+        default: 'ghcr.io/igortsk123/mesh-ultratex-trial@sha256:e2b5855258e08129841b7d46787594fcb335cd01abda2328a287ebde429d847a'
+
+concurrency:
+  group: build-ultratex-weights
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+  packages: write
+
+env:
+  IMAGE: ghcr.io/${{ github.repository_owner }}/mesh-ultratex-trial:ultratex-bw-w
+  CTX: tools/scout/runpod/ultratex
+  DIT_URL: https://huggingface.co/black-forest-labs/FLUX.2-klein-base-9B/resolve/8e4154e4c94c6eb08644d0761d404e1c28d325c2/flux-2-klein-base-9b.safetensors
+  AE_URL: https://huggingface.co/black-forest-labs/FLUX.2-dev/resolve/e8af80c9dd820ab07ee4171d024f03e5c4b3024b/ae.safetensors
+
+jobs:
+  build:
+    if: startsWith(github.ref, 'refs/heads/trial/trellis2')
+    runs-on: ubuntu-24.04
+    timeout-minutes: 180
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Вход образа по digest и токен на месте
+        env:
+          BASE: ${{ inputs.base }}
+          HF_TOKEN: ${{ secrets.HF_TOKEN }}
+        run: |
+          echo "$BASE" | grep -Eq '^[A-Za-z0-9._/:-]+@sha256:[0-9a-f]{64}$' || { echo "::error::base не по digest (ADR-0137)"; exit 1; }
+          [ -n "$HF_TOKEN" ] || { echo "::error::нет секрета репозитория HF_TOKEN (токен HF с принятыми условиями FLUX.2) — добавить в Settings → Secrets → Actions"; exit 1; }
+
+      - name: Освободить диск сборщика (нужно ≥ 45 ГБ)
+        run: |
+          sudo rm -rf /usr/local/lib/android /usr/share/dotnet /opt/ghc /usr/local/.ghcup /opt/hostedtoolcache/CodeQL /usr/local/share/boost \
+                      /usr/share/swift /usr/local/share/powershell /usr/local/julia* || true
+          sudo docker system prune -af || true
+          df -h /
+          FREE_GB=$(df -BG --output=avail / | tail -1 | tr -dc 0-9)
+          [ "$FREE_GB" -ge 45 ] || { echo "::error::после очистки меньше 45 ГБ ($FREE_GB)"; exit 1; }
+
+      - name: Тесты кусков и кэша (без сети и видеокарты)
+        run: |
+          python3 -m venv /tmp/v && /tmp/v/bin/pip install -q torch --index-url https://download.pytorch.org/whl/cpu && /tmp/v/bin/pip install -q safetensors numpy
+          /tmp/v/bin/python "$CTX/tests_weights_pack.py"
+
+      - name: Доступ к весам и число кусков (до долгой сборки)
+        env:
+          HF_TOKEN: ${{ secrets.HF_TOKEN }}
+        run: |
+          python3 "$CTX/weights_pack.py" plan --url "$DIT_URL" --token-env HF_TOKEN --expect-shards 5
+          python3 "$CTX/weights_pack.py" plan --url "$AE_URL" --token-env HF_TOKEN --max-gb 2 --expect-shards 1
+          test -f "$CTX/text-cache/empty_qwen3_8b_bf16.pt" && test -f "$CTX/text-cache/empty_qwen3_8b_bf16.json" || { echo "::error::нет text-cache/ (пустой эмбеддинг Qwen)"; exit 1; }
+
+      - name: Вход в GHCR
+        run: echo "${{ secrets.GITHUB_TOKEN }}" | docker login ghcr.io -u "${{ github.actor }}" --password-stdin
+
+      - name: Сборка и пуш (слои ≤ ~4 ГиБ, без атрибуций — манифест простой)
+        env:
+          BASE: ${{ inputs.base }}
+          HF_TOKEN: ${{ secrets.HF_TOKEN }}
+        run: |
+          set +e
+          docker buildx create --name uw --driver docker-container --use >/dev/null
+          docker buildx build --progress=plain --provenance=false --sbom=false \
+            --secret id=hf_token,env=HF_TOKEN --build-arg BASE="$BASE" \
+            -f "$CTX/Dockerfile.ultratex-bw-w" -t "$IMAGE" "$CTX" \
+            --metadata-file meta.json \
+            --output "type=image,name=$IMAGE,push=true,compression=gzip,compression-level=1" > build.log 2>&1
+          rc=$?
+          tail -60 build.log
+          if [ "$rc" -ne 0 ]; then
+            python3 tools/scout/salad/trellis/ci_annotate.py build.log 96 12
+            exit "$rc"
+          fi
+          grep -q "$HF_TOKEN" build.log && { echo "::error::токен HF попал в лог сборки"; exit 1; }
+          true
+
+      - name: Digest, размер, слои
+        run: |
+          DIGEST=$(python3 -c "import json; print(json.load(open('meta.json'))['containerimage.digest'])")
+          REF="${IMAGE%:*}@$DIGEST"
+          docker buildx imagetools inspect "$REF" --raw > manifest.json
+          python3 - "$REF" <<'PY' | tee -a "$GITHUB_STEP_SUMMARY"
+          import json, sys
+          m = json.load(open('manifest.json'))
+          L = m.get('layers', [])
+          tot = sum(l['size'] for l in L)
+          print('### Образ UltraTex с весами (без Qwen)')
+          print(f'- по digest: `{sys.argv[1]}`')
+          print(f'- слоёв: {len(L)}, сжатый размер: **{tot / 2**30:.2f} ГиБ** (лимит набора 35)')
+          print('- крупнейшие слои, ГиБ:', sorted((round(l["size"] / 2**30, 2) for l in L), reverse=True)[:8])
+          assert tot / 2**30 <= 35, 'образ больше 35 ГиБ'
+          assert max(l['size'] for l in L) / 2**30 <= 5.5, 'есть слой больше ~5 ГиБ'
+          PY

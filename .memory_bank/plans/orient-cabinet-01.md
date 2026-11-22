@@ -2,9 +2,11 @@
 workstream: mesh-pipeline
 slug: orient-cabinet-01
 title: Ориентация мешей — один авторитет (orientation_state); фасад по глубине — свидетель; публикуются только решённые
-status: in_progress
+status: partial
+pause_reason: без движения с 07.11; владелец 22.11 TG 1185 — на паузу, приоритет — конвейер покраски
+resume_trigger: слово владельца или задача в plan-zadach.md
 created: 2026-11-05
-updated: 2026-11-07
+updated: 2026-11-22
 parent_plan: room-pipeline-01
 ---
 

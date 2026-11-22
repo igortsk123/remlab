@@ -24,6 +24,9 @@ import os
 import subprocess
 import sys
 
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+import mesh_photo as MP  # noqa: E402 — единое правило выбора фото меша (ADR-0452)
+
 HERE = os.path.dirname(os.path.abspath(__file__))
 RULES = os.path.join(HERE, 'rules', 'mesh-priority.json')
 PINNED = os.path.join(HERE, 'rules', 'mesh-pinned.json')
@@ -66,7 +69,7 @@ def products() -> dict:
     variants = 0
     for sku, role, status, img, w, d, h, dia, rep in db(
             "select shop_mid||':'||external_id, coalesce(cat_role,''), "
-            "coalesce(mesh_status,'none'), coalesce(image_url_hd, image_url), "
+            "coalesce(mesh_status,'none'), " + MP.photo_sql(None) + ", "
             "coalesce(w_cm,0), coalesce(d_cm,0), coalesce(h_cm,0), coalesce(dia_cm,0), "
             "coalesce(mesh_family_rep, shop_mid||':'||external_id) "
             "from products where mesh_required;"):
@@ -250,7 +253,7 @@ def set_item_jobs(taken=()) -> list[dict]:
         return []
     lit = ','.join("'" + s.replace("'", "''") + "'" for s in src)
     cards = {r[0]: r[1:] for r in db(
-        "select shop_mid||':'||external_id, coalesce(cat_role,''), coalesce(image_url_hd, image_url, ''), coalesce(name,''), "
+        "select shop_mid||':'||external_id, coalesce(cat_role,''), " + MP.photo_sql(None) + ", coalesce(name,''), "
         "coalesce(w_cm,0), coalesce(d_cm,0), coalesce(h_cm,0), coalesce(dia_cm,0), "
         "coalesce(mesh_family_rep, shop_mid||':'||external_id), case when in_stock then 't' else 'f' end "
         f"from products where shop_mid||':'||external_id in ({lit});")}
@@ -288,7 +291,7 @@ def own_jobs(skus: list) -> dict:
     проверил `demo_band.own_gen_ok`."""
     lit = ','.join("'" + s.replace("'", "''") + "'" for s in skus)
     out = {}
-    for r in db("select shop_mid||':'||external_id, coalesce(cat_role,''), coalesce(image_url_hd, image_url), coalesce(name,''), "
+    for r in db("select shop_mid||':'||external_id, coalesce(cat_role,''), " + MP.photo_sql(None) + ", coalesce(name,''), "
                 "coalesce(w_cm,0), coalesce(d_cm,0), coalesce(h_cm,0), coalesce(dia_cm,0) "
                 f"from products where shop_mid||':'||external_id in ({lit});"):
         j = own_job(r)

@@ -16,7 +16,7 @@ source: manual
   `connect_phone` (номер для привязки бота), `tg_user_id/tg_chat_id`, `page_key` (128 бит), `active`.
 - `sends` — ссылка: квартира, менеджер, язык/рынок, `status`, `created_via` bot|page|crm,
   `origin_chat_id/origin_message_id`, `revoked`, `opened_at`, `open_signal_at`, `summary_due_at`.
-- `send_events` — действия покупателя и смены статуса `{from,to,by}`.
+- `send_events` — действия покупателя и ручные смены статуса менеджером `{from,to,by}` (`modules/sends/service.ts:113` `setStatusByManager`); авто-смены sent→opened→engaged идут через `store.changeStatus` без записи в `send_events` (`service.ts:84-85`). Также в таблицах — `dedup_marks` (атомарный дедуп сигналов), `db/init/014-sends.sql`.
 - `signal_outbox` — сигналы: pending → sent | failed | no_channel; повтор 1/5/15/60 мин.
 - `tg_updates` — обработанные `update_id` (Telegram повторяет вебхук).
 

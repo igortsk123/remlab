@@ -1,6 +1,6 @@
 import { foreignOrigin } from "@/lib/http/origin";
 import { guard } from "@/lib/ratelimit/http";
-import { randomToken } from "@/lib/token";
+import { randomJobId } from "@/lib/token";
 import { trialDir } from "@/lib/trial/config";
 import { newEditKey } from "@/lib/trial/edit-key";
 import { fail, trialJson } from "@/lib/trial/http";
@@ -27,7 +27,7 @@ export async function POST(req: Request): Promise<Response> {
   if (limited) return limited;
   const pre = await admissionPrecheck(process.env, own);
   if (pre !== "ok") return REFUSE[pre]();
-  const id = randomToken();
+  const id = randomJobId();                          // первый знак — буква/цифра: номер идёт стадиям Python аргументом и папкой (`lib/token.ts`)
   const dir = trialDir();
   const up = await receiveUpload(req, dir, id);
   if (!up.ok) return fail(up.status, up.error);

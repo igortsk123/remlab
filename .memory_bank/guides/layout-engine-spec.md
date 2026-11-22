@@ -101,7 +101,7 @@ scoring, diversity, local_refinement.
   (`llm_planner.py`, модель `LAYOUT_LLM_MODEL`, по умолчанию gpt-5-mini; неудача → фолбэк на beam).
 - Единицы — см (float), не мм-целые (`models.py`). Типы комнат: living/bedroom/kitchen/hall (`models.py:RoomType`, office нет).
 - Правила — JSON, не YAML: `services/planner-solver/rules/*.json`, профили `tools/scout/rules/profiles/*.json`.
-- Числа: `BEAM_WIDTH = 20`, `DIVERSITY_CM = 60`, `top_k` 3 (`beam.py`; `solver_run` берёт 1); шаг кандидатов
+- Числа: `BEAM_WIDTH = 20`, `DIVERSITY_CM = 60`, `top_k` 3 (`beam.py`; `solver_run` берёт 1; 3 — только в ветке «носитель ТВ против посадки», `tools/scout/solver_run.py:702,704`); шаг кандидатов
   `GRID_CM = 25` (`candidates.py`); уточнение `STEPS_CM = (20, 10, 5)`, `MAX_ROUNDS = 6` (`refine.py`).
 - Скоринг — свои термы с весами из `services/planner-solver/rules/weights.json` (приоры Infinigen), не таблица semantic/circulation выше (`services/planner-solver/planner/score.py`).
 - Notices — `services/planner-solver/LICENSES/THIRD_PARTY_NOTICES.md`. Ranking-модели нет.

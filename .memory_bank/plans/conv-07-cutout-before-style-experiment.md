@@ -6,7 +6,7 @@ status: partial
 pause_reason: "эксперимент идёт победившим методом стиля — conv-01 ждёт отметок владельца; вырезки найдены (≈3 400, 14.10), для проблемных фото резать заново"
 resume_trigger: "выбор метода conv-01 владельцем"
 created: 2026-10-13
-updated: 2026-10-14
+updated: 2026-11-20
 completed:
 plan_kind: sub
 parent_plan: MASTER-conveyor-gaps
@@ -72,3 +72,7 @@ review_after: 2026-12-13
 
 ### Уроки
 —
+
+
+## Follow-up work
+- [ ] Стык «вырезка» в `tools/scout/rules/pipeline-map.json` / `tests_chain.py` — не сделан в conv-06 (закрыт 20.11, `completed_plans/conv-06-process-tests.md`): добавить после решения по conv-07/conv-01 (в `pipeline_map.py` стыка нет — сверено `git grep` 20.11).

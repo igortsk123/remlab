@@ -1,0 +1,1275 @@
+"""Тесты чистых частей пробы StableGen (T-20261119-90/5): драйвер Salad, воркер, мост. Запуск: PYTHONPATH=<папка с aiohttp> python3 -m unittest tests_sg -v (из этой папки)."""
+import fcntl
+import math
+import os
+import shutil
+import signal
+import subprocess
+import sys
+import tempfile
+import time
+import unittest
+
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+import sg_relay  # noqa: E402
+import sg_salad as S  # noqa: E402
+import worker_sg as W  # noqa: E402
+
+KEY = '112923_13224664101879413845'
+
+
+class Runs(unittest.TestCase):
+    def test_parse_ok(self):
+        self.assertEqual(S.parse_runs(f'{KEY}:q2509q5,{KEY}:q2511q5'), [(KEY, 'q2509q5'), (KEY, 'q2511q5')])
+
+    def test_parse_unknown_variant_fails_before_money(self):
+        with self.assertRaises(ValueError):
+            S.parse_runs(f'{KEY}:q3km')
+        with self.assertRaises(ValueError):
+            S.parse_runs('')
+
+    def test_weights_shared_and_ordered(self):
+        spec = S.weights_for([(KEY, 'q2509q5'), (KEY, 'q2511q5'), ('x', 'q2509q5')])
+        self.assertEqual(spec, 'te,vae,q2509_q5,lora2509,q2511_q5,lora2511')            # без повторов, общие первыми
+
+    def test_every_variant_weight_exists_in_worker_catalog(self):
+        cat = S.load_weights_catalog()
+        self.assertEqual(cat, W.WEIGHTS)                                                  # драйвер читает тот же каталог, что и воркер
+        for var, v in S.VARIANTS.items():
+            for w in v['weights']:
+                self.assertIn(w, cat, f'{var}: нет весов {w}')
+            names = [(cat[w][3] or os.path.basename(cat[w][1])) for w in v['weights']]
+            if v.get('job'):                                                              # V2-проба: Blender/GGUF нет, свой граф
+                continue
+            self.assertIn(v['unet'], names, f'{var}: имя GGUF в списке сервера ≠ имя файла воркера')
+            if v['lora']:
+                self.assertIn(v['lora'], names, f'{var}: имя LoRA в списке сервера ≠ имя файла воркера')
+
+
+class Money(unittest.TestCase):
+    def test_cost(self):
+        self.assertEqual(S.cost_usd(0, 0.44), 0.0)                                       # до running не платим и запас не копим
+        self.assertAlmostEqual(S.cost_usd(3600, 0.44, reserve_s=0), 0.44)
+        self.assertAlmostEqual(S.cost_usd(1800, 0.44, reserve_s=60), (1860 / 3600) * 0.44)
+
+    def test_cap_reached_in_hours(self):
+        # потолок $4 при $0,44/ч — это ≈ 9 часов; предел жизни ноды (150 мин) срабатывает раньше
+        hours = 4.0 / 0.44
+        self.assertGreater(hours * 60, 150)
+
+
+class Cfg(unittest.TestCase):
+    def test_cfg_for_2511_swaps_lora_and_unet(self):
+        c = S.build_cfg(KEY, 'q2511q5', '/o', '127.0.0.1:18190', 8, 2048, 42, 2400)
+        self.assertEqual(c['preset'], 'QWEN PRECISE')
+        self.assertEqual(c['model_unet'], 'Qwen-Image-Edit-2511-Q5_K_M.gguf')
+        self.assertIn('2511', c['lora_name'])
+        self.assertEqual(c['cameras'], {'mode': 'orbit_ring', 'num': 8})
+        self.assertTrue(c['style_image'].endswith(f'{KEY}.rgba.png'))
+        self.assertTrue(c['glb'].endswith(f'{KEY}-hd.glb'))
+
+    def test_body_has_no_secrets_in_print_and_command_is_exec(self):
+        body = S.build_body('trial-sg-x', 'img:tag', 'high', 'te,vae', 8, 32768, {'basic': {'username': 'u', 'password': 'p'}})
+        self.assertEqual(body['container']['command'][:2], ['python3', '-u'])
+        self.assertIn('TRIAL_WORKER_Z', body['container']['environment_variables'])
+        self.assertEqual(body['container']['resources']['gpu_classes'], [S.CARD['class_id']])      # только 4090
+
+
+class Worker(unittest.TestCase):
+    def test_plan_and_rename(self):
+        plan = W.weights_plan('q2511_q5')
+        self.assertEqual(plan[0][3], 'Qwen-Image-Edit-2511-Q5_K_M.gguf')
+        self.assertEqual(plan[0][2], 'unet')
+
+    def test_unknown_weight_fails_fast(self):
+        with self.assertRaises(ValueError):
+            W.weights_plan('te,nope')
+
+    def test_none_is_empty(self):
+        self.assertEqual(W.weights_plan('none'), [])
+
+    def test_default_set_matches_catalog(self):
+        for k in W.DEFAULT_SET.split(','):
+            self.assertIn(k, W.WEIGHTS)
+
+
+class Relay(unittest.TestCase):
+    def test_key_injected_and_foreign_dropped(self):
+        h = sg_relay.clean_headers({'Host': 'x', 'Salad-Api-Key': 'old', 'Content-Type': 'application/json', 'Upgrade': 'websocket'}, 'K')
+        self.assertEqual(h, {'Content-Type': 'application/json', 'User-Agent': 'remlab-mesh/1.0', 'Salad-Api-Key': 'K'})
+
+    def test_no_key_no_header(self):
+        self.assertNotIn('Salad-Api-Key', sg_relay.clean_headers({'Salad-Api-Key': 'old'}, None))
+
+    def test_foreign_user_agent_replaced(self):          # прокси RunPod отвечает 403 на python-requests/aiohttp
+        self.assertEqual(sg_relay.clean_headers({'User-Agent': 'python-requests/2.32'}, None)['User-Agent'], 'remlab-mesh/1.0')
+
+
+class RelayRetry(unittest.TestCase):
+    """T-153/1: мост сам повторяет краткие сбои связи (поддельный ComfyUI за шлюзом); отказ — только после повторов."""
+
+    GATE_403 = '<html><ul aria-label="Salad Connection Error"><h1>Error 403 Detected</h1></ul></html>'
+
+    def run_relay(self, script, method='GET', path='/queue'):
+        import asyncio
+        import sg_transient
+        from aiohttp import web
+        from aiohttp.test_utils import TestClient, TestServer
+        calls = []
+
+        async def upstream(req):
+            code, body = script[min(len(calls), len(script) - 1)]
+            calls.append(code)
+            return web.Response(status=code, text=body)
+
+        up = web.Application()
+        up.add_routes([web.route('*', '/{tail:.*}', upstream)])
+        rules = sg_transient.load_rules()
+
+        async def go():
+            async with TestServer(up) as srv:
+                app = sg_relay.make_app(f'http://127.0.0.1:{srv.port}', None, rules, sleep=lambda s: asyncio.sleep(0))
+                async with TestClient(TestServer(app)) as cl:
+                    r = await cl.request(method, path, data=b'x' if method == 'POST' else None)
+                    st = await (await cl.get('/_relay/stats')).json()
+                    return r.status, st
+        status, stats = asyncio.run(go())
+        return status, stats, calls
+
+    def test_403_gateway_page_is_retried_then_succeeds(self):
+        status, stats, calls = self.run_relay([(403, self.GATE_403), (403, self.GATE_403), (200, '{}')])
+        self.assertEqual((status, calls, stats['retries'], stats['gave_up']), (200, [403, 403, 200], 2, 0))
+        self.assertEqual(stats['reasons'], {'403 Salad Connection Error': 2})
+
+    def test_gives_up_after_three_retries(self):
+        status, stats, calls = self.run_relay([(403, self.GATE_403)])
+        self.assertEqual((status, len(calls), stats['retries'], stats['gave_up']), (403, 4, 3, 1))
+
+    def test_real_403_and_real_errors_are_not_retried(self):
+        status, _s, calls = self.run_relay([(403, '{"error":"bad key"}')])
+        self.assertEqual((status, calls), (403, [403]))
+        status, _s, calls = self.run_relay([(500, 'workflow failed')])
+        self.assertEqual((status, calls), (500, [500]))
+
+    def test_502_retried_for_get_but_not_post(self):
+        status, stats, calls = self.run_relay([(502, ''), (200, '{}')])
+        self.assertEqual((status, calls, stats['retries']), (200, [502, 200], 1))
+        status, _s, calls = self.run_relay([(502, ''), (200, '{}')], method='POST', path='/prompt')       # POST мог дойти до ComfyUI — не дублируем
+        self.assertEqual((status, calls), (502, [502]))
+
+    def test_post_with_gateway_403_page_is_retried(self):                 # страница шлюза = запрос не дошёл до ComfyUI
+        status, _s, calls = self.run_relay([(403, self.GATE_403), (200, '{}')], method='POST', path='/upload/image')
+        self.assertEqual((status, calls), (200, [403, 200]))
+
+    def test_rules_are_data_and_sane(self):
+        import sg_transient
+        r = sg_transient.load_rules()
+        self.assertEqual((r['retries'], r['pauses_s']), (3, [2, 5, 10]))
+        self.assertTrue(sg_transient.text_has_server_marker(r, "ComfyUI isn't reachable at 127.0.0.1:18193"))
+        self.assertEqual(sg_transient.pause_s(r, 9), 10.0)
+
+
+class SaladApiRetry(unittest.TestCase):
+    """create/start группы Salad при 504: повтор, перед повтором проверка «уже выполнено»."""
+
+    class MG:
+        def __init__(self, script, group_state=None):
+            self.script, self.calls, self.group = list(script), [], group_state
+
+        def api(self, path, method='GET', body=None):
+            self.calls.append((method, path))
+            if method == 'GET':
+                return (200, {'current_state': {'status': self.group}}) if self.group else (404, {})
+            return self.script.pop(0) if len(self.script) > 1 else self.script[0]
+
+    def test_create_504_then_ok(self):
+        mg, said = self.MG([(504, {}), (201, {})]), []
+        code, _r, n = S.api_retry(mg, '', 'POST', {'x': 1}, 'g', lambda *a: said.append(a), lambda s: None)
+        self.assertEqual((code, n), (201, 1))
+        self.assertEqual([c for c in mg.calls if c[0] == 'POST'], [('POST', ''), ('POST', '')])
+
+    def test_create_504_but_group_exists_is_not_recreated(self):
+        mg = self.MG([(504, {})], group_state='stopped')
+        code, _r, n = S.api_retry(mg, '', 'POST', {'x': 1}, 'g', lambda *a: None, lambda s: None)
+        self.assertEqual((code, n), (201, 1))
+        self.assertEqual([c for c in mg.calls if c[0] == 'POST'], [('POST', '')])
+
+    def test_start_504_but_already_deploying_is_not_restarted(self):
+        mg = self.MG([(504, {})], group_state='deploying')
+        code, _r, n = S.api_retry(mg, '/g/start', 'POST', None, 'g', lambda *a: None, lambda s: None)
+        self.assertEqual((code, n), (202, 1))
+        self.assertEqual(len([c for c in mg.calls if c[0] == 'POST']), 1)
+
+    def test_start_504_while_stopped_is_retried_and_gives_up_after_three(self):
+        mg = self.MG([(504, {})], group_state='stopped')
+        code, _r, n = S.api_retry(mg, '/g/start', 'POST', None, 'g', lambda *a: None, lambda s: None)
+        self.assertEqual((code, n), (504, 3))
+        self.assertEqual(len([c for c in mg.calls if c[0] == 'POST']), 4)
+
+    def test_real_error_not_retried(self):
+        mg = self.MG([(400, {'errors': 'name'})])
+        self.assertEqual(S.api_retry(mg, '', 'POST', {}, 'g', lambda *a: None, lambda s: None)[::2], (400, 0))
+
+
+
+class ViewGuard(unittest.TestCase):
+    """T-154/1: сторож вида до проекции (sg_guard) + образец бока по знаку угла + подписи из данных."""
+
+    @staticmethod
+    def _img(obj=(200, 190, 180), mag_frac=0.0, size=96):
+        import numpy as np
+        a = np.full((size, size, 3), 140, np.uint8)                 # серый фон
+        a[20:76, 20:76] = obj                                        # предмет по центру
+        if mag_frac:
+            n = int(56 * 56 * mag_frac / 56)
+            a[20:76, 20:20 + max(1, n)] = (230, 20, 220)
+        return a
+
+    def test_magenta_judged_by_object_share_and_component(self):
+        import sg_guard as G
+        R = G.load_rules()
+        ok, _ = G.judge_magenta(G.view_stats(self._img(), R), R)
+        self.assertTrue(ok)
+        bad, why = G.judge_magenta(G.view_stats(self._img(mag_frac=0.3), R), R)
+        self.assertFalse(bad)
+        self.assertIn('малиновое', why)
+        few = self._img()
+        few[30:32, 30:32] = (230, 20, 220)                                          # 4 пикселя — не повод для повтора
+        self.assertTrue(G.judge_magenta(G.view_stats(few, R), R)[0])
+
+    def test_pink_catalog_product_is_exempt_but_jump_is_caught(self):
+        import sg_guard as G
+        R = G.load_rules()
+        self.assertTrue(G.is_pink_colour('pink', R) and not G.is_pink_colour('mint', R))
+        pinkish = G.view_stats(self._img(obj=(230, 20, 220)), R)                    # весь предмет «розовый» — цвет каталога
+        self.assertFalse(G.judge_magenta(pinkish, R)[0])
+        self.assertTrue(G.judge_magenta(pinkish, R, baseline=pinkish['mag_frac'], exempt=True)[0])
+        clean = G.view_stats(self._img(), R)
+        self.assertFalse(G.judge_magenta(G.view_stats(self._img(mag_frac=0.3), R), R, baseline=clean['mag_frac'], exempt=False)[0])
+
+    def test_colour_guard_neighbour_and_catalog(self):
+        import sg_guard as G
+        R = G.load_rules()
+        mint = G.view_stats(self._img(obj=(160, 225, 195)), R)
+        greywhite = G.view_stats(self._img(obj=(225, 225, 222)), R)
+        self.assertTrue(G.judge_colour(mint, R, catalog=G.catalog_lab('mint', R))[0])
+        ok, why, info = G.judge_colour(greywhite, R, catalog=G.catalog_lab('mint', R))      # «серо-белый фасад» у мятного шкафа (владелец TG 2770)
+        self.assertFalse(ok)
+        self.assertIn('каталога', why)
+        ok, why, info = G.judge_colour(mint, R, neighbour_lab=greywhite['lab'])
+        self.assertFalse(ok)
+        self.assertIn('соседнего', why)
+        self.assertTrue(G.judge_colour(mint, R, neighbour_lab=mint['lab'], catalog=None)[0])
+        self.assertTrue(G.judge_colour(mint, R, catalog=G.catalog_lab('дерево', R))[0])    # нет слова в справочнике — проверки цвета каталога нет
+
+    def test_repair_replaces_only_magenta_pixels(self):
+        import numpy as np
+        import sg_guard as G
+        R = G.load_rules()
+        a = self._img(mag_frac=0.3)
+        fixed = G.repair_magenta(a, R, G.srgb_to_lab((200, 190, 180)))
+        self.assertFalse(G.magenta_mask(fixed, R).any())
+        self.assertTrue((fixed[0, 0] == a[0, 0]).all())
+        self.assertLessEqual(int(np.abs(fixed[30, 30].astype(int) - (200, 190, 180)).max()), 2)
+
+    def test_png_decoder_matches_pillow(self):
+        import io
+        import numpy as np
+        import sg_guard as G
+        from PIL import Image
+        rng = np.random.default_rng(1)
+        a = rng.integers(0, 255, (33, 47, 3), dtype=np.uint8)
+        buf = io.BytesIO()
+        Image.fromarray(a).save(buf, format='PNG')
+        self.assertTrue((G._decode_png(buf.getvalue()) == a).all())
+
+    def test_side_sample_by_sign_of_angle(self):
+        import sg_views as V
+        angles = {'c0': 0.0, 'c1': 45.0, 'c2': -45.0, 'c3': 90.0, 'c4': -90.0, 'c5': 135.0, 'c6': -135.0, 'c7': 180.0}
+        order = ['c0', 'c1', 'c2', 'c3', 'c4', 'c5', 'c6', 'c7']
+        usable = set(order[:5])
+        self.assertEqual(V.side_sample_for(135.0, angles, order, usable), 'c3')
+        self.assertEqual(V.side_sample_for(-135.0, angles, order, usable), 'c4')
+        self.assertIn(V.side_sample_for(180.0, angles, order, usable), ('c3', 'c4'))
+        self.assertEqual(V.side_sample_for(135.0, angles, order, usable - {'c3'}), 'c4')       # образец той же стороны отклонён — берём другую
+        self.assertIsNone(V.side_sample_for(135.0, angles, order, {'c0', 'c1'}))
+
+    def test_captions_are_data(self):
+        import json
+        import os
+        import sg_views as V
+        p = os.path.join(os.path.dirname(V.__file__), '..', 'rules', 'stablegen-captions.json')
+        d = json.load(open(p, encoding='utf-8'))
+        self.assertEqual(V.MATERIAL_PHRASE['velour'], d['material_phrase']['velour'])
+        self.assertEqual(V.BACK_BY_CLASS['casework'], d['back_by_class']['casework'])
+        self.assertNotIn('marbled', d['material_phrase']['velour'])
+
+    def test_add_colour_and_bare_captions(self):
+        """Разбор T-155: подпись видов без фото — без слов рисунка и СО словом цвета; для открытых каркасов слово — только к основной поверхности."""
+        import sg_views as V
+        self.assertEqual(V.add_colour('an armchair, velour upholstery, matte', 'olive', 'кресло'), 'an olive armchair, velour upholstery, matte')
+        self.assertEqual(V.add_colour('a sofa, matte', 'grey', 'диван'), 'a grey sofa, matte')
+        self.assertEqual(V.add_colour('a dining table, solid wood with a visible natural grain', 'white', 'стол обеденный'),
+                         'a dining table with a white main surface, solid wood with a visible natural grain')
+        self.assertEqual(V.add_colour('an olive chair, matte', 'grey', 'стул'), 'an olive chair, matte')      # цвет уже есть — не дублируем
+        self.assertEqual(V.add_colour('a sofa', None, 'диван'), 'a sofa')
+        patterns = V.CAPTIONS['pattern_words']
+        self.assertIn('marbled', patterns)
+        for mat in ('rogozhka', 'boucle', 'chenille', 'velour', 'velvet'):
+            txt, _ = V.build_prompt('диван', mat, None, bare=True)
+            self.assertFalse([w for w in patterns if w in txt.lower()], (mat, txt))
+        full, _ = V.build_prompt('диван', 'rogozhka', None)
+        self.assertIn('slubby', full)                                 # подпись фото-вида прежняя
+
+    def test_parts_caption_two_colours(self):
+        """T-161 П6: «Белый Светлое дерево» → верх белый, каркас и ножки светлое дерево; один цвет, неизвестная роль, верх из каталога — честно."""
+        import sg_views as V
+        cols = V.colours_in_order(['Белый Светлое дерево', 'Кухонный стол Таргет 80х80 Белый/Натуральный'])
+        self.assertEqual(cols, ['white', 'light natural wood'])
+        self.assertEqual(V.colours_in_order(['Белый', 'Стол Белый/Натуральный']), ['white', 'natural wood'])     # в основном поле цвет один → берём название, где два
+        self.assertEqual(V.colours_in_order(['', 'Комод Модерн Графитовый']), ['graphite'])
+        self.assertEqual(V.colours_in_order(['', '']), [])
+        ph = V.parts_phrase('стол обеденный', cols)
+        self.assertEqual(ph, 'with a white top and light natural wood frame and legs')
+        self.assertEqual(V.parts_phrase('стол обеденный', ['light natural wood', 'white'], ['white']), ph)         # «цвет столешницы» белый → верх белый, порядок слов в каталоге не важен
+        self.assertIsNone(V.parts_phrase('стол обеденный', ['white']))                                           # один цвет — прежняя подпись
+        self.assertIsNone(V.parts_phrase('диван', cols))                                                         # нет шаблона для роли — прежняя подпись
+        p, _ = V.build_prompt('стол обеденный', 'массив', 'white', parts=ph)
+        self.assertEqual(p, 'a dining table with a white top and light natural wood frame and legs, solid wood with a visible natural grain')
+        bare, _ = V.build_prompt('стол обеденный', 'массив', None, bare=True)
+        self.assertEqual(V.add_colour(bare, 'white', 'стол обеденный', parts=ph), p)                                # виды без фото — та же композиция
+        self.assertEqual(V.add_colour(p, 'white', 'стол обеденный', parts=ph), p)                                  # дважды не дублируем
+        self.assertEqual(V.add_colour(bare, 'white', 'стол обеденный'), 'a dining table with a white main surface, solid wood with a visible natural grain')   # без parts — прежнее
+        self.assertNotIn('no ', ph)                                                                              # утверждения, не отрицания (правило подписей)
+
+    def test_parts_variant_flags(self):
+        """Вариант pc0 включает композицию; прочие варианты её не включают (прежние подписи не меняются)."""
+        self.assertTrue(S.VARIANTS['q2509pc0'].get('parts_caption'))
+        self.assertFalse(S.VARIANTS['q2509g1'].get('parts_caption'))
+        self.assertEqual(S.VARIANTS['q2509pc0']['guard'], S.VARIANTS['q2509g1']['guard'])
+
+    def test_photo_colour_word(self):
+        import sg_guard as G
+        r = G.load_rules()
+        st = G.view_stats(self._img(obj=(178, 136, 89)), r)         # дубовая столешница
+        w, d = G.photo_colour_word(st, r)
+        self.assertIn(w, ('tan', 'light brown', 'sand', 'mustard', 'terracotta', 'brown'))
+        self.assertLess(d, r['photo_colour']['max_dE_to_word'])
+        st_pale = G.view_stats(self._img(obj=(175, 190, 182)), r)    # бледный серо-мятный, как у шкафа 17 по фото
+        self.assertIn(G.photo_colour_word(st_pale, r)[0], ('light grey', 'mint', 'grey', 'light blue'))
+        self.assertEqual(G.photo_colour_word({'lab': None, 'obj_frac': 0.0}, r), (None, None))
+
+    def test_stop_only_works_without_runs(self):
+        """T-154/1: «гасилка» группы (--stop-only) падала на обязательном --runs и не гасила платную группу; без --runs обычный запуск по-прежнему отказывает."""
+        import sys
+        import types
+        from unittest import mock
+        calls = []
+        br = types.SimpleNamespace(stop_and_verify=lambda name: calls.append(name) or True)
+        mg = types.SimpleNamespace(env_from_file=lambda: None)
+        with mock.patch.dict(sys.modules, {'bench_run': br, 'migrate_groups': mg}):
+            with mock.patch.object(sys, 'argv', ['sg_salad.py', '--suffix', 'zz', '--stop-only']):
+                self.assertEqual(S.main(), 0)
+            self.assertEqual(calls, ['trial-sg-zz'])
+            with mock.patch.object(sys, 'argv', ['sg_salad.py', '--suffix', 'zz', '--image', 'r/i@sha256:x']):
+                with self.assertRaises(SystemExit):
+                    S.main()
+
+
+class Experiments(unittest.TestCase):
+    def test_no_lora_variant_config(self):
+        c = S.build_cfg('K', 'q2509nl', '/o', 's', 8, 2048, 42, 60)
+        self.assertTrue(c['no_lora'])
+        self.assertIsNone(c['lora_name'])
+        self.assertEqual(c['scene_props'], {'steps': 24, 'cfg': 4.0})
+        self.assertNotIn('lora2509', S.weights_for([('K', 'q2509nl')]).split(','))
+
+    def test_edge_variant_levers(self):
+        c = S.build_cfg('K', 'q2509edge', '/o', 's', 8, 2048, 42, 60)
+        self.assertFalse(c['bake_denoise'])
+        self.assertEqual(c['scene_props']['weight_exponent_after_generation'], 15.0)
+        self.assertTrue(c['scene_props']['weight_exponent_generation_only'])
+        self.assertNotIn('bake_denoise', S.build_cfg('K', 'q2509q5', '/o', 's', 8, 2048, 42, 60))
+
+    def test_r2b1_newcut_keys(self):
+        c = S.build_cfg('112923_13224664101879413845@r2b1+newcut', 'q2509q5', '/o', 's', 8, 2048, 42, 60)
+        self.assertTrue(c['glb'].endswith('R2b1.s140k-uv.glb'))
+        self.assertIn('newcut-2149', c['style_image'])
+        self.assertIn('hd_inputs', S.build_cfg('114667_11634594969038554503@r2b1', 'q2509q5', '/o', 's', 8, 2048, 42, 60)['style_image'])
+
+    def test_megapixels_variant(self):
+        self.assertEqual(S.build_cfg('K', 'q2509mp', '/o', 's', 8, 2048, 42, 60)['megapixels'], 1.76)
+        self.assertNotIn('megapixels', S.build_cfg('K', 'q2509q5', '/o', 's', 8, 2048, 42, 60))
+
+    def test_shape_suffix_picks_comfy_shape(self):
+        c = S.build_cfg('112923_1322@c1024', 'q2509q5', '/o', 's', 8, 2048, 42, 60)
+        self.assertTrue(c['glb'].endswith('out-comfy/112923_1322-c1024.glb'))
+        self.assertTrue(c['style_image'].endswith('112923_1322.rgba.png'))
+        self.assertEqual(S.parse_runs('112923_1322@c1024:q2509q5'), [('112923_1322@c1024', 'q2509q5')])
+
+
+class Views(unittest.TestCase):
+    """T-90/7 ⑪: тексты видов по классу роли и зоне от «переда», словарь материалов, порядок камер, шаблоны CUSTOM (Codex 20.11)."""
+
+    def test_zones_boundaries_and_sign(self):
+        import sg_views as V
+        f = (0.0, -1.0, 0.0)
+        z = lambda x, y: V.zone_of(V.azimuth_deg((x, y, 0.5), f))
+        self.assertEqual(z(0.0, -2.0), 'front')
+        self.assertEqual(z(1.0, -2.0), 'quarter')                    # ≈26,6°
+        self.assertEqual(z(2.0, -1.0), 'quarter')                    # ≈63,4°
+        self.assertEqual(z(2.0, 0.0), 'side')
+        self.assertEqual(z(1.0, 2.0), 'rear_quarter')                # ≈153,4°
+        self.assertEqual(z(0.0, 2.0), 'rear')
+        self.assertEqual(V.zone_of(22.4), 'front')
+        self.assertEqual(V.zone_of(22.5), 'quarter')
+        self.assertEqual(V.zone_of(-67.5), 'side')
+        self.assertEqual(V.zone_of(112.5), 'rear_quarter')
+        self.assertEqual(V.zone_of(157.5), 'rear')
+        self.assertGreater(V.azimuth_deg((1.7, -0.7, 0.5), f), 0)       # камера на +X при переде −Y — левая сторона предмета
+        self.assertLess(V.azimuth_deg((-1.7, -0.7, 0.5), f), 0)
+
+    def test_custom_front_vector(self):
+        import sg_views as V
+        t, m = V.view_text('комод', (2.0, 0.0, 0.5), (1.0, 0.0, 0.0), is_seed=True)
+        self.assertEqual(m['zone'], 'front')
+        self.assertTrue(t.startswith('Front view. Match'))
+        t, m = V.view_text('комод', (0.0, -2.0, 0.5), (1.0, 0.0, 0.0))
+        self.assertEqual(m['zone'], 'side')
+
+    def test_class_texts_are_affirmative_and_have_no_front_motif(self):
+        import sg_views as V
+        for role in ('комод', 'диван', 'стул', 'люстра', 'бра', 'ковёр', 'абажур'):
+            for cam in ((1.7, -0.7, 0.9), (0.0, 2.0, 0.9), (-1.7, 0.7, 0.9)):
+                t, _ = V.view_text(role, cam, (0.0, -1.0, 0.0))
+                self.assertNotRegex(t.lower(), r'\bno\b|\bnot\b|\bwithout\b|\bdon\'t\b')
+                self.assertNotIn('style reference', t.lower().replace('match the', ''))   # тексты не-зерна не ссылаются на фото; «Match … to the product reference» — только у зерна
+
+    def test_seed_only_gets_photo_wording(self):
+        import sg_views as V
+        seed, _ = V.view_text('диван', (0.0, -2.0, 0.9), (0.0, -1.0, 0.0), is_seed=True)
+        other, _ = V.view_text('диван', (0.0, -2.0, 0.9), (0.0, -1.0, 0.0), is_seed=False)
+        self.assertIn('style reference', seed)
+        self.assertNotIn('style reference', other)
+        self.assertIn('painted front', other)
+
+    def test_unknown_role_is_cautious_and_flagged(self):
+        import sg_views as V
+        t, m = V.view_text('абажур', (0.0, 2.0, 0.9), (0.0, -1.0, 0.0))
+        self.assertFalse(m['known'])
+        self.assertEqual(m['class'], 'generic')
+        self.assertIn('corresponding adjacent painted component', t)
+        self.assertNotIn('panel', t)                                  # неизвестная роль никогда не получает «глухую панель»
+        self.assertEqual(V.role_class('Диван'), ('upholstered', True))
+        self.assertEqual(V.role_class('Chest_of_Drawers'), ('casework', True))
+        self.assertEqual(V.role_class('прикроватная-тумба'), ('casework', True))
+        self.assertEqual(V.role_class('тумба прикроватная'), ('casework', True))                 # порядок слов роли не важен (Codex 20.11)
+        self.assertEqual(V.role_noun('тумба прикроватная'), 'bedside cabinet')
+        for r, n in (('торшер', 'floor lamp'), ('лампа', 'table lamp'), ('ваза', 'vase'), ('кашпо', 'planter'), ('люстра', 'chandelier')):
+            self.assertEqual(V.role_noun(r), n, r)                                                # роли «continuous» больше не дают «piece of furniture»
+        self.assertIsNone(V.role_noun('неизвестное'))
+
+    def test_top_only_when_really_high(self):
+        import sg_views as V
+        t, _ = V.view_text('комод', (1.0, -1.0, 1.0), (0.0, -1.0, 0.0))     # ≈35° — обычный вид с приподнятого кольца
+        self.assertNotIn('High view', t)
+        t, _ = V.view_text('комод', (0.1, -0.1, 2.0), (0.0, -1.0, 0.0))
+        self.assertTrue(t.startswith('High view'))
+
+    def test_material_vocabulary_and_prompt(self):
+        import sg_views as V
+        self.assertEqual(V.material_from_texts(['Ткань', 'Диван Король Велюр Роял']), 'velour')
+        self.assertEqual(V.material_from_texts(['', 'ЛДСП 16 мм', '']), 'ldsp')
+        self.assertEqual(V.material_from_texts(['рогожка']), 'rogozhka')
+        self.assertEqual(V.material_from_texts(['экокожа']), 'leather')
+        self.assertIsNone(V.material_from_texts(['Ткань', 'Диван Модерн']))
+        p, fl = V.build_prompt('диван', 'velour', 'blue')
+        self.assertEqual(fl, [])
+        self.assertTrue(p.startswith('a blue sofa, fine short-pile velour'))      # T-154/1: «marbled mottled» убрано (Qwen его утрировал на тыле); фразы — данные rules/stablegen-captions.json
+        self.assertNotIn('marbled', p)
+        p, fl = V.build_prompt('диван', None, 'beige')                                        # нет материала — честно без него, флаг
+        self.assertEqual((p, fl), ('a beige sofa', ['unknown_material']))
+        p, fl = V.build_prompt('абажур', 'velour', None)                                      # нет роли и цвета — «piece of furniture», флаги
+        self.assertTrue(p.startswith('a piece of furniture, fine short-pile velour'))
+        self.assertEqual(fl, ['unknown_role_noun', 'unknown_colour'])
+        self.assertEqual(V.build_prompt('кресло', 'wood_solid', 'oak')[0][:9], 'an oak ar')   # артикль
+        self.assertEqual(V.colour_from_texts(['Комод divan.ru Модерн 93x88 Графитовый']), 'graphite')
+        self.assertEqual(V.colour_from_texts(['Кресло Glasar Сакура 62х49х97 см', '']), None)
+        self.assertEqual(V.colour_from_texts(['Шкаф Монблан Косы Мятный', 'Зеленый Бежевый']), 'mint')
+        self.assertEqual(V.colour_from_texts(['Диван модульный divan.ru Брера 4 Букле Бежевый']), 'beige')   # «Букле» — материал, не «бук»
+        self.assertIsNone(V.colour_from_texts(['Серия Вега Сервант']))                                         # «серия», «сервант» — не «серый»
+        self.assertEqual(V.colour_from_texts(['Комод Дуб золотистый']), 'oak')
+
+    def test_seed_choice_and_order(self):
+        import sg_views as V
+        # T-90/10: зерно только в передней полусфере (лицо формы на −Y); IoU выбирает угол внутри неё
+        sc = {'C0': .5556, 'C1': .5503, 'C2': .8435, 'C3': .833, 'C4': .5571, 'C5': .5515, 'C6': .8174, 'C7': .8113}
+        dirs = {'C2': (0.71, 1.62), 'C3': (-0.62, 1.64), 'C4': (-1.74, .69), 'C5': (-1.75, -.6), 'C6': (-.7, -1.61), 'C7': (.62, -1.64), 'C0': (1.75, -.7), 'C1': (1.75, .6)}
+        self.assertEqual(V.choose_seed(sc, dirs), ('C6', False))          # лучший по IoU C2 — сзади; из передних камер IoU выбирает C6 (.8174 > C7 .8113), «неуверенно»
+        sc2 = dict(sc, C7=.95)
+        self.assertEqual(V.choose_seed(sc2, dirs), ('C7', True))          # лучший и так спереди
+        sc3 = dict(sc, C3=.99)                                            # кресло: IoU «уверенно» сзади, а лицо формы на −Y → зерно спереди
+        self.assertEqual(V.choose_seed(sc3, dirs)[0], 'C6')
+        self.assertFalse(V.choose_seed(sc3, dirs)[1])
+        self.assertEqual(V.choose_seed({'a': .7}, {}), ('a', True))
+        self.assertEqual(V.camera_order(['Camera_10', 'Camera_2', 'Camera_1'], 'Camera_2'), ['Camera_2', 'Camera_10', 'Camera_1'])
+        self.assertEqual(V.camera_order(['Camera_0', 'Camera_1', 'Camera_2', 'Camera_3'], 'Camera_2'), ['Camera_2', 'Camera_3', 'Camera_0', 'Camera_1'])
+
+    def test_no_product_ids_in_views(self):
+        import re
+        src = open(os.path.join(os.path.dirname(os.path.abspath(__file__)), 'sg_views.py'), encoding='utf-8').read()
+        self.assertIsNone(re.search(r'\d{5,}[_:]\d{5,}', src))                  # правило конвейера: ID товаров в коде запрещены
+
+    def test_only_initial_only_prop_and_no_custom_templates(self):
+        import sg_views as V
+        self.assertEqual(V.CUSTOM_PROMPT_PROPS, {'qwen_external_style_initial_only': True})   # свои шаблоны с ролями картинок провалились на поде 20.11 — штатные остаются
+        c = S.build_cfg('112923_13224664101879413845@r2b1+newcut', 'q2509vp', '/o', 's', 8, 2048, 42, 60)
+        self.assertTrue(c['view_prompts'])
+        self.assertNotIn('qwen_prompt_template', c['scene_props'])
+        self.assertNotIn('view_prompts', S.build_cfg('112923_13224664101879413845@r2b1+newcut', 'q2509q5', '/o', 's', 8, 2048, 42, 60))
+
+    def test_diagnostic_variants_toggle_one_factor(self):
+        k = '112923_13224664101879413845@r2b1+newcut'
+        t1, t3, t4 = (S.build_cfg(k, v, '/o', 's', 2, 2048, 42, 60) for v in ('q2509t1', 'q2509t3', 'q2509t4'))
+        self.assertEqual(t1['vp_off'], ['text'])
+        self.assertTrue(t1['view_prompts'])
+        self.assertNotIn('vp_off', t3)
+        self.assertEqual(t3['prompt'], t1['prompt'])                          # подсказка — из каталога у всех вариантов, словаря по ID нет
+        self.assertNotIn('view_prompts', t4)
+        self.assertEqual(t4['scene_props'], {'qwen_external_style_initial_only': True})
+
+
+class RunpodDriverStops(unittest.TestCase):
+    """Драйвер пода: «контейнер не встал» (RUNNING, uptime 0, /health нет) — удаляем через container-min, не ждём потолка (директор 20.11, под cef3upb6ek9udf)."""
+
+    class FakeApi:
+        def __init__(self):
+            self.calls = []
+            self.deleted = False
+
+        def call(self, method, path, body=None, timeout=60):
+            self.calls.append((method, path))
+            if method == 'POST' and path == '/v2/pods':
+                return 201, {'id': 'podX', 'cost': 0.89, 'status': 'RUNNING'}
+            if method == 'GET' and path == '/v2/pods/podX':
+                return (404, {}) if self.deleted else (200, {'status': 'RUNNING', 'uptimeSeconds': 0, 'runtime': None})
+            if method == 'POST' and path.endswith('/action'):
+                self.deleted = True
+                return 204, {}
+            return 200, {}
+
+    def _args(self, out, **kw):
+        import argparse
+        a = argparse.Namespace(runs=f'{KEY}:q2509q5', gpu=None, cloud='SECURE', image='img', disk=80, min_ram=32, cameras=8, texture=2048, seed=42, cap=0.5, max_price=1.0,
+                               max_min=150, no_machine_min=20, health_min=12, container_min=6, job_timeout=40, suffix='t', out=out, relay_python='x', relay_deps='x',
+                               salad_logs=[], reuse_pod=None, reuse_age_s=0, apply=True, gate=None, gate_min=15)
+        for k, v in kw.items():
+            setattr(a, k, v)
+        return a
+
+    def test_relay_must_reach_the_pod_not_a_stranger(self):
+        import tempfile
+        from unittest import mock
+        import sg_runpod as R
+        clock = [1000.0]
+        api = self.FakeApi()
+        seen = []
+
+        def pg(url, timeout=20):
+            seen.append(url)
+            if 'proxy.runpod.net' in url:
+                return 200, {'warm': True, 'weights_gb': 1}          # под готов
+            return 200, {'ok': 1}                                      # по порту моста отвечает ЧУЖОЙ сервер без поля warm (как fake_comfy на занятом порту)
+        fake_relay = mock.Mock()
+        fake_relay.poll.return_value = None
+        with tempfile.TemporaryDirectory() as d, mock.patch.object(S, 'hf_head', return_value=200), mock.patch.object(R, 'public_get', side_effect=pg), \
+                mock.patch.object(S, 'load_weights_catalog', return_value={}), mock.patch.object(S, 'weight_urls', return_value=[]):
+            def sleep(n):
+                clock[0] += 5
+            import json
+            rc = R.run(self._args(d), api, sleep=sleep, clock=lambda: clock[0], popen=lambda *a, **k: fake_relay)
+            summ = json.load(open(os.path.join(d, 'summary-trial-sg-rp-t.json'), encoding='utf-8'))
+        self.assertEqual(summ['stopped_by'], 'relay_not_pod')
+        self.assertTrue(summ['terminated'])
+        self.assertEqual(summ['runs'], [])                             # ни одного прогона на чужом сервере
+        self.assertEqual(rc, 1)
+
+    def test_t5_short_side_text_by_angle_only(self):
+        import sg_views as V
+        front = (0.0, -1.0, 0.0)
+        def txt(az, role='комод'):
+            r = math.radians(az)
+            return V.short_side_text(role, (math.sin(r), -math.cos(r), 0.3), front)[0]
+        for az in (0, 30, -45, 59):
+            self.assertEqual(txt(az), '')
+        self.assertEqual(txt(90), 'the plain left side of the same chest of drawers')
+        self.assertEqual(txt(-90), 'the plain right side of the same chest of drawers')
+        back = 'the back of the same chest of drawers, one uninterrupted flat construction back panel in the carcass finish, simple fastening seams'
+        for az in (135, 180, -135):
+            self.assertEqual(txt(az), back)
+            self.assertNotRegex(txt(az).casefold(), r'door|handle|drawer front')         # слова «двери/ручки» подсказывают мотив даже в отрицании
+        self.assertEqual(txt(180, 'диван'), 'the plain back of the same sofa')              # другой класс — прежняя короткая подпись
+        self.assertEqual(txt(90, 'неизвестная роль'), 'the plain left side of the same piece of furniture')
+
+    def test_t5b_back_suffix_only_on_back(self):
+        import sg_views as V
+        self.assertEqual(S.VARIANTS['q2509t5b']['back_suffix'], ', same colour and material as its side panels')
+        r = math.radians(180)
+        self.assertTrue(V.short_side_text('диван', (math.sin(r), -math.cos(r), 0.3), (0, -1, 0), ', X')[0].endswith('sofa, X'))
+        self.assertTrue(V.short_side_text('комод', (math.sin(r), -math.cos(r), 0.3), (0, -1, 0), ', X')[0].endswith('seams, X'))
+        r = math.radians(90)
+        self.assertEqual(V.short_side_text('комод', (math.sin(r), -math.cos(r), 0.3), (0, -1, 0), ', X')[0], 'the plain left side of the same chest of drawers')
+
+    def test_t5c_alternating_order_by_angles_and_photo_only_to_seed(self):
+        import sg_views as V
+        az = {'Camera_7': 0.0, 'Camera_0': 47.5, 'Camera_1': 88.4, 'Camera_2': 135.7, 'Camera_3': 180.0, 'Camera_4': -132.4, 'Camera_5': -91.8, 'Camera_6': -44.3}     # углы из лога T5 (20.11)
+        dirs = {n: (math.sin(math.radians(a)), -math.cos(math.radians(a))) for n, a in az.items()}
+        self.assertEqual(V.alternating_order(dirs, (0.0, -1.0, 0.0), 'Camera_7'), ['Camera_7', 'Camera_0', 'Camera_6', 'Camera_1', 'Camera_5', 'Camera_2', 'Camera_4', 'Camera_3'])
+        rot = {n: (math.sin(math.radians(a + 20)), -math.cos(math.radians(a + 20))) for n, a in az.items()}        # перёд в другом месте кольца — порядок тот же, по углам, не по именам
+        front = (math.sin(math.radians(20)), -math.cos(math.radians(20)), 0.0)
+        self.assertEqual(V.alternating_order(rot, front, 'Camera_7')[-1], 'Camera_3')
+        v = S.VARIANTS['q2509t5c']
+        self.assertEqual(v['order_mode'], 'alternating')
+        self.assertEqual(v['scene_props'], {'qwen_external_style_initial_only': True})
+        self.assertEqual(v['vp_off'], [])
+        self.assertEqual(v['back_suffix'], S.VARIANTS['q2509t5b']['back_suffix'])
+
+    def test_t5def_back_by_angle_and_variants(self):
+        import sg_views as V
+        az = {'Camera_7': 0.0, 'Camera_0': 47.5, 'Camera_1': 88.4, 'Camera_2': 135.7, 'Camera_3': 180.0, 'Camera_4': -132.4, 'Camera_5': -91.8, 'Camera_6': -44.3}
+        dirs = {n: (math.sin(math.radians(a)), -math.cos(math.radians(a))) for n, a in az.items()}
+        front = (0.0, -1.0, 0.0)
+        self.assertEqual(V.back_cameras(dirs, front), ['Camera_3'])                       # 135° — ещё не «строго сзади»
+        order = V.alternating_order(dirs, front, 'Camera_7')
+        self.assertEqual(V.side_sample_camera(dirs, front, order), 'Camera_1')              # |88,4−90|=1,6 < |91,8−90|=1,8: ближайший к 90°
+        rot = {n: (math.sin(math.radians(a + 33)), -math.cos(math.radians(a + 33))) for n, a in az.items()}
+        f2 = (math.sin(math.radians(33)), -math.cos(math.radians(33)), 0.0)
+        self.assertEqual(V.back_cameras(rot, f2), ['Camera_3'])                              # по углам, не по именам
+        for k, m in (('q2509t5d', 'drop'), ('q2509t5e', 'side_sample'), ('q2509t5f', 'no_photo')):
+            v = S.VARIANTS[k]
+            self.assertEqual(v['back_mode'], m)
+            self.assertEqual(v['order_mode'], 'alternating')
+            self.assertEqual(v['vp_off'], [])
+            self.assertNotIn('qwen_external_style_initial_only', v.get('scene_props') or {})   # фото остальным видам — как в T5b
+            self.assertEqual(v['back_suffix'], S.VARIANTS['q2509t5b']['back_suffix'])
+
+    def test_t5g_back_limit_is_variant_parameter_boundary(self):
+        import sg_views as V
+        def dirs_at(angles):
+            return {f'C{i}': (math.sin(math.radians(a)), -math.cos(math.radians(a))) for i, a in enumerate(angles)}
+        front = (0.0, -1.0, 0.0)
+        d = dirs_at([0, 90, 99.5, 100.5, 135, -135, 150.5, 180])
+        names = lambda lim: sorted(V.back_cameras(d, front, lim))
+        self.assertEqual(names(100.0), ['C3', 'C4', 'C5', 'C6', 'C7'])      # 99,5 — ещё с фото, 100,5 — уже без; ±135 и 180 — без
+        self.assertEqual(names(135.0 - 0.01), ['C4', 'C5', 'C6', 'C7'])       # граница 135: в пределах допуска ±135 включены
+        self.assertEqual(names(150.0), ['C6', 'C7'])                         # прежний порог T5d/e/f
+        v = S.VARIANTS['q2509t5g']
+        self.assertEqual((v['back_mode'], v['back_limit']), ('no_photo', 100.0))
+        cfg = S.build_cfg('112923_13224664101879413845@r2b1+newcut', 'q2509t5g', '/o', 's', 2, 2048, 42, 60)
+        self.assertEqual(cfg['back_limit'], 100.0)                           # порог доходит до конфига драйвера, в коде драйвера — только значение по умолчанию
+
+    def test_strip_colour_for_photo_views(self):
+        import sg_views as V
+        self.assertEqual(V.strip_colour('a graphite chest of drawers, matte laminated chipboard finish'), 'a chest of drawers, matte laminated chipboard finish')
+        self.assertEqual(V.strip_colour('a beige armchair, coarse woven linen-like upholstery, matte'), 'an armchair, coarse woven linen-like upholstery, matte')
+        self.assertEqual(V.strip_colour('an armchair'), 'an armchair')                                        # цвета нет — как есть
+        self.assertEqual(V.strip_colour('a light blue sofa, velvet'), 'a sofa, velvet')                        # цвет из двух слов
+        self.assertEqual(V.strip_colour('a wardrobe, white doors'), 'a wardrobe, white doors')                # цвет вне первой фразы не трогаем
+
+    def test_shape_and_cut_dirs_by_suffix(self):
+        c = S.build_cfg('112923_321183910010607839@n1024+cut-vyb10', 'q2509t5g', '/o', 's', 8, 2048, 42, 60)
+        self.assertTrue(c['glb'].endswith('t90-1120/shape-uv/112923_321183910010607839-n1024.glb'))
+        self.assertTrue(c['style_image'].endswith('t104-1120/vyb10-1216/112923_321183910010607839.rgba.png'))
+        c = S.build_cfg('112923_321183910010607839@n1024b+cut-vyb30', 'q2509t5g', '/o', 's', 8, 2048, 42, 60)
+        self.assertTrue(c['glb'].endswith('t90-1120/shape-uv/112923_321183910010607839-n1024.glb'))
+        self.assertTrue(c['style_image'].endswith('t104-1120/vyb30-1242/112923_321183910010607839.rgba.png'))
+
+    @staticmethod
+    def _glb(path, attrs):
+        import json
+        import struct
+        j = json.dumps({'asset': {'version': '2.0'}, 'meshes': [{'primitives': [{'attributes': attrs}]}]}).encode()
+        j += b' ' * (-len(j) % 4)
+        open(path, 'wb').write(b'glTF' + struct.pack('<III', 2, 20 + len(j), len(j)) + b'JSON' + j)
+
+    def test_shape_without_uv_is_refused_before_pod(self):
+        """T-90/11: формы Salad без UV запекались 55 мин и не кончались — build_cfg отказывает ДО старта пода; с UV и несуществующий файл — проходят."""
+        import tempfile
+        from unittest import mock
+        with tempfile.TemporaryDirectory() as d:
+            self._glb(os.path.join(d, 'pA-tt.glb'), {'POSITION': 0})
+            self._glb(os.path.join(d, 'pB-tt.glb'), {'POSITION': 0, 'TEXCOORD_0': 1})
+            self.assertFalse(S.glb_has_uv(os.path.join(d, 'pA-tt.glb')))
+            self.assertTrue(S.glb_has_uv(os.path.join(d, 'pB-tt.glb')))
+            self.assertIsNone(S.glb_has_uv(os.path.join(d, 'нет.glb')))
+            with mock.patch.dict(S.SHAPE_DIRS, {'tt': d}):
+                with self.assertRaises(ValueError):
+                    S.build_cfg('pA@tt', 'q2509t5g', '/o', 's', 8, 2048, 42, 60)
+                S.build_cfg('pB@tt', 'q2509t5g', '/o', 's', 8, 2048, 42, 60)
+
+    def test_bake_watchdog_kills_hung_bake_and_marks_it(self):
+        """T-90/11: запекание дольше 3× ожидаемого — убиваем, товар «запекание зависло», под берёт следующий."""
+        import json
+        import tempfile
+        from unittest import mock
+        import sg_runpod as R
+        clock = [1000.0]
+        api = self.FakeApi()
+        procs = []
+
+        def pg(url, timeout=20):
+            return (200, {'backend': 'comfy-0.46.0+gguf', 'gpu': 'NVIDIA RTX A6000'}) if url.endswith('/info') else (200, {'warm': True, 'weights_gb': 1})
+
+        def popen(cmd, **kw):
+            m = mock.Mock()
+            if 'sg_relay.py' in ' '.join(map(str, cmd)):
+                m.poll.return_value = None
+                return m
+            cfg = json.load(open(cmd[-1], encoding='utf-8'))
+            os.makedirs(cfg['out'], exist_ok=True)
+            n = len(procs)
+            t0 = clock[0]
+            open(os.path.join(cfg['out'], 'status.json'), 'w').write(json.dumps({'stage': 'bake', 'steps': [[1.0, 'generate'], [5.0, 'bake']]}))
+            m.poll.return_value = None                                 # запекание первого товара висит; второй кончается сам
+            if n >= 1:
+                m.poll.side_effect = lambda: (open(os.path.join(cfg['out'], 'painted.glb'), 'wb').write(b'g') and 0) if clock[0] - t0 >= 100 else None
+            procs.append(m)
+            return m
+        with tempfile.TemporaryDirectory() as d, mock.patch.object(S, 'hf_head', return_value=200), mock.patch.object(R, 'public_get', side_effect=pg), \
+                mock.patch.object(S, 'load_weights_catalog', return_value={}), mock.patch.object(S, 'weight_urls', return_value=[]), \
+                mock.patch.object(S, 'build_cfg', side_effect=lambda key, var, out, *r, **k: {'out': out}), mock.patch.object(S, 'parse_runs', return_value=[('k1', 'q2509t5i'), ('k2', 'q2509t5i')]), \
+                mock.patch.object(S, 'weights_for', return_value={}):
+            args = self._args(d)
+            args.out = d
+
+            def sleep(n):
+                clock[0] += 20
+            R.run(args, api, sleep=sleep, clock=lambda: clock[0], popen=popen)
+            summ = json.load(open(os.path.join(d, 'summary-trial-sg-rp-t.json'), encoding='utf-8'))
+        procs[0].terminate.assert_called()
+        hung = [r for r in summ['runs'] if r.get('note') == 'запекание зависло']
+        self.assertEqual(len(hung), 1)
+        self.assertFalse(hung[0]['ok'])
+        self.assertEqual(len(procs), 2)                                  # оба товара стартовали: второй не ждал зависшего первого
+
+    def test_t5_variant_keeps_photo_on_every_view(self):
+        v = S.VARIANTS['q2509t5']
+        self.assertTrue(v['short_side'] and v['view_prompts'])
+        self.assertEqual(v.get('scene_props'), S.VARIANTS['q2509q5'].get('scene_props'))
+        self.assertNotIn('qwen_external_style_initial_only', v.get('scene_props') or {})
+        self.assertEqual(v['vp_off'], ['order'])
+
+    def test_run_records_who_answered_and_marks_unanswered_as_failure(self):
+        import json
+        import tempfile
+        from unittest import mock
+        import sg_runpod as R
+        for info, expect_ok in (({'backend': 'comfy-0.46.0+gguf', 'gpu': 'NVIDIA GeForce RTX 4090'}, True), ({}, False)):
+            clock = [1000.0]
+            api = self.FakeApi()
+
+            def pg(url, timeout=20, info=info):
+                if url.endswith('/info'):
+                    return (200, info) if info else (404, {})
+                return 200, {'warm': True, 'weights_gb': 1}
+
+            def popen(cmd, **kw):
+                m = mock.Mock()
+                m.poll.return_value = None if 'sg_relay.py' in ' '.join(map(str, cmd)) else 0      # мост жив, задание Blender завершилось
+                if str(cmd[0]).endswith('heavy-slot.sh'):
+                    cfg = json.load(open(cmd[-1], encoding='utf-8'))
+                    os.makedirs(cfg['out'], exist_ok=True)
+                    open(os.path.join(cfg['out'], 'painted.glb'), 'wb').write(b'glb')
+                    self.assertTrue(cfg['require_worker'])
+                return m
+            with tempfile.TemporaryDirectory() as d, mock.patch.object(S, 'hf_head', return_value=200), mock.patch.object(R, 'public_get', side_effect=pg), \
+                    mock.patch.object(S, 'load_weights_catalog', return_value={}), mock.patch.object(S, 'weight_urls', return_value=[]):
+                def sleep(n):
+                    clock[0] += 20
+                R.run(self._args(d), api, sleep=sleep, clock=lambda: clock[0], popen=popen)
+                summ = json.load(open(os.path.join(d, 'summary-trial-sg-rp-t.json'), encoding='utf-8'))
+            self.assertEqual(len(summ['runs']), 1)
+            self.assertEqual(summ['runs'][0]['ok'], expect_ok)
+            self.assertEqual(bool(summ['runs'][0]['answered_by']['gpu']), expect_ok)
+
+    def test_next_product_starts_while_previous_is_baking(self):
+        """T-90/11: пока товар N запекается локально (stage=bake), под свободен — генерация товара N+1 стартует, а не ждёт."""
+        import json
+        import tempfile
+        from unittest import mock
+        import sg_runpod as R
+        clock = [1000.0]
+        api = self.FakeApi()
+        started, polls = [], {}
+
+        def pg(url, timeout=20):
+            return (200, {'backend': 'comfy-0.46.0+gguf', 'gpu': 'NVIDIA RTX A6000'}) if url.endswith('/info') else (200, {'warm': True, 'weights_gb': 1})
+
+        def popen(cmd, **kw):
+            m = mock.Mock()
+            if 'sg_relay.py' in ' '.join(map(str, cmd)):
+                m.poll.return_value = None
+                return m
+            cfg = json.load(open(cmd[-1], encoding='utf-8'))
+            os.makedirs(cfg['out'], exist_ok=True)
+            started.append((clock[0], cfg['out']))
+            open(os.path.join(cfg['out'], 'status.json'), 'w').write(json.dumps({'stage': 'bake'}))      # генерация на поде уже закончена
+            n = len(started)
+
+            def poll():                                              # запекание длится 300 с по часам теста
+                if clock[0] - started[n - 1][0] >= 300:
+                    open(os.path.join(cfg['out'], 'painted.glb'), 'wb').write(b'glb')
+                    return 0
+                return None
+            m.poll.side_effect = poll
+            return m
+        args = self._args(tempfile.mkdtemp())
+        args.runs = 'k1:q2509t5i,k2:q2509t5i'
+        with tempfile.TemporaryDirectory() as d, mock.patch.object(S, 'hf_head', return_value=200), mock.patch.object(R, 'public_get', side_effect=pg), \
+                mock.patch.object(S, 'load_weights_catalog', return_value={}), mock.patch.object(S, 'weight_urls', return_value=[]), \
+                mock.patch.object(S, 'build_cfg', side_effect=lambda key, var, out, *r, **k: {'out': out}), mock.patch.object(S, 'parse_runs', return_value=[('k1', 'q2509t5i'), ('k2', 'q2509t5i')]), \
+                mock.patch.object(S, 'weights_for', return_value={}):
+            args.out = d
+
+            def sleep(n):
+                clock[0] += 20
+            R.run(args, api, sleep=sleep, clock=lambda: clock[0], popen=popen)
+            summ = json.load(open(os.path.join(d, 'summary-trial-sg-rp-t.json'), encoding='utf-8'))
+        self.assertEqual(len(started), 2)
+        self.assertLess(started[1][0] - started[0][0], 300)          # второй запущен, пока первый ещё запекался
+        self.assertEqual([r['ok'] for r in summ['runs']], [True, True])
+
+    def test_container_not_started_is_deleted_after_container_min(self):
+        import tempfile
+        from unittest import mock
+        import sg_runpod as R
+        clock = [1000.0]
+        api = self.FakeApi()
+        with tempfile.TemporaryDirectory() as d, mock.patch.object(S, 'hf_head', return_value=200), mock.patch.object(R, 'public_get', return_value=(404, {})), \
+                mock.patch.object(S, 'load_weights_catalog', return_value={}), mock.patch.object(S, 'weight_urls', return_value=[]):
+            def sleep(n):
+                clock[0] += 60
+            rc = R.run(self._args(d), api, sleep=sleep, clock=lambda: clock[0])
+            import json
+            summ = json.load(open(os.path.join(d, 'summary-trial-sg-rp-t.json'), encoding='utf-8'))
+        self.assertEqual(summ['stopped_by'], 'no_container')
+        self.assertTrue(summ['terminated'])
+        self.assertLess(summ['alive_s'], 12 * 60)            # раньше 12-минутного health-min
+        self.assertEqual(rc, 1)
+
+
+class WeightsSpeed(unittest.TestCase):
+    """Сторож скорости докачки весов (T-154/1, ga 20.11: 0,1 ГБ/мин при ~23 ГБ — часы платной простоя)."""
+
+    def test_slow_node_detected_after_window(self):
+        import sg_salad as S
+        hist = [(0, 1.7), (60, 1.8), (120, 1.9), (180, 2.0), (240, 2.1)]
+        r = S.weights_slow(hist, 180, 0.5)
+        self.assertIsNotNone(r)
+        self.assertLess(r, 0.5)
+
+    def test_fast_node_and_short_history_not_flagged(self):
+        import sg_salad as S
+        self.assertIsNone(S.weights_slow([(0, 0.0), (60, 5.0), (120, 10.0), (200, 16.0)], 180, 0.5))   # ≈4,8 ГБ/мин
+        self.assertIsNone(S.weights_slow([(0, 1.7), (60, 1.75), (120, 1.8)], 180, 0.5))                 # окно 3 мин ещё не набралось
+        self.assertIsNone(S.weights_slow([(0, 1.7)], 180, 0.5))
+
+
+class QueueTests(unittest.TestCase):
+    """Общая очередь прогонов (sg_queue.RunQueue) — одни правила для RunPod и Salad (T-90/12)."""
+
+    class P:
+        def __init__(self): self.rc, self.killed = None, False
+        def poll(self): return self.rc
+        def terminate(self): self.killed, self.rc = True, -15
+
+    free = 100.0
+
+    def make(self, runs, tmp, results):
+        import sg_queue as Q
+        procs = {}
+
+        def start(key, var, t):
+            d = os.path.join(tmp, key)
+            os.makedirs(os.path.join(d, 'blender'), exist_ok=True)
+            p = procs[key] = self.P()
+            return {'key': key, 'variant': var, 'label': var, 'dir': d, 'proc': p, 'started': t, 'last_say': t}
+
+        def finish(it, rc, t):
+            return results.get(it['key'], rc == 0), {}
+        said = []
+        q = Q.RunQueue(runs, {}, free_gb=lambda: self.free, start=start, finish=finish, say=lambda *x: said.append(' '.join(map(str, x))), progress=lambda s, c, cap: s, job_timeout_s=3000)
+        return q, procs, said
+
+    def status(self, tmp, key, stage, steps=()):
+        import json
+        json.dump({'stage': stage, 'steps': list(steps)}, open(os.path.join(tmp, key, 'blender', 'status.json'), 'w'))
+
+    def test_probe_failure_stops_group(self):
+        import tempfile
+        with tempfile.TemporaryDirectory() as tmp:
+            q, procs, _ = self.make([('a', 'v'), ('b', 'v')], tmp, {})
+            self.assertIsNone(q.step(0))
+            procs['a'].rc = 1
+            self.assertEqual(q.step(1), 'probe_failed')
+
+    def test_none_found_retries_product_once_instead_of_stopping(self):
+        import json
+        import tempfile
+        with tempfile.TemporaryDirectory() as tmp:
+            q, procs, said = self.make([('a', 'v')], tmp, {})
+            q.step(0)
+            json.dump({'stage': 'settings', 'error': "enum 'x.gguf' not found in ('NONE_FOUND')", 'steps': []}, open(os.path.join(tmp, 'a', 'blender', 'status.json'), 'w'))
+            procs['a'].rc = 1
+            self.assertIsNone(q.step(1))                     # первый отказ с пустым списком моделей — повтор, не стоп
+            self.assertEqual(q.pending, [('a', 'v')])
+            self.assertEqual(q.summary['failed'], 0)
+            q.step(2)
+            procs['a'].rc = 1
+            self.assertEqual(q.step(3), 'probe_failed')      # второй раз — уже настоящий отказ
+
+    def test_second_failure_after_success_does_not_stop_but_two_in_a_row_do(self):
+        import tempfile
+        with tempfile.TemporaryDirectory() as tmp:
+            q, procs, _ = self.make([(k, 'v') for k in 'abcd'], tmp, {'b': False, 'c': False})
+            for k, expect in (('a', None), ('b', None), ('c', 'failures')):
+                q.step(0)
+                procs[k].rc = 0
+                self.assertEqual(q.step(1), expect, k)
+
+    def test_retries_are_recorded_in_run_and_journal(self):
+        import json
+        import tempfile
+        import unittest.mock as um
+        import sg_transient
+        with tempfile.TemporaryDirectory() as tmp:
+            q, procs, said = self.make([('a', 'v')], tmp, {})
+            q.relay_port = 1
+            q.step(0)
+            json.dump({'stage': 'export', 'steps': [], 'server_retries': 1}, open(os.path.join(tmp, 'a', 'blender', 'status.json'), 'w'))
+            procs['a'].rc = 0
+            with um.patch.object(sg_transient, 'relay_stats', return_value={'retries': 2}):
+                q.step(1)
+            self.assertEqual(q.summary['runs'][0]['retries'], {'relay': 2, 'drive': 1})
+            self.assertEqual(q.summary['retries_total'], 3)
+            self.assertTrue(any('повторы связи' in x for x in said))
+
+    def test_low_disk_stops_group_and_slim_keeps_result(self):
+        import tempfile
+        with tempfile.TemporaryDirectory() as tmp:
+            q, procs, said = self.make([('a', 'v'), ('b', 'v')], tmp, {})
+            q.step(0)
+            b = os.path.join(tmp, 'a', 'blender')
+            os.makedirs(os.path.join(b, 'sg-output', 'S', 't', 'inpaint'))
+            os.makedirs(os.path.join(b, 'sg-output', 'S', 't', 'generated'))
+            for f in ('session.blend', 'painted.glb', 'sg-output/S/t/inpaint/x.png', 'sg-output/S/t/generated/v.png'):
+                open(os.path.join(b, f), 'wb').write(b'x' * 10)
+            procs['a'].rc = 0
+            q.step(1)
+            self.assertFalse(os.path.exists(os.path.join(b, 'session.blend')))
+            self.assertFalse(os.path.exists(os.path.join(b, 'sg-output', 'S', 't', 'inpaint')))
+            self.assertTrue(os.path.exists(os.path.join(b, 'painted.glb')) and os.path.exists(os.path.join(b, 'sg-output', 'S', 't', 'generated', 'v.png')))
+            self.free = 1.0
+            self.assertEqual(q.step(2), 'disk')
+            self.assertTrue(any('диск' in x for x in said))
+            self.free = 100.0
+
+    def test_ok_run_goes_to_store_and_store_failure_is_loud(self):
+        """T-20261120-150/1 (а): успешный прогон → `on_ok` (склад мешей); сбой склада не роняет очередь и не молчит (store_error + строка хода)."""
+        import tempfile
+        import sg_queue as Q
+        for boom in (False, True):
+            with tempfile.TemporaryDirectory() as tmp:
+                q, procs, said = self.make([('a', 'v')], tmp, {})
+                seen = []
+
+                def on_ok(it):
+                    seen.append(it['key'])
+                    if boom:
+                        raise OSError('диск полон')
+                    return {'stored': '/склад/a', 'guard': 'none'}
+                q.on_ok = on_ok
+                q.step(0)
+                open(os.path.join(tmp, 'a', 'blender', 'painted.glb'), 'wb').write(b'x')
+                procs['a'].rc = 0
+                q.step(1)
+                rec = q.summary['runs'][0]
+                self.assertEqual(seen, ['a'])
+                self.assertTrue(rec['ok'])
+                if boom:
+                    self.assertIn('OSError', rec['store_error'])
+                    self.assertTrue(any('в склад покраски не записано' in x for x in said))
+                else:
+                    self.assertEqual((rec['stored'], rec['guard']), ('/склад/a', 'none'))
+                    self.assertNotIn('store_error', rec)
+        with tempfile.TemporaryDirectory() as tmp:                  # упавший прогон в склад не идёт
+            q, procs, _ = self.make([('a', 'v')], tmp, {'a': False})
+            calls = []
+            q.on_ok = lambda it: calls.append(it) or {}
+            q.step(0)
+            procs['a'].rc = 1
+            q.step(1)
+            self.assertEqual(calls, [])
+
+    def test_next_starts_when_previous_bakes_and_hung_bake_is_killed(self):
+        import tempfile
+        import sg_queue as Q
+        with tempfile.TemporaryDirectory() as tmp:
+            q, procs, said = self.make([('a', 'v'), ('b', 'v')], tmp, {})
+            q.step(0)
+            self.status(tmp, 'a', 'bake', [(10.0, 'bake')])
+            q.step(20)                                              # a ушёл в запекание → нода свободна
+            q.step(21)                                              # → стартует b
+            self.assertIn('b', procs)
+            self.assertEqual([x['key'] for x in q.baking], ['a'])
+            q.step(20 + Q.BAKE_EXPECT_S * Q.BAKE_WATCH_FACTOR + 5)
+            self.assertTrue(procs['a'].killed)
+            self.assertTrue(any('запекание зависло' in x for x in said))
+            self.assertEqual(q.summary['runs'][0]['note'], 'запекание зависло')
+
+
+def _children(ppid):
+    """pid → comm потомков первого уровня (по /proc, без pgrep/ps)."""
+    out = {}
+    for d in os.listdir('/proc'):
+        if not d.isdigit():
+            continue
+        try:
+            st = open(f'/proc/{d}/stat').read()
+        except OSError:
+            continue
+        rest = st[st.rindex(')') + 2:].split()
+        if int(rest[1]) == ppid:
+            out[int(d)] = st[st.index('(') + 1:st.rindex(')')]
+    return out
+
+
+@unittest.skipUnless(all(shutil.which(x) for x in ('xvfb-run', 'Xvfb', 'xauth', 'setpriv', 'sleep')), 'нет xvfb-run/Xvfb/xauth/setpriv')
+class XvfbRunNoLock(unittest.TestCase):
+    """T-20261120-162: xvfb_run.sh — Xvfb не наследует fd замка heavy-slot и уходит вместе с убитым xvfb-run (иначе сирота держал слот часами)."""
+
+    def _run(self, wrapper):
+        with tempfile.TemporaryDirectory() as td:
+            lock = os.path.join(td, 'lock')
+            fd0 = os.open(lock, os.O_CREAT | os.O_RDWR)
+            fd = fcntl.fcntl(fd0, fcntl.F_DUPFD, 10)         # не 3: fd 3 xvfb-run берёт под свой диагностический вывод
+            os.close(fd0)
+            fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
+            p = subprocess.Popen(wrapper + ['-a', 'sleep', '300'], pass_fds=(fd,), start_new_session=True,
+                                 stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+            os.close(fd)                                     # замок остаётся только у потомков (как у heavy-slot после finally)
+            kids, t0 = {}, time.time()
+            while time.time() - t0 < 20 and not ('Xvfb' in kids.values() and 'sleep' in kids.values()):
+                time.sleep(0.2)
+                kids = _children(p.pid)
+            xvfb = [k for k, v in kids.items() if v == 'Xvfb']
+            cmd = [k for k, v in kids.items() if v == 'sleep']
+            self.assertTrue(xvfb and cmd, f'xvfb-run не поднял Xvfb и команду: {kids}')
+            try:
+                fd2 = os.open(lock, os.O_RDWR)
+                with self.assertRaises(BlockingIOError):     # пока всё живо — замок занят
+                    fcntl.flock(fd2, fcntl.LOCK_EX | fcntl.LOCK_NB)
+                os.kill(p.pid, signal.SIGKILL)               # trap xvfb-run не идёт
+                p.wait()
+                for c in cmd:
+                    os.kill(c, signal.SIGTERM)               # команда — законный держатель, уходит сама
+                t0 = time.time()
+                while time.time() - t0 < 5:
+                    try:
+                        fcntl.flock(fd2, fcntl.LOCK_EX | fcntl.LOCK_NB)
+                        return True
+                    except BlockingIOError:
+                        time.sleep(0.2)
+                return False
+            finally:
+                for k in xvfb + cmd:
+                    try:
+                        os.kill(k, signal.SIGKILL)
+                    except OSError:
+                        pass
+
+    def test_orphan_xvfb_does_not_hold_lock(self):
+        here = os.path.dirname(os.path.abspath(__file__))
+        self.assertTrue(self._run([os.path.join(here, 'xvfb_run.sh')]), 'осиротевший Xvfb держит замок')
+
+
+class PartsSlots(unittest.TestCase):
+    """T-161: слоты материала «тело/ножки» по геометрии формы (sg_parts.py) — на синтетике из trimesh, без сети и чужих мешей."""
+
+    @staticmethod
+    def _glb(tmp, name, parts):
+        import trimesh
+        ms = []
+        for sx, sy, sz, cx, cy, cz in parts:
+            m = trimesh.creation.box(extents=(sx, sy, sz))
+            m.apply_translation((cx, cy, cz))
+            ms.append(m)
+        p = os.path.join(tmp, name)
+        trimesh.util.concatenate(ms).export(p)
+        return p
+
+    LEGGED = [(2.0, 0.5, 1.0, 0, 0.5, 0)] + [(0.06, 0.25, 0.06, sx, 0.125, sz) for sx in (-0.9, 0.9) for sz in (-0.4, 0.4)]
+
+    def test_legged_body_gets_two_slots(self):
+        import tempfile
+        import sg_parts as P
+        with tempfile.TemporaryDirectory() as tmp:
+            r = P.face_slots(self._glb(tmp, 'a.glb', self.LEGGED))
+            self.assertTrue(r['ok'], r)
+            self.assertEqual(r['status'], 'split')
+            self.assertGreater(len(r['legs']), 0)
+            self.assertLess(len(r['legs']), r['faces'])
+            self.assertTrue(0.002 <= r['legs_share'] <= 0.30, r['legs_share'])
+            f = P.write_faces(r, os.path.join(tmp, 'sub', 'parts-faces.json'))              # папку создаёт сам
+            idx = P.slot_indices(__import__('json').load(open(f, encoding='utf-8')), r['faces'])
+            self.assertEqual(len(idx), r['faces'])
+            self.assertEqual(sum(1 for x in idx if x == P.LEGS), len(r['legs']))
+            self.assertEqual(set(idx), {P.BODY, P.LEGS})
+
+    def test_solid_box_has_no_slots(self):
+        """Сплошной ящик без ножек (whole) — слотов нет, красим как сейчас; не выдумываем разметку."""
+        import tempfile
+        import sg_parts as P
+        with tempfile.TemporaryDirectory() as tmp:
+            r = P.face_slots(self._glb(tmp, 'b.glb', [(2.0, 0.6, 1.0, 0, 0.3, 0)]))
+            self.assertFalse(r['ok'])
+            self.assertEqual(r['legs'], [])
+            self.assertIn('слотов нет', r['reason'])
+
+    def test_unreadable_shape_does_not_crash(self):
+        import sg_parts as P
+        r = P.face_slots('/nonexistent/shape.glb')
+        self.assertFalse(r['ok'])
+        self.assertIn('недоступна', r['reason'])
+
+    def test_decide_thresholds_from_data(self):
+        import sg_parts as P
+        rules = P.load_slot_rules()
+        rec = {'status': 'split', 'confidence': 0.75, 'reason': 'x'}
+        self.assertTrue(P.decide(rec, 0.009, rules, 0.6)[0])                                  # кресло 23: ножки 0,9 %
+        self.assertFalse(P.decide(rec, 0.0, rules, 0.6)[0])                                   # ножек нет по площади
+        self.assertFalse(P.decide(rec, 0.6, rules, 0.6)[0])                                   # «ножки» — больше трети предмета: не верим
+        self.assertFalse(P.decide(dict(rec, confidence=0.4), 0.05, rules, 0.6)[0])            # уверенность ниже порога правил геометрии
+        for st in ('whole', 'unsure', 'skip'):                                                # стол 16 unsure, лампа 37 whole
+            self.assertFalse(P.decide({'status': st, 'confidence': 0.9}, 0.05, rules, 0.6)[0])
+
+    def test_slot_indices_count_mismatch_means_no_slots(self):
+        import sg_parts as P
+        doc = {'faces': 12, 'legs': [0, 1]}
+        self.assertEqual(P.slot_indices(doc, 12), [1, 1] + [0] * 10)
+        self.assertIsNone(P.slot_indices(doc, 14))                                           # Blender пересобрал форму
+        self.assertIsNone(P.slot_indices({'faces': 12, 'legs': [99]}, 12))                   # индекс вне формы
+        self.assertIsNone(P.slot_indices({'faces': 12, 'legs': []}, 12))
+        self.assertIsNone(P.slot_indices({}, 12))
+
+    def test_variant_flags(self):
+        self.assertTrue(S.VARIANTS['q2509pc1'].get('parts_slots'))
+        self.assertTrue(S.VARIANTS['q2509pc1'].get('parts_caption'))                          # pc1 = pc0 + слоты
+        self.assertFalse(S.VARIANTS['q2509pc0'].get('parts_slots'))
+        self.assertFalse(S.VARIANTS['q2509g1'].get('parts_slots'))
+
+
+class AlbedoPb1(unittest.TestCase):
+    """T-160/1: вариант pb1 = G1 + снятие света и теней (Marigold V2 albedo) данными, без кода под товар."""
+
+    def test_pb1_is_g1_plus_albedo_props_and_weights(self):
+        g1, pb1 = S.VARIANTS['q2509g1'], S.VARIANTS['pb1']
+        self.assertEqual(g1['scene_props'], {'qwen_guidance_background_color': (0.5, 0.5, 0.5)})   # g1 не тронут
+        sp = pb1['scene_props']
+        self.assertEqual(sp['qwen_guidance_background_color'], (0.5, 0.5, 0.5))                  # свойства g1 сохранены
+        self.assertEqual(sp['pbr_albedo_source'], 'marigold_v2')
+        self.assertTrue(sp['pbr_decomposition'] and sp['pbr_map_albedo'] and sp['pbr_replace_color_with_albedo'])
+        for k in ('roughness', 'metallic', 'normal', 'height', 'ao', 'emission'):
+            self.assertFalse(sp['pbr_map_' + k], k)
+        keys = list(sp)
+        self.assertLess(keys.index('pbr_albedo_source'), keys.index('pbr_albedo_auto_saturation'))   # выбор источника сам включает/выключает насыщенность → наше значение ПОСЛЕ
+        self.assertFalse(sp['pbr_albedo_auto_saturation'])
+        self.assertTrue(set(g1['weights']) < set(pb1['weights']))
+        self.assertEqual([w for w in pb1['weights'] if w.startswith('mv2_')], ['mv2_base', 'mv2_lora', 'mv2_vae', 'mv2_cond'])
+        self.assertTrue(pb1['guard'] and pb1['back_mode'] == g1['back_mode'])
+
+    def test_pb1_weights_have_addon_file_names_and_folders(self):
+        cat = S.load_weights_catalog()
+        want = {'mv2_base': ('diffusion_models', 'qwen_image_edit_2509_int8_convrot.safetensors'), 'mv2_lora': ('loras', 'marigold_v2_albedo.safetensors'),
+                'mv2_vae': ('vae', 'marigold_v2_albedo_vae.safetensors'), 'mv2_cond': ('embeddings', 'marigold_v2_albedo_conditioning.safetensors')}
+        for k, (folder, fname) in want.items():
+            repo, rel, sub, name = cat[k]
+            self.assertEqual((repo, sub, name or os.path.basename(rel)), ('Comfy-Org/marigold-v2-0', folder, fname), k)
+
+    def test_driver_records_albedo_check_first_in_status(self):
+        """sg_drive запускается только внутри Blender — проверяем исходник: albedo_check первым ключом статуса, запись до и после запекания, ID товаров не появились."""
+        import re
+        src = open(os.path.join(os.path.dirname(os.path.abspath(__file__)), 'sg_drive.py'), encoding='utf-8').read()
+        self.assertRegex(src, r"\nST = \{'albedo_check': \{\}, 'stage'")
+        self.assertIn("albedo_check('before_bake', obj)", src)
+        self.assertIn("albedo_check('after_bake', obj)", src)
+        self.assertLess(src.index("albedo_check('before_bake', obj)"), src.index("bpy.ops.object.bake_textures("))
+        self.assertGreater(src.index("albedo_check('after_bake', obj)"), src.index("bpy.ops.object.bake_textures("))
+        self.assertIsNone(re.search(r'\d{5,}[_:]\d{5,}', src))
+
+    def test_cfg_forwards_pb1_props_and_weights_for_group(self):
+        c = S.build_cfg(KEY, 'pb1', '/o', '127.0.0.1:18190', 8, 2048, 42, 2400)
+        self.assertEqual(c['scene_props']['pbr_albedo_source'], 'marigold_v2')
+        self.assertTrue(c['guard'])
+        self.assertIn('mv2_base', S.weights_for([(KEY, 'pb1')]).split(','))
+        self.assertNotIn('mv2_base', S.weights_for([(KEY, 'q2509g1')]).split(','))               # другим вариантам +22,5 ГБ не качаем
+
+
+class V2Probe(unittest.TestCase):
+    """T-160/1 (директор 21.11): V2 albedo по вырезкам фото через ComfyUI-граф, без Blender; веса — только V2 (без te/vae Qwen)."""
+
+    def test_weights_only_v2_for_probe_and_mixed_runs_keep_common(self):
+        self.assertEqual(S.weights_for([('a', 'v2probe'), ('b', 'v2probe')]), 'mv2_base,mv2_lora,mv2_vae,mv2_cond')
+        self.assertTrue(S.weights_for([('a', 'v2probe'), ('b', 'q2509g1')]).startswith('te,vae,'))
+
+    def test_graph_matches_addon_one_step_albedo(self):
+        import sg_v2_albedo as V
+        p = V.build_prompt('x.png', 1024, 768)
+        self.assertEqual(p['11']['inputs']['sigmas'], '0.5, 0')
+        self.assertEqual(p['5']['inputs'], {'model': ['4', 0], 'shift': 1.73, 'sampling': 'img_to_img_velocity'})
+        self.assertEqual(p['15']['inputs']['prediction'], 'albedo')
+        self.assertEqual(p['16']['class_type'], 'SaveImage')
+        self.assertEqual((p['3']['inputs']['unet_name'], p['4']['inputs']['lora_name'], p['7']['inputs']['vae_name'], p['6']['inputs']['conditioning_name']),
+                         ('qwen_image_edit_2509_int8_convrot.safetensors', 'marigold_v2_albedo.safetensors', 'marigold_v2_albedo_vae.safetensors', 'marigold_v2_albedo_conditioning.safetensors'))
+
+    def test_proc_size_like_addon(self):
+        import sg_v2_albedo as V
+        self.assertEqual(V.proc_size(800, 600, 1024), (1024, 768))
+        self.assertEqual(V.proc_size(2560, 1188, 1024), (1024, 480))
+        self.assertEqual(V.proc_size(900, 900, 1024), (1024, 1024))
+        self.assertEqual(V.proc_size(3000, 2000, 2048), (2048, 1360))
+
+
+class KitSlotAndLedger(unittest.TestCase):
+    """T-178/2: боевой запуск sg — только под heavy-slot --prio 2 (сам себя перезапускает под слотом), образ и учёт денег — из общего набора."""
+
+    class A:
+        def __init__(self, apply=True, suffix='t1'):
+            self.apply, self.suffix = apply, suffix
+
+    def test_apply_without_slot_relaunches_under_heavy_slot_prio2(self):
+        argv = ['--runs', 'k:v', '--image', 'ghcr.io/o/n@sha256:' + 'a' * 64, '--apply']
+        w = S.slot_wrap_argv(self.A(), argv, env={})
+        self.assertTrue(w[0].endswith('heavy-slot.sh') and os.path.exists(w[0]))
+        self.assertEqual(w[w.index('--prio') + 1], '2')                              # ровно prio 2 — иначе require_slot откажет
+        self.assertEqual(w[w.index('--') + 1], sys.executable)
+        self.assertTrue(w[w.index('--') + 2].endswith('sg_salad.py'))
+        self.assertEqual(w[-len(argv):], argv)                                         # те же аргументы, образ по digest не подменяется
+
+    def test_no_wrap_when_already_in_slot_dry_run_or_no_slot(self):
+        self.assertIsNone(S.slot_wrap_argv(self.A(), [], env={'HEAVY_SLOT_HELD': '123'}))
+        self.assertIsNone(S.slot_wrap_argv(self.A(apply=False), [], env={}))           # разбор без --apply денег не тратит
+        self.assertIsNone(S.slot_wrap_argv(self.A(), [], env={'HEAVY_SLOT_NOSLOT': '1'}))   # --no-slot: драйвер сам откажет (код 4), не перезапускаем
+
+    def test_wait_timeout_from_env(self):
+        w = S.slot_wrap_argv(self.A(), [], env={'HEAVY_SLOT_WAIT_S': '600'})
+        self.assertEqual(w[w.index('--timeout') + 1], '600')
+
+    def test_shared_functions_come_from_kit(self):
+        import kit_driver as KD
+        self.assertIs(S.cost_usd, KD.cost_usd)
+        self.assertIs(S.weights_slow, KD.weights_slow)
+
+
+if __name__ == '__main__':
+    unittest.main()
