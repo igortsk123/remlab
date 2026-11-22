@@ -1,0 +1,8 @@
+{
+  "source": "разметка глазами по листу library/montage.png, router-1, 21.11.2026 (метрика паркет не ловит); для столешницы эти классы не берутся",
+  "classes": {
+    "Wood041": "blocks",
+    "Wood043": "blocks",
+    "Wood071": "blocks"
+  }
+}
