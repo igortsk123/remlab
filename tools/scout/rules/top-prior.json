@@ -169,6 +169,8 @@
     "plank_groove_cm": 0.25,
     "plank_tone_jitter_L": 0.0,
     "amp_min": 0.3,
+    "seam_overlap": [0.08, 0.16],
+    "seam_max_jump": 1.3,
     "amp_default": 0.6,
     "photo_band": {
       "frac": 0.03,

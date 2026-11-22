@@ -356,5 +356,50 @@ class RimCut(unittest.TestCase):
         self.assertNotRegex(src, r'\d{9,}')
 
 
+class Seamless(unittest.TestCase):
+    """Правило 22.11: узор верха кладётся без видимых стыков плитки — скачок L на стыке / рядом ≤ 1,3 (настоящие узоры библиотеки pat512, обе оси)."""
+    LIMIT = 1.3
+
+    def _pats(self):
+        import json
+        from PIL import Image
+        import tex_coverage as TC
+        root = os.path.abspath(os.path.join(HERE, '..', '..', '..', '..'))
+        d = os.path.join(root, RULES['library_pat'])
+        out = {}
+        for k in sorted(json.load(open(os.path.join(root, RULES['library']), encoding='utf-8'))['items']):
+            im = np.asarray(Image.open(os.path.join(d, k + '.jpg')).convert('RGB').resize((512, 512)), np.uint8)
+            L = TC.rgb2lab(im.reshape(-1, 3)).reshape(512, 512, 3)
+            out[k] = L - L.reshape(-1, 3).mean(0)
+        return out
+
+    def test_real_patterns_have_no_seam_jump(self):
+        ov = RULES['pattern']['seam_overlap']
+        self.assertTrue(0.08 <= ov[0] <= ov[1] <= 0.16)                       # перекрытие 8–16 % плитки (правило директора 22.11)
+        self.assertEqual(RULES['pattern']['seam_max_jump'], self.LIMIT)
+        pats = self._pats()
+        self.assertGreaterEqual(len(pats), 28)
+        before = {k: TP.seam_jump(p) for k, p in pats.items()}
+        after = {k: TP.seam_jump(TP.seamless_pattern(p, ov)) for k, p in pats.items()}
+        bad = {k: round(v, 2) for k, v in after.items() if v > self.LIMIT}
+        self.assertEqual(bad, {}, f'стык виден: {bad} (до правки максимум {max(before.values()):.2f})')
+        self.assertGreater(max(before.values()), self.LIMIT)                  # мерка ловит прежний шов: без неё тест ничего не доказывал бы
+
+    def test_seam_is_continuous_and_not_a_mirror(self):
+        rng = np.random.default_rng(1)
+        p = rng.normal(size=(100, 100, 3))
+        q = TP.seamless_pattern(p, [0.12, 0.12])
+        self.assertEqual(q.shape, (88, 88, 3))                                   # перекрытие 12 из 100: плитка короче на 12 по каждой оси
+        self.assertTrue(np.allclose(q[12:, 12:], p[12:88, 12:88]))                # середина плитки — без изменений
+        q2 = TP.seamless_pattern(p, [0.08, 0.16])
+        self.assertTrue(80 <= q2.shape[0] <= 92)
+        self.assertLessEqual(TP.seam_jump(q2), TP.seam_jump(q) + 1e-9)             # из диапазона берётся лучшее (не хуже одного значения)
+        self.assertTrue(np.array_equal(TP.seamless_pattern(p, [0.08, 0.16]), q2))  # детерминированно
+        self.assertFalse(np.allclose(q[:, 0], q[:, -1][::-1]))                    # не зеркало
+        self.assertLess(abs(float(q.std()) / float(p.std()) - 1.0), 0.15)         # контраст не просел и не вырос заметно
+        self.assertTrue(np.array_equal(TP.seamless_pattern(p, 0.0), p))           # правило выключено — узор как был
+        self.assertTrue(np.array_equal(TP.seamless_pattern(p, [0.5, 0.5]), p))     # перекрытие больше трети — не применяется
+
+
 if __name__ == '__main__':
     unittest.main(verbosity=1)

@@ -420,6 +420,53 @@ def analyze_data(geoms: list, known: list, known_src: str, parts, roles: dict, d
 
 
 # ---------------------------------------------------------------- кадр «было | гипотеза» --------------------------
+def _fold_pattern(pat: np.ndarray, ov: int) -> np.ndarray:
+    """Первые `ov` столбцов плитки смешиваются (smoothstep) с её последними `ov` столбцами (после них идёт продолжение «в начало»), последние `ov` отрезаются; то же по строкам. Разброс узора в полосе
+    выравнивается (сумма независимых кусков). Результат короче на `ov` по каждой оси."""
+    n = pat.shape[0]
+    t = (np.arange(ov, dtype=np.float64) + 0.5) / ov
+    w = t * t * (3.0 - 2.0 * t)                                           # вес «своего» куска: 0 у стыка → 1 на краю полосы
+    k = np.sqrt(w * w + (1.0 - w) ** 2)
+
+    def fold(a, ax):
+        a = np.moveaxis(a, ax, 0)
+        head, tail = a[:ov], a[n - ov:]
+        sh = (ov,) + (1,) * (a.ndim - 1)
+        mixed = (w.reshape(sh) * head + (1.0 - w.reshape(sh)) * tail) / k.reshape(sh)
+        return np.moveaxis(np.concatenate([mixed, a[ov:n - ov]], axis=0), 0, ax)
+    return fold(fold(pat, 1), 0)
+
+
+def seamless_pattern(pat: np.ndarray, overlap, step: int | None = None) -> np.ndarray:
+    """Бесшовная плитка узора (T-187/7, правило директора 22.11 «узор без видимых стыков»): перекрытие `overlap` = [мин, макс] доли стороны (8–16 %) — берётся то из диапазона, где скачок на стыке
+    `seam_jump` минимален (стык уходит от сучка/края доски); не зеркало — волокно не отражается. Узор 512² — JPEG с блоками 8×8: перекрытие подбирается так, чтобы стык был на середине блока, не на его границе
+    (иначе мерка видит ступеньку блока, а не шов). Плитка короче на перекрытие — период берётся по `shape` результата. Число вместо диапазона — одно значение; 0 — выключено."""
+    n = pat.shape[0]
+    lo, hi = (overlap if isinstance(overlap, (list, tuple)) else (overlap, overlap))
+    if hi <= 0 or n < 16:
+        return pat
+    st = step or (8 if n % 8 == 0 else max(1, n // 64))
+    cand = sorted({int(round(f * n)) for f in np.linspace(lo, hi, 9)})
+    if n % 8 == 0:
+        cand = sorted({c + (n - c - 4) % 8 for c in cand})                 # стык (n − ov) ≡ 4 (mod 8)
+    cand = [c for c in cand if 2 <= c <= n // 3]
+    if not cand:
+        return pat
+    best = min(cand, key=lambda c: seam_jump(_fold_pattern(pat, c)))
+    return _fold_pattern(pat, best)
+
+
+def seam_jump(pat: np.ndarray) -> float:
+    """Мерка стыка плитки: средний |скачок L| через стык / средний |скачок L| между соседними столбцами (строками) внутри плитки; максимум по осям. ≤1,3 — стыка не видно (правило владельца-директора 22.11)."""
+    L = pat[:, :, 0]
+    out = []
+    for a in (L, L.T):
+        inner = np.abs(np.diff(a, axis=1)).mean()
+        seam = np.abs(a[:, 0] - a[:, -1]).mean()
+        out.append(seam / max(inner, 1e-9))
+    return float(max(out))
+
+
 def hypothesis_textures(an: dict, rules: dict, base_texs: list, length_cm: float, library_dir: str | None = None) -> list:   # length_cm — габарит для подписи; масштаб узора — по плитке бина
     """Копия текстур с верхом, закрашенным гипотезой: тон (Lab) + узор бина (отклонение его Lab от среднего), волокна вдоль длинной стороны. Известные по фото тексели не трогаем."""
     import tex_coverage as TC
@@ -443,7 +490,7 @@ def hypothesis_textures(an: dict, rules: dict, base_texs: list, length_cm: float
             ev, pr_ = rep.get('evidence_std_L'), rules['pattern']
             amp = pr_['amp_default'] if ev is None else float(np.clip(ev / max(float(pat[:, :, 0].std()), 1e-6), pr_['amp_min'], 1.0))
             rep['pattern_amp'] = round(amp, 2)
-            pat = pat * amp
+            pat = seamless_pattern(pat * amp, pr_.get('seam_overlap', 0.0))          # плитка без стыков (амплитуда до смешивания: полоса честно выравнивается)
             if lib.get('grain_axis') == 'v':
                 pat = np.transpose(pat, (1, 0, 2))
     tile = (lib.get('tile_cm') or [None])[0] or rules['fallback_tile_cm']
@@ -490,8 +537,9 @@ def hypothesis_textures(an: dict, rules: dict, base_texs: list, length_cm: float
             jit = (((h >> 8) % 1000) / 500.0 - 1.0) * pr['plank_tone_jitter_L']
             groove = (frac * plank_cm < pr['plank_groove_cm']) | (frac * plank_cm > plank_cm - pr['plank_groove_cm'] / 2)
         if pat is not None:
-            iu = (np.floor((u % 1.0) * 512)).astype(int) % 512
-            iv = (np.floor((s % 1.0) * 512)).astype(int) % 512
+            m = pat.shape[0]                                                # сторона плитки (после бесшовной обработки короче 512)
+            iu = (np.floor((u % 1.0) * m)).astype(int) % m
+            iv = (np.floor((s % 1.0) * m)).astype(int) % m
             lab = lab + pat[iv, iu]
         if planks:
             lab[:, 0] += jit
