@@ -513,7 +513,7 @@ def run(a, MG, BR, gw_factory=Gateway, sleep=time.sleep, clock=time.time, hf_hea
                     c, r, pt = KD.post_job(gw, '/generate', pl, '/job/' + j['job_id'], getattr(a, 'post_timeout', 0), say_fn=say)
                     if pt:
                         summary.setdefault('post_timeouts', []).append(pt)
-                    if c == -1 and not j.get('retried'):                      # воркер задание не видит: один повтор в конец очереди той же ноды (тот же job_id: гонка → 409 = принято)
+                    if pt and not pt['worker_saw_job'] and not j.get('retried'):                      # воркер задание не видит: один повтор в конец очереди той же ноды (тот же job_id: гонка → 409 = принято)
                         say('задание', j['job_id'], '→ один повтор в конец очереди')
                         pending.append({**j, 'retried': True})
                         sleep(10)

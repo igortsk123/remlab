@@ -162,7 +162,7 @@ class FakeGW:
             if self.k <= s.get('post_timeouts', 0):                    # клиент не дождался ответа (-1); воркер мог при этом принять задание
                 if s.get('accepted_on_timeout'):
                     self.jobs[body['job_id']] = 'done'
-                return -1, {}
+                return s.get('post_code', -1), {}
             self.jobs[body['job_id']] = 'failed' if self.k <= s['fail_jobs'] else 'done'
             return 202, {'status': 'queued'}
         if path.startswith('/job/'):
@@ -276,6 +276,11 @@ ok('POST без ответа, но воркер задание принял (/jo
 rc, mg, br, s = go(d3, suffix='p3', skus=['a:1'], plan='1024:1', script={'post_timeouts': 9})
 ok('повтор тоже без ответа → тогда failed с причиной «POST -1» (повтор один, не бесконечный), стоп с проверкой',
    s['failed'] == 1 and 'POST -1' in str(s['jobs'][0]['error']) and s['jobs'][0].get('retried') is True and len(s['post_timeouts']) == 2 and br.stops == ['trial-trellis2-p3'])
+rc, mg, br, s = go(d3, suffix='p4', skus=['a:1', 'b:2'], plan='1024:1', script={'post_timeouts': 1, 'post_code': 503})
+ok('POST → 503 (HTML шлюза): воркер задание не видит → один повтор в конец очереди, оба готовы, failed=0, код 503 в post_timeouts',
+   s['failed'] == 0 and len(s['jobs']) == 2 and s['jobs'][-1].get('retried') is True and s['post_timeouts'][0]['code'] == 503)
+rc, mg, br, s = go(d3, suffix='p5', skus=['a:1'], plan='1024:1', script={'post_timeouts': 9, 'post_code': 503})
+ok('503 два раза подряд → failed с кодом «POST 503» в причине (повтор один)', s['failed'] == 1 and 'POST 503' in str(s['jobs'][0]['error']) and len(s['post_timeouts']) == 2)
 ok('драйвер зовёт ОБЩУЮ функцию kit_driver: таймаут POST растёт с телом, ограничен max_s, --post-timeout > 0 перекрывает',
    T.KD.post_timeout_s(0) == 90 and 120 <= T.KD.post_timeout_s(1 * 2 ** 20) <= 130 and T.KD.post_timeout_s(2 * 2 ** 20) > T.KD.post_timeout_s(1 * 2 ** 20)
    and T.KD.post_timeout_s(500 * 2 ** 20) == 300 and T.KD.post_timeout_s(10 ** 9, 45) == 45)
