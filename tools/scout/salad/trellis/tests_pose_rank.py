@@ -82,5 +82,68 @@ s0, s1 = PF.pose_score(PF.splat_mask(S_pts, cam0, n), Mp)['score'], PF.pose_scor
 check('nm_two_stage: подбор улучшает оценку и держит d в пределах', s1 > s0 and PF.D_MIN <= c1['d'] <= PF.D_MAX, f'{s0} → {s1}, шагов {nit}')
 check('pose_fit: --rank по умолчанию выключен, блок rank в ответе', inspect.signature(PF.fit_pose).parameters['rank'].default is False)
 
+# ---------- «перёд или зад» (тень): голоса и итог ----------
+sys.path.insert(0, os.path.normpath(os.path.join(HERE, '..', '..')))
+O = R['orientation']
+check('правила: orientation — все пороги в одном месте', all(k in O for k in ('sil_gap', 'color_rel', 'color_abs', 'geom_gap', 'need_votes', 'sym_de', 'sym_shade', 'sym_iou', 'blur_frac')))
+rng = np.random.default_rng(1)
+base = (rng.random((96, 96, 3)) * 255).astype(np.uint8)
+shifted = np.roll(base, 1, axis=1)
+cmk = np.ones((96, 96), bool)
+d_raw, d_blur = PR.lab_diff(base, shifted, cmk), PR.lab_diff(base, shifted, cmk, blur_px=4.0)
+check('lab_diff: сдвиг мелкого узора на пиксель — попиксельно велик, после сглаживания мал', d_raw['de_med'] > 8 and d_blur['de_med'] < d_raw['de_med'] / 3, f"{d_raw['de_med']} → {d_blur['de_med']}")
+tone = np.clip(base.astype(np.int16) + 20, 0, 255).astype(np.uint8)
+check('lab_diff: общий сдвиг яркости вычитается (не ошибка цвета)', PR.lab_diff(base, tone, cmk, blur_px=2.0)['de_med'] < PR.lab_diff(base, np.flip(base, 0).copy(), cmk, blur_px=2.0)['de_med'])
+check('lab_diff: пустая маска → None', PR.lab_diff(base, base, np.zeros((96, 96), bool)) is None)
+
+
+def cues(color, geom):
+    return {'color': {'de_blur_med': color}, 'geom_edge': geom}
+
+
+v = PR.orientation_votes(0.05, cues(2.0, 0.30), cues(5.0, 0.10), R)
+check('голоса: силуэт/цвет/геометрия «за», когда выбранная лучше с запасом', (v['silhouette'], v['color'], v['geom']) == ('за', 'за', 'за'), str(v))
+v = PR.orientation_votes(0.0, cues(2.0, 0.30), cues(2.1, 0.32), R)
+check('голоса: разрыв внутри порога — «—» (ни за, ни против)', (v['silhouette'], v['color'], v['geom']) == ('—', '—', '—'), str(v))
+v = PR.orientation_votes(-0.05, cues(5.0, 0.10), cues(2.0, 0.30), R)
+check('голоса: у +180° лучше — «против» по всем трём', (v['silhouette'], v['color'], v['geom']) == ('против', 'против', 'против'))
+v = PR.orientation_votes(0.0, cues(2.0, 0.3), None, R)
+check('голоса: нет позы +180° → цвет и геометрия «нет»', (v['color'], v['geom']) == ('нет', 'нет'))
+v = PR.orientation_votes(0.0, {'color': None, 'geom_edge': 0.3}, {'color': None, 'geom_edge': 0.1}, R)
+check('голоса: форма без текстуры (цвета нет) — «нет», геометрия считается', (v['color'], v['geom']) == ('нет', 'за'))
+
+
+def verdict(gap, c_pick, c_flip, pair=None):
+    return PR.orientation_verdict(PR.orientation_votes(gap, c_pick, c_flip, R), pair, R)
+
+
+check('итог: силуэт разводит → front_silhouette, отказа нет', verdict(0.3, cues(2, .3), cues(2, .3))['verdict'] == 'front_silhouette')
+x = verdict(0.0, cues(2.0, 0.30), cues(5.0, 0.10))
+check('итог: ничья силуэта, цвет и геометрия оба «за» → front_cues', x['verdict'] == 'front_cues' and not x['ambiguous'] and x['shadow'] is True)
+x = verdict(0.0, cues(2.0, 0.30), cues(2.1, 0.10))
+check('итог: ничья, «за» только у геометрии (need_votes 2) → ambiguous + код ORIENTATION_AMBIGUOUS', x['verdict'] == 'ambiguous' and x['ambiguous'] and x['code'] == 'ORIENTATION_AMBIGUOUS')
+x = verdict(0.0, cues(5.0, 0.10), cues(2.0, 0.30))
+check('итог: ничья, цвет и геометрия оба «против» → flip_suggested (подсказка, поза не меняется)', x['verdict'] == 'flip_suggested' and not x['ambiguous'])
+x = verdict(0.0, cues(2.0, 0.10), cues(5.0, 0.30))
+check('итог: ничья, цвет «за», геометрия «против» → ambiguous (конфликт)', x['verdict'] == 'ambiguous')
+check('итог: силуэт «против» → flip_suggested', verdict(-0.1, cues(2, .3), cues(2, .3))['verdict'] == 'flip_suggested')
+PAIR = {'de_med': 0.5, 'shade_mad': 0.5, 'mask_iou': 0.97}
+x = verdict(0.0, cues(2.0, 0.10), cues(2.1, 0.10), pair=PAIR)
+check('итог: два рендера почти одинаковы по форме и цвету (симметрия по виду, а не по названию) → symmetric, не отказ', x['verdict'] == 'symmetric' and not x['ambiguous'])
+x = verdict(0.0, cues(2.0, 0.10), cues(2.1, 0.10), pair=dict(PAIR, de_med=6.0))
+check('итог: цвет рендеров различается (сторона важна), сигналов нет → ambiguous', x['verdict'] == 'ambiguous')
+x = verdict(0.0, cues(2.0, 0.10), cues(2.1, 0.10), pair=dict(PAIR, shade_mad=12.0))
+check('итог: однотонный предмет, цвет одинаков, но форма фасада различается (ручки, щели) — не симметрия → ambiguous', x['verdict'] == 'ambiguous')
+x = verdict(0.0, cues(2.0, 0.10), cues(2.1, 0.10), pair=dict(PAIR, de_med=None))
+check('итог: без текстуры симметрию решает форма (цвета нет)', x['verdict'] == 'symmetric')
+x = verdict(0.0, cues(2.0, 0.10), cues(2.1, 0.10), pair=dict(PAIR, mask_iou=0.5))
+check('итог: рендеры похожи, но маски разные (iou < sym_iou) — это не симметрия', x['verdict'] == 'ambiguous')
+check('итог: силуэт «за», но цвет «против» → ambiguous (спор, не уверенный перёд)', verdict(0.05, cues(5.0, 0.30), cues(2.0, 0.30))['verdict'] == 'ambiguous')
+check('итог: силуэт «против», но геометрия «за» → ambiguous (спор, не подсказка переворота)', verdict(-0.05, cues(2.0, 0.30), cues(2.1, 0.10))['verdict'] == 'ambiguous')
+R1 = dict(R, orientation=dict(O, need_votes=1))
+x1 = PR.orientation_verdict(PR.orientation_votes(0.0, cues(2.0, 0.30), cues(2.1, 0.10), R1), None, R1)
+x2 = PR.orientation_verdict(PR.orientation_votes(0.0, cues(2.0, 0.30), cues(2.1, 0.10), R), None, R)
+check('итог: need_votes 1 — одного «за» (геометрия) без «против» достаточно; при 2 — ambiguous', x1['verdict'] == 'front_cues' and x2['verdict'] == 'ambiguous')
+
 print('all ok' if not bad else f'FAILED: {bad}')
 sys.exit(1 if bad else 0)

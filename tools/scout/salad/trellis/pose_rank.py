@@ -98,6 +98,144 @@ def choose(families: list, R: dict) -> dict:
 
 # ---------- с геометрией (вызывается из pose_fit) ----------
 
+def _common(PF, geo: dict, cam: dict, photo: np.ndarray, alpha: np.ndarray, cv: dict, tex, n: int):
+    """Рендер формы с текстурой с камеры и фото в кадре камеры → (рендер uint8, фото uint8, маска формы, маска фото)."""
+    import a1_tone as A
+    import stage_loss as SL
+    r = PF.render_persp(geo, cam, n)
+    S = r['mask']
+    P = PF.canvas_P(cv, n)
+    A_fr = SL.warp_inv(alpha.astype(np.float32), P, (n, n)) > 0.5
+    ph = np.clip(SL.warp_inv(photo[..., :3], P, (n, n)), 0, 255).astype(np.uint8)
+    img = A.render_view0(tex, {'uv': r['uv'], 'mask': S})
+    return img, ph, S, A_fr
+
+
+def lab_diff(a: np.ndarray, b: np.ndarray, cm: np.ndarray, blur_px: float = 0.0) -> dict | None:
+    """Разность Lab двух кадров (uint8 RGB) по маске cm после вычета общего сдвига тона. blur_px > 0 — разность сглаживается внутри маски (нормированная свёртка): сдвиг мелкого узора
+    на пиксель не считается цветовой ошибкой. → {de_med, de_p75} или None, если маска пуста."""
+    import cv2
+    import pattern_metric as PM
+    cm = np.asarray(cm, bool)
+    if int(cm.sum()) < 64:
+        return None
+    d = PM.rgb_to_lab(a).astype(np.float32) - PM.rgb_to_lab(b).astype(np.float32)
+    if blur_px > 0:
+        w = cm.astype(np.float32)
+        k = max(int(round(blur_px * 3)) * 2 + 1, 3)
+        den = cv2.GaussianBlur(w, (k, k), blur_px)
+        d = np.stack([cv2.GaussianBlur(d[..., c] * w, (k, k), blur_px) / np.maximum(den, 1e-3) for c in range(3)], axis=-1)
+    d = d[cm]
+    d = d - np.median(d, axis=0, keepdims=True)
+    de = np.sqrt((d ** 2).sum(axis=1))
+    return {'de_med': round(float(np.median(de)), 3), 'de_p75': round(float(np.percentile(de, 75)), 3)}
+
+
+def _erode(M: np.ndarray, px: int) -> np.ndarray:
+    import cv2
+    return cv2.erode(np.asarray(M, bool).astype(np.uint8), np.ones((2 * px + 1, 2 * px + 1), np.uint8)).astype(bool) if px > 0 else np.asarray(M, bool)
+
+
+def photo_color_diff(PF, geo: dict, cam: dict, photo: np.ndarray, alpha: np.ndarray, cv: dict, tex, n: int = 768, erode_px: int = 3, blur_frac: float = 1 / 128) -> dict | None:
+    """Цвет рендера формы (с текстурой) против фото в общей области кадра: разность Lab после вычета общего сдвига тона (рендер без света, фото со светом), попиксельная и
+    сглаженная (σ = blur_frac·n) → {de_med, de_p75, de_blur_med, area}; меньше — лучше. Нет текстуры → None."""
+    if tex is None:
+        return None
+    img, ph, S, A_fr = _common(PF, geo, cam, photo, alpha, cv, tex, n)
+    cm = _erode(S & A_fr, erode_px)
+    a = lab_diff(ph, img, cm)
+    if a is None:
+        return {'de_med': None, 'de_p75': None, 'de_blur_med': None, 'area': 0.0}
+    b = lab_diff(ph, img, cm, blur_px=blur_frac * n)
+    return {**a, 'de_blur_med': b['de_med'], 'area': round(float(cm.sum()) / max(int(A_fr.sum()), 1), 3)}
+
+
+def orientation_cues(PF, geo: dict, cam: dict, photo: np.ndarray, alpha: np.ndarray, cv: dict, tex, n: int = 768, blur_frac: float = 1 / 128) -> dict:
+    """Сигналы «перед или зад» для одной позы: цвет (photo_color_diff) и геометрия фасада (кромки карты нормалей рендера против кромок фото — без текстуры, `edge_score(tex=None)`)."""
+    c = photo_color_diff(PF, geo, cam, photo, alpha, cv, tex, n, blur_frac=blur_frac)
+    g = PF.edge_score(geo, cam, photo, alpha, cv, None, n)
+    return {'color': c, 'geom_edge': g['agree'], 'geom_no_edges': g['no_edges']}
+
+
+def render_pair_diff(PF, geo: dict, cam_a: dict, cam_b: dict, photo: np.ndarray, alpha: np.ndarray, cv: dict, tex, n: int = 768, erode_px: int = 3,
+                     blur_frac: float = 1 / 128) -> dict | None:
+    """Чем отличаются ДВА рендера — с позы cam_a и с позы cam_b (например, выбранной и yaw+180°) — друг от друга в общей области формы:
+    • цвет (с текстурой): разность Lab, сглаженная; нет текстуры → de_med None;
+    • форма (без текстуры): средний модуль разности затенения по нормалям, 0–255 (`shade_mad`) — видит ручки, щели, рельеф фасада, даже если предмет однотонный;
+    • mask_iou — совпадение масок.
+    Все три малы → у предмета «лицо» и «изнанка» неотличимы (стол, ваза): какой стороной положить фото, не важно. Определяется по виду, а не по названию или категории."""
+    ra, rb = PF.render_persp(geo, cam_a, n), PF.render_persp(geo, cam_b, n)
+    Sa, Sb = ra['mask'], rb['mask']
+    cm = _erode(Sa & Sb, erode_px)
+    if int(cm.sum()) < 64:
+        return None
+    ga, gb = PF.shade_view(ra)[..., 0].astype(np.float32), PF.shade_view(rb)[..., 0].astype(np.float32)
+    out = {'de_med': None, 'de_p75': None, 'shade_mad': round(float(np.abs(ga - gb)[cm].mean()), 2), 'mask_iou': round(float((Sa & Sb).sum()) / max(int((Sa | Sb).sum()), 1), 4)}
+    if tex is not None:
+        ia, _, _, _ = _common(PF, geo, cam_a, photo, alpha, cv, tex, n)
+        ib, _, _, _ = _common(PF, geo, cam_b, photo, alpha, cv, tex, n)
+        d = lab_diff(ia, ib, cm, blur_px=blur_frac * n)
+        if d is not None:
+            out['de_med'], out['de_p75'] = d['de_med'], d['de_p75']
+    return out
+
+
+def _vote(gap, thr: float) -> str:
+    if gap is None:
+        return 'нет'
+    return 'за' if gap >= thr else ('против' if gap <= -thr else '—')
+
+
+def orientation_votes(gap_sil, cues_pick: dict, cues_flip: dict | None, R: dict) -> dict:
+    """Голоса сигналов за выбранную позу против yaw+180°: силуэт (разрыв оценки), цвет (de сглаженный: у +180° − у выбранной), геометрия (кромки: у выбранной − у +180°).
+    Порог цвета — max(color_rel·de выбранной, color_abs); геометрии — geom_gap; силуэта — sil_gap. Все — в `rules/pose-rank.json` → orientation."""
+    O = R['orientation']
+    out = {'silhouette': _vote(gap_sil, O['sil_gap']), 'color': 'нет', 'geom': 'нет', 'gap': {'silhouette': gap_sil, 'color': None, 'geom': None}}
+    if not cues_flip:
+        return out
+    pc, fc = (cues_pick.get('color') or {}), (cues_flip.get('color') or {})
+    if pc.get('de_blur_med') is not None and fc.get('de_blur_med') is not None:
+        g = round(fc['de_blur_med'] - pc['de_blur_med'], 3)
+        out['gap']['color'] = g
+        out['color'] = _vote(g, max(O['color_rel'] * pc['de_blur_med'], O['color_abs']))
+    if cues_pick.get('geom_edge') is not None and cues_flip.get('geom_edge') is not None:
+        g = round(cues_pick['geom_edge'] - cues_flip['geom_edge'], 4)
+        out['gap']['geom'] = g
+        out['geom'] = _vote(g, O['geom_gap'])
+    return out
+
+
+def orientation_verdict(votes: dict, pair: dict | None, R: dict) -> dict:
+    """Итог «перед или зад» (ТЕНЬ: метка и журнал, поза и `projection_safe` не меняются):
+      symmetric        — рендеры с выбранной позы и с yaw+180° почти не отличаются ни по форме (shade_mad < sym_shade), ни по цвету (de_med < sym_de, если текстура есть),
+                         маски совпадают (≥ sym_iou): сторона не важна, отказа нет;
+      front_silhouette — силуэт выбранной позы лучше на ≥ sil_gap и ни цвет, ни геометрия не против;
+      front_cues       — силуэт ничья, цвет и геометрия оба «за» (need_votes = 2; при 1 — хватит любого «за» без «против»);
+      flip_suggested   — силуэт хуже на ≥ sil_gap и ни цвет, ни геометрия не «за»; либо ничья и все ответившие сигналы (≥ need_votes) «против»;
+      ambiguous        — иначе, в т.ч. сигналы спорят между собой (ORIENTATION_AMBIGUOUS).  ambiguous=True только у `ambiguous`."""
+    O = R['orientation']
+    need = int(O['need_votes'])
+    cues = [votes['color'], votes['geom']]
+    pro, con = cues.count('за'), cues.count('против')
+    sym = False
+    if pair is not None and pair.get('mask_iou', 0.0) >= O['sym_iou'] and pair.get('shade_mad') is not None and pair['shade_mad'] < O['sym_shade']:
+        sym = pair.get('de_med') is None or pair['de_med'] < O['sym_de']
+    if sym:
+        v = 'symmetric'
+    elif votes['silhouette'] == 'за':
+        v = 'front_silhouette' if con == 0 else 'ambiguous'
+    elif votes['silhouette'] == 'против':
+        v = 'flip_suggested' if pro == 0 else 'ambiguous'
+    elif pro >= need and con == 0:
+        v = 'front_cues'
+    elif con >= need and pro == 0:
+        v = 'flip_suggested'
+    else:
+        v = 'ambiguous'
+    return {'verdict': v, 'ambiguous': v == 'ambiguous', 'code': 'ORIENTATION_AMBIGUOUS' if v == 'ambiguous' else None, 'votes': {k: votes[k] for k in ('silhouette', 'color', 'geom')},
+            'gap': votes['gap'], 'pair': pair, 'shadow': True}
+
+
 def rank_poses(PF, geo: dict, pick: dict, cands: list, ms_info: dict, photo: np.ndarray, alpha: np.ndarray, cv: dict, tex, Mp: np.ndarray, n: int, log=print, R: dict | None = None) -> dict:
     """Блок `rank` для pose.json (см. шапку). PF — модуль pose_fit (передаётся, чтобы не импортировать его циклом)."""
     import stage_loss as SL
@@ -151,6 +289,15 @@ def rank_poses(PF, geo: dict, pick: dict, cands: list, ms_info: dict, photo: np.
             'gap_score': round(pk['score'] - flip_rec['score'], 4), 'gap_bf2': round(pk['bf']['2'] - flip_rec['bf']['2'], 4), 'gap_edge': round(pk['edge'] - flip_rec['edge'], 4)}
     log(f"  yaw+180°: оценка {flip_rec['score']} (боевая {pk['score']}, разрыв {flip['gap_score']:+.4f}), BF2 {flip_rec['bf']['2']} (боевая {pk['bf']['2']}), кромки {flip_rec['edge']} (боевая {pk['edge']})")
 
+    # 2б) перёд или зад (ТЕНЬ): сигналы цвета и геометрии у выбранной позы и у yaw+180°, вид двух рендеров друг против друга, голоса и итог
+    cues_pick = orientation_cues(PF, geo, pick['cam'], photo, alpha, cv, tex, N768, R['orientation']['blur_frac'])
+    cues_flip = orientation_cues(PF, geo, flip_rec['cam'], photo, alpha, cv, tex, N768, R['orientation']['blur_frac'])
+    pair = render_pair_diff(PF, geo, pick['cam'], flip_rec['cam'], photo, alpha, cv, tex, N768, blur_frac=R['orientation']['blur_frac'])
+    votes = orientation_votes(flip['gap_score'], cues_pick, cues_flip, R)
+    orient = orientation_verdict(votes, pair, R)
+    orient['cues'] = {'pick': cues_pick, 'flip': cues_flip}
+    log(f"  перёд/зад (тень): {orient['verdict']} · голоса силуэт/цвет/геометрия {votes['silhouette']}/{votes['color']}/{votes['geom']} · рендеры друг от друга ΔE {pair and pair['de_med']}")
+
     # 3) слабая перспектива: тот же подбор с прибитым d (≈ ортография), f пересчитан под тот же масштаб
     saved = PF.D_MIN
     try:
@@ -168,7 +315,7 @@ def rank_poses(PF, geo: dict, pick: dict, cands: list, ms_info: dict, photo: np.
             'd_free': round(float(pick['cam']['d']), 3), 'dd_az': round(float(((cw['az'] - pick['cam']['az'] + 180) % 360) - 180), 2), 'dd_el': round(float(cw['el'] - pick['cam']['el']), 2)}
     log(f"  слабая перспектива: оценка {sw['score']} против свободной {pk['score']} (выигрыш свободной {gain:+.4f}) → {weak['camera_model']}, f и расстояние {'не различимы' if weak['focal_distance_ambiguous'] else 'различимы'}")
 
-    out = {'version': R['version'], 'dry_run': True, 'families': families, 'flip': flip, 'weak': weak,
+    out = {'version': R['version'], 'dry_run': True, 'families': families, 'flip': flip, 'orientation': orient, 'weak': weak,
            'floor': {'pick_height_rel': pk['cam_height_rel'], 'pick_ok': pk['floor_ok'], 'under_floor': [f['id'] for f in families if not f['floor_ok']]}}
     out['choose'] = choose(families, R)
     return out
