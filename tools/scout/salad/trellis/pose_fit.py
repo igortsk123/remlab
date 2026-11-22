@@ -166,6 +166,23 @@ def fit_camera(P: np.ndarray, Mp: np.ndarray, n: int, topk: int = 4, log=print) 
     return out
 
 
+def ms_trigger(mode: str, best: dict, rules: dict | None = None) -> str | None:
+    """Зачем мультистарт в режиме. 'on' → 'on'; 'off' → None; 'auto': IoU лучшего кандидата < MS_TRIGGER → 'iou'; иначе, если нижняя полоса лучшего НЕ проходит гейт 04
+    (miss_bottom > miss_bottom_max или extra_bottom > extra_bottom_max из rules/camera-check.json) → 'bottom' (22.11: кресло 44846 — IoU 0,956, низ 0,81/0,70, мультистарт нашёл камеру с низом 0,17/0,08); иначе None."""
+    if mode == 'on':
+        return 'on'
+    if mode != 'auto':
+        return None
+    if best['iou'] < MS_TRIGGER:
+        return 'iou'
+    if rules is None:
+        import camera_check as CC
+        rules = CC.load_rules()
+    if best.get('miss_bottom', 0.0) > rules['miss_bottom_max'] or best.get('extra_bottom', 0.0) > rules['extra_bottom_max']:
+        return 'bottom'
+    return None
+
+
 def pose_score(S: np.ndarray, Mp: np.ndarray) -> dict:
     """Оценка позы по силуэтам (как гейт 04-camera): IoU − 0,5·(miss+extra) − MS_W_BOTTOM·0,5·(miss_низ+extra_низ). Выше — лучше."""
     import camera_check as CC
@@ -450,12 +467,14 @@ def fit_pose(glb: str, photo_path: str, out_run: str, yaw: float = 0.0, px: int 
             """Поиск позы по облаку точек формы PTS (вершины или выборка с поверхности): подбор → мультистарт → пул ничьих → кромки → уточнение. → (pick, cands, ms_info)."""
             cands = fit_camera(PTS, Mp, n, topk, log=log)
             Pc = PTS[:: max(1, len(PTS) // 150000)]
-            ms_info = {'mode': multistart, 'trigger_iou': MS_TRIGGER, 'standard_best_iou': cands[0]['iou'], 'ran': False, 'starts': []}
-            run_ms = multistart == 'on' or (multistart == 'auto' and cands[0]['iou'] < MS_TRIGGER)
+            ms_info = {'mode': multistart, 'trigger_iou': MS_TRIGGER, 'standard_best_iou': cands[0]['iou'], 'ran': False, 'trigger': None, 'starts': []}
             for c in cands:
                 c.update(pose_score(splat_mask(Pc, c['cam'], n), Mp))
-            if run_ms:
-                log(f"мультистарт: IoU обычного подбора {cands[0]['iou']} < {MS_TRIGGER} (режим {multistart}) — {len(MS_AZ) * len(MS_EL)} стартов")
+            trig = ms_trigger(multistart, cands[0])
+            ms_info['trigger'] = trig
+            if trig is not None:
+                why = {'iou': f"IoU обычного подбора {cands[0]['iou']} < {MS_TRIGGER}", 'bottom': f"низ лучшего не проходит гейт (miss {cands[0]['miss_bottom']}, extra {cands[0]['extra_bottom']})", 'on': 'принудительно'}[trig]
+                log(f"мультистарт: {why} (режим {multistart}) — {len(MS_AZ) * len(MS_EL)} стартов")
                 ms_pick, ms_all = multistart_fit(PTS, Mp, n, topk, log=log)
                 ms_info.update({'ran': True, 'starts': ms_all, 'weights': 'оценка = IoU − 0,5·(miss+extra) − 0,125·(miss_низ+extra_низ)'})
                 cands = sorted(cands + ms_pick, key=lambda t: -t['score'])[: topk + len(ms_pick)]

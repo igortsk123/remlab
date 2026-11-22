@@ -208,6 +208,14 @@ sc_bad = PF.pose_score(PF.splat_mask(Pt, {**cam_true, 'az': 40 + 90}, 128), Mt)
 sc_ok = PF.pose_score(Mt, Mt)
 check('оценка позы: точная > повёрнутая на 90°', sc_ok['score'] > sc_bad['score'], f"{sc_ok['score']} vs {sc_bad['score']}")
 
+# --- триггер мультистарта (22.11): auto — по IoU ИЛИ по провалу низа лучшего кандидата ---
+check('ms_trigger: off → None, on → on', PF.ms_trigger('off', {'iou': 0.5}) is None and PF.ms_trigger('on', {'iou': 0.99}) == 'on')
+check('ms_trigger: auto, IoU < 0,9 → iou', PF.ms_trigger('auto', {'iou': 0.85, 'miss_bottom': 0.0, 'extra_bottom': 0.0}, RULES) == 'iou')
+check('ms_trigger: auto, IoU 0,956, низ 0,81/0,70 (кресло 44846) → bottom', PF.ms_trigger('auto', {'iou': 0.956, 'miss_bottom': 0.808, 'extra_bottom': 0.703}, RULES) == 'bottom')
+check('ms_trigger: auto, только extra низа выше порога → bottom', PF.ms_trigger('auto', {'iou': 0.95, 'miss_bottom': 0.1, 'extra_bottom': RULES['extra_bottom_max'] + 0.01}, RULES) == 'bottom')
+check('ms_trigger: auto, IoU ≥ 0,9 и низ проходит → None (не гоняем лишний раз)', PF.ms_trigger('auto', {'iou': 0.95, 'miss_bottom': 0.2, 'extra_bottom': 0.3}, RULES) is None)
+check('ms_trigger: ровно на пороге низа — не триггер (строго «>», как гейт)', PF.ms_trigger('auto', {'iou': 0.95, 'miss_bottom': RULES['miss_bottom_max'], 'extra_bottom': RULES['extra_bottom_max']}, RULES) is None)
+
 # --- уточнение по кромкам не должно ронять силуэт (стул 12914: 0,86 → 0,72 из-за заглушки «кромок нет») ---
 check('edge_term: «кромок нет» → нейтрально 0 (не штраф)', PF.edge_term({'agree': -1.0, 'no_edges': True}) == 0.0)
 check('edge_term: обычные кромки как есть', PF.edge_term({'agree': 0.4, 'no_edges': False}) == 0.4 and PF.edge_term({'agree': 0.2}) == 0.2)
