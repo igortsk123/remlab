@@ -99,14 +99,14 @@ with tempfile.TemporaryDirectory() as root:
     check('unreliable ломает passed даже при идеальной форме', not ok and 'plate_found' in why, why)
 
 # 8. сквозной прогон main() на синтетической папке прогона: check.json + кадр
-def e2e(sku: str, S: np.ndarray, Aph: np.ndarray, root: str, prep_plate: bool | None = None) -> dict:
+def e2e(sku: str, S: np.ndarray, Aph: np.ndarray, root: str, prep_plate: bool | None = None, edge: dict | None = None) -> dict:
     from PIL import Image
     run = os.path.join(root, sku)
     os.makedirs(os.path.join(run, 'stages', 'render_view0'))
     Image.fromarray((S * 255).astype(np.uint8)).save(os.path.join(run, 'stages', 'render_view0', 'mask.png'))
     iou = float((S & Aph).sum()) / float((S | Aph).sum())
     json.dump({'registration': {'iou': iou, 'P': np.eye(3).tolist(), 'method': 'identity'}}, open(os.path.join(run, 'stage_loss.json'), 'w'))
-    json.dump({'picked': {'edge': {'agree': 0.9}}, 'camera': {'az': 0, 'el': 10, 'd': 3, 'f': 2}, 'yaw': 0, 'textured': False}, open(os.path.join(run, 'pose.json'), 'w'))
+    json.dump({'picked': {'edge': edge or {'agree': 0.9}}, 'camera': {'az': 0, 'el': 10, 'd': 3, 'f': 2}, 'yaw': 0, 'textured': False}, open(os.path.join(run, 'pose.json'), 'w'))
     rgba = np.zeros((H, W, 4), np.uint8)
     rgba[Aph] = (200, 120, 60, 255)
     photo = os.path.join(root, sku + '.rgba.png')
@@ -130,6 +130,11 @@ with tempfile.TemporaryDirectory() as root:
     unrel = e2e('plate', np.roll(A, 1, axis=1), A, root, prep_plate=True)
     check('e2e plate_found без среза: passed=false, unreliable=true', not unrel['passed'] and unrel['extra']['unreliable'] is True and 'plate_found' in unrel['extra']['unreliable_reason'], unrel['reason'])
     check('e2e: кадр frame.png записан', os.path.exists(os.path.join(root, 'good', '04-camera', 'frame.png')))
+    ne = e2e('noedges', np.roll(A, 1, axis=1), A, root, edge={'agree': -1.0, 'iou_frame': 0.9, 'width_px': 0.0, 'no_edges': True})
+    check('e2e «нет кромок» (agree −1,0 + no_edges): edge_agree.value = null, не число; passed не страдает; не «ниже порога»',
+          ne['passed'] and ne['metrics']['edge_agree']['value'] is None and ne['metrics']['edge_agree'].get('no_edges') is True and ne['extra']['edge_below_ref'] is False and ne['extra']['no_edges'] is True and 'кромок для сравнения нет' in ne["extra"]["note"], str(ne["metrics"]["edge_agree"]) + " " + ne["extra"]["note"])
+    check('e2e с кромками: edge_agree — число, no_edges=false', good['metrics']['edge_agree']['value'] == 0.9 and good['extra']['no_edges'] is False)
+check('verdict: edge=None → пометка про отсутствие кромок, ok', CC.verdict(0.95, {'miss': 0, 'extra': 0, 'miss_bottom': 0, 'extra_bottom': 0}, None, RULES)[0] is True)
 
 # 9. пометка «низ: маска фото грубая»: бледные тонкие ножки на белом фоне — да; тёмные ножки / толстый низ — нет
 rgb_pale = np.full((H, W, 3), 255, np.uint8)

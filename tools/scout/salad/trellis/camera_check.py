@@ -133,7 +133,7 @@ def prep_plate_unreliable(root: str, sku: str) -> tuple[bool, str]:
     return True, '02-prep: plate_found=true, среза нет — форма с плитой-подложкой, камера по ней ненадёжна'
 
 
-def verdict(iou: float, shares: dict, edge: float, rules: dict, unreliable: str = '') -> tuple[bool, str]:
+def verdict(iou: float, shares: dict, edge: float | None, rules: dict, unreliable: str = '') -> tuple[bool, str]:
     """→ (ok, причина). Порядок причин: unreliable, IoU, miss/extra кадра, miss/extra нижней полосы. Кромки — только справочная пометка."""
     bad: list[str] = []
     if unreliable:
@@ -146,6 +146,8 @@ def verdict(iou: float, shares: dict, edge: float, rules: dict, unreliable: str 
             bad.append(f"{what}: {k} {shares[k]:.3f} > {rules[lim]}")
     if bad:
         return False, '; '.join(bad) + ' — товар идёт нынешним путём'
+    if edge is None:                                                # кромок нет (общая полоса < 16 px): не число и не «плохие кромки»
+        return True, 'камера легла (внутренних кромок для сравнения нет: однотонное / тонкое)'
     return True, 'камера легла' + (f" (внутренние кромки {edge:.3f} < {rules['edge_ref']}: справочно, проверить глазами)" if edge < rules['edge_ref'] else '')
 
 
@@ -166,7 +168,9 @@ def main() -> int:
     sl = json.load(open(os.path.join(a.run, 'stage_loss.json'), encoding='utf-8'))
     reg = sl['registration']
     iou = float(reg['iou'])
-    edge = float(pose['picked']['edge']['agree'])
+    pe = pose['picked']['edge']
+    no_edges = bool(pe.get('no_edges'))                                # edge_score при общей полосе < 16 px ставит заглушку agree = −1,0 и no_edges: это не оценка
+    edge = None if no_edges else float(pe['agree'])
     rules = load_rules()
     root, sku = os.path.dirname(run), os.path.basename(run)
     unrel, unrel_why = prep_plate_unreliable(root, sku) if rules.get('plate_check', True) else (False, '')
@@ -216,14 +220,14 @@ def main() -> int:
                          metric={'name': 'iou_silhouette', 'value': round(iou, 4), 'threshold': rules['iou_min'], 'op': '>='},
                          metrics={'miss': lim('miss', 'miss_max'), 'extra': lim('extra', 'extra_max'),
                                   'miss_bottom': lim('miss_bottom', 'miss_bottom_max'), 'extra_bottom': lim('extra_bottom', 'extra_bottom_max'),
-                                  'edge_agree': {'value': round(edge, 4)}},
+                                  'edge_agree': {'value': None if edge is None else round(edge, 4), **({'no_edges': True} if no_edges else {})}},
                          reason=reason if not ok else '', seconds=round(time.time() - t0, 1), outputs=['frame.png'], frame='frame.png',
-                         edge_ref_min=rules['edge_ref'], edge_below_ref=bool(edge < rules['edge_ref']), note=reason if ok else '', strip_rows=shares['strip_rows'], strip_frac=rules['strip_frac'],
+                         edge_ref_min=rules['edge_ref'], edge_below_ref=bool(edge is not None and edge < rules['edge_ref']), no_edges=no_edges, note=reason if ok else '', strip_rows=shares['strip_rows'], strip_frac=rules['strip_frac'],
                          bottom_mask_coarse=coarse, bottom_mask=bq, bottom_shape_mismatch=bsm, shape_mismatch=shm, shape_corridor=shm_info, regen_form=bool(shm), iou_top=None if shares['iou_top'] is None else round(shares['iou_top'], 4),
                          bottom_top_iou_min=rules.get('bottom_top_iou_min', rules['iou_min']), unreliable=bool(unrel), unreliable_reason=unrel_why, rules_file='tools/scout/rules/camera-check.json',
                          camera=pose['camera'], yaw=a.yaw if a.yaw is not None else pose.get('yaw'), pairs=None, photo=a.photo, method=reg.get('method'),
                          textured=pose.get('textured'), frame_note='фото 50 % + рендер 50 %; красный контур — рендер формы, зелёный — фото')
-    print(f"{'OK ' if res['passed'] else 'НЕТ'} IoU {iou:.3f} miss {shares['miss']:.3f}/{shares['miss_bottom']:.3f} extra {shares['extra']:.3f}/{shares['extra_bottom']:.3f} (всё/низ) кромки {edge:.3f} — {reason}")
+    print(f"{'OK ' if res['passed'] else 'НЕТ'} IoU {iou:.3f} miss {shares['miss']:.3f}/{shares['miss_bottom']:.3f} extra {shares['extra']:.3f}/{shares['extra_bottom']:.3f} (всё/низ) кромки {'нет' if edge is None else format(edge, '.3f')} — {reason}")
     return 0
 
 
