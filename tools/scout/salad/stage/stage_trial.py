@@ -31,11 +31,13 @@ SALAD = os.path.abspath(os.path.join(HERE, '..'))
 ROOT = os.path.abspath(os.path.join(HERE, '..', '..', '..', '..'))
 sys.path.insert(0, SALAD)
 sys.path.insert(0, HERE)
+sys.path.insert(0, os.path.join(SALAD, 'parts'))                                           # parts_to_npz (флаг zones_from, выбор parts.npz для 07)
 sys.path.insert(0, os.path.abspath(os.path.join(HERE, '..', '..', 'render_gpu')))       # bench_run (group_state/instances/stop_and_verify)
 import kit_driver as KD  # noqa: E402
 import kit_worker as KW  # noqa: E402
 import worker_stage as WS  # noqa: E402
 import code_tar as CT  # noqa: E402
+import parts_to_npz as PN  # noqa: E402
 from kit_driver import Gateway, say  # noqa: E402
 
 CARD_NAME = 'GTX 1650 (4 GB)'                                  # из профиля cpu_stage: самая дешёвая карта (видеокарта этапам не нужна, у Salad нет класса без неё)
@@ -232,6 +234,23 @@ def vis_inputs(root: str, only: str = '') -> dict[str, dict]:
     return out
 
 
+def attach_parts(inputs: dict, parts_root: str, vis_root: str, mode: str) -> dict:
+    """Части PartLLM в задание 07 (T-198/1): `mode` = zones_from (`parts`|`panels`). По каждому товару кладёт `extra_in['parts.npz']`, если mode=parts и файл годный (число граней = граням GLB этапа 6;
+    ещё не посчитан — граням формы `glb` из inputs), иначе 07 идёт по панелям. → {товар: {source: parts|panels, reason}} (пишется в zones-07.json)."""
+    out = {}
+    for sku, v in inputs.items():
+        vg = os.path.join(v.get('vis') or os.path.join(vis_root, sku, '06-visible'), 'visible.glb')
+        face_glb = vg if os.path.isfile(vg) else v.get('glb')
+        if mode == 'parts' and not face_glb:
+            npz, why = None, 'panels: нет GLB, с которым сверить число граней'
+        else:
+            npz, why = PN.pick_parts(parts_root, sku, face_glb, mode)
+        if npz:
+            v.setdefault('extra_in', {})['parts.npz'] = npz
+        out[sku] = {'source': 'parts' if npz else 'panels', 'reason': why}
+    return out
+
+
 def make_spec(a, inputs: dict) -> KD.Spec:
     def build(name, class_id, auth):
         return build_body(name, a.image, a.tier, class_id, auth, min(a.max_min * 60 + 600, 3 * 3600), a.idle_s, a.procs, a.fill_procs, a.threads, a.stage_timeout_s,
@@ -271,6 +290,8 @@ def main() -> int:
     ap.add_argument('--repo', default=ROOT, help='корень репозитория для git archive')
     ap.add_argument('--no-code-check', action='store_true', help='не проверять импорт точек входа из чистой распаковки (только если нет библиотек этапов)')
     ap.add_argument('--skus', default='', help='при --vis-root: только эти товары (по умолчанию все с готовым 06)')
+    ap.add_argument('--parts-root', default='', help='корень частей PartLLM `<товар>/03-parts/parts.npz` (parts_to_npz.py convert): едет в задание 07; источник зон — флаг zones_from')
+    ap.add_argument('--zones-from', default='', choices=['', 'parts', 'panels'], help='перебить rules/paint-fill.json zones_from (пусто — как в правилах)')
     ap.add_argument('--out', default=os.path.expanduser('~/remlab-logs/t189-1122/salad-out'))
     ap.add_argument('--card', default=CARD_NAME, help='класс Salad из профиля cpu_stage (запасные — в профиле)')
     ap.add_argument('--tier', default='low', choices=['low', 'medium'], help='low; нет машин → medium (автоматически); batch и high запрещены правилом владельца 22.11')
@@ -306,6 +327,12 @@ def main() -> int:
     inputs = load_inputs(a.inputs) if a.inputs else vis_inputs(a.vis_root, a.skus)
     if not inputs:
         sys.exit('нет товаров для пакета')
+    if a.parts_root:
+        mode = a.zones_from or PN.zones_mode()
+        zl = attach_parts(inputs, os.path.expanduser(a.parts_root), a.vis_root or a.out, mode)
+        os.makedirs(a.out, exist_ok=True)
+        json.dump({'zones_from': mode, 'skus': zl}, open(os.path.join(a.out, 'zones-07.json'), 'w', encoding='utf-8'), ensure_ascii=False, indent=1)
+        say(f'зоны 07: zones_from={mode}, parts у {sum(1 for z in zl.values() if z["source"] == "parts")} из {len(zl)}; без parts: ' + str({k: z['reason'] for k, z in zl.items() if z['source'] != 'parts'})[:300])
     return KD.run_probe(a, MG, BR, make_spec(a, inputs))
 
 
