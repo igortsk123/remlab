@@ -335,6 +335,11 @@ def profile_problems(prof: dict) -> list[str]:
             out.append('basis=measured без measured.date и measured.log (откуда числа)')
     elif not prof.get('basis_note'):
         out.append('basis=estimate без basis_note (что именно не мерили)')
+    rule = prof.get('card_rule')
+    if rule is not None:                                     # правило выбора карты (T-186/1): малая карта для лёгких, большая — для тяжёлых и тех, что упали по памяти
+        cards = [prof.get('card'), *(prof.get('card_fallbacks') or [])]
+        if rule.get('small') not in cards or not rule.get('large') or any(c not in cards for c in rule['large']):
+            out.append('card_rule: small и large — только карты из card/card_fallbacks профиля, large не пуст')
     return out
 
 
@@ -368,6 +373,22 @@ def tier_refusal(prof: dict, tier: str) -> str | None:
 def card_refusal(prof: dict, card: str) -> str | None:
     cards = [prof['card'], *(prof.get('card_fallbacks') or [])]
     return None if card in cards else f'карта «{card}» вне профиля (разрешены: {", ".join(cards)})'
+
+
+OOM_MARKERS = ('out of memory', 'cudacachingallocator', 'handles_.at', 'cublas_status_alloc_failed', 'cuda error: out of memory')
+
+
+def is_oom_error(err) -> bool:
+    """Задание упало из-за памяти КАРТЫ (а не из-за входа/кода): «CUDA out of memory» или сбой аллокатора CUDA (`INTERNAL ASSERT … CUDACachingAllocator`, замер T-186/1: так падали тяжёлые на 16 ГБ)."""
+    t = str(err or '').lower()
+    return any(m in t for m in OOM_MARKERS)
+
+
+def retry_card(prof: dict, card: str) -> str | None:
+    """Карта для ОДНОГО повтора задания, упавшего по памяти: у профиля есть `card_rule`, задание шло на его малой карте → первая из `large`; иначе None (повтор не нужен — карта уже большая или правила нет)."""
+    rule = prof.get('card_rule') or {}
+    large = rule.get('large') or []
+    return large[0] if card == rule.get('small') and large and card not in large else None
 
 
 def body_refusal(prof: dict, body: dict, variant: str = '') -> str | None:
