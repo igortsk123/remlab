@@ -37,5 +37,4 @@ review_after: 2026-12-05
 
 **Чистка приёмника** — только через API `DELETE /prefix/...` (ADR-0178), сторож `sink_keeper.sh`, порог — `sink_health.tight` (предел−2 ГБ; ADR-0199).
 
-**Tier 2:** `../domain/mesh-pool-ops.md` (регламент, замеры, остановки, 06/07 на Salad) · ADR-0135, 0154, 0174–0178, 0198–0200, 0313–0317.
-- Сбои API Salad (504/503 при создании и на POST задания) — повтор/подхват по `tools/scout/rules/salad-groups.json` (23.11) → `domain/mesh-pool-ops.md`.
+**Tier 2:** `../domain/mesh-pool-ops.md` (регламент, замеры, остановки, 06/07 на Salad, сбои API 504/503 — повтор и подхват) · ADR-0135, 0154, 0174–0178, 0198–0200, 0313–0317.
