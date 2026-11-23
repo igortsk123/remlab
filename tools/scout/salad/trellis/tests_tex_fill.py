@@ -686,6 +686,40 @@ def test_known_unchanged():
         ok(sh['changed'] >= 40 and sh['share_pct'] > 0, f'контроль: подмена известных текселей мерка ловит ({sh})')
 
 
+def test_check_on_final_texture():
+    print('мерки check 07 — по ИТОГОВОЙ текстуре после хуков (р.7, 23.11): хук меняет текстуру → check меняется:')
+    import tempfile
+    q = Quads()
+    q.quad([[-0.5, 0, 0], [0.5, 0, 0], [0.5, 1, 0], [-0.5, 1, 0]], (0, 0, .9, .9), sub=8)
+    q.quad([[-0.5, 0, -0.4], [0.5, 0, -0.4], [0.5, 1, -0.4], [-0.5, 1, -0.4]], (.9, .9, 1.0, 1.0), sub=2)
+    tex = np.zeros((T, T, 3), np.uint8)
+    m = tile_mask((0, 0, .9, .9))
+    tex[m] = [120, 140, 200]
+    g = q.geom(tex)
+    orig = TF.own_panel_tone_hook
+    res = {}
+    try:
+        for tag in ('plain', 'hooked'):
+            if tag == 'hooked':
+                def hk(geoms, tex_after, known, ut_g, parts, front=None, thr=0.6):
+                    out = [np.asarray(t).copy() for t in tex_after]
+                    for gi in range(len(out)):
+                        kn_ = np.asarray(known[gi], bool)
+                        out[gi][~kn_] = [255, 40, 40]                    # невидимое — резко красное
+                    return out, {'hooked': True}
+                TF.own_panel_tone_hook = hk
+            with tempfile.TemporaryDirectory() as td:
+                TF.write_glb([g], [tex], os.path.join(td, 'in.glb'))
+                r = TF.run_stage(td, 'sku:' + tag, os.path.join(td, 'in.glb'), known=[m], parts=None, cfg={'gutter': 0}, mirror=False)
+                res[tag] = r['check']['metrics']
+    finally:
+        TF.own_panel_tone_hook = orig
+    a, b = res['plain'], res['hooked']
+    ch = [k for k in ('dE00_front_back', 'far_excess_pct', 'filled_faces_step_pct', 'dL_front_back') if a[k]['value'] != b[k]['value']]
+    ok(len(ch) >= 1, f'хук поменял текстуру → мерки check изменились: {ch}')
+    ok(b['dE00_front_back']['value'] is None or a['dE00_front_back']['value'] is None or b['dE00_front_back']['value'] > a['dE00_front_back']['value'], f'красный перёд/зад хуже: {a["dE00_front_back"]["value"]} → {b["dE00_front_back"]["value"]}')
+
+
 def test_run_stage_fallback():
     print('этап 07 с черновиком: считаются А и Б, берётся Б только если мерки не хуже; check.json:')
     import tempfile
@@ -1492,7 +1526,7 @@ def test_top_prior_hook():
 
 
 def main() -> int:
-    for f in (test_top_prior_hook, test_mirror_off_by_default, test_shrink_layout, test_tie_picks_front_on_back, test_front_on_back, test_color, test_photo, test_parts, test_lighter_than_photo, test_no_known_part, test_mirror, test_texture, test_gutter_render, test_seam_steps_concavity, test_diffuse_quilt_far, test_draft_source, test_tone_mode_pattern, test_quilt_efros, test_quilt_holes, test_known_unchanged, test_render_pattern, test_outlier_blocks, test_dark_fabric, test_trellis_relief, test_part_roles_from_stage3, test_stage7_side_tone_smooth_rules, test_tone_from_neighbour, test_nail_twins, test_borrow_donors, test_tone_only, test_part_pattern_single_truth, test_pr_camera_and_winding, test_hidden_visible, test_stage6_gate, test_cli_run_stage, test_orphan_parts, test_cli_parts_flags, test_zones_fallback, test_run_stage_fallback, test_render_low):
+    for f in (test_check_on_final_texture, test_top_prior_hook, test_mirror_off_by_default, test_shrink_layout, test_tie_picks_front_on_back, test_front_on_back, test_color, test_photo, test_parts, test_lighter_than_photo, test_no_known_part, test_mirror, test_texture, test_gutter_render, test_seam_steps_concavity, test_diffuse_quilt_far, test_draft_source, test_tone_mode_pattern, test_quilt_efros, test_quilt_holes, test_known_unchanged, test_render_pattern, test_outlier_blocks, test_dark_fabric, test_trellis_relief, test_part_roles_from_stage3, test_stage7_side_tone_smooth_rules, test_tone_from_neighbour, test_nail_twins, test_borrow_donors, test_tone_only, test_part_pattern_single_truth, test_pr_camera_and_winding, test_hidden_visible, test_stage6_gate, test_cli_run_stage, test_orphan_parts, test_cli_parts_flags, test_zones_fallback, test_run_stage_fallback, test_render_low):
         f()
     print(f'tests_tex_fill: ошибок {bad}')
     return 1 if bad else 0

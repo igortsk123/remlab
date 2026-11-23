@@ -1436,57 +1436,66 @@ def fill(geoms: list, known: list, parts: list | None = None, cfg: dict | None =
             g_ = (~occ) & (dist <= c['gutter'])
             rgb[g_] = rgb[iy[g_], ix[g_]]
         outs.append(rgb)
-        bad_before = int((unpainted_mask(tex_in[gi].reshape(-1, 3)[tx.ti])).sum())
-        bad_after = int((unpainted_mask(rgb.reshape(-1, 3)[tx.ti])).sum())
-        rep['geoms'][gi].update({'unpainted_before': bad_before, 'unpainted_after': bad_after})
-        vc = view_class(tx.N * np.where((tx.Q * tx.N).sum(axis=1) >= 0.0, 1.0, -1.0)[:, None])     # вид по наружной нормали (наружу — по знаку (точка − центр)·нормаль)
-        ub, ua = unpainted_mask(tex_in[gi].reshape(-1, 3)[tx.ti]), unpainted_mask(rgb.reshape(-1, 3)[tx.ti])
-        rep['geoms'][gi]['by_view'] = [[int((vc == i).sum()), int((vc == i)[ub].sum()), int((vc == i)[ua].sum())] for i in range(len(VIEW_CLASSES))]
-        nfc = np.bincount(tx.f, minlength=len(tx.F)).astype(np.float64)
-        tx.unk_face = (np.bincount(tx.f, weights=(~kn[gi].reshape(-1)[tx.ti]).astype(np.float64), minlength=len(tx.F)) > 0.5 * np.maximum(nfc, 1.0)) & (nfc > 0)
-        nm_ = nail_masks.get(gi)
-        if nm_ is not None:
-            from scipy.ndimage import binary_dilation
-            nm_ = binary_dilation(nm_, iterations=1)
-        rep['geoms'][gi]['steps'] = {'before': step_stats(tx, tex_in[gi], c['step_de']), 'after': step_stats(tx, rgb, c['step_de'], nm_)}
-        if nm_ is not None:
-            rep['geoms'][gi]['steps']['after_with_nails'] = step_stats(tx, rgb, c['step_de'])
-    far = {'known': [], 'filled': []}
-    rs = np.random.RandomState(11)
-    for gi, tx in enumerate(txs):
-        lab_o = rgb2lab(outs[gi].reshape(-1, 3)[tx.ti])
-        kk = kn[gi].reshape(-1)[tx.ti]
-        for p in part_ids:
-            sel = tx.part == p
-            for nm, m in (('known', sel & kk), ('filled', sel & ~kk)):
-                idx = np.nonzero(m)[0]
-                if len(idx) > 100000:
-                    idx = rs.choice(idx, 100000, replace=False)
-                if len(idx):
-                    far[nm].append((TC.de2000_v(lab_o[idx], np.broadcast_to(stat[p][0], (len(idx), 3)).copy()) > c['far_de']))
-    fk = float(np.concatenate(far['known']).mean()) * 100.0 if far['known'] else 0.0
-    ff = float(np.concatenate(far['filled']).mean()) * 100.0 if far['filled'] else 0.0
-    rep['far_pct'] = {'known': round(fk, 2), 'filled': round(ff, 2), 'excess': round(ff - fk, 2)}
-    n_all = sum(r['texels'] for r in rep['geoms'])
-    rep['texels'] = n_all
-    bv = np.sum([r['by_view'] for r in rep['geoms']], axis=0)
-    rep['unpainted_by_view'] = {nm: {'texels_pct': round(100.0 * int(bv[i, 0]) / max(n_all, 1), 2), 'before_of_all_pct': round(100.0 * int(bv[i, 1]) / max(n_all, 1), 3),
-                                     'after_of_all_pct': round(100.0 * int(bv[i, 2]) / max(n_all, 1), 3)} for i, nm in enumerate(VIEW_CLASSES)}
-    rep['known_pct'] = round(100.0 * sum(r['known'] for r in rep['geoms']) / max(n_all, 1), 2)
-    rep['mirrored_pct'] = round(100.0 * sum(r['mirrored'] for r in rep['geoms']) / max(n_all, 1), 2)
-    rep['geodesic_pct'] = round(100.0 * sum(r['geodesic'] for r in rep['geoms']) / max(n_all, 1), 2)
-    rep['part_mean_pct'] = round(100.0 * sum(r['part_mean'] for r in rep['geoms']) / max(n_all, 1), 2)
-    rep['unpainted_before_pct'] = round(100.0 * sum(r['unpainted_before'] for r in rep['geoms']) / max(n_all, 1), 3)
-    rep['unpainted_after_pct'] = round(100.0 * sum(r['unpainted_after'] for r in rep['geoms']) / max(n_all, 1), 3)
-    rep['steps'] = {}
-    for k in ('before', 'after'):
-        ss = [r['steps'][k] for r in rep['geoms']]
-        n = max(sum(x['pairs'] for x in ss), 1)
-        rep['steps'][k] = {'faces_step_pct': round(sum(x['faces_step_pct'] * x['pairs'] for x in ss) / n, 2),
-                           'pairs_step_pct': round(sum(x['pairs_step_pct'] * x['pairs'] for x in ss) / n, 2),
-                           'filled_faces_step_pct': (round(sum((x['filled_faces_step_pct'] or 0.0) * x['pairs'] for x in ss) / n, 2) if any(x['filled_faces_step_pct'] is not None for x in ss) else None)}
-    rep['time_s']['all'] = round(time.time() - t0, 2)
-    return {'tex': outs, 'report': rep}
+
+    def finish(outs):
+        """Мерки по ГОТОВОЙ текстуре (outs): непокрашенное, виды, ступени, далёкий цвет. fill() зовёт её сам; run_stage_once — ещё раз по итогу после всех хуков (р.7, 23.11)."""
+        for gi, tx in enumerate(txs):
+            T = tx.T
+            rgb = outs[gi]
+            bad_before = int((unpainted_mask(tex_in[gi].reshape(-1, 3)[tx.ti])).sum())
+            bad_after = int((unpainted_mask(rgb.reshape(-1, 3)[tx.ti])).sum())
+            rep['geoms'][gi].update({'unpainted_before': bad_before, 'unpainted_after': bad_after})
+            vc = view_class(tx.N * np.where((tx.Q * tx.N).sum(axis=1) >= 0.0, 1.0, -1.0)[:, None])     # вид по наружной нормали (наружу — по знаку (точка − центр)·нормаль)
+            ub, ua = unpainted_mask(tex_in[gi].reshape(-1, 3)[tx.ti]), unpainted_mask(rgb.reshape(-1, 3)[tx.ti])
+            rep['geoms'][gi]['by_view'] = [[int((vc == i).sum()), int((vc == i)[ub].sum()), int((vc == i)[ua].sum())] for i in range(len(VIEW_CLASSES))]
+            nfc = np.bincount(tx.f, minlength=len(tx.F)).astype(np.float64)
+            tx.unk_face = (np.bincount(tx.f, weights=(~kn[gi].reshape(-1)[tx.ti]).astype(np.float64), minlength=len(tx.F)) > 0.5 * np.maximum(nfc, 1.0)) & (nfc > 0)
+            nm_ = nail_masks.get(gi)
+            if nm_ is not None:
+                from scipy.ndimage import binary_dilation
+                nm_ = binary_dilation(nm_, iterations=1)
+            rep['geoms'][gi]['steps'] = {'before': step_stats(tx, tex_in[gi], c['step_de']), 'after': step_stats(tx, rgb, c['step_de'], nm_)}
+            if nm_ is not None:
+                rep['geoms'][gi]['steps']['after_with_nails'] = step_stats(tx, rgb, c['step_de'])
+        far = {'known': [], 'filled': []}
+        rs = np.random.RandomState(11)
+        for gi, tx in enumerate(txs):
+            lab_o = rgb2lab(outs[gi].reshape(-1, 3)[tx.ti])
+            kk = kn[gi].reshape(-1)[tx.ti]
+            for p in part_ids:
+                sel = tx.part == p
+                for nm, m in (('known', sel & kk), ('filled', sel & ~kk)):
+                    idx = np.nonzero(m)[0]
+                    if len(idx) > 100000:
+                        idx = rs.choice(idx, 100000, replace=False)
+                    if len(idx):
+                        far[nm].append((TC.de2000_v(lab_o[idx], np.broadcast_to(stat[p][0], (len(idx), 3)).copy()) > c['far_de']))
+        fk = float(np.concatenate(far['known']).mean()) * 100.0 if far['known'] else 0.0
+        ff = float(np.concatenate(far['filled']).mean()) * 100.0 if far['filled'] else 0.0
+        rep['far_pct'] = {'known': round(fk, 2), 'filled': round(ff, 2), 'excess': round(ff - fk, 2)}
+        n_all = sum(r['texels'] for r in rep['geoms'])
+        rep['texels'] = n_all
+        bv = np.sum([r['by_view'] for r in rep['geoms']], axis=0)
+        rep['unpainted_by_view'] = {nm: {'texels_pct': round(100.0 * int(bv[i, 0]) / max(n_all, 1), 2), 'before_of_all_pct': round(100.0 * int(bv[i, 1]) / max(n_all, 1), 3),
+                                         'after_of_all_pct': round(100.0 * int(bv[i, 2]) / max(n_all, 1), 3)} for i, nm in enumerate(VIEW_CLASSES)}
+        rep['known_pct'] = round(100.0 * sum(r['known'] for r in rep['geoms']) / max(n_all, 1), 2)
+        rep['mirrored_pct'] = round(100.0 * sum(r['mirrored'] for r in rep['geoms']) / max(n_all, 1), 2)
+        rep['geodesic_pct'] = round(100.0 * sum(r['geodesic'] for r in rep['geoms']) / max(n_all, 1), 2)
+        rep['part_mean_pct'] = round(100.0 * sum(r['part_mean'] for r in rep['geoms']) / max(n_all, 1), 2)
+        rep['unpainted_before_pct'] = round(100.0 * sum(r['unpainted_before'] for r in rep['geoms']) / max(n_all, 1), 3)
+        rep['unpainted_after_pct'] = round(100.0 * sum(r['unpainted_after'] for r in rep['geoms']) / max(n_all, 1), 3)
+        rep['steps'] = {}
+        for k in ('before', 'after'):
+            ss = [r['steps'][k] for r in rep['geoms']]
+            n = max(sum(x['pairs'] for x in ss), 1)
+            rep['steps'][k] = {'faces_step_pct': round(sum(x['faces_step_pct'] * x['pairs'] for x in ss) / n, 2),
+                               'pairs_step_pct': round(sum(x['pairs_step_pct'] * x['pairs'] for x in ss) / n, 2),
+                               'filled_faces_step_pct': (round(sum((x['filled_faces_step_pct'] or 0.0) * x['pairs'] for x in ss) / n, 2) if any(x['filled_faces_step_pct'] is not None for x in ss) else None)}
+        rep['time_s']['all'] = round(time.time() - t0, 2)
+        return rep
+
+    finish(outs)
+    return {'tex': outs, 'report': rep, 'finish': finish}
 
 
 # ---------------------------------------------------------------- черновик TRELLIS на нашу форму --------------------
@@ -2222,6 +2231,18 @@ def apply_ref_zone_map(geoms: list, tex_after: list, known: list, cfg: dict | No
     return out, dict(rep, applied=True, flag=bool(RZ.APPLY))
 
 
+def _front_back_vals(geoms: list, parts, known: list, kback: list, tex_before: list, tex_x: list, rp: dict) -> tuple:
+    """ΔE/ΔL перёд↔зад по частям текстуры tex_x → (de по частям, крупные части bg, худшая ΔE00, худшая |ΔL|). Одна функция на выбор stat/trellis (до хуков) и на итоговую мерку (после хуков)."""
+    de_ = part_deltas(geoms, parts, known, kback, tex_before, tex_x)
+    kt = max(sum(v['known_texels'] for v in rp['parts'].values()), 1)
+    bg = [p for p, v in rp['parts'].items() if v['known_texels'] >= 0.01 * kt]
+    da = {int(p): v['after'] for p, v in de_.items() if v['after'] is not None}
+    dls = [abs(de_[p]['dL_after']) for p in bg if p in de_ and de_[p].get('dL_after') is not None]
+    dlw = max(dls) if dls else None
+    dw = max([da[p] for p in bg if p in da] or [None]) if any(p in da for p in bg) else None
+    return de_, bg, dw, dlw
+
+
 def run_stage_once(run: str, sku: str, glb: str, known: list | None = None, parts=None, cfg: dict | None = None, thresholds: dict | None = None, mirror: bool = True, draft_glb: str | None = None, ut_glb: str | None = None, out_name: str | None = None, parts_npz: str | None = None, prev_dir: str | None = None) -> dict:
     """Этап 07 «докрасить невидимое»: GLB (текстура = фото на видимом) → `<run>/<sku>/07-fill/` {filled.glb, report.json, frame.png (az180 до | после), check.json}.
     `known` — маска «видно с камеры фото» по геометриям (нет — из `known_from_photo`: az0/az45); `parts` — части граней (нет — `parts_from_geometry`). Не прошёл (check.json passed=false) — товар дальше не идёт.
@@ -2268,16 +2289,10 @@ def run_stage_once(run: str, sku: str, glb: str, known: list | None = None, part
     def one(cfg_, draft_):
         r_ = fill(geoms, known, parts, cfg_, mirror, draft_, tone_only=_to)
         rp, tx_ = r_['report'], r_['tex']
-        de_ = part_deltas(geoms, parts, known, kback, tex_before, tx_)
-        kt = max(sum(v['known_texels'] for v in rp['parts'].values()), 1)
-        bg = [p for p, v in rp['parts'].items() if v['known_texels'] >= 0.01 * kt]
-        da = {int(p): v['after'] for p, v in de_.items() if v['after'] is not None}
-        dls = [abs(de_[p]['dL_after']) for p in bg if p in de_ and de_[p].get('dL_after') is not None]
-        dlw = max(dls) if dls else None
-        dw = max([da[p] for p in bg if p in da] or [None]) if any(p in da for p in bg) else None
+        de_, bg, dw, dlw = _front_back_vals(geoms, parts, known, kback, tex_before, tx_, rp)
         vals = {'empty_pct': rp['unpainted_after_pct'], 'dE00_front_back': dw, 'dL_front_back': dlw, 'filled_faces_step_pct': rp['steps']['after']['filled_faces_step_pct'], 'far_excess_pct': rp['far_pct']['excess']}
         nfail = sum(0 if PS.judge(vals[k], th[k][0], th[k][1]) else 1 for k in vals)
-        return {'rep': rp, 'tex': tx_, 'de': de_, 'big': bg, 'de_worst': dw, 'vals': vals, 'nfail': nfail, 'key': (nfail, dw if dw is not None else 99.0, vals['far_excess_pct'] if vals['far_excess_pct'] is not None else 99.0)}
+        return {'finish': r_['finish'], 'rep': rp, 'tex': tx_, 'de': de_, 'big': bg, 'de_worst': dw, 'vals': vals, 'nfail': nfail, 'key': (nfail, dw if dw is not None else 99.0, vals['far_excess_pct'] if vals['far_excess_pct'] is not None else 99.0)}
     tried = {}
     if draft is not None and (cfg or {}).get('source') == 'trellis' and dict(FILL, **(cfg or {}))['draft_fallback']:      # Б и А: Б берётся, только если мерки не хуже (число непрошедших, затем ΔE перёд↔зад, затем пятна)
         cA = one(dict(cfg or {}, source='stat'), None)
@@ -2300,6 +2315,10 @@ def run_stage_once(run: str, sku: str, glb: str, known: list | None = None, part
     tex_after, rep['own_panel'] = own_panel_tone_hook(geoms, tex_after, known, ut_g, parts, front_axis_of_check(_chk6), float(th['front_on_back_corr'][1]))
     tex_after, rep['top_prior'] = top_prior_hook(geoms, tex_after, known, parts, cfg, None if relief_src == 'ultratex' else draft_glb)
     rep['top_source'] = rep['top_prior'].get('top_source')
+    rep['metrics_pre_hook'] = {k: pick['vals'].get(k) for k in ('empty_pct', 'dE00_front_back', 'dL_front_back', 'filled_faces_step_pct', 'far_excess_pct')}     # что было бы до хуков (для сравнения; на passed не влияет)
+    pick['finish'](tex_after)                                          # мерки — по ИТОГОВОЙ текстуре (после ref_zone_map, own_panel, top_prior), не по текстуре до хуков
+    de, big, de_worst, _dlw = _front_back_vals(geoms, parts, known, kback, tex_before, tex_after, rep)
+    pick['vals'] = dict(pick['vals'], empty_pct=rep['unpainted_after_pct'], dE00_front_back=de_worst, dL_front_back=_dlw, filled_faces_step_pct=rep['steps']['after']['filled_faces_step_pct'], far_excess_pct=rep['far_pct']['excess'])
     rep['front_on_back'] = front_on_back_corr(geoms, tex_after, front_axis_of_check(_chk6))
     kchg = known_changed_share(known, tex_before, tex_after, RULES['known_change_de'])
     rep['known_changed'] = kchg
