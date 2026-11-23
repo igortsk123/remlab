@@ -10,6 +10,8 @@
                  ≤ 10°), класс каталога не решает. Верх не виден на фото (мало известных текселей) → `na` (в знаменатель не идёт).
   group_bleed  — доля текселей группы A (часть этапа 8 `parts08.npz`; иначе части этапа 3; иначе плоские панели по геометрии), чей цвет ближе к медиане другой группы B,
                  чем к своей: пятна дерева ножек на белых полках. Считаем в ЗАЛИТЫХ этапом 7 текселях (known — справочно); без эрозии (пятна сидят у границ островов).
+  winding      — обход граней согласован + объём наружу (T-20261123-42): у сетки итогового GLB соседние грани проходят общее ребро в противоположных направлениях, знаковый объём > 0.
+                 Вывернутые грани/сетка ломают знаковую нормаль (этап 06 тогда молча отключает свой признак «спиной к камере», этап 08 считает свет наоборот). Считает `mesh_winding.py`, пороги — rules `winding`.
   empty_flat   — плоская область цвета «пустого вида» сети (все каналы 124–134, σ ≤ 2, MR ≈ 0,5/0,5), которая расходится с фото. `_ViewGuard` живёт в Hunyuan-пути
                  (`salad/pipeline.py`); в Trellis-пути этапов 06/07 его нет — эта мерка смотрит на готовый GLB, а не на вид сети.
 
@@ -630,6 +632,18 @@ def role_mismatch(top_res: dict, role: str | None, R: dict) -> dict:
     return {'flag': flag, 'has_top': has_top, 'hint_class': hint, 'role': role, 'why': why}
 
 
+def winding_check(M: dict, R: dict) -> dict:
+    """Согласованность обхода граней и знак объёма итоговой сетки (`mesh_winding.analyze`). Не удалось посчитать (не замкнутая сетка, мало граней) → status na/error с причиной, не «прошло»."""
+    c = R['winding']
+    sys.path.insert(0, HERE)
+    import mesh_winding as MW
+    try:
+        a = MW.analyze(M['V'], M['F'], c['weld_eps'])
+    except Exception as e:  # noqa: BLE001
+        return {'status': 'error', 'why': f'{type(e).__name__}: {str(e)[:120]}'}
+    return a
+
+
 def measure(glb: str, known_png: str | None = None, parts_path: str | None = None, R: dict | None = None, photo: str | None = None, pose_run: str | None = None, role: str | None = None) -> dict:
     R = R or rules()
     t0 = time.time()
@@ -681,6 +695,9 @@ def measure(glb: str, known_png: str | None = None, parts_path: str | None = Non
     res['empty_flat'] = empty_flat(M, known, R, res['top_vs_photo'])
     tm['empty_flat'] = round(time.time() - t1, 2)
     t1 = time.time()
+    res['winding'] = winding_check(M, R)
+    tm['winding'] = round(time.time() - t1, 2)
+    t1 = time.time()
     res['group_bleed'] = group_bleed(M, known, part, R)
     res['group_bleed']['parts_file'] = psrc
     tm['group_bleed'] = round(time.time() - t1, 2)
@@ -720,6 +737,18 @@ def judge(m: dict, R: dict) -> dict:
         ms['group_bleed_pct'] = {'value': g['value_pct'], 'threshold': thr, 'op': op, 'ok': ok}
         if not ok:
             (soft if R['group_bleed'].get('soft') else hard).append('group_bleed')
+    w = m.get('winding') or {}
+    if w.get('status') == 'ok':                                                # обход граней и объём (T-20261123-42): два числа, любое вне порога → winding
+        wc = R['winding']
+        cons_ok = w['consistency'] >= wc['consistency_min']
+        vol_ok = w['volume_rel'] > wc['volume_rel_min']
+        ms['winding_consistency'] = {'value': w['consistency'], 'threshold': wc['consistency_min'], 'op': '>=', 'ok': cons_ok}
+        ms['winding_volume_rel'] = {'value': w['volume_rel'], 'threshold': wc['volume_rel_min'], 'op': '>', 'ok': vol_ok}
+        if not (cons_ok and vol_ok):
+            (soft if wc.get('soft') else hard).append('winding')
+    else:
+        for mk in ('winding_consistency', 'winding_volume_rel'):
+            ms[mk] = {'value': None, 'ok': None, ('na' if w.get('status') == 'na' else 'error'): w.get('why') or 'мерка обхода не запускалась'}
     lt = m.get('lighter_than_photo') or {}
     if lt.get('status') == 'ok':
         op, thr = lt['threshold']
@@ -779,6 +808,10 @@ def classify(glb: str | None, known_png: str | None, parts_path: str | None, rul
         out['status'] = 'missing'
     why = []
     for k in j['hard_failed'] + j['soft_failed']:
+        if k == 'winding':
+            wm = j['metrics']
+            why.append(f"обход граней: согласованность {wm['winding_consistency']['value']} (нужно ≥ {wm['winding_consistency']['threshold']}), объём {wm['winding_volume_rel']['value']} (нужно > {wm['winding_volume_rel']['threshold']})")
+            continue
         mm = {'top_vs_photo': 'top_vs_photo_dE00', 'empty_flat': 'empty_flat_pct', 'group_bleed': 'group_bleed_pct', 'lighter_than_photo': 'lighter_than_photo_pct'}.get(k, k)
         why.append(f"{mm} {j['metrics'][mm]['value']} > {j['metrics'][mm]['threshold']}")
     why += [f"не измерено {k}: {j['metrics'][k].get('error')}" for k in j['unmeasured']]
