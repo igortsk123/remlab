@@ -99,7 +99,7 @@ def closure(repo: str, sha: str, files: set[str]) -> tuple[list[str], list[str]]
         seen.add(f)
         src = git(repo, 'show', f'{sha}:{f}')
         for m in imports(src, f in full):
-            for d in DIRS:
+            for d in (os.path.dirname(f),) + DIRS:                    # как у Python: сперва каталог самого файла (mesh_type_passports кладёт свой каталог в sys.path[0] → tools/scout/asset_strategy.py, а не одноимённый из salad/)
                 p = f'{d}/{m}.py'
                 if p in files:
                     if p not in seen:

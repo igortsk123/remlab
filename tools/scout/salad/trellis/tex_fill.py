@@ -2952,11 +2952,8 @@ def paint_policy_for(cfg: dict | None) -> dict:
     role = ((cfg or {}).get('top_card') or {}).get('role')
     if not role:
         return {'type': None, 'hidden_pattern': 'unknown', 'exclusions': [], 'openings': [], 'mode': 'observe', 'digest': None, 'reason': 'no_role', 'role': None}
-    try:
-        import mesh_type_passports as MTP                              # срез кода Salad: модуль и rules/mesh-type-passports.json едут в tar (code_tar)
-        pol = MTP.paint_policy(role)
-    except Exception as e:  # noqa: BLE001 — нет модуля в срезе = видно в check.json, этап не падает
-        pol = {'type': None, 'hidden_pattern': 'unknown', 'exclusions': [], 'openings': [], 'mode': 'observe', 'digest': None, 'reason': f'registry_error:{type(e).__name__}'}
+    import mesh_type_passports as MTP                                  # ВНЕ try: нет модуля в срезе кода = отказ этапа, не тихое «без политики» (T-193/4); сам реестр читается с воздержанием (registry_error)
+    pol = MTP.paint_policy(role)
     pol['role'] = role
     return pol
 

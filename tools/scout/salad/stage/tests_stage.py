@@ -289,8 +289,8 @@ except SystemExit:
 DIRS = [os.path.join(SCOUT, 'salad', 'trellis'), os.path.join(SCOUT, 'salad'), SCOUT, os.path.join(ROOT, 'tools', 'assets')]   # + tools/assets: части граней (tex_fill импортирует их внутри функции) — T-193/3
 
 
-def local_module(name: str) -> str | None:
-    for dd in DIRS:
+def local_module(name: str, importer: str | None = None) -> str | None:
+    for dd in ((os.path.join(ROOT, os.path.dirname(importer)),) if importer else ()) + tuple(DIRS):          # как у Python: сперва каталог самого файла (как code_tar.closure)
         p = os.path.join(dd, name + '.py')
         if os.path.exists(p):
             return os.path.relpath(p, ROOT)
@@ -321,7 +321,7 @@ DEEP = {'tools/scout/salad/trellis/tex_visible.py', 'tools/scout/salad/trellis/t
 missing = set()
 for f in [x for x in files if x.endswith('.py')]:
     for m in top_imports(f, f in DEEP):
-        p = local_module(m)
+        p = local_module(m, f)
         if p and p not in files:
             missing.add(f'{f} → {p}')
 ok(not missing, f'stage_files.txt полон: каждый наш модуль, который импортируют файлы списка, тоже в списке ({sorted(missing)[:3]})')
@@ -822,6 +822,32 @@ try:
     _top_equality()
 except Exception as exc:  # noqa: BLE001
     ok(False, f'верх Ш3в: проверка равенства не выполнена: {type(exc).__name__}: {exc}')
+
+
+# ---- А4 (type-rules-code-01): политика покраски по типу читается ИЗ СРЕЗА code.tar (модуль паспортов и json едут в tar), digest тот же, что у нас
+def _paint_policy_from_slice():
+    td = tmpdir('paintpol')
+    real = CT.build(ROOT, 'HEAD')
+    code = os.path.join(td, 'code')
+    WS.safe_untar(real['tar'], code)
+    ok(os.path.isfile(os.path.join(code, 'tools/scout/mesh_type_passports.py')) and os.path.isfile(os.path.join(code, 'tools/scout/rules/mesh-type-passports.json')), 'политика покраски: модуль паспортов и json — в срезе code.tar')
+    prog = ('import sys, json; sys.path.insert(0, "tools/scout/salad/trellis"); sys.path.insert(0, "tools/scout"); import mesh_type_passports as M, tex_fill as T; '
+            'print(json.dumps({r: T.paint_policy_for({"top_card": {"role": r}}) for r in ("ваза", "комод", "кресло", "неведомая вещь")}, ensure_ascii=False)); print(M.__file__)')
+    r = subprocess.run([sys.executable, '-I', '-c', prog], capture_output=True, cwd=code, timeout=300)
+    ok(r.returncode == 0, 'политика покраски: срез читает паспорт типов ' + ('' if r.returncode == 0 else r.stderr.decode('utf-8', 'replace')[-300:]))
+    lines = r.stdout.decode('utf-8').strip().splitlines()
+    got = json.loads(lines[0]) if lines else {}
+    ok(lines[-1].startswith(code), 'политика покраски: модуль паспортов взят из среза, не из рабочей копии')
+    sys.path.insert(0, os.path.join(ROOT, 'tools/scout'))
+    import mesh_type_passports as MTP
+    ok(all(got[k]['digest'] == MTP.digest(k) and got[k]['hidden_pattern'] == MTP.paint_policy(k)['hidden_pattern'] for k in ('ваза', 'комод', 'кресло')), 'политика покраски: digest и значение из среза = у нас (ваза continue, комод body, кресло same_fabric)')
+    ok(got['неведомая вещь']['hidden_pattern'] == 'unknown' and got['неведомая вещь']['reason'] == 'no_type', 'политика покраски: неизвестный тип из среза → unknown + no_type (воздержание)')
+
+
+try:
+    _paint_policy_from_slice()
+except Exception as exc:  # noqa: BLE001
+    ok(False, f'политика покраски из среза: проверка не выполнена: {type(exc).__name__}: {exc}')
 
 
 # ---- T-193/4: «тихие» откаты ленивых импортов этапа 07 — из code.tar части/сироты считаются так же, как у нас (причина прежнего Salad ≠ локально: material_parts/parts_refine не ехали в срезе → молча «одна часть»)
