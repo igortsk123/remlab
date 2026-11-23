@@ -9,6 +9,7 @@ tools/scout/mesh_render.py
 tools/scout/edge_sharpen.py
 tools/scout/plate_strip.py
 tools/scout/back_panel_stage.py
+tools/scout/back_relief.py
 tools/scout/rule_record.py
 tools/scout/front_axis.py
 tools/scout/salad/color_o2.py

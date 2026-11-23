@@ -125,6 +125,23 @@ class T(unittest.TestCase):
         self.assertEqual(rep["flipped_after"], 0)
         self.assertLessEqual(rep["shift_max_pct"], R["back_panel"]["depth"] * 100 + 1e-9)
 
+    def test_back_rim_fades(self):
+        """Край следа: рельеф, дошедший до края зада, у края гаснет плавно (по расстоянию по сетке), а не обрывается по клеткам; внутри садится полностью."""
+        V, F = grid_box(n=90, ripple=0.0003)
+        amp = 0.02
+        st = (V[:, 2] < 0.05) & (V[:, 1] > 0.25) & (V[:, 1] < 0.35)               # полоса через весь зад от края до края
+        V = V.copy()
+        V[st, 2] -= amp
+        V2, moved, rep = E.back_panel(V, F, np.array([0.0, 0.0, 1.0]), rules())
+        self.assertTrue(rep["apply"], rep)
+        d = (V2[:, 2] - V[:, 2])
+        mid = st & (np.abs(V[:, 0] - 0.5) < 0.05)
+        self.assertGreater(float(np.median(d[mid])), 0.9 * amp)                     # внутри — полностью
+        prof = [float(np.median(d[st & (np.abs(V[:, 0] - x) < 0.02)])) for x in (0.01, 0.06, 0.12, 0.25)]
+        self.assertLess(prof[0], 0.5 * amp)                                          # у края сдвиг гасится
+        self.assertTrue(all(prof[i] <= prof[i + 1] + 0.1 * amp for i in range(3)), prof)    # и растёт к середине без провалов
+        self.assertEqual(rep["flipped_after"], 0)
+
     def test_back_flat_or_domed_refused(self):
         V, F = grid_box(n=70, ripple=0.0005)                                   # зад уже плоский — рельефа нет
         _, _, rep = E.back_panel(V, F, np.array([0.0, 0.0, 1.0]), rules())
@@ -174,7 +191,7 @@ class T(unittest.TestCase):
         import json as _json
         import struct
         import tempfile
-        V, F, back = self._relief_back(n=40)
+        V, F, back = self._relief_back(n=70)                                   # шаг вершин меньше клетки сетки кадра (128): как у настоящих форм
         Vf = V.astype(np.float32)
         idx = F.astype(np.uint32).ravel()
         with tempfile.TemporaryDirectory() as t:
@@ -451,6 +468,60 @@ class BackPanelStage(unittest.TestCase):
         self.assertEqual(rules()["back_panel"]["paint_gate"], {"hidden_pattern": "body", "mode": "active"})
         ra = _json.load(open(os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "rules", "paint-run-all.json"), encoding="utf-8"))
         self.assertTrue(any("back_panel_stage.py" in " ".join(s["argv"]) for s in ra["stages"]["06"]["steps"]))
+
+
+    # ───── мерка «рельеф зада» (T-20261123-43/5) ─────
+    def test_back_relief_meter(self):
+        import back_relief as BR
+        V, F, back = T._relief_back(None, amp=0.02, n=70)
+        cam = np.array([0.0, 0.0, 1.0])
+        rl = rules()["back_panel"]["relief"]
+        b = BR.back_relief(V, F, cam, rules())
+        self.assertTrue(b["ok"], b)
+        self.assertFalse(b["passed"])                                                # рельеф есть: σ выше порога
+        V2, moved, rep = E.back_panel(V, F, cam, rules())
+        a = BR.back_relief(V2, F, cam, rules())
+        self.assertTrue(a["passed"], a)
+        self.assertLess(a["sigma_pct"], b["sigma_pct"] / 3)
+        self.assertLessEqual(a["sigma_pct"], rl["sigma_max_pct"])
+        Vp, Fp = grid_box(n=70, ripple=0.0005)                                       # ровный зад — сторож не срабатывает
+        flat = BR.back_relief(Vp, Fp, cam, rules())
+        self.assertTrue(flat["passed"], flat)
+
+    def test_release_moved_known(self):
+        import tempfile
+        import trimesh
+        from PIL import Image
+        import back_panel_stage as BS
+        n, T = 24, 64
+        u, v = np.meshgrid(np.linspace(0, 1, n), np.linspace(0, 1, n), indexing="ij")
+        P = np.stack([u.ravel(), v.ravel(), np.zeros(n * n)], 1)
+        idx = np.arange(n * n).reshape(n, n)
+        Fq = np.concatenate([np.stack([idx[:-1, :-1].ravel(), idx[1:, :-1].ravel(), idx[1:, 1:].ravel()], 1), np.stack([idx[:-1, :-1].ravel(), idx[1:, 1:].ravel(), idx[:-1, 1:].ravel()], 1)])
+        UV = np.stack([u.ravel() * 0.98 + 0.01, v.ravel() * 0.98 + 0.01], 1)
+        P2 = P.copy()
+        P2[(P[:, 0] > 0.55), 2] = 0.01                                               # сдвинута правая часть
+        img = Image.new("RGB", (4, 4), (200, 200, 200))
+        with tempfile.TemporaryDirectory() as t:
+            ga, gb = os.path.join(t, "a.glb"), os.path.join(t, "b.glb")
+            for path, PP in ((ga, P), (gb, P2)):
+                m = trimesh.Trimesh(PP, Fq, process=False, visual=trimesh.visual.TextureVisuals(uv=UV, image=img))
+                m.export(path)
+            vis = os.path.join(t, "vis")
+            os.makedirs(vis)
+            Image.fromarray(np.full((T, T), 255, np.uint8)).save(os.path.join(vis, "known.png"))
+            prov = np.full((T, T), 4, np.uint8)
+            prov[:, : T // 2] = 1                                                    # левая половина атласа — фото
+            Image.fromarray(prov).save(os.path.join(vis, "prov.png"))
+            r1 = BS.release_moved_known(ga, gb, vis, rules())
+            k = np.asarray(Image.open(os.path.join(vis, "known.png")))
+            self.assertGreater(r1["released"], 0)
+            self.assertTrue((k[:, : T // 2] == 255).all())                           # фото-тексели не тронуты
+            self.assertTrue((k[:, int(T * 0.65):int(T * 0.95)] == 0).all())          # не-фото у сдвинутых граней — «неизвестно»
+            self.assertTrue((k[:, int(T * 0.5):int(T * 0.52)] == 255).all())         # у несдвинутых граней — как было
+            r2 = BS.release_moved_known(ga, gb, vis, rules())                        # повтор — тот же результат, от исходной маски
+            self.assertEqual(r1["released"], r2["released"])
+            self.assertTrue(os.path.exists(os.path.join(vis, "known.pre-backpanel.png")))
 
 
 if __name__ == "__main__":

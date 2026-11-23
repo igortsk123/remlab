@@ -524,39 +524,138 @@ def back_panel_analyze(V, F, front_dir, rules: dict | None = None, ctx: dict | N
     return rep
 
 
+def _adjacency(F, nv):
+    """Симметричная разреженная смежность вершин по рёбрам граней (веса 1)."""
+    from scipy import sparse
+    E = np.concatenate([F[:, [0, 1]], F[:, [1, 2]], F[:, [2, 0]]])
+    A = sparse.coo_matrix((np.ones(len(E)), (E[:, 0], E[:, 1])), shape=(nv, nv)).tocsr()
+    A = ((A + A.T) > 0).astype(np.float64)
+    A.setdiag(0)
+    A.eliminate_zeros()
+    return A
+
+
+def _harmonic(A, fixed: np.ndarray, val: np.ndarray) -> np.ndarray:
+    """Гармоническое продолжение: в `fixed` значения `val`, в остальных вершинах — среднее по соседям (уравнение Лапласа по сетке, а не по клеткам кадра). Вершины без пути к закреплённым получают 0."""
+    from scipy.sparse.linalg import spsolve
+    from scipy import sparse
+    n = A.shape[0]
+    x = np.where(fixed, val, 0.0)
+    free = ~fixed
+    if not free.any():
+        return x
+    deg = np.asarray(A.sum(1)).ravel()
+    L = sparse.diags(deg) - A
+    Lff = L[free][:, free] + sparse.identity(int(free.sum())) * 1e-9
+    rhs = -(L[free][:, fixed] @ val[fixed])
+    xf = spsolve(Lff.tocsc(), rhs)                                          # прямое решение: на редких закреплённых вершинах cg не успевает сойтись
+    x[free] = xf
+    return x
+
+
+def _mesh_dist(V, F, src: np.ndarray) -> np.ndarray:
+    """Расстояние по рёбрам сетки от ближайшей вершины множества `src` (до всех вершин)."""
+    from scipy import sparse
+    from scipy.sparse.csgraph import dijkstra
+    E = np.concatenate([F[:, [0, 1]], F[:, [1, 2]], F[:, [2, 0]]])
+    w = np.linalg.norm(V[E[:, 0]] - V[E[:, 1]], axis=1)
+    G = sparse.coo_matrix((w, (E[:, 0], E[:, 1])), shape=(len(V), len(V))).tocsr()
+    G = G.maximum(G.T)
+    return dijkstra(G, directed=False, indices=np.flatnonzero(src), min_only=True)
+
+
+def _face_folds(V0, V1, F, collapse_frac: float):
+    """Грань перевёрнута, если нормаль сменила знак И грань не схлопнулась (стенка рельефа, сплющенная в плоскость, имеет нормаль ≈ 0 со случайным знаком — это не складка)."""
+    n0 = np.cross(V0[F[:, 1]] - V0[F[:, 0]], V0[F[:, 2]] - V0[F[:, 0]])
+    n1 = np.cross(V1[F[:, 1]] - V1[F[:, 0]], V1[F[:, 2]] - V1[F[:, 0]])
+    return ((n0 * n1).sum(axis=1) < 0) & (np.linalg.norm(n1, axis=1) > collapse_frac * np.linalg.norm(n0, axis=1))
+
+
 def back_panel(V, F, front_dir, rules: dict | None = None, ctx: dict | None = None, protect: np.ndarray | None = None):
-    """Режим «задняя панель»: рельеф лица, повторённый на заду (TRELLIS дублирует его сквозь тело), → плоскость. Берутся вершины, обращённые от камеры и лежащие не глубже
-    `depth` от задней плоскости и входящие во внешнюю кожу зада; они садятся на неё (топология не меняется). Зад без плоскости (не корпусной) и уже плоский зад не трогаем.
-    `protect` — маска вершин, которые не трогаем НИКОГДА (сторона с фото этапа 6): они выпадают из `near` до сдвига; rep['photo_touched'] — сколько защищённых всё же сдвинулось (должно быть 0).
+    """Режим «задняя панель»: рельеф лица, повторённый на заду (TRELLIS дублирует его сквозь тело), → плоскость. Сдвиг — ПОЛЕ по сетке (T-20261123-43/5): внешняя кожа зада
+    (самые внешние вершины клеток кадра с нормалью от камеры) садится на плоскость; все прочие вершины области (шумные нормали, стенки рельефа, внутренний слой двойной оболочки) получают сдвиг
+    гармоническим продолжением по рёбрам (грани не рвутся), а у края следа сдвиг гасится плавно по расстоянию ПО СЕТКЕ (полоса `rim_band` диагонали), а не по клеткам сетки кадра.
+    Перевёрнутая грань (не схлопнутая) отпускает свои вершины в продолжение и считается заново; не прошло — зад не трогаем (частичного результата не бывает).
+    `protect` — вершины, которые не трогаем НИКОГДА (сторона с фото этапа 6): их сдвиг 0 жёстко; rep['photo_touched'] — сколько защищённых всё же сдвинулось (должно быть 0).
     → (V2, moved — маска сдвинутых вершин, rep). Допуск по ТИПУ — снаружи (`back_panel_gate`: политика паспорта типа)."""
     rules = rules or load_rules()
     V = np.asarray(V, np.float64)
+    F = np.asarray(F, np.int64)
+    ctx = ctx or context(V, F, rules)
     rep = back_panel_analyze(V, F, front_dir, rules, ctx)
     near, level, a = rep.pop("_near", None), rep.pop("_level", None), rep.pop("_a", None)
     moved = np.zeros(len(V), bool)
-    if protect is not None and near is not None:
-        rep["protected_in_near"] = int((near & protect).sum())
-        near = near & ~np.asarray(protect, bool)
     if not rep["apply"]:
         return V.copy(), moved, rep
-    V2 = V.copy()
     br = rules["back_panel"]
-    dt = level - V[near] @ a
-    w = np.clip((br["depth"] * np.linalg.norm(np.ptp(V, axis=0)) - np.abs(dt)) / (br["depth"] * np.linalg.norm(np.ptp(V, axis=0)) * (1 - br["full_within"])), 0, 1)   # у края глубины вес спадает: стенки рельефа не рвутся
-    V2[near] += np.outer(w * dt, a)
-    moved[near] = True
-    Fi = np.asarray(F, np.int64)
-    for _ in range(8):                                                   # защита: перевёрнутые грани → вершины возвращаются
-        fl = _face_flips(V, V2, Fi)
+    diag, va = ctx["diag"], ctx["va"]
+    fr = _axis_frame(V, ctx["vn"], va, front_dir, br)
+    _, u, v = fr
+    t = V @ a
+    depth, tol = br["depth"] * diag, rules["tol_plane"] * diag
+    G = int(br["grid"])
+    c = _cells(V, u, v, np.stack([V @ u, V @ v], 1).min(0), np.stack([V @ u, V @ v], 1).max(0), G)
+    prot = np.zeros(len(V), bool) if protect is None else np.asarray(protect, bool)
+    ok_v = va > 0
+    reg = ok_v & (np.abs(t - level) <= depth) & ~prot
+    ext = np.full(G * G, np.inf)
+    np.minimum.at(ext, c[reg], t[reg])                                         # самая внешняя вершина клетки кадра (любая нормаль: у мелкой сетки нормали шумные)
+    em = ext.reshape(G, G)
+    fin = np.isfinite(em)
+    pad = np.pad(np.where(fin, em, np.nan), 1, constant_values=np.nan)
+    with np.errstate(all="ignore"), __import__("warnings").catch_warnings():
+        __import__("warnings").simplefilter("ignore")
+        med = np.nanmedian(np.stack([pad[i:i + G, j:j + G] for i in range(3) for j in range(3)]), axis=0).reshape(-1)       # медиана 3×3 по занятым клеткам (пустые не в счёт)
+    med = np.where(np.isfinite(med), med, -np.inf)
+    ext = np.where(np.isfinite(ext), np.maximum(ext, med - 2 * tol), np.inf)    # одиночная клетка с выбросом наружу (острый шип) уровень кожи не задаёт: её внешний край не глубже медианы соседей минус 2 допуска
+    anchor = reg & (t <= ext[c] + 2 * tol) & (t >= ext[c] - 2 * tol)           # внешняя кожа: вершины в пределах 2 допусков от внешнего края клетки; остальные вершины области — продолжение поля
+    foot = np.zeros(G * G, bool)
+    foot[c[anchor]] = True
+    from scipy.ndimage import binary_closing, binary_fill_holes
+    foot = binary_fill_holes(binary_closing(foot.reshape(G, G), iterations=2))      # дырки следа (клетки без вершин зада, выбросы) — не край: край только внешний контур
+    for _ in range(int(br["rim_cells"])):
+        e = foot.copy()
+        e[1:, :] &= foot[:-1, :]
+        e[:-1, :] &= foot[1:, :]
+        e[:, 1:] &= foot[:, :-1]
+        e[:, :-1] &= foot[:, 1:]
+        e[0, :] = e[-1, :] = False
+        e[:, 0] = e[:, -1] = False
+        foot = e
+    inside = foot.reshape(-1)[c] & ok_v & (t <= level + depth) & (t >= level - depth) & ~prot       # область, где сдвиг разрешён (вне её — сдвиг 0)
+    anchor &= inside
+    dt = level - t
+    w = np.clip((depth - np.abs(dt)) / (depth * (1 - br["full_within"])), 0, 1)                      # у края глубины вес спадает: стенки рельефа не рвутся
+    A = _adjacency(F, len(V))
+    ramp = np.clip(_mesh_dist(V, F, ~foot.reshape(-1)[c]) / (br["rim_band"] * diag), 0, 1)                      # у края следа (вершины вне клеток следа) сдвиг плавно → 0 по расстоянию по сетке; глубокие ямы края не образуют
+    ramp = ramp * ramp * (3 - 2 * ramp)
+    anch = anchor.copy()
+    d = np.zeros(len(V))
+    for it in range(int(br["fold_iters"]) + 1):
+        fixed = anch | ~inside
+        val = np.where(anch, w * dt, 0.0)
+        d = _harmonic(A, fixed, val) * ramp
+        V2 = V + np.outer(d, a)
+        fl = _face_folds(V, V2, F, br["collapse_frac"])
+        rep["folded_iter%d" % it] = int(fl.sum())
         if not fl.any():
             break
-        bad = np.unique(Fi[fl])
-        V2[bad] = V[bad]
-        moved[bad] = False
+        bad = np.unique(F[fl])
+        anch[bad] = False                                                 # складка: эти вершины не закрепляем, они следуют за соседями
+    else:                                                                  # складки остались: терпим только мелкую россыпь (доля площади ≤ fold_area_max), иначе зад не трогаем целиком
+        ar0 = np.linalg.norm(np.cross(V[F[:, 1]] - V[F[:, 0]], V[F[:, 2]] - V[F[:, 0]]), axis=1)
+        share = float(ar0[fl].sum() / max(ar0.sum(), 1e-12))
+        rep["fold_area_share"] = round(share, 6)
+        if share > br["fold_area_max"]:
+            rep.update({"apply": False, "reason": f"после {br['fold_iters']} уточнений остались перевёрнутые грани ({int(fl.sum())}, {share * 100:.3f} % площади > {br['fold_area_max'] * 100:.3f} %) — зад не трогаем (частичного результата не бывает)"})
+            return V.copy(), moved, rep
+    moved = np.abs(d) > 1e-9
     rep["verts_moved"] = int(moved.sum())
-    rep["photo_touched"] = int((moved & protect).sum()) if protect is not None else None
-    rep["shift_max_pct"] = round(float(np.linalg.norm(V2 - V, axis=1).max() / np.linalg.norm(np.ptp(V, axis=0)) * 100), 4)
-    rep["flipped_after"] = int(_face_flips(V, V2, np.asarray(F, np.int64)).sum())
+    rep["verts_anchor"] = int(anchor.sum())
+    rep["photo_touched"] = int((moved & prot).sum()) if protect is not None else None
+    rep["protected_in_near"] = int((near & prot).sum()) if protect is not None else None
+    rep["shift_max_pct"] = round(float(np.linalg.norm(V2 - V, axis=1).max() / diag * 100), 4)
+    rep["flipped_after"] = int(_face_folds(V, V2, F, br["collapse_frac"]).sum())
     return V2, moved, rep
 
 

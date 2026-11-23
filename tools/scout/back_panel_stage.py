@@ -7,7 +7,8 @@
 
 Что делает: читает `<run>/<sku>/06-visible/{visible.glb, prov.png, check.json}`; тип не подходит (не body / не active / нет типа) → ничего не меняет, пишет причину; подходит → `back_panel_glb` на visible.glb
 (азимут/высота камеры и согласие кромок — из check.json этапа 6; согласие неизвестно → отказ: камере без проверки не верим). Исходный visible.glb сохраняется как `visible.pre-backpanel.glb` (повторный запуск идёт от него),
-этап 7 читает исправленный visible.glb. UV и карты (known/prov/conf) не трогаются — меняются только положения вершин зада. След — `06-visible/back_panel.json`.
+этап 7 читает исправленный visible.glb. UV, prov и conf не трогаются — меняются положения вершин зада и маска known: НЕфото-тексели сдвинутых граней (prov вне back_panel.photo_prov)
+помечаются «неизвестно» (`known.png`; исходная — `known.pre-backpanel.png`), чтобы их залил 07 по политике типа (у невидимого цвета один хозяин — 07; решение директора T-43/5). Фото-тексели не трогаются. След — `06-visible/back_panel.json`.
 Чисел порогов и ID товаров в коде нет: пороги — rules/edge-sharpen.json (back_panel), разрешение по типу — там же (back_panel.paint_gate), согласие кромок — rules/camera-check.json (edge_ref).
 
   python tools/scout/back_panel_stage.py --run RUN --sku SKU [--product-role РОЛЬ]
@@ -24,6 +25,7 @@ import time
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, HERE)
+import back_relief as BR  # noqa: E402
 import edge_sharpen as ES  # noqa: E402
 import mesh_type_passports as MTP  # noqa: E402
 import paint_stage as PS  # noqa: E402
@@ -32,6 +34,7 @@ import rule_record as RR  # noqa: E402
 RULE_ID = 'R-BACKPANEL-06'
 STAGE_DIR = '06-visible'
 KEEP = 'visible.pre-backpanel.glb'
+KEEP_KNOWN = 'known.pre-backpanel.png'
 OUT = 'back_panel.json'
 
 
@@ -73,6 +76,47 @@ def _sha(path: str) -> str:
         for chunk in iter(lambda: f.read(1 << 20), b''):
             h.update(chunk)
     return h.hexdigest()
+
+
+def release_moved_known(before_glb: str, after_glb: str, vis_dir: str, rules: dict, keep_known: bool = True) -> dict:
+    """Тексели сдвинутых граней, которые НЕ фото (prov вне back_panel.photo_prov), → «неизвестно» в `known.png`: их перекрасит 07 по политике типа. Исходная маска хранится как `known.pre-backpanel.png`
+    (повтор идёт от неё). Нет known.png/prov.png — ничего не меняет. → {released, moved_faces, photo_kept}. Нужны trimesh, Pillow."""
+    import numpy as np
+    import trimesh
+    from PIL import Image, ImageDraw
+    kp, pp = os.path.join(vis_dir, 'known.png'), os.path.join(vis_dir, 'prov.png')
+    kk = os.path.join(vis_dir, KEEP_KNOWN)
+    if not (os.path.exists(kp) and os.path.exists(pp)):
+        return {'released': 0, 'reason': 'нет known.png/prov.png — маска не менялась'}
+    if os.path.exists(kk):
+        shutil.copy2(kk, kp)                                         # повтор: от исходной маски
+    elif keep_known:
+        shutil.copy2(kp, kk)
+    a = trimesh.load(before_glb, force='mesh', process=False)
+    b = trimesh.load(after_glb, force='mesh', process=False)
+    if len(a.vertices) != len(b.vertices) or len(a.faces) != len(b.faces):
+        return {'released': 0, 'reason': 'формы до/после разной топологии — маска не менялась'}
+    diag = float(np.linalg.norm(np.ptp(np.asarray(a.vertices), axis=0)))
+    mv = np.linalg.norm(np.asarray(b.vertices) - np.asarray(a.vertices), axis=1) > 1e-6 * diag
+    F = np.asarray(a.faces)
+    fm = mv[F].any(1)
+    known = np.asarray(Image.open(kp).convert('L'))
+    prov = np.asarray(Image.open(pp))
+    prov = prov if prov.ndim == 2 else prov[..., 0]
+    T = known.shape[0]
+    uv = np.asarray(b.visual.uv, np.float64).reshape(-1, 2)
+    img = Image.new('L', (T, T), 0)
+    dr = ImageDraw.Draw(img)
+    xy = np.stack([uv[:, 0] * T, (1 - uv[:, 1]) * T], 1)
+    for f in F[fm]:
+        dr.polygon([tuple(xy[i]) for i in f], fill=255)
+    m = np.asarray(img) > 0
+    photo = np.isin(prov, list((rules.get('back_panel') or {}).get('photo_prov') or []))
+    rel = m & ~photo & (known > 0)
+    out = known.copy()
+    out[rel] = 0
+    Image.fromarray(out).save(kp)
+    return {'released': int(rel.sum()), 'moved_faces': int(fm.sum()), 'photo_kept': int((m & photo).sum()), 'texels_moved_faces': int(m.sum())}
 
 
 def put_rule_record(check_path: str, doc: dict, reg: dict | None = None) -> bool:
@@ -150,13 +194,27 @@ def run_stage(run: str, sku: str, role: str | None, reg: dict | None = None, rul
         if os.path.exists(tmp):
             os.remove(tmp)
         return done(str(rep.get('reason') or 'не применено'), report=_slim(rep))
+    try:                                                                  # сторож: мерка «рельеф зада» (геометрия) до/после; после — не в пороге → результат не публикуем (частичного результата не бывает)
+        cam = ES.camera_dir(az, el)
+        rb, ra = BR.back_relief(*BR.load_glb(src), cam, rules), BR.back_relief(*BR.load_glb(tmp), cam, rules)
+    except Exception as e:  # noqa: BLE001 — сбой мерки не роняет шаг; в след пишется причина, результат не отбраковывается
+        rb = ra = {'ok': False, 'reason': f'сбой мерки: {type(e).__name__}: {str(e)[:100]}', 'passed': None}
+    doc['relief'] = {'before': rb, 'after': ra}
+    if ra.get('passed') is False:
+        if os.path.exists(tmp):
+            os.remove(tmp)
+        return done('зад после выравнивания не ровный: рельеф σ %s %% глубины (порог %s), доля %s %% — не применено' % (ra.get('sigma_pct'), (rules['back_panel'].get('relief') or {}).get('sigma_max_pct'), ra.get('share_pct')), report=_slim(rep))
     if keep_original:
         if src == vis:
             shutil.copy2(vis, keep)                                  # свежий 06: исходник — то, что лежит сейчас
     elif os.path.exists(keep):
         os.remove(keep)
+    try:
+        known_rep = release_moved_known(src, tmp, d, rules, keep_known=keep_original)
+    except Exception as e:  # noqa: BLE001 — сбой маски не роняет шаг: форма уже посчитана, 07 увидит прежнюю маску
+        known_rep = {'released': 0, 'reason': f'сбой маски: {type(e).__name__}: {str(e)[:120]}'}
     os.replace(tmp, vis)
-    return done('', applied=True, report=_slim(rep), out_sha=_sha(vis))
+    return done('', applied=True, report=_slim(rep), out_sha=_sha(vis), known=known_rep)
 
 
 def _slim(rep: dict) -> dict:
