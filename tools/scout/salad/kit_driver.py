@@ -1397,6 +1397,12 @@ def _run_probe_once(a, MG, BR, spec: Spec, gw_factory=Gateway, sleep=time.sleep,
         safe_print(body, spec.z_keys)
         ok, why, _g = image_check(a.image, MG.ghcr_auth())
         say('образ:', why if ok else f'НЕ ГОДИТСЯ — {why}')
+        if spec.preflight:                                         # те же бесплатные проверки входов, что перед платным стартом: провал в --dry = код 3 (раньше dry молча давал 0 и «готово»: круг 2, 18:59)
+            ok_pf, why_pf = spec.preflight()
+            say('проверки до создания (бесплатно):', why_pf)
+            if not ok_pf:
+                say('❗ входы не готовы — платный запуск не пройдёт; группу НЕ создаю')
+                return 3
         return 0
     try:
         slot_check()

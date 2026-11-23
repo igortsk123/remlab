@@ -103,7 +103,7 @@ class GW:
         return 404, {}
 
 
-def spec():
+def spec(preflight=None):
     def submit(gw, k, t):
         c, r = gw.call('POST', '/generate', {'job_id': f'{k}-{int(t)}'})
         return ({'key': k, 'id': f'{k}-{int(t)}', 't0': t}, {}) if c == 202 else (None, {'http': c, 'detail': r})
@@ -112,7 +112,7 @@ def spec():
         c, r = gw.call('GET', f'/result/{cur["id"]}')
         return ('done', {'x': 1}) if r.get('status') == 'done' else ('running', {})
     return KD.Spec(prefix='kit-warm', card='RTX X', model='m', jobs=['a', 'b'], build_body=lambda n, c, a: KD.group_body(n, 'img@sha256:1', 'low', c, 8000, {}, a, work_type='kit-test'),
-                   submit=submit, poll=poll, allow_no_worker_check=True, work_type='kit-test')
+                   submit=submit, poll=poll, allow_no_worker_check=True, work_type='kit-test', preflight=preflight)
 
 
 def drive(tmp, world, clock, image='x@sha256:1', keep_warm=20.0, bad=False, **kw):
@@ -298,6 +298,24 @@ try:
         check(rc_rel == 0 and os.path.isfile(os.path.join(wd, 'trial-stage-w0.json')), 'stage_trial --warm-release чужого владельца: код 0, нода p2 не тронута')
 except ImportError as exc:
     print('SKIP stage_trial stop_only (нет зависимостей):', exc)
+
+# 7е. --dry (без --apply): бесплатные проверки входов тоже идут, провал → код 3 (раньше dry давал 0 и «входы на месте» не проверял: круг 2 не стартовал 18:59, а dry был «зелёный»)
+def dry(preflight):
+    out = io.StringIO()
+    with tempfile.TemporaryDirectory() as tmp, contextlib.redirect_stdout(out):
+        d = dict(image='x@sha256:1', suffix='w0', tier='low', apply=False, cap=4.0, probe_cap=1.0, max_min=600, running_min=30, start_min=20, health_min=8, ready_min=30, stall_min=5,
+                 stall_gb=0.05, job_min=0, out=os.path.join(tmp, 'out'), keep_warm=0.0, warm_dir=os.path.join(tmp, 'warm'), warm_life_min=120, warm_min_left_min=25)
+        clock = Clock()
+        rc = KD.run_probe(argparse.Namespace(**d), World(clock), World(clock), spec(preflight), gw_factory=lambda base, key: GW(clock, False), sleep=clock.sleep, clock=clock,
+                          slot_check=lambda: None, image_check=lambda *x, **k: (True, 'ok', 1.0), ledger=lambda rec: None)
+    return rc, out.getvalue()
+
+
+rc_bad, out_bad = dry(lambda: (False, "входы не готовы: ['sku1: в камере /x нет 04-camera/check.json']"))
+rc_good, out_good = dry(lambda: (True, 'входы на месте: 29 товаров'))
+rc_none, _o = dry(None)
+check(rc_bad == 3 and 'входы не готовы' in out_bad and 'НЕ создаю' in out_bad, f'dry: проверка входов провалена → код 3, причина названа (rc={rc_bad})')
+check(rc_good == 0 and 'входы на месте' in out_good and rc_none == 0, f'dry: входы на месте → 0; Spec без preflight → 0 как раньше ({rc_good}, {rc_none})')
 
 # 8. warm_decide — таблица решений
 D = KD.warm_decide
