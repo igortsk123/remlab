@@ -2,7 +2,7 @@
 workstream: mesh
 slug: partllm-zones-07-01
 title: PartLLM (этап 03) → границы материальных зон в 07, флаг zones_from
-status: in-progress
+status: in_progress
 created: 2026-11-22
 updated: 2026-11-22
 completed:
