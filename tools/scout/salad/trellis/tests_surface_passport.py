@@ -226,6 +226,32 @@ def test_back_is_body_not_facade():
     ok(not any(r.get('fired') for r in pas2['body_override']['rules']), 'одноцветный предмет (корпус того же тона) — правило не срабатывает')
 
 
+def test_back_not_tiny_contrast():
+    print('«зад — корпус»: контрастная мелочь (ниша, ручка) корпусом не становится (T-28/1, шкаф с нишей: зад стал тёмно-рыжим):')
+    q = Quads()
+    q.quad([[-1, 0, 1], [1, 0, 1], [1, 0.5, 1], [-1, 0.5, 1]], (0, 0, .5, .5), part=0, sub=4)          # фасад (часть 0), виден целиком
+    q.quad([[1, 0, 1], [1, 0, -1], [1, 1, -1], [1, 1, 1]], (0, .5, .5, 1), part=2, sub=4)              # боковина — крупный корпус (часть 2), тон близок к фасаду, виден целиком
+    q.quad([[-1, 0, -1], [1, 0, -1], [1, 1, -1], [-1, 1, -1]], (.5, 0, 1, .5), part=0, sub=4)          # зад: часть 0, на фото не виден
+    q.quad([[-1, 1, -1], [1, 1, -1], [1, 1, 1], [-1, 1, 1]], (.5, .5, 1, 1), part=1, sub=4)            # «ниша» (часть 1): контрастный тон, видна полоской
+    tex = np.zeros((T, T, 3), np.uint8)
+    face, side = tile_mask((0, 0, .5, .5)), tile_mask((0, .5, .5, 1))
+    back, top = tile_mask((.5, 0, 1, .5)), tile_mask((.5, .5, 1, 1))
+    tex[face] = lab_rgb(30.0)
+    tex[side] = lab_rgb(36.0)
+    tex[top] = lab_rgb(64.0, 3.0, 18.0)
+    tex[back] = lab_rgb(30.0)
+    ys, xs = np.mgrid[0:T, 0:T]
+    known = face | side | (top & (ys < 30))
+    g = q.geom(tex)
+    parts = [np.array(q.part, np.int32)]
+    pas, ctx, out, rep, k0 = run(g, tex, known, parts)
+    bo = pas.get('body_override', {})
+    ok(not any(r.get('fired') for r in bo.get('rules', [])), f'мелкая контрастная группа не даёт «корпус»: {bo.get("rules")}')
+    ok(bool(bo.get('rejected_tiny')), f'отказ записан в паспорт: {bo.get("rejected_tiny")}')
+    Lb = float(np.median(lab_L(out[0], back & ~known)))
+    ok(abs(Lb - 64.0) > 15.0, f'зад не тоном мелочи ({Lb:.1f}, не 64)')
+
+
 def test_grain_no_dark_seams():
     print('зерно группы — без тёмных швов пула блоков:')
     g, tex, known, parts, base = scene_plane_two_parts()
@@ -453,7 +479,7 @@ def test_blur_caches():
 
 
 def main() -> int:
-    for f in (test_blur_caches, test_split_plane_one_tone, test_contrast_door_own_group, test_gray_pattern_not_flattened, test_back_is_body_not_facade, test_grain_no_dark_seams, test_gradient_continues, test_outlier_replaced, test_orphan_attached, test_orphan_guards, test_orphan_keeps_hook_tone, test_hook_keep_top, test_ultratex_switch_off, test_hidden_pattern_by_type):
+    for f in (test_blur_caches, test_split_plane_one_tone, test_contrast_door_own_group, test_gray_pattern_not_flattened, test_back_is_body_not_facade, test_back_not_tiny_contrast, test_grain_no_dark_seams, test_gradient_continues, test_outlier_replaced, test_orphan_attached, test_orphan_guards, test_orphan_keeps_hook_tone, test_hook_keep_top, test_ultratex_switch_off, test_hidden_pattern_by_type):
         f()
     print(f'tests_surface_passport: ошибок {bad}')
     return 1 if bad else 0
