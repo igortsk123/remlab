@@ -895,5 +895,41 @@ class FrontCheck(unittest.TestCase):
         self.assertIsInstance(TV.edge_ref(), float)
 
 
+class ProductJsonCli(unittest.TestCase):
+    """`tex_visible.main --product-json`: после 06 запускается «зад корпусной» (T-43/❓2), только если этап прошёл и роль есть; роль — из product.json."""
+
+    def _main(self, passed, pj_content):
+        import json as _json
+        import tempfile
+        calls = []
+        with tempfile.TemporaryDirectory() as t:
+            pj = os.path.join(t, 'product.json')
+            if pj_content is not None:
+                open(pj, 'w', encoding='utf-8').write(_json.dumps(pj_content))
+            old_run, old_bp, old_argv = TV.run, TV.BPS.run_stage, sys.argv
+            TV.run = lambda *a, **k: {'passed': passed}
+            TV.BPS.run_stage = lambda run, sku, role, **k: calls.append((role, k)) or {'applied': True, 'reason': ''}
+            sys.argv = ['tex_visible.py', 'm.glb', 'p.png', 'pose', t, 'sku1', '--product-json', pj]
+            try:
+                import contextlib
+                import io
+                with contextlib.redirect_stdout(io.StringIO()) as out:
+                    rc = TV.main()
+            finally:
+                TV.run, TV.BPS.run_stage, sys.argv = old_run, old_bp, old_argv
+        return rc, calls, out.getvalue()
+
+    def test_role_from_product_json_after_passed_stage(self):
+        rc, calls, out = self._main(True, {'role': 'комод'})
+        self.assertEqual(rc, 0)
+        self.assertEqual(calls, [('комод', {'keep_original': False})])
+        self.assertIn('back_panel', out)
+
+    def test_not_run_when_stage_failed_or_no_file(self):
+        self.assertEqual(self._main(False, {'role': 'комод'})[1], [])
+        rc, calls, _ = self._main(True, None)                                                  # нет файла: роль пустая → шаг отработает воздержанием (причина в back_panel.json), не падение
+        self.assertEqual(calls, [('', {'keep_original': False})])
+
+
 if __name__ == '__main__':
     unittest.main()

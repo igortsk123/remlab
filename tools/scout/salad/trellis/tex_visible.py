@@ -36,6 +36,7 @@ sys.path[:0] = [HERE, SALAD, SCOUT]
 import tex_coverage as TC  # noqa: E402
 import paint_stage as PS  # noqa: E402
 import front_axis as FA  # noqa: E402       # общий свидетель «перёда» (T-21/2): доли известного по сторонам; нет модуля — ошибка импорта, не молчание
+import back_panel_stage as BPS  # noqa: E402    # зад корпусной после переноса (T-43/❓2): тип по паспорту, камера и фото-сторона из этого же выхода
 import crease_mask as CM  # noqa: E402     # мерки полос у изломов и карта уверенности текселя (T-194/1, T-194/2); текстуру не меняет
 
 def _rules() -> dict:
@@ -1167,8 +1168,17 @@ def main() -> int:
     ap.add_argument('run_dir')
     ap.add_argument('--body-only', action='store_true', help='камера красная только внизу (bottom_shape_mismatch): перенос выше нижней полосы, ножки — этапу 8')
     ap.add_argument('sku')
+    ap.add_argument('--product-json', default='', help='product.json товара {sid,name,role,params} (путь во входе задания Salad): роль → допуск «зад корпусной» по паспорту типа (после 06, back_panel_stage); нет файла/роли — шаг не запускается')
     a = ap.parse_args()
     r = run(a.glb, a.photo, a.pose_run, a.run_dir, a.sku, body_only=a.body_only)
+    if a.product_json:
+        try:
+            role = (json.load(open(a.product_json, encoding='utf-8')) or {}).get('role') or ''
+        except (OSError, ValueError):
+            role = ''
+        if r.get('passed'):                                                      # камера этапа 4 не прошла / этап отказал — выход 06 не годится, зад не трогаем
+            bp = BPS.run_stage(a.run_dir, a.sku, role, keep_original=False)
+            r['back_panel'] = {'applied': bp['applied'], 'reason': bp['reason']}
     print(json.dumps(r, ensure_ascii=False, default=str)[:2000])
     return 0 if r['passed'] else 1
 

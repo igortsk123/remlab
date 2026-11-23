@@ -134,9 +134,11 @@ class T(unittest.TestCase):
         V, F, back = self._relief_back()
         _, _, rep = E.back_panel(V, F, np.array([0.0, 0.0, -1.0]), rules())     # камера с другой стороны — «зад» это z=0.8: он плоский
         self.assertFalse(rep["apply"])
-        self.assertTrue(E.back_panel_role_allowed("Комод", rules()))
-        self.assertFalse(E.back_panel_role_allowed("диван", rules()))
-        self.assertFalse(E.back_panel_role_allowed("", rules()))
+        reg = BackPanelStage._reg({"комод": {"hidden_pattern": "body", "mode": "active"}, "диван": {"hidden_pattern": "same_fabric", "mode": "active"}})
+        self.assertTrue(E.back_panel_gate("комод", reg, rules())["allowed"])                  # допуск — политика типа паспорта, своего списка ролей у режима нет
+        self.assertFalse(E.back_panel_gate("диван", reg, rules())["allowed"])
+        self.assertFalse(E.back_panel_gate("", reg, rules())["allowed"])
+        self.assertNotIn("roles", rules()["back_panel"])
         c = E.camera_dir(0.0, 0.0)
         self.assertTrue(np.allclose(c, [0, 0, 1]) and np.allclose(E.camera_dir(90.0, 0.0), [1, 0, 0], atol=1e-9))
 
@@ -269,7 +271,7 @@ class BackPanelStage(unittest.TestCase):
         self.assertFalse(BS.gate("", reg)["allowed"])
         self.assertFalse(BS.gate(None, reg)["allowed"])
 
-    def _stage(self, t, check_extra, role, reg, glb_fn, with_prov=True):
+    def _stage(self, t, check_extra, role, reg, glb_fn, with_prov=True, **kw):
         import json as _json
         import back_panel_stage as BS
         sku_dir = os.path.join(t, "s1")
@@ -282,7 +284,7 @@ class BackPanelStage(unittest.TestCase):
             Image.fromarray(np.zeros((4, 4), np.uint8)).save(os.path.join(d, "prov.png"))
         with open(os.path.join(d, "check.json"), "w", encoding="utf-8") as f:
             _json.dump({"extra": check_extra}, f)
-        return BS.run_stage(t, "s1", role, reg=reg, glb_fn=glb_fn), d
+        return BS.run_stage(t, "s1", role, reg=reg, glb_fn=glb_fn, **kw), d
 
     def test_stage_policy_refusal_leaves_files(self):
         import tempfile
@@ -328,6 +330,50 @@ class BackPanelStage(unittest.TestCase):
             doc, d = self._stage(t, {}, "комод", reg, None)
             self.assertFalse(doc["applied"])
             self.assertIn("камеры", doc["reason"])
+
+    def test_rules_entry_in_check_json(self):
+        import json as _json
+        import tempfile
+        import mesh_type_passports as MTP
+        reg = self._reg({"комод": {"hidden_pattern": "body", "mode": "active"}, "ваза": {"hidden_pattern": "continue", "mode": "active"}})
+        ex = {"camera": {"az": 0.0, "el": 0.0}, "front_check": {"edge_agree": 0.9}, "rules": [{"rule_id": "R-OTHER", "type": "комод", "applied": True}]}
+        with tempfile.TemporaryDirectory() as t:
+            doc, d = self._stage(t, ex, "комод", reg, None, with_prov=False)
+            e = [x for x in _json.load(open(os.path.join(d, "check.json"), encoding="utf-8"))["extra"]["rules"] if x["rule_id"] == "R-BACKPANEL-06"]
+            self.assertEqual(len(e), 1)
+            self.assertTrue(e[0]["applied"] is True and e[0]["type"] == "комод" and e[0]["digest"] == MTP.digest_of(reg["types"]["комод"]), e)
+            self.assertEqual(len(_json.load(open(os.path.join(d, "check.json"), encoding="utf-8"))["extra"]["rules"]), 2)     # чужие записи целы
+            __import__("back_panel_stage").run_stage(t, "s1", "ваза", reg=reg)                      # повтор с другой ролью заменяет запись, а не дублирует
+            rules_ = _json.load(open(os.path.join(d, "check.json"), encoding="utf-8"))["extra"]["rules"]
+            mine = [x for x in rules_ if x["rule_id"] == "R-BACKPANEL-06"]
+            self.assertEqual(len(mine), 1)
+            self.assertIn("continue", mine[0]["abstain"])
+            self.assertNotIn("applied", mine[0])
+        with tempfile.TemporaryDirectory() as t:                                                    # неизвестный тип: записи нет (аудит ждёт тип паспорта), причина — в back_panel.json
+            doc, d = self._stage(t, ex, "неведомая вещь", reg, None, with_prov=False)
+            self.assertFalse([x for x in _json.load(open(os.path.join(d, "check.json"), encoding="utf-8"))["extra"]["rules"] if x["rule_id"] == "R-BACKPANEL-06"])
+            self.assertTrue(os.path.exists(os.path.join(d, "back_panel.json")))
+
+    def test_stale_backup_not_used_after_new_06(self):
+        import hashlib
+        import tempfile
+        import back_panel_stage as BS
+        reg = self._reg({"комод": {"hidden_pattern": "body", "mode": "active"}})
+        ex = {"camera": {"az": 0.0, "el": 0.0}, "front_check": {"edge_agree": 0.9}}
+        with tempfile.TemporaryDirectory() as t:
+            doc, d = self._stage(t, ex, "комод", reg, None, with_prov=False)
+            self.assertTrue(doc["applied"])
+            vis, keep = os.path.join(d, "visible.glb"), os.path.join(d, "visible.pre-backpanel.glb")
+            V, F, _ = T._relief_back(None, n=40, amp=0.03)                                           # «06 прошёл заново»: другой visible.glb поверх нашего выхода
+            T._write_glb(vis, V, F)
+            new_in = hashlib.md5(open(vis, "rb").read()).hexdigest()
+            doc2 = BS.run_stage(t, "s1", "комод", reg=reg)
+            self.assertTrue(doc2["applied"], doc2)
+            self.assertEqual(hashlib.md5(open(keep, "rb").read()).hexdigest(), new_in)               # копия — НОВЫЙ исходник, а не старая
+        with tempfile.TemporaryDirectory() as t:                                                     # Salad: исходник не храним
+            doc3, d = self._stage(t, ex, "комод", reg, None, with_prov=False, keep_original=False)
+            self.assertTrue(doc3["applied"], doc3)
+            self.assertFalse(os.path.exists(os.path.join(d, "visible.pre-backpanel.glb")))
 
     def test_no_ids_in_code_and_rules_wired(self):
         import json as _json

@@ -15,6 +15,7 @@
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
 import os
 import shutil
@@ -34,18 +35,8 @@ OUT = 'back_panel.json'
 
 
 def gate(role: str | None, reg: dict | None = None, rules: dict | None = None) -> dict:
-    """Разрешение по типу. → {allowed, reason, policy}. Нет роли / типа / политики → не allowed с кодом причины (воздержание, не «обычная мебель»)."""
-    g = ((rules or ES.load_rules())['back_panel']).get('paint_gate') or {}
-    pol = MTP.paint_policy(role, reg)
-    want_hp, want_mode = g.get('hidden_pattern'), g.get('mode')
-    if not want_hp or not want_mode:
-        return {'allowed': False, 'reason': 'нет back_panel.paint_gate в rules/edge-sharpen.json', 'policy': pol}
-    if pol['hidden_pattern'] != want_hp:
-        why = pol.get('reason') or 'policy'
-        return {'allowed': False, 'reason': f"тип «{pol.get('type')}»: hidden_pattern={pol['hidden_pattern']} ({why}), нужен {want_hp}", 'policy': pol}
-    if pol['mode'] != want_mode:
-        return {'allowed': False, 'reason': f"тип «{pol.get('type')}»: paint.mode={pol['mode']}, нужен {want_mode}", 'policy': pol}
-    return {'allowed': True, 'reason': '', 'policy': pol}
+    """Допуск по типу — `edge_sharpen.back_panel_gate` (один источник). → {allowed, reason, policy}."""
+    return ES.back_panel_gate(role, reg, rules)
 
 
 def _json(path: str) -> dict:
@@ -73,8 +64,46 @@ def pose_edge_from_files(sku_dir: str) -> float | None:
     return None
 
 
-def run_stage(run: str, sku: str, role: str | None, reg: dict | None = None, rules: dict | None = None, glb_fn=None) -> dict:
-    """Весь шаг; `glb_fn` подменяется тестами. Пишет `06-visible/back_panel.json`, возвращает его содержимое."""
+def _sha(path: str) -> str:
+    h = hashlib.sha256()
+    with open(path, 'rb') as f:
+        for chunk in iter(lambda: f.read(1 << 20), b''):
+            h.update(chunk)
+    return h.hexdigest()
+
+
+def rule_entry(doc: dict) -> dict | None:
+    """Запись для `check.json: extra.rules[]` по формату `tools/ops/rule_registry_audit.py`: {rule_id, type, digest, applied: true | abstain: причина}. Нет типа паспорта — записи нет (аудит ждёт тип из паспорта)."""
+    pol = doc.get('policy') or {}
+    if not pol.get('type'):
+        return None
+    e = {'rule_id': RULE_ID, 'type': pol['type'], 'digest': pol.get('digest')}
+    if doc.get('applied'):
+        e['applied'] = True
+    else:
+        e['abstain'] = doc.get('reason') or 'не применено'
+    return e
+
+
+def put_rule_entry(check_path: str, entry: dict | None) -> bool:
+    """Дописать/заменить запись правила в `extra.rules[]` check.json этапа 6 (атомарно). Нет check.json или записи — False."""
+    if entry is None or not os.path.exists(check_path):
+        return False
+    d = _json(check_path)
+    if not d:
+        return False
+    ex = d.setdefault('extra', {})
+    ex['rules'] = [e for e in (ex.get('rules') or []) if not (isinstance(e, dict) and e.get('rule_id') == entry['rule_id'])] + [entry]
+    tmp = check_path + '.tmp'
+    with open(tmp, 'w', encoding='utf-8') as f:
+        json.dump(d, f, ensure_ascii=False, indent=2)
+    os.replace(tmp, check_path)
+    return True
+
+
+def run_stage(run: str, sku: str, role: str | None, reg: dict | None = None, rules: dict | None = None, glb_fn=None, keep_original: bool = True) -> dict:
+    """Весь шаг; `glb_fn` подменяется тестами. Пишет `06-visible/back_panel.json` и запись в `06-visible/check.json: extra.rules[]`, возвращает содержимое back_panel.json.
+    `keep_original=False` — исходный visible.glb не сохраняется (на ноде Salad этап 6 каждый раз считается с нуля)."""
     t0 = time.time()
     rules = rules or ES.load_rules()
     sku_dir = os.path.join(run, PS.safe_name(sku))
@@ -88,6 +117,7 @@ def run_stage(run: str, sku: str, role: str | None, reg: dict | None = None, rul
         if os.path.isdir(d):
             with open(os.path.join(d, OUT), 'w', encoding='utf-8') as f:
                 json.dump(doc, f, ensure_ascii=False, indent=1)
+            put_rule_entry(os.path.join(d, 'check.json'), rule_entry(doc))
         return doc
     g = gate(role, reg, rules)
     doc['policy'] = {k: g['policy'].get(k) for k in ('type', 'hidden_pattern', 'mode', 'digest', 'reason')}
@@ -95,9 +125,11 @@ def run_stage(run: str, sku: str, role: str | None, reg: dict | None = None, rul
         return done('тип не допускает: ' + g['reason'])
     vis, prov = os.path.join(d, 'visible.glb'), os.path.join(d, 'prov.png')
     keep = os.path.join(d, KEEP)
-    src = keep if os.path.exists(keep) else vis                      # повторный запуск — от исходного, не от уже выровненного
-    if not os.path.exists(src):
+    if not os.path.exists(vis):
         return done('нет входа: 06-visible/visible.glb')
+    prev = _json(os.path.join(d, OUT))
+    ours = bool(prev.get('out_sha')) and prev.get('out_sha') == _sha(vis)
+    src = keep if (ours and os.path.exists(keep)) else vis            # visible.glb — наш прежний выход: повтор идёт от исходного; иначе это свежий выход 06 (старую копию не берём)
     az, el, agree = camera_of(_json(os.path.join(d, 'check.json')))
     if az is None or el is None:
         return done('нет камеры этапа 4 в 06-visible/check.json (extra.camera)')
@@ -117,10 +149,13 @@ def run_stage(run: str, sku: str, role: str | None, reg: dict | None = None, rul
         if os.path.exists(tmp):
             os.remove(tmp)
         return done(str(rep.get('reason') or 'не применено'), report=_slim(rep))
-    if not os.path.exists(keep):
-        shutil.copy2(vis, keep)
+    if keep_original:
+        if src == vis:
+            shutil.copy2(vis, keep)                                  # свежий 06: исходник — то, что лежит сейчас
+    elif os.path.exists(keep):
+        os.remove(keep)
     os.replace(tmp, vis)
-    return done('', applied=True, report=_slim(rep))
+    return done('', applied=True, report=_slim(rep), out_sha=_sha(vis))
 
 
 def _slim(rep: dict) -> dict:
@@ -132,8 +167,9 @@ def main(argv: list) -> int:
     ap.add_argument('--run', required=True)
     ap.add_argument('--sku', required=True)
     ap.add_argument('--product-role', default='')
+    ap.add_argument('--no-keep', action='store_true', help='не сохранять исходный visible.glb (нода Salad)')
     a = ap.parse_args(argv)
-    doc = run_stage(a.run, a.sku, a.product_role)
+    doc = run_stage(a.run, a.sku, a.product_role, keep_original=not a.no_keep)
     print(json.dumps({'applied': doc['applied'], 'reason': doc['reason']}, ensure_ascii=False))
     return 0                                                         # отказ — не сбой: этап 7 идёт с прежним visible.glb
 

@@ -528,7 +528,7 @@ def back_panel(V, F, front_dir, rules: dict | None = None, ctx: dict | None = No
     """Режим «задняя панель»: рельеф лица, повторённый на заду (TRELLIS дублирует его сквозь тело), → плоскость. Берутся вершины, обращённые от камеры и лежащие не глубже
     `depth` от задней плоскости и входящие во внешнюю кожу зада; они садятся на неё (топология не меняется). Зад без плоскости (не корпусной) и уже плоский зад не трогаем.
     `protect` — маска вершин, которые не трогаем НИКОГДА (сторона с фото этапа 6): они выпадают из `near` до сдвига; rep['photo_touched'] — сколько защищённых всё же сдвинулось (должно быть 0).
-    → (V2, moved — маска сдвинутых вершин, rep). Права по роли — снаружи (`back_panel_role_allowed`)."""
+    → (V2, moved — маска сдвинутых вершин, rep). Допуск по ТИПУ — снаружи (`back_panel_gate`: политика паспорта типа)."""
     rules = rules or load_rules()
     V = np.asarray(V, np.float64)
     rep = back_panel_analyze(V, F, front_dir, rules, ctx)
@@ -560,9 +560,20 @@ def back_panel(V, F, front_dir, rules: dict | None = None, ctx: dict | None = No
     return V2, moved, rep
 
 
-def back_panel_role_allowed(role: str, rules: dict | None = None) -> bool:
-    rules = rules or load_rules()
-    return bool(role) and role.strip().lower() in {r.strip().lower() for r in rules["back_panel"]["roles"]}
+def back_panel_gate(role: str | None, reg: dict | None = None, rules: dict | None = None) -> dict:
+    """Допуск `back_panel` по ТИПУ товара (А1 type-rules-code-01): политика паспорта `mesh_type_passports.paint_policy(роль)` обязана совпасть с `back_panel.paint_gate` правил
+    (hidden_pattern и mode). Своего списка ролей у режима нет (список был дублем политики и убран). → {allowed, reason, policy}. Нет роли/типа/политики → не allowed с кодом причины."""
+    import mesh_type_passports as MTP
+    g = (rules or load_rules())["back_panel"].get("paint_gate") or {}
+    pol = MTP.paint_policy(role, reg)
+    want_hp, want_mode = g.get("hidden_pattern"), g.get("mode")
+    if not want_hp or not want_mode:
+        return {"allowed": False, "reason": "нет back_panel.paint_gate в rules/edge-sharpen.json", "policy": pol}
+    if pol["hidden_pattern"] != want_hp:
+        return {"allowed": False, "reason": f"тип «{pol.get('type')}»: hidden_pattern={pol['hidden_pattern']} ({pol.get('reason') or 'policy'}), нужен {want_hp}", "policy": pol}
+    if pol["mode"] != want_mode:
+        return {"allowed": False, "reason": f"тип «{pol.get('type')}»: paint.mode={pol['mode']}, нужен {want_mode}", "policy": pol}
+    return {"allowed": True, "reason": "", "policy": pol}
 
 
 def camera_dir(az_deg: float, el_deg: float) -> np.ndarray:
@@ -687,7 +698,7 @@ def check() -> int:
         print("edge-sharpen: пороги вне разумного")
         return 1
     bp = r["back_panel"]
-    if not all(k in bp for k in ("roles", "front_cos_min", "axis_snap_deg", "back_cos_min", "depth", "full_within", "rim_cells", "slope_cos_max", "grid", "min_cells", "plane_share_min", "relief_share_min", "corr_smooth_cells", "photo_prov", "photo_cos_min")) or not (0 < bp["depth"] <= 0.2 and 0 < bp["plane_share_min"] <= 1 and bp["roles"]):
+    if not all(k in bp for k in ("paint_gate", "front_cos_min", "axis_snap_deg", "back_cos_min", "depth", "full_within", "rim_cells", "slope_cos_max", "grid", "min_cells", "plane_share_min", "relief_share_min", "corr_smooth_cells", "photo_prov", "photo_cos_min")) or not (0 < bp["depth"] <= 0.2 and 0 < bp["plane_share_min"] <= 1):
         print("edge-sharpen: back_panel — нет порогов или они вне разумного")
         return 1
     try:
@@ -701,7 +712,10 @@ def check() -> int:
 
 if __name__ == "__main__":
     if len(sys.argv) > 1 and sys.argv[1] == "back-glb":                  # back-glb SRC DST AZ EL — выровнять зад GLB (проба; в конвейере — `back_panel`)
-        ex = dict(a.split("=", 1) for a in sys.argv[6:])                 # необязательно: edge=<согласие кромок этапа 4> visible=<06 visible.glb> prov=<06 prov.png>
+        ex = dict(a.split("=", 1) for a in sys.argv[6:])                 # необязательно: edge=<согласие кромок этапа 4> visible=<06 visible.glb> prov=<06 prov.png> role=<роль каталога — допуск по паспорту типа>
+        if "role" in ex and not back_panel_gate(ex["role"])["allowed"]:
+            print(json.dumps({"apply": False, "written": False, "reason": back_panel_gate(ex["role"])["reason"]}, ensure_ascii=False))
+            sys.exit(0)
         r_ = back_panel_glb(sys.argv[2], sys.argv[3], float(sys.argv[4]), float(sys.argv[5]), pose_edge=float(ex["edge"]) if "edge" in ex else None,
                             photo=(ex["visible"], ex["prov"]) if "visible" in ex and "prov" in ex else None)
         print(json.dumps(r_, ensure_ascii=False))

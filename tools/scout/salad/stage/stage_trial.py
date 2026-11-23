@@ -51,6 +51,7 @@ PORT = 8000
 WORKER = os.path.join(HERE, 'worker_stage.py')
 PREFIX = 'trial-stage'
 MAX_POSE_RUN_MB = 50
+KEEP_SUFFIX = '.pre-backpanel.glb'
 
 
 def worker_command(path: str | None = None) -> tuple[list[str], str]:
@@ -93,6 +94,8 @@ def zip_dir_into(z: zipfile.ZipFile, src: str, prefix: str, limit_mb: float | No
     for dp, dn, fn in os.walk(src):
         dn[:] = [d for d in dn if d != '__pycache__']
         for f in sorted(fn):
+            if f.endswith(KEEP_SUFFIX):
+                continue                                         # исходник до «зад корпусной» (visible.pre-backpanel.glb) нужен только людям, в задания не едет
             p = os.path.join(dp, f)
             total += os.path.getsize(p)
             if limit_mb and total > limit_mb * 2 ** 20:
@@ -177,6 +180,24 @@ def attach_08(inputs: dict, catalog: str, out: str) -> dict:
     return rep
 
 
+def attach_06(inputs: dict, catalog: str, out: str) -> dict:
+    """Роль товара во вход 06 (`extra_in_06['product.json']`, как у 08): из выгрузки каталога (`--catalog`, [{sid,name,role,params}]). По роли `tex_visible` после переноса запускает шаг «зад корпусной»
+    (`back_panel_stage`: допуск по паспорту типа). Нет записи/роли — файла нет, шаг не идёт (причина в отчёте). → {товар: {product, role}}."""
+    cat = {str(r.get('sid')): r for r in json.load(open(catalog, encoding='utf-8'))} if catalog else {}
+    d = os.path.join(out, '_in06')
+    rep = {}
+    for sku, v in inputs.items():
+        rec = cat.get(sku)
+        role = (rec or {}).get('role') or ''
+        if rec and role:
+            os.makedirs(os.path.join(d, sku), exist_ok=True)
+            pj = os.path.join(d, sku, 'product.json')
+            json.dump({'sid': sku, 'name': rec.get('name') or '', 'role': role, 'params': rec.get('params') or {}}, open(pj, 'w', encoding='utf-8'), ensure_ascii=False, indent=1)
+            v.setdefault('extra_in_06', {})['product.json'] = pj
+        rep[sku] = {'product': bool(rec and role), 'role': role}
+    return rep
+
+
 def parts_roles_problem(parts_json: str) -> str:
     """'' если у КАЖДОЙ части этапа 3 есть роль (parts.json `role`, либо рядом roles.json с ней): 08 читает `p["role"]` без запаса. Части PartLLM до моста T-17 ролей не несут — тогда 08 идёт без частей
     (по форме, как локально без 03-parts), а причина пишется в inputs-08.json. Иначе — причина строкой."""
@@ -197,6 +218,7 @@ def input_zip_06(v: dict, code_tar: bytes | None = None) -> bytes:
         z.write(v['photo'], 'photo.png')
         zip_dir_into(z, v['pose_run'], 'pose_run', MAX_POSE_RUN_MB)
         add_extras(z, v, code_tar)
+        add_extras(z, v, None, 'extra_in_06')                    # product.json (роль → допуск «зад корпусной» после 06); у входов без каталога набор пуст
     return buf.getvalue()
 
 
@@ -232,7 +254,9 @@ def stage_dirname(stage: str) -> str:
 
 def job_args(stage: str, v: dict) -> list[str]:
     """`args` товара из inputs.json — ТОЛЬКО для 07 (`--card-json @in/card.json`, `--photo …`: флаги tex_fill); 06 (tex_visible), шов и 08 их не знают и падают на «unrecognized arguments»
-    (проба и пакет 23.11: шов, затем 06 при общем inputs на всю цепочку)."""
+    (проба и пакет 23.11: шов, затем 06 при общем inputs на всю цепочку). Исключение — `--product-json @in/product.json` у 06, когда во входе есть product.json (роль → зад корпусной)."""
+    if stage == '06':
+        return ['--product-json', '@in/product.json'] if 'product.json' in (v.get('extra_in_06') or {}) else []
     return list(v.get('args') or []) if stage == '07' else []
 
 
@@ -584,6 +608,11 @@ def main() -> int:
         os.makedirs(a.out, exist_ok=True)
         json.dump({'zones_from': mode, 'skus': zl}, open(os.path.join(a.out, 'zones-07.json'), 'w', encoding='utf-8'), ensure_ascii=False, indent=1)
         say(f'зоны 07: zones_from={mode}, parts у {sum(1 for z in zl.values() if z["source"] == "parts")} из {len(zl)}; без parts: ' + str({k: z['reason'] for k, z in zl.items() if z['source'] != 'parts'})[:300])
+    if '06' in st_ and a.catalog:
+        rep06 = attach_06(inputs, os.path.expanduser(a.catalog), a.out)
+        os.makedirs(a.out, exist_ok=True)
+        json.dump(rep06, open(os.path.join(a.out, 'inputs-06.json'), 'w', encoding='utf-8'), ensure_ascii=False, indent=1)
+        say(f'вход 06: роль (для «зад корпусной») у {sum(1 for r in rep06.values() if r["product"])} из {len(rep06)}')
     if '08' in st_:
         rep08 = attach_08(inputs, os.path.expanduser(a.catalog), a.out)
         os.makedirs(a.out, exist_ok=True)

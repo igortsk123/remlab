@@ -670,6 +670,26 @@ pool08 = WS.Pool(KW.State(), dict(C, work=tmpdir('work08')))
 ok(pool08.sem_08._value == 1,'08: по умолчанию одно задание за раз (пик памяти 4,5 ГБ, проба 23.11)')
 va = {'args': ['--card-json', '@in/card.json']}
 ok(ST.job_args('07', va) == va['args'] and ST.job_args('06', va) == [] and ST.job_args('seam', va) == [] and ST.job_args('08', va) == [], 'job_args: args из inputs — только 07; 06, шов и 08 — пусто (иначе падают на «unrecognized arguments --card-json»)')
+# --- T-43/❓2: роль во вход 06 → «зад корпусной» после переноса (product.json, --product-json)
+d06 = tmpdir('s06role')
+cat06 = os.path.join(d06, 'cat.json')
+json.dump([{'sid': 'a1', 'name': 'x', 'role': 'комод', 'params': {'k': 1}}, {'sid': 'a2', 'name': 'y', 'role': ''}], open(cat06, 'w', encoding='utf-8'), ensure_ascii=False)
+inp06 = {'a1': dict(inp['s1']), 'a2': dict(inp['s1']), 'a3': dict(inp['s1'])}
+rep06 = ST.attach_06(inp06, cat06, d06)
+ok(rep06['a1'] == {'product': True, 'role': 'комод'} and not rep06['a2']['product'] and not rep06['a3']['product'], 'attach_06: product.json только у товара с ролью в каталоге; без записи/роли — файла нет, причина в отчёте')
+ok(ST.job_args('06', inp06['a1']) == ['--product-json', '@in/product.json'] and ST.job_args('06', inp06['a2']) == [] and ST.job_args('06', inp06['a3']) == [], 'job_args 06: --product-json только когда product.json во входе (иначе tex_visible не знал бы флаг лишний раз)')
+ok(WS.check_args(ST.job_args('06', inp06['a1'])) == ['--product-json', '@in/product.json'], 'job_args 06: аргументы проходят whitelist воркера')
+z06 = zipfile.ZipFile(io.BytesIO(ST.input_zip_06(inp06['a1'])))
+ok('product.json' in z06.namelist() and json.loads(z06.read('product.json'))['role'] == 'комод', 'input_zip_06: product.json (с ролью) лежит во входе 06')
+ok('product.json' not in zipfile.ZipFile(io.BytesIO(ST.input_zip_06(inp06['a3']))).namelist(), 'input_zip_06: без роли product.json нет')
+import back_panel_stage as BPS_
+vz = os.path.join(d06, 'vis'); os.makedirs(vz)
+for n in ('visible.glb', BPS_.KEEP, 'check.json'):
+    open(os.path.join(vz, n), 'wb').write(b'x')
+zz = io.BytesIO()
+with zipfile.ZipFile(zz, 'w') as z_:
+    ST.zip_dir_into(z_, vz, '06-visible')
+ok(BPS_.KEEP.endswith(ST.KEEP_SUFFIX) and sorted(zipfile.ZipFile(io.BytesIO(zz.getvalue())).namelist()) == ['06-visible/check.json', '06-visible/visible.glb'], 'вход 07/08: исходник до «зад корпусной» (visible.pre-backpanel.glb) в задания не едет')
 os.makedirs(os.path.join(d08, 'pr', 'sku1', '07-fill'), exist_ok=True)
 open(os.path.join(d08, 'pr', 'sku1', '07-fill', 'report.json'), 'w').write(json.dumps({'report': {'relief_source': None}}))
 os.makedirs(os.path.join(d08, 'pr', 'sku2', '07-fill'), exist_ok=True)
