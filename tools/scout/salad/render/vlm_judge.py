@@ -111,7 +111,15 @@ def ask(sku: str, group: str, kinds: list[str], frames: list[str], photo: str, r
     return {'answer': ans, 'usage': {'in': u.get('prompt_tokens'), 'out': u.get('completion_tokens')}, 'raw': txt[:1500]}
 
 
-def judge(sku: str, glb_path: str | None, photo: str, frames_dir: str, role: str, J: dict, cache_dir: str, chat=None) -> list[dict]:
+def call_cost(J: dict, gname: str) -> float:
+    """Оценка цены ОДНОГО вызова группы кадров, $: токены на вызов (замер по кэшу ответов) × цена модели из rules `vlm_judge.cost`."""
+    c = J.get('cost') or {}
+    tin, tout = (c.get('tokens_per_call') or {}).get(gname, (2000, 2000))
+    return (tin * float(c.get('usd_per_m_in', 0.30)) + tout * float(c.get('usd_per_m_out', 2.50))) / 1e6
+
+
+def judge(sku: str, glb_path: str | None, photo: str, frames_dir: str, role: str, J: dict, cache_dir: str, chat=None, kinds_only: list[str] | None = None,
+          budget: dict | None = None, log=None) -> list[dict]:
     """Проверки `vlm_<вид>` для формы (observe). Нет кадров/фото/ключа — отдельная проверка `vlm_judge` со значением None и причиной, не молчание."""
     from form_checks import check
     if chat is None:
@@ -119,7 +127,7 @@ def judge(sku: str, glb_path: str | None, photo: str, frames_dir: str, role: str
         import llm_gateway as LG
         chat = LG.chat
     kinds_cfg = J['kinds']
-    want = applicable(role, kinds_cfg)
+    want = [k for k in applicable(role, kinds_cfg) if kinds_only is None or k in kinds_only]
     if not want:
         return [check('vlm_judge', None, None, False, f'для роли «{role}» видов нет')]
     if not (photo and os.path.isfile(photo)):
@@ -137,9 +145,22 @@ def judge(sku: str, glb_path: str | None, photo: str, frames_dir: str, role: str
             out.append(check(f'vlm_{gname}', None, None, False, f'нет кадров {miss}'))
             continue
         fb = b''.join(hashlib.sha256(open(f, 'rb').read()).digest() for f in frames)
+        fps = [os.path.join(cache_dir, key_of(fb, ph, J['version'], J['model'], gname + ','.join(kinds), run) + '.json') for run in range(int(J['runs']))]
+        todo = sum(1 for fp in fps if not os.path.isfile(fp))
+        est = todo * call_cost(J, gname)
+        if todo and (log or budget is not None):                                  # оценка расхода — строкой в лог ДО платного вызова (правило директора 22.11)
+            line = f"vlm {sku} группа {gname}: вызовов не из кэша {todo} × ≈${call_cost(J, gname):.4f} = ≈${est:.4f}" + (f" · осталось ≈${budget['left']:.4f} из ${budget['limit']:.4f}" if budget is not None else '')
+            (log or print)(line)
+        if budget is not None and est > budget['left'] + 1e-12:                 # потолок: группу не берём (половина голосов не голос), не ошибка — отдельный флаг
+            budget['skipped'] = budget.get('skipped', 0) + 1
+            out.append(check('vlm_skipped_budget', round(est, 4), round(budget['left'], 4), True, f"группа {gname} не оценена: нужно ≈${est:.4f}, осталось ≈${budget['left']:.4f} из потолка ${budget['limit']:.4f} — показать глазам"))
+            continue
+        if budget is not None:
+            budget['left'] -= est
+            budget['spent'] = budget.get('spent', 0.0) + est
         runs = []
         for run in range(int(J['runs'])):
-            fp = os.path.join(cache_dir, key_of(fb, ph, J['version'], J['model'], gname + ','.join(kinds), run) + '.json')
+            fp = fps[run]
             if os.path.isfile(fp):
                 rec = json.load(open(fp, encoding='utf-8'))
             else:

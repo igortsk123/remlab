@@ -20,6 +20,7 @@ import time
 HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, os.path.join(HERE, '..', 'salad'))
 import migrate_groups as MG  # noqa: E402
+import kit_driver as KD       # noqa: E402 — общий вход create/start группы Salad (504 → поиск по имени, 503 → повтор)
 import salad_groups as SG    # noqa: E402
 
 CARDS = {
@@ -180,9 +181,11 @@ def main():
     elif code == 200:
         sys.exit(f'группа {name} уже есть ({(g.get("current_state") or {}).get("status")}) — не пересоздаю молча (--reuse: обновить остановленную)')
     else:
-        code, resp = MG.api('', 'POST', body)
-        say('POST создание', code, str(resp)[:200] if code >= 300 else 'ok')
+        counters: dict = {}
+        code, resp, _n = KD.api_retry(MG, '', 'POST', body, name, say, time.sleep, None, counters)      # общий вход Salad (T-20261123-03/1)
+        say('POST создание', code, str(resp)[:200] if code >= 300 else 'ok', counters or '')
         if code >= 300:
+            KD.orphan_check(MG, sys.modules[__name__], name, say, counters)
             sys.exit(1)
     for _ in range(120):                       # создание группы Salad иногда идёт 2–10 мин (pending)
         c, st, cnt = group_state(name)
@@ -192,7 +195,7 @@ def main():
     say('группа создана, статус', st)
     tl = open(os.path.join(a.out, f'timeline-{run_id}.jsonl'), 'a', encoding='utf-8')
     t_start = now()
-    code, _ = MG.api(f'/{name}/start', 'POST')
+    code, _, _n = KD.api_retry(MG, f'/{name}/start', 'POST', None, name, say, time.sleep)
     say('start HTTP', code, '— отсчёт', time.strftime('%H:%M:%S', time.gmtime(t_start)))
     seen, run_since, paid_s, last_ev = {}, None, 0.0, None
     stopped_by = None

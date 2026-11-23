@@ -314,18 +314,11 @@ def analyze(run_dir: str, card: dict | None, rules: dict | None = None, filled_g
     import tex_coverage as TC
     import tex_fill as TF
     rules = rules or load_rules()
-    cfg, dcfg = dict(rules['geometry']), rules['decision']
-    dims = card_dims(card)
-    if dims['thickness_cm'] and dims['length_cm']:
-        cfg['edge_band'] = max(cfg['edge_band_min'], min(cfg['edge_band'], cfg['edge_band_k'] * dims['thickness_cm'] / dims['length_cm']))
     vis = os.path.join(run_dir, '06-visible', 'visible.glb')
     geoms = TC.load_geoms(vis)
     known, known_src = _real_known(run_dir, len(geoms))
     if known is None:                                                         # нет known.png: только геометрическая видимость с запасных ракурсов — на невидимом верху это заливка, не фото (урок Киннера 21.11)
         known, known_src = TF.known_from_photo(geoms), 'geometry_only'
-    ctr, size = TF.frame_of(geoms)
-    offs = np.cumsum([0] + [len(g['V']) for g in geoms])
-    P = (np.concatenate([np.asarray(g['V'], np.float64) for g in geoms]) - ctr) / size
     roles = {}
     pj = os.path.join(run_dir, '03-parts', 'parts.json')
     if os.path.exists(pj):
@@ -337,6 +330,21 @@ def analyze(run_dir: str, card: dict | None, rules: dict | None = None, filled_g
     dg = os.path.join(run_dir, '01-trellis', 'model.glb')
     if os.path.exists(dg):
         draft = TF.draft_texels(geoms, TC.load_geoms(dg), None)
+    return analyze_data(geoms, known, known_src, parts, roles, draft, card, rules, photo)
+
+
+def analyze_data(geoms: list, known: list, known_src: str, parts, roles: dict, draft, card: dict | None, rules: dict, photo: str | None = None) -> dict:
+    """Голоса и решение по данным в памяти (без чтения папки прогона): `analyze` и этап 07 (`stage07`) зовут одно и то же. parts — части граней по геометриям | None; roles — {id части: роль};
+    draft — `tex_fill.draft_texels` (родной цвет TRELLIS) | None."""
+    import tex_coverage as TC
+    import tex_fill as TF
+    cfg, dcfg = dict(rules['geometry']), rules['decision']
+    dims = card_dims(card)
+    if dims['thickness_cm'] and dims['length_cm']:
+        cfg['edge_band'] = max(cfg['edge_band_min'], min(cfg['edge_band'], cfg['edge_band_k'] * dims['thickness_cm'] / dims['length_cm']))
+    ctr, size = TF.frame_of(geoms)
+    offs = np.cumsum([0] + [len(g['V']) for g in geoms])
+    P = (np.concatenate([np.asarray(g['V'], np.float64) for g in geoms]) - ctr) / size
     bg_lab = np.asarray(TC.rgb2lab(np.asarray([rules['background_rgb']], np.uint8)))[0]
     E, PL, TR, OV, top_all, texs = [], [], [], [], [], []
     RIM = []
@@ -412,6 +420,72 @@ def analyze(run_dir: str, card: dict | None, rules: dict | None = None, filled_g
 
 
 # ---------------------------------------------------------------- кадр «было | гипотеза» --------------------------
+def _fold_pattern(pat: np.ndarray, ov: int) -> np.ndarray:
+    """Первые `ov` столбцов плитки смешиваются (smoothstep) с её последними `ov` столбцами (после них идёт продолжение «в начало»), последние `ov` отрезаются; то же по строкам. Разброс узора в полосе
+    выравнивается (сумма независимых кусков). Результат короче на `ov` по каждой оси."""
+    n = pat.shape[0]
+    t = (np.arange(ov, dtype=np.float64) + 0.5) / ov
+    w = t * t * (3.0 - 2.0 * t)                                           # вес «своего» куска: 0 у стыка → 1 на краю полосы
+    k = np.sqrt(w * w + (1.0 - w) ** 2)
+
+    def fold(a, ax):
+        a = np.moveaxis(a, ax, 0)
+        head, tail = a[:ov], a[n - ov:]
+        sh = (ov,) + (1,) * (a.ndim - 1)
+        mixed = (w.reshape(sh) * head + (1.0 - w.reshape(sh)) * tail) / k.reshape(sh)
+        return np.moveaxis(np.concatenate([mixed, a[ov:n - ov]], axis=0), 0, ax)
+    return fold(fold(pat, 1), 0)
+
+
+def seamless_pattern(pat: np.ndarray, overlap, step: int | None = None) -> np.ndarray:
+    """Бесшовная плитка узора (T-187/7, правило директора 22.11 «узор без видимых стыков»): перекрытие `overlap` = [мин, макс] доли стороны (8–16 %) — берётся то из диапазона, где скачок на стыке
+    `seam_jump` минимален (стык уходит от сучка/края доски); не зеркало — волокно не отражается. Узор 512² — JPEG с блоками 8×8: перекрытие подбирается так, чтобы стык был на середине блока, не на его границе
+    (иначе мерка видит ступеньку блока, а не шов). Плитка короче на перекрытие — период берётся по `shape` результата. Число вместо диапазона — одно значение; 0 — выключено."""
+    n = pat.shape[0]
+    lo, hi = (overlap if isinstance(overlap, (list, tuple)) else (overlap, overlap))
+    if hi <= 0 or n < 16:
+        return pat
+    st = step or (8 if n % 8 == 0 else max(1, n // 64))
+    cand = sorted({int(round(f * n)) for f in np.linspace(lo, hi, 9)})
+    if n % 8 == 0:
+        cand = sorted({c + (n - c - 4) % 8 for c in cand})                 # стык (n − ov) ≡ 4 (mod 8)
+    cand = [c for c in cand if 2 <= c <= n // 3]
+    if not cand:
+        return pat
+    best = min(cand, key=lambda c: seam_jump(_fold_pattern(pat, c)))
+    return _fold_pattern(pat, best)
+
+
+def seam_jump(pat: np.ndarray) -> float:
+    """Мерка стыка плитки: средний |скачок L| через стык / средний |скачок L| между соседними столбцами (строками) внутри плитки; максимум по осям. ≤1,3 — стыка не видно (правило владельца-директора 22.11)."""
+    L = pat[:, :, 0]
+    out = []
+    for a in (L, L.T):
+        inner = np.abs(np.diff(a, axis=1)).mean()
+        seam = np.abs(a[:, 0] - a[:, -1]).mean()
+        out.append(seam / max(inner, 1e-9))
+    return float(max(out))
+
+
+def gutter_into(img: np.ndarray, ti_all, painted_idx, gutter: int) -> int:
+    """Желоб после покраски верха (T-187/7: видимая линия на столе у шва островков UV): `fill()` дублирует цвет островка в `gutter` пикселей вокруг него ДО хуков, а хук красит верх позже — желоб у
+    перекрашенных текселей оставался старым, билинейная выборка у шва брала его цвет. Здесь: непокрытые текселы атласа в пределах `gutter` от ближайшего ПЕРЕКРАШЕННОГО тексела получают его цвет.
+    `img` (T,T,C) правится на месте; `ti_all` — плоские индексы покрытых текселей геометрии, `painted_idx` — перекрашенных. → число текселей желоба."""
+    from scipy.ndimage import distance_transform_edt
+    t = img.shape[0]
+    occ = np.zeros(t * t, bool)
+    occ[np.asarray(ti_all)] = True
+    pm = np.zeros(t * t, bool)
+    pm[np.asarray(painted_idx)] = True
+    occ, pm = occ.reshape(t, t), pm.reshape(t, t)
+    if gutter <= 0 or not pm.any():
+        return 0
+    dist, (iy, ix) = distance_transform_edt(~occ, return_indices=True)
+    g = (~occ) & (dist <= gutter) & pm[iy, ix]
+    img[g, :3] = img[iy[g], ix[g], :3]
+    return int(g.sum())
+
+
 def hypothesis_textures(an: dict, rules: dict, base_texs: list, length_cm: float, library_dir: str | None = None) -> list:   # length_cm — габарит для подписи; масштаб узора — по плитке бина
     """Копия текстур с верхом, закрашенным гипотезой: тон (Lab) + узор бина (отклонение его Lab от среднего), волокна вдоль длинной стороны. Известные по фото тексели не трогаем."""
     import tex_coverage as TC
@@ -427,7 +501,7 @@ def hypothesis_textures(an: dict, rules: dict, base_texs: list, length_cm: float
     lib = rep.get('library') or {}
     pat = None
     if lib.get('bin') not in (None, 'flat') and library_dir:
-        p = os.path.join(library_dir, lib['bin'], 'diff.jpg')
+        p = os.path.join(library_dir, lib['bin'] + '.jpg')                # узор бина 512×512 (`top_library_pat512.py`; rules `library_pat`) — один источник и локально, и на Salad
         if os.path.exists(p):
             im = np.asarray(Image.open(p).convert('RGB').resize((512, 512)), np.uint8)
             L = TC.rgb2lab(im.reshape(-1, 3)).reshape(512, 512, 3)
@@ -435,7 +509,7 @@ def hypothesis_textures(an: dict, rules: dict, base_texs: list, length_cm: float
             ev, pr_ = rep.get('evidence_std_L'), rules['pattern']
             amp = pr_['amp_default'] if ev is None else float(np.clip(ev / max(float(pat[:, :, 0].std()), 1e-6), pr_['amp_min'], 1.0))
             rep['pattern_amp'] = round(amp, 2)
-            pat = pat * amp
+            pat = seamless_pattern(pat * amp, pr_.get('seam_overlap', 0.0))          # плитка без стыков (амплитуда до смешивания: полоса честно выравнивается)
             if lib.get('grain_axis') == 'v':
                 pat = np.transpose(pat, (1, 0, 2))
     tile = (lib.get('tile_cm') or [None])[0] or rules['fallback_tile_cm']
@@ -444,6 +518,7 @@ def hypothesis_textures(an: dict, rules: dict, base_texs: list, length_cm: float
     if retint:
         delta = tone - np.asarray(tr['lab'], np.float64)
         rep['applied'] = f"сдвиг тона существующего верха на ΔLab {np.round(delta, 1).tolist()} (узор модели не заменён)"
+    painted: dict = {}
     for t in an['top_all']:
         tx, top, kn = t['tx'], t['top'], t['kn']
         sel = top & ~kn
@@ -482,8 +557,9 @@ def hypothesis_textures(an: dict, rules: dict, base_texs: list, length_cm: float
             jit = (((h >> 8) % 1000) / 500.0 - 1.0) * pr['plank_tone_jitter_L']
             groove = (frac * plank_cm < pr['plank_groove_cm']) | (frac * plank_cm > plank_cm - pr['plank_groove_cm'] / 2)
         if pat is not None:
-            iu = (np.floor((u % 1.0) * 512)).astype(int) % 512
-            iv = (np.floor((s % 1.0) * 512)).astype(int) % 512
+            m = pat.shape[0]                                                # сторона плитки (после бесшовной обработки короче 512)
+            iu = (np.floor((u % 1.0) * m)).astype(int) % m
+            iv = (np.floor((s % 1.0) * m)).astype(int) % m
             lab = lab + pat[iv, iu]
         if planks:
             lab[:, 0] += jit
@@ -495,7 +571,90 @@ def hypothesis_textures(an: dict, rules: dict, base_texs: list, length_cm: float
         idx = tx.ti[sel]
         flat[idx, :3] = rgb
         out[t['gi']] = flat.reshape(img.shape)
+        painted.setdefault(t['gi'], []).append((tx.ti, idx))
+    gut = int(TF.FILL.get('gutter', 0))
+    rep['gutter_texels'] = sum(gutter_into(out[gi], np.concatenate([a for a, _b in lst]), np.concatenate([b for _a, b in lst]), gut) for gi, lst in painted.items())
     return out
+
+
+# ---------------------------------------------------------------- этап 07: верх по Ш3в ----------------------------
+CONF_RANK = {'none': 0, 'low': 1, 'medium': 2, 'high': 3}
+
+
+def stage07_gate(res: dict, rules: dict) -> tuple:
+    """Правило на ВСЕ товары (T-187/7): верх красим тоном Ш3в, если решение дало тон и его уверенность ≥ `stage07.min_confidence` (rules/top-prior.json); иначе верх остаётся как есть
+    (донор / тон своей зоны этапа 07). → (применять, причина). Чистая функция."""
+    S = rules.get('stage07', {})
+    if not S.get('enabled', False):
+        return False, 'stage07.enabled = false'
+    if res.get('tone_lab') is None:
+        return False, f"тона нет ({res.get('type')}: {res.get('reason')})"
+    grp = (res.get('card_class') or {}).get('group')
+    if grp not in S.get('groups', ['library', 'decor']):
+        return False, f"класс верха по карточке «{(res.get('card_class') or {}).get('class')}» (группа {grp}) — Ш3в только для дерева/декора под дерево"
+    need = S.get('min_confidence', 'medium')
+    if CONF_RANK.get(res.get('confidence'), 0) < CONF_RANK[need]:
+        return False, f"уверенность {res.get('confidence')} < {need}"
+    return True, f"уверенность {res.get('confidence')} ≥ {need}"
+
+
+def _top_tones(an: dict, texs: list, tag: str) -> dict:
+    """Мерка «было→стало» по верху (в отчёт 07): медиана Lab ВИДИМЫХ с фото текселей верха (`photo_top_lab`, n) и невидимых (`hidden_<tag>_lab`); dE00 невидимого к видимому — `hidden_<tag>_dE_to_photo`
+    (видимых текселей верха мало — читателю смотреть `photo_top_n`)."""
+    import tex_coverage as TC
+    ph, hid = [], []
+    for t in an['top_all']:
+        img = np.asarray(texs[t['gi']])
+        flat = img.reshape(-1, img.shape[-1])[:, :3]
+        lab = TC.rgb2lab(flat[t['tx'].ti][t['top']].astype(np.uint8))
+        kn = t['kn'][t['top']]
+        ph.append(lab[kn])
+        hid.append(lab[~kn])
+    ph, hid = (np.concatenate(x) if x else np.zeros((0, 3)) for x in (ph, hid))
+    out = {'photo_top_n': int(len(ph)), 'photo_top_lab': None if not len(ph) else [round(float(x), 1) for x in np.median(ph, axis=0)],
+           f'hidden_{tag}_lab': None if not len(hid) else [round(float(x), 1) for x in np.median(hid, axis=0)]}
+    if len(ph) and len(hid):
+        out[f'hidden_{tag}_dE_to_photo'] = round(_de(np.median(hid, axis=0), np.median(ph, axis=0)), 1)
+    return out
+
+
+def stage07(geoms: list, tex_after: list, known: list, parts, roles: dict | None, draft, card: dict | None = None, photo: str | None = None, rules: dict | None = None,
+            library_dir: str | None = None) -> tuple:
+    """Хук этапа 07 (T-187/7; канон paint-photo-fill-01, строка 7: «верх — Ш3в»). Верх (горизонтальная плита, нормаль вверх) — только тексели, которых нет на фото (`top & ~known`; known не меняется).
+    → (текстуры, отчёт). Отчёт: `top_source` — photo_top (весь верх с фото) | no_top (верха нет) | same_part_inference | trellis_prior | as_before (уверенности нет — как делал 07) и поля решения."""
+    import tex_coverage as TC  # noqa: F401
+    rules = rules or load_rules()
+    an = analyze_data(geoms, known, 'stage07', parts, roles or {}, draft, card, rules, photo)
+    res = an['report']
+    n_top = int(sum(int(t['top'].sum()) for t in an['top_all']))
+    n_hid = int(sum(int((t['top'] & ~t['kn']).sum()) for t in an['top_all']))
+    rep = {'top_source': 'as_before', 'applied': False, 'min_confidence': rules.get('stage07', {}).get('min_confidence'), 'source': res.get('source'), 'type': res.get('type'),
+           'confidence': res.get('confidence'), 'tone_lab': res.get('tone_lab'), 'reason': res.get('reason'), 'route': res.get('route'), 'n_top': n_top, 'n_top_hidden': n_hid,
+           'texels_changed': 0, 'top_class': {k: (res.get('card_class') or {}).get(k) for k in ('class', 'group')}, 'library': (res.get('library') or {}).get('bin'), 'other_material_hint': res.get('other_material_hint')}
+    rep.update(_top_tones(an, tex_after, 'before'))
+    if n_top == 0:
+        rep['top_source'] = 'no_top'
+        return [np.asarray(t) for t in tex_after], rep
+    if n_hid == 0:
+        rep['top_source'] = 'photo_top'
+        return [np.asarray(t) for t in tex_after], rep
+    ok, why = stage07_gate(res, rules)
+    rep['gate'] = why
+    if not ok:
+        return [np.asarray(t) for t in tex_after], rep
+    r2 = dict(rules, retint_native=bool(rules.get('stage07', {}).get('retint_native', False)), unknown_policy='keep')
+    lib = library_dir if library_dir is not None else os.path.join(ROOT, rules['library_pat'])
+    out = hypothesis_textures(an, r2, [np.asarray(t) for t in tex_after], rules['fallback_length_cm'], lib if os.path.isdir(lib) else None)
+    ta = _top_tones(an, out, 'after')
+    S = rules.get('stage07', {})
+    db, da = rep.get('hidden_before_dE_to_photo'), ta.get('hidden_after_dE_to_photo')
+    if rep['photo_top_n'] >= S.get('min_photo_top', 50) and db is not None and da is not None and da > db + S.get('photo_worse_de00', 0.0):
+        rep.update(gate=f'верх виден на фото ({rep["photo_top_n"]} тексел.): Ш3в дальше от фото (ΔE00 {da} > {db}) — оставлено как есть', hidden_after_dE_to_photo=da, rejected_by_photo=True)
+        return [np.asarray(t) for t in tex_after], rep
+    rep.update(ta)
+    ch = int(sum(int((np.asarray(o)[..., :3] != np.asarray(b)[..., :3]).any(axis=-1).sum()) for o, b in zip(out, tex_after)))
+    rep.update(pattern='library' if res.get('pattern_amp') is not None else 'tone_only', applied=True, top_source=res['source'], texels_changed=ch, pattern_amp=res.get('pattern_amp'), applied_note=res.get('applied'), gutter_texels=res.get('gutter_texels'))
+    return out, rep
 
 
 def render_pair(geoms, before, after, path: str, elevation: float = 55.0, azimuth: float = 0.0, res: int = 720) -> None:
@@ -517,7 +676,7 @@ def main(argv: list[str]) -> int:
     d.add_argument('--out', default='')
     d.add_argument('--length-cm', type=float, default=0.0)
     d.add_argument('--rules', default='', help='файл правил вместо rules/top-prior.json (например, с rim_de00: 0 — прогон «как было»)')
-    d.add_argument('--lib-raw', default='', help='папка со сканами бинов (<бин>/diff.jpg); по умолчанию data/flat3d/top-library/raw')
+    d.add_argument('--lib-pat', default='', help='папка узоров бинов 512×512 (<бин>.jpg); по умолчанию rules `library_pat`')
     a = ap.parse_args(argv)
     rules = load_rules(a.rules) if a.rules else load_rules()
     card = json.loads(a.card) if a.card else None
@@ -531,7 +690,7 @@ def main(argv: list[str]) -> int:
     fg = os.path.join(a.run, '07-fill', 'filled.glb')
     base = TC.load_geoms(fg if os.path.exists(fg) else os.path.join(a.run, '06-visible', 'visible.glb'))
     before = [np.asarray(g['tex']).copy() for g in base]
-    lib_dir = os.path.expanduser(a.lib_raw) if a.lib_raw else os.path.join(ROOT, os.path.dirname(rules['library']), 'raw')
+    lib_dir = os.path.expanduser(a.lib_pat) if a.lib_pat else os.path.join(ROOT, rules['library_pat'])
     after = hypothesis_textures(an, rules, before, a.length_cm or rules['fallback_length_cm'], lib_dir)
     render_pair(base, before, after, os.path.join(out, 'top_prior_frame.png'))
     rep['pattern_amp'] = an['report'].get('pattern_amp')

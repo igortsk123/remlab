@@ -11,6 +11,8 @@
 `code_tar_sha256`; воркер считает ИМЕННО этот код (образ — только среда), в ответе `code_sha`/`_code.json` — сверяется. Срез проверяется до платной группы (импорт точек входа из чистой распаковки).
 Входы — файл `inputs.json`: {"<товар>": {"glb": путь, "photo": путь RGBA-вырезки, "pose_run": папка камеры этапа 4, "body_only": false}} (список — аргументом, в код не зашит).
 Только этап 07 по готовому 06: `--stages 07 --vis-root <папка с <товар>/06-visible/>` (без `--inputs`; товары — все папки с visible.glb и check.json, сузить — `--skus a,b`): вход 07 берётся оттуда, выход — в `--out`.
+07 и шов одним пакетом: `--stages 07,seam --vis-root …` (шов берёт выход 07 из `--out` сразу после того, как 07 всех товаров готов).
+Только шов «фото | заливка» (T-196/1) по готовым 06 и 07: `--stages seam --fill-root <папка с <товар>/07-fill/> --vis-root <папка с <товар>/06-visible/>` → `<out>/<товар>/07-seam/`.
 Выход: `<out>/<товар>/06-visible/…`, `<out>/<товар>/07-fill/…` (sha256 сверен), `<out>/items-06.json`, `<out>/items-07.json` (время, пик памяти этапа, метрики).
 """
 from __future__ import annotations
@@ -31,11 +33,13 @@ SALAD = os.path.abspath(os.path.join(HERE, '..'))
 ROOT = os.path.abspath(os.path.join(HERE, '..', '..', '..', '..'))
 sys.path.insert(0, SALAD)
 sys.path.insert(0, HERE)
+sys.path.insert(0, os.path.join(SALAD, 'parts'))                                           # parts_to_npz (флаг zones_from, выбор parts.npz для 07)
 sys.path.insert(0, os.path.abspath(os.path.join(HERE, '..', '..', 'render_gpu')))       # bench_run (group_state/instances/stop_and_verify)
 import kit_driver as KD  # noqa: E402
 import kit_worker as KW  # noqa: E402
 import worker_stage as WS  # noqa: E402
 import code_tar as CT  # noqa: E402
+import parts_to_npz as PN  # noqa: E402
 from kit_driver import Gateway, say  # noqa: E402
 
 CARD_NAME = 'GTX 1650 (4 GB)'                                  # из профиля cpu_stage: самая дешёвая карта (видеокарта этапам не нужна, у Salad нет класса без неё)
@@ -120,6 +124,18 @@ def input_zip_07(vis_dir: str, code_tar: bytes | None = None, v: dict | None = N
     return buf.getvalue()
 
 
+def input_zip_seam(vis_dir: str, fill_dir: str, code_tar: bytes | None = None, v: dict | None = None) -> bytes:
+    """Вход шва (T-196/1): `06-visible/` (known*.png, conf*.png; visible.glb не нужен — не кладём) и `07-fill/filled.glb` (выход 07 того же товара)."""
+    buf = io.BytesIO()
+    with zipfile.ZipFile(buf, 'w', zipfile.ZIP_STORED) as z:
+        for n in sorted(os.listdir(vis_dir)):
+            if n.endswith('.png') and (n.startswith('known') or n.startswith('conf')):
+                z.write(os.path.join(vis_dir, n), f'06-visible/{n}')
+        z.write(os.path.join(fill_dir, 'filled.glb'), '07-fill/filled.glb')
+        add_extras(z, v or {}, code_tar)
+    return buf.getvalue()
+
+
 def job_id(stage: str, sku: str, data: bytes, a) -> str:
     """Идемпотентный id: этап + товар + хеш входа + параметры — повтор после вытеснения ноды не плодит дубль."""
     h = hashlib.sha256(data + json.dumps([stage, a.threads], sort_keys=True).encode()).hexdigest()[:12]
@@ -127,7 +143,7 @@ def job_id(stage: str, sku: str, data: bytes, a) -> str:
 
 
 def stage_dirname(stage: str) -> str:
-    return '06-visible' if stage == '06' else '07-fill'
+    return {'06': '06-visible', 'seam': '07-seam'}.get(stage, '07-fill')
 
 
 def submit_stage(gw, a, inputs: dict, stage: str, t: float) -> tuple[dict | None, dict]:
@@ -138,6 +154,13 @@ def submit_stage(gw, a, inputs: dict, stage: str, t: float) -> tuple[dict | None
     for sku, v in inputs.items():
         if stage == '06':
             data = input_zip_06(v, code.get('tar'))
+        elif stage == 'seam':
+            vis = v.get('vis') or os.path.join(getattr(a, 'vis_root', '') or a.out, sku, '06-visible')
+            fil = v.get('fill') or os.path.join(getattr(a, 'fill_root', '') or a.out, sku, '07-fill')
+            if not os.path.isfile(os.path.join(fil, 'filled.glb')) or not os.path.isfile(os.path.join(vis, 'known.png')):
+                skipped[sku] = 'нет выхода 07 (filled.glb) или known.png этапа 06 — шов не запускался'
+                continue
+            data = input_zip_seam(vis, fil, code.get('tar'), v)
         else:
             vis = v.get('vis') or os.path.join(getattr(a, 'vis_root', '') or a.out, sku, '06-visible')
             if not os.path.isfile(os.path.join(vis, 'visible.glb')):
@@ -155,7 +178,7 @@ def submit_stage(gw, a, inputs: dict, stage: str, t: float) -> tuple[dict | None
             c, r, _tinfo = KD.post_job(gw, '/jobs', body, f'/jobs/{jid}', say_fn=say)
         say(f'этап {stage} товар {sku}: POST /jobs → {c} (тело ≈{len(json.dumps(body)) / 2 ** 20:.1f} МБ)', str(r)[:120] if c != 202 else '')
         if c != 202:
-            return None, {'http': c, 'detail': r, 'sku': sku, 'accepted': list(ids)}
+            return None, {'http': c, 'detail': r, 'sku': sku, 'accepted': list(ids), 'post': _tinfo, 'reason': (_tinfo or {}).get('reason')}
         ids[sku] = jid
     if not ids:
         return None, {'detail': 'нечего отправлять: ' + json.dumps(skipped, ensure_ascii=False)}
@@ -202,6 +225,8 @@ def poll_stage(gw, a, cur: dict, t: float) -> tuple[str, dict]:
             cur['got'][sku] = items[sku] = {'status': 'failed', 'error': f'результат не распаковался: {exc}', **rec}
             continue
         cur['got'][sku] = items[sku] = {'status': 'done', 'unpacked': len(names), **rec}
+        if stage == '07':
+            items[sku]['top'] = top_state(out)
     if running:
         return 'running', {}
     for sku, why in cur.get('skipped', {}).items():
@@ -209,15 +234,45 @@ def poll_stage(gw, a, cur: dict, t: float) -> tuple[str, dict]:
     fails = {k: v for k, v in items.items() if v['status'] == 'failed'}
     ok = sum(1 for v in items.values() if v['status'] == 'done')
     info = {'items': items, 'ok': ok, 'total': len(items), 'metrics': {'ok': ok, 'total': len(items), 'failed': {k: v.get('error') for k, v in fails.items()}}}
+    if stage == '07':
+        info['metrics']['top'] = top_counts(items)
+        say(f'верх Ш3в по товарам 07 (счётчик причин): {info["metrics"]["top"]}')
     os.makedirs(a.out, exist_ok=True)
     json.dump(items, open(os.path.join(a.out, f'items-{stage}.json'), 'w', encoding='utf-8'), ensure_ascii=False, indent=1)
     return ('failed', {'status': 'failed', 'error': f'отказов {len(fails)} из {len(items)}: {list(fails)}', **info}) if fails else ('done', info)
 
 
+def top_state(out_dir: str) -> str:
+    """Что сделал хук верха Ш3в в 07 (из report.json распакованного выхода): `applied` | причина пропуска `top_skip` (no_card…) | `top_source` хука (as_before/photo_top/…) | `нет отчёта`."""
+    try:
+        rep = json.load(open(os.path.join(out_dir, 'report.json'), encoding='utf-8')).get('report', {}).get('top_prior') or {}
+    except (OSError, ValueError):
+        return 'нет отчёта'
+    if rep.get('applied'):
+        return 'applied'
+    return str(rep.get('top_skip') or rep.get('top_source') or 'нет отчёта')
+
+
+def top_counts(items: dict) -> dict:
+    """{состояние верха: сколько товаров} по items пакета 07 — в итог пакета: «no_card: 28» сразу видно, а не «тихо as_before»."""
+    c: dict = {}
+    for v in items.values():
+        if v.get('status') == 'done':
+            c[v.get('top', 'нет отчёта')] = c.get(v.get('top', 'нет отчёта'), 0) + 1
+    return c
+
+
+def top_input_problems(inputs: dict) -> tuple[list[str], list[str]]:
+    """Вход 07 боевого пути обязан нести карточку и фото для верха Ш3в (`--card-json @in/card.json`, `--photo @in/photo.png`). → (товары без карточки, товары без фото); проверка бесплатная, до создания группы."""
+    no_card = [s for s, v in inputs.items() if '--card-json' not in (v.get('args') or []) or not os.path.isfile((v.get('extra_in') or {}).get('card.json') or '')]
+    no_photo = [s for s, v in inputs.items() if '--photo' not in (v.get('args') or []) or not os.path.isfile((v.get('extra_in') or {}).get('photo.png') or '')]
+    return no_card, no_photo
+
+
 def stages_of(a) -> list[str]:
     st = [x for x in str(getattr(a, 'stages', '06,07')).split(',') if x]
-    if not st or any(x not in WS.STAGES for x in st):
-        raise ValueError(f'--stages: список из {list(WS.STAGES)}, получено {st}')
+    if not st or any(x not in WS.DRIVER_STAGES for x in st):
+        raise ValueError(f'--stages: список из {list(WS.DRIVER_STAGES)}, получено {st}')
     return st
 
 
@@ -228,6 +283,33 @@ def vis_inputs(root: str, only: str = '') -> dict[str, dict]:
     for sku in sorted(os.listdir(root)):
         v = os.path.join(root, sku, '06-visible')
         if os.path.isfile(os.path.join(v, 'visible.glb')) and os.path.isfile(os.path.join(v, 'check.json')) and (not want or sku in want):
+            out[sku] = {}
+    return out
+
+
+def attach_parts(inputs: dict, parts_root: str, vis_root: str, mode: str) -> dict:
+    """Части PartLLM в задание 07 (T-198/1): `mode` = zones_from (`parts`|`panels`). По каждому товару кладёт `extra_in['parts.npz']`, если mode=parts и файл годный (число граней = граням GLB этапа 6;
+    ещё не посчитан — граням формы `glb` из inputs), иначе 07 идёт по панелям. → {товар: {source: parts|panels, reason}} (пишется в zones-07.json)."""
+    out = {}
+    for sku, v in inputs.items():
+        vg = os.path.join(v.get('vis') or os.path.join(vis_root, sku, '06-visible'), 'visible.glb')
+        face_glb = vg if os.path.isfile(vg) else v.get('glb')
+        if mode == 'parts' and not face_glb:
+            npz, why = None, 'panels: нет GLB, с которым сверить число граней'
+        else:
+            npz, why = PN.pick_parts(parts_root, sku, face_glb, mode)
+        if npz:
+            v.setdefault('extra_in', {})['parts.npz'] = npz
+        out[sku] = {'source': 'parts' if npz else 'panels', 'reason': why}
+    return out
+
+
+def seam_inputs(fill_root: str, vis_root: str, only: str = '') -> dict[str, dict]:
+    """Товары для «только шов»: `<fill_root>/<товар>/07-fill/filled.glb` и `<vis_root>/<товар>/06-visible/known.png` (оба выхода любого прогона)."""
+    want = {s for s in only.split(',') if s}
+    out = {}
+    for sku in sorted(os.listdir(fill_root)):
+        if os.path.isfile(os.path.join(fill_root, sku, '07-fill', 'filled.glb')) and os.path.isfile(os.path.join(vis_root, sku, '06-visible', 'known.png')) and (not want or sku in want):
             out[sku] = {}
     return out
 
@@ -248,7 +330,11 @@ def make_spec(a, inputs: dict) -> KD.Spec:
                 return False, f'срез кода {a.code["sha"][:8]} неполон: {why}'
         say(f'код задания: SHA {a.code["sha"]}, tar {len(a.code["tar"]) / 1024:.0f} КБ, {len(a.code["files"])} файлов, sha256 {a.code["tar_sha256"][:16]}…, вне срезов: {a.code["outside"]}')
         bad = input_problems(inputs) if '06' in stages_of(a) else []
-        if '06' not in stages_of(a):
+        if stages_of(a) == ['seam']:
+            bad += [f'{s}: нет 07-fill/filled.glb или 06-visible/known.png' for s, v in inputs.items()
+                    if not os.path.isfile(os.path.join(v.get('fill') or os.path.join(getattr(a, 'fill_root', ''), s, '07-fill'), 'filled.glb'))
+                    or not os.path.isfile(os.path.join(v.get('vis') or os.path.join(getattr(a, 'vis_root', ''), s, '06-visible'), 'known.png'))]
+        elif '06' not in stages_of(a):
             root = getattr(a, 'vis_root', '')
             bad += [f'{s}: нет {(v.get("vis") or os.path.join(root, s, "06-visible"))}/visible.glb' for s, v in inputs.items()
                     if not os.path.isfile(os.path.join(v.get('vis') or os.path.join(root, s, '06-visible'), 'visible.glb'))]
@@ -267,10 +353,14 @@ def main() -> int:
     ap.add_argument('--inputs', default='', help='inputs.json: {товар: {glb, photo, pose_run, body_only}}')
     ap.add_argument('--stages', default='06,07', help='какие этапы гнать: 06,07 | 07 (только заливка по готовому 06 — нужен --vis-root)')
     ap.add_argument('--vis-root', default='', help='папка с <товар>/06-visible/ (вход 07 при --stages 07)')
+    ap.add_argument('--fill-root', default='', help='папка с <товар>/07-fill/ (вход шва при --stages seam; 06-visible — из --vis-root)')
     ap.add_argument('--code-ref', default='HEAD', help='SHA/ветка, чей код этапов едет в задании (code.tar из git archive; по умолчанию HEAD дерева драйвера)')
     ap.add_argument('--repo', default=ROOT, help='корень репозитория для git archive')
     ap.add_argument('--no-code-check', action='store_true', help='не проверять импорт точек входа из чистой распаковки (только если нет библиотек этапов)')
     ap.add_argument('--skus', default='', help='при --vis-root: только эти товары (по умолчанию все с готовым 06)')
+    ap.add_argument('--parts-root', default='', help='корень частей PartLLM `<товар>/03-parts/parts.npz` (parts_to_npz.py convert): едет в задание 07; источник зон — флаг zones_from')
+    ap.add_argument('--allow-no-card', action='store_true', help='07 без карточек ни у одного товара (верх Ш3в не красится); по умолчанию — отказ до создания группы')
+    ap.add_argument('--zones-from', default='', choices=['', 'parts', 'panels'], help='перебить rules/paint-fill.json zones_from (пусто — как в правилах)')
     ap.add_argument('--out', default=os.path.expanduser('~/remlab-logs/t189-1122/salad-out'))
     ap.add_argument('--card', default=CARD_NAME, help='класс Salad из профиля cpu_stage (запасные — в профиле)')
     ap.add_argument('--tier', default='low', choices=['low', 'medium'], help='low; нет машин → medium (автоматически); batch и high запрещены правилом владельца 22.11')
@@ -278,6 +368,7 @@ def main() -> int:
     ap.add_argument('--fill-procs', type=int, default=2, help='из них этапа 07 (пик памяти до 9 ГБ при 8 ГБ ноды — вариант А директора 22.11)')
     ap.add_argument('--threads', type=int, default=1, help='потоков BLAS/OpenMP на одно задание')
     ap.add_argument('--stage-timeout-s', type=int, default=900)
+    ap.add_argument("--stuck-min", type=float, default=30.0, help="сторож «завис»: шаг не менялся и GPU<5 %% дольше N мин → гашу; для CPU-этапов 06/07 GPU всегда ≈0, считают долго (07 с ничьей — до 10 мин на товар на 0,12 ядра): 30; 0 — выкл")
     ap.add_argument('--probe-cap', type=float, default=1.0, help='потолок денег, пока не готово первое задание, $')
     ap.add_argument('--cap', type=float, default=1.0, help='общий потолок, $')
     ap.add_argument('--max-min', type=int, default=60)
@@ -299,13 +390,26 @@ def main() -> int:
     if a.stop_only:
         MG.env_from_file()
         return 0 if KD.stop_and_verify(BR, f'{PREFIX}-{a.suffix}') else 1
-    if not a.image or not (a.inputs or (a.vis_root and stages_of(a) == ['07'])):
-        sys.exit('нужны --image и --inputs (или --stages 07 --vis-root)')
-    if a.inputs and a.vis_root and stages_of(a) == ['07']:
+    st_ = stages_of(a)
+    only07 = st_ in (['07'], ['07', 'seam'])                                       # 07 по готовому 06 (и шов сразу за ним: вход шва — выход 07 из --out, одним пакетом)
+    if not a.image or not (a.inputs or (a.vis_root and only07) or (a.vis_root and a.fill_root and st_ == ['seam'])):
+        sys.exit('нужны --image и --inputs (или --stages 07[,seam] --vis-root, или --stages seam --fill-root --vis-root)')
+    if a.inputs and a.vis_root and only07:
         sys.exit('--inputs и --vis-root вместе не нужны: у товара в inputs.json может быть поле "vis"')
-    inputs = load_inputs(a.inputs) if a.inputs else vis_inputs(a.vis_root, a.skus)
+    inputs = load_inputs(a.inputs) if a.inputs else (seam_inputs(a.fill_root, a.vis_root, a.skus) if st_ == ['seam'] else vis_inputs(a.vis_root, a.skus))
     if not inputs:
         sys.exit('нет товаров для пакета')
+    if '07' in stages_of(a):
+        no_card, no_photo = top_input_problems(inputs)
+        say(f'вход 07 для верха Ш3в: карточка у {len(inputs) - len(no_card)} из {len(inputs)}, фото у {len(inputs) - len(no_photo)}; без карточки: {no_card[:10]}{"…" if len(no_card) > 10 else ""}')
+        if len(no_card) == len(inputs) and not a.allow_no_card:
+            sys.exit('ни у одного товара нет карточки (card.json): Ш3в-верх не сработает нигде (тихий as_before). Собери вход через make_inputs_07.py или передай --allow-no-card')
+    if a.parts_root:
+        mode = a.zones_from or PN.zones_mode()
+        zl = attach_parts(inputs, os.path.expanduser(a.parts_root), a.vis_root or a.out, mode)
+        os.makedirs(a.out, exist_ok=True)
+        json.dump({'zones_from': mode, 'skus': zl}, open(os.path.join(a.out, 'zones-07.json'), 'w', encoding='utf-8'), ensure_ascii=False, indent=1)
+        say(f'зоны 07: zones_from={mode}, parts у {sum(1 for z in zl.values() if z["source"] == "parts")} из {len(zl)}; без parts: ' + str({k: z['reason'] for k, z in zl.items() if z['source'] != 'parts'})[:300])
     return KD.run_probe(a, MG, BR, make_spec(a, inputs))
 
 

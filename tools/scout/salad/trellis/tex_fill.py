@@ -66,6 +66,13 @@ FILL = {
     'quilt_side': 96,                # минимальная сторона плитки квилта, пикселей
     'quilt_overlap': 0.25,           # перекрытие блоков Efros–Freeman, доля блока (1/6–1/4)
     'quilt_block_min': 16, 'quilt_block_max': 48,   # блок — от периода узора (автокорреляция известного), в этих пределах
+    'pattern_lattice_margin': 0.1,   # узорная часть: решётка допустима до эталона src (та же мерка по известному фото части) + этот запас, но не ниже quilt_lattice_max
+    'pattern_min_blocks': 8.0,       # узорная часть с известным меньше стольких площадей блока: «рисунок не наблюдаем» → тон части + зерно, без квилта (решение директора 23.11)
+    'pattern_big_mul': 1.5,          # ступень (в) для узорной: блок крупнее во столько раз, пул — из всей части (развёртка)
+    'quilt_lattice_max': 0.3,        # мерка «решётка квилта»: избыточная автокорреляция детали L на лагах, кратных шагу блока (B−перекрытие), выше — пул слишком мал (блоки повторяются по сетке), квилт пересобирается
+    'quilt_stride_div': 2,           # шаг выборки блоков пула = блок / quilt_stride_div (2 = полблока); при решётке удваивается, пока мерка не уйдёт или не достигнет quilt_stride_div_max
+    'quilt_stride_div_max': 8,
+    'patch_quilt_min_pool': 8,       # блок-образец (patch 64/32/16): один «типичный» блок плиткой даёт решётку с периодом B; при стольких и более годных блоках плитка собирается квилтом из ВСЕХ (если решётка меньше)
     'quilt_pool': 600,               # блоков-кандидатов на часть (шаг полблока, только чистые по части и известные)
     'quilt_fill_px': 4,              # блок квилта: дыры известного не дальше стольких пикселей от известного (закрываются ближайшим известным остатком)
     'quilt_pool_min': 24,            # меньше блоков в пуле — порог доли известного снижается (0,9 → 0,7 → 0,5)
@@ -95,6 +102,8 @@ FILL = {
     'relief_draft_cos': 0.5,         # trellis_relief: перенос строже (Codex 21.11): нормаль точки черновика к нормали текселя — не меньше этого (берётся больший из draft_cos и этого)
     'relief_draft_max_dist': 0.015,  # trellis_relief: ближе к поверхности черновика (берётся меньший из draft_max_dist и этого)
     'relief_draft_thin_cos': -0.2,   # trellis_relief: если рядом (в пределах расстояния) есть точка черновика с нормалью против нормали текселя (cos < этого) — тонкая вещь, перёд/зад путаются → тексель без черновика (None — выкл.)
+    'ref_zone_map': None,            # Ш8м: {face_zone, face_side, map, offs} из ref_zone.compare — карта зона×сторона×свойство; применяется ПОСЛЕ заливки, только при apply_to_fill=true (по умолчанию выкл.)
+    'ref_verdict': None,             # Ш8 (ADR-0459): {часть: 'same'|'different'|'unknown'} — решение по образцу UltraTex (ref_zone.py); different → тон части без рисунка; нет — прежнее поведение
     'part_role': None,               # {часть: роль этапа 3} (run_stage берёт из 03-parts/parts.json; нет — правила по ролям не действуют)
     'pattern_side_cos': 0.2,         # узорная часть: узор кладётся только на тексели, обращённые к фото (cos нормали с направлением камеры pr_az ≥ порога); обратная сторона/сиденье/низ — тон ткани без цветов (дефект Sakura 21.11: цветы спинки на заду и сиденье)
     'smooth_roles': ['legs', 'frame', 'handles'],   # роли без плитки фактуры на недостроенном: тон части без блоков («ёлочка» стыков на дереве, Sakura 21.11)
@@ -114,6 +123,7 @@ FILL = {
     'nail_min_twins': 5,             # видимых двойников (пятен с тем же отбором) не меньше — иначе тёмное считается тенью/швом и правило молчит
     'tone_known_min_share': 0.02,    # часть с ролью этапа 3, у которой известного < этой доли её текселей: её тон — по случайным кусочкам (накладка подлокотника: известны торцы-дерево, тон вышел «песочным»); берёт тон соседней части ТОЙ ЖЕ роли с наибольшей общей границей
     'tone_compat_min_known': 1500, 'tone_compat_de': 25.0,   # донор той же роли: если у части известного ≥ порога — её видимый тон не должен отличаться от донора больше ΔE (иначе донор отвергнут)
+    'no_role_global': 'skip',                                # часть БЕЗ роли (нет этапа 3), у которой известного < min_known: 'skip' — не красить (тон ВСЕГО товара через границу материала не берётся, правило Ш6), 'legacy' — прежний тон всего товара
     'catalog_tone': None, 'skip_global_tone': True,          # каталожный тон роли {роль: Lab}; часть с ролью без своего тона и без донора/каталога НЕ красится (не тон всего товара)
     'quilt_jump_max': 0.5,           # неузорная часть: скачок на швах плитки (jump_L) выше — плитка не кладётся, тон части (швы заметны)
     'part_class': None,              # trellis_relief: {часть: роль/семья из этапа 3} (run_stage --part-roles); нет — ворота только по однородности известного
@@ -405,6 +415,99 @@ def quilt_jump(patch: np.ndarray, step: int) -> float:
     return float(0.5 * (np.abs(np.diff(L, axis=0)).mean() + np.abs(np.diff(L, axis=1)).mean()))
 
 
+def quilt_lattice(patch: np.ndarray, step: int) -> dict:
+    """Мерка «решётка квилта» (T-187/7, 23.11): повторяются ли одни и те же блоки по сетке шага `step` = B − перекрытие. Деталь яркости (L минус гауссов низкий пас σ6, плитка циклическая — она кладётся с обёрткой),
+    циклическая автокорреляция r; на каждом лаге k·step по осям — ИЗБЫТОК r над средним двух соседних лагов (±step/2): волокно дерева коррелирует на любом лаге вдоль волокна (избыток ≈ 0), повтор блока — пик
+    ровно на k·step. → {'excess': максимум избытка, 'r': r на этом лаге, 'lag': (ось, лаг)}; плитка меньше двух шагов — 0."""
+    from scipy.ndimage import gaussian_filter
+    S = patch.shape[0]
+    step = int(step)
+    if step < 2 or S < 2 * step + 2:
+        return {'excess': 0.0, 'r': 0.0, 'lag': None}
+    L = patch[..., 0].astype(np.float64)
+    L = L - gaussian_filter(L, 6, mode='wrap')
+    F = np.fft.rfft2(L)
+    ac = np.fft.irfft2(F * np.conj(F), s=L.shape)
+    if ac[0, 0] <= 1e-9:
+        return {'excess': 0.0, 'r': 0.0, 'lag': None}
+    ac = ac / ac[0, 0]
+    d = max(2, step // 2)
+    best = {'excess': -1.0, 'r': 0.0, 'lag': None}
+    for ax in (0, 1):
+        prof = ac[:, 0] if ax == 0 else ac[0, :]
+        for k in range(1, (S // 2) // step + 1):
+            lag = k * step
+            if lag + d >= S:
+                break
+            ex = float(prof[lag] - 0.5 * (prof[lag - d] + prof[lag + d]))
+            if ex > best['excess']:
+                best = {'excess': ex, 'r': float(prof[lag]), 'lag': ('y' if ax == 0 else 'x', lag)}
+    return best
+
+
+def part_rng(base: int, part, gi: int = 0) -> np.random.RandomState:
+    """Свой генератор на часть (и геометрию): результат части не зависит от того, сколько и каких частей рядом (T-187/6, 23.11)."""
+    return np.random.RandomState((int(base) + 1000003 * (int(part) + 1) + 7919 * int(gi)) % (2 ** 31 - 1))
+
+
+def known_lattice(res: np.ndarray, ok: np.ndarray, step: int):
+    """Эталон src для узорной части (T-187/6, 23.11): та же мерка, что `quilt_lattice` (деталь L = L минус гаусс σ6; избыток автокорреляции на лагах k·step над средним соседних ±step/2), но по ВСЕМУ известному
+    части с дырами: маскированная автокорреляция без обёртки (сумма произведений пар известных / число пар), нормирована на лаг 0. Это период самого рисунка фото, не квилта.
+    `res` (n,n,3) остаток цвета, `ok` (n,n) bool «известное этой части», `step` — шаг лага в пикселях/текселях ЭТОГО массива. Мало известного (< 8 шагов²) или нет лага с ≥ 50 пар — None."""
+    from scipy.ndimage import gaussian_filter
+    ok = np.asarray(ok, bool)
+    step = int(step)
+    n = ok.shape[0]
+    if step < 2 or n < 2 * step + 2 or int(ok.sum()) < 8 * step * step:
+        return None
+    m = ok.astype(np.float64)
+    L = np.asarray(res)[..., 0].astype(np.float64)
+    lo = gaussian_filter(L * m, 6) / np.maximum(gaussian_filter(m, 6), 1e-6)
+    H = (L - lo) * m
+    shp = (2 * n, 2 * n)
+    FH, FM = np.fft.rfft2(H, s=shp), np.fft.rfft2(m, s=shp)
+    num = np.fft.irfft2(FH * np.conj(FH), s=shp)
+    den = np.fft.irfft2(FM * np.conj(FM), s=shp)
+    ac = num / np.maximum(den, 1.0)
+    if ac[0, 0] <= 1e-9:
+        return None
+    ac = ac / ac[0, 0]
+    d = max(2, step // 2)
+    best = None
+    for ax in (0, 1):
+        prof = ac[:, 0] if ax == 0 else ac[0, :]
+        cnt = den[:, 0] if ax == 0 else den[0, :]
+        for k in range(1, (n // 2) // step + 1):
+            lag = k * step
+            if lag + d >= n or min(cnt[lag - d], cnt[lag], cnt[lag + d]) < 50:
+                break
+            ex = float(prof[lag] - 0.5 * (prof[lag - d] + prof[lag + d]))
+            best = ex if best is None or ex > best else best
+    return best
+
+
+def pattern_lattice_limit(src, lmax: float, margin: float) -> float:
+    """Предел решётки узорной части: max(порог, src + запас); эталона нет (известного мало) — просто порог."""
+    return float(lmax) if src is None else max(float(lmax), float(src) + float(margin))
+
+
+def pattern_unobserved(known_px: float, block_area: float, min_blocks: float) -> bool:
+    """«Рисунок не наблюдаем»: известного у узорной части меньше `min_blocks` площадей блока (в тех же единицах). Блока нет/0 — не судим (False)."""
+    return block_area > 0 and float(known_px) < float(min_blocks) * float(block_area)
+
+
+def lattice_end_action(is_pattern: bool, after: float, src, big_tried: bool, lmax: float, margin: float) -> str:
+    """Что делать, когда лестница (пул гуще → отражения ×4) кончилась, а решётка выше порога: 'ok' (после ≤ порога), 'flat' (обычная часть → плоский тон),
+    'pass' (узорная в пределах эталона — период рисунка), 'big' (узорная: ступень (в), ещё не пробовали), 'fail' (узорная: (в) была, не дошло — честный провал, рисунок не стираем)."""
+    if after <= lmax:
+        return 'ok'
+    if not is_pattern:
+        return 'flat'
+    if after <= pattern_lattice_limit(src, lmax, margin):
+        return 'pass'
+    return 'fail' if big_tried else 'big'
+
+
 def pattern_period(resL: np.ndarray, ok: np.ndarray, lo: int, hi: int) -> int:
     """Размер блока квилта по периоду узора: длина автокорреляции остатка яркости на известной части (первый лаг, где корреляция < 1/e, по осям), блок ≈ 3 длины, в [lo,hi], кратно 4."""
     from scipy.fft import rfft2, irfft2, next_fast_len
@@ -540,7 +643,7 @@ def reject_extreme_blocks(pool: list, tone_l: float, dl_hi: float, black_abs: fl
     return [b for b, kp in zip(pool, keep) if kp], int((~keep).sum())
 
 
-def render_pool(resq: np.ndarray, okr: np.ndarray, c: dict, scale: float):
+def render_pool(resq: np.ndarray, okr: np.ndarray, c: dict, scale: float, stride_div: int | None = None):
     """Блоки узора из НЕПРЕРЫВНОГО кадра видимой стороны: `resq` (res,res,3) — остаток цвета от тона части, `okr` — пиксели «известное, эта часть, лицом к камере». Блок — по периоду узора, дыры ≤ `quilt_fill_px`
     закрываются ближайшим известным; блоки пересчитываются в масштаб карты (`scale` = текселей на пиксель кадра). → (сторона блока в текселях, [блоки]) | None, если блоков мало."""
     from scipy.ndimage import distance_transform_edt, zoom
@@ -556,7 +659,7 @@ def render_pool(resq: np.ndarray, okr: np.ndarray, c: dict, scale: float):
     R = okr.shape[0]
     if R < Bq:
         return None
-    s = max(Bq // 2, 1)
+    s = max(Bq // int(stride_div or c['quilt_stride_div']), 1)
     ys = np.arange(0, R - Bq + 1, s)
     Y, X = np.meshgrid(ys, ys, indexing='ij')
 
@@ -701,7 +804,12 @@ def _band(lab_l: np.ndarray, mask: np.ndarray, s_lo: float, s_hi: float) -> tupl
     return b1 - b2[..., 0], w2
 
 
-def draft_relief(txs: list, draft: dict, labs: list, kn: list, part_ids: list, pat_parts: set, c: dict, R: dict, calib: dict | None = None) -> tuple:
+def _pb_donors(part_ids: list, stat: dict, qunobs: set) -> dict:
+    """Донор «чистой полосы фото» для «не наблюдаем»: часть с наибольшим известным (не сама)."""
+    return {p: max((q for q in part_ids if q != p), key=lambda q: stat[q][2]) for p in qunobs if len(part_ids) > 1}
+
+
+def draft_relief(txs: list, draft: dict, labs: list, kn: list, part_ids: list, pat_parts: set, c: dict, R: dict, calib: dict | None = None, no_homog: set | frozenset = frozenset(), pb_donor: dict | None = None) -> tuple:
     """Вариант C-gated (T-164, Codex+директор 21.11): цвет — как stat, фактура невидимого — рельеф яркости черновика TRELLIS (DoG-полоса в МАСШТАБЕ ПОВЕРХНОСТИ, без цвета и пятен), только там, где это безопасно.
     Ворота по части: узорная (pat_parts) → stat; класс материала части (`c['part_class']`: {часть: семья}) вне `allowed_families` (дерево, металл, стекло…) → без рельефа; класса нет → только «однотонная» (σ низкочастотной L известного ≤ homog_max_std).
     Полоса: σ_lo/σ_hi = band_lo/band_hi (доли размера предмета) ÷ шаг текселя части (texel_spacing, поправка плотности UV). Амплитуда: gain = min(gain_max, σ_фото / σ_черновика) — оба σ робастные (MAD), фото — только уверенно известное
@@ -746,14 +854,30 @@ def draft_relief(txs: list, draft: dict, labs: list, kn: list, part_ids: list, p
         if len(Lk) < c['min_known']:
             rp[p] = {'fallback': f'мало известного ({len(Lk)} текселей) — stat'}
             continue
-        shade = float(np.quantile(Lk, c['tone_shadow_q'])) if c['tone_shadow_q'] > 0 else -1e9
+        def _pb_of(selk_, Lk_, slo_, shi_):
+            shade_ = float(np.quantile(Lk_, c['tone_shadow_q'])) if c['tone_shadow_q'] > 0 and len(Lk_) else -1e9
+            out_ = []
+            for gi_, tx_ in enumerate(txs):
+                Lm_ = labs[gi_][..., 0]
+                band_, w2_ = _band(Lm_, kn[gi_] & (Lm_ >= shade_), slo_, shi_)
+                out_.append(band_.reshape(-1)[tx_.ti[selk_[gi_] & (w2_.reshape(-1)[tx_.ti] >= R['far_w']) & (Lm_.reshape(-1)[tx_.ti] >= shade_)]])
+            return np.concatenate(out_) if out_ else np.zeros(0)
+        PB = _pb_of(selk, Lk, s_lo_k, s_hi_k)
+        pb_from = None
+        if len(PB) < c['min_known'] and pb_donor and p in pb_donor:                      # «не наблюдаем» с мизерным известным: чистая полоса фото — у части с наибольшим известным (в её масштабе), как calib
+            q_ = int(pb_donor[p])
+            selq = [kn[gi].reshape(-1)[tx.ti] & (tx.part == q_) for gi, tx in enumerate(txs)]
+            Lq = np.concatenate([labs[gi].reshape(-1, 3)[tx.ti[selq[gi]], 0] for gi, tx in enumerate(txs)])
+            spq_ = float(np.median(np.concatenate([spacing[gi][tx.part == q_] for gi, tx in enumerate(txs)] or [np.zeros(0)]))) if any((tx.part == q_).any() for tx in txs) else 0.0
+            if spq_ > 0 and len(Lq) >= c['min_known']:
+                slo_q = float(np.clip(R['band_lo'] / spq_, R['sigma_lo_min'], R['sigma_lo_max']))
+                shi_q = float(np.clip(R['band_hi'] / spq_, 2.0 * slo_q, R['sigma_hi_max']))
+                PB_q = _pb_of(selq, Lq, slo_q, shi_q)
+                if len(PB_q) >= c['min_known']:
+                    PB, pb_from = PB_q, q_
         pb, dbd, dlow = [], [], []
         for gi, tx in enumerate(txs):
             T = tx.T
-            Lm = labs[gi][..., 0]
-            m_vis = kn[gi] & (Lm >= shade)
-            band, w2 = _band(Lm, m_vis, s_lo_k, s_hi_k)
-            pb.append(band.reshape(-1)[tx.ti[selk[gi] & (w2.reshape(-1)[tx.ti] >= R['far_w']) & (Lm.reshape(-1)[tx.ti] >= shade)]])
             dl = draft['lab'][gi][..., 0]
             band_d, wd = _band(dl, dok[gi], s_lo, s_hi)
             band_d = np.where(dok[gi], band_d, 0.0)
@@ -761,7 +885,6 @@ def draft_relief(txs: list, draft: dict, labs: list, kn: list, part_ids: list, p
             lowL = _blur_norm(np.repeat(dl[..., None], 3, axis=2), dok[gi], max(R['patch_frac'] / sp, 3.0 * s_hi))[0][..., 0]
             hp = np.where(dok[gi], dl - _blur_norm(np.repeat(dl[..., None], 3, axis=2), dok[gi], 1.0)[0][..., 0], 0.0)      # пиксельная высокая частота — для поиска крошки (в полосе она размазана на σ_hi)
             dbd.append((band_d, loc, lowL, wd, hp))
-        PB = np.concatenate(pb)
         if len(PB) < c['min_known']:
             rp[p] = {'fallback': f'мало уверенного фото в полосе ({len(PB)}) — stat', 'spacing': round(sp, 5)}
             continue
@@ -773,8 +896,8 @@ def draft_relief(txs: list, draft: dict, labs: list, kn: list, part_ids: list, p
             continue
         sd = _mad_sigma(DD)
         homog = float(np.concatenate([_blur_norm(np.repeat(labs[gi][..., 0][..., None], 3, axis=2), kn[gi], s_hi_k)[0][..., 0].reshape(-1)[tx.ti[selk[gi]]] for gi, tx in enumerate(txs)]).std())
-        info = {'family': fam, 'spacing': round(sp, 5), 'sigma_lo_px': round(s_lo, 2), 'sigma_hi_px': round(s_hi, 2), 'sigma_photo': round(sv, 3), 'sigma_draft': round(sd, 3), 'p95_photo': round(p95, 3), 'homog_std': round(homog, 2), 'calib_donor': calib_q, 'fallback': None}
-        if fam is None and homog > R['homog_max_std']:
+        info = {'family': fam, 'spacing': round(sp, 5), 'sigma_lo_px': round(s_lo, 2), 'sigma_hi_px': round(s_hi, 2), 'sigma_photo': round(sv, 3), 'sigma_draft': round(sd, 3), 'p95_photo': round(p95, 3), 'homog_std': round(homog, 2), 'calib_donor': calib_q if pb_from is None else pb_from, 'fallback': None}
+        if fam is None and p not in no_homog and homog > R['homog_max_std']:
             info['fallback'] = f'класса нет, часть неоднотонная (σ низких частот {homog:.1f} > {R["homog_max_std"]}) — stat'
             rp[p] = info
             continue
@@ -826,13 +949,91 @@ def draft_relief(txs: list, draft: dict, labs: list, kn: list, part_ids: list, p
 
 
 # ---------------------------------------------------------------- заливка ---------------------------------------
-def fill(geoms: list, known: list, parts: list | None = None, cfg: dict | None = None, mirror: bool = True, draft: dict | None = None, tone_only: list | None = None) -> dict:
+def seam_pass(txs: list, out_lab: list, labs: list, kn_keep: list, conf: list | None, seam_c: dict, gutter: int = 8, skip_fn=None) -> dict:
+    """Сведение шва «фото | заливка» (T-196, П1.136) на готовых растрах: out_lab[gi] (T,T,3 Lab, результат заливки) ПРАВИТСЯ на месте, kn_keep[gi] — тексели, оставшиеся 1:1 фото, тоже на месте.
+    labs[gi] — Lab фото (исходник), conf — доверие к фото-текселю (этап 6) или None, skip_fn(gi, tx) → bool (n,) зоны без перекраски. Граница = известное ↔ всё залитое (зеркало не при чём).
+    → отчёт: {'enabled', 'size_mm', 'conf_source', 'geoms': [{…, 'before', 'after'}], 'time_s'}. Общий код этапа 07 (при seam.enabled) и отдельного шага `seam_stage.py`."""
+    import tex_seam as TS
+    t_s = time.time()
+    size_mm = float(seam_c.get('size_mm') or seam_c['size_mm_default'])
+    srep = {'enabled': True}
+    srep.update({'size_mm': size_mm, 'geoms': [], 'conf_source': 'карта этапа 6' if conf is not None else 'запасное: от границы известного'})
+    for gi, tx in enumerate(txs):
+        ti = tx.ti
+        ol = out_lab[gi].reshape(-1, 3)
+        skip_ = skip_fn(gi, tx) if skip_fn else np.zeros(len(ti), bool)
+        cf = None if conf is None or gi >= len(conf) or conf[gi] is None else np.asarray(conf[gi], np.float64).reshape(-1)[ti]
+        k0f = kn_keep[gi].reshape(-1)[ti]
+        before = ol[ti].copy()
+        sb = TS.surface_dist(tx, ~(k0f & ~skip_), size_mm, seam_c['pair_mm'] + 1.0)
+        so = TS.surface_dist(tx, k0f & ~skip_, size_mm, seam_c['pair_mm'] + 1.0)
+        tmm = TS.texel_mm(tx, size_mm)
+
+        def _metric(lab_n, solid, s_in_, s_out_):
+            img = TS.atlas_with_gutter(tx, lab2rgb(lab_n), gutter if gutter > 0 else 8)
+            return TS.seam_metric(tx, TS.panel_zone(tx, seam_c['crease_deg'], seam_c['normal_smooth_iters'], seam_c['min_panel_faces']), lab_n, TS.mip1_lab(tx, img, rgb2lab), solid, s_in_, s_out_, seam_c, size_mm, tmm, TC.de2000_v)
+        m_before = _metric(before, k0f & ~skip_, sb, so)
+        # варианты сведения (T-196/1): полный (тон + контраст) | без контраста | только граница (feather); берём тот, у кого шов по мерке лучше; ни один не лучше «как было» — оставляем «как было»
+        # (мерка шва — ΔE00 p95 пар через границу; шов, который уже не виден, не трогаем: на 112923/114082 полный вариант портил шов, p95 6,7→8,2 и 3,0→5,5)
+        variants = [('full', seam_c), ('soft', dict(seam_c, contrast_gmax=min(1.3, seam_c['contrast_gmax']), patch_strength=0.5 * seam_c.get('patch_strength', 1.0))),
+                    ('no_patch', dict(seam_c, patch_texture=False)), ('no_contrast', dict(seam_c, patch_texture=False, contrast_gmin=1.0, contrast_gmax=1.0)),
+                    ('feather_only', dict(seam_c, patch_texture=False, contrast_gmin=1.0, contrast_gmax=1.0, tone_max=[0.0, 0.0, 0.0])),
+                    # только тон заливки у границы: фото не вытягивается в заливку (feather 0) и слабое фото не переводится в заливку (conf_min/full < 0) — для узких ободков, где вытяжка вредит (стул 114082_7733, ободок сиденья)
+                    ('tone_only', dict(seam_c, feather_mm=0.0, conf_min=-1.0, conf_full=-0.5, patch_texture=False, contrast_gmin=1.0, contrast_gmax=1.0))]
+
+        def _dev(mx):
+            return None if mx.get('texture_ratio') is None else abs(mx['texture_ratio'] - 1.0)
+        p95_b = m_before['dE00_p95'] if m_before['dE00_p95'] is not None else 0.0
+        step_b, dev_b = m_before.get('step_ratio'), _dev(m_before)
+        tried, best = {}, None
+        for vname, vc in variants:
+            rv = TS.blend_seam(tx, before, labs[gi].reshape(-1, 3)[ti], k0f, cf, skip_, vc, size_mm)
+            mv = _metric(rv['lab'], rv['solid'], rv['s_in'], rv['s_out'])
+            rb_, ra_ = rv['report']['rough_before'].get('rough_rms_mm'), rv['report']['rough_after'].get('rough_rms_mm')
+            tried[vname] = {k_: mv.get(k_) for k_ in ('dE00_median', 'dE00_p95', 'bad_share_pct', 'contrast_ratio', 'texture_ratio', 'step_ratio', 'step_ratio_p95')}
+            tried[vname]['rough_rms_mm'] = ra_
+            # «не навреди» по ВСЕМ меркам (те же пороги, что в check.json шва): ΔE00 p95, ступенька, фактура, шероховатость границы; не прошёл хотя бы одну — вариант отпадает
+            why = []
+            p95_v = mv['dE00_p95'] if mv['dE00_p95'] is not None else 99.0
+            if p95_v > p95_b * seam_c.get('accept_p95_ratio', 1.0) + seam_c.get('accept_p95_abs', 0.0):
+                why.append('p95')
+            if step_b is not None and mv.get('step_ratio') is not None and mv['step_ratio'] > max(step_b, seam_c.get('step_floor', 1.5)):
+                why.append('step')
+            if _dev(mv) is not None and dev_b is not None and _dev(mv) > max(dev_b, seam_c.get('texdev_floor', 0.3)):
+                why.append('texture')
+            if rb_ is not None and ra_ is not None and ra_ > rb_ * seam_c.get('rough_tol', 1.1):
+                why.append('rough')
+            tried[vname]['rejected'] = why
+            if why:
+                continue
+            key = (round(p95_v * 4.0) / 4.0, abs((mv['contrast_ratio'] or 0.0) - 1.0))     # p95 с шагом 0,25 (шум не решает), при равенстве — ближе контраст фактуры к 1
+            if best is None or key < best[0]:
+                best = (key, vname, rv, mv)
+        if best is not None:
+            _, chosen, r_, m_after_pre = best
+        else:                                                           # ни один вариант не прошёл «не навреди» — не трогаем
+            chosen, r_, m_after_pre = 'unchanged', None, m_before
+        if r_ is None:
+            r_ = {'lab': before.copy(), 'keep': k0f.copy(), 'solid': k0f & ~skip_, 's_in': sb, 's_out': so, 'report': {'zones': None, 'demoted_texels': 0, 'solid_texels': int((k0f & ~skip_).sum()), 'rough_before': TS.boundary_rough(tx, k0f, np.ones(len(ti), bool), tmm, seam_c['rough_sigma_mm'])}}
+            r_['report']['rough_after'] = r_['report']['rough_before']
+        ol[ti] = r_['lab']
+        kk = kn_keep[gi].reshape(-1).copy()
+        kk[ti] = r_['keep']
+        kn_keep[gi] = kk.reshape(kn_keep[gi].shape)
+        m_after = m_after_pre
+        srep['geoms'].append(dict(r_['report'], before=m_before, after=m_after, variant=chosen, variants=tried))
+    srep['time_s'] = round(time.time() - t_s, 2)
+    return srep
+
+
+def fill(geoms: list, known: list, parts: list | None = None, cfg: dict | None = None, mirror: bool = True, draft: dict | None = None, tone_only: list | None = None, unobs_draft_fn=None, conf: list | None = None) -> dict:
     """geoms — `tex_coverage.load_geoms`; known — по геометрии (T×T bool), parts — по геометрии номера частей ГРАНЕЙ (None — одна часть).
     draft — черновик TRELLIS на ту же форму/развёртку (`draft_texels`): {'lab': [(T,T,3) Lab], 'ok': [(T,T) bool]}; нужен при cfg['source']=='trellis': невидимое берёт цвет черновика,
     сдвинутый переносом статистики Lab (медиана/разброс части: черновик → видимое фото), детали черновика сохраняются; стыки — та же растушёвка. 'stat' (по умолчанию) — цвет части + лоскут фактуры.
     tone_only — (Ш6, р.8) по геометриям T×T bool: тексели с ТОНОВЫМ полем этапа 6 (цвет есть в visible.glb, фото-правды нет; в `known` НЕ входят). Цвет такого тексела остаётся как есть (тон-поле, среднее сохраняется),
     а фактура/заём кладутся поверх как на неизвестный (остаток без среднего); в статистику частей, пул блоков и доноры они не входят. Нет — поведение прежнее.
-    → {'tex': [uint8 (T,T,3) по геометриям], 'report': {...}}. Форма и развёртка не меняются."""
+    conf — (T-196) доверие к фото-текселю 0..1 по геометриям (T×T float; карта этапа 6 `conf.png`), нет — запасное от границы известного; нужен только сведению шва (`rules/paint-fill.json` → `seam`).
+    → {'tex': [uint8 (T,T,3) по геометриям], 'report': {...}, 'keep': [bool (T,T): тексели, оставшиеся 1:1 фото]}. Форма и развёртка не меняются."""
     from scipy.ndimage import binary_erosion, distance_transform_edt
     from scipy.sparse import coo_matrix
     from scipy.sparse.csgraph import dijkstra
@@ -899,11 +1100,11 @@ def fill(geoms: list, known: list, parts: list | None = None, cfg: dict | None =
             stat[p] = (tone, stat[p][1], stat[p][2], False)
         rep['tone_shared'][role] = {'parts': [int(p) for p in mem], 'tone': [round(float(x), 2) for x in tone], 'known': int(len(Lp))}
     rep['tone_from_neighbour'], rep['tone_source'], skip_parts = {}, {}, set()
-    if c.get('part_role'):                                       # иерархия источника тона части: своя → донор той же роли (совместимый тон) → каталог → не красить
+    if c.get('part_role') or c.get('no_role_global', 'skip') == 'skip':   # иерархия источника тона части: своя → донор той же роли (совместимый тон) → каталог → не красить
         tot_ = {p: int(sum(int((tx.part == p).sum()) for tx in txs)) for p in part_ids}
         kc_ = {p: int(stat[p][2]) for p in part_ids}
         fg_ = {p: bool(stat[p][3]) for p in part_ids}
-        info_ = choose_tone_sources(part_ids, c['part_role'], kc_, tot_, fg_, {p: stat[p][0] for p in part_ids}, part_borders(txs), c)
+        info_ = choose_tone_sources(part_ids, c.get('part_role') or {}, kc_, tot_, fg_, {p: stat[p][0] for p in part_ids}, part_borders(txs), c)
         for p in part_ids:
             i_ = info_[p]
             rep['tone_source'][int(p)] = dict(i_, known=kc_[p], texels=tot_[p])
@@ -962,9 +1163,12 @@ def fill(geoms: list, known: list, parts: list | None = None, cfg: dict | None =
     out_lab = [lb.copy() for lb in labs]
     done = [k.copy() for k in kn]                  # известное или уже залитое зеркалом/геодезией (источник дальнейших шагов)
     mirrored = [np.zeros_like(k) for k in kn]
-    sym = symmetry(txs, kn, c['mirror_eps'], c['sample'], c['mirror_cos']) if mirror else {'axis': None, 'score': 0.0, 'planes': {}}
+    mirror_on = bool(mirror) and bool(RULES.get('mirror_enabled', False))           # зеркала в пути 07 нет (rules/paint-fill.json: mirror_enabled=false); тон невидимого — донор по UltraTex (ref_zone)
+    sym = symmetry(txs, kn, c['mirror_eps'], c['sample'], c['mirror_cos']) if mirror_on else {'axis': None, 'score': 0.0, 'planes': {}}
     rep['mirror'] = {'axis': sym['axis'], 'score': sym['score'], 'planes': sym['planes'], 'applied': False, 'texels': 0}
-    if mirror and sym['axis'] is not None and sym['score'] >= c['mirror_min_score']:
+    if mirror and not mirror_on:
+        rep['mirror']['off'] = 'rules mirror_enabled=false'
+    if mirror_on and sym['axis'] is not None and sym['score'] >= c['mirror_min_score']:
         R = np.ones(3)
         R[sym['axis']] = -1
         rep['mirror']['applied'] = True
@@ -1109,8 +1313,16 @@ def fill(geoms: list, known: list, parts: list | None = None, cfg: dict | None =
         vals = np.concatenate(vals)
         if len(vals) < 50:
             continue
-        shift = float(np.clip(stat[p][0][0] - np.median(vals), -c['dL_max'], c['dL_max']))
-        rep['brightness'][p] = {'dL_before': round(float(np.median(vals) - stat[p][0][0]), 2), 'applied': 0.0}
+        tgt, tgt_from, gap = float(stat[p][0][0]), 'tone', None
+        if c.get('brightness_target', RULES.get('brightness_target', 'tone')) == 'median' and not stat[p][3]:          # T-198/1: цель — медиана L известного части (как мерит check), мода — только для a,b; статистика «глобальная» — своей медианы нет
+            Lk = np.concatenate([labs[gi].reshape(-1, 3)[tx.ti[kn[gi].reshape(-1)[tx.ti] & (tx.part == p)]][:, 0] for gi, tx in enumerate(txs)])
+            if len(Lk) >= c['min_known']:
+                med_k = float(np.median(Lk))
+                gap = round(tgt - med_k, 2)
+                if gap > float(c.get('brightness_gap', RULES.get('brightness_gap', 3.0))):
+                    tgt, tgt_from = med_k, 'median'
+        shift = float(np.clip(tgt - np.median(vals), -c['dL_max'], c['dL_max']))
+        rep['brightness'][p] = {'dL_before': round(float(np.median(vals) - tgt), 2), 'applied': 0.0, 'target': round(tgt, 2), 'target_from': tgt_from, 'mode_minus_median': gap}
         if abs(shift) < 0.5:
             continue
         for gi, tx in enumerate(txs):
@@ -1129,6 +1341,8 @@ def fill(geoms: list, known: list, parts: list | None = None, cfg: dict | None =
     # --- шаг 3: фактура (остаток высоких частот известного участка той же части), только на залитое не зеркалом
     rng = np.random.RandomState(5)
     patches, patch_gain = {}, {}
+    qunobs = set()                                         # узорные «рисунок не наблюдаем»: ни квилта, ни образца-заплатки — тон части
+    qflat = set()                                          # части, где решётка квилта/образца не ушла после всех пересборок: фактура гладко (тон части), в отчёте flat (T-187/7, 23.11)
     blk = {}                                                  # по геометрии: остаток, номер части и островка (пиксель карты)
     for gi, tx in enumerate(txs):
         T = tx.T
@@ -1145,9 +1359,13 @@ def fill(geoms: list, known: list, parts: list | None = None, cfg: dict | None =
         Lv = np.concatenate([labs[gi].reshape(-1, 3)[tx.ti[kn[gi].reshape(-1)[tx.ti] & (tx.part == p)], 0] for gi, tx in enumerate(txs)])
         shade_lo[p] = float(np.quantile(Lv, c['tone_shadow_q'])) if len(Lv) and c['tone_shadow_q'] > 0 else -1e9
     if c['patch_mode'] == 'quilt' and (dshift is None or c['draft_texture']):
-        qrng = np.random.RandomState(7)
+        qrngs = {}                                           # свой генератор на часть (живёт между ступенями лестницы: пересборки различаются)
         pr_S = pr_lab = pr_kn = pr_pm = None
-        for p in part_ids:
+        qwork = [(p, int(c['quilt_stride_div']), 0) for p in part_ids]      # часть может вернуться в конец списка с более плотным пулом (мерка решётки квилта); список растёт на ходу
+        qlat = {}
+        qsrc, qbq, qbig = {}, {}, {}          # узорные: эталон src решётки, блок первой сборки, пробовалась ли ступень (в)
+        for p, qdiv, qaug in qwork:
+            qrng = qrngs.setdefault(int(p), part_rng(7, p))
             resg, okg = [], []
             for gi, tx in enumerate(txs):
                 res_, pm, _im = blk[gi]
@@ -1161,7 +1379,7 @@ def fill(geoms: list, known: list, parts: list | None = None, cfg: dict | None =
             if sum(cnt) < 200:
                 continue
             rp = None
-            if p in pat_parts and c["pattern_render"]:                  # узорная: блоки — из непрерывного кадра видимой стороны (az фото), не из дырявой развёртки
+            if p in pat_parts and c["pattern_render"] and int(p) not in qbig:                  # узорная: блоки — из непрерывного кадра видимой стороны (az фото), не из дырявой развёртки; ступень (в) — из развёртки всей части
                 if pr_S is None:
                     pr_S = view_samples(geoms, c["pr_az"], int(c["pr_res"]), c["pr_ortho"], c["pr_el"])
                     pr_lab = sample_view(pr_S, labs)
@@ -1176,7 +1394,7 @@ def fill(geoms: list, known: list, parts: list | None = None, cfg: dict | None =
                     lim = max(c["pr_clip_l"] * 1.4826 * float(np.median(np.abs(rl - np.median(rl)))), c["pr_clip_l_min"])
                     resr[..., 0] = np.minimum(resr[..., 0], lim)
                 sc = texel_scale(geoms, parts, p, pr_S["ppu"])
-                rp = render_pool(resr * okr[..., None], okr, c, sc)
+                rp = render_pool(resr * okr[..., None], okr, c, sc, qdiv)
                 rep.setdefault("pattern_src", {})[int(p)] = ({"render": True, "pixels": int(okr.sum()), "scale": round(sc, 3), "block": rp[0], "pool": len(rp[1])} if rp is not None else {"render": False, "pixels": int(okr.sum()), "scale": round(sc, 3)})
             if rp is not None:
                 Bq, pool = rp
@@ -1184,6 +1402,8 @@ def fill(geoms: list, known: list, parts: list | None = None, cfg: dict | None =
             else:
                 gbest = int(np.argmax(cnt))                           # период узора — по геометрии, где у части больше всего известного
                 Bq = pattern_period(resg[gbest][..., 0], okg[gbest], int(c['quilt_block_min']), int(c['quilt_block_max']))
+                if int(p) in qbig:                                     # ступень (в): блок крупнее первой сборки
+                    Bq = int(min(max(Bq, int(round(qbq.get(int(p), Bq) * float(c['pattern_big_mul'])))), int(c['quilt_block_max'])))
                 oq = max(2, int(round(Bq * c['quilt_overlap'])))
                 pool = []
                 ints = {}
@@ -1197,7 +1417,7 @@ def fill(geoms: list, known: list, parts: list | None = None, cfg: dict | None =
                     pool = []
                     for gi, (fill_, (I_ok, I_pm, I_nr)) in ints.items():
                         T = txs[gi].T
-                        s = max(Bq // 2, 1)
+                        s = max(Bq // qdiv, 1)
                         ys = np.arange(0, T - Bq + 1, s)
                         Y, X = np.meshgrid(ys, ys, indexing='ij')
 
@@ -1208,6 +1428,14 @@ def fill(geoms: list, known: list, parts: list | None = None, cfg: dict | None =
                             pool.append(fill_[Y[by, bx]:Y[by, bx] + Bq, X[by, bx]:X[by, bx] + Bq])
                     if len(pool) >= int(c['quilt_pool_min']):
                         break
+            if p in pat_parts:                                         # узорная с малым известным (< pattern_min_blocks площадей блока): рисунок не наблюдаем → тон + зерно, без квилта
+                kpx_, barea_ = (int(okr.sum()), (Bq / max(sc, 1e-6)) ** 2) if rp is not None else (int(sum(cnt)), float(Bq * Bq))
+                if pattern_unobserved(kpx_, barea_, c['pattern_min_blocks']):
+                    rep.setdefault('pattern_unobserved', {})[int(p)] = {'known_px': kpx_, 'block_area': round(barea_, 1), 'blocks': round(kpx_ / max(barea_, 1.0), 2)}
+                    qflat.add(int(p))
+                    qunobs.add(int(p))
+                    rep.setdefault('quilt_lattice', {})[int(p)] = {'before': 0.0, 'rebuilt': 0, 'after': 0.0, 'flat': True, 'unobserved': True}
+                    continue
             if len(pool) < 4:
                 continue
             qo = RULES['quilt_outlier']
@@ -1235,16 +1463,59 @@ def fill(geoms: list, known: list, parts: list | None = None, cfg: dict | None =
             sd = P.reshape(len(P), -1).std(axis=1)
             glo, ghi = c['quilt_gain'] if p in pat_parts else (0.6, 1.6)
             P = P * np.clip(float(np.median(sd)) / np.maximum(sd, 1e-6), glo, ghi)[:, None, None, None]
+            if qaug:                                              # пул мал даже при самом густом шаге: ×4 отражениями (по x, по y, оба) — блоки для сетки есть, повтор по сетке реже
+                P = np.concatenate([P, P[:, ::-1], P[:, :, ::-1], P[:, ::-1, ::-1]])
             nq = int(max(c['quilt_cells'], np.ceil((c['quilt_side'] - oq) / (Bq - oq))))
-            q = wrap_soften(quilt_image(P, nq, oq, qrng, int(c['quilt_tries'])))
-            patches[p] = q
-            patch_gain[p] = 1.0
-            rep['quilt'] = rep.get('quilt', 0) + 1
-            rep.setdefault('quilt_info', {})[int(p)] = {'block': Bq, 'overlap': oq, 'cells': nq, 'pool': len(pool), 'jump_L': round(quilt_jump(q, Bq - oq), 3)}
-            if p in pat_parts:
-                raw_mean[p] = q.mean(axis=(0, 1))                 # узорная: плитка без вычитания среднего и без смешения (фон = тон, цветы поверх)
+            q = wrap_soften(quilt_image(P, nq, oq, qrng, int(c['quilt_tries']) * max(1, qdiv // int(c['quilt_stride_div'])) * (2 if qaug else 1)))
+            lat = quilt_lattice(q, Bq - oq)
+            first = int(p) not in qlat
+            if first or lat['excess'] < qlat[int(p)]:             # лучшая из сборок (первая, либо с меньшей решёткой)
+                qlat[int(p)] = lat['excess']
+                patches[p] = q
+                patch_gain[p] = 1.0
+                if first:
+                    rep['quilt'] = rep.get('quilt', 0) + 1
+                rep.setdefault('quilt_info', {})[int(p)] = {'block': Bq, 'overlap': oq, 'cells': nq, 'pool': len(pool), 'jump_L': round(quilt_jump(q, Bq - oq), 3), 'stride_div': qdiv, 'flip': qaug,
+                                                           'lattice': round(lat['excess'], 3), 'lattice_r': round(lat['r'], 3), 'lattice_lag': lat['lag']}
+                if p in pat_parts:
+                    raw_mean[p] = q.mean(axis=(0, 1))             # узорная: плитка без вычитания среднего и без смешения (фон = тон, цветы поверх)
+            if first:
+                qbq[int(p)] = Bq
+                rep.setdefault('quilt_lattice', {})[int(p)] = {'before': round(lat['excess'], 3), 'rebuilt': 0}
+            else:
+                rep['quilt_lattice'][int(p)]['rebuilt'] = qdiv
+                rep['quilt_lattice'][int(p)]['flip'] = qaug
+                rep['quilt_lattice'][int(p)]['after'] = round(qlat[int(p)], 3)
+            if lat['excess'] > c['quilt_lattice_max']:            # решётка: блоки повторяются по сетке (пул мал) — лестница: пул гуще (шаг вдвое мельче) → отражения ×4 → гладко (узорная: эталон src, ступень (в), без «гладко»)
+                if p in pat_parts and int(p) not in qsrc:                                   # эталон узора: та же мерка по известному фото части (шаг лага — в пикселях того массива)
+                    if rp is not None:
+                        qsrc[int(p)] = known_lattice(resr, okr, max(2, int(round((Bq - oq) / max(sc, 1e-6)))))
+                    else:
+                        qsrc[int(p)] = known_lattice(resg[gbest], okg[gbest], Bq - oq)
+                src_ = qsrc.get(int(p))
+                lim_ = pattern_lattice_limit(src_, c['quilt_lattice_max'], c['pattern_lattice_margin'])
+                if p in pat_parts and qlat[int(p)] <= lim_:                                   # решётка узорной не выше эталона (период самого рисунка) — не брак
+                    rep.setdefault('quilt_lattice_pattern', {})[int(p)] = {'src': None if src_ is None else round(src_, 3), 'after': round(qlat[int(p)], 3), 'limit': round(lim_, 3), 'verdict': 'pass', 'big': int(p) in qbig}
+                elif qdiv * 2 <= int(c['quilt_stride_div_max']) and int(p) not in qbig:
+                    qwork.append((p, qdiv * 2, qaug))
+                elif not qaug and int(p) not in qbig:
+                    qwork.append((p, qdiv, 1))
+                else:
+                    act_ = lattice_end_action(p in pat_parts, qlat[int(p)], src_, int(p) in qbig, c['quilt_lattice_max'], c['pattern_lattice_margin'])
+                    if act_ == 'flat':                                                        # обычная часть: гладко (тон части + зерно UltraTex)
+                        qflat.add(int(p))
+                        rep['quilt_lattice'][int(p)].update({'after_best': round(qlat[int(p)], 3), 'after': 0.0, 'flat': True})
+                    elif act_ == 'big':                                                       # узорная: ступень (в) — блок крупнее, пул из всей части, пул гуще и отражения
+                        qbig[int(p)] = float(c['pattern_big_mul'])
+                        qwork.append((p, int(c['quilt_stride_div_max']), 1))
+                    elif act_ == 'fail':                                                      # (в) не дошла — честный провал, рисунок не стираем
+                        rep.setdefault('quilt_lattice_pattern', {})[int(p)] = {'src': None if src_ is None else round(src_, 3), 'after': round(qlat[int(p)], 3), 'limit': round(lim_, 3), 'verdict': 'fail', 'big': True}
+        for p_ in qbig:                                          # (в) запускалась, но терминальной записи нет (пул мал → пропуск): итог по лучшей сборке
+            if p_ in qlat and p_ not in qunobs and p_ not in rep.get("quilt_lattice_pattern", {}):
+                lim_ = pattern_lattice_limit(qsrc.get(p_), c['quilt_lattice_max'], c['pattern_lattice_margin'])
+                rep.setdefault('quilt_lattice_pattern', {})[p_] = {'src': None if qsrc.get(p_) is None else round(qsrc[p_], 3), 'after': round(qlat[p_], 3), 'limit': round(lim_, 3), 'verdict': 'pass' if qlat[p_] <= lim_ else 'fail', 'big': True}
     for p in (part_ids if (dshift is None or c['draft_texture']) else []):
-        if p in patches:
+        if p in patches or int(p) in qunobs:
             continue
         for B, thr in ((int(c['patch']), c['patch_known_min']), (int(c['patch']) // 2, c['patch_known_min']), (int(c['patch']) // 4, c['patch_known_min2'])):
             cands = []
@@ -1272,6 +1543,38 @@ def fill(geoms: list, known: list, parts: list | None = None, cfg: dict | None =
                 pick = cands[int(np.argmin(np.abs(ss - med)))]
                 patches[p] = pick[1]
                 patch_gain[p] = med / max(pick[0], 1e-6)       # типичный блок по контрастности; амплитуда подгоняется к медиане разброса известного
+                lat0 = quilt_lattice(np.tile(pick[1], (3, 3, 1)), B)             # один блок плиткой — период B по построению: решётка (T-187/7, 23.11: дерево №20, блок 16, r 0,6 на лагах 16/32/64/96)
+                info_ = {'block': B, 'cands': len(cands), 'single_lattice': round(lat0['excess'], 3), 'used': 'single', 'lattice': round(lat0['excess'], 3)}
+                oq_ = max(2, int(round(B * c['quilt_overlap'])))
+                if len(cands) >= 3 and B - oq_ >= 2:
+                    prng = np.random.RandomState(11 + int(p))                    # свой генератор: общий rng (смещения плиток ниже) не сдвигается
+                    Pq = np.stack([x[1] for x in cands]).astype(np.float64)
+                    if len(Pq) > int(c['quilt_pool']):
+                        Pq = Pq[prng.choice(len(Pq), int(c['quilt_pool']), replace=False)]
+                    Pq = Pq - Pq.mean(axis=(1, 2), keepdims=True)
+                    sdq = Pq.reshape(len(Pq), -1).std(axis=1)
+                    Pq = Pq * np.clip(med / np.maximum(sdq, 1e-6), c['quilt_gain'][0], c['quilt_gain'][1])[:, None, None, None]
+                    nq_ = int(max(c['quilt_cells'], np.ceil((c['quilt_side'] - oq_) / (B - oq_))))
+                    best_ = None
+                    for flip_ in ((0, 1) if len(cands) >= int(c['patch_quilt_min_pool']) else (1,)):          # лестница: пул как есть → отражения ×4 (у малого пула — сразу ×4)
+                        Pf = np.concatenate([Pq, Pq[:, ::-1], Pq[:, :, ::-1], Pq[:, ::-1, ::-1]]) if flip_ else Pq
+                        q_ = wrap_soften(quilt_image(Pf, nq_, oq_, prng, int(c['quilt_tries']) * (2 if flip_ else 1)))
+                        l_ = quilt_lattice(q_, B - oq_)
+                        if best_ is None or l_['excess'] < best_[1]['excess']:
+                            best_ = (q_, l_, flip_)
+                        if l_['excess'] <= c['quilt_lattice_max']:
+                            break
+                    q_, lat1, flip_ = best_
+                    info_.update({'quilt_lattice': round(lat1['excess'], 3), 'quilt_tile': int(q_.shape[0]), 'flip': flip_})
+                    if lat1['excess'] < lat0['excess']:
+                        patches[p] = q_
+                        patch_gain[p] = med / max(float(q_.std()), 1e-6)
+                        info_['used'] = 'quilt'
+                        info_['lattice'] = round(lat1['excess'], 3)
+                if info_['lattice'] > c['quilt_lattice_max']:                     # решётка осталась — гладко (тон части), мерка по итогу 0
+                    qflat.add(int(p))
+                    info_.update({'used': 'flat', 'lattice_best': info_['lattice'], 'lattice': 0.0})
+                rep.setdefault('patch_lattice', {})[int(p)] = info_
                 break
         else:
             Bq, nq = int(c['quilt_block']), int(c['quilt_n'])
@@ -1299,7 +1602,7 @@ def fill(geoms: list, known: list, parts: list | None = None, cfg: dict | None =
                 ss = np.array([x[0] for x in cands])
                 med = float(np.median(ss))
                 near = np.argsort(np.abs(ss - med))[:max(2, min(len(cands), 32))]
-                pick = rng.choice(near, size=nq * nq, replace=True)
+                pick = part_rng(5, p).choice(near, size=nq * nq, replace=True)
                 rows = [np.concatenate([cands[int(pick[r * nq + q])][1] for q in range(nq)], axis=1) for r in range(nq)]
                 patches[p] = np.concatenate(rows, axis=0)
                 patch_gain[p] = med / max(float(patches[p].std()), 1e-6)
@@ -1328,16 +1631,21 @@ def fill(geoms: list, known: list, parts: list | None = None, cfg: dict | None =
             borrow_ratio = {}
     rep['texture_src'] = {int(p): ('borrow' if p in rep.get('borrowed', {}) else 'quilt' if p in rep.get('quilt_info', {}) else ('patch' if p in patches else 'none')) for p in part_ids}      # чем даётся фактура на каждой части: квилт из чистых блоков / один блок / ничем (гладко, счётчик no_patch)
     relief = None
-    if c['source'] == 'trellis_relief':
+    unobs_only = c['source'] != 'trellis_relief' and bool(qunobs) and unobs_draft_fn is not None       # боевой путь (stat): рельеф UltraTex — только «рисунок не наблюдаем»
+    if c['source'] == 'trellis_relief' or unobs_only:
         calib_ = {int(p_): int(v_['donor']) for p_, v_ in rep.get('tone_from_neighbour', {}).items()} if c.get('relief_calib_donor') else None
-        relief, rep['relief'] = draft_relief(txs, draft, labs, kn, part_ids, set(raw_mean) | set(pat_parts), c, RULES['trellis_relief'], calib=calib_)
+        if unobs_only:
+            draft = unobs_draft_fn()
+            relief, rep["relief"] = draft_relief(txs, draft, labs, kn, sorted(qunobs), set(), c, RULES["trellis_relief"], calib=calib_, no_homog=frozenset(qunobs), pb_donor=_pb_donors(part_ids, stat, qunobs))
+        else:
+            relief, rep["relief"] = draft_relief(txs, draft, labs, kn, part_ids, (set(raw_mean) | set(pat_parts)) - qunobs, c, RULES["trellis_relief"], calib=calib_, no_homog=frozenset(qunobs), pb_donor=_pb_donors(part_ids, stat, qunobs))          # «рисунок не наблюдаем» — как обычная часть: рельеф UltraTex (T-187/6, 23.11)
         Rr = RULES['trellis_relief']
         spac = [texel_spacing(tx) for tx in txs]
         fade = []
         for gi, tx in enumerate(txs):                            # затухание рельефа от границы фото в ФИЗИЧЕСКОМ расстоянии (шаг текселя × расстояние в карте), известные тексели не трогаем
             dpx = distance_transform_edt(~kn[gi])
             fade.append(np.clip(dpx.reshape(-1)[tx.ti] * spac[gi] / max(Rr['fade_len'], 1e-9), 0.0, 1.0))
-        smooth_parts = {p for p in part_ids if p not in raw_mean and p not in pat_parts and rep.get('quilt_rejected_share', {}).get(p, 0.0) > Rr['smooth_pool_rejected']}
+        smooth_parts = set() if unobs_only else {p for p in part_ids if p not in raw_mean and p not in pat_parts and rep.get('quilt_rejected_share', {}).get(p, 0.0) > Rr['smooth_pool_rejected']}
         rep['relief_smooth_parts'] = sorted(int(p) for p in smooth_parts)
     for gi, tx in enumerate(txs):
         T = tx.T
@@ -1355,9 +1663,10 @@ def fill(geoms: list, known: list, parts: list | None = None, cfg: dict | None =
             if not sel.any():
                 continue
             Bp = patches[p].shape[0]
-            tile = patches[p] if p in raw_mean else _gaussian_tile(patches[p], rng)
-            ox1, oy1 = rng.randint(0, Bp, 2)
-            ox2, oy2 = rng.randint(0, Bp, 2)
+            rng_p = part_rng(5, p, gi)
+            tile = patches[p] if p in raw_mean else _gaussian_tile(patches[p], rng_p)
+            ox1, oy1 = rng_p.randint(0, Bp, 2)
+            ox2, oy2 = rng_p.randint(0, Bp, 2)
             t2 = np.rot90(tile)
             qx_, qy_ = px[sel], py[sel]
             if p in borrow_ratio and c.get('borrow_rescale', True):                                  # лоскут донора — в масштабе поверхности (физический размер зерна тот же)
@@ -1370,8 +1679,9 @@ def fill(geoms: list, known: list, parts: list | None = None, cfg: dict | None =
                 add[sel, 1:] = 0.0                                                                    # заём: только яркость
             if p in raw_mean:                                                                         # узор только на стороне фото: зад, сиденье, низ — тон без цветов
                 add[sel & ~side_ok] = 0.0
-            smooth_p = smooth_part_rule(roles_.get(p, roles_.get(str(p))), rep.get('quilt_info', {}).get(p, {}).get('jump_L'), p in raw_mean, c)
-            if smooth_p:                                                                              # дерево/каркас и плитка с заметными швами — гладко, без «ёлочки»
+            rv_ = (c.get('ref_verdict') or {})
+            smooth_p = smooth_part_rule(roles_.get(p, roles_.get(str(p))), rep.get('quilt_info', {}).get(p, {}).get('jump_L'), p in raw_mean, c, rv_.get(p, rv_.get(str(p))))
+            if smooth_p or int(p) in qflat:                                                                              # дерево/каркас и плитка с заметными швами — гладко, без «ёлочки»
                 add[sel] = 0.0
                 rep.setdefault('quilt_smooth_parts', [])
                 if int(p) not in rep['quilt_smooth_parts']:
@@ -1397,6 +1707,13 @@ def fill(geoms: list, known: list, parts: list | None = None, cfg: dict | None =
                 rep['tone_only_texels'] += int(ts_.sum())
         out_lab[gi].reshape(-1, 3)[tx.ti[unk_flat]] += add
     rep['time_s']['texture'] = round(time.time() - t0, 2)
+    # --- сведение шва «фото | заливка» (T-196, П1.136): доверие → тон зоны → контраст фактуры и переход на сомнительных краях фото; мерка шва до/после (на mip1)
+    seam_c = dict(RULES.get('seam') or {}, **((cfg or {}).get('seam') or {}))
+    rep['seam'] = {'enabled': bool(seam_c.get('enabled'))}
+    if seam_c.get('enabled'):
+        rep['seam'] = seam_pass(txs, out_lab, labs, kn_keep, conf, seam_c, c['gutter'],
+                                lambda gi, tx: (np.isin(tx.part, sorted(skip_parts)) & ~mirrored[gi].reshape(-1)[tx.ti]) if skip_parts else np.zeros(len(tx.ti), bool))
+        rep['time_s']['seam'] = rep['seam']['time_s']
     # --- итог: RGB, желоб, проверка покрытия
     outs = []
     nail_masks = {}
@@ -1429,57 +1746,66 @@ def fill(geoms: list, known: list, parts: list | None = None, cfg: dict | None =
             g_ = (~occ) & (dist <= c['gutter'])
             rgb[g_] = rgb[iy[g_], ix[g_]]
         outs.append(rgb)
-        bad_before = int((unpainted_mask(tex_in[gi].reshape(-1, 3)[tx.ti])).sum())
-        bad_after = int((unpainted_mask(rgb.reshape(-1, 3)[tx.ti])).sum())
-        rep['geoms'][gi].update({'unpainted_before': bad_before, 'unpainted_after': bad_after})
-        vc = view_class(tx.N * np.where((tx.Q * tx.N).sum(axis=1) >= 0.0, 1.0, -1.0)[:, None])     # вид по наружной нормали (наружу — по знаку (точка − центр)·нормаль)
-        ub, ua = unpainted_mask(tex_in[gi].reshape(-1, 3)[tx.ti]), unpainted_mask(rgb.reshape(-1, 3)[tx.ti])
-        rep['geoms'][gi]['by_view'] = [[int((vc == i).sum()), int((vc == i)[ub].sum()), int((vc == i)[ua].sum())] for i in range(len(VIEW_CLASSES))]
-        nfc = np.bincount(tx.f, minlength=len(tx.F)).astype(np.float64)
-        tx.unk_face = (np.bincount(tx.f, weights=(~kn[gi].reshape(-1)[tx.ti]).astype(np.float64), minlength=len(tx.F)) > 0.5 * np.maximum(nfc, 1.0)) & (nfc > 0)
-        nm_ = nail_masks.get(gi)
-        if nm_ is not None:
-            from scipy.ndimage import binary_dilation
-            nm_ = binary_dilation(nm_, iterations=1)
-        rep['geoms'][gi]['steps'] = {'before': step_stats(tx, tex_in[gi], c['step_de']), 'after': step_stats(tx, rgb, c['step_de'], nm_)}
-        if nm_ is not None:
-            rep['geoms'][gi]['steps']['after_with_nails'] = step_stats(tx, rgb, c['step_de'])
-    far = {'known': [], 'filled': []}
-    rs = np.random.RandomState(11)
-    for gi, tx in enumerate(txs):
-        lab_o = rgb2lab(outs[gi].reshape(-1, 3)[tx.ti])
-        kk = kn[gi].reshape(-1)[tx.ti]
-        for p in part_ids:
-            sel = tx.part == p
-            for nm, m in (('known', sel & kk), ('filled', sel & ~kk)):
-                idx = np.nonzero(m)[0]
-                if len(idx) > 100000:
-                    idx = rs.choice(idx, 100000, replace=False)
-                if len(idx):
-                    far[nm].append((TC.de2000_v(lab_o[idx], np.broadcast_to(stat[p][0], (len(idx), 3)).copy()) > c['far_de']))
-    fk = float(np.concatenate(far['known']).mean()) * 100.0 if far['known'] else 0.0
-    ff = float(np.concatenate(far['filled']).mean()) * 100.0 if far['filled'] else 0.0
-    rep['far_pct'] = {'known': round(fk, 2), 'filled': round(ff, 2), 'excess': round(ff - fk, 2)}
-    n_all = sum(r['texels'] for r in rep['geoms'])
-    rep['texels'] = n_all
-    bv = np.sum([r['by_view'] for r in rep['geoms']], axis=0)
-    rep['unpainted_by_view'] = {nm: {'texels_pct': round(100.0 * int(bv[i, 0]) / max(n_all, 1), 2), 'before_of_all_pct': round(100.0 * int(bv[i, 1]) / max(n_all, 1), 3),
-                                     'after_of_all_pct': round(100.0 * int(bv[i, 2]) / max(n_all, 1), 3)} for i, nm in enumerate(VIEW_CLASSES)}
-    rep['known_pct'] = round(100.0 * sum(r['known'] for r in rep['geoms']) / max(n_all, 1), 2)
-    rep['mirrored_pct'] = round(100.0 * sum(r['mirrored'] for r in rep['geoms']) / max(n_all, 1), 2)
-    rep['geodesic_pct'] = round(100.0 * sum(r['geodesic'] for r in rep['geoms']) / max(n_all, 1), 2)
-    rep['part_mean_pct'] = round(100.0 * sum(r['part_mean'] for r in rep['geoms']) / max(n_all, 1), 2)
-    rep['unpainted_before_pct'] = round(100.0 * sum(r['unpainted_before'] for r in rep['geoms']) / max(n_all, 1), 3)
-    rep['unpainted_after_pct'] = round(100.0 * sum(r['unpainted_after'] for r in rep['geoms']) / max(n_all, 1), 3)
-    rep['steps'] = {}
-    for k in ('before', 'after'):
-        ss = [r['steps'][k] for r in rep['geoms']]
-        n = max(sum(x['pairs'] for x in ss), 1)
-        rep['steps'][k] = {'faces_step_pct': round(sum(x['faces_step_pct'] * x['pairs'] for x in ss) / n, 2),
-                           'pairs_step_pct': round(sum(x['pairs_step_pct'] * x['pairs'] for x in ss) / n, 2),
-                           'filled_faces_step_pct': (round(sum((x['filled_faces_step_pct'] or 0.0) * x['pairs'] for x in ss) / n, 2) if any(x['filled_faces_step_pct'] is not None for x in ss) else None)}
-    rep['time_s']['all'] = round(time.time() - t0, 2)
-    return {'tex': outs, 'report': rep}
+
+    def finish(outs):
+        """Мерки по ГОТОВОЙ текстуре (outs): непокрашенное, виды, ступени, далёкий цвет. fill() зовёт её сам; run_stage_once — ещё раз по итогу после всех хуков (р.7, 23.11)."""
+        for gi, tx in enumerate(txs):
+            T = tx.T
+            rgb = outs[gi]
+            bad_before = int((unpainted_mask(tex_in[gi].reshape(-1, 3)[tx.ti])).sum())
+            bad_after = int((unpainted_mask(rgb.reshape(-1, 3)[tx.ti])).sum())
+            rep['geoms'][gi].update({'unpainted_before': bad_before, 'unpainted_after': bad_after})
+            vc = view_class(tx.N * np.where((tx.Q * tx.N).sum(axis=1) >= 0.0, 1.0, -1.0)[:, None])     # вид по наружной нормали (наружу — по знаку (точка − центр)·нормаль)
+            ub, ua = unpainted_mask(tex_in[gi].reshape(-1, 3)[tx.ti]), unpainted_mask(rgb.reshape(-1, 3)[tx.ti])
+            rep['geoms'][gi]['by_view'] = [[int((vc == i).sum()), int((vc == i)[ub].sum()), int((vc == i)[ua].sum())] for i in range(len(VIEW_CLASSES))]
+            nfc = np.bincount(tx.f, minlength=len(tx.F)).astype(np.float64)
+            tx.unk_face = (np.bincount(tx.f, weights=(~kn[gi].reshape(-1)[tx.ti]).astype(np.float64), minlength=len(tx.F)) > 0.5 * np.maximum(nfc, 1.0)) & (nfc > 0)
+            nm_ = nail_masks.get(gi)
+            if nm_ is not None:
+                from scipy.ndimage import binary_dilation
+                nm_ = binary_dilation(nm_, iterations=1)
+            rep['geoms'][gi]['steps'] = {'before': step_stats(tx, tex_in[gi], c['step_de']), 'after': step_stats(tx, rgb, c['step_de'], nm_)}
+            if nm_ is not None:
+                rep['geoms'][gi]['steps']['after_with_nails'] = step_stats(tx, rgb, c['step_de'])
+        far = {'known': [], 'filled': []}
+        rs = np.random.RandomState(11)
+        for gi, tx in enumerate(txs):
+            lab_o = rgb2lab(outs[gi].reshape(-1, 3)[tx.ti])
+            kk = kn[gi].reshape(-1)[tx.ti]
+            for p in part_ids:
+                sel = tx.part == p
+                for nm, m in (('known', sel & kk), ('filled', sel & ~kk)):
+                    idx = np.nonzero(m)[0]
+                    if len(idx) > 100000:
+                        idx = rs.choice(idx, 100000, replace=False)
+                    if len(idx):
+                        far[nm].append((TC.de2000_v(lab_o[idx], np.broadcast_to(stat[p][0], (len(idx), 3)).copy()) > c['far_de']))
+        fk = float(np.concatenate(far['known']).mean()) * 100.0 if far['known'] else 0.0
+        ff = float(np.concatenate(far['filled']).mean()) * 100.0 if far['filled'] else 0.0
+        rep['far_pct'] = {'known': round(fk, 2), 'filled': round(ff, 2), 'excess': round(ff - fk, 2)}
+        n_all = sum(r['texels'] for r in rep['geoms'])
+        rep['texels'] = n_all
+        bv = np.sum([r['by_view'] for r in rep['geoms']], axis=0)
+        rep['unpainted_by_view'] = {nm: {'texels_pct': round(100.0 * int(bv[i, 0]) / max(n_all, 1), 2), 'before_of_all_pct': round(100.0 * int(bv[i, 1]) / max(n_all, 1), 3),
+                                         'after_of_all_pct': round(100.0 * int(bv[i, 2]) / max(n_all, 1), 3)} for i, nm in enumerate(VIEW_CLASSES)}
+        rep['known_pct'] = round(100.0 * sum(r['known'] for r in rep['geoms']) / max(n_all, 1), 2)
+        rep['mirrored_pct'] = round(100.0 * sum(r['mirrored'] for r in rep['geoms']) / max(n_all, 1), 2)
+        rep['geodesic_pct'] = round(100.0 * sum(r['geodesic'] for r in rep['geoms']) / max(n_all, 1), 2)
+        rep['part_mean_pct'] = round(100.0 * sum(r['part_mean'] for r in rep['geoms']) / max(n_all, 1), 2)
+        rep['unpainted_before_pct'] = round(100.0 * sum(r['unpainted_before'] for r in rep['geoms']) / max(n_all, 1), 3)
+        rep['unpainted_after_pct'] = round(100.0 * sum(r['unpainted_after'] for r in rep['geoms']) / max(n_all, 1), 3)
+        rep['steps'] = {}
+        for k in ('before', 'after'):
+            ss = [r['steps'][k] for r in rep['geoms']]
+            n = max(sum(x['pairs'] for x in ss), 1)
+            rep['steps'][k] = {'faces_step_pct': round(sum(x['faces_step_pct'] * x['pairs'] for x in ss) / n, 2),
+                               'pairs_step_pct': round(sum(x['pairs_step_pct'] * x['pairs'] for x in ss) / n, 2),
+                               'filled_faces_step_pct': (round(sum((x['filled_faces_step_pct'] or 0.0) * x['pairs'] for x in ss) / n, 2) if any(x['filled_faces_step_pct'] is not None for x in ss) else None)}
+        rep['time_s']['all'] = round(time.time() - t0, 2)
+        return rep
+
+    finish(outs)
+    return {'tex': outs, 'report': rep, 'finish': finish, 'keep': kn_keep}
 
 
 # ---------------------------------------------------------------- черновик TRELLIS на нашу форму --------------------
@@ -1537,6 +1863,25 @@ def draft_texels(geoms: list, draft_geoms: list, cfg: dict | None = None) -> dic
 
 
 # ---------------------------------------------------------------- кадры «до | после» -------------------------------
+def side_azimuths(geoms: list, known: list, cands=(0.0, 90.0, 180.0, 270.0), res: int = 256) -> dict:
+    """Стороны предмета по known (T-187/6, 23.11): фото-сторона — азимут, с которого видно больше всего известных (фото) текселей; зад — противоположный. Не по числу: формы лежат передом в разные стороны.
+    → {'photo': az, 'back': az, 'shares': {az: доля известного в кадре}}; known нет/пуст — {'photo': 0, 'back': 180, 'shares': {}, 'fallback': True}."""
+    try:
+        kn = [np.where(np.asarray(k, bool)[..., None], np.array([255, 0, 0], np.uint8), np.array([0, 0, 255], np.uint8)).astype(np.uint8) for k in known]      # известное — красное, нет — синее (фон серый, не считается)
+        sh = {}
+        for az in cands:
+            im = render_ortho(geoms, kn, az, res=res)
+            red = int((im[..., 0].astype(int) - im[..., 2].astype(int) > 40).sum())
+            blue = int((im[..., 2].astype(int) - im[..., 0].astype(int) > 40).sum())
+            sh[az] = red / max(red + blue, 1)
+        best = max(sh, key=lambda a: sh[a])
+        if sh[best] <= 0.005:
+            return {'photo': 0.0, 'back': 180.0, 'shares': sh, 'fallback': True}
+        return {'photo': float(best), 'back': float((best + 180.0) % 360.0), 'shares': {str(int(k)): round(v, 4) for k, v in sh.items()}}
+    except Exception as e:  # noqa: BLE001
+        return {'photo': 0.0, 'back': 180.0, 'shares': {}, 'fallback': True, 'error': f'{type(e).__name__}: {e}'}
+
+
 def render_ortho(geoms: list, texs: list, azimuth: float = 180.0, res: int = 1024, ortho: float = 1.25, elevation: float = 0.0):
     """Ортографический кадр предмета с заданного азимута (0 — в лоб, 180 — сзади) с текстурами `texs` (по геометриям): цвет текстуры × освещение лоб-светом. Для проб, не для продукта."""
     ctr, size = frame_of(geoms)
@@ -1589,6 +1934,10 @@ def load_rules(path: str | None = None) -> dict:
             raise KeyError(f'rules/paint-fill.json: нет ключа {k!r}')
     if 'trellis_relief' not in r:
         raise KeyError("rules/paint-fill.json: нет ключа 'trellis_relief'")
+    for k in ('enabled', 'size_mm_default', 'conf_min', 'conf_full', 'edge_mm', 'probe_mm', 'cell_mm', 'reach_mm', 'tone_decay_mm', 'tone_max', 'min_cell', 'hi_sigma_mm', 'contrast_decay_mm',
+              'contrast_gmin', 'contrast_gmax', 'contrast_floor', 'pair_mm', 'pair_cos', 'de_bad', 'poisson', 'crease_deg', 'normal_smooth_iters', 'min_panel_faces', 'feather_mm', 'feather_lo', 'feather_hi', 'rough_sigma_mm', 'accept_p95_ratio', 'accept_p95_abs', 'patch_texture', 'patch_reach_mm', 'patch_strength', 'patch_mm', 'patch_decay_mm', 'texture_band_mm', 'step_floor', 'texdev_floor', 'rough_tol', 'cpu_s_per_variant_geom', 'tone_zone_min_cells'):
+        if k not in (r.get('seam') or {}):
+            raise KeyError(f'rules/paint-fill.json: seam.{k} не задан')
     for k in ('gain_max', 'clip_k', 'patch_frac', 'patch_dl', 'dilate_px', 'part_max_share', 'band_lo', 'band_hi', 'sigma_lo_min', 'sigma_lo_max', 'sigma_hi_max', 'far_w', 'p95_cap',
               'ok_erode_px', 'allowed_families', 'homog_max_std', 'fade_len', 'smooth_pool_rejected'):
         if k not in r['trellis_relief']:
@@ -1596,7 +1945,7 @@ def load_rules(path: str | None = None) -> dict:
     for k in ('quilt_extreme', 'mirror_extreme'):
         if 'black_rel' not in r[k]:
             raise KeyError(f'rules/paint-fill.json: {k}.black_rel не задан')
-    for k in ('pool_rejected_pct', 'empty_pct', 'dE00_front_back', 'filled_faces_step_pct', 'far_excess_pct', 'known_changed_share_pct', 'time_s'):
+    for k in ('pool_rejected_pct', 'empty_pct', 'dE00_front_back', 'dL_front_back', 'filled_faces_step_pct', 'far_excess_pct', 'known_changed_share_pct', 'cpu_s', 'front_on_back_corr', 'quilt_lattice_max'):
         if k not in r['thresholds']:
             raise KeyError(f'rules/paint-fill.json: threshold {k!r} не задан')
     return r
@@ -1606,16 +1955,29 @@ RULES = load_rules()
 THRESHOLDS = {k: (v[0], float(v[1])) for k, v in RULES['thresholds'].items()}   # пороги этапа (check.json) из rules/paint-fill.json: ΔE00 перёд↔зад (худшая часть с известным ≥ 1 %), ступени, пятна, «известное не изменено» (0), время
 
 
+def load_part_modules():
+    """Модули частей граней из `tools/assets` (material_parts, parts_refine, parts_vote) и их правила. → (MP, PR, PV, правила material_parts, правила parts_vote).
+    НЕ ГЛОТАЕТ ошибки загрузки (T-193/3, 22.11): нет модуля/файла правил (ImportError/OSError/ValueError) — исключение, этап падает. Раньше `except Exception` превращал это в «частей нет»,
+    и на Salad (в срезе кода не было tools/assets) 07 тихо считался БЕЗ частей, расходясь с локальным (сверка T-193/2)."""
+    assets = os.path.abspath(os.path.join(HERE, '..', '..', '..', 'assets'))
+    if assets not in sys.path:
+        sys.path.insert(0, assets)
+    import material_parts as MP
+    import parts_refine as PR
+    import parts_vote as PV
+
+    def rules_of(mod) -> str:                                     # ROOT/data/flat3d/x.json; в срезе кода для Salad те же байты лежат как tools/assets/_data/flat3d/x.json (воркер распаковывает только tools/…, code_tar.packed_name)
+        p = mod.RULES_PATH
+        packed = os.path.join(assets, '_data', 'flat3d', os.path.basename(p))
+        return p if os.path.isfile(p) or not os.path.isfile(packed) else packed
+    return MP, PR, PV, MP.load_rules(rules_of(MP)), PV.load_rules(rules_of(PV))
+
+
 def merge_orphan_parts(mesh, part: np.ndarray):
     """Запасное деление по геометрии: часть-«сирота» (доля ПЛОЩАДИ < `refine.orphan_max_area_share` из parts-sam-rules.json) вливается в соседа с самой длинной границей — общее правило этапа 3 (`parts_refine.merge_orphans`, T-169), не дубль.
-    У сироты нет текселей с фото, она красилась бы тоном целого (светлый клин у верха ножки). Нет модулей этапа 3 или порога — части как были. → (части с плотными номерами, строка для note: '' | '; сирот влито N')."""
-    try:
-        sys.path.insert(0, os.path.join(HERE, '..', '..', '..', 'assets'))
-        import parts_refine as PR
-        import parts_vote as PV
-        thr = PV.load_rules().get('refine', {}).get('orphan_max_area_share')
-    except Exception:  # noqa: BLE001 — нет parts_refine/parts_vote/правил (ветка этапа 3 не влита): прежний путь
-        return part, '; сирот не ищем (нет parts_refine)'
+    У сироты нет текселей с фото, она красилась бы тоном целого (светлый клин у верха ножки). Нет порога в правилах — части как были; нет МОДУЛЕЙ/правил — ошибка (`load_part_modules`). → (части с плотными номерами, строка для note: '' | '; сирот влито N')."""
+    _, PR, PV, _, vote_rules = load_part_modules()
+    thr = vote_rules.get('refine', {}).get('orphan_max_area_share')
     if not thr:
         return part, ''
     V = np.asarray(mesh.vertices, np.float64)
@@ -1629,12 +1991,7 @@ def merge_orphan_parts(mesh, part: np.ndarray):
 
 def parts_from_geometry(geoms: list):
     """Части граней по геометрии `tools/assets/material_parts.py`: 0 обивка/корпус, 1 ножки, 2 нейтральное (тонкое, полоса у ножек); нет уверенного деления — одна часть. → (список по геометриям | None, строка о способе)."""
-    try:
-        sys.path.insert(0, os.path.join(HERE, '..', '..', '..', 'assets'))
-        import material_parts as MP
-        rules = MP.load_rules()
-    except Exception as e:  # noqa: BLE001 — частей нет, заливка идёт одной частью
-        return None, f'частей нет ({type(e).__name__})'
+    MP, _, _, rules, _ = load_part_modules()                      # нет модулей/правил — исключение (не «частей нет»), см. load_part_modules
     out, note = [], []
     for g in geoms:
         nf = len(g['F'])
@@ -1651,6 +2008,8 @@ def parts_from_geometry(geoms: list):
                 note.append(f"split ножки {int(leg.sum())} нейтр. {int(neu.sum())} из {nf}{onote}")
                 continue
             note.append(f"{rec.get('status')} → одна часть")
+        except ImportError:                                       # не хватает модуля внутри разбора — отказ этапа, не тихий откат (T-193/3)
+            raise
         except Exception as e:  # noqa: BLE001
             note.append(f'сбой частей {type(e).__name__}')
         out.append(np.zeros(nf, np.int32))
@@ -1823,7 +2182,10 @@ def choose_tone_sources(part_ids, roles: dict, known_cnt: dict, total: dict, fro
     for p in part_ids:
         role = role_of(p)
         if role is None or not roles:
-            out[p] = {'source': 'global_legacy' if from_global[p] else 'own'}
+            if from_global[p] and c.get('no_role_global', 'skip') == 'skip' and any(reliable.values()):       # материал неизвестен, своего тона нет: тон ВСЕГО товара — дыра Ш6; хоть одна часть с тоном есть — эту не красим
+                out[p] = {'source': 'skip', 'why': 'нет роли и своего тона (известного < min_known) — тон всего товара не берём'}
+            else:
+                out[p] = {'source': 'global_legacy' if from_global[p] else 'own'}
             continue
         if reliable[p]:
             out[p] = {'source': 'own'}
@@ -1861,8 +2223,10 @@ def pattern_side_ok(normals: np.ndarray, az_deg: float, cos_min: float | None, e
     return (np.asarray(normals) @ photo_views([az_deg], el_deg)[0][0]) >= cos_min        # направление на камеру фото — с наклоном (el)
 
 
-def smooth_part_rule(role, jump_l, pattern: bool, c: dict) -> bool:
+def smooth_part_rule(role, jump_l, pattern: bool, c: dict, ref_verdict=None) -> bool:
     """Правило «без плитки» (дерево, «ёлочка» на швах): роль части (этап 3) в `smooth_roles`, либо неузорная часть со скачком L на швах плитки jump_L > `quilt_jump_max`."""
+    if ref_verdict == 'different':                           # Ш8 (ADR-0459): образец UltraTex показал, что невидимая сторона зоны отличается по свойствам — только тон зоны с фото, рисунок не переносим
+        return True
     if role in (c.get('smooth_roles') or []):
         return True
     return (not pattern) and jump_l is not None and jump_l > c['quilt_jump_max']
@@ -1902,12 +2266,33 @@ def part_deltas(geoms: list, parts, kfront: list, kback: list, tex_before: list,
         r = {}
         for nm, (fr, bk) in sets.items():
             if fr and bk:
-                a, b = np.concatenate(fr).mean(axis=0, keepdims=True), np.concatenate(bk).mean(axis=0, keepdims=True)
+                F_, B_ = np.concatenate(fr), np.concatenate(bk)
+                a, b = F_.mean(axis=0, keepdims=True), B_.mean(axis=0, keepdims=True)
                 r[nm] = round(float(TC.de2000_v(a, b)[0]), 2)
+                r['dL_' + nm] = round(float(np.median(B_[:, 0]) - np.median(F_[:, 0])), 2)       # медиана L* зад − перёд (светлее/темнее), единицы L*
             else:
                 r[nm] = None
+                r['dL_' + nm] = None
         res[p] = r
     return res
+
+
+def lighter_than_photo_share(after_rgb: np.ndarray, photo_rgb: np.ndarray, mask: np.ndarray, dl: float | None = None, edge_px: int | None = None, grad_thr: float | None = None) -> dict:
+    """Пятна «светлее фото» (T-187/1, разбор пятен 06): в кадре камеры 04 внутри силуэта, дальше `edge_px` от края и от перепадов яркости фото, доля пикселей, где итог светлее фото больше чем на `dl` L*.
+    Пороги — rules/paint-fill.json `lighter_than_photo`; допустимая доля — thresholds.lighter_than_photo_pct. → {'share_pct', 'inner_px', 'spot_px'}."""
+    import cv2
+    r = RULES['lighter_than_photo']
+    dl, edge_px, grad_thr = float(dl if dl is not None else r['dl']), int(edge_px if edge_px is not None else r['edge_px']), float(grad_thr if grad_thr is not None else r['grad_thr'])
+    h_, w_ = np.asarray(photo_rgb).shape[:2]
+    La = rgb2lab(np.asarray(after_rgb, np.uint8).reshape(-1, 3))[:, 0].reshape(h_, w_)
+    Lp = rgb2lab(np.asarray(photo_rgb, np.uint8).reshape(-1, 3))[:, 0].reshape(h_, w_)
+    m = np.asarray(mask, bool)
+    dist = cv2.distanceTransform(m.astype(np.uint8), cv2.DIST_L2, 3)
+    gy, gx = np.gradient(cv2.GaussianBlur(Lp.astype(np.float32), (0, 0), 1.5))
+    near_edge = cv2.dilate((np.hypot(gx, gy) > grad_thr).astype(np.uint8), np.ones((9, 9), np.uint8)) > 0
+    inner = m & (dist > edge_px) & ~near_edge
+    spot = inner & ((La - Lp) > dl)
+    return {'share_pct': round(100.0 * float(spot.sum()) / max(int(inner.sum()), 1), 3), 'inner_px': int(inner.sum()), 'spot_px': int(spot.sum())}
 
 
 def _part_map(g, T: int, part_f) -> np.ndarray:
@@ -2001,6 +2386,107 @@ def known_changed_share(known: list, before: list, after: list, de_min: float) -
     return {'share_pct': round(100.0 * chg / max(tot, 1), 4), 'known': tot, 'changed': chg}
 
 
+def front_axis_of_check(chk) -> tuple | None:
+    """(ось 0|2, знак) «перёд» формы по азимуту камеры этапа 4 из check.json этапа 6 (`extra.camera.az`): камера смотрит вдоль −(sin az, cos az) в (x, z); перёд — ось с бо́льшей долей, знак — сторона камеры.
+    Нет позы → None. Это ТОЛЬКО для автопроверки «перёд на заду» (сверка); источник оси «перёд» для сайта — модуль ориентации (orient_worker)."""
+    cam = ((chk or {}).get('extra') or {}).get('camera') or {}
+    if 'az' not in cam:
+        return None
+    a = np.radians(float(cam['az']))
+    sx, cz = float(np.sin(a)), float(np.cos(a))
+    return (0, 1 if sx >= 0 else -1) if abs(sx) > abs(cz) else (2, 1 if cz >= 0 else -1)
+
+
+def _center_by_part(v: np.ndarray, lab: np.ndarray, min_n: int) -> np.ndarray:
+    """Вычесть среднее по части (T-198/1): остаётся фактура ВНУТРИ части; части с парами < min_n — одной общей группой."""
+    out, lab = np.asarray(v, np.float64).copy(), np.asarray(lab).copy()
+    u, cnt = np.unique(lab, return_counts=True)
+    if (cnt < min_n).any():
+        lab[np.isin(lab, u[cnt < min_n])] = -1
+    for p in np.unique(lab):
+        m = lab == p
+        out[m] -= out[m].mean()
+    return out
+
+
+def _lattice_value(rep: dict) -> float:
+    """Максимум решётки квилта по ИТОГОВЫМ сборкам всех путей (T-187/6, 23.11): fill-квилт (after, если пересобирали, иначе before), patch, own_panel (после пересборки/фоллбэка плоским)."""
+    vals = []
+    qp = rep.get('quilt_lattice_pattern') or {}
+    for p_, v in (rep.get('quilt_lattice') or {}).items():
+        if (qp.get(p_) or qp.get(str(p_)) or {}).get('verdict') == 'pass':          # узорная: решётка в пределах эталона src (период рисунка) — не брак
+            continue
+        vals.append(float(v.get('after', v.get('before', 0.0))))
+    for v in (rep.get('patch_lattice') or {}).values():
+        if isinstance(v, dict) and v.get('lattice', v.get('quilt_lattice')) is not None:
+            vals.append(float(v.get('lattice', v.get('quilt_lattice'))))      # `lattice` = решётка ИТОГОВОГО образца (одиночный/квилт/гладко = 0)
+    vals.append(float((rep.get('own_panel') or {}).get('quilt_lattice_max', 0.0)))
+    return round(max(vals), 3) if vals else 0.0
+
+
+def front_on_back_corr(geoms: list, tex_list: list, front: tuple | None, eps_frac: float = 0.02, min_pairs: int = 200, min_std: float = 2.0, parts: list | None = None, min_part_pairs: int = 30) -> dict:
+    """Автопроверка «перёд скопирован на зад» (T-187/6): пары граней ЗАДА и их зеркальных двойников на ПЕРЕДЕ (отражение через центр по оси «перёд»); корреляция яркости текстуры в центрах граней.
+    Нормаль берётся без знака (обмотка мешей TRELLIS не согласована), сторона — по положению центра грани. Гладкие (σ < `min_std`) или мало пар — corr None (не измерено).
+    `parts` (части граней по геометриям, как в 07) заданы — `corr` считается по ОСТАТКУ после вычитания среднего тона по ключу «пара частей» (часть зад-грани, часть её перёд-двойника), одинаково для обеих сторон: общий порядок
+    ровных тонов частей, одинаковых спереди и сзади (подлокотники/сиденье), копией фактуры не считается (T-198/1: диван 16411, по частям PartLLM 0,688 при остатке 0,117), а копия остаётся видна и при разных частях зада и перёда
+    (ключ по паре, не по стороне: иначе у зада в одной части идеальная копия давала 0,43); внутри пар гладко (σ остатка < min_std) — не измерено. `raw` — корреляция по яркости целиком.
+    `imprint` — справочно: доля разброса яркости зад-граней внутри их части, объяснённая частью перёд-двойника (тон перёда лёг рисунком частей на заднюю часть; при гладком перёде corr None, а это брак) — в гейт не входит.
+    → {'corr', 'raw', 'imprint', 'pairs', 'axis', 'mode': 'within_parts'|'raw'}."""
+    from scipy.spatial import cKDTree
+    if front is None:
+        return {'corr': None, 'pairs': 0, 'axis': None, 'why': 'нет позы камеры'}
+    axis, sign = front
+    Lf, Lb, Pf, Pb = [], [], [], []
+    for gi_, (g, tex) in enumerate(zip(geoms, tex_list)):
+        V, F, UV = np.asarray(g['V'], np.float64), np.asarray(g['F'], np.int64), np.asarray(g['UV'], np.float64)
+        tri = V[F]
+        n = np.cross(tri[:, 1] - tri[:, 0], tri[:, 2] - tri[:, 0])
+        n /= np.maximum(np.linalg.norm(n, axis=1), 1e-30)[:, None]
+        cen = tri.mean(1)
+        ctr = 0.5 * (V.min(0) + V.max(0))
+        half = max(0.5 * float(np.ptp(V[:, axis])), 1e-9)
+        pos = (cen[:, axis] - ctr[axis]) * sign
+        diag = float(np.linalg.norm(V.max(0) - V.min(0)))
+        fr = (np.abs(n[:, axis]) > 0.7) & (pos > 0.6 * half)
+        bk = (np.abs(n[:, axis]) > 0.7) & (pos < -0.6 * half)
+        if not fr.any() or not bk.any():
+            continue
+        T = int(np.asarray(tex).shape[0])
+        uvc = UV[F].mean(1)
+        px = np.clip((uvc[:, 0] * T).astype(int), 0, T - 1)
+        py = np.clip(((1.0 - uvc[:, 1]) * T).astype(int), 0, T - 1)
+        lum = np.asarray(tex, np.float64)[py, px, :3].mean(1)
+        bi, fi = np.flatnonzero(bk), np.flatnonzero(fr)
+        refl = cen[bi].copy()
+        refl[:, axis] = 2 * ctr[axis] - refl[:, axis]
+        d, j = cKDTree(cen[fi]).query(refl, k=1, distance_upper_bound=eps_frac * diag)
+        okp = np.isfinite(d)
+        Lb.append(lum[bi][okp])
+        Lf.append(lum[fi[j[okp]]])
+        if parts is not None:
+            pa_ = np.asarray(parts[gi_])
+            Pb.append(pa_[bi][okp])
+            Pf.append(pa_[fi[j[okp]]])
+    if not Lb:
+        return {'corr': None, 'pairs': 0, 'axis': axis, 'why': 'нет пар зад↔перёд'}
+    lb, lf = np.concatenate(Lb), np.concatenate(Lf)
+    if len(lb) < min_pairs or lb.std() < min_std or lf.std() < min_std:
+        return {'corr': None, 'pairs': int(len(lb)), 'axis': axis, 'why': 'мало пар или гладко'}
+    raw = round(float(np.corrcoef(lb, lf)[0, 1]), 3)
+    if parts is None:
+        return {'corr': raw, 'raw': raw, 'pairs': int(len(lb)), 'axis': axis, 'mode': 'raw'}
+    pb_, pf_ = np.concatenate(Pb).astype(np.int64), np.concatenate(Pf).astype(np.int64)
+    key = pb_ * (int(max(pb_.max(), pf_.max())) + 2) + pf_                              # пара (часть зада, часть перёда) — общая для обеих сторон
+    rb, rf = _center_by_part(lb, key, min_part_pairs), _center_by_part(lf, key, min_part_pairs)
+    rb_own = _center_by_part(lb, pb_, min_part_pairs)                                  # зад внутри своей части
+    imprint = None
+    if rb_own.std() >= min_std:
+        imprint = round(float(1.0 - _center_by_part(rb_own, pf_, min_part_pairs).var() / max(rb_own.var(), 1e-12)), 3)
+    if rb.std() < min_std or rf.std() < min_std:
+        return {'corr': None, 'raw': raw, 'imprint': imprint, 'pairs': int(len(lb)), 'axis': axis, 'mode': 'within_parts', 'why': 'внутри пар частей гладко'}
+    return {'corr': round(float(np.corrcoef(rb, rf)[0, 1]), 3), 'raw': raw, 'imprint': imprint, 'pairs': int(len(lb)), 'axis': axis, 'mode': 'within_parts'}
+
+
 def stage6_gate(prev_dir: str):
     """Можно ли заливать: по `check.json` и выходу этапа 6 (`06-visible`). Отказ: нет check.json, камера этапа 4 не прошла (`extra.camera_failed` / `camera_gate`='failed'), этап пометил отказ (`extra.refused`), нет `visible.glb`.
     Мягкий провал этапа 6 (passed=false по меркам, но выход есть — например `needs_qwen`) не отказ: заливка идёт, провал записывается в check.json (`stage6`). → (отказ, причина, {'passed', 'reason', 'soft_fail'})."""
@@ -2020,7 +2506,126 @@ def stage6_gate(prev_dir: str):
     return False, '', info
 
 
-def run_stage(run: str, sku: str, glb: str, known: list | None = None, parts=None, cfg: dict | None = None, thresholds: dict | None = None, mirror: bool = True, draft_glb: str | None = None, out_name: str | None = None, parts_npz: str | None = None, prev_dir: str | None = None) -> dict:
+def pick_relief_draft(geoms: list, draft_glb: str | None, ut_glb: str | None, source: str | None = None) -> tuple:
+    """Источник запасной микрофактуры (trellis_relief, Ш6; владелец 22.11 TG 1640: «с UltraTex, TRELLIS хуже»): правило `trellis_relief.texture_source` (rules/paint-fill.json, ultratex | trellis).
+    ultratex — меш UltraTex на НАШЕЙ форме (тот же V, F, UV — `ref_zone.same_mesh`): берутся только яркостные полосы его текстуры, тон остаётся нашим, ворота Ш6 те же; TRELLIS — если UltraTex
+    нет, меш другой или правило `trellis`. → (путь черновика | None, 'ultratex' | 'trellis' | None, причина)."""
+    src = source or RULES['trellis_relief'].get('texture_source', 'ultratex')
+    if src == 'ultratex':
+        if not ut_glb or not os.path.isfile(ut_glb):
+            return draft_glb, ('trellis' if draft_glb else None), 'UltraTex-меша нет'
+        import ref_zone as RZ
+        sm = RZ.same_mesh(geoms, TC.load_geoms(ut_glb))
+        if sm['same']:
+            return ut_glb, 'ultratex', 'тот же меш'
+        return draft_glb, ('trellis' if draft_glb else None), 'UltraTex-меш другой: ' + str(sm.get('why'))
+    return draft_glb, ('trellis' if draft_glb else None), 'правило texture_source=trellis'
+
+
+def RZ_same_mesh(a: list, b: list) -> bool:
+    import ref_zone as RZ
+    return bool(RZ.same_mesh(a, b).get('same'))
+
+
+def _shrink_layout(step: int, geoms: list, tex_after: list, known: list, ut_g: list | None) -> tuple:
+    """Та же раскладка с каждым `step`-м тексельем (UV не меняются — те же места на модели): для пробных заливок ничьей (быстро), результат пробы — только число front_on_back.
+    Не массивы текстур (тесты) или step ≤ 1 — без изменений."""
+    def ok(a):
+        return isinstance(a, np.ndarray) and a.ndim >= 2 and a.shape[0] >= 512 and a.shape[0] % step == 0
+    if step <= 1 or not geoms or not all(ok(np.asarray(g['tex'])) if isinstance(g, dict) and 'tex' in g else False for g in geoms):
+        return geoms, tex_after, known, ut_g
+    sh = lambda a: np.ascontiguousarray(np.asarray(a)[::step, ::step])
+    g2 = [dict(g, tex=sh(g['tex'])) for g in geoms]
+    u2 = [dict(g, tex=sh(g['tex'])) for g in ut_g] if ut_g is not None else None
+    return g2, [sh(t) for t in tex_after], [sh(k) for k in known], u2
+
+
+def own_panel_tone_hook(geoms: list, tex_after: list, known: list, ut_g: list | None, parts, front: tuple | None = None, thr: float = 0.6) -> tuple:
+    """Хук 07 (T-187/6): невидимые панели — донор по оттенку+фактуре UltraTex (тон и куски фото донора) или тон своей зоны + суть UltraTex; чужого квилта нет (ref_zone.own_panel_tone). Сбой не роняет этап."""
+    import ref_zone as RZ
+    try:
+        t_al = time.time()
+        ut_al, al = RZ.align_ut(geoms, tex_after, known, ut_g)                # UltraTex → поза фото; нет уверенности — UltraTex не используется (тон своей зоны)
+        al['sec_align'] = round(time.time() - t_al, 1)
+        out = rep = None
+        if al.get('status') == 'tied':                                        # несколько поворотов почти равны: второй ступенью — тот, у кого front_on_back после заливки минимален и ≤ порога
+            fb_by, best = {}, None
+            mx = int(((RZ.R.get('align') or {}).get('max_ties')) or 2)      # на медленном ядре каждый кандидат = полная заливка: пробуем только лучшие по энергии (T-187/6, зависание >700 с)
+            cand = sorted(al['ties'], key=lambda y: -float((al.get('corr') or {}).get(str(y), 0.0)))[:mx]
+            al['ties_tried'] = cand
+            t_tie = time.time()
+            stp = int(((RZ.R.get('align') or {}).get('trial_step')) or 2)     # пробы — на уменьшенной раскладке (в stp² раз быстрее), полная заливка — только победителю
+            g_t, ta_t, kn_t, ug_t = _shrink_layout(stp, geoms, tex_after, known, ut_g)
+            al['trial_step'] = stp if g_t is not geoms else 1
+            for y in cand:
+                ut_y, _ = RZ.align_ut(g_t, ta_t, kn_t, ug_t, yaw=y)
+                o_y, r_y = RZ.own_panel_tone(g_t, ta_t, kn_t, ut_y, parts)
+                c_y = front_on_back_corr(g_t, o_y, front, parts=parts).get('corr')
+                fb_by[str(y)] = c_y
+                if c_y is not None and c_y <= thr and (best is None or c_y < best[0]):
+                    best = (c_y, y, o_y, r_y)
+            al['tie_front_on_back'] = fb_by
+            al['sec_tie'] = round(time.time() - t_tie, 1)
+            if best is not None:
+                if g_t is not geoms:                                              # победитель — заново на полной раскладке
+                    ut_w, _ = RZ.align_ut(geoms, tex_after, known, ut_g, yaw=best[1])
+                    out, rep = RZ.own_panel_tone(geoms, tex_after, known, ut_w, parts)
+                else:
+                    out, rep = best[2], best[3]
+                al.update({'status': 'aligned_by_front_on_back', 'yaw_deg': best[1], 'chosen_front_on_back': best[0]})
+            else:
+                al.update({'status': 'uncertain', 'yaw_deg': None, 'why': f'{al.get("why")}; front_on_back не ≤ {thr} ни у одного (или не измерен)'})
+        if rep is None:
+            out, rep = RZ.own_panel_tone(geoms, tex_after, known, ut_al, parts)
+        rep['ut_align'] = al
+        rep['sec_hook'] = round(time.time() - t_al, 1)
+        return out, rep
+    except Exception as e:  # noqa: BLE001
+        return tex_after, {'error': f'{type(e).__name__}: {e}'}
+
+
+def top_prior_hook(geoms: list, tex_after: list, known: list, parts, cfg: dict | None, draft_glb: str | None) -> tuple:
+    """Хук 07 (T-187/7; канон paint-photo-fill-01 строка 7: «верх — Ш3в»): невидимые тексели ВЕРХА (нормаль вверх, верхний уровень; `top & ~known`) красятся тоном `top_prior`, если его уверенность ≥ порога
+    (rules/top-prior.json → stage07.min_confidence), иначе верх остаётся как сделал 07 (донор / тон своей зоны). Идёт ПОСЛЕ own_panel_tone_hook и ДО front_on_back; known не меняется.
+    cfg: `top_card` (карточка: класс материала верха, размеры), `top_photo` (фото: контраст узора). Узор — из rules `library_pat` (в репо и в срезе кода Salad). Сбой не роняет этап. → (текстуры, отчёт с `top_source`)."""
+    import top_prior as TP                                        # ВНЕ try: нет модуля в срезе кода = отказ этапа, не тихое «как было» (Salad ≠ локально, T-193/4)
+    c = cfg or {}
+    if not c.get('top_card'):                                     # без карточки класс материала верха неизвестен: не молчаливый as_before, а причина в report.json (счётчик — в итоге пакета stage_trial)
+        return tex_after, {'top_source': 'as_before', 'applied': False, 'top_skip': 'no_card', 'gate': 'нет карточки (--card-json): класс материала верха неизвестен'}
+    try:
+        rules = TP.load_rules()
+        if not rules.get('stage07', {}).get('enabled', False):
+            return tex_after, {'top_source': 'as_before', 'applied': False, 'top_skip': 'disabled', 'gate': 'stage07.enabled = false'}
+        draft = draft_texels(geoms, TC.load_geoms(draft_glb), None) if draft_glb and os.path.isfile(draft_glb) else None
+        return TP.stage07(geoms, tex_after, known, parts, c.get('part_role'), draft, c.get('top_card'), c.get('top_photo'), rules)
+    except Exception as e:  # noqa: BLE001
+        return tex_after, {'top_source': 'as_before', 'applied': False, 'error': f'{type(e).__name__}: {e}'}
+
+
+def apply_ref_zone_map(geoms: list, tex_after: list, known: list, cfg: dict | None, force: bool = False) -> tuple:
+    """Хук Ш8м (за флагом): `texture = different` для (зона, сторона) → невидимые тексели пары теряют фактуру, остаётся тон. Идёт ПОСЛЕ заливки, значит зеркало и trellis_relief
+    обойти `different` не могут; фото-тексели (known) не меняются. Флаг выкл. (rules/ref-zone.json) или карты нет — текстуры как были. → (текстуры, {'applied', 'texels_detextured'})."""
+    m = (cfg or {}).get('ref_zone_map')
+    import ref_zone as RZ
+    if not m or not (RZ.APPLY or force):
+        return tex_after, {'applied': False, 'texels_detextured': 0, 'flag': bool(RZ.APPLY), 'map': bool(m)}
+    out, rep = RZ.apply_to_fill(geoms, tex_after, known, np.asarray(m['face_zone']), np.asarray(m['face_side']), m['map'], m['offs'])
+    return out, dict(rep, applied=True, flag=bool(RZ.APPLY))
+
+
+def _front_back_vals(geoms: list, parts, known: list, kback: list, tex_before: list, tex_x: list, rp: dict) -> tuple:
+    """ΔE/ΔL перёд↔зад по частям текстуры tex_x → (de по частям, крупные части bg, худшая ΔE00, худшая |ΔL|). Одна функция на выбор stat/trellis (до хуков) и на итоговую мерку (после хуков)."""
+    de_ = part_deltas(geoms, parts, known, kback, tex_before, tex_x)
+    kt = max(sum(v['known_texels'] for v in rp['parts'].values()), 1)
+    bg = [p for p, v in rp['parts'].items() if v['known_texels'] >= 0.01 * kt]
+    da = {int(p): v['after'] for p, v in de_.items() if v['after'] is not None}
+    dls = [abs(de_[p]['dL_after']) for p in bg if p in de_ and de_[p].get('dL_after') is not None]
+    dlw = max(dls) if dls else None
+    dw = max([da[p] for p in bg if p in da] or [None]) if any(p in da for p in bg) else None
+    return de_, bg, dw, dlw
+
+
+def run_stage_once(run: str, sku: str, glb: str, known: list | None = None, parts=None, cfg: dict | None = None, thresholds: dict | None = None, mirror: bool = True, draft_glb: str | None = None, ut_glb: str | None = None, out_name: str | None = None, parts_npz: str | None = None, prev_dir: str | None = None) -> dict:
     """Этап 07 «докрасить невидимое»: GLB (текстура = фото на видимом) → `<run>/<sku>/07-fill/` {filled.glb, report.json, frame.png (az180 до | после), check.json}.
     `known` — маска «видно с камеры фото» по геометриям (нет — из `known_from_photo`: az0/az45); `parts` — части граней (нет — `parts_from_geometry`). Не прошёл (check.json passed=false) — товар дальше не идёт.
     → {'check', 'report', 'geoms', 'tex_before', 'tex_after', 'known', 'parts', 'dir'} (для проб и кадров)."""
@@ -2028,6 +2633,7 @@ def run_stage(run: str, sku: str, glb: str, known: list | None = None, parts=Non
     from PIL import Image
     import paint_stage as PS
     t0 = time.time()
+    cpu0 = time.process_time()                                    # мерка времени — процессорные секунды (не зависят от того, сколько ядер дала нода Salad)
     d = PS.stage_dir(run, sku, out_name or STAGE)
     th = dict(THRESHOLDS, **(thresholds or {}))
     s6 = None
@@ -2054,22 +2660,29 @@ def run_stage(run: str, sku: str, glb: str, known: list | None = None, parts=Non
         if _roles:
             cfg = dict(cfg or {}, part_role=_roles)          # C: классы частей — из этапа 3 сами (CFG_C больше не нужен)
     draft = None
+    relief_src = None
     if (cfg or {}).get('source') in ('trellis', 'trellis_relief'):
+        if (cfg or {}).get('source') == 'trellis_relief':
+            draft_glb, relief_src, _why = pick_relief_draft(geoms, draft_glb, ut_glb)
         draft = draft_texels(geoms, TC.load_geoms(draft_glb), cfg)
     kback = known_from_photo(geoms, azimuths=(180.0,))
     _to = load_tone_only_png(prev_dir) if (prev_dir and (cfg or {}).get('tone_only_use', True)) else None      # тон-слой этапа 6 (р.8): цвет оставить, фактуру положить поверх
 
+    _cf = load_conf_png(prev_dir) if prev_dir else None                                  # доверие к фото-текселю (этап 6, р.3) — нет файла: запасное от границы известного
+
+    _ut_early = None
+    if ut_glb and os.path.isfile(ut_glb) and (cfg or {}).get('source', 'stat') == 'stat':
+        _ug0 = TC.load_geoms(ut_glb)
+        _ut_early = _ug0 if RZ_same_mesh(geoms, _ug0) else None
+    _unobs_fn = (lambda: draft_texels(geoms, _ut_early, cfg)) if _ut_early is not None else None            # UltraTex — на нашей форме: яркостный рельеф для «рисунок не наблюдаем» (T-187/6, 23.11); считается только если такие части есть
+
     def one(cfg_, draft_):
-        r_ = fill(geoms, known, parts, cfg_, mirror, draft_, tone_only=_to)
+        r_ = fill(geoms, known, parts, cfg_, mirror, draft_, tone_only=_to, unobs_draft_fn=_unobs_fn if (cfg_ or {}).get('source', 'stat') == 'stat' else None, conf=_cf)
         rp, tx_ = r_['report'], r_['tex']
-        de_ = part_deltas(geoms, parts, known, kback, tex_before, tx_)
-        kt = max(sum(v['known_texels'] for v in rp['parts'].values()), 1)
-        bg = [p for p, v in rp['parts'].items() if v['known_texels'] >= 0.01 * kt]
-        da = {int(p): v['after'] for p, v in de_.items() if v['after'] is not None}
-        dw = max([da[p] for p in bg if p in da] or [None]) if any(p in da for p in bg) else None
-        vals = {'empty_pct': rp['unpainted_after_pct'], 'dE00_front_back': dw, 'filled_faces_step_pct': rp['steps']['after']['filled_faces_step_pct'], 'far_excess_pct': rp['far_pct']['excess']}
+        de_, bg, dw, dlw = _front_back_vals(geoms, parts, known, kback, tex_before, tx_, rp)
+        vals = {'empty_pct': rp['unpainted_after_pct'], 'dE00_front_back': dw, 'dL_front_back': dlw, 'filled_faces_step_pct': rp['steps']['after']['filled_faces_step_pct'], 'far_excess_pct': rp['far_pct']['excess']}
         nfail = sum(0 if PS.judge(vals[k], th[k][0], th[k][1]) else 1 for k in vals)
-        return {'rep': rp, 'tex': tx_, 'de': de_, 'big': bg, 'de_worst': dw, 'vals': vals, 'nfail': nfail, 'key': (nfail, dw if dw is not None else 99.0, vals['far_excess_pct'] if vals['far_excess_pct'] is not None else 99.0)}
+        return {'finish': r_['finish'], 'keep': r_.get('keep'), 'rep': rp, 'tex': tx_, 'de': de_, 'big': bg, 'de_worst': dw, 'vals': vals, 'nfail': nfail, 'key': (nfail, dw if dw is not None else 99.0, vals['far_excess_pct'] if vals['far_excess_pct'] is not None else 99.0)}
     tried = {}
     if draft is not None and (cfg or {}).get('source') == 'trellis' and dict(FILL, **(cfg or {}))['draft_fallback']:      # Б и А: Б берётся, только если мерки не хуже (число непрошедших, затем ΔE перёд↔зад, затем пятна)
         cA = one(dict(cfg or {}, source='stat'), None)
@@ -2083,7 +2696,57 @@ def run_stage(run: str, sku: str, glb: str, known: list | None = None, parts=Non
     else:
         pick, used = one(cfg, draft), ((cfg or {}).get('source') or 'stat')
     rep, tex_after, de, big, de_worst = pick['rep'], pick['tex'], pick['de'], pick['big'], pick['de_worst']
-    kchg = known_changed_share(known, tex_before, tex_after, RULES['known_change_de'])
+    tex_after, rep['ref_zone_map'] = apply_ref_zone_map(geoms, tex_after, known, cfg)
+    rep['relief_source'] = relief_src
+    ut_g = None
+    if ut_glb and os.path.isfile(ut_glb):
+        _ug = TC.load_geoms(ut_glb)
+        ut_g = _ug if RZ_same_mesh(geoms, _ug) else None
+    tex_after, rep['own_panel'] = own_panel_tone_hook(geoms, tex_after, known, ut_g, parts, front_axis_of_check(_chk6), float(th['front_on_back_corr'][1]))
+    import ref_zone as RZ
+    try:                                                                  # части-близнецы (стул 7733, 23.11): тон из мизерного известного подтягивается к парной части с тем же цветом 06; сбой не роняет этап
+        _, rep['sibling_tone'] = RZ.sibling_tone(geoms, tex_before, tex_after, known, parts)             # кандидаты (все пары)
+        _cands = [(p['geom'], p['part']) for p in rep['sibling_tone'].get('pairs', [])]
+        _acc, _log = [], []
+        _cur = tex_after
+        _, _, _dw0, _dl0 = _front_back_vals(geoms, parts, known, kback, tex_before, _cur, rep) if _cands else (None, None, None, None)
+        for _c in _cands:                                              # страж ПО ПАРЕ: перёд↔зад не должен ухудшиться (локально 23.11: стул 7733, №20) — иначе эта пара откатывается
+            _try, _r1 = RZ.sibling_tone(geoms, tex_before, _cur, known, parts, only={_c})
+            _, _, _dw1, _dl1 = _front_back_vals(geoms, parts, known, kback, tex_before, _try, rep)
+            _bad = (_dw1 is not None and _dw0 is not None and _dw1 > _dw0 + 1.0) or (_dl1 is not None and _dl0 is not None and _dl1 > _dl0 + 1.0)
+            _log.append({'geom': _c[0], 'part': _c[1], 'dE00': [_dw0, _dw1], 'dL': [_dl0, _dl1], 'reverted': bool(_bad)})
+            if not _bad:
+                _cur, _dw0, _dl0 = _try, _dw1, _dl1
+                _acc.append(_c)
+        tex_sib = _cur
+        rep['sibling_tone']['accepted'] = [list(c) for c in _acc]
+        rep['sibling_tone']['guard'] = _log
+        rep['sibling_tone']['texels_changed'] = int(sum(p['texels'] for p in rep['sibling_tone'].get('pairs', []) if (p['geom'], p['part']) in set(_acc)))
+        _tp, _ps = RZ.panel_sibling_tone(geoms, tex_before, tex_sib, known, parts)
+        if _ps.get('texels_changed'):
+            _, _, _dwa, _dla = _front_back_vals(geoms, parts, known, kback, tex_before, tex_sib, rep)
+            _, _, _dwb, _dlb = _front_back_vals(geoms, parts, known, kback, tex_before, _tp, rep)
+            _pbad = (_dwb is not None and _dwa is not None and _dwb > _dwa + 1.0) or (_dlb is not None and _dla is not None and _dlb > _dla + 1.0)
+            _ps['reverted'] = bool(_pbad)
+            if not _pbad:
+                tex_sib = _tp
+        rep['sibling_tone']['panels_in_part'] = _ps
+        tex_after = tex_sib
+    except Exception as e:  # noqa: BLE001
+        rep['sibling_tone'] = {'error': f'{type(e).__name__}: {e}'}
+    try:                                                                  # подчасть по цвету 06 (Б, 23.11): мелкие невидимые панели со своим тоном; сбой не роняет этап
+        tex_after, rep['sub_tone'] = RZ.sub_tone(geoms, tex_before, tex_after, known, parts)
+    except Exception as e:  # noqa: BLE001
+        rep['sub_tone'] = {'error': f'{type(e).__name__}: {e}'}
+    tex_after, rep['top_prior'] = top_prior_hook(geoms, tex_after, known, parts, cfg, None if relief_src == 'ultratex' else draft_glb)
+    rep['top_source'] = rep['top_prior'].get('top_source')
+    rep['metrics_pre_hook'] = {k: pick['vals'].get(k) for k in ('empty_pct', 'dE00_front_back', 'dL_front_back', 'filled_faces_step_pct', 'far_excess_pct')}     # что было бы до хуков (для сравнения; на passed не влияет)
+    pick['finish'](tex_after)                                          # мерки — по ИТОГОВОЙ текстуре (после ref_zone_map, own_panel, top_prior), не по текстуре до хуков
+    de, big, de_worst, _dlw = _front_back_vals(geoms, parts, known, kback, tex_before, tex_after, rep)
+    pick['vals'] = dict(pick['vals'], empty_pct=rep['unpainted_after_pct'], dE00_front_back=de_worst, dL_front_back=_dlw, filled_faces_step_pct=rep['steps']['after']['filled_faces_step_pct'], far_excess_pct=rep['far_pct']['excess'])
+    rep['front_on_back'] = front_on_back_corr(geoms, tex_after, front_axis_of_check(_chk6), parts=parts)
+    rep['front_on_back_raw'] = rep['front_on_back'].get('raw')                      # старая мера (по яркости целиком) — для сравнения (T-198/1)
+    kchg = known_changed_share(pick.get('keep') or known, tex_before, tex_after, RULES['known_change_de'])
     rep['known_changed'] = kchg
     try:                                                          # мерка узора — только отчёт (порог по трудным — позже), сбой её не роняет этап
         rep['pattern_metric'] = pattern_metrics(geoms, parts, known, tex_after, rep, dict(FILL, **(cfg or {})))
@@ -2092,21 +2755,29 @@ def run_stage(run: str, sku: str, glb: str, known: list | None = None, parts=Non
     rep['source_used'], rep['source_tried'] = used, tried
     rep['pr_camera'] = cam_note
     write_glb(geoms, tex_after, os.path.join(d, 'filled.glb'))
-    a = render_ortho(geoms, tex_before, 180.0)
-    b = render_ortho(geoms, tex_after, 180.0)
-    Image.fromarray(np.concatenate([a, np.full((a.shape[0], 12, 3), 255, np.uint8), b], axis=1)).save(os.path.join(d, PS.FRAME))
+    sides = side_azimuths(geoms, known)                        # зад — сторона без фото по known (не фиксированный 180: формы лежат передом в разные стороны)
+    rep['frame_sides'] = sides
+    for _az, _nm in ((sides['back'], PS.FRAME), (sides['photo'], 'frame-photo.png')):
+        a = render_ortho(geoms, tex_before, _az)
+        b = render_ortho(geoms, tex_after, _az)
+        Image.fromarray(np.concatenate([a, np.full((a.shape[0], 12, 3), 255, np.uint8), b], axis=1)).save(os.path.join(d, _nm))
     secs = time.time() - t0
+    cpu_s = time.process_time() - cpu0
+    rep['wall_s'], rep['cpu_s'] = round(secs, 1), round(cpu_s, 1)           # wall_s — только отчёт (на passed не влияет)
     metrics = {
         'empty_pct': {'value': rep['unpainted_after_pct'], 'threshold': th['empty_pct'][1], 'op': th['empty_pct'][0]},
         'dE00_front_back': {'value': de_worst, 'threshold': th['dE00_front_back'][1], 'op': th['dE00_front_back'][0]},
+        'dL_front_back': {'value': pick['vals']['dL_front_back'], 'threshold': th['dL_front_back'][1], 'op': th['dL_front_back'][0]},
         'filled_faces_step_pct': {'value': rep['steps']['after']['filled_faces_step_pct'], 'threshold': th['filled_faces_step_pct'][1], 'op': th['filled_faces_step_pct'][0]},
         'far_excess_pct': {'value': rep['far_pct']['excess'], 'threshold': th['far_excess_pct'][1], 'op': th['far_excess_pct'][0]},
         'known_changed_share_pct': {'value': kchg['share_pct'], 'threshold': th['known_changed_share_pct'][1], 'op': th['known_changed_share_pct'][0]},
         'pool_rejected_pct': {'value': round(100.0 * max(rep.get('quilt_rejected_share', {}).values(), default=0.0), 1), 'threshold': th['pool_rejected_pct'][1], 'op': th['pool_rejected_pct'][0]},     # мягкий провал: больше половины пула блоков отбраковано правилом — образец беден, запасной режим (плитка) вместо квилта
-        'time_s': {'value': round(secs, 1), 'threshold': th['time_s'][1], 'op': th['time_s'][0]},
+        'cpu_s': {'value': round(cpu_s, 1), 'threshold': th['cpu_s'][1], 'op': th['cpu_s'][0]},
+        'quilt_lattice_max': {'value': _lattice_value(rep), 'threshold': th['quilt_lattice_max'][1], 'op': th['quilt_lattice_max'][0]},        # решётка плитки на каждой залитой зоне (T-187/6, 23.11): fill-квилт, patch, own_panel; провал — гуще/плоско
+        'front_on_back_corr': {'value': rep['front_on_back']['corr'], 'threshold': th['front_on_back_corr'][1], 'op': th['front_on_back_corr'][0]},      # перёд на заду (T-187/6): не измерено (None) — не провал
     }
-    for m in metrics.values():
-        m['ok'] = PS.judge(m['value'], m['op'], m['threshold'])
+    for k_, m in metrics.items():
+        m['ok'] = True if (k_ == 'front_on_back_corr' and m['value'] is None) else PS.judge(m['value'], m['op'], m['threshold'])
     if draft is not None:
         rep['draft_transfer'] = draft['report']
     report = {'report': rep, 'deltaE_by_part': de, 'big_parts': big, 'parts_note': parts_note, 'part_class_note': pc_note, 'empty_before_pct': rep['unpainted_before_pct']}
@@ -2115,6 +2786,54 @@ def run_stage(run: str, sku: str, glb: str, known: list | None = None, parts=Non
     check = PS.write_check(d, out_name or STAGE, sku, None, dict(metrics['empty_pct'], name='empty_pct'), '', metrics={k: v for k, v in metrics.items() if k != 'empty_pct'}, seconds=secs,
                            outputs=['filled.glb', 'report.json'], frame=PS.FRAME, known_pct=rep['known_pct'], mirrored_pct=rep['mirrored_pct'], empty_before_pct=rep['unpainted_before_pct'], empty_by_view=rep['unpainted_by_view'], steps=rep['steps'], parts=parts_note, source_used=used, source_tried=tried, pattern_metric=rep['pattern_metric'], pattern_src=rep.get('pattern_src'), stage6=s6, quilt_rejected=rep.get('quilt_rejected'))
     return {'check': check, 'report': rep, 'geoms': geoms, 'tex_before': tex_before, 'tex_after': tex_after, 'known': known, 'parts': parts, 'dir': d, 'deltaE': de, 'kback': kback}
+
+
+def _zones_stamp(d: str, used: str, why: str | None, tried: dict | None = None, total_s: float | None = None) -> None:
+    """Дописать в report.json источник зон: zones_used (parts|panels), zones_reason, zones_parts_try (мерки прогона по частям, если откатились), zones_total_s."""
+    import json
+    fp = os.path.join(d, 'report.json')
+    if not os.path.isfile(fp):
+        return
+    with open(fp, encoding='utf-8') as f:
+        doc = json.load(f)
+    doc.update({'zones_used': used, 'zones_reason': why})
+    if tried is not None:
+        doc['zones_parts_try'] = tried
+    if total_s is not None:
+        doc['zones_total_s'] = round(total_s, 1)
+    with open(fp, 'w', encoding='utf-8') as f:
+        json.dump(doc, f, ensure_ascii=False, indent=1)
+
+
+def run_stage(*args, fallback: bool = True, **kw) -> dict:
+    """Этап 07 с откатом зон (T-198/1): заливка по частям PartLLM (`parts_npz` задан), и если провалена мерка из rules/paint-fill.json `zones_fallback` (перёд на заду) — тот же этап
+    сразу заливает заново по панелям (`parts_npz=None`) и оставляет этот вариант. Остальное — как `run_stage_once`. `fallback=False` — без отката (пробы). Источник зон — в report.json (`zones_used`).
+    Отказ этапа 6, `parts`/`parts_npz` не заданы — без изменений (панели и так). Время этапа в check.json — последнего прогона; сумма — `zones_total_s`."""
+    import shutil
+    t0 = time.time()
+    r = run_stage_once(*args, **kw)
+    names = list(RULES.get('zones_fallback') or [])
+    if r.get('refused') or not (kw.get('parts_npz') and kw.get('parts') is None):
+        return r
+    chk = r.get('check') or {}
+    mets = chk.get('metrics') or {}
+    bad = [k for k in names if (mets.get(k) or {}).get('ok') is False] if fallback else []
+    if not bad:
+        _zones_stamp(r['dir'], 'parts', None if fallback else 'без отката (fallback=False)')
+        return r
+    d = r['dir']
+    tried = {k: {'value': (mets.get(k) or {}).get('value'), 'threshold': (mets.get(k) or {}).get('threshold'), 'ok': (mets.get(k) or {}).get('ok')} for k in names}
+    tried['seconds'] = chk.get('seconds')
+    for src, dst in (('check.json', 'check-parts.json'), ('frame.png', 'frame-parts.png')):
+        if os.path.isfile(os.path.join(d, src)):
+            shutil.copyfile(os.path.join(d, src), os.path.join(d, dst))
+    r2 = run_stage_once(*args, **dict(kw, parts_npz=None))
+    mets2 = ((r2.get('check') or {}).get('metrics')) or {}
+    still = [k for k in bad if (mets2.get(k) or {}).get('ok') is False]
+    why = ('по частям провал: ' + ', '.join(f"{k} {tried[k]['value']} против порога {tried[k]['threshold']}" for k in bad) + '; по панелям: ' + ', '.join(f"{k} {(mets2.get(k) or {}).get('value')}" for k in bad)
+           + (' — и панели не проходят (оставлены панели как основа)' if still else ' — проходят'))
+    _zones_stamp(r2['dir'], 'panels', why, tried, time.time() - t0)
+    return r2
 
 
 def load_tone_only_png(visible: str) -> list | None:
@@ -2126,6 +2845,18 @@ def load_tone_only_png(visible: str) -> list | None:
         if not os.path.exists(fp):
             break
         out.append(np.asarray(Image.open(fp).convert("L")) > 127)
+    return out or None
+
+
+def load_conf_png(visible: str) -> list | None:
+    """Доверие к фото-текселю этапа 6 (р.3, T-194/1): `conf.png`, `conf1.png`, … — uint8 = доверие×255, 0 где не известно. Нет файла — None (сведение шва берёт запасное)."""
+    from PIL import Image
+    out = []
+    for i in range(64):
+        fp = os.path.join(visible, "conf.png" if i == 0 else f"conf{i}.png")
+        if not os.path.exists(fp):
+            break
+        out.append(np.asarray(Image.open(fp).convert("L"), np.float32) / 255.0)
     return out or None
 
 
@@ -2159,16 +2890,26 @@ def main(argv: list | None = None) -> int:
     ap.add_argument("--no-parts-npz", action="store_true")
     ap.add_argument("--cfg", default=None)
     ap.add_argument("--no-mirror", action="store_true")
+    ap.add_argument("--ut-glb", default=None, help="UltraTex-меш на НАШЕЙ форме (тот же V, F): донор невидимых панелей по оттенку и фактуре; нет — тон своей зоны")
+    ap.add_argument("--card-json", default=None, help="карточка товара: файл JSON или сам JSON ({role, name, <характеристики>}): класс материала верха для top_prior (нет — без слова карточки)")
+    ap.add_argument("--photo", default=None, help="фото каталога (RGBA/белый фон): контраст узора верха; нет — запасной коэффициент")
     a = ap.parse_args(argv)
     base = os.path.join(a.run, PS.safe_name(a.sku))
     visible = a.visible or os.path.join(base, "06-visible")
     if a.no_parts_npz and a.parts_npz:
         ap.error("--parts-npz и --no-parts-npz вместе нельзя")
     default_npz = os.path.join(base, "03-parts", "parts.npz")
-    parts_npz = None if a.no_parts_npz else (a.parts_npz or (default_npz if os.path.exists(default_npz) else None))      # --no-parts-npz: этап 3 отказал — parts.npz не брать, части по геометрии (+ сироты)
+    zones_from = RULES.get("zones_from", "parts")                                  # rules/paint-fill.json: parts (части этапа 3, если есть) | panels (только панели формы) — T-198/1
+    if zones_from not in ("parts", "panels"):
+        ap.error(f"rules/paint-fill.json: zones_from={zones_from!r}, ожидалось parts или panels")
+    parts_npz = None if (a.no_parts_npz or (zones_from == "panels" and not a.parts_npz)) else (a.parts_npz or (default_npz if os.path.exists(default_npz) else None))      # --no-parts-npz: этап 3 отказал — parts.npz не брать, части по геометрии (+ сироты); явный --parts-npz сильнее флага
     cfg = dict({"erode_known": 0}, **(json.loads(a.cfg) if a.cfg else {}))      # вход этапа 6: маска «взято с фото» уже честная
+    if a.card_json:
+        cfg["top_card"] = json.load(open(a.card_json, encoding="utf-8")) if os.path.isfile(a.card_json) else json.loads(a.card_json)      # путь к файлу (на Salad — @in/card.json) или сам JSON
+    if a.photo:
+        cfg["top_photo"] = a.photo
     try:
-        r = run_stage(a.run, a.sku, os.path.join(visible, "visible.glb"), known=load_known_png(visible) or None, cfg=cfg, mirror=not a.no_mirror, parts_npz=parts_npz, prev_dir=visible)
+        r = run_stage(a.run, a.sku, os.path.join(visible, "visible.glb"), known=load_known_png(visible) or None, cfg=cfg, mirror=not a.no_mirror, ut_glb=a.ut_glb, parts_npz=parts_npz, prev_dir=visible)
     except Exception as e:                                                       # noqa: BLE001 — сбой запуска: в check.json, не молча
         d = PS.stage_dir(a.run, a.sku, STAGE)
         PS.write_check(d, STAGE, a.sku, False, None, f"сбой этапа 7: {type(e).__name__}: {e}"[:300], outputs=[])

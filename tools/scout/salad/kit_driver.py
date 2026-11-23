@@ -3,7 +3,7 @@
 Новая проба пишет только функцию модели (`Spec`: тело группы, что послать, как проверить результат); охрана денег, ожидание образа, сторожа и гашение — отсюда.
 
 ЧТО ДАЁТ (урок → функция):
-  • 755 «создано = 201 + группа видна», повтор 502/503/504 ................ `api_retry`, `create_and_start` (старт на большой образ → HTTP 400 → ждём бесплатно до `wait_s`, e022e305)
+  • 755 «создано = 201 + группа видна»; 504/обрыв → ищем группу по имени (подхват, не второй create), 502/503 → один повтор, name_conflict после 504 → подхват; счётчики retries_create/adopted_after_504 (T-20261123-03/1; правила — rules/salad-groups.json → api_retry) `api_retry`, `orphan_check`, `create_and_start` (старт на большой образ → HTTP 400 → ждём бесплатно до `wait_s`, e022e305)
   • ADR-0137 образ только по digest + сжатый размер ≤ 35 ГиБ до /start .... `check_image` (манифест реестра, бесплатно)
   • 737 деньги по ЖИВОЙ цене, потолок пробы и общий ......................... `gpu_class`, `cost_usd`, `Watch` (`money`/`probe_cap`)
   • 724/754 «running, started=false, 503»: ждать started, не running ........ `Watch` (`no_start` от running, `no_health` от started)
@@ -30,7 +30,10 @@ from typing import Callable
 UA = 'remlab-mesh/1.0'                  # без User-Agent API Salad и Cloudflare отвечают 403 (урок 748)
 MAX_IMAGE_GIB = 35.0                    # сжатый размер образа: предел Salad 35 ГБ (https://docs.salad.com/container-engine/explanation/infrastructure-platform/container-registries, «может измениться») и канон ADR-0137 «веса вшиты, лимит 35»; 30 был строже канона без основания (21.11, решение директора). Медленную докачку большого образа ловит PullGuard (норма от размера)
 DIGEST_RE = re.compile(r'^[A-Za-z0-9._\-/:]+@sha256:[0-9a-f]{64}$')
-DEFAULT_API_RULES = {'retries': 4, 'status_codes': [502, 503, 504], 'pauses_s': [5, 15, 30, 60]}
+DEFAULT_API_RULES = {'retries': 1, 'status_codes': [502, 503], 'pauses_s': [20], 'timeout_codes': [504, 599], 'lookup_pauses_s': [5, 15, 30], 'timeout_retries': 1,
+                     'conflict_codes': [400, 409], 'conflict_type': 'name_conflict'}     # запасные числа; живые — rules/salad-groups.json → api_retry
+API_COUNTERS = {'retries_create': 0, 'retries_start': 0, 'adopted_after_504': 0, 'adopted_after_503': 0, 'orphans_stopped': 0, 'retries_post': 0}   # счётчики итога прогона: каждый повтор/подхват — не молча
+NO_ANSWER = 599                        # псевдокод «ответа нет» (обрыв, таймаут сокета): MG.api в этих случаях бросает исключение, а код ≥ 300 нужен всем вызывающим
 SLOT_PRIO = 2                           # платные пробы — heavy-slot --prio 2 (P-038)
 SAFE_PREFIXES = ('mesh-', 'render-', 'trial-')       # чужие боевые группы не трогаем и не считаем «посторонними»
 HOLD = 'hold'                                         # before_job вернул HOLD → очередное задание пока не отправляем (нода прогрета и ждёт решения), цикл идёт дальше
@@ -199,33 +202,121 @@ def require_slot(prio: int = SLOT_PRIO, env=None, proc_root: str = '/proc') -> N
 
 
 # ---------------------------------------------------------------- Salad API
-def api_retry(MG, path: str, method: str, body, name: str, say_fn=say, sleep=time.sleep, rules: dict | None = None):
-    """Запрос к API групп с повтором при 502/503/504. Перед повтором смотрим группу: создание — группа уже есть (200) → считаем созданной; старт — состояние не «stopped» → уже стартовала.
-    Возвращает (код, ответ, число_повторов). `rules` — {'retries','status_codes','pauses_s'}."""
-    r = rules or DEFAULT_API_RULES
-    pauses = r['pauses_s']
-    call = (lambda: MG.api(path, method, body)) if body is not None else (lambda: MG.api(path, method))
-    code, resp = call()
-    for attempt in range(r['retries']):
-        if code not in r['status_codes']:
-            return code, resp, attempt
-        sleep(float(pauses[min(attempt, len(pauses) - 1)]))
-        c2, g = MG.api(f'/{name}')
-        state = ((g or {}).get('current_state') or {}).get('status') if c2 == 200 else None
-        if c2 == 200 and (method == 'POST' and path == '' or state not in (None, 'stopped')):
-            say_fn(f'{method} {path or "создание"}: ответ {code}, но группа уже есть (состояние {state}) — считаю выполненным')
-            return 201 if path == '' else 202, resp, attempt + 1
-        say_fn(f'{method} {path or "создание"}: краткий сбой Salad API {code} — повтор {attempt + 1}/{r["retries"]}')
-        code, resp = call()
-    return code, resp, r['retries']
+def api_rules(rules: dict | None = None) -> dict:
+    """Правила повтора: запасные в коде ← `rules/salad-groups.json` → api_retry ← явные `rules` вызывающего (у sg_salad свои)."""
+    return {**DEFAULT_API_RULES, **salad_rules('api_retry'), **(rules or {})}
 
 
-def create_and_start(MG, BR, name: str, body: dict, say_fn=say, sleep=time.sleep, clock=time.time, wait_s: float = 2400, rules: dict | None = None) -> tuple[bool, float, str]:
+def bump(counters: dict | None, key: str, n: int = 1) -> None:
+    if counters is not None:
+        counters[key] = counters.get(key, 0) + n
+
+
+def _api_call(MG, path: str, method: str, body):
+    """Один запрос к API групп; обрыв/таймаут → (599, ...), а не исключение: драйвер не падает, решение — в api_retry."""
+    try:
+        return MG.api(path, method, body) if body is not None else MG.api(path, method)
+    except (urllib.error.URLError, TimeoutError, OSError) as e:
+        return NO_ANSWER, {'detail': f'нет ответа: {type(e).__name__} {str(e)[:100]}'}
+
+
+def _group_state(MG, name: str) -> tuple[bool, str | None]:
+    """(группа видна по имени, её состояние)."""
+    try:
+        c, g = MG.api(f'/{name}')
+    except (urllib.error.URLError, TimeoutError, OSError):
+        return False, None
+    return c == 200, (((g or {}).get('current_state') or {}).get('status') if c == 200 else None)
+
+
+def _is_conflict(r: dict, code: int, resp) -> bool:
+    return code in r['conflict_codes'] and r['conflict_type'] in json.dumps(resp, ensure_ascii=False)[:600]
+
+
+def api_retry(MG, path: str, method: str, body, name: str, say_fn=say, sleep=time.sleep, rules: dict | None = None, counters: dict | None = None):
+    """create/start группы Salad с повтором (T-20261123-03/1; правила — `rules/salad-groups.json` → api_retry). Возвращает (код, ответ, число_повторов); обрыв/таймаут → код 599.
+      • 504 / нет ответа: Salad мог выполнить действие. НЕ повторяем вслепую: ищем группу по имени (GET, несколько проб — список отстаёт). Создание — группа есть → подхват (`adopted_after_504`), второй create не шлём;
+        старт — состояние не «stopped» → уже стартовала. Не нашли — `timeout_retries` повтор (`retries_create`/`retries_start`). Повтор вернул name_conflict → снова ищем и подхватываем (группа от первого вызова).
+      • 502/503: `retries` повтор(ов) через `pauses_s`; перед повтором — тот же поиск (`adopted_after_503`). 400/401/прочее — без повторов.
+    Каждый повтор и подхват — строка в журнал (`say_fn`) и счётчик в `counters` (словарь итога)."""
+    r = api_rules(rules)
+    is_create = method == 'POST' and path == ''
+    what = path or 'создание'
+    rk = 'retries_create' if is_create else 'retries_start'
+
+    def found() -> tuple[bool, str | None]:
+        ok_, st = _group_state(MG, name)
+        return ok_ and (is_create or st not in (None, 'stopped')), st
+
+    def lookup(pauses) -> tuple[bool, str | None]:
+        for i, ps in enumerate(pauses):
+            sleep(float(ps))
+            hit, st = found()
+            if hit:
+                return True, st
+            say_fn(f'{method} {what}: группы {name} по имени пока не видно (проба {i + 1}/{len(pauses)})')
+        return False, None
+
+    def adopt(key: str, code: int, st, n: int, resp):
+        bump(counters, key)
+        say_fn(f'{method} {what}: ответ {code}, но группа уже есть (состояние {st}) — подхватываю, второй запрос не шлю [{key}]')
+        return (201 if is_create else 202), resp, n
+
+    code, resp = _api_call(MG, path, method, body)
+    n, left_status, left_timeout, after_timeout = 0, int(r['retries']), int(r['timeout_retries']), False
+    while True:
+        if code in r['timeout_codes']:
+            after_timeout = True
+            hit, st = lookup(r['lookup_pauses_s'])
+            if hit:
+                return adopt('adopted_after_504', code, st, n, resp)
+            if left_timeout <= 0:
+                break
+            left_timeout -= 1
+        elif code in r['status_codes']:
+            if left_status <= 0:
+                break
+            left_status -= 1
+            ps = r['pauses_s']
+            sleep(float(ps[min(n, len(ps) - 1)]))
+            hit, st = found()
+            if hit:
+                return adopt('adopted_after_503', code, st, n, resp)
+        elif is_create and after_timeout and _is_conflict(r, code, resp):
+            hit, st = lookup(r['lookup_pauses_s'])                       # name_conflict после «504»: группа от первого вызова, список просто отстаёт
+            if hit:
+                return adopt('adopted_after_504', code, st, n, resp)
+            say_fn(f'{method} {what}: {code} {r["conflict_type"]}, а группы {name} не видно — не подхватываю (возможно, чужая/старая); решает вызывающий')
+            break
+        else:
+            break
+        n += 1
+        bump(counters, rk)
+        say_fn(f'{method} {what}: ответ {code} — повтор {n} (retries={r["retries"]}, timeout_retries={r["timeout_retries"]}) [{rk}]')
+        code, resp = _api_call(MG, path, method, body)
+    return code, resp, n
+
+
+def orphan_check(MG, BR, name: str, say_fn=say, counters: dict | None = None) -> bool | None:
+    """После НЕудачного create: группа могла всё же появиться (504, потерянный ответ). Видна → гасим с проверкой «0 нод» (ничьей машины без присмотра). Возвращает stop_verified или None, если группы нет."""
+    hit, st = _group_state(MG, name)
+    if not hit:
+        return None
+    say_fn(f'!! создание отказало, но группа {name} видна (состояние {st}) — гашу с проверкой, сирот не оставляю')
+    bump(counters, 'orphans_stopped')
+    return bool(BR.stop_and_verify(name))
+
+
+def create_and_start(MG, BR, name: str, body: dict, say_fn=say, sleep=time.sleep, clock=time.time, wait_s: float = 2400, rules: dict | None = None, counters: dict | None = None) -> tuple[bool, float, str]:
     """Создать группу (201 + видна в списке), ЖДАТЬ образ бесплатно (состояние stopped), стартовать. `/start` раньше времени на большой образ — HTTP 400 (р.5 e022e305; образ 22 ГиБ ≈ 25 мин):
-    повторяем до `wait_s`, пока не 202. Возвращает (ок, время /start, причина отказа)."""
-    code, resp, _ = api_retry(MG, '', 'POST', body, name, say_fn, sleep, rules)
+    повторяем до `wait_s`, пока не 202. Возвращает (ок, время /start, причина отказа). `counters` — словарь итога: retries_create/retries_start/adopted_after_504/orphans_stopped;
+    отказ create с видимой группой → она гасится здесь (`orphans_stopped`, `orphan_stop_verified`)."""
+    code, resp, _ = api_retry(MG, '', 'POST', body, name, say_fn, sleep, rules, counters)
     say_fn('POST создание', code, str(resp)[:200] if code >= 300 else 'ok')
     if code >= 300:
+        v = orphan_check(MG, BR, name, say_fn, counters)
+        if v is not None and counters is not None:
+            counters['orphan_stop_verified'] = v
         return False, 0.0, f'create_http_{code}'
     t_wait = clock()
     seen = False
@@ -246,7 +337,7 @@ def create_and_start(MG, BR, name: str, body: dict, say_fn=say, sleep=time.sleep
         return False, 0.0, 'create_wait_timeout' if seen else 'group_not_listed'
     t_start = clock()
     while True:
-        code, resp, _ = api_retry(MG, f'/{name}/start', 'POST', None, name, say_fn, sleep, rules)
+        code, resp, _ = api_retry(MG, f'/{name}/start', 'POST', None, name, say_fn, sleep, rules, counters)
         if code < 300:
             say_fn('start HTTP', code)
             return True, t_start, ''
@@ -422,23 +513,62 @@ def post_timeout_s(body_chars: int, override: int = 0, rules: dict | None = None
     return int(min(top, base + per_mb * body_chars / 2 ** 20))
 
 
-def post_job(gw, path: str, body: dict, check_path: str, override: int = 0, say_fn=say, rules: dict | None = None) -> tuple[int, dict, dict | None]:
+GATEWAY_WAIT_DEFAULT = {'codes': [502, 503], 'pauses_s': [10, 20, 30, 60, 60], 'health_path': '/health'}      # запасные; живые — rules/salad-groups.json → gateway_post.gateway_wait
+
+
+def post_job(gw, path: str, body: dict, check_path: str, override: int = 0, say_fn=say, rules: dict | None = None, sleep=time.sleep, counters: dict | None = None) -> tuple[int, dict, dict | None]:
     """ОДИН общий вход «отправить задание» для обоих драйверов (trellis_trial, salad_trial): POST с таймаутом по размеру тела. Нет ответа (код -1) или ошибка ШЛЮЗА
     (код из `gateway_post.retry_http`, по умолчанию 502/503/504 — HTML-страница шлюза, T-178 22.11) — это НЕ отказ воркера: спросить его `GET check_path` (его запись о задании).
     200 → задание принято (вернём 202); иначе вернём исходный код, а повтор — решает вызывающий (один раз, в конец очереди той же ноды; второй раз → «не принято» с кодом в причине).
-    Возвращает (код, ответ, сведения или None); сведения (`job_id`, `code`, `timeout_s`, `worker_saw_job`) — для сводки; `worker_saw_job` False = повторять можно."""
+    502/503 шлюза («шлюз ещё не принял ноду», T-20261123-04/1; `gateway_post.gateway_wait`): НЕ отказ задания — пауза → /health ноды → повтор POST (job_id идемпотентен), всего в пределах `pauses_s`;
+    принял воркер (`check_path` 200 или повтор → 202/409) — задание принято. Исчерпали и /health 200 → в сведениях `reason='gateway_503'` (отказ ЭТОГО задания, не пробы). 504 и −1 сюда не входят (шлюз мог принять) — только вопрос воркеру.
+    Возвращает (код, ответ, сведения или None); сведения (`job_id`, `code`, `timeout_s`, `worker_saw_job`, `retries_post`, `reason`) — для сводки; `worker_saw_job` False = повторять можно.
+    Повторы POST — счётчик `retries_post` в `counters` (или в `gw.counters`, куда драйвер кладёт словарь итога)."""
     g = gateway_post_rules() if rules is None else rules
     retry_http = {int(x) for x in g.get('retry_http', [502, 503, 504])} | {-1}
+    wait = {**GATEWAY_WAIT_DEFAULT, **(g.get('gateway_wait') or {})}
+    counters = counters if counters is not None else getattr(gw, 'counters', None)
     to = post_timeout_s(sum(len(v) for v in body.values() if isinstance(v, str)), override, g)
     c, r = gw.call('POST', path, body, timeout=to)
     if c not in retry_http:
         return c, r, None
+    jid = body.get('job_id')
     cj, _ = gw.call('GET', check_path, timeout=30)
-    info = {'job_id': body.get('job_id'), 'code': c, 'timeout_s': to, 'worker_saw_job': cj == 200}
+    info = {'job_id': jid, 'code': c, 'timeout_s': to, 'worker_saw_job': cj == 200, 'retries_post': 0}
     if cj == 200:
-        say_fn('задание', body.get('job_id'), f'→ POST: нет ответа/код {c} (таймаут {to} с), но воркер задание принял ({check_path} 200) — продолжаю')
+        say_fn('задание', jid, f'→ POST: нет ответа/код {c} (таймаут {to} с), но воркер задание принял ({check_path} 200) — продолжаю')
         return 202, {}, info
-    say_fn('задание', body.get('job_id'), f'→ POST: нет ответа/код {c} (таймаут {to} с), воркер задание не видит')
+    if c in {int(x) for x in wait['codes']}:
+        c1 = c
+        for i, pause in enumerate(wait['pauses_s']):
+            sleep(float(pause))
+            ch, _ = gw.call('GET', wait['health_path'], timeout=20)
+            if ch != 200:
+                say_fn('задание', jid, f'→ шлюз {c1}: пауза {pause} с, /health ноды {ch} — жду ({i + 1}/{len(wait["pauses_s"])})')
+                continue
+            cj, _ = gw.call('GET', check_path, timeout=30)
+            if cj == 200:
+                info['worker_saw_job'] = True
+                say_fn('задание', jid, f'→ шлюз {c1}, но воркер задание принял ({check_path} 200) — продолжаю')
+                return 202, {}, info
+            info['retries_post'] += 1
+            bump(counters, 'retries_post')
+            say_fn('задание', jid, f'→ шлюз {c1}: /health 200, повтор POST {info["retries_post"]} после паузы {pause} с [retries_post]')
+            c, r = gw.call('POST', path, body, timeout=to)
+            info['code'] = c
+            if c in (202, 409):                                                  # 409 — воркер уже держит этот job_id (первый POST дошёл): принято
+                info['worker_saw_job'] = True
+                return 202, r, info
+            if c not in {int(x) for x in wait['codes']}:
+                break
+        else:
+            ch, _ = gw.call('GET', wait['health_path'], timeout=20)
+            info['gateway_health'] = ch
+            if ch == 200:
+                info['reason'] = 'gateway_503'
+                say_fn('задание', jid, f'→ шлюз {c}: {len(wait["pauses_s"])} пауз исчерпано, /health 200 — отказ задания (gateway_503), проба идёт дальше')
+                return c, r, info
+    say_fn('задание', jid, f'→ POST: нет ответа/код {c} (таймаут {to} с), воркер задание не видит')
     return c, r, info
 
 
@@ -1086,16 +1216,17 @@ def _run_probe_once(a, MG, BR, spec: Spec, gw_factory=Gateway, sleep=time.sleep,
         return 2
     os.makedirs(a.out, exist_ok=True)
     summary = {'group': name, 'image': a.image, 'image_gib': image_gib, 'tier': a.tier, 'price_usd_h': price, 'cap_usd': a.cap, 'probe_cap_usd': a.probe_cap,
-               'work_type': spec.work_type, 'profile': prof, 'profile_basis': basis_text(prof), 'jobs': {}, 'failed': 0, 'stop_verified': False, 'stopped_by': None}
+               'work_type': spec.work_type, 'profile': prof, 'profile_basis': basis_text(prof), 'jobs': {}, 'failed': 0, 'stop_verified': False, 'stopped_by': None,
+               **API_COUNTERS}
     if result is not None:
         result['summary'] = summary
-    ok_create, t_start, refuse = create_and_start(MG, BR, name, body, say, sleep, clock, wait_s)
+    ok_create, t_start, refuse = create_and_start(MG, BR, name, body, say, sleep, clock, wait_s, counters=summary)
     if not ok_create:
         summary['stopped_by'] = refuse
-        ok_stop = stop_and_verify(BR, name) if refuse.startswith(('start_http', 'create_wait')) else True
+        ok_stop = stop_and_verify(BR, name) if refuse.startswith(('start_http', 'create_wait')) else summary.get('orphan_stop_verified', True)   # create отказал, но группа была видна (504) — её уже погасили в create_and_start
         summary['stop_verified'] = ok_stop
         json.dump(summary, open(os.path.join(a.out, f'summary-{name}.json'), 'w'), ensure_ascii=False, indent=1, default=str)
-        say('ИТОГ', json.dumps({k: summary.get(k) for k in ('group', 'stopped_by', 'stop_verified')}, ensure_ascii=False))
+        say('ИТОГ', json.dumps({k: summary.get(k) for k in ('group', 'stopped_by', 'stop_verified', *API_COUNTERS)}, ensure_ascii=False))
         return 1
     w = Watch(t_start, price, a.probe_cap, a.cap, a.max_min, a.running_min, a.start_min, a.health_min, a.ready_min, a.stall_min, a.stall_gb)
     w.slow_window_s = float(getattr(a, 'slow_window_s', 0) or 0)
@@ -1177,6 +1308,7 @@ def _run_probe_once(a, MG, BR, spec: Spec, gw_factory=Gateway, sleep=time.sleep,
                 dns = ((MG.api(f'/{name}')[1].get('networking') or {}).get('dns') or '')
                 if dns:
                     gw = gw_factory(f'https://{dns}', os.environ['SALAD_API_KEY'])
+                    gw.counters = summary                                          # post_job кладёт сюда retries_post
                     summary['gateway'] = dns
                     say('шлюз группы получен')
             if gw is not None and w.ready_at is None:
@@ -1274,7 +1406,8 @@ def _run_probe_once(a, MG, BR, spec: Spec, gw_factory=Gateway, sleep=time.sleep,
                     say(f'!! {max_streak} задания подряд не удались — гашу (чинить в коде)')
                     break
                 if cur is None and not pending:
-                    summary['stopped_by'] = 'done' if w.first_done and summary['failed'] == 0 else ('first_failed' if not w.first_done else 'done_with_failures')
+                    gw503 = any(v.get('reason') == 'gateway_503' for v in summary['jobs'].values())        # шлюз не принял ноду за все паузы при живом /health (T-20261123-04/1) — причина названа, не «первое упало»
+                    summary['stopped_by'] = 'done' if w.first_done and summary['failed'] == 0 else (('gateway_503' if gw503 else 'first_failed') if not w.first_done else 'done_with_failures')
                     break
             sleep(10)
     finally:
@@ -1291,5 +1424,5 @@ def _run_probe_once(a, MG, BR, spec: Spec, gw_factory=Gateway, sleep=time.sleep,
                        'jobs_done': sum(1 for v in summary['jobs'].values() if v.get('status') == 'done'), 'jobs_failed': summary['failed'], 'driver': 'kit_driver'})
         if warn:
             say('!!', warn)
-        say('ИТОГ', json.dumps({k: summary.get(k) for k in ('group', 'stopped_by', 'stop_verified', 'failed', 'running_s', 'cost_usd_est')}, ensure_ascii=False))
+        say('ИТОГ', json.dumps({k: summary.get(k) for k in ('group', 'stopped_by', 'stop_verified', 'failed', 'running_s', 'cost_usd_est', *API_COUNTERS)}, ensure_ascii=False))
     return 0 if summary['stop_verified'] and summary['stopped_by'] in ('done', 'planned') and not summary['failed'] else 1

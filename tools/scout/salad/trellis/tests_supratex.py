@@ -377,13 +377,14 @@ finally:
 print('[3] драйвер')
 import trellis_trial as T  # noqa: E402
 T.WORK_TYPES.update({m: 'trellis_shape' for m in ('supratex', 'mvpainter', 'mvadapter-i2tex')})      # ТОЛЬКО в тесте: своих строк профиля у способа нет (отказ проверяет tests_trellis_trial); логика тела — на ресурсах trellis_shape
+PROF_MEM = T.KD.profile_resources(T.KD.resource_profile('trellis_shape'))['memory']      # память группы — из профиля trellis_shape (P-066); число не дублируем в тесте (32→40 ГБ, T-186/1, ломало CI)
 _REAL_PROF = T.KD.resource_profile
 T.KD.resource_profile = lambda wt, path=None: {**_REAL_PROF(wt, path), 'card': T.CARD['class_name']}      # как в tests_trellis_trial: карта профиля = 4090 теста, без обращения к API классов
 b = T.build_body('trial-supratex-x', 'ghcr.io/x/y:t', 'low', 'supratex', 'hf_SECRET', 'note', {'basic': {'username': 'u', 'password': 'PW'}}, extra_env={'CUDA_LAUNCH_BLOCKING': '1'})
 e = b['container']['environment_variables']
-ok('тело группы: MODEL=supratex, код воркера в command (python3 -u -c; pip не нужен — всё в образе), приёмника на проде нет, отладочное окружение доехало, память и диск — из профиля (32768 МБ, 80 ГиБ)',
+ok('тело группы: MODEL=supratex, код воркера в command (python3 -u -c; pip не нужен — всё в образе), приёмника на проде нет, отладочное окружение доехало, память и диск — из профиля (память trellis_shape, 80 ГиБ)',
    e['MODEL'] == 'supratex' and b['container']['command'][:2] == ['python3', '-u'] and 'pip install' not in ' '.join(b['container']['command'][2:3]) and not any(k.startswith('MESH_SINK') for k in e) and e['CUDA_LAUNCH_BLOCKING'] == '1'
-   and b['container']['resources']['memory'] == 32768 and b['container']['resources']['storage_amount'] == 80 * 2 ** 30
+   and b['container']['resources']['memory'] == PROF_MEM and b['container']['resources']['storage_amount'] == 80 * 2 ** 30
    and __import__('zlib').decompress(__import__('base64').b64decode(e['TRIAL_WORKER_Z'])) == open(os.path.join(HERE, 'worker_trellis.py'), 'rb').read())
 ok('только 4090; веса открытые (проверка закрытых весов не нужна: модели нет в HF_GATED); память группы — только из профиля; 49152 МБ supratex хранится как требование к будущей строке профиля', b['container']['resources']['gpu_classes'] == [T.CARD['class_id']] and 'supratex' not in T.HF_GATED
    and T.MODEL_MEM_MB == {'supratex': 49152} and 'supratex' in T.WENV_MODELS)
@@ -438,8 +439,8 @@ buf = io.StringIO()
 with redirect_stdout(buf):
     rc = T.run(ns, DryMG(), NS())
 txt = buf.getvalue()
-ok('сухой прогон: код 0, задание `<ключ>-1024-42-0-supra`, группа trial-supratex-…, потолок $0,35, память группы из профиля 32768 МБ; секретов в печати нет',
-   rc == 0 and 'задание a_1-1024-42-0-supra' in txt and 'trial-supratex-t' in txt and 'потолок $ 0.35' in txt and '"memory": 32768' in txt and 'hf_SECRET' not in txt and 'PW' not in txt and '<скрыто>' in txt, txt[:300])
+ok('сухой прогон: код 0, задание `<ключ>-1024-42-0-supra`, группа trial-supratex-…, потолок $0,35, память группы из профиля; секретов в печати нет',
+   rc == 0 and 'задание a_1-1024-42-0-supra' in txt and 'trial-supratex-t' in txt and 'потолок $ 0.35' in txt and f'"memory": {PROF_MEM}' in txt and 'hf_SECRET' not in txt and 'PW' not in txt and '<скрыто>' in txt, txt[:300])
 ns_m = NS(**{**ns.__dict__, 'skus': ['a:1', 'b:2'], 'texture_mesh': None, 'shape_dir': cat, 'out': None, 'suffix': 'm'})
 buf = io.StringIO()
 with redirect_stdout(buf):
@@ -453,12 +454,12 @@ ns2 = NS(**{**base, 'model': 'trellis2', 'texture_mesh': None, 'image': 'ghcr.io
 buf = io.StringIO()
 with redirect_stdout(buf):
     T.run(ns2, DryMG(), NS())
-ok('trellis2 без явной памяти — прежние 32768 МБ (общее правило не сломано)', '"memory": 32768' in buf.getvalue())
+ok('trellis2 без явной памяти — память профиля trellis_shape (общее правило не сломано)', f'"memory": {PROF_MEM}' in buf.getvalue())
 ns3 = NS(**{**ns.__dict__, 'mem_mb': 65536, 'out': None})
 buf = io.StringIO()
 with redirect_stdout(buf):
     T.run(ns3, DryMG(), NS())
-ok('память — только из профиля: даже явная mem_mb=65536 на группу не влияет (--mem-mb убран, P-066)', '"memory": 32768' in buf.getvalue())
+ok('память — только из профиля: даже явная mem_mb=65536 на группу не влияет (--mem-mb убран, P-066)', f'"memory": {PROF_MEM}' in buf.getvalue())
 ok('чужой результат в папке — отказ (owner_conflicts не ослаблен): файл от другой модели под тем же именем',
    (lambda: (open(os.path.join(tp, 'x-1024-42-0-supra.model'), 'w').write('trellis2'), T.owner_conflicts(tp, ['x-1024-42-0-supra'], 'supratex'))[1])() == ['x-1024-42-0-supra'])
 

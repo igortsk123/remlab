@@ -187,6 +187,10 @@ class TestTexVisible(unittest.TestCase):
         self.assertEqual(why, [])
         mm, why = TV.gate({**m, 'silhouette_iou': 0.5, 'edge_corr': 0.1})
         self.assertEqual(len(why), 2)
+        mm, why = TV.gate({**m, 'silhouette_iou': 0.758}, thin_pass=True)
+        self.assertTrue(not why and mm['silhouette_iou'].get('thin_not_a_measure'), f'тонкий предмет (камера по контуру): IoU площади 0,758 не отказ ({why})')
+        mm, why = TV.gate({**m, 'silhouette_iou': 0.758})
+        self.assertTrue(any('silhouette_iou' in w for w in why), 'без тонкого IoU 0,758 — отказ как прежде')
         mm, why = TV.gate({'silhouette_iou': 0.9})                 # нет измерений ≠ «ок»
         self.assertTrue(any('known_share' in w for w in why))
 
@@ -475,6 +479,107 @@ class TestTexVisible(unittest.TestCase):
     def test_panel_prune_is_off_in_rules(self):
         """Мерка T-201 (8 товаров): страховка панелей снимает настоящее фото с крупных панелей (фасад −2…−3 % известного у двух товаров из восьми) и ничего не даёт сверх z-буфера и знаковой нормали — в правилах выключена."""
         self.assertFalse(bool(TV._rules()['back_prune_panels']))
+
+    def _shifted_square_alpha(self, dx, dy, ss=8):
+        """Фото-вырезка: квадрат Q0..Q1, сдвинутый на (dx, dy) px кадра, с антиалиасингом по площади (сэмплинг ss×ss)."""
+        big = np.zeros((PX * ss, PX * ss), np.float32)
+        r0, r1 = int(round((Q0 + dy) * ss)), int(round((Q1 + dy) * ss))
+        c0, c1 = int(round((Q0 + dx) * ss)), int(round((Q1 + dx) * ss))
+        big[r0:r1, c0:c1] = 1.0
+        a = big.reshape(PX, ss, PX, ss).mean((1, 3))
+        ph = np.zeros((PX, PX, 4), np.uint8)
+        ph[..., :3] = 128
+        ph[..., 3] = np.round(a * 255).astype(np.uint8)
+        return ph
+
+    def test_fit_registration_recovers_subpixel_shift(self):
+        """Подгонка регистрации (T-197/2): сдвиг фото относительно камеры на доли пикселя находится с точностью ≤0,15 px; точная регистрация — нулевой сдвиг."""
+        st = fake_stage()
+        for dx, dy in ((0.0, 0.0), (0.6, -0.4), (-1.25, 0.75), (2.0, 1.5)):
+            fr = TV.fit_registration(self._shifted_square_alpha(dx, dy), st['P'], st['mask'])
+            self.assertLessEqual(abs(fr['dx'] + dx), 0.15, 'dx %.3f вместо %.3f' % (fr['dx'], -dx))          # сдвиг подгонки = поправка: обратен сдвигу фото
+            self.assertLessEqual(abs(fr['dy'] + dy), 0.15, 'dy %.3f вместо %.3f' % (fr['dy'], -dy))
+        fr0 = TV.fit_registration(self._shifted_square_alpha(0.0, 0.0), st['P'], st['mask'])
+        self.assertLess(fr0['gain'], TV.REG_MIN_GAIN)                     # точная регистрация: подгонка не применяется
+        fr1 = TV.fit_registration(self._shifted_square_alpha(1.5, 0.0), st['P'], st['mask'])
+        self.assertGreaterEqual(fr1['gain'], TV.REG_MIN_GAIN)             # заметный сдвиг: применяется
+        far = TV.fit_registration(self._shifted_square_alpha(5.0, 0.0), st['P'], st['mask'])
+        self.assertLessEqual(abs(far['dx']), TV.REG_MAX_PX + 1e-6)         # больше потолка не берём
+
+    def test_fit_registration_convention_of_pixel_centres(self):
+        """Соглашение пикселя (T-197/3): фото = кадр, уменьшенный вдвое по центрам пикселей (PIL), P с поправкой 0,5·(s−1) — подгонка находит ≤0,03 px (в коде этапа сдвига нет);
+        P «угловая» (как `pose_fit.canvas_P`, без поправки) даёт сдвиг (1−s)/(2s) = 0,5 px кадра — это известное соглашение, камеры подогнаны под него, менять нельзя."""
+        st = fake_stage()
+        s = 0.5
+        big = Image.fromarray((st['mask'] * 255).astype(np.uint8))
+        small = np.asarray(big.resize((int(PX * s), int(PX * s)), Image.LANCZOS))
+        ph = np.zeros((small.shape[0], small.shape[1], 4), np.uint8)
+        ph[..., 3] = small
+        off = 0.5 * (s - 1.0)
+        Pc = np.array([[s, 0, off], [0, s, off], [0, 0, 1.0]])
+        fc = TV.fit_registration(ph, Pc, st['mask'])
+        self.assertLessEqual(abs(fc['dx']), 0.03, fc)
+        self.assertLessEqual(abs(fc['dy']), 0.03, fc)
+        fk = TV.fit_registration(ph, np.diag([s, s, 1.0]), st['mask'])           # угловая P
+        want = (1.0 - s) / (2.0 * s)
+        self.assertLessEqual(abs(fk['dx'] - want), 0.08, fk)
+        self.assertLessEqual(abs(fk['dy'] - want), 0.08, fk)
+
+    def test_legs_cut_reads_04_flag_and_blocks_all_but_trusted_legs(self):
+        """T-191/3: ножки не совпали → фото ниже корпуса не берём, кроме рамок прошедших сверку; пол сдвинут — ни одной; флага нет — None."""
+        with tempfile.TemporaryDirectory() as d:
+            os.makedirs(os.path.join(d, '04-camera'))
+            ck = os.path.join(d, '04-camera', 'check.json')
+            json.dump({'passed': True, 'extra': {}}, open(ck, 'w', encoding='utf-8'))
+            self.assertIsNone(TV.legs_cut(d))
+            ex = {'legs_mismatch': True, 'legs_block': True, 'legs_cut_row': 100, 'legs_trusted_boxes': [[10, 110, 20, 150]], 'legs_match': {'floor_ok': True, 'why': 'ножек не годных 1 из 2'}}
+            json.dump({'passed': True, 'extra': ex}, open(ck, 'w', encoding='utf-8'))
+            json.dump({'frame_px': 200}, open(os.path.join(d, 'stage_loss.json'), 'w', encoding='utf-8'))
+            ex0 = dict(ex, legs_block=False)
+            json.dump({'passed': True, 'extra': ex0}, open(ck, 'w', encoding='utf-8'))
+            self.assertIsNone(TV.legs_cut(d))                                    # observe: legs_mismatch есть, legs_block нет — 06 фото не блокирует
+            json.dump({'passed': True, 'extra': ex}, open(ck, 'w', encoding='utf-8'))
+            lc = TV.legs_cut(d)
+            self.assertEqual((lc['row'], lc['frame_px'], lc['boxes']), (100, 200, [[10, 110, 20, 150]]))
+            blk, r = TV.leg_block_mask((200, 200), lc['row'], lc['boxes'])
+            self.assertEqual(r, 96)                                              # граница − 4 px запаса
+            self.assertTrue(blk[96:, 50:].all() and not blk[:96].any())          # корпус выше границы не блокируется, ножки без пары — да
+            self.assertFalse(blk[110:151, 10:21].any())                          # прошедшая сверку ножка — открыта
+            blk2, _ = TV.leg_block_mask((100, 100), lc['row'], lc['boxes'], scale=0.5)
+            self.assertFalse(blk2[55:75, 5:10].any() and blk2[:46].any())        # масштаб кадра: граница 100·0,5 − 4 = 46
+            ex['legs_match']['floor_ok'] = False
+            json.dump({'passed': True, 'extra': ex}, open(ck, 'w', encoding='utf-8'))
+            self.assertEqual(TV.legs_cut(d)['boxes'], [])                        # пол сдвинут — доверенных ножек нет
+
+    def test_legs_observe_default_is_bit_identical_to_no_legs_flags(self):
+        """T-191/3: по умолчанию (legs_block нет, только запись legs_mismatch) этап 06 даёт тот же результат, что и без полей ножек в 04 — и обычный, и --body-only."""
+        import trimesh
+        from trimesh.visual import TextureVisuals
+        with tempfile.TemporaryDirectory() as d:
+            g = self.geoms[0]
+            m = trimesh.Trimesh(vertices=g['V'], faces=g['F'], process=False)
+            m.visual = TextureVisuals(uv=g['UV'])
+            glb = os.path.join(d, 'shape.glb')
+            m.export(glb)
+            photo = os.path.join(d, 'p.png')
+            Image.fromarray(photo_red_blue()).save(photo)
+            pose = self._write_pose_run(d)
+            os.makedirs(os.path.join(pose, '04-camera'), exist_ok=True)
+            ck = os.path.join(pose, '04-camera', 'check.json')
+            obs = {'legs_mismatch': True, 'legs_cut_row': 20, 'legs_trusted_boxes': [], 'legs_match': {'floor_ok': False, 'why': 'тест'}}
+            for bo in (False, True):
+                outs = []
+                for ex in ({}, obs):
+                    json.dump({'passed': True, 'extra': ex}, open(ck, 'w', encoding='utf-8'))
+                    run_dir = os.path.join(d, f'run_{int(bo)}_{len(ex)}')
+                    TV.run(glb, photo, pose, run_dir, 'sku:1', body_only=bo)
+                    sd = os.path.join(run_dir, 'sku_1', '06-visible')
+                    gg = TV.load_shape(os.path.join(sd, 'visible.glb'))
+                    ch = json.load(open(os.path.join(sd, 'check.json'), encoding='utf-8'))
+                    outs.append(([np.asarray(x['tex']).tobytes() for x in gg], open(os.path.join(sd, 'known.png'), 'rb').read(), ch['extra'].get('legs_block')))
+                self.assertEqual(outs[0][0], outs[1][0])                         # текстуры бит-в-бит
+                self.assertEqual(outs[0][1], outs[1][1])                         # карта «взято с фото» бит-в-бит
+                self.assertIsNone(outs[1][2])                                    # блокировки в отчёте нет
 
 CAM = {'az': 0.0, 'el': 0.0, 'd': 3.0, 'f': 1.3, 'cx': 0.5, 'cy': 0.5}      # настоящая перспективная камера (az/el/d/f/cx/cy, как у этапа 4)
 

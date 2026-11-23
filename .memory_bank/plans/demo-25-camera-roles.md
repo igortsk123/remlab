@@ -4,7 +4,9 @@ slug: demo-25-camera-roles
 title: demo-25 — две камеры с ролями: «вся мебель» (A) и «выигрышный кадр» (B); один отборщик для страницы и сервера
 status: draft
 created: 2026-10-23
-updated: 2026-10-23
+updated: 2026-11-23
+review_after: 2026-12-07
+pause_reason: фокус — конвейер покраски мешей (П1); камеры демо ждут его конца — триаж владельцу при следующей сводке
 plan_kind: sub
 parent_plan: MASTER-cost-first
 ---

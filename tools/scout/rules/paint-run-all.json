@@ -353,9 +353,9 @@
       "fallback": "photo_cam"
     },
     "body_only_args": {
-      "if_extra_true": [
-        "04-camera",
-        "bottom_shape_mismatch"
+      "if_extra_true_any": [
+        ["04-camera", "bottom_shape_mismatch"],
+        ["04-camera", "legs_block"]
       ],
       "args": [
         "--body-only"

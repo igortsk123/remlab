@@ -601,5 +601,53 @@ dgx = KD.DiskGuard('g', take_slot=lambda: 0, realloc=lambda g, i, w: True, say_f
 check(not dgx.step(400.0, [(0.0, 0.0), (400.0, 4.0)], [{'id': 'i'}]) and dgx.culls == 0, 'DiskGuard: общий бюджет пересадок исчерпан — ждёт, не пересаживает')
 
 
+# T-20261123-04/1: шлюз Salad отвечает 503 на POST задания, хотя нода жива (/health 200). Один отказ задания не роняет пробу: счётчик retries_post, причина gateway_503
+def make_spec_post(keys, sleep):
+    sp = make_spec(keys)
+
+    def submit(gw, k, t):
+        body = {'job_id': f'{k}-{int(t)}'}
+        c, r, info = KD.post_job(gw, '/generate', body, '/job/' + body['job_id'], say_fn=lambda *x: None, sleep=sleep)
+        return (({'key': k, 'id': body['job_id'], 't0': t}, {}) if c == 202 else (None, {'http': c, 'detail': r, 'post': info, 'reason': (info or {}).get('reason')}))
+    sp.submit = submit
+    return sp
+
+
+class Gw503(GW):
+    """Шлюз: на POST заданий из `bad` отвечает 503 (всегда или первые `first` раз); /health 200; вопрос воркеру о задании — 404."""
+    bad: tuple = ()
+    first = 10 ** 9
+    seen: dict = {}
+
+    def call(self, method, path, body=None, timeout=60, raw=False):
+        if method == 'POST' and path == '/generate' and (body or {}).get('job_id', '').split('-')[0] in self.bad:
+            k = body['job_id'].split('-')[0]
+            Gw503.seen[k] = Gw503.seen.get(k, 0) + 1
+            if Gw503.seen[k] <= self.first:
+                return 503, {}
+        return super().call(method, path, body, timeout, raw)
+
+
+with tempfile.TemporaryDirectory() as tmp:                        # 1. первое 503 → 503 → 202: пауза, /health, повтор — проба идёт, retries_post=2, первое задание не «упало»
+    clock = Clock()
+    Gw503.bad, Gw503.first, Gw503.seen = ('a',), 2, {}
+    rc, a, out, mg, br = run_raw(tmp, make_spec_post('a', clock.sleep), gw_cls=Gw503, clock=clock)
+    sm = json.load(open(os.path.join(tmp, 'out', 'summary-kit-loop-t.json')))
+    check(rc == 0 and sm.get('stopped_by') == 'done' and sm['jobs']['a']['status'] == 'done' and sm.get('retries_post') == 2, f'503→503→202: задание принято, проба done, retries_post=2 ({sm.get("stopped_by")}, {sm.get("retries_post")})')
+with tempfile.TemporaryDirectory() as tmp:                        # 2. 503 у одного задания до исчерпания при /health 200 → отказ ЭТОГО задания (gateway_503), b идёт дальше
+    clock = Clock()
+    Gw503.bad, Gw503.first, Gw503.seen = ('a',), 10 ** 9, {}
+    rc, a, out, mg, br = run_raw(tmp, make_spec_post('a,b', clock.sleep), gw_cls=Gw503, clock=clock)
+    sm = json.load(open(os.path.join(tmp, 'out', 'summary-kit-loop-t.json')))
+    check(sm['jobs']['a'].get('status') == 'not_accepted' and sm['jobs']['a'].get('reason') == 'gateway_503' and sm['jobs']['b']['status'] == 'done', f'503 до исчерпания: a — отказ gateway_503, b принято и готово ({sm["jobs"]})')
+    check(sm.get('stopped_by') == 'done_with_failures' and sm.get('retries_post', 0) >= len(KD.gateway_post_rules()['gateway_wait']['pauses_s']) and sm.get('stop_verified'), f'проба прошла дальше, итог done_with_failures, retries_post в итоге ({sm.get("stopped_by")}, {sm.get("retries_post")})')
+with tempfile.TemporaryDirectory() as tmp:                        # 3. единственное задание и шлюз так и не принял → причина «gateway_503», а не «first_failed»
+    clock = Clock()
+    Gw503.bad, Gw503.first, Gw503.seen = ('a',), 10 ** 9, {}
+    rc, a, out, mg, br = run_raw(tmp, make_spec_post('a', clock.sleep), gw_cls=Gw503, clock=clock)
+    sm = json.load(open(os.path.join(tmp, 'out', 'summary-kit-loop-t.json')))
+    check(rc == 1 and sm.get('stopped_by') == 'gateway_503' and sm.get('stop_verified'), f'шлюз не принял единственное задание: stopped_by=gateway_503 (не first_failed), стоп проверен ({sm.get("stopped_by")})')
+
+
 print('\nИТОГ:', 'ВСЁ ЗЕЛЁНОЕ' if not FAILS else f'ПАДЕНИЙ {len(FAILS)}')
 sys.exit(1 if FAILS else 0)

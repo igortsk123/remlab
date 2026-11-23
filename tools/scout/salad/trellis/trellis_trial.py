@@ -820,13 +820,15 @@ def run(a, MG, BR, gw_factory=Gateway, sleep=time.sleep, clock=time.time, hf_hea
     if code == 200:
         say(f'группа {name} уже есть ({(g.get("current_state") or {}).get("status")}) — не пересоздаю молча (другая --suffix)')
         return 2
-    code, resp = MG.api('', 'POST', body)
+    summary = {'group': name, 'model': a.model, 'image': a.image, 'tier': a.tier, 'price_usd_h': price, 'cap_usd': a.cap, 'jobs': [], 'failed': 0,
+               'stop_verified': False, 'stopped_by': None, **KD.API_COUNTERS}
+    code, resp, _n = KD.api_retry(MG, '', 'POST', body, name, say, sleep, None, summary)       # общий вход: 504 → ищем группу по имени, 503 → повтор; счётчики — в итог (T-20261123-03/1)
     say('POST создание', code, str(resp)[:200] if code >= 300 else 'ok')
     if code >= 300:
+        v = KD.orphan_check(MG, BR, name, say, summary)                                          # create отказал, а группа могла появиться — гасим, сирот не оставляем
+        say('ИТОГ', json.dumps({'group': name, 'stopped_by': f'create_http_{code}', 'stop_verified': True if v is None else v, **{k: summary[k] for k in KD.API_COUNTERS}}, ensure_ascii=False))
         return 1
     ok_stop = False
-    summary = {'group': name, 'model': a.model, 'image': a.image, 'tier': a.tier, 'price_usd_h': price, 'cap_usd': a.cap, 'jobs': [], 'failed': 0,
-               'stop_verified': False, 'stopped_by': None}
     os.makedirs(a.out, exist_ok=True)
     t_start = run_since = None
     guard = (pull_guard or KD.PullGuard)(name) if getattr(a, 'pull_guard', True) else None     # сторож докачки образа до running (общий, kit_driver; числа — rules/salad-groups.json → pull_guard)
@@ -854,7 +856,7 @@ def run(a, MG, BR, gw_factory=Gateway, sleep=time.sleep, clock=time.time, hf_hea
         t_start = clock()
         started = False
         for attempt in range(1 + START_RETRIES):          # /start на ещё не созданной группе отвечает 400 — повторяем, а не ждём молча у остановленной группы
-            code, _ = MG.api(f'/{name}/start', 'POST')
+            code, _, _n = KD.api_retry(MG, f'/{name}/start', 'POST', None, name, say, sleep, None, summary)
             say('start HTTP', code, f'(попытка {attempt + 1} из {1 + START_RETRIES})')
             if code < 300:
                 started = True
@@ -913,6 +915,7 @@ def run(a, MG, BR, gw_factory=Gateway, sleep=time.sleep, clock=time.time, hf_hea
                 dns = ((g2.get('networking') or {}).get('dns') or '')
                 if dns:
                     gw = gw_factory(f'https://{dns}', os.environ['SALAD_API_KEY'])
+                    gw.counters = summary                                          # post_job кладёт сюда retries_post
                     say('шлюз группы получен')
             if gw is not None and ready_at is None:
                 c, h = gw.call('GET', '/health', timeout=20)
@@ -972,7 +975,7 @@ def run(a, MG, BR, gw_factory=Gateway, sleep=time.sleep, clock=time.time, hf_hea
                     png = open(os.path.join(a.inputs, f'{j["sku"].replace(":", "_")}.{"hd." if j.get("input") == "hd" else ""}rgba.png'), 'rb').read()
                     pl = {'job_id': j['job_id'], 'image_b64': base64.b64encode(png).decode(), 'pipeline_type': pipeline_type(j['res']), 'seed': j['seed'],
                           'decimation_target': a.decimation, 'texture_size': a.texture, 'detail': getattr(a, 'detail', None), 'texture_mesh_b64': tex_by_sku.get(j['sku']), 'role': j.get('role'), 'dims_cm': j.get('dims_cm'), 'align': j.get('align'), 'tex_guidance': j.get('tex_guidance'), 'shape_smooth': j.get('shape_smooth'), 'shape_fill': j.get('shape_fill'), **(j.get('worker_params') or {}), **mvo, **supo}
-                    c, r, pt = KD.post_job(gw, '/generate', pl, '/job/' + j['job_id'], getattr(a, 'post_timeout', 0), say_fn=say)
+                    c, r, pt = KD.post_job(gw, '/generate', pl, '/job/' + j['job_id'], getattr(a, 'post_timeout', 0), say_fn=say, sleep=sleep)
                     if pt:
                         summary.setdefault('post_timeouts', []).append(pt)
                     if pt and not pt['worker_saw_job'] and not j.get('retried'):                      # воркер задание не видит: один повтор в конец очереди той же ноды (тот же job_id: гонка → 409 = принято)
@@ -983,7 +986,7 @@ def run(a, MG, BR, gw_factory=Gateway, sleep=time.sleep, clock=time.time, hf_hea
                     inflight = {**j, 'submitted': t, 'http': c}
                     say('задание', j['job_id'], '→ HTTP', c)
                     if c not in (202, 409):
-                        inflight.update(status='failed', error=f'POST {c} {str(r)[:120]}')
+                        inflight.update(status='failed', error=f'{(pt or {}).get("reason") or "POST"} {c} {str(r)[:120]}')      # reason=gateway_503 — шлюз не принял ноду за все паузы (T-20261123-04/1)
                 elif inflight is not None:
                     if inflight.get('status') != 'failed' and t - last_hc >= 30:
                         last_hc = t
@@ -1109,7 +1112,7 @@ def run(a, MG, BR, gw_factory=Gateway, sleep=time.sleep, clock=time.time, hf_hea
         summary['running_s'] = round((clock() - run_since), 1) if run_since is not None else 0.0
         summary['cost_usd_est'] = round(cost_usd(summary['running_s'], price), 3)
         json.dump(summary, open(os.path.join(a.out, f'summary-{name}.json'), 'w'), ensure_ascii=False, indent=1)
-        say('ИТОГ', json.dumps({k: summary.get(k) for k in ('group', 'stopped_by', 'stop_verified', 'failed', 'fail_classes', 'running_s', 'cost_usd_est')}, ensure_ascii=False))
+        say('ИТОГ', json.dumps({k: summary.get(k) for k in ('group', 'stopped_by', 'stop_verified', 'failed', 'fail_classes', 'running_s', 'cost_usd_est', *KD.API_COUNTERS)}, ensure_ascii=False))
     return 0 if summary['stop_verified'] and summary['stopped_by'] == 'done' else 1
 
 

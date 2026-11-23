@@ -158,7 +158,7 @@ def scene_parts():
 def test_parts():
     print('заливка: известное цело; невидимое — цветом СВОЕЙ части, не через границу части и островка:')
     g, parts, known, tl, col = scene_parts()
-    out = TF.fill([g], known, parts, cfg={"gutter": 0, "erode_known": 0, "tone": "median", "src_dev_pattern": 0}, mirror=False)     # часть 1 двухцветная (синий + жёлтый островок): геометрия заливки проверяется при медиане, мода — отдельный тест
+    out = TF.fill([g], known, parts, cfg={"seam": {"enabled": False}, "gutter": 0, "erode_known": 0, "tone": "median", "src_dev_pattern": 0}, mirror=False)     # часть 1 двухцветная (синий + жёлтый островок): геометрия заливки проверяется при медиане, мода — отдельный тест
     tex, rep = out['tex'][0], out['report']
     tex0 = g['tex']
     kn = known[0]
@@ -177,19 +177,266 @@ def test_parts():
     ok(TF.THRESHOLDS['empty_pct'] == ('<=', 0.5), 'порог общего «не закрашено» после заливки — 0,5 % (решение директора 20.11)')
 
 
+def test_brightness_target_median():
+    print("яркость зада (T-198/1): тёмный хвост спереди — зад к МЕДИАНЕ перёда, не к моде; ровный перёд — без изменений:")
+    q = Quads()
+    q.quad([[-0.5, 0, 0], [0.5, 0, 0], [0.5, 1, 0], [-0.5, 1, 0]], (0, 0, .5, .5), sub=8)
+    q.quad([[-0.5, 0, -0.4], [0.5, 0, -0.4], [0.5, 1, -0.4], [-0.5, 1, -0.4]], (.5, .5, 1, 1), sub=8)
+    mA = tile_mask((0, 0, .5, .5))
+    mB = tile_mask((.5, .5, 1, 1))
+    ys, xs = np.nonzero(mA)
+    x0, x1 = xs.min(), xs.max() + 1
+    col = (xs - x0) / float(x1 - x0)
+    cfg0 = {"gutter": 0, "erode_known": 0, "src_dev_pattern": 0}
+
+    def run(grey, target):
+        tex = np.zeros((T, T, 3), np.uint8)
+        tex[ys, xs] = np.clip(grey, 0, 255).astype(np.uint8)[:, None]
+        g = q.geom(tex)
+        out = TF.fill([g], [mA], [np.asarray(q.part, np.int32)], cfg=dict(cfg0, brightness_target=target), mirror=False)
+        return tex, out['tex'][0], out['report']
+
+    grey = np.where(col < 0.42, 215.0, 205.0 - (col - 0.42) / 0.58 * 95.0)            # 42 % светлого фона (мода) + 58 % плавно темнее (хвост): медиана заметно ниже моды
+    tex, t_tone, r_tone = run(grey, 'tone')
+    _, t_med, r_med = run(grey, 'median')
+    med_f = float(np.median(lab_of(tex, mA)[:, 0]))
+    b_tone, b_med = float(np.median(lab_of(t_tone, mB)[:, 0])), float(np.median(lab_of(t_med, mB)[:, 0]))
+    br = r_med['brightness'][0]
+    ok(br['target_from'] == 'median' and br['mode_minus_median'] > 3, f"мода выше медианы больше чем на 3 L* — цель = медиана ({br})")
+    ok(abs(b_med - med_f) <= 1.5, f"цель median: медиана зада {b_med:.1f} ≈ медиане перёда {med_f:.1f} (±1,5)", f"{b_med:.1f} против {med_f:.1f}")
+    ok(b_tone - med_f > 5.0, f"цель tone (как было): зад светлее перёда на {b_tone - med_f:.1f} L* — дефект воспроизведён", f"{b_tone:.1f} против {med_f:.1f}")
+    ok(r_tone['brightness'][0]['target_from'] == 'tone', "brightness_target=tone — цель мода, как прежде")
+    flat = 150.0 + 2.0 * np.sin(np.arange(len(xs)) * 0.7)                              # ровный перёд: мода ≈ медиана
+    _, f_tone, rf_tone = run(flat, 'tone')
+    _, f_med, rf_med = run(flat, 'median')
+    ok(rf_med['brightness'][0]['target_from'] == 'tone' and np.array_equal(f_tone, f_med), f"ровный перёд (мода−медиана {rf_med['brightness'][0]['mode_minus_median']}): результат тот же, цель — мода")
+
+
+def test_lighter_than_photo():
+    print("светлее фото (T-187/1): тёмная пластина с щелью — серая заготовка в щели видна, тон соседа — нет:")
+    n = 200
+    photo = np.full((n, n, 3), 40, np.uint8)                       # тёмная пластина (графит)
+    yy = np.arange(n, dtype=np.float32)[:, None]
+    dip = (30.0 * np.exp(-((yy - 100.0) / 12.0) ** 2)).astype(np.float32)          # мягкая тёмная щель (перепад яркости ниже порога края)
+    photo = np.clip(photo.astype(np.float32) - dip[:, :, None], 0, 255).astype(np.uint8)
+    mask = np.zeros((n, n), bool)
+    mask[10:190, 10:190] = True
+    bad = photo.copy()
+    bad[90:110, 20:180] = 128                                      # не взятый тексель = серая заготовка 128 в полосе щели
+    good = photo.copy()                                            # залито тоном соседа: цвет, как у фото в этом месте
+    rb, rg = TF.lighter_than_photo_share(bad, photo, mask), TF.lighter_than_photo_share(good, photo, mask)
+    ok(rb['share_pct'] > TF.THRESHOLDS['lighter_than_photo_pct'][1], f"серая заготовка в щели — дефект виден: {rb}")
+    ok(rg['share_pct'] <= TF.THRESHOLDS['lighter_than_photo_pct'][1], f"щель залита тоном соседа — в норме: {rg}")
+
+
 def test_no_known_part():
     print('часть без известного: статистика по всему предмету (счётчик), чёрного нет:')
     g, parts, known, tl, col = scene_parts()
     known2 = [known[0] & ~tile_mask(tl['C']) & ~tile_mask(tl['B'], 0.5)]            # у части 1 известного нет совсем
-    out = TF.fill([g], known2, parts, cfg={'gutter': 0, 'erode_known': 0, 'min_known': 50}, mirror=False)
+    out = TF.fill([g], known2, parts, cfg={'gutter': 0, 'erode_known': 0, 'min_known': 50, 'no_role_global': 'legacy'}, mirror=False)
     rep = out['report']
-    ok(rep['fallback_global'] == 1 and rep['parts'][1]['stats_from_global'], 'часть 1: статистика взята по предмету, счётчик fallback_global = 1')
+    ok(rep['fallback_global'] == 1 and rep['parts'][1]['stats_from_global'], 'no_role_global=legacy: часть 1 — статистика по предмету, счётчик fallback_global = 1')
     ok(rep['unpainted_after_pct'] == 0.0, 'после заливки чёрного нет')
+    out2 = TF.fill([g], known2, parts, cfg={'gutter': 0, 'erode_known': 0, 'min_known': 50}, mirror=False)
+    rep2 = out2['report']
+    ok(1 in rep2['tone_skipped_parts'] and rep2['tone_source'][1]['source'] == 'skip', f"по умолчанию (Ш6) часть без роли и без своего тона НЕ берёт тон всего товара — skip: {rep2['tone_source'].get(1)}")
+    ok(0 not in rep2['tone_skipped_parts'], 'часть с известным (0) — красится как раньше')
 
 
 # ------------------------------------------------------------------ зеркало
+def test_mirror_off_by_default():
+    print('зеркала в пути 07 нет по умолчанию (TG 1737):')
+    q = Quads()
+    q.quad([[-1, 0, 0], [-1, 0, 1], [-1, 1, 1], [-1, 1, 0]], (0, 0, .5, .5), sub=24)
+    q.quad([[1, 0, 1], [1, 0, 0], [1, 1, 0], [1, 1, 1]], (.5, 0, 1, .5), sub=24)
+    tex = np.full((T, T, 3), 100, np.uint8)
+    ml = tile_mask((0, 0, .5, .5))
+    tex[ml] = (200, 60, 60)
+    g = q.geom(tex)
+    out = TF.fill([g], [ml], None, cfg={'gutter': 0, 'erode_known': 0}, mirror=True)
+    rm = out['report']['mirror']
+    ok(not rm['applied'] and rm.get('off') == 'rules mirror_enabled=false' and rm['texels'] == 0, f'mirror=True при правиле mirror_enabled=false: зеркало не применено ({rm.get("off")})')
+
+
+def test_shrink_layout():
+    print('пробная раскладка ничьи: каждый step-й тексель, UV те же; не массивы — без изменений:')
+    g = [{'V': np.zeros((3, 3)), 'F': np.zeros((1, 3), int), 'UV': np.zeros((3, 2)), 'tex': np.zeros((1024, 1024, 3), np.uint8)}]
+    k = [np.ones((1024, 1024), bool)]
+    ut = [{'tex': np.zeros((2048, 2048, 4), np.uint8)}]
+    g2, t2, k2, u2 = TF._shrink_layout(2, g, [g[0]['tex']], k, ut)
+    ok(g2[0]['tex'].shape == (512, 512, 3) and t2[0].shape == (512, 512, 3) and k2[0].shape == (512, 512) and u2[0]['tex'].shape == (1024, 1024, 4) and g2[0]['UV'] is g[0]['UV'],
+       'текстуры, маски и UltraTex — вдвое по стороне, UV и грани те же')
+    g3, *_ = TF._shrink_layout(1, g, [g[0]['tex']], k, ut)
+    ok(g3 is g, 'step 1 — без изменений')
+    g4, *_ = TF._shrink_layout(2, [0], [0], [0], None)
+    ok(g4 == [0], 'не массивы (тесты хука) — без изменений')
+
+
+def test_tie_picks_front_on_back():
+    print('два поворота UltraTex почти равны (ничья): берётся тот, у кого front_on_back после заливки минимален и ≤ порога; нет такого — UltraTex не используется:')
+    import ref_zone as RZ
+    saved = (RZ.align_ut, RZ.own_panel_tone, TF.front_on_back_corr)
+    vals = {}
+    seen = []
+
+    def fake_align(geoms, tex, known, ut, yaw=None):
+        if yaw is None:
+            return None, {'status': 'tied', 'ties': [90, 270], 'why': 'тест'}
+        return [yaw], {'status': 'forced', 'yaw_deg': yaw}
+
+    def fake_own(geoms, tex, known, ut, parts):
+        seen.append(ut)
+        return [('tex', ut[0] if ut else None)], {'panels': {}}
+
+    def fake_fob(geoms, tl, front, **k):
+        return {'corr': vals[tl[0][1]], 'pairs': 1000, 'axis': 2}
+
+    RZ.align_ut, RZ.own_panel_tone, TF.front_on_back_corr = fake_align, fake_own, fake_fob
+    try:
+        vals.update({90: 0.45, 270: 0.15})
+        out, rep = TF.own_panel_tone_hook([0], [0], [0], [0], None, (2, 1), 0.6)
+        ok(rep['ut_align']['yaw_deg'] == 270 and rep['ut_align']['status'] == 'aligned_by_front_on_back', f'ничья 90/270 → выбран 270 (front_on_back 0,15 < 0,45): {rep["ut_align"]}')
+        vals.update({90: 0.8, 270: 0.9})
+        del seen[:]
+        out, rep = TF.own_panel_tone_hook([0], [0], [0], [0], None, (2, 1), 0.6)
+        ok(rep['ut_align']['status'] == 'uncertain' and rep['ut_align']['yaw_deg'] is None and seen[-1] is None, 'оба выше порога 0,6 → uncertain, UltraTex не используется (тон своей зоны)')
+        vals.update({90: 0.5, 270: None})
+        out, rep = TF.own_panel_tone_hook([0], [0], [0], [0], None, (2, 1), 0.6)
+        ok(rep['ut_align']['yaw_deg'] == 90, 'у одного front_on_back не измерен (None) — берётся тот, где измерен и ≤ порога')
+
+        def fake_align4(geoms, tex, known, ut, yaw=None):
+            if yaw is None:
+                return None, {'status': 'tied', 'ties': [0, 90, 180, 270], 'corr': {'0': 0.30, '90': 0.50, '180': 0.45, '270': 0.20}, 'why': 'тест'}
+            return [yaw], {'status': 'forced', 'yaw_deg': yaw}
+
+        RZ.align_ut = fake_align4
+        vals.update({0: 0.01, 90: 0.4, 180: 0.3, 270: 0.02})
+        del seen[:]
+        out, rep = TF.own_panel_tone_hook([0], [0], [0], [0], None, (2, 1), 0.6)
+        ok(rep['ut_align']['ties_tried'] == [90, 180] and len(seen) == 2 and rep['ut_align']['yaw_deg'] == 180,
+           f'ничья из 4: пробуются только 2 лучших по энергии (90, 180), не все четыре; выбран 180: {rep["ut_align"].get("ties_tried")}, заливок {len(seen)}')
+        ok('sec_hook' in rep and 'sec_align' in rep['ut_align'], 'время ступеней — в отчёте (sec_hook, sec_align)')
+    finally:
+        RZ.align_ut, RZ.own_panel_tone, TF.front_on_back_corr = saved
+
+
+def test_front_on_back():
+    print('автопроверка «перёд на заду» (коробка с двумя симметриями, ручки на лице):')
+    rng = np.random.default_rng(5)
+    q = Quads()
+    q.quad([[-1, 0, 1], [1, 0, 1], [1, 1, 1], [-1, 1, 1]], (0, 0, .5, .5), sub=24)       # перёд z=+1
+    q.quad([[-1, 0, -1], [1, 0, -1], [1, 1, -1], [-1, 1, -1]], (.5, 0, 1, .5), sub=24)     # зад z=−1, те же (x, y)
+    q.quad([[-1, 0, -1], [-1, 0, 1], [-1, 1, 1], [-1, 1, -1]], (0, .5, .5, 1), sub=24)     # левый бок
+    q.quad([[1, 0, 1], [1, 0, -1], [1, 1, -1], [1, 1, 1]], (.5, .5, 1, 1), sub=24)         # правый бок
+    mf, mb = tile_mask((0, 0, .5, .5)), tile_mask((.5, 0, 1, .5))
+    handles = np.full((T, T), 120.0)
+    for (y0, y1, x0, x1) in ((6, 12, 6, 26), (6, 12, 38, 58), (18, 24, 6, 26), (18, 24, 38, 58)):
+        handles[y0:y1, x0:x1] = 235.0                                                       # «ручки/щели» на лице
+    handles += rng.normal(0, 3, handles.shape)
+    t_copy = np.repeat(np.clip(handles, 0, 255)[..., None], 3, 2).astype(np.uint8)
+    t_copy = np.where(mb[..., None], np.roll(t_copy, (0, -T // 2), axis=(0, 1)) if False else t_copy, t_copy)
+    tex_copy = np.full((T, T, 3), 100, np.uint8)
+    tex_copy[mf] = t_copy[mf]
+    tex_copy[mb] = np.roll(np.roll(t_copy, T // 2, axis=1), 0, axis=0)[mb]                # зад = копия лица (тот же узор, сдвиг тайла)
+    g = q.geom(tex_copy)
+    r_bad = TF.front_on_back_corr([g], [tex_copy], (2, 1))
+    ok(r_bad['corr'] is not None and r_bad['corr'] > 0.8, f'перёд скопирован на зад → корреляция высокая ({r_bad["corr"]}, пар {r_bad["pairs"]})')
+    tex_ok = tex_copy.copy()
+    tex_ok[mb] = np.repeat(np.clip(120 + rng.normal(0, 3, (T, T)), 0, 255)[..., None], 3, 2).astype(np.uint8)[mb]       # зад: гладкий тон, без ручек
+    r_ok = TF.front_on_back_corr([g], [tex_ok], (2, 1))
+    ok(r_ok['corr'] is None or r_ok['corr'] < 0.3, f'зад без ручек → корреляции нет ({r_ok["corr"]}: {r_ok.get("why", "измерено")})')
+    ok(TF.front_on_back_corr([g], [tex_copy], None)['corr'] is None, 'нет позы камеры → не измерено (None), не провал')
+    ok(TF.front_axis_of_check({'extra': {'camera': {'az': 160.0}}}) == (2, -1) and TF.front_axis_of_check({'extra': {'camera': {'az': 55.0}}}) == (0, 1) and TF.front_axis_of_check({}) is None, 'ось «перёд» по азимуту: az160 → (z, −), az55 → (x, +), нет позы → None')
+
+
+def test_front_on_back_within_parts():
+    print('«перёд на заду» по остатку внутри частей (T-198/1): тоны частей зеркальны — не копия; копия фактуры внутри части — копия:')
+    rng = np.random.default_rng(7)
+    q = Quads()
+    q.quad([[-1, 0, 1], [1, 0, 1], [1, 1, 1], [-1, 1, 1]], (0, 0, .5, .5), sub=24)       # перёд z=+1
+    q.quad([[-1, 0, -1], [1, 0, -1], [1, 1, -1], [-1, 1, -1]], (.5, 0, 1, .5), sub=24)     # зад z=−1, те же (x, y)
+    mf, mb = tile_mask((0, 0, .5, .5)), tile_mask((.5, 0, 1, .5))
+    g0 = q.geom(np.zeros((T, T, 3), np.uint8))
+    cx = np.asarray(g0['V'])[np.asarray(g0['F'])][:, :, 0].mean(1)
+    parts = [(cx > 0).astype(np.int32)]                                                   # часть 0 — левая половина, часть 1 — правая
+    half = (np.arange(T)[None, :] % (T // 2)) >= (T // 4)                                  # столбцы тайла: правая половина = часть 1
+
+    def tex_of(front_sigma, back_sigma, copy):
+        base = np.where(half, 200.0, 70.0)                                                  # у каждой части свой ровный тон
+        f = base + rng.normal(0, front_sigma, (T, T))
+        b = np.roll(f, T // 2, axis=1) if copy else base + rng.normal(0, back_sigma, (T, T))
+        t = np.full((T, T, 3), 100, np.uint8)
+        t[mf] = np.repeat(np.clip(f, 0, 255)[..., None], 3, 2).astype(np.uint8)[mf]
+        t[mb] = np.repeat(np.clip(b, 0, 255)[..., None], 3, 2).astype(np.uint8)[mb]
+        return t
+
+    t_tone = tex_of(6.0, 6.0, False)                                                        # тоны частей одинаковы спереди и сзади, фактура независимая
+    r1 = TF.front_on_back_corr([g0], [t_tone], (2, 1), parts=parts)
+    ok(r1['raw'] is not None and r1['raw'] > 0.9, f'порядок тонов частей: корреляция по яркости целиком высокая ({r1["raw"]})')
+    ok(r1['corr'] is not None and r1['corr'] < 0.3 and r1['mode'] == 'within_parts', f'остаток внутри частей низкий — не копия ({r1["corr"]}, режим {r1["mode"]})')
+    t_copy = tex_of(10.0, 10.0, True)                                                       # зад = копия фактуры лица внутри каждой части
+    r2 = TF.front_on_back_corr([g0], [t_copy], (2, 1), parts=parts)
+    ok(r2['corr'] is not None and r2['corr'] > 0.8 and r2['raw'] > 0.9, f'копия фактуры внутри части → остаток высокий ({r2["corr"]}, целиком {r2["raw"]})')
+    r3 = TF.front_on_back_corr([g0], [t_tone], (2, 1))
+    ok(r3['mode'] == 'raw' and r3['corr'] == r3['raw'] == r1['raw'], f'без частей — как раньше, по яркости целиком ({r3["corr"]})')
+    t_flat = tex_of(0.0, 0.0, False)                                                        # внутри частей гладко: нечего копировать
+    r4 = TF.front_on_back_corr([g0], [t_flat], (2, 1), parts=parts)
+    ok(r4['corr'] is None and r4.get('why') == 'внутри пар частей гладко', f'гладко внутри частей — не измерено, не провал ({r4.get("why")})')
+    one = [np.zeros(len(g0['F']), np.int32)]                                                # одна часть на всё: остаток = яркость минус общее среднее — копия видна
+    r5 = TF.front_on_back_corr([g0], [t_copy], (2, 1), parts=one)
+    ok(r5['corr'] is not None and r5['corr'] > 0.9, f'одна часть на всё — копия видна ({r5["corr"]})')
+
+
+def test_front_on_back_unequal_parts():
+    print('«перёд на заду»: части зада и перёда разные (замечание советника, T-198/1) — копия не теряется, отпечаток виден:')
+    rng = np.random.default_rng(11)
+    q = Quads()
+    q.quad([[-1, 0, 1], [1, 0, 1], [1, 1, 1], [-1, 1, 1]], (0, 0, .5, .5), sub=24)
+    q.quad([[-1, 0, -1], [1, 0, -1], [1, 1, -1], [-1, 1, -1]], (.5, 0, 1, .5), sub=24)
+    mf, mb = tile_mask((0, 0, .5, .5)), tile_mask((.5, 0, 1, .5))
+    g0 = q.geom(np.zeros((T, T, 3), np.uint8))
+    F, V = np.asarray(g0['F']), np.asarray(g0['V'])
+    cen = V[F].mean(1)
+    side_back = cen[:, 2] < 0
+    cx = cen[:, 0]
+    part_front = np.where(cx < -0.5, 0, np.where(cx < 0, 1, np.where(cx < 0.5, 2, 3)))     # у перёда четыре части с разными тонами
+    parts_unequal = [np.where(side_back, 9, part_front).astype(np.int32)]                   # зад — одна часть 9
+    col = (np.arange(T)[None, :] % (T // 2)) / (T // 2)
+    tone = np.select([col < .25, col < .5, col < .75], [60.0, 110.0, 160.0], 210.0)
+
+    def tex_of(front_sigma, back_mode):
+        f = tone + rng.normal(0, front_sigma, (T, T))
+        if back_mode == 'copy':
+            b = np.roll(f, T // 2, axis=1)
+        elif back_mode == 'imprint':
+            b = tone + rng.normal(0, 6.0, (T, T))
+        else:
+            b = np.full((T, T), 130.0) + rng.normal(0, 6.0, (T, T))
+        t = np.full((T, T, 3), 100, np.uint8)
+        t[mf] = np.repeat(np.clip(f, 0, 255)[..., None], 3, 2).astype(np.uint8)[mf]
+        t[mb] = np.repeat(np.clip(b, 0, 255)[..., None], 3, 2).astype(np.uint8)[mb]
+        return t
+
+    r1 = TF.front_on_back_corr([g0], [tex_of(12.0, 'copy')], (2, 1), parts=parts_unequal)
+    ok(r1['corr'] is not None and r1['corr'] > 0.6, f'зад — одна часть, перёд — четыре тона, зад = копия перёда → копия видна ({r1["corr"]}, целиком {r1["raw"]})')
+    r2 = TF.front_on_back_corr([g0], [tex_of(12.0, 'indep')], (2, 1), parts=parts_unequal)
+    ok(r2['corr'] is None or r2['corr'] < 0.3, f'тот же перёд, зад — свой ровный тон и свой шум → не копия ({r2["corr"]})')
+    r3 = TF.front_on_back_corr([g0], [tex_of(0.0, 'imprint')], (2, 1), parts=parts_unequal)
+    ok(r3['corr'] is None and r3['imprint'] is not None and r3['imprint'] > 0.8, f'отпечаток: перёд ровный по частям, зад повторяет тона частей перёда → corr None, imprint высокий ({r3["imprint"]})')
+    ok(r2['imprint'] is None or r2['imprint'] < 0.3, f'без отпечатка imprint низкий ({r2["imprint"]})')
+
+
 def test_mirror():
-    print('зеркало симметричного предмета:')
+    print('зеркало симметричного предмета (механизм жив при mirror_enabled=true; по умолчанию выкл.):')
+    _was = TF.RULES.get('mirror_enabled')
+    TF.RULES['mirror_enabled'] = True
+    try:
+        _test_mirror_body()
+    finally:
+        TF.RULES['mirror_enabled'] = _was
+
+
+def _test_mirror_body():
     q = Quads()
     left = [[-1, 0, 0], [-1, 0, 1], [-1, 1, 1], [-1, 1, 0]]
     right = [[1, 0, 1], [1, 0, 0], [1, 1, 0], [1, 1, 1]]
@@ -414,7 +661,7 @@ def test_draft_source():
     dg['tex'] = dtex
     dt = TF.draft_texels([g], [dg])
     ok(dt['report']['ok_pct'] > 99.0 and dt['report']['frame_gap'] < 1e-6, f'черновик перенесён на нашу развёртку: покрытие {dt["report"]["ok_pct"]} %, расхождение кадра {dt["report"]["frame_gap"]}')
-    out = TF.fill([g], known, parts, cfg={'gutter': 0, 'erode_known': 0, 'source': 'trellis'}, mirror=False, draft=dt)
+    out = TF.fill([g], known, parts, cfg={"seam": {"enabled": False}, "gutter": 0, 'erode_known': 0, 'source': 'trellis'}, mirror=False, draft=dt)
     tex, rep = out['tex'][0], out['report']
     kn = known[0]
     ok(int((tex[kn] != g['tex'][kn]).sum()) == 0, 'известные тексели не изменились')
@@ -450,13 +697,16 @@ def test_tone_mode_pattern():
     tex[ys[shade], xs[shade]] = [60, 55, 50]
     g = q.geom(tex)
     kn = [m.copy()]
-    out = TF.fill([g], kn, None, cfg={'gutter': 0, 'erode_known': 0}, mirror=False)
+    out = TF.fill([g], kn, None, cfg={"gutter": 0, "erode_known": 0, "pattern_min_blocks": 0.0}, mirror=False)
     rep = out['report']
     cream = TF.rgb2lab(np.array([[235, 225, 200]], np.uint8))[0]
     tone = np.array(rep['parts'][0]['mean_lab'])
     ok(float(TC.de2000_v(tone[None], cream[None])[0]) < 3.0, f'тон = кремовый фон, а не розовый средний (ΔE к фону {float(TC.de2000_v(tone[None], cream[None])[0]):.1f})')
     ok(rep['parts'][0]['pattern'] is True, 'часть с цветами помечена «узорной»')
     ok(rep.get('quilt') == 1 and rep['no_patch'] == 0, 'узор — квилтом из мелких блоков')
+    out2 = TF.fill([g], kn, None, cfg={'gutter': 0, 'erode_known': 0, 'pattern_min_blocks': 1e9}, mirror=False)   # известного «меньше любого числа блоков» → рисунок не наблюдаем: тон + зерно, квилта нет (решение директора 23.11)
+    ro = out2['report']
+    ok(0 in (ro.get('pattern_unobserved') or {}) and not ro.get('quilt') and ro['quilt_lattice'][0].get('unobserved') is True, 'узорная с малым известным → pattern_unobserved, не квилт; в report quilt_lattice flat/unobserved')
     back = tile_mask((.9, .9, 1.0, 1.0))
     lab_back = lab_of(out['tex'][0], back)
     med_back = np.median(lab_back, axis=0)
@@ -500,6 +750,156 @@ def test_quilt_efros():
     ok(abs(float(t_flat[0]) - float(np.median(spread[:, 0]))) < 1.0, f'равномерный разброс (ворс) — медиана, не случайная мода ({t_flat[0]:.1f})')
 
 
+def test_quilt_lattice():
+    print('решётка квилта (T-187/7, 23.11): мерка ловит повтор блоков по сетке шага и пересборка с густым пулом её убирает:')
+    from scipy.ndimage import gaussian_filter
+    rng = np.random.RandomState(5)
+    B, o = 24, 6
+
+    def grain(n):                                                      # «дерево»: волокно по x, вдоль волокна коррелирует на любом лаге
+        a = gaussian_filter(rng.randn(n, n), (0.8, 14.0), mode='wrap')
+        return a / a.std() * 6.0
+
+    def pool_of(k, drift=0.0):
+        big = grain(512)
+        out = []
+        for _ in range(k):
+            y, x = rng.randint(0, 512 - B, 2)
+            out.append(np.stack([big[y:y + B, x:x + B]] * 3, -1) * np.array([1.0, 0.1, 0.1]))
+        return np.stack(out)
+    tiny, wide = pool_of(3), pool_of(400)
+    q_tiny = TF.wrap_soften(TF.quilt_image(tiny, 6, o, np.random.RandomState(1)))
+    q_wide = TF.wrap_soften(TF.quilt_image(wide, 6, o, np.random.RandomState(1)))
+    l_tiny, l_wide = TF.quilt_lattice(q_tiny, B - o), TF.quilt_lattice(q_wide, B - o)
+    thr = TF.FILL['quilt_lattice_max']
+    ok(l_tiny['excess'] > thr, f'3 блока на 36 мест → решётка поймана (избыток {l_tiny["excess"]:.2f} > {thr}, лаг {l_tiny["lag"]})')
+    ok(l_wide['excess'] < thr, f'400 блоков → решётки нет (избыток {l_wide["excess"]:.2f} < {thr})')
+    one = np.tile(tiny[0], (3, 3, 1))
+    ok(TF.quilt_lattice(one, B)['excess'] > thr, f'один блок плиткой — период по построению, мерка ловит ({TF.quilt_lattice(one, B)["excess"]:.2f})')
+    ok(TF.quilt_lattice(np.zeros((40, 40, 3)), 10)['excess'] == 0.0 and TF.quilt_lattice(q_wide[:20, :20], 18)['lag'] is None, 'плоская плитка и плитка меньше двух шагов — 0, не падение')
+    rep_ = {'quilt_lattice': {1: {'before': 0.55, 'rebuilt': 8, 'flip': 1, 'after': 0.0, 'after_best': 0.38, 'flat': True}, 2: {'before': 0.2, 'rebuilt': 0}},
+            'patch_lattice': {3: {'single_lattice': 1.1, 'lattice': 0.29, 'quilt_lattice': 0.29, 'used': 'quilt'}, 4: {'single_lattice': 0.9, 'lattice': 0.0, 'lattice_best': 0.9, 'used': 'flat'}}, 'own_panel': {}}
+    ok(TF._lattice_value(rep_) == 0.29, f'итоговая мерка: гладко (flat) = 0, у образца берётся решётка ИТОГОВОГО образца ({TF._lattice_value(rep_)})')
+    ok(TF._lattice_value({'patch_lattice': {3: {'single_lattice': 1.1, 'lattice': 1.1, 'used': 'single'}}}) == 1.1, 'одиночный блок с решёткой — мерка красная, не прячется')
+    ok(TF.FILL['quilt_lattice_max'] == 0.3 and TF.FILL['quilt_stride_div'] == 2 and TF.FILL['quilt_stride_div_max'] >= 4, 'правила по умолчанию: порог 0,3, шаг выборки полблока, потолок густоты')
+    q_d = TF.render_pool  # шаг выборки пула — параметр: гуще → не меньше блоков
+    yy, xx = np.mgrid[0:200, 0:200]
+    g_ = np.stack([grain(200)] * 3, -1)
+    okr = np.ones((200, 200), bool)
+    c1 = dict(TF.FILL, quilt_block=16, quilt_stride_div=2)
+    p2 = q_d(g_ * okr[..., None], okr, c1, 1.0, 2)
+    p4 = q_d(g_ * okr[..., None], okr, c1, 1.0, 4)
+    n2, n4 = len(p2[1]), len(p4[1])
+    ok(n4 > n2, f'густой шаг выборки даёт больше блоков пула ({n2} → {n4})')
+
+
+def test_pattern_lattice():
+    print('узорная часть (T-187/6, 23.11): решётка судится эталоном src; обычная — порогом 0,3:')
+    lmax, mg = 0.3, 0.1
+    ok(TF.pattern_lattice_limit(0.45, lmax, mg) == 0.55 and TF.pattern_lattice_limit(None, lmax, mg) == 0.3 and TF.pattern_lattice_limit(0.1, lmax, mg) == 0.3, 'предел = max(0,3; src+0,1); эталона нет — 0,3')
+    ok(TF.lattice_end_action(True, 0.48, 0.45, False, lmax, mg) == 'pass', '(1) узорная: src 0,45, after 0,48 → проходит (период рисунка)')
+    ok(TF.lattice_end_action(True, 0.4, 0.1, False, lmax, mg) == 'big', '(2) узорная: src 0,1, after 0,4 → ступень (в)')
+    ok(TF.lattice_end_action(True, 0.4, 0.1, True, lmax, mg) == 'fail', '(2) (в) была, не дошло → провал, и это НЕ flat (рисунок не стираем)')
+    ok(TF.lattice_end_action(True, 0.28, 0.1, True, lmax, mg) == 'ok', 'узорная дошла до порога — ок')
+    ok(TF.lattice_end_action(False, 0.4, 0.45, False, lmax, mg) == 'flat', '(3) обычная 0,4 → flat, эталон на неё не действует (src 0,45 не оправдывает)')
+    ok(TF.lattice_end_action(False, 0.2, None, False, lmax, mg) == 'ok', 'обычная ≤ порога — ок')
+    rng = np.random.RandomState(5)
+    res = np.zeros((90, 90, 3))
+    res[..., 0] = rng.randn(90, 90)
+    okm = np.zeros((90, 90), bool)
+    okm[10:80, 10:80] = True
+    ex = TF.known_lattice(res, okm, 8)
+    ok(ex is not None and ex < 0.2, f'эталон на шуме без периода — малый ({ex})')
+    per = np.tile(rng.randn(8, 8), (12, 12))
+    res2 = np.zeros((96, 96, 3))
+    res2[..., 0] = per
+    ex2 = TF.known_lattice(res2, np.ones((96, 96), bool), 8)
+    ok(ex2 is not None and ex2 > 0.3, f'эталон на периодическом узоре (период = шаг) — большой ({ex2})')
+    ok(TF.known_lattice(res, np.zeros((90, 90), bool), 8) is None and TF.known_lattice(res, okm[:, :], 80) is None, 'нет известного или известного меньше 8 шагов² → None')
+    holes = rng.rand(96, 96) > 0.45                                                  # рваное известное (как у узорных частей): сплошного квадрата нет вовсе
+    ex3 = TF.known_lattice(res2, holes, 8)
+    ok(ex3 is not None and ex3 > 0.3, f'эталон по рваному известному (55 % дыр): периодический узор виден ({ex3})')
+    ex4 = TF.known_lattice(np.stack([rng.randn(96, 96)] * 3, 2), holes, 8)
+    ok(ex4 is not None and ex4 < 0.2, f'эталон по рваному известному: шум без периода — малый ({ex4})')
+    ok(TF.FILL['pattern_min_blocks'] == 8.0, 'порог «рисунок не наблюдаем» — 8 площадей блока (правило по умолчанию)')
+    ok(TF.pattern_unobserved(5 * 250, 250, TF.FILL['pattern_min_blocks']) and not TF.pattern_unobserved(20 * 250, 250, TF.FILL['pattern_min_blocks']), 'известного 5 блоков → не наблюдаем (тон+зерно); 20 блоков → прежняя логика с эталоном')
+    ok(TF.pattern_unobserved(100, 0, 8.0) is False, 'блока нет — не судим')
+    ok(TF._lattice_value({'quilt_lattice': {2: {'before': 0.0, 'rebuilt': 0, 'after': 0.0, 'flat': True, 'unobserved': True}}, 'patch_lattice': {}, 'own_panel': {}}) == 0.0, 'часть «не наблюдаем» → решётки нет (тон), мерка 0')
+    rep_ = {'quilt_lattice': {3: {'before': 0.6, 'rebuilt': 8, 'flip': 1, 'after': 0.48}, 4: {'before': 0.2, 'rebuilt': 0}}, 'quilt_lattice_pattern': {3: {'src': 0.45, 'after': 0.48, 'limit': 0.55, 'verdict': 'pass', 'big': False}}, 'patch_lattice': {}, 'own_panel': {}}
+    ok(TF._lattice_value(rep_) == 0.2, f'_lattice_value: узорная с verdict pass исключена ({TF._lattice_value(rep_)})')
+    rep_['quilt_lattice_pattern'][3]['verdict'] = 'fail'
+    ok(TF._lattice_value(rep_) == 0.48, f'_lattice_value: узорная с verdict fail держит максимум ({TF._lattice_value(rep_)})')
+
+
+def test_unobserved_relief():
+    print("«рисунок не наблюдаем» (T-187/6, 23.11): тон + зерно UltraTex, не голый тон; σL залитого > 0:")
+    g, parts, known, tl, col = scene_parts()
+    rn = np.random.RandomState(8)
+    tex0 = g["tex"].copy()
+    for tile, c0, sub in ((tl["A"], col["red"], None), (tl["B"], col["blue"], 0.5), (tl["C"], col["yellow"], None)):
+        mm = tile_mask(tile, sub)
+        tex0[mm] = np.clip(c0 + rn.normal(0, 4.0, (int(mm.sum()), 3)), 0, 255).astype(np.uint8)
+    g = dict(g, tex=tex0)
+    mD = tile_mask(tl["D"])
+    rr = np.random.RandomState(21)
+    dg_ = dict(g)
+    dg_["tex"] = np.clip(90.0 + rr.normal(0, 5.0, (T, T)), 0, 255).astype(np.uint8)[..., None].repeat(3, 2)
+    dt = TF.draft_texels([g], [dg_])
+    cfgU = {"gutter": 0, "erode_known": 0, "source": "trellis_relief", "pattern_chroma": 0.0, "pattern_min_blocks": 1e9}          # все части — «узорные», известного «меньше любого числа блоков»
+    out = TF.fill([g], known, parts, cfg=cfgU, mirror=False, draft=dt)
+    rep = out["report"]
+    ok(len(rep.get("pattern_unobserved") or {}) >= 1, "есть части «не наблюдаем»")
+    lab = lab_of(out["tex"][0], mD)
+    ok(float(lab[:, 0].std()) > 0.05, f"unobserved → σL залитого > 0 (σL {float(lab[:, 0].std()):.2f})", f"σL {float(lab[:, 0].std()):.2f}")
+    ok(0 in rep["pattern_unobserved"] and rep["relief"][0]["fallback"] is None and rep.get("relief_texels", 0) > 0, "часть 0 (на ней D) «не наблюдаем» и получила рельеф UltraTex, а не fallback «узорная часть — stat»", str(rep["relief"].get(0))[:200])
+    cfgS = {"gutter": 0, "erode_known": 0, "source": "stat", "pattern_chroma": 0.0, "pattern_min_blocks": 1e9}              # боевой путь этапа 07: source=stat, UltraTex даёт рельеф ТОЛЬКО «не наблюдаем»
+    o2 = TF.fill([g], known, parts, cfg=cfgS, mirror=False, unobs_draft_fn=lambda: dt)
+    lab2 = lab_of(o2["tex"][0], mD)
+    ok(float(lab2[:, 0].std()) > 0.05 and o2["report"]["relief"][0]["fallback"] is None, f"боевой путь (stat + UltraTex): σL залитого > 0 (σL {float(lab2[:, 0].std()):.2f})", str(o2["report"].get("relief"))[:200])
+    d0 = TF.draft_relief.__code__.co_varnames
+    ok('pb_donor' in d0, 'draft_relief принимает донора σ фото (для «не наблюдаем» с мизерным известным)')
+    ok(TF._pb_donors([0, 1, 2], {0: (0, 0, 10, False), 1: (0, 0, 500, False), 2: (0, 0, 40, False)}, {0, 2}) == {0: 1, 2: 1}, 'донор σ — часть с наибольшим известным (не сама)')
+    o3 = TF.fill([g], known, parts, cfg=cfgS, mirror=False)
+    ok(float(lab_of(o3["tex"][0], mD)[:, 0].std()) < 0.01 and "relief" not in o3["report"], "контроль: без UltraTex-черновика «не наблюдаем» — голый тон (σL 0)")
+    o4 = TF.fill([g], known, parts, cfg=dict(cfgS, pattern_min_blocks=0.0, pattern_chroma=1e9), mirror=False, unobs_draft_fn=lambda: dt)
+    ok("relief" not in o4["report"], "нет «не наблюдаем» — рельеф UltraTex на stat-пути не включается (обычные части не трогаем)")
+
+
+def test_part_independence():
+    print('свой генератор на часть (T-187/6, 23.11): убрал одну часть — у остальных тот же результат побайтно:')
+    rs = np.random.RandomState(9)
+    cols = [(150, 110, 90)] * 3                                                     # один цвет: пятно соседней части не просачивается через размытие статистики (узорность, тон) — тест про генераторы
+    cfg = {"gutter": 0, "erode_known": 0, "src_dev_pattern": 0}
+
+    def build(keep):
+        qd = Quads()
+        tex = np.zeros((T, T, 3), np.uint8)
+        known = np.zeros((T, T), bool)
+        for p in keep:
+            u0, u1 = p / 3.0 + 0.03, (p + 1) / 3.0 - 0.03                              # зазоры между плитками: части не соприкасаются в карте
+            kt, ut = (u0, 0.53, u1, 0.97), (u0, 0.03, u1, 0.47)
+            qd.quad([[p, 1, 0], [p + 0.9, 1, 0], [p + 0.9, 2, 0], [p, 2, 0]], kt, part=p, sub=4)
+            qd.quad([[p, 0, 0], [p + 0.9, 0, 0], [p + 0.9, 1, 0], [p, 1, 0]], ut, part=p, sub=4)
+            m = tile_mask(kt)
+            ys, xs = np.nonzero(m)
+            tex[ys, xs] = np.clip(np.array(cols[p]) + np.random.RandomState(100 + p).normal(0, 4.0, (len(ys), 1)), 0, 255).astype(np.uint8)
+            known |= m
+        g = qd.geom(tex)
+        out = TF.fill([g], [known], [np.asarray(qd.part, np.int32)], cfg=cfg, mirror=False)
+        return out['tex'][0]
+    rs_ = np.random.RandomState(9)
+    a = build([0, 1, 2])
+    rs_ = np.random.RandomState(9)
+    b = build([0, 2])
+    diff = {}
+    for p in (0, 2):
+        m = tile_mask((p / 3.0 + 0.03, 0.03, (p + 1) / 3.0 - 0.03, 0.47))
+        diff[p] = int((a[m] != b[m]).sum())
+    ok(diff[0] == 0 and diff[2] == 0, f'части 0 и 2 одинаковы с частью 1 и без неё (разницы: {diff})')
+    m1 = tile_mask((1 / 3.0 + 0.03, 0.03, 2 / 3.0 - 0.03, 0.47))
+    ok(int((a[m1] != 0).sum()) > 0, 'контроль: у части 1 заливка есть (тест не пустой)')
+
+
 def test_quilt_holes():
     print('квилт при дырявом известном (вход этапа 6: грани мельче пикселя фото):')
     q = Quads()
@@ -541,10 +941,48 @@ def test_known_unchanged():
         ok(mt['value'] == 0.0 and mt['ok'] and mt['threshold'] == 0.0, f'известное не изменилось (доля {mt["value"]} %)')
         c = PS.read_check(r['dir'])
         ok('known_changed_share_pct' in c['metrics'], 'мерка записана в check.json')
+        ok('cpu_s' in c['metrics'] and 'time_s' not in c['metrics'] and c['metrics']['cpu_s']['value'] >= 0, 'мерка времени — cpu_s (процессорные секунды), настенные не судятся')
+        import json as _j
+        rj = _j.load(open(os.path.join(r["dir"], "report.json")))["report"]
+        ok(rj.get('wall_s') is not None and rj.get('cpu_s') is not None, f'wall_s и cpu_s в report.json: {rj.get("wall_s")} / {rj.get("cpu_s")}')
         bad = [a.copy() for a in r['tex_after']]
         bad[0][ys[:50], xs[:50]] = 255 - bad[0][ys[:50], xs[:50]]
         sh = TF.known_changed_share([m], r['tex_before'], bad, TF.RULES['known_change_de'])
         ok(sh['changed'] >= 40 and sh['share_pct'] > 0, f'контроль: подмена известных текселей мерка ловит ({sh})')
+
+
+def test_check_on_final_texture():
+    print('мерки check 07 — по ИТОГОВОЙ текстуре после хуков (р.7, 23.11): хук меняет текстуру → check меняется:')
+    import tempfile
+    q = Quads()
+    q.quad([[-0.5, 0, 0], [0.5, 0, 0], [0.5, 1, 0], [-0.5, 1, 0]], (0, 0, .9, .9), sub=8)
+    q.quad([[-0.5, 0, -0.4], [0.5, 0, -0.4], [0.5, 1, -0.4], [-0.5, 1, -0.4]], (.9, .9, 1.0, 1.0), sub=2)
+    tex = np.zeros((T, T, 3), np.uint8)
+    m = tile_mask((0, 0, .9, .9))
+    tex[m] = [120, 140, 200]
+    g = q.geom(tex)
+    orig = TF.own_panel_tone_hook
+    res = {}
+    try:
+        for tag in ('plain', 'hooked'):
+            if tag == 'hooked':
+                def hk(geoms, tex_after, known, ut_g, parts, front=None, thr=0.6):
+                    out = [np.asarray(t).copy() for t in tex_after]
+                    for gi in range(len(out)):
+                        kn_ = np.asarray(known[gi], bool)
+                        out[gi][~kn_] = [255, 40, 40]                    # невидимое — резко красное
+                    return out, {'hooked': True}
+                TF.own_panel_tone_hook = hk
+            with tempfile.TemporaryDirectory() as td:
+                TF.write_glb([g], [tex], os.path.join(td, 'in.glb'))
+                r = TF.run_stage(td, 'sku:' + tag, os.path.join(td, 'in.glb'), known=[m], parts=None, cfg={'gutter': 0}, mirror=False)
+                res[tag] = r['check']['metrics']
+    finally:
+        TF.own_panel_tone_hook = orig
+    a, b = res['plain'], res['hooked']
+    ch = [k for k in ('dE00_front_back', 'far_excess_pct', 'filled_faces_step_pct', 'dL_front_back') if a[k]['value'] != b[k]['value']]
+    ok(len(ch) >= 1, f'хук поменял текстуру → мерки check изменились: {ch}')
+    ok(b['dE00_front_back']['value'] is None or a['dE00_front_back']['value'] is None or b['dE00_front_back']['value'] > a['dE00_front_back']['value'], f'красный перёд/зад хуже: {a["dE00_front_back"]["value"]} → {b["dE00_front_back"]["value"]}')
 
 
 def test_run_stage_fallback():
@@ -679,7 +1117,7 @@ def test_trellis_relief():
         dg_["tex"] = dtex
         return TF.draft_texels([g], [dg_])
     dt = mk_draft(3.0, True, 15)
-    cfgC = {"gutter": 0, "erode_known": 0, "source": "trellis_relief", "pattern_chroma": 1e9}          # части сцены соседствуют цветными плитками — «узорность» по хроме здесь не нужна
+    cfgC = {"seam": {"enabled": False}, "gutter": 0, "erode_known": 0, "source": "trellis_relief", "pattern_chroma": 1e9}          # части сцены соседствуют цветными плитками — «узорность» по хроме здесь не нужна
     out = TF.fill([g], known, parts, cfg=cfgC, mirror=False, draft=dt)
     st = TF.fill([g], known, parts, cfg={"gutter": 0, "erode_known": 0, "source": "stat", "pattern_chroma": 1e9}, mirror=False)
     tex, rep = out["tex"][0], out["report"]
@@ -803,7 +1241,10 @@ def test_tone_from_neighbour():
     r = TF.choose_tone_sources(pids, roles, kc, tot, fg, tones, bor, c)
     ok(r[1]['source'] == 'donor' and r[1]['donor'] == 2, f"часть 1 (известного 30 < min_known) берёт донора той же роли с большей границей (2, не дерево 3): {r[1]}")
     ok(r[0]['source'] == 'own' and r[3]['source'] == 'own', "хватает известного — тон свой")
-    ok(TF.choose_tone_sources(pids, {}, kc, tot, fg, tones, bor, c)[1]['source'] == 'global_legacy', "ролей нет (нет этапа 3) — прежнее поведение, global")
+    ok(TF.choose_tone_sources(pids, {}, kc, tot, fg, tones, bor, dict(c, no_role_global='legacy'))[1]['source'] == 'global_legacy', "ролей нет, флаг no_role_global=legacy — прежнее поведение, global")
+    rn = TF.choose_tone_sources(pids, {}, kc, tot, fg, tones, bor, dict(c, part_role=None))
+    ok(rn[1]['source'] == 'skip' and rn[0]['source'] == 'own', f"ролей нет (нет этапа 3), своего тона нет, но у товара есть надёжная часть — НЕ красить, не тон всего товара (Ш6): {rn[1]}")
+    ok(TF.choose_tone_sources([1], {}, {1: 30}, {1: 10000}, {1: True}, {1: (88, 1, 3)}, {}, c)[1]['source'] == 'global_legacy', "у товара нет ни одной надёжной части — skip не применяется (красить хоть чем-то)")
     r2 = TF.choose_tone_sources(pids, roles, kc, tot, fg, tones, {(1, 3): 500}, c)
     ok(r2[1]['source'] == 'skip', f"нет соседа той же роли → не красить (не global через материал): {r2[1]}")
     r3 = TF.choose_tone_sources(pids, roles, kc, tot, fg, tones, {(1, 3): 500}, dict(c, catalog_tone={'body': (90, 0, 0)}))
@@ -982,6 +1423,15 @@ def test_hidden_visible():
 
 
 def test_dark_fabric():
+    _was = TF.RULES.get("mirror_enabled")
+    TF.RULES["mirror_enabled"] = True                          # механизм зеркала жив под правилом; по умолчанию в 07 выкл.
+    try:
+        _test_dark_fabric_body()
+    finally:
+        TF.RULES["mirror_enabled"] = _was
+
+
+def _test_dark_fabric_body():
     print("тёмная ткань (тон L≈15): чёрный порог относительный к тону — блоки пула и двойники зеркала не вымываются целиком (T-164, диван 114082):")
     rng = np.random.RandomState(5)
     qe, me = TF.RULES["quilt_extreme"], TF.RULES["mirror_extreme"]
@@ -1060,9 +1510,9 @@ def test_dark_fabric():
     try:
         with tempfile.TemporaryDirectory() as td:
             TF.write_glb([gq], [tx], os.path.join(td, "in.glb"))
-            good = TF.run_stage(td, "dk:1", os.path.join(td, "in.glb"), known=[m.copy()], parts=None, cfg={"gutter": 0, "erode_known": 0}, mirror=False)
+            good = TF.run_stage(td, "dk:1", os.path.join(td, "in.glb"), known=[m.copy()], parts=None, cfg={"gutter": 0, "erode_known": 0, "pattern_min_blocks": 0.0}, mirror=False)
             TF.RULES["quilt_extreme"]["black_rel"] = 1e9                       # прежний абсолютный порог
-            old = TF.run_stage(td, "dk:2", os.path.join(td, "in.glb"), known=[m.copy()], parts=None, cfg={"gutter": 0, "erode_known": 0}, mirror=False)
+            old = TF.run_stage(td, "dk:2", os.path.join(td, "in.glb"), known=[m.copy()], parts=None, cfg={"gutter": 0, "erode_known": 0, "pattern_min_blocks": 0.0}, mirror=False)
     finally:
         TF.RULES["quilt_extreme"].update(saved)
     mg, mo = good["check"]["metrics"]["pool_rejected_pct"], old["check"]["metrics"]["pool_rejected_pct"]
@@ -1180,12 +1630,90 @@ def test_cli_parts_flags():
         ok(rc_ok == 0 and c_ok["passed"] is not None and "parts.npz" not in str(c_ok["extra"].get("parts")), f"--no-parts-npz → части по геометрии, rc 0 ({c_ok['extra'].get('parts')})")
         rc_exp = TF.main(["run_stage", td, "s1", "--no-mirror", "--parts-npz", os.path.join(td, "s1", "03-parts", "parts.npz")])
         ok(rc_exp == 2, "явный --parts-npz с чужим файлом → rc 2")
+        was = TF.RULES.get("zones_from")
+        TF.RULES["zones_from"] = "panels"                                        # T-198/1: zones_from=panels — parts.npz из 03-parts не подхватывается, явный --parts-npz сильнее флага
+        try:
+            rc_pan = TF.main(["run_stage", td, "s1", "--no-mirror"])
+            c_pan = PS.read_check(os.path.join(td, "s1", "07-fill"))
+            ok(rc_pan == 0 and "parts.npz" not in str(c_pan["extra"].get("parts")), f"zones_from=panels: чужой parts.npz не берётся, rc 0 ({c_pan['extra'].get('parts')})")
+            rc_pan2 = TF.main(["run_stage", td, "s1", "--no-mirror", "--parts-npz", os.path.join(td, "s1", "03-parts", "parts.npz")])
+            ok(rc_pan2 == 2, "zones_from=panels + явный --parts-npz → файл берётся (здесь чужой → rc 2)")
+            TF.RULES["zones_from"] = "x"
+            try:
+                TF.main(["run_stage", td, "s1", "--no-mirror"])
+                bad_flag = False
+            except SystemExit as e:
+                bad_flag = e.code == 2
+            ok(bad_flag, "zones_from с чужим значением → ошибка аргументов")
+        finally:
+            if was is None:
+                TF.RULES.pop("zones_from", None)
+            else:
+                TF.RULES["zones_from"] = was
         try:
             TF.main(["run_stage", td, "s1", "--parts-npz", "x.npz", "--no-parts-npz"])
             both = False
         except SystemExit as e:
             both = e.code == 2
         ok(both, "оба флага вместе — ошибка аргументов")
+
+
+def test_zones_fallback():
+    print("откат зон 07 (T-198/1): провал front_on_back по частям → тот же этап заливает по панелям:")
+    import json
+    import tempfile
+    calls = []
+
+    def fake(vals):
+        def once(run, sku, glb, **kw):
+            calls.append(kw.get("parts_npz"))
+            d = os.path.join(run, sku.replace(":", "_"), "07-fill")
+            os.makedirs(d, exist_ok=True)
+            v = vals[min(len(calls) - 1, len(vals) - 1)] if kw.get("parts_npz") else vals[-1]
+            json.dump({"report": {}}, open(os.path.join(d, "report.json"), "w"))
+            json.dump({"metrics": {"front_on_back_corr": {"value": v, "threshold": 0.6, "ok": v <= 0.6}}, "seconds": 1.0}, open(os.path.join(d, "check.json"), "w"))
+            open(os.path.join(d, "frame.png"), "wb").write(b"x")
+            return {"check": json.load(open(os.path.join(d, "check.json"))), "dir": d}
+        return once
+
+    was_once, was_rules = TF.run_stage_once, TF.RULES.get("zones_fallback")
+    try:
+        TF.RULES["zones_fallback"] = ["front_on_back_corr"]
+        with tempfile.TemporaryDirectory() as td:
+            TF.run_stage_once = fake([0.69, 0.13])                              # части: 0,69 ✗ → панели 0,13 ✓
+            del calls[:]
+            r = TF.run_stage(td, "a:1", "x.glb", parts_npz="/p/parts.npz")
+            doc = json.load(open(os.path.join(r["dir"], "report.json")))
+            ok(calls == ["/p/parts.npz", None] and doc["zones_used"] == "panels", f"откат на панели ({calls}, {doc.get('zones_used')})")
+            ok(os.path.isfile(os.path.join(r["dir"], "check-parts.json")) and os.path.isfile(os.path.join(r["dir"], "frame-parts.png")), "прогон по частям сохранён рядом")
+            ok(doc["zones_parts_try"]["front_on_back_corr"]["value"] == 0.69 and "front_on_back_corr 0.69" in doc["zones_reason"] and "zones_total_s" in doc, "причина и мерки частей в report.json")
+            TF.run_stage_once = fake([0.2])                                   # части прошли — один прогон
+            del calls[:]
+            r = TF.run_stage(td, "a:2", "x.glb", parts_npz="/p/parts.npz")
+            doc = json.load(open(os.path.join(r["dir"], "report.json")))
+            ok(calls == ["/p/parts.npz"] and doc["zones_used"] == "parts" and doc["zones_reason"] is None, "части прошли — отката нет")
+            TF.run_stage_once = fake([0.69])                                  # провал и у панелей — панели остаются основой, с пометкой
+            del calls[:]
+            r = TF.run_stage(td, "a:3", "x.glb", parts_npz="/p/parts.npz")
+            doc = json.load(open(os.path.join(r["dir"], "report.json")))
+            ok(doc["zones_used"] == "panels" and "панели не проходят" in doc["zones_reason"], "и панели не проходят — панели с пометкой")
+            TF.run_stage_once = fake([0.69])
+            del calls[:]
+            TF.run_stage(td, "a:4", "x.glb", parts_npz="/p/parts.npz", fallback=False)
+            ok(calls == ["/p/parts.npz"], "fallback=False — без отката")
+            del calls[:]
+            TF.run_stage(td, "a:5", "x.glb")
+            ok(calls == [None], "без parts_npz — один прогон (панели и так)")
+            TF.RULES["zones_fallback"] = []
+            del calls[:]
+            TF.run_stage(td, "a:6", "x.glb", parts_npz="/p/parts.npz")
+            ok(calls == ["/p/parts.npz"], "zones_fallback=[] — отката нет")
+    finally:
+        TF.run_stage_once = was_once
+        if was_rules is None:
+            TF.RULES.pop("zones_fallback", None)
+        else:
+            TF.RULES["zones_fallback"] = was_rules
 
 
 def test_render_low():
@@ -1205,8 +1733,84 @@ def test_render_low():
     ok(ctr[0] > ctr[2], 'снизу ближняя к камере плита (низ, красная) закрывает верхнюю (синюю)', str(ctr))
 
 
+def _top_scene(top_known_rgb=None):
+    """Стол: вертикальный фасад (известный, «дерево») и горизонтальная плита верха; верх на фото не виден (или виден левой половиной цветом top_known_rgb)."""
+    q = Quads()
+    q.quad([[-0.5, 0, 0], [0.5, 0, 0], [0.5, 1, 0], [-0.5, 1, 0]], (0, 0, 1.0, .9), sub=16)                    # фасад
+    q.quad([[-0.5, 1, 0], [0.5, 1, 0], [0.5, 1, -0.5], [-0.5, 1, -0.5]], (0, .92, 1.0, 1.0), sub=16)          # верх (нормаль вверх)
+    tex = np.zeros((T, T, 3), np.uint8)
+    paint(tex, (0, 0, 1.0, .9), [170, 110, 60])
+    paint(tex, (0, .92, 1.0, 1.0), [90, 90, 90])                                                              # «как залил 07» — серый
+    kn = tile_mask((0, 0, 1.0, .9))
+    if top_known_rgb is not None:
+        paint(tex, (0, .92, 1.0, 1.0), top_known_rgb, sub=0.5)
+        kn = kn | tile_mask((0, .92, 1.0, 1.0), sub=0.5)
+    return q.geom(tex), tex, kn
+
+
+def test_top_prior_hook():
+    print('верх по Ш3в в этапе 07 (T-187/7): класс, порог уверенности, известное не трогаем, арбитр по фото верха:')
+    import copy
+    import top_prior as TP
+    card = {'role': 'стол обеденный', 'name': 'Стол обеденный из массива дуба', 'Материал столешницы': 'массив дуба'}
+    g, tex, kn = _top_scene()
+    cfg = {'top_card': card}
+    out, rep = TF.top_prior_hook([g], [tex.copy()], [kn], None, cfg, None)
+    top_px = tile_mask((0, .92, 1.0, 1.0))
+    ok(rep.get('applied') is True and rep['top_source'] == 'same_part_inference' and rep['texels_changed'] > 1000, f'дерево + голос фасада → верх покрашен, top_source={rep.get("top_source")}', str(rep)[:300])
+    ok(np.array_equal(out[0][kn], tex[kn]), 'известные тексели не изменились (known — на нуле)')
+    ch = (out[0] != tex).any(-1)
+    from scipy.ndimage import distance_transform_edt
+    covered = np.zeros(top_px.shape, bool)
+    for q_ in ((0, 0, 1.0, .9), (0, .92, 1.0, 1.0)):
+        covered |= tile_mask(q_)
+    dist_top = distance_transform_edt(~top_px)
+    gut = ch & ~top_px
+    ok(not (gut & covered).any() and (dist_top[gut] <= TF.FILL['gutter']).all(), 'изменились только тексели верха и его желоб (непокрытые в пределах gutter от верха; фасад не тронут)')
+    ok(rep.get('gutter_texels', 0) == int(gut.sum()), f'желоб после покраски верха посчитан в отчёте: {rep.get("gutter_texels")} = {int(gut.sum())}')
+    ph = rep.get('hidden_after_lab')
+    ok(ph is not None and ph[0] > 45 and ph[1] > 5, f'верх теплее и светлее серого заливки (Lab {ph}) — тон фасада дерева')
+    o2, r2 = TF.top_prior_hook([g], [tex.copy()], [kn], None, {}, None)
+    ok(r2['top_source'] == 'as_before' and not r2['applied'] and np.array_equal(o2[0], tex), f'нет карточки (класс неизвестен) — как делал 07: {r2.get("gate")}')
+    ok(r2.get('top_skip') == 'no_card', f'нет карточки — причина в отчёте top_skip=no_card (не молчаливый as_before): {r2.get("top_skip")}')
+    o3, r3 = TF.top_prior_hook([g], [tex.copy()], [kn], None, {'top_card': {'role': 'диван', 'name': 'Диван', 'Материал обивки': 'велюр'}}, None)
+    ok(r3['top_source'] == 'as_before' and np.array_equal(o3[0], tex), f'ткань/не дерево — как делал 07: {r3.get("gate")}')
+    r_ = copy.deepcopy(TP.load_rules())
+    r_['stage07']['min_confidence'] = 'high'
+    ok(TP.stage07_gate({'tone_lab': [60, 10, 28], 'confidence': 'medium', 'card_class': {'group': 'library', 'class': 'wood_solid'}}, r_)[0] is False, 'порог high: medium не проходит')
+    ok(TP.stage07_gate({'tone_lab': [60, 10, 28], 'confidence': 'high', 'card_class': {'group': 'library', 'class': 'wood_solid'}}, r_)[0] is True, 'порог high: high проходит')
+    r_['stage07']['enabled'] = False
+    ok(TP.stage07_gate({'tone_lab': [60, 10, 28], 'confidence': 'high', 'card_class': {'group': 'library'}}, r_)[0] is False, 'stage07.enabled=false — правило выключено')
+    g2, tex2, kn2 = _top_scene(top_known_rgb=[60, 90, 200])                                                    # половина верха видна на фото и она СИНЯЯ — гипотеза Ш3в от неё далеко
+    out4, rep4 = TF.top_prior_hook([g2], [tex2.copy()], [kn2], None, cfg, None)
+    ok(rep4.get('rejected_by_photo') is True and not rep4['applied'] and rep4['top_source'] == 'as_before' and np.array_equal(out4[0], tex2), f'верх виден на фото и Ш3в дальше от него — оставлено как есть: {rep4.get("gate")}')
+    ok(rep4['photo_top_n'] >= 50, f'видимых текселей верха {rep4["photo_top_n"]}')
+    g3, tex3, kn3 = _top_scene()
+    ok(TF.top_prior_hook([g3], [tex3.copy()], [kn3], None, {'top_card': card}, None)[1]['top_source'] != 'photo_top', 'верх целиком невидим: источник не photo_top')
+    allk = [np.ones_like(kn)]
+    ok(TF.top_prior_hook([g3], [tex3.copy()], allk, None, cfg, None)[1]['top_source'] == 'photo_top', 'весь верх с фото — top_source=photo_top, красить нечего')
+
+
+def test_side_azimuths():
+    print('кадр по ориентации: зад — сторона без фото по known, фото-сторона — с известным (T-187/6, 23.11):')
+    q = Quads()
+    q.quad([[-1, 0, 1], [1, 0, 1], [1, 1, 1], [-1, 1, 1]], (0, 0, .5, .5), sub=12)
+    q.quad([[-1, 0, -1], [1, 0, -1], [1, 1, -1], [-1, 1, -1]], (.5, 0, 1, .5), sub=12)
+    q.quad([[-1, 0, -1], [-1, 0, 1], [-1, 1, 1], [-1, 1, -1]], (0, .5, .5, 1), sub=12)
+    q.quad([[1, 0, 1], [1, 0, -1], [1, 1, -1], [1, 1, 1]], (.5, .5, 1, 1), sub=12)
+    tex = np.full((T, T, 3), 120, np.uint8)
+    g = q.geom(tex)
+    res = {}
+    for nm, box in (('z+', (0, 0, .5, .5)), ('z-', (.5, 0, 1, .5))):
+        res[nm] = TF.side_azimuths([g], [tile_mask(box)])
+        ok(abs((res[nm]['photo'] - res[nm]['back']) % 360 - 180) < 1e-6, f'{nm}: зад напротив фото-стороны ({res[nm]["photo"]}→{res[nm]["back"]})')
+    ok(abs((res['z+']['photo'] - res['z-']['photo']) % 360 - 180) < 1e-6, f'известное на противоположных гранях → фото-стороны противоположны ({res["z+"]["photo"]}, {res["z-"]["photo"]})')
+    r0 = TF.side_azimuths([g], [np.zeros((T, T), bool)])
+    ok(r0.get('fallback') is True and r0['back'] == 180.0, 'known пуст → запасной вариант 180 с пометкой')
+
+
 def main() -> int:
-    for f in (test_color, test_photo, test_parts, test_no_known_part, test_mirror, test_texture, test_gutter_render, test_seam_steps_concavity, test_diffuse_quilt_far, test_draft_source, test_tone_mode_pattern, test_quilt_efros, test_quilt_holes, test_known_unchanged, test_render_pattern, test_outlier_blocks, test_dark_fabric, test_trellis_relief, test_part_roles_from_stage3, test_stage7_side_tone_smooth_rules, test_tone_from_neighbour, test_nail_twins, test_borrow_donors, test_tone_only, test_part_pattern_single_truth, test_pr_camera_and_winding, test_hidden_visible, test_stage6_gate, test_cli_run_stage, test_orphan_parts, test_cli_parts_flags, test_run_stage_fallback, test_render_low):
+    for f in (test_check_on_final_texture, test_side_azimuths, test_top_prior_hook, test_mirror_off_by_default, test_shrink_layout, test_tie_picks_front_on_back, test_front_on_back, test_front_on_back_within_parts, test_front_on_back_unequal_parts, test_color, test_photo, test_parts, test_lighter_than_photo, test_no_known_part, test_mirror, test_texture, test_gutter_render, test_seam_steps_concavity, test_diffuse_quilt_far, test_draft_source, test_tone_mode_pattern, test_quilt_efros, test_quilt_holes, test_known_unchanged, test_render_pattern, test_outlier_blocks, test_dark_fabric, test_trellis_relief, test_part_roles_from_stage3, test_stage7_side_tone_smooth_rules, test_tone_from_neighbour, test_nail_twins, test_borrow_donors, test_tone_only, test_part_pattern_single_truth, test_pr_camera_and_winding, test_hidden_visible, test_stage6_gate, test_cli_run_stage, test_orphan_parts, test_cli_parts_flags, test_zones_fallback, test_brightness_target_median, test_run_stage_fallback, test_render_low, test_quilt_lattice, test_pattern_lattice, test_part_independence, test_unobserved_relief):
         f()
     print(f'tests_tex_fill: ошибок {bad}')
     return 1 if bad else 0

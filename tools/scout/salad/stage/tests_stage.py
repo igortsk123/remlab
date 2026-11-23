@@ -282,7 +282,7 @@ try:
 except SystemExit:
     ok(True, 'stager: непустая папка назначения — отказ')
 
-DIRS = [os.path.join(SCOUT, 'salad', 'trellis'), os.path.join(SCOUT, 'salad'), SCOUT]
+DIRS = [os.path.join(SCOUT, 'salad', 'trellis'), os.path.join(SCOUT, 'salad'), SCOUT, os.path.join(ROOT, 'tools', 'assets')]   # + tools/assets: части граней (tex_fill импортирует их внутри функции) — T-193/3
 
 
 def local_module(name: str) -> str | None:
@@ -312,7 +312,8 @@ def top_imports(path: str, deep: bool) -> set[str]:
     return out
 
 
-DEEP = {'tools/scout/salad/trellis/tex_visible.py', 'tools/scout/salad/trellis/tex_fill.py', 'tools/scout/paint_stage.py', 'tools/scout/salad/trellis/tex_coverage.py', 'tools/scout/salad/recolor_lp.py'}
+DEEP = {'tools/scout/salad/trellis/tex_visible.py', 'tools/scout/salad/trellis/tex_fill.py', 'tools/scout/paint_stage.py', 'tools/scout/salad/trellis/tex_coverage.py', 'tools/scout/salad/recolor_lp.py',
+        'tools/assets/material_parts.py', 'tools/assets/parts_refine.py', 'tools/assets/parts_vote.py'}      # глубокий разбор (импорты внутри функций и try): parts_refine импортирует parts_vote внутри функции
 missing = set()
 for f in [x for x in files if x.endswith('.py')]:
     for m in top_imports(f, f in DEEP):
@@ -365,6 +366,33 @@ ok(sorted(ST.vis_inputs(vr)) == ['skuA', 'skuB'], 'vis_inputs: берёт тол
 ok(sorted(ST.vis_inputs(vr, 'skuB,skuZ')) == ['skuB'], 'vis_inputs: --skus сужает список')
 cur07, why07 = ST.submit_stage(FakeGW({}), type('A', (), {'out': tmpdir('o7'), 'vis_root': vr, 'threads': 1})(), {'skuC': {}}, '07', 0.0)
 ok(cur07 is None and 'нечего отправлять' in why07['detail'], 'submit 07: у товара нет visible.glb — не отправляется, причина в ответе')
+
+
+# T-20261123-04/1: шлюз 503 на POST /jobs при живой ноде — повтор с паузами внутри post_job, затем отказ с причиной gateway_503 (проба не падает целиком)
+class Gw503:
+    def __init__(self, posts):
+        self.posts, self.n_post, self.counters = list(posts), 0, {}
+
+    def call(self, method, path, body=None, timeout=30, raw=False):
+        if method == 'POST':
+            self.n_post += 1
+            return (self.posts.pop(0) if self.posts else 503), {}
+        return (200, {}) if path == '/health' else (404, {})
+
+
+_orig_post_job = ST.KD.post_job
+ST.KD.post_job = lambda *a, **k: _orig_post_job(*a, **k, sleep=lambda s: None)              # паузы — без реального ожидания
+try:
+    A07 = type('A', (), {'out': tmpdir('o7b'), 'vis_root': vr, 'threads': 1})()
+    g503 = Gw503([503, 503, 202])
+    cur_, info_ = ST.submit_stage(g503, A07, {'skuA': {}}, '07', 0.0)
+    ok(cur_ is not None and g503.n_post == 3 and g503.counters.get('retries_post') == 2, 'submit 07: 503→503→202 — задание принято после двух повторов, retries_post=2')
+    g503 = Gw503([])
+    cur_, info_ = ST.submit_stage(g503, A07, {'skuA': {}}, '07', 0.0)
+    ok(cur_ is None and info_.get('http') == 503 and info_.get('reason') == 'gateway_503' and (info_.get('post') or {}).get('worker_saw_job') is False and g503.counters.get('retries_post', 0) >= 1,
+       'submit 07: 503 на всех повторах при живом /health → отказ задания с причиной gateway_503 и сведениями post (драйвер ставит повтор в конец очереди)')
+finally:
+    ST.KD.post_job = _orig_post_job
 
 # ================================================================= T-193/1/1: КОД ЭТАПА ЕДЕТ В ЗАДАНИИ
 def run(cwd: str, *cmd: str) -> str:
@@ -440,6 +468,87 @@ try:
 except CT.CodeTarError as exc:
     ok(False, f'срез HEAD не собран: {exc}')
 
+# ---- T-193/3 (22.11): на Salad 07 считался БЕЗ частей — модулей tools/assets (материал/ножки) не было в срезе, а «частей нет (ModuleNotFoundError)» глоталось заметкой
+PARTS_PY = {'tools/assets/material_parts.py', 'tools/assets/parts_refine.py', 'tools/assets/parts_vote.py', 'tools/assets/part_shapes.py'}
+try:
+    real2 = CT.build(ROOT, 'HEAD')
+    ok(PARTS_PY <= set(real2['files']) and {CT.packed_name(d) for d in CT.DATA_FILES} <= set(real2['files']),
+       f'срез HEAD: модули частей (material_parts, parts_refine, parts_vote, part_shapes) и их правила (data/flat3d/*.json → tools/assets/_data/flat3d/*.json: воркер распаковывает только tools/…) в срезе кода ({sorted(PARTS_PY - set(real2["files"]))})')
+    real3 = CT.build(ROOT, 'HEAD')
+    ok(real2['tar'] == real3['tar'] and real2['tar_sha256'] == real3['tar_sha256'], 'срез HEAD с перенесёнными правилами — всё ещё побайтно детерминирован')
+    with tarfile.open(fileobj=io.BytesIO(real2['tar'])) as _tf:
+        _b = _tf.extractfile('tools/assets/_data/flat3d/material-part-rules.json').read()
+    ok(_b == open(os.path.join(ROOT, 'data/flat3d/material-part-rules.json'), 'rb').read(), 'правила в срезе — те же байты, что data/flat3d/material-part-rules.json (один источник)')
+    ok(PARTS_PY <= {f for f in files} and set(CT.DATA_FILES) <= set(files), 'stage_files.txt: те же модули частей и правила в списке образа')
+    ok(CT.selfcheck(real2['tar'], real2['entries']) == '', 'срез HEAD: из ЧИСТОЙ распаковки (python -I) tex_fill находит и загружает модули частей и правила (`load_part_modules`)')
+except CT.CodeTarError as exc:
+    ok(False, f'срез HEAD с частями не собран: {exc}')
+# срез без правил частей, но с модулями — отказ ДО платной группы
+repo3 = tmpdir('mini-repo3')
+run(repo3, 'git', 'init', '-q')
+commit_tree(repo3, {f'{TRE}/tex_visible.py': 'X = 1\n', f'{TRE}/tex_fill.py': 'import material_parts\n', 'tools/assets/material_parts.py': 'Y = 1\n', 'tools/scout/rules/a.json': '{}\n'}, 'модуль частей без правил')
+try:
+    CT.build(repo3, 'HEAD')
+    ok(False, 'срез: модули частей есть, правил data/flat3d нет — отказ')
+except CT.CodeTarError as exc:
+    ok('правил' in str(exc), 'срез: модули частей есть, правил data/flat3d нет — отказ с причиной')
+# tex_fill: нет модуля частей — ИСКЛЮЧЕНИЕ, а не «частей нет» (этап падает, check.json «сбой этапа 7»)
+try:
+    sys.path.insert(0, os.path.join(SALAD, 'trellis'))
+    import tex_fill as TF  # noqa: E402
+    saved = {k: sys.modules.get(k) for k in ('material_parts', 'parts_refine', 'parts_vote')}
+    for k in saved:
+        sys.modules[k] = None                                   # import → ImportError (как «нет файла в срезе»)
+    try:
+        raised = ''
+        try:
+            TF.parts_from_geometry([])
+        except ImportError as exc:
+            raised = type(exc).__name__
+        ok(raised in ('ImportError', 'ModuleNotFoundError'), f'tex_fill.parts_from_geometry: нет модуля частей → исключение, не тихое «частей нет» ({raised or "вернул заметку"})')
+        raised = ''
+        try:
+            TF.merge_orphan_parts(None, None)
+        except ImportError as exc:
+            raised = type(exc).__name__
+        ok(raised in ('ImportError', 'ModuleNotFoundError'), f'tex_fill.merge_orphan_parts: нет модуля этапа 3 → исключение, не «сирот не ищем» ({raised or "вернул заметку"})')
+    finally:
+        for k, v in saved.items():
+            if v is None:
+                sys.modules.pop(k, None)
+            else:
+                sys.modules[k] = v
+    out_g, note_g = TF.parts_from_geometry([])
+    ok(out_g == [] and 'частей нет' not in note_g, 'tex_fill.parts_from_geometry: при наличии модулей загружается (пустой список геометрий → пусто)')
+except Exception as exc:  # noqa: BLE001
+    ok(False, f'tex_fill (части): тест не выполнен: {type(exc).__name__}: {exc}')
+
+
+def swallowed_imports(path: str) -> list[str]:
+    """Места, где `try:` с import внутри ловит Exception/BaseException/голый except и НЕ перебрасывает — тихий откат вместо отказа этапа."""
+    t = ast.parse(open(path, encoding='utf-8').read())
+    bad = []
+    for n in ast.walk(t):
+        if not isinstance(n, ast.Try):
+            continue
+        if not any(isinstance(m, (ast.Import, ast.ImportFrom)) for b in n.body for m in ast.walk(b)):
+            continue
+        for h in n.handlers:
+            broad = h.type is None or (isinstance(h.type, ast.Name) and h.type.id in ('Exception', 'BaseException'))
+            if broad and not any(isinstance(m, ast.Raise) for m in ast.walk(h)):
+                bad.append(f'{os.path.basename(path)}:{h.lineno}')
+    return bad
+
+
+STAGE_SCRIPTS = [os.path.join(ROOT, 'tools/scout/salad/trellis/tex_fill.py'), os.path.join(ROOT, 'tools/scout/salad/trellis/tex_visible.py')]
+# известные ОСОЗНАННЫЕ откаты (необязательные библиотеки/диагностика) — с причиной; всё новое — отказ этапа, не откат
+ALLOWED_SWALLOW: set[str] = set()
+sw = [x for p in STAGE_SCRIPTS for x in swallowed_imports(p) if x not in ALLOWED_SWALLOW]
+ok(not sw, f'этапы 06/07: ни один `import` внутри try не прячется за `except Exception` без raise (ImportError = отказ этапа): {sw}')
+_syn = os.path.join(tmpdir('swallow'), 'syn.py')
+open(_syn, 'w', encoding='utf-8').write('def a():\n    try:\n        import zzz\n    except Exception:\n        return 1\n\n\ndef b():\n    try:\n        import yyy\n    except ImportError:\n        raise\n\n\ndef c():\n    try:\n        import xxx\n    except Exception:\n        raise\n')
+ok(swallowed_imports(_syn) == ['syn.py:4'], 'самопроверка разборщика: ловит только проглоченный import (a), не перебрасываемый (b, c)')
+
 
 def mktar(members: list) -> bytes:
     b = io.BytesIO()
@@ -477,7 +586,7 @@ except ValueError:
     ok(True, 'safe_untar: не tar — отказ')
 
 # ---- whitelist команд и аргументы
-ok(set(WS.COMMANDS) == {'06', '07', 'ref_zone', 'render_unlit'}, f'whitelist: ровно 4 команды ({sorted(WS.COMMANDS)})')
+ok(set(WS.COMMANDS) == {'06', '07', 'seam', 'ref_zone', 'render_unlit'}, f'whitelist: ровно 5 команд ({sorted(WS.COMMANDS)})')
 good_args = ['--zones', '@in/zones.npy', '--n', '3', '0.5', '@out']
 ok(WS.check_args(good_args) == good_args and WS.check_args(None) == [], 'args: флаги, слова, числа, @in/…, @out — принимаются')
 for bad in (['; rm -rf /'], ['$HOME'], ['../x'], ['/etc/passwd'], ['--Bad'], ['@in/../x'], ['a b'], ['`id`'], ['@in//x'], [1], ['x'] * 41, 'строка'):
@@ -492,6 +601,13 @@ cmd_z, _o, _n = WS.stage_command(C, 'ref_zone', '/tmp/w/j', 'sku1', False, False
 ok(cmd_z[cmd_z.index('-I') + 1] == '/tmp/w/j/code/tools/scout/salad/trellis/ref_zone.py' and cmd_z[-2:] == ['--zones', '/x'], 'команда ref_zone: скрипт из code_root задания, args в конце')
 cmd07, _o, _n = WS.stage_command(C, '07', '/tmp/w/j', 'sku1', False, False, '/tmp/w/j/peak', code_root='/tmp/w/j/code')
 ok(cmd07[cmd07.index('-I') + 1] == '/tmp/w/j/code/tools/scout/salad/trellis/tex_fill.py', 'команда 07: скрипт берётся из code_root задания, не из образа')
+cmds, outs, nms = WS.stage_command(C, 'seam', '/tmp/w/j', 'sku1', False, False, '/tmp/w/j/peak', code_root='/tmp/w/j/code')
+ok(cmds[cmds.index('-I') + 1] == '/tmp/w/j/code/tools/scout/salad/trellis/seam_stage.py' and nms == '07-seam' and '--fill' in cmds and '/tmp/w/j/in/07-fill' in cmds and '/tmp/w/j/in/06-visible' in cmds,
+   'команда шва: seam_stage.py из code_root, вход 07-fill + 06-visible, выход 07-seam')
+ok(WS.missing_inputs('seam', list(WS.NEED_SEAM)) == [] and '07-fill/filled.glb' in WS.missing_inputs('seam', ['06-visible/known.png']), 'вход шва: known.png и filled.glb обязательны')
+ok('seam' in WS.DRIVER_STAGES and 'seam' not in WS.STAGES, 'шов в списке драйвера, но не в образе-запасе')
+import argparse as _ap
+ok(ST.stages_of(_ap.Namespace(stages='07,seam')) == ['07', 'seam'] and ST.stages_of(_ap.Namespace(stages='seam')) == ['seam'], 'драйвер: --stages 07,seam и seam разбираются')
 
 # ---- пул: код только из задания
 C2 = dict(C, work=tmpdir('work3'), allow_baked=False)
@@ -589,5 +705,126 @@ ok(wait_done(pool4, ['h-7']), 'HTTP: задание с кодом из вход�
 srv4.shutdown()
 
 print()
+
+
+# ---- T-187/7: верх по Ш3в — результат этапа 07 одинаков «у нас» (дерево репозитория) и «на Salad» (чистая распаковка code.tar, python -I, тот же воркерный запуск)
+def _top_equality():
+    import tempfile
+    sys.path.insert(0, os.path.join(SALAD, 'trellis'))
+    import numpy as np
+    import tests_tex_fill as TT
+    import tex_coverage as TC
+    import tex_fill as TF
+    from PIL import Image
+    g, tex, kn = TT._top_scene()
+    td = tmpdir('topeq')
+    v = os.path.join(td, 'in', 's1', '06-visible')
+    os.makedirs(v)
+    TF.write_glb([g], [tex], os.path.join(v, 'visible.glb'))
+    Image.fromarray((kn * 255).astype(np.uint8)).save(os.path.join(v, 'known.png'))
+    json.dump({'version': 1, 'stage': '06-visible', 'sku': 's1', 'passed': True, 'reason': '', 'metric': None, 'metrics': {}, 'outputs': [], 'frame': None, 'extra': {}}, open(os.path.join(v, 'check.json'), 'w'))
+    ph = np.zeros((200, 300, 4), np.uint8)
+    ph[..., :3] = (150, 100, 60)
+    ph[::6, :, :3] = (120, 80, 45)
+    ph[..., 3] = 255
+    Image.fromarray(ph).save(os.path.join(td, 'photo.png'))
+    json.dump({'role': 'стол обеденный', 'name': 'Стол обеденный из массива дуба', 'Материал столешницы': 'массив дуба'}, open(os.path.join(td, 'card.json'), 'w'), ensure_ascii=False)
+    real = CT.build(ROOT, 'HEAD')
+    code = os.path.join(td, 'code')
+    WS.safe_untar(real['tar'], code)
+    args = ['run_stage', None, 's1', '--visible', v, '--no-parts-npz', '--no-mirror', '--card-json', os.path.join(td, 'card.json'), '--photo', os.path.join(td, 'photo.png')]
+    res = {}
+    for nm, script in (('local', os.path.join(ROOT, 'tools/scout/salad/trellis/tex_fill.py')), ('code_tar', os.path.join(code, 'tools/scout/salad/trellis/tex_fill.py'))):
+        out = os.path.join(td, 'out-' + nm)
+        a = list(args)
+        a[1] = out
+        r = subprocess.run([sys.executable, '-I', script] + a, capture_output=True, cwd=td, timeout=600)
+        ok(r.returncode == 0, f'верх Ш3в: этап 07 из «{nm}» отработал ' + ('' if r.returncode == 0 else r.stderr.decode('utf-8', 'replace')[-300:]))
+        d = os.path.join(out, 's1', '07-fill')
+        rep = json.load(open(os.path.join(d, 'report.json'), encoding='utf-8'))['report']
+        res[nm] = (TC.load_geoms(os.path.join(d, 'filled.glb')), rep.get('top_prior', {}))
+    (ga, ra), (gb, rb) = res['local'], res['code_tar']
+    ok(ra.get('applied') is True and ra.get('pattern') == 'library' and ra.get('top_source') == 'same_part_inference', f'верх Ш3в: применён с узором библиотеки ({ra.get("top_source")}, pattern={ra.get("pattern")}, {ra.get("library")})')
+    ok(all(np.array_equal(np.asarray(x['tex']), np.asarray(y['tex'])) for x, y in zip(ga, gb)), 'верх Ш3в: текстуры filled.glb одинаковы у нас и из code.tar (побайтно)')
+    ok({k: ra.get(k) for k in ('top_source', 'applied', 'tone_lab', 'library', 'texels_changed', 'pattern_amp')} == {k: rb.get(k) for k in ('top_source', 'applied', 'tone_lab', 'library', 'texels_changed', 'pattern_amp')}, 'верх Ш3в: отчёт top_prior одинаков (источник, тон, бин узора, число текселей)')
+
+
+try:
+    _top_equality()
+except Exception as exc:  # noqa: BLE001
+    ok(False, f'верх Ш3в: проверка равенства не выполнена: {type(exc).__name__}: {exc}')
+
+
+# ---- T-193/4: «тихие» откаты ленивых импортов этапа 07 — из code.tar части/сироты считаются так же, как у нас (причина прежнего Salad ≠ локально: material_parts/parts_refine не ехали в срезе → молча «одна часть»)
+def _lazy_imports_equal():
+    td = tmpdir('lazyimp')
+    code = os.path.join(td, 'code')
+    WS.safe_untar(CT.build(ROOT, 'HEAD')['tar'], code)
+    snippet = ('import sys, json; r = sys.argv[1]; sys.path.insert(0, r + "/tools/scout/salad/trellis"); sys.path.insert(0, r + "/tools/scout")\n'
+               'import numpy as np, trimesh, tex_fill as TF\n'
+               'm = trimesh.creation.box(); g = [{"mesh": m, "F": np.asarray(m.faces)}]\n'
+               'p, note = TF.parts_from_geometry(g); q, n2 = TF.merge_orphan_parts(m, np.zeros(len(m.faces), np.int32))\n'
+               'print(json.dumps({"note": note, "orphan": n2}))')
+    res = {}
+    for nm, root in (('дерево', ROOT), ('code.tar', code)):
+        r = subprocess.run([sys.executable, '-I', '-c', snippet, root], capture_output=True, cwd=td, timeout=300)
+        ok(r.returncode == 0, f'ленивые импорты 07: {nm} — запуск ' + ('' if r.returncode == 0 else r.stderr.decode('utf-8', 'replace')[-300:]))
+        res[nm] = json.loads(r.stdout.decode().strip().splitlines()[-1]) if r.returncode == 0 else {}
+    ok(res['code.tar'] == res['дерево'] and res['code.tar'] != {}, f'ленивые импорты 07: части и сироты из code.tar = у нас ({res["code.tar"]})')
+    ok('частей нет' not in res['code.tar'].get('note', 'частей нет') and 'нет parts_refine' not in res['code.tar'].get('orphan', 'нет parts_refine'), 'ленивые импорты 07: в code.tar есть material_parts и parts_refine/parts_vote (не «одна часть» молча)')
+
+
+try:
+    _lazy_imports_equal()
+except Exception as exc:  # noqa: BLE001
+    ok(False, f'ленивые импорты 07: проверка не выполнена: {type(exc).__name__}: {exc}')
+
+
+def _inputs07():
+    """T-187/7 (23.11): вход 07 боевого пути несёт card.json + photo.png + args; без карточки — не молча (no_card, top_skip в отчёте, счётчик в итоге, отказ при нуле карточек)."""
+    import make_inputs_07 as MI
+    td = tmpdir('inputs07')
+    ph = os.path.join(td, 'ph')
+    os.makedirs(ph)
+    rows = [['sku', 'ultratex_glb']]
+    vis_of = {}
+    for s in ('p1', 'p2', 'p3'):
+        for nm in ('ut', 'vis'):
+            os.makedirs(os.path.join(td, nm, s), exist_ok=True)
+        ut, vd = os.path.join(td, 'ut', s, 'x.glb'), os.path.join(td, 'vis', s)
+        open(ut, 'wb').write(b'g')
+        open(os.path.join(vd, 'visible.glb'), 'wb').write(b'v')
+        rows.append([s, ut])
+        vis_of[s] = vd
+    for s in ('p1', 'p2'):
+        open(os.path.join(ph, f'{s}.hd.rgba.png'), 'wb').write(b'png')
+    cards = {'p1': {'role': 'стол обеденный', 'name': 'Стол'}, 'p2': {'role': 'тумба', 'name': 'ТВ-тумба', 'Материал': 'МДФ'}}
+    out, miss, top = MI.build(rows, 'ultratex_glb', vis_of, cards, [ph], os.path.join(td, 'cards'))
+    ok(not miss and set(out) == {'p1', 'p2', 'p3'}, f'make_inputs_07: все три товара в пакете, пропусков нет ({miss})')
+    for s in ('p1', 'p2'):
+        v = out[s]
+        ok(v['args'] == ['--card-json', '@in/card.json', '--photo', '@in/photo.png', '--ut-glb', '@in/ut.glb'], f'make_inputs_07 {s}: args карточка + фото + UltraTex ({v["args"]})')
+        ok(set(v['extra_in']) == {'card.json', 'photo.png', 'ut.glb'} and all(os.path.isfile(p) for p in v['extra_in'].values()), f'make_inputs_07 {s}: card.json, photo.png, ut.glb — файлы на месте')
+    ok(json.load(open(out['p2']['extra_in']['card.json'], encoding='utf-8')) == cards['p2'], 'make_inputs_07: card.json = карточка товара (role, name, характеристики)')
+    ok(out['p3']['args'] == ['--ut-glb', '@in/ut.glb'] and top['no_card'] == ['p3'] and top['no_photo'] == ['p3'], f'make_inputs_07: товар без карточки/фото — в no_card/no_photo, не молча ({top})')
+    nc, nph = ST.top_input_problems(out)
+    ok(nc == ['p3'] and nph == ['p3'], f'stage_trial.top_input_problems: без карточки {nc}, без фото {nph}')
+    ok(ST.top_input_problems({s: {'args': ['--ut-glb', '@in/ut.glb'], 'extra_in': {'ut.glb': 'x'}} for s in ('a', 'b')})[0] == ['a', 'b'], 'вход как в f1 (только --ut-glb): все без карточки → stage_trial откажет до создания группы')
+    for nm, rep, want in (('a', {'top_prior': {'applied': True, 'top_source': 'same_part_inference'}}, 'applied'), ('b', {'top_prior': {'applied': False, 'top_source': 'as_before', 'top_skip': 'no_card'}}, 'no_card'),
+                          ('c', {'top_prior': {'applied': False, 'top_source': 'photo_top'}}, 'photo_top')):
+        d = os.path.join(td, 'o' + nm)
+        os.makedirs(d)
+        json.dump({'report': rep}, open(os.path.join(d, 'report.json'), 'w'))
+        ok(ST.top_state(d) == want, f'stage_trial.top_state: {rep["top_prior"]} → {want}')
+    ok(ST.top_state(os.path.join(td, 'нет')) == 'нет отчёта', 'stage_trial.top_state: нет report.json → «нет отчёта»')
+    ok(ST.top_counts({'a': {'status': 'done', 'top': 'no_card'}, 'b': {'status': 'done', 'top': 'no_card'}, 'c': {'status': 'done', 'top': 'applied'}, 'd': {'status': 'failed'}}) == {'no_card': 2, 'applied': 1}, 'stage_trial.top_counts: счётчик причин по готовым товарам')
+
+
+try:
+    _inputs07()
+except Exception as exc:  # noqa: BLE001
+    ok(False, f'вход 07 (карточка+фото): проверка не выполнена: {type(exc).__name__}: {exc}')
+
+
 print('ПРОВАЛЕНО: ' + str(len(FAILS)) if FAILS else 'ВСЕ ТЕСТЫ ЗЕЛЁНЫЕ')
 sys.exit(1 if FAILS else 0)
