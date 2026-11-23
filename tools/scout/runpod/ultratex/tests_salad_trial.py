@@ -247,22 +247,36 @@ with tempfile.TemporaryDirectory() as tmp:
         GW.post_fail = 0
     check(summ.get('jobs', {}).get('a', {}).get('status') == 'not_accepted' and len(summ.get('post_timeouts', [])) == int(KD.gateway_post_rules().get('requeue_max', 1)),f'повтор тоже без ответа → not_accepted (повторов ровно gateway_post.requeue_max={KD.gateway_post_rules().get("requeue_max", 1)}, не бесконечно)')
 
+# 503/524 шлюза — не отказ: post_job сам ждёт (паузы gateway_wait), спрашивает /health и повторяет POST (T-20261123-04/1); паузы в тесте обнуляем, чтобы не ждать по-настоящему
+_orig_rules = KD.gateway_post_rules
+
+
+def _fast_rules():
+    g = _orig_rules()
+    return {**g, 'gateway_wait': {**g['gateway_wait'], 'pauses_s': [0, 0]}}
+
+
 with tempfile.TemporaryDirectory() as tmp:
     GW.post_fail, GW.post_code, GW.accepted_on_timeout = 1, 503, False
+    KD.gateway_post_rules = _fast_rules
     try:
         rc, summ, out, mg, br = drive(tmp, 'a,b')
     finally:
         GW.post_fail, GW.post_code = 0, -1
+        KD.gateway_post_rules = _orig_rules
     st = {k: v.get('status') for k, v in summ.get('jobs', {}).items()}
-    check(st == {'a': 'done', 'b': 'done'} and summ.get('post_timeouts') and summ['post_timeouts'][0].get('code') == 503 and 'код 503' in out,
-          '503 (HTML шлюза) на POST → то же, что нет ответа: воркер задание не видит → один повтор в конец очереди, оба готовы, код 503 в сводке')
+    check(st == {'a': 'done', 'b': 'done'} and summ.get('retries_post', 0) >= 1 and not summ.get('post_timeouts') and 'повтор POST' in out,
+          '503 (HTML шлюза) на POST → пауза, /health, повтор POST внутри post_job: оба готовы, retries_post в итоге, в очередь не возвращается')
 with tempfile.TemporaryDirectory() as tmp:
     GW.post_fail, GW.post_code = 99, 503
+    KD.gateway_post_rules = _fast_rules
     try:
         rc, summ, out, mg, br = drive(tmp, 'a')
     finally:
         GW.post_fail, GW.post_code = 0, -1
-    check(summ.get('jobs', {}).get('a', {}).get('status') == 'not_accepted' and summ['jobs']['a'].get('http') == 503, '503 два раза подряд → not_accepted с кодом 503 в причине')
+        KD.gateway_post_rules = _orig_rules
+    check(summ.get('jobs', {}).get('a', {}).get('status') == 'not_accepted' and summ['jobs']['a'].get('http') == 503 and summ.get('gateway_refused', 0) >= 1 and summ.get('stopped_by') != 'fail_streak',
+          f'503 на все повторы → not_accepted с кодом 503 в причине, отказ шлюза учтён (gateway_refused), серия отказов не сработала ({summ.get("stopped_by")}, {summ.get("gateway_refused")})')
 
 # 3. разбор без --apply: группа не создаётся
 with tempfile.TemporaryDirectory() as tmp:
