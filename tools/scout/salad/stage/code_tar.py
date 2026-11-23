@@ -29,7 +29,9 @@ import worker_stage as WS  # noqa: E402  (whitelist команд — единс�
 SLICES = ('tools/scout/salad/trellis', 'tools/scout/rules',          # берутся целиком (первые два обязательны, остальные — если есть в коммите)
           'data/flat3d/top-library', 'data/flat3d/material-classes.json', 'tools/assets/material_class.py',
           # данные модулей частей, которые они читают по ROOT/data/flat3d (молчаливый откат при отсутствии: material_parts._catalog_dims → размер по роли, parts_refine.shape_cfg) — T-193/4
-          'data/flat3d/material-recipes.json', 'data/flat3d/furniture.json')    # данные Ш3в в 07: узоры верха (pat512) + библиотека, правила класса материала и его код (T-187/7)
+          'data/flat3d/material-recipes.json', 'data/flat3d/furniture.json',
+          # этап 08 (T-220/1): material_parts/parts_vote читают правила по ROOT/data/flat3d (а не по `_data`, как tex_fill) — кладём их и по обычному пути среза
+          'data/flat3d/material-part-rules.json', 'data/flat3d/parts-sam-rules.json')    # данные Ш3в в 07: узоры верха (pat512) + библиотека, правила класса материала и его код (T-187/7)
 ASSETS = 'tools/assets'                                                   # части граней (материал/ножки): tex_fill ленивo импортирует их из tools/assets (sys.path.insert внутри функции) — T-193/3
 DIRS = tuple(WS.CODE_DIRS) + (ASSETS,)                                    # где искать наши модули по имени (как sys.path этапа + tools/assets)
 FULL_EXTRA = ('tools/scout/paint_stage.py', 'tools/scout/salad/recolor_lp.py',

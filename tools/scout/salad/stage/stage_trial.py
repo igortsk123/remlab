@@ -13,6 +13,8 @@
 Только этап 07 по готовому 06: `--stages 07 --vis-root <папка с <товар>/06-visible/>` (без `--inputs`; товары — все папки с visible.glb и check.json, сузить — `--skus a,b`): вход 07 берётся оттуда, выход — в `--out`.
 07 и шов одним пакетом: `--stages 07,seam --vis-root …` (шов берёт выход 07 из `--out` сразу после того, как 07 всех товаров готов).
 Только шов «фото | заливка» (T-196/1) по готовым 06 и 07: `--stages seam --fill-root <папка с <товар>/07-fill/> --vis-root <папка с <товар>/06-visible/>` → `<out>/<товар>/07-seam/`.
+Этап 08 «материал» (T-220/1): `--stages 07,seam,08 --vis-root … --catalog catalog_all.json --pose-root <папки с <товар>/04-camera/>` (или `--stages 08 --fill-root … --vis-root …`): вход — `07-seam/seam.glb` (нет шва —
+`07-fill/filled.glb`), `06-visible/`, `04-camera/check.json`, `product.json` из каталога, части `03-parts/` (если `--parts-root`) и фото → `<out>/<товар>/08-material/` (кадра нет: `--no-frame`, Blender на ноде не ставим).
 Выход: `<out>/<товар>/06-visible/…`, `<out>/<товар>/07-fill/…` (sha256 сверен), `<out>/items-06.json`, `<out>/items-07.json` (время, пик памяти этапа, метрики).
 """
 from __future__ import annotations
@@ -98,12 +100,73 @@ def zip_dir_into(z: zipfile.ZipFile, src: str, prefix: str, limit_mb: float | No
     return total
 
 
-def add_extras(z: zipfile.ZipFile, v: dict, code_tar: bytes | None) -> None:
-    """Общее для всех входов: `code.tar` (код задания) и доп. файлы товара `extra_in` {имя во входе: локальный путь} (карты зон и т. п.; в `args` — `@in/<имя>`)."""
+def add_extras(z: zipfile.ZipFile, v: dict, code_tar: bytes | None, key: str = 'extra_in') -> None:
+    """Общее для всех входов: `code.tar` (код задания) и доп. файлы товара `extra_in` {имя во входе: локальный путь} (карты зон и т. п.; в `args` — `@in/<имя>`).
+    `key` — какой набор: у этапа 08 свой, `extra_in_08` (product.json, части `03-parts/…`, фото), чтобы не раздувать входы 06/07."""
     if code_tar:
         z.writestr('code.tar', code_tar)
-    for rel, path in sorted((v.get('extra_in') or {}).items()):
+    for rel, path in sorted((v.get(key) or {}).items()):
         z.write(path, rel)
+
+
+def input_zip_08(vis_dir: str, fill_dir: str, seam_dir: str, cam_check: str, code_tar: bytes | None = None, v: dict | None = None) -> bytes:
+    """Вход 08 (T-220/1): `06-visible/{check.json,known.png,visible.glb}` (цвет частей с фото), `04-camera/check.json`, модель — `07-seam/seam.glb`, если шов отработал, иначе `07-fill/filled.glb`
+    (на ноде берётся шов, если он во входе), плюс `extra_in_08` товара: `product.json`, `03-parts/parts.npz` + `parts.json`, `photo.png`."""
+    buf = io.BytesIO()
+    with zipfile.ZipFile(buf, 'w', zipfile.ZIP_STORED) as z:
+        for n in ('check.json', 'known.png', 'visible.glb'):
+            p = os.path.join(vis_dir, n)
+            if os.path.isfile(p):
+                z.write(p, f'06-visible/{n}')
+        seam = os.path.join(seam_dir, 'seam.glb')
+        if os.path.isfile(seam):
+            z.write(seam, '07-seam/seam.glb')
+        else:
+            z.write(os.path.join(fill_dir, 'filled.glb'), '07-fill/filled.glb')
+        z.write(cam_check, '04-camera/check.json')
+        add_extras(z, v or {}, code_tar, 'extra_in_08')
+    return buf.getvalue()
+
+
+def seam_model_08(a, sku: str, v: dict) -> tuple[str, str, str, str]:
+    """(06-visible, 07-fill, 07-seam, 04-camera/check.json) товара для 08: из `v` (vis/fill/seam/pose_run) или из `--out` (выходы этой же цепочки)."""
+    root = getattr(a, 'out', '')
+    vis = v.get('vis') or os.path.join(getattr(a, 'vis_root', '') or root, sku, '06-visible')
+    fil = v.get('fill') or os.path.join(getattr(a, 'fill_root', '') or root, sku, '07-fill')
+    sea = v.get('seam') or os.path.join(root, sku, '07-seam')
+    cam = os.path.join(v.get('pose_run') or '', '04-camera', 'check.json')
+    if not os.path.isfile(cam):
+        for pr in [x for x in str(getattr(a, 'pose_root', '') or '').split(',') if x]:        # --pose-root: папки с <товар>/04-camera/check.json (камера этапа 4)
+            for base in (pr, *sorted(os.path.join(pr, g) for g in (os.listdir(pr) if os.path.isdir(pr) else []) if os.path.isdir(os.path.join(pr, g, sku)))):
+                c = os.path.join(base, sku, '04-camera', 'check.json')
+                if os.path.isfile(c):
+                    return vis, fil, sea, c
+    return vis, fil, sea, cam
+
+
+def attach_08(inputs: dict, catalog: str, out: str) -> dict:
+    """Входы этапа 08 по каждому товару (`extra_in_08`): `product.json` из выгрузки каталога (`--catalog`, формат paint_run_all: [{sid,name,role,params}] — params не выдумываем), части этапа 3
+    (`03-parts/parts.npz` + `parts.json`) — те же, что у 07 (`extra_in['parts.npz']`, если `attach_parts` их принял), фото (`photo`) — для сверки тона стекла. → {товар: {product, parts, photo}} (в `inputs-08.json`).
+    Нет записи каталога — товар без product.json (08 не отправится: причина в items)."""
+    cat = {str(r.get('sid')): r for r in json.load(open(catalog, encoding='utf-8'))} if catalog else {}
+    d = os.path.join(out, '_in08')
+    rep = {}
+    for sku, v in inputs.items():
+        ex = v.setdefault('extra_in_08', {})
+        rec = cat.get(sku)
+        if rec:
+            os.makedirs(os.path.join(d, sku), exist_ok=True)
+            pj = os.path.join(d, sku, 'product.json')
+            json.dump({'sid': sku, 'name': rec.get('name') or '', 'role': rec.get('role') or '', 'params': rec.get('params') or {}}, open(pj, 'w', encoding='utf-8'), ensure_ascii=False, indent=1)
+            ex['product.json'] = pj
+        npz = (v.get('extra_in') or {}).get('parts.npz')
+        pjson = os.path.join(os.path.dirname(npz), 'parts.json') if npz else ''
+        if npz and os.path.isfile(pjson):
+            ex['03-parts/parts.npz'], ex['03-parts/parts.json'] = npz, pjson
+        if v.get('photo') and os.path.isfile(v['photo']):
+            ex['photo.png'] = v['photo']
+        rep[sku] = {'product': 'product.json' in ex, 'parts': '03-parts/parts.npz' in ex, 'photo': 'photo.png' in ex}
+    return rep
 
 
 def input_zip_06(v: dict, code_tar: bytes | None = None) -> bytes:
@@ -143,7 +206,7 @@ def job_id(stage: str, sku: str, data: bytes, a) -> str:
 
 
 def stage_dirname(stage: str) -> str:
-    return {'06': '06-visible', 'seam': '07-seam'}.get(stage, '07-fill')
+    return {'06': '06-visible', 'seam': '07-seam', '08': '08-material'}.get(stage, '07-fill')
 
 
 def submit_stage(gw, a, inputs: dict, stage: str, t: float) -> tuple[dict | None, dict]:
@@ -161,6 +224,17 @@ def submit_stage(gw, a, inputs: dict, stage: str, t: float) -> tuple[dict | None
                 skipped[sku] = 'нет выхода 07 (filled.glb) или known.png этапа 06 — шов не запускался'
                 continue
             data = input_zip_seam(vis, fil, code.get('tar'), v)
+        elif stage == '08':
+            vis, fil, sea, cam = seam_model_08(a, sku, v)
+            ex = v.get('extra_in_08') or {}
+            miss = [n for n, p in (('06-visible/check.json', os.path.join(vis, 'check.json')), ('04-camera/check.json', cam), ('product.json', ex.get('product.json') or ''))
+                    if not os.path.isfile(p)]
+            if not os.path.isfile(os.path.join(sea, 'seam.glb')) and not os.path.isfile(os.path.join(fil, 'filled.glb')):
+                miss.append('модель 07 (seam.glb / filled.glb)')
+            if miss:
+                skipped[sku] = f'нет входа 08: {miss} — этап 08 не запускался'
+                continue
+            data = input_zip_08(vis, fil, sea, cam, code.get('tar'), v)
         else:
             vis = v.get('vis') or os.path.join(getattr(a, 'vis_root', '') or a.out, sku, '06-visible')
             if not os.path.isfile(os.path.join(vis, 'visible.glb')):
@@ -170,7 +244,7 @@ def submit_stage(gw, a, inputs: dict, stage: str, t: float) -> tuple[dict | None
         jid = job_id(stage, sku, data, a)
         body = {'job_id': jid, 'stage': stage, 'sku': sku, 'input_z': base64.b64encode(zlib.compress(data, 6)).decode(), 'body_only': bool(v.get('body_only')) and stage == '06',
                 'code_sha': code.get('sha', ''), 'code_tar_sha256': code.get('tar_sha256', '')}
-        if v.get('args'):
+        if v.get('args') and stage != '08':                                               # args в inputs — для 07 (--card-json …); команда 08 свои аргументы строит сама
             body['args'] = list(v['args'])
         c, r, _tinfo = KD.post_job(gw, '/jobs', body, f'/jobs/{jid}', say_fn=say)
         if c == -1:                                                                       # воркер задания не видит; job_id идемпотентен — один повтор, дубля не будет
@@ -227,6 +301,7 @@ def poll_stage(gw, a, cur: dict, t: float) -> tuple[str, dict]:
         cur['got'][sku] = items[sku] = {'status': 'done', 'unpacked': len(names), **rec}
         if stage == '07':
             items[sku]['top'] = top_state(out)
+            items[sku]['texture_source'] = texture_source(out)
     if running:
         return 'running', {}
     for sku, why in cur.get('skipped', {}).items():
@@ -235,6 +310,7 @@ def poll_stage(gw, a, cur: dict, t: float) -> tuple[str, dict]:
     ok = sum(1 for v in items.values() if v['status'] == 'done')
     info = {'items': items, 'ok': ok, 'total': len(items), 'metrics': {'ok': ok, 'total': len(items), 'failed': {k: v.get('error') for k, v in fails.items()}}}
     if stage == '07':
+        info['metrics']['texture_source'] = text_counts(items)
         info['metrics']['top'] = top_counts(items)
         say(f'верх Ш3в по товарам 07 (счётчик причин): {info["metrics"]["top"]}')
     os.makedirs(a.out, exist_ok=True)
@@ -251,6 +327,27 @@ def top_state(out_dir: str) -> str:
     if rep.get('applied'):
         return 'applied'
     return str(rep.get('top_skip') or rep.get('top_source') or 'нет отчёта')
+
+
+def texture_source(out_dir: str) -> str:
+    """Откуда у 07 запасная микрофактура (из report.json выхода): `ultratex` | `trellis` | … | `нет отчёта`. ADR-0466: UltraTex выключен — пакет, где тут `ultratex`, шёл на коде без выключателя."""
+    try:
+        doc = json.load(open(os.path.join(out_dir, 'report.json'), encoding='utf-8'))
+    except (OSError, ValueError):
+        return 'нет отчёта'
+    rep = doc.get('report', doc)
+    if 'relief_source' not in rep:
+        return 'нет отчёта'
+    return str(rep['relief_source'] or 'none')                      # report.relief_source: null (запасной микрофактуры не брали) | 'ultratex' | 'trellis'
+
+
+def text_counts(items: dict) -> dict:
+    """{источник микрофактуры 07: сколько товаров} — в итог пакета (ultratex > 0 = код без выключателя, ADR-0466)."""
+    c: dict = {}
+    for v in items.values():
+        if v.get('status') == 'done':
+            c[v.get('texture_source', 'нет отчёта')] = c.get(v.get('texture_source', 'нет отчёта'), 0) + 1
+    return c
 
 
 def top_counts(items: dict) -> dict:
@@ -330,7 +427,9 @@ def make_spec(a, inputs: dict) -> KD.Spec:
                 return False, f'срез кода {a.code["sha"][:8]} неполон: {why}'
         say(f'код задания: SHA {a.code["sha"]}, tar {len(a.code["tar"]) / 1024:.0f} КБ, {len(a.code["files"])} файлов, sha256 {a.code["tar_sha256"][:16]}…, вне срезов: {a.code["outside"]}')
         bad = input_problems(inputs) if '06' in stages_of(a) else []
-        if stages_of(a) == ['seam']:
+        if '08' in stages_of(a):                                                          # 08: камера этапа 4 и запись каталога обязательны — иначе товар не отправится (счётчик пропусков в items-08)
+            bad += [f'{s}: нет 04-camera/check.json (--pose-root / pose_run)' for s, v in inputs.items() if not os.path.isfile(seam_model_08(a, s, v)[3])]
+        if stages_of(a) in (['seam'], ['08'], ['seam', '08']):
             bad += [f'{s}: нет 07-fill/filled.glb или 06-visible/known.png' for s, v in inputs.items()
                     if not os.path.isfile(os.path.join(v.get('fill') or os.path.join(getattr(a, 'fill_root', ''), s, '07-fill'), 'filled.glb'))
                     or not os.path.isfile(os.path.join(v.get('vis') or os.path.join(getattr(a, 'vis_root', ''), s, '06-visible'), 'known.png'))]
@@ -359,6 +458,8 @@ def main() -> int:
     ap.add_argument('--no-code-check', action='store_true', help='не проверять импорт точек входа из чистой распаковки (только если нет библиотек этапов)')
     ap.add_argument('--skus', default='', help='при --vis-root: только эти товары (по умолчанию все с готовым 06)')
     ap.add_argument('--parts-root', default='', help='корень частей PartLLM `<товар>/03-parts/parts.npz` (parts_to_npz.py convert): едет в задание 07; источник зон — флаг zones_from')
+    ap.add_argument('--catalog', default='', help='этап 08: выгрузка каталога [{sid,name,role,params}] (catalog_all.json) — из неё product.json товара')
+    ap.add_argument('--pose-root', default='', help='этап 08: папки (через запятую) с <товар>/04-camera/check.json (камера этапа 4; допускается уровень g0/g1/g2); у товара может быть и поле pose_run')
     ap.add_argument('--allow-no-card', action='store_true', help='07 без карточек ни у одного товара (верх Ш3в не красится); по умолчанию — отказ до создания группы')
     ap.add_argument('--zones-from', default='', choices=['', 'parts', 'panels'], help='перебить rules/paint-fill.json zones_from (пусто — как в правилах)')
     ap.add_argument('--out', default=os.path.expanduser('~/remlab-logs/t189-1122/salad-out'))
@@ -391,12 +492,15 @@ def main() -> int:
         MG.env_from_file()
         return 0 if KD.stop_and_verify(BR, f'{PREFIX}-{a.suffix}') else 1
     st_ = stages_of(a)
-    only07 = st_ in (['07'], ['07', 'seam'])                                       # 07 по готовому 06 (и шов сразу за ним: вход шва — выход 07 из --out, одним пакетом)
-    if not a.image or not (a.inputs or (a.vis_root and only07) or (a.vis_root and a.fill_root and st_ == ['seam'])):
-        sys.exit('нужны --image и --inputs (или --stages 07[,seam] --vis-root, или --stages seam --fill-root --vis-root)')
+    only07 = st_ in (['07'], ['07', 'seam'], ['07', 'seam', '08'])                 # 07 по готовому 06 (и шов, и 08 сразу за ним: вход — выход предыдущего из --out, одним пакетом)
+    from_fill = st_ in (['seam'], ['08'], ['seam', '08'])                          # по готовым 06 и 07: товары — папки `<fill-root>/<товар>/07-fill/filled.glb` + `<vis-root>/<товар>/06-visible/known.png`
+    if not a.image or not (a.inputs or (a.vis_root and only07) or (a.vis_root and a.fill_root and from_fill)):
+        sys.exit('нужны --image и --inputs (или --stages 07[,seam[,08]] --vis-root, или --stages seam|08|seam,08 --fill-root --vis-root)')
+    if '08' in st_ and not a.catalog:
+        sys.exit('этапу 08 нужен --catalog (выгрузка каталога [{sid,name,role,params}]): из неё берётся product.json товара')
     if a.inputs and a.vis_root and only07:
         sys.exit('--inputs и --vis-root вместе не нужны: у товара в inputs.json может быть поле "vis"')
-    inputs = load_inputs(a.inputs) if a.inputs else (seam_inputs(a.fill_root, a.vis_root, a.skus) if st_ == ['seam'] else vis_inputs(a.vis_root, a.skus))
+    inputs = load_inputs(a.inputs) if a.inputs else (seam_inputs(a.fill_root, a.vis_root, a.skus) if from_fill else vis_inputs(a.vis_root, a.skus))
     if not inputs:
         sys.exit('нет товаров для пакета')
     if '07' in stages_of(a):
@@ -410,6 +514,11 @@ def main() -> int:
         os.makedirs(a.out, exist_ok=True)
         json.dump({'zones_from': mode, 'skus': zl}, open(os.path.join(a.out, 'zones-07.json'), 'w', encoding='utf-8'), ensure_ascii=False, indent=1)
         say(f'зоны 07: zones_from={mode}, parts у {sum(1 for z in zl.values() if z["source"] == "parts")} из {len(zl)}; без parts: ' + str({k: z['reason'] for k, z in zl.items() if z['source'] != 'parts'})[:300])
+    if '08' in st_:
+        rep08 = attach_08(inputs, os.path.expanduser(a.catalog), a.out)
+        os.makedirs(a.out, exist_ok=True)
+        json.dump(rep08, open(os.path.join(a.out, 'inputs-08.json'), 'w', encoding='utf-8'), ensure_ascii=False, indent=1)
+        say(f'вход 08: product.json у {sum(1 for r in rep08.values() if r["product"])} из {len(rep08)}, части (parts.npz) у {sum(1 for r in rep08.values() if r["parts"])}, фото у {sum(1 for r in rep08.values() if r["photo"])}')
     return KD.run_probe(a, MG, BR, make_spec(a, inputs))
 
 

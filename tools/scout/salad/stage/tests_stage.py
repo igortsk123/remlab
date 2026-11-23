@@ -586,7 +586,7 @@ except ValueError:
     ok(True, 'safe_untar: не tar — отказ')
 
 # ---- whitelist команд и аргументы
-ok(set(WS.COMMANDS) == {'06', '07', 'seam', 'ref_zone', 'render_unlit'}, f'whitelist: ровно 5 команд ({sorted(WS.COMMANDS)})')
+ok(set(WS.COMMANDS) == {'06', '07', 'seam', '08', 'ref_zone', 'render_unlit'}, f'whitelist: ровно 6 команд ({sorted(WS.COMMANDS)})')
 good_args = ['--zones', '@in/zones.npy', '--n', '3', '0.5', '@out']
 ok(WS.check_args(good_args) == good_args and WS.check_args(None) == [], 'args: флаги, слова, числа, @in/…, @out — принимаются')
 for bad in (['; rm -rf /'], ['$HOME'], ['../x'], ['/etc/passwd'], ['--Bad'], ['@in/../x'], ['a b'], ['`id`'], ['@in//x'], [1], ['x'] * 41, 'строка'):
@@ -608,6 +608,56 @@ ok(WS.missing_inputs('seam', list(WS.NEED_SEAM)) == [] and '07-fill/filled.glb' 
 ok('seam' in WS.DRIVER_STAGES and 'seam' not in WS.STAGES, 'шов в списке драйвера, но не в образе-запасе')
 import argparse as _ap
 ok(ST.stages_of(_ap.Namespace(stages='07,seam')) == ['07', 'seam'] and ST.stages_of(_ap.Namespace(stages='seam')) == ['seam'], 'драйвер: --stages 07,seam и seam разбираются')
+
+# ---- этап 08 (T-220/1): команда, входы, whitelist, имя выхода
+d08 = tmpdir('s08')
+os.makedirs(os.path.join(d08, 'j', 'in', '03-parts'), exist_ok=True)
+os.makedirs(os.path.join(d08, 'j', 'in', '07-seam'), exist_ok=True)
+for rel in ('03-parts/parts.npz', '03-parts/parts.json', '07-seam/seam.glb', 'photo.png'):
+    open(os.path.join(d08, 'j', 'in', rel), 'wb').write(b'x')
+c8, o8, n8 = WS.stage_command(C, '08', os.path.join(d08, 'j'), 'sku1', False, False, '/tmp/w/j/peak', code_root='/tmp/w/j/code')
+ok(c8[c8.index('-I') + 1] == '/tmp/w/j/code/tools/assets/material_stage.py' and n8 == '08-material' and c8[c8.index('-I') + 2] == 'stage', 'команда 08: material_stage.py stage из code_root, выход 08-material')
+ok(c8[c8.index('--glb') + 1].endswith('07-seam/seam.glb') and '--no-frame' in c8 and '--parts-dir' in c8 and '--photo' in c8 and c8[c8.index('--stages-dir') + 1].endswith('/j/in'),
+   'команда 08: модель — шов, есть --no-frame, части, фото, stages-dir = вход')
+os.remove(os.path.join(d08, 'j', 'in', '07-seam', 'seam.glb'))
+os.remove(os.path.join(d08, 'j', 'in', '03-parts', 'parts.json'))
+os.remove(os.path.join(d08, 'j', 'in', 'photo.png'))
+c8b, _o, _n = WS.stage_command(C, '08', os.path.join(d08, 'j'), 'sku1', False, False, '/tmp/w/j/peak', code_root='/tmp/w/j/code')
+ok(c8b[c8b.index('--glb') + 1].endswith('07-fill/filled.glb') and '--parts-dir' not in c8b and '--photo' not in c8b, 'команда 08: нет шва — filled.glb; нет parts.json/фото — без --parts-dir/--photo')
+need08 = ['product.json', '04-camera/check.json', '06-visible/check.json']
+ok(WS.missing_inputs('08', need08 + ['07-fill/filled.glb']) == [] and WS.missing_inputs('08', need08 + ['07-seam/seam.glb']) == [], 'вход 08: хватает шва ИЛИ filled.glb')
+ok(len(WS.missing_inputs('08', need08)) == 1 and 'product.json' in WS.missing_inputs('08', ['07-fill/filled.glb', '04-camera/check.json', '06-visible/check.json']), 'вход 08: без модели и без product.json — отказ с именами')
+ok('08' in WS.DRIVER_STAGES and '08' not in WS.STAGES and '08' in WS.FILL_STAGES, '08 в списке драйвера и в «местах под тяжёлое», но не в образе-запасе')
+ok(ST.stage_dirname('08') == '08-material' and ST.stages_of(_ap.Namespace(stages='07,seam,08')) == ['07', 'seam', '08'], 'драйвер: --stages 07,seam,08, папка выхода 08-material')
+# вход 08: zip драйвера → то, что просит воркер
+vd, fd, sd = (os.path.join(d08, x) for x in ('vis', 'fill', 'sea'))
+for p in (vd, fd, sd, os.path.join(d08, 'pose', 'sku1', '04-camera'), os.path.join(d08, 'pose', 'g1', 'sku2', '04-camera')):
+    os.makedirs(p, exist_ok=True)
+for rel in ('vis/check.json', 'vis/known.png', 'vis/visible.glb', 'fill/filled.glb', 'sea/seam.glb', 'pose/sku1/04-camera/check.json', 'pose/g1/sku2/04-camera/check.json', 'prod.json', 'p.npz'):
+    open(os.path.join(d08, rel), 'wb').write(b'{}' if rel.endswith('.json') else b'x')
+z08 = zipfile.ZipFile(io.BytesIO(ST.input_zip_08(vd, fd, sd, os.path.join(d08, 'pose', 'sku1', '04-camera', 'check.json'), b'TAR', {'extra_in_08': {'product.json': os.path.join(d08, 'prod.json'), '03-parts/parts.npz': os.path.join(d08, 'p.npz')}}))).namelist()
+ok(WS.missing_inputs('08', z08) == [] and '07-seam/seam.glb' in z08 and '07-fill/filled.glb' not in z08 and 'code.tar' in z08 and '03-parts/parts.npz' in z08 and '06-visible/known.png' in z08,
+   f'input_zip_08: шов вместо filled.glb, product.json, части, code.tar ({sorted(z08)})')
+os.remove(os.path.join(sd, 'seam.glb'))
+z08b = zipfile.ZipFile(io.BytesIO(ST.input_zip_08(vd, fd, sd, os.path.join(d08, 'pose', 'sku1', '04-camera', 'check.json'), None, {'extra_in_08': {'product.json': os.path.join(d08, 'prod.json')}}))).namelist()
+ok('07-fill/filled.glb' in z08b and '07-seam/seam.glb' not in z08b and WS.missing_inputs('08', z08b) == [], 'input_zip_08: шва нет — filled.glb')
+a08 = _ap.Namespace(out=d08, vis_root='', fill_root='', pose_root=os.path.join(d08, 'pose'))
+ok(ST.seam_model_08(a08, 'sku1', {})[3].endswith('pose/sku1/04-camera/check.json') and ST.seam_model_08(a08, 'sku2', {})[3].endswith('pose/g1/sku2/04-camera/check.json'),
+   'камера 08: --pose-root находит и <корень>/<товар>, и <корень>/g1/<товар>')
+cat08 = os.path.join(d08, 'cat.json')
+json.dump([{'sid': 'sku1', 'name': 'Стол', 'role': 'dining_table', 'params': {'color': 'белый'}}], open(cat08, 'w', encoding='utf-8'), ensure_ascii=False)
+inp08 = {'sku1': {'extra_in': {'parts.npz': os.path.join(d08, 'p.npz')}, 'photo': os.path.join(d08, 'p.npz')}, 'sku2': {}}
+open(os.path.join(d08, 'parts.json'), 'wb').write(b'{}')
+rep08 = ST.attach_08(inp08, cat08, d08)
+ok(rep08['sku1']['product'] and rep08['sku1']['photo'] and rep08['sku1']['parts'] and not rep08['sku2']['product'] and not rep08['sku2']['parts'], 'attach_08: product.json из каталога, чего нет в каталоге — не выдумывается; части — парой npz+json')
+ok(json.load(open(inp08['sku1']['extra_in_08']['product.json'], encoding='utf-8'))['params'] == {'color': 'белый'}, 'attach_08: params — как в каталоге')
+os.makedirs(os.path.join(d08, 'pr', 'sku1', '07-fill'), exist_ok=True)
+open(os.path.join(d08, 'pr', 'sku1', '07-fill', 'report.json'), 'w').write(json.dumps({'report': {'relief_source': None}}))
+os.makedirs(os.path.join(d08, 'pr', 'sku2', '07-fill'), exist_ok=True)
+open(os.path.join(d08, 'pr', 'sku2', '07-fill', 'report.json'), 'w').write(json.dumps({'report': {'relief_source': 'ultratex'}}))
+ok(ST.texture_source(os.path.join(d08, 'pr', 'sku1', '07-fill')) == 'none' and ST.texture_source(os.path.join(d08, 'pr', 'sku2', '07-fill')) == 'ultratex'
+   and ST.texture_source(os.path.join(d08, 'нет')) == 'нет отчёта', 'texture_source: none / ultratex / нет отчёта читаются из report.json 07')
+ok(ST.text_counts({'a': {'status': 'done', 'texture_source': 'ultratex'}, 'b': {'status': 'done', 'texture_source': 'none'}, 'c': {'status': 'failed'}}) == {'ultratex': 1, 'none': 1}, 'text_counts: только готовые')
 
 # ---- пул: код только из задания
 C2 = dict(C, work=tmpdir('work3'), allow_baked=False)
