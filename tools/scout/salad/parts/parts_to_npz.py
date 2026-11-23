@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """Части PartLLM (этап 03, T-198/1) → вход этапа 07: `<корень частей>/<товар>/03-parts/parts.npz` (ключ `part`, int32, ОДИН массив на все грани GLB в порядке геометрий —
-ровно то, что читает `tex_fill.parts_from_npz`) + `parts.json` (номер части → имя PartLLM, доля граней; поля `role` нет — роли этапа 3 не придумываем). Выбор источника зон для 07 —
+ровно то, что читает `tex_fill.parts_from_npz`) + `parts.json` (номер части → имя PartLLM, доля граней; роли — только через мост `rules/part-llm-roles.json` (T-217/2, `parts_names_roles`): `mode` dry — отчёт `roles-bridge.json`, parts.json как был; `on` — поля роли в parts.json). Выбор источника зон для 07 —
 флаг `zones_from` в rules/paint-fill.json: `parts` (по умолчанию, при наличии годного parts.npz) | `panels` (только панели формы, как до T-198).
 Здесь только то, что знает PartLLM-часть: перевод выхода воркера (`parts_trial.py`: faces.npy = метка части на грань в порядке граней входного glb) и проверка «число граней совпало».
 
@@ -33,8 +33,29 @@ def glb_face_count(path: str) -> int:
     return int(sum(len(g.faces) for g in geoms))
 
 
-def convert(src_dir: str, glb: str, out_dir: str, prompt_set: str = 'fine') -> dict:
-    """Один товар: `<src_dir>/faces.npy` (+ meta.json) → `<out_dir>/parts.npz`, `parts.json`. → {ok, reason, n_faces, n_parts, ...}. Число граней не совпало — файлов нет, ok=False."""
+def bridge_step(glb: str, lab, names: list, parts: list, doc: dict, out_dir: str, ctx: dict | None) -> dict | None:
+    """Мост «название → роль» (T-217/2, `rules/part-llm-roles.json`, режим `mode`): роли по именам частей + геометрии → `roles-bridge.json` (отчёт, всегда при mode≠off и заданном `ctx`);
+    при mode=on — ещё и поля роли в записи `parts` (parts.json). dry — parts.json не меняется. ctx: {product_role, channels, channel_classes, cam_az}; нет ctx — шаг не выполняется (None).
+    Сбой расчёта не роняет конвертер: {error} в отчёте, части остаются."""
+    sys.path.insert(0, os.path.abspath(os.path.join(HERE, '..', '..', '..', 'assets')))
+    import parts_names_roles as PN
+    rules = PN.load_rules()
+    if PN.mode(rules) == 'off' or ctx is None:
+        return None
+    res = PN.run_glb(glb, lab, names, ctx.get('product_role'), set(ctx.get('channels') or []), ctx.get('channel_classes') or {}, ctx.get('cam_az'), rules)
+    json.dump(res, open(os.path.join(out_dir, 'roles-bridge.json'), 'w', encoding='utf-8'), ensure_ascii=False, indent=1)
+    if res.get('mode') == 'on' and 'roles' in res:
+        for p in parts:
+            r = res['roles'].get(str(p['id']))
+            if r:
+                p.update({k: r[k] for k in PN.FIELDS})
+        doc['roles'] = {k: v for k, v in res['summary'].items() if k in ('known_role_area_share', 'no_channel_area_share', 'unknown_reasons')}
+    return {'mode': res.get('mode'), **({'error': res['error']} if 'error' in res else {'summary': res['summary']})}
+
+
+def convert(src_dir: str, glb: str, out_dir: str, prompt_set: str = 'fine', roles_ctx: dict | None = None) -> dict:
+    """Один товар: `<src_dir>/faces.npy` (+ meta.json) → `<out_dir>/parts.npz`, `parts.json`. → {ok, reason, n_faces, n_parts, ...}. Число граней не совпало — файлов нет, ok=False.
+    `roles_ctx` — тип/каналы/камера товара для моста ролей (`bridge_step`); без него роли не считаются (parts.json как до T-217)."""
     import numpy as np
     fp = os.path.join(src_dir, 'faces.npy')
     if not os.path.isfile(fp):
@@ -52,8 +73,9 @@ def convert(src_dir: str, glb: str, out_dir: str, prompt_set: str = 'fine') -> d
     np.savez_compressed(os.path.join(out_dir, 'parts.npz'), part=lab.astype(np.int32))
     parts = [{'id': int(i), 'name': names[int(i)] if 0 <= int(i) < len(names) else '', 'face_share': round(float(c) / n, 4)} for i, c in zip(ids, cnt)]
     doc = {'source': 'partllm', 'prompt_set': prompt_set, 'n_faces': n, 'share_unlabeled': round(float((lab < 0).mean()), 4), 'parts': parts}
+    bridge = bridge_step(glb, lab, names, parts, doc, out_dir, roles_ctx)                    # dry: только отчёт; on: поля роли в parts; до записи parts.json
     json.dump(doc, open(os.path.join(out_dir, 'parts.json'), 'w', encoding='utf-8'), ensure_ascii=False, indent=1)
-    return {'ok': True, 'reason': f'{len(parts)} частей', 'n_faces': n, 'n_parts': len(parts), 'share_unlabeled': doc['share_unlabeled']}
+    return {'ok': True, 'reason': f'{len(parts)} частей', 'n_faces': n, 'n_parts': len(parts), 'share_unlabeled': doc['share_unlabeled'], **({'roles': bridge} if bridge else {})}
 
 
 def pick_parts(parts_root: str, sku: str, face_glb: str, mode: str) -> tuple:
@@ -79,12 +101,14 @@ def main() -> int:
     ap.add_argument('--src', required=True, help='папка выхода parts_trial: <товар>/faces.npy')
     ap.add_argument('--out', required=True, help='корень частей: <товар>/03-parts/parts.npz')
     ap.add_argument('--prompt-set', default='fine')
+    ap.add_argument('--roles-ctx', default='', help='JSON {товар: {product_role, channels: [..], channel_classes: {..}, cam_az}} — вход моста ролей (rules/part-llm-roles.json, mode); нет — роли не считаются')
     a = ap.parse_args()
     items = json.load(open(a.items, encoding='utf-8'))
+    ctxs = json.load(open(a.roles_ctx, encoding='utf-8')) if a.roles_ctx else {}
     res, bad = {}, 0
     os.makedirs(a.out, exist_ok=True)
     for it in items:
-        r = convert(os.path.join(a.src, str(it['sid'])), os.path.expanduser(it['path']), os.path.join(a.out, str(it['sid']), '03-parts'), a.prompt_set)
+        r = convert(os.path.join(a.src, str(it['sid'])), os.path.expanduser(it['path']), os.path.join(a.out, str(it['sid']), '03-parts'), a.prompt_set, ctxs.get(str(it['sid'])))
         res[str(it['sid'])] = r
         bad += 0 if r['ok'] else 1
         print(('ok  ' if r['ok'] else 'ОТКАЗ'), it['sid'], r['reason'])

@@ -253,6 +253,29 @@ def _fits(f: dict, grp: dict, channels: set[str], ctx: dict) -> list[str]:
     return fits
 
 
+def role_fit(f: dict, rules: dict, product_role: str | None, channels: set[str] | None, role: str, classes: dict | None = None,
+             catalog_classes: dict[str, str] | None = None) -> tuple[bool, str | None]:
+    """T-217: подходит ли часть с признаками `f` под роль `role` ПО ГЕОМЕТРИИ в группе товара — те же `require`/`alt_require`/`forbid` и `only_if_catalog_channel`, что у `assign_roles`
+    (одно правило, не копия). → (да/нет, причина): no_rule — у группы такой роли нет; no_channel — канала каталога нет; no_front / no_contact — не хватает только камеры или опоры;
+    forbid — сработал запрет; None — геометрия не та. Воздержаний по доверию (tiny, agree, seen) здесь нет — их решает вызывающий."""
+    grp = rules["groups"][group_of(product_role, classes)]
+    r = grp["roles"].get(role)
+    if r is None:
+        return False, "no_rule"
+    if "only_if_catalog_channel" in r and r["only_if_catalog_channel"] not in (channels or set()):
+        return False, "no_channel"
+    ctx = {"product_role": product_role, "group": group_of(product_role, classes), "catalog_classes": catalog_classes or {}}
+    ok, why = _eval(r["require"], f, ctx)
+    if not ok:
+        for alt in r.get("alt_require", []):
+            if _eval(alt, f, ctx)[0]:
+                ok, why = True, None
+                break
+    if ok and any(_eval([c], f, ctx)[0] for c in r.get("forbid", [])):
+        return False, "forbid"
+    return (True, None) if ok else (False, why)
+
+
 def _rule_apply(rule: dict, p: int, out: dict, name: str, new: dict) -> None:
     """Общий переключатель «включить / вхолостую» (P-062): enabled+mode!=dry — роль меняется; dry — роль прежняя, в `dry_hint` пишется, что было бы."""
     if not rule or not rule.get("enabled"):
