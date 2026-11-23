@@ -2874,6 +2874,11 @@ def run_stage_once(run: str, sku: str, glb: str, known: list | None = None, part
         if _tf['follow']:
             tex_after = _tex_pre_top
             rep['top_prior'].update(applied=False, top_source='group_tone', texels_changed=0)
+    if sg_pas is not None and rep['top_prior'].get('applied'):                  # T-28/1: корпус без другой группы и без фото-текселей не-фасада — тон верха/кромки той же части (роль панели по геометрии)
+        try:
+            sg_rep['body_from_top'] = SP.rebuild_body_from_top(sg_pas, sg_ctx, geoms, sg_cfg, sys.modules[__name__], rep['top_prior'])
+        except Exception as e:  # noqa: BLE001
+            sg_rep['body_from_top'] = {'rebuilt': False, 'error': f'{type(e).__name__}: {e}'}
     if sg_pas is not None and rep['top_prior'].get('applied'):           # верх задан по карточке/по тону своей части: группа корпуса его не перекрашивает (другой материал — комод: дуб сверху, графит на фасадах)
         sg_ctx['hook_keep'] = [np.any(np.asarray(a)[..., :3] != np.asarray(b)[..., :3], axis=-1) & ~np.asarray(k, bool) for a, b, k in zip(tex_after, _tex_pre_top, k_keep)]
         rep['top_prior']['kept_from_groups_texels'] = int(sum(int(m.sum()) for m in sg_ctx['hook_keep']))

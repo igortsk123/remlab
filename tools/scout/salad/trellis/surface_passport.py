@@ -464,8 +464,32 @@ def build(geoms: list, tex_rgb: list, known: list, parts: list, roles: dict | No
     over, virt, orep = body_override(geoms, parts, maps, kn_clean, groups, gid_of, R, tf, labs)
     pas['groups'].extend(virt)
     pas['body_override'] = orep
-    ctx = {'maps': maps, 'labs': labs, 'kn_clean': kn_clean, 'gid_of': gid_of, 'over': over, 'cen': [_cen(maps, gi) for gi in range(ng)], 'samp': None}
+    ctx = {'maps': maps, 'labs': labs, 'kn_clean': kn_clean, 'gid_of': gid_of, 'over': over, 'cen': [_cen(maps, gi) for gi in range(ng)], 'samp': None, 'bo_parts': parts}
     return pas, ctx
+
+
+def rebuild_body_from_top(pas: dict, ctx: dict, geoms: list, R: dict, tf, top_rep: dict) -> dict:
+    """После хука Ш3в (top_prior): если корпус по группам/фото не найден, а Ш3в применён (тон по кромке той же части, не «другой материал»), корпус берёт его тон (роль панели по геометрии: фасад — плоскость,
+    остальное — корпус). Пересчитывает виртуальные группы `body_override` с `fallback_tone`; ctx['over'] и pas['groups'] обновляются. Правило `body_override.edge_body.use_top_tone`. → отчёт."""
+    O = R.get('body_override') or {}
+    E = O.get('edge_body') or {}
+    if not (O.get('enabled') and E.get('enabled') and E.get('use_top_tone', False)):
+        return {'rebuilt': False, 'why': 'body_override.edge_body.use_top_tone = false'}
+    if not top_rep.get('applied') or not top_rep.get('tone_lab') or top_rep.get('other_material_hint'):
+        return {'rebuilt': False, 'why': 'Ш3в не применён или «другой материал» по кромке≠плоскости'}
+    if str(top_rep.get('top_source')) != 'same_part_inference':
+        return {'rebuilt': False, 'why': f'источник верха «{top_rep.get("top_source")}» — не по кромке той же части'}
+    groups = [g for g in pas['groups'] if 'virtual_for' not in g]
+    if any('virtual_for' in g for g in pas['groups']):
+        return {'rebuilt': False, 'why': 'виртуальная группа корпуса уже есть (корпус найден по группам/фото)'}
+    over, virt, orep = body_override(geoms, ctx['bo_parts'], ctx['maps'], ctx['kn_clean'], groups, ctx['gid_of'], R, tf, ctx['labs'], fallback_tone=top_rep['tone_lab'])
+    if not virt:
+        pas['body_override'] = orep
+        return {'rebuilt': False, 'why': 'правило не сработало', 'rules': orep.get('rules')}
+    pas['groups'].extend(virt)
+    pas['body_override'] = orep
+    ctx['over'] = over
+    return {'rebuilt': True, 'tone': virt[0]['tone_lab'], 'virtual_groups': [v['id'] for v in virt], 'texels': sum(v['texels_total'] for v in virt)}
 
 
 def _cen(maps: Maps, gi: int) -> np.ndarray:
@@ -540,7 +564,7 @@ def edge_body_tone(lab_obs: np.ndarray, grp_tone, E: dict, min_de: float, de_fn=
     return {'ok': True, 'n': n, 'de00': round(de, 1), 'tone': [round(float(x), 2) for x in med], 'why': 'корпус по фото-текселям не-фасадных граней'}
 
 
-def body_override(geoms: list, parts: list, maps: Maps, kn_clean: list, groups: list, gid_of: dict, R: dict, tf, labs: list | None = None) -> tuple:
+def body_override(geoms: list, parts: list, maps: Maps, kn_clean: list, groups: list, gid_of: dict, R: dict, tf, labs: list | None = None, fallback_tone=None) -> tuple:
     """«Фасад на зад не идёт» (владелец TG 1954): группа, чьё видимое лежит на ОДНОЙ плоскости (фасад/лицо), не красит невидимые грани других сторон (зад, бока, верх/низ) —
     они берут тон «корпуса»: другой группы с надёжным видимым тоном (≠ тон фасада). Нет такой группы (одноцветный предмет, диван) — ничего не меняется.
     Панель — геометрическая (RZ.panel_ids без частей): одна плоскость зада, разрезанная частями 03, красится целиком. → (over[gi] карта виртуальной группы или −1, виртуальные группы, отчёт)."""
@@ -638,6 +662,10 @@ def body_override(geoms: list, parts: list, maps: Maps, kn_clean: list, groups: 
                 obs_f = (faceG == G) & (side | far) & (kn_f > 0)                  # не-фасадные грани группы, у которых есть фото-тексели
                 tx_o = occ & kn & obs_f[np.maximum(ids, 0)]
                 eb = edge_body_tone(np.asarray(labs[gi]).reshape(-1, 3)[tx_o], gg['tone_lab'], O['edge_body'], float(O['min_de']), lambda a, b: float(_de(np.asarray(a, float), np.asarray(b, float))[0]))
+                if not eb['ok'] and fallback_tone is not None and eb['n'] < int(O['edge_body']['min_texels']):                      # фото-текселей не-фасада мало: тон верха/кромки той же части (Ш3в) как корпус, если другой материал
+                    dfb = float(_de(np.asarray(gg['tone_lab'], float), np.asarray(fallback_tone, float))[0])
+                    if dfb > float(O['min_de']):
+                        eb = {'ok': True, 'n': eb['n'], 'de00': round(dfb, 1), 'tone': [round(float(x), 2) for x in fallback_tone], 'why': f'корпус по тону верха/кромки (Ш3в): фото-текселей не-фасада {eb["n"]} мало, ΔE00 к группе {dfb:.1f}', 'from_top_prior': True}
                 rec['edge_body'] = eb
                 if not eb['ok'] or edge_done:
                     rec['fired'] = False
@@ -677,7 +705,7 @@ def top_follows_group(top_rep: dict, pas: dict, R: dict) -> dict:
     share = float(top_rep.get('photo_top_n') or 0) / n_top
     if share >= float(F['max_photo_share']):
         return {'follow': False, 'why': f'верх виден на фото ({100 * share:.1f} % ≥ {100 * float(F["max_photo_share"]):.0f} %)', 'photo_share': round(share, 4)}
-    gs = [g for g in pas.get('groups', []) if g.get('applied') and not g.get('virtual_for')]
+    gs = [g for g in pas.get('groups', []) if g.get('applied') and 'virtual_for' not in g]
     if not gs:
         return {'follow': False, 'why': 'нет применимых групп'}
     G = max(gs, key=lambda g: g.get('texels_known') or 0)

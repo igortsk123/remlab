@@ -299,6 +299,20 @@ def test_light_floor():
     ok(np.array_equal(SP.light_floor(tgt, np.full(4, 99.5), 'свет', dict(F, enabled=False)), tgt), 'enabled=false — прежнее поведение')
 
 
+def test_rebuild_body_gates():
+    print('корпус по тону верха (Ш3в): условия включения (T-28/1):')
+    R = {'body_override': {'enabled': True, 'edge_body': {'enabled': True, 'min_texels': 600, 'use_top_tone': True}}}
+    top = {'applied': True, 'tone_lab': [77.7, 3.6, 20.3], 'top_source': 'same_part_inference', 'other_material_hint': False}
+    pas = {'groups': [{'id': 0, 'applied': True}, {'id': 100000, 'virtual_for': 0}]}
+    ok(not SP.rebuild_body_from_top(pas, {}, [], R, None, top)['rebuilt'], 'виртуальный корпус уже есть — не пересобираем')
+    pas0 = {'groups': [{'id': 0, 'applied': True}]}
+    ok(not SP.rebuild_body_from_top(pas0, {}, [], R, None, dict(top, other_material_hint=True))['rebuilt'], '«другой материал» — не берём тон верха')
+    ok(not SP.rebuild_body_from_top(pas0, {}, [], R, None, dict(top, top_source='trellis_prior'))['rebuilt'], 'источник не «по кромке той же части» — не берём')
+    ok(not SP.rebuild_body_from_top(pas0, {}, [], R, None, dict(top, applied=False))['rebuilt'], 'Ш3в не применён — не берём')
+    R2 = {'body_override': {'enabled': True, 'edge_body': {'enabled': True, 'min_texels': 600, 'use_top_tone': False}}}
+    ok(not SP.rebuild_body_from_top(pas0, {}, [], R2, None, top)['rebuilt'], 'use_top_tone=false — прежнее поведение')
+
+
 def test_grain_no_dark_seams():
     print('зерно группы — без тёмных швов пула блоков:')
     g, tex, known, parts, base = scene_plane_two_parts()
@@ -526,7 +540,7 @@ def test_blur_caches():
 
 
 def main() -> int:
-    for f in (test_blur_caches, test_split_plane_one_tone, test_contrast_door_own_group, test_gray_pattern_not_flattened, test_back_is_body_not_facade, test_back_not_tiny_contrast, test_top_follows_group, test_edge_body_tone, test_light_floor, test_grain_no_dark_seams, test_gradient_continues, test_outlier_replaced, test_orphan_attached, test_orphan_guards, test_orphan_keeps_hook_tone, test_hook_keep_top, test_ultratex_switch_off, test_hidden_pattern_by_type):
+    for f in (test_blur_caches, test_split_plane_one_tone, test_contrast_door_own_group, test_gray_pattern_not_flattened, test_back_is_body_not_facade, test_back_not_tiny_contrast, test_top_follows_group, test_edge_body_tone, test_light_floor, test_rebuild_body_gates, test_grain_no_dark_seams, test_gradient_continues, test_outlier_replaced, test_orphan_attached, test_orphan_guards, test_orphan_keeps_hook_tone, test_hook_keep_top, test_ultratex_switch_off, test_hidden_pattern_by_type):
         f()
     print(f'tests_surface_passport: ошибок {bad}')
     return 1 if bad else 0
