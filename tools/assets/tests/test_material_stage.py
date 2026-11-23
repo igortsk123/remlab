@@ -494,6 +494,13 @@ def test_glass_keeps_colour_map():
         png2, _m, info2 = MS.tint_base_color(flat, uv, faces, ft, R["glass_tone"])
         o2 = np.asarray(_I.open(io.BytesIO(png2)).convert("RGB"))[occ]
         ok(any(i.get("source") == "flat-fill" for i in info2) and (np.abs(o2.astype(int) - tone) <= 1).all(), "ровная карта — красится тоном целиком, как раньше")
+        grey = os.path.join(d, "g2.glb")                                       # карта TRELLIS: серая с рисунком (разброс есть, цвета нет) — тон законно её заменяет
+        gv = np.random.default_rng(5).integers(20, 120, (32, 32, 1), dtype=np.uint8)
+        box.visual = trimesh.visual.TextureVisuals(uv=uv, material=trimesh.visual.material.PBRMaterial(baseColorTexture=_I.fromarray(np.concatenate([gv, gv, gv, np.full((32, 32, 1), 255, np.uint8)], axis=2))))
+        box.export(grey)
+        png3, _m3, info3 = MS.tint_base_color(grey, uv, faces, ft, R["glass_tone"])
+        o3 = np.asarray(_I.open(io.BytesIO(png3)).convert("RGB"))[occ]
+        ok(any(i.get("source") == "flat-fill" and i.get("median_C_07", 99) <= R["glass_tone"]["keep_map"]["neutral_C_max"] for i in info3) and (np.abs(o3.astype(int) - tone) <= 1).all(), "серая карта с рисунком (TRELLIS без цвета) — красится тоном целиком")
 
 
 def test_frame_gate():

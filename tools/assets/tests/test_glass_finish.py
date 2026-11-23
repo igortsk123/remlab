@@ -148,7 +148,8 @@ import trimesh  # noqa: E402
 def glb_table(path):
     box = trimesh.creation.box(extents=(1, 0.5, 0.5))
     rng = np.random.default_rng(2)
-    tex = Image.fromarray(rng.integers(0, 255, (64, 64, 4), dtype=np.uint8))
+    g = rng.integers(0, 255, (64, 64, 1), dtype=np.uint8)                  # карта TRELLIS у стекла — серая с рисунком (цвета нет): тон её законно заменяет; цветную карту 07 шаг 08 не трогает (тест в test_material_stage)
+    tex = Image.fromarray(np.concatenate([g, g, g, np.full((64, 64, 1), 255, np.uint8)], axis=2))
     uv = np.column_stack([(box.vertices[:, 0] + 0.5), (box.vertices[:, 2] + 0.25) * 2.0]).clip(0, 1)
     box.visual = trimesh.visual.TextureVisuals(uv=uv, material=trimesh.visual.material.PBRMaterial(baseColorTexture=tex))
     box.export(path)

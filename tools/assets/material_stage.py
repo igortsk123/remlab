@@ -699,8 +699,9 @@ def tint_base_color(glb: str, uv: np.ndarray, faces: np.ndarray, face_tone: np.n
                 continue
             lab_t = rgb_to_lab(base_rgb[occ_t].astype(np.float64))
             sigma = float(np.percentile(lab_t[:, 0], 90) - np.percentile(lab_t[:, 0], 10))
-            kept = sigma > km["flat_sigma_max"]
-            info.append({"source": "keep-map" if kept else "flat-fill", "tone": list(tone), "sigma_L_07": round(sigma, 1), "median_L_07": round(float(np.median(lab_t[:, 0])), 1)})
+            chroma = float(np.median(np.hypot(lab_t[:, 1], lab_t[:, 2])))
+            kept = sigma > km["flat_sigma_max"] and chroma > km["neutral_C_max"]        # рисунок И цвет: серая/чёрная карта TRELLIS (хрома ≤ neutral_C_max) — тон стекла законно её заменяет
+            info.append({"source": "keep-map" if kept else "flat-fill", "tone": list(tone), "sigma_L_07": round(sigma, 1), "median_L_07": round(float(np.median(lab_t[:, 0])), 1), "median_C_07": round(chroma, 1)})
             if not kept:
                 continue
             if not km.get("shift"):                       # рисунок остаётся как есть: тексели острова — прежние (иначе ta стёр бы их тоном)
@@ -1097,8 +1098,8 @@ def check() -> int:
             if cid and cid not in recipes["recipes"]:
                 bad.append(f"{sec}: класс {cid} без рецепта")
     km = (recipes.get("glass_tone") or {}).get("keep_map") or {}
-    if not isinstance(km.get("on"), bool) or not isinstance(km.get("shift"), bool) or not isinstance(km.get("flat_sigma_max"), (int, float)):
-        bad.append(f"glass_tone.keep_map: {km!r} (нужно on bool, shift bool и flat_sigma_max число)")
+    if not isinstance(km.get("on"), bool) or not isinstance(km.get("shift"), bool) or not all(isinstance(km.get(k), (int, float)) for k in ("flat_sigma_max", "neutral_C_max")):
+        bad.append(f"glass_tone.keep_map: {km!r} (нужно on bool, shift bool, flat_sigma_max и neutral_C_max числа)")
     fg = recipes.get("frame_gate") or {}
     if not isinstance(fg.get("dE_max"), (int, float)) or not isinstance(fg.get("dC_min"), (int, float)) or fg["dE_max"] <= 0 or fg["dC_min"] >= 0:
         bad.append(f"frame_gate: {fg!r} (нужно dE_max > 0 и dC_min < 0)")
