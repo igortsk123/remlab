@@ -46,6 +46,23 @@ async function renderItems(chromium, spec) {
           rep.tags.push(o.tag);
         }
         rep.ok = rep.tags.length === it.orbits.length;
+        if (spec.clay && rep.ok) {                  // «глина»: те же виды с белым материалом без текстур — по ней форма (тень) отделяется от тона (T-20261123-37)
+          await page.evaluate(async (c) => {
+            const m = document.querySelector('model-viewer');
+            for (const mat of m.model.materials) {
+              const pbr = mat.pbrMetallicRoughness;
+              pbr.setBaseColorFactor([1, 1, 1, 1]); pbr.setMetallicFactor(c.metallic); pbr.setRoughnessFactor(c.roughness);
+              if (pbr.baseColorTexture) pbr.baseColorTexture.setTexture(null);
+              if (pbr.metallicRoughnessTexture) pbr.metallicRoughnessTexture.setTexture(null);
+              if (mat.setEmissiveFactor) mat.setEmissiveFactor([0, 0, 0]);
+            }
+          }, spec.clay);
+          for (const o of it.orbits) {
+            await page.evaluate((orb) => { const m = document.querySelector('model-viewer'); m.cameraOrbit = orb; if (m.jumpCameraToGoal) m.jumpCameraToGoal(); }, o.orbit);
+            await page.waitForTimeout(viewer.settle_ms);
+            await page.locator('#mv').screenshot({ path: `${spec.out}/${it.id}/${o.tag}.clay.png` });
+          }
+        }
       } catch (e) {
         rep.notes.push(String(e).slice(0, 200));
       } finally {

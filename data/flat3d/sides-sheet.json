@@ -7,7 +7,11 @@
  "load_timeout_s": 200,
  "font": "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf",
  "font_px": 14,
- "photo_bg": [245, 245, 245],
+ "photo_bg": [
+  245,
+  245,
+  245
+ ],
  "light": {
   "environment_image": "neutral",
   "exposure": 1,
@@ -24,11 +28,40 @@
   "--ignore-gpu-blocklist"
  ],
  "views": [
-  { "name": "перед", "dtheta": 0, "elev": 12 },
-  { "name": "3/4", "dtheta": 40, "elev": 20 },
-  { "name": "бок", "dtheta": 90, "elev": 12 },
-  { "name": "зад", "dtheta": 180, "elev": 12 },
-  { "name": "др. бок", "dtheta": 270, "elev": 12 },
-  { "name": "верх", "dtheta": 0, "elev": 80 }
- ]
+  {
+   "name": "перед",
+   "dtheta": 0,
+   "elev": 12
+  },
+  {
+   "name": "3/4",
+   "dtheta": 40,
+   "elev": 20
+  },
+  {
+   "name": "бок",
+   "dtheta": 90,
+   "elev": 12
+  },
+  {
+   "name": "зад",
+   "dtheta": 180,
+   "elev": 12
+  },
+  {
+   "name": "др. бок",
+   "dtheta": 270,
+   "elev": 12
+  },
+  {
+   "name": "верх",
+   "dtheta": 0,
+   "elev": 80
+  }
+ ],
+ "clay": {
+  "_about": "режим --clay (sides_eval): те же виды с белым материалом без текстур; metallic/roughness — как у матовой глины.",
+  "metallic": 0,
+  "roughness": 0.85
+ }
 }

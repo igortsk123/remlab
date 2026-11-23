@@ -48,13 +48,13 @@ def orbits_for(sh: dict, az: float, radius: str | None = None) -> list:
     return [{'tag': f'{i}', 'orbit': f"{(az + v['dtheta']) % 360:.1f}deg {90 - v['elev']:g}deg {radius}"} for i, v in enumerate(sh['views'])]
 
 
-def build_spec(sh: dict, out: str, items: list) -> dict:
-    return {'out': out, 'light': sh['light'], 'viewer': {'width': sh['size'], 'height': sh['size'], 'settle_ms': sh['settle_ms'], 'load_timeout_s': sh['load_timeout_s']},
+def build_spec(sh: dict, out: str, items: list, clay: bool = False) -> dict:
+    return {'out': out, 'clay': dict(sh['clay']) if clay else None, 'light': sh['light'], 'viewer': {'width': sh['size'], 'height': sh['size'], 'settle_ms': sh['settle_ms'], 'load_timeout_s': sh['load_timeout_s']},
             'libs': dict(sh['libs']), 'chromium_args': sh['chromium_args'],
             'items': [{'id': it['id'], 'glb': it['glb'], 'orbits': orbits_for(sh, it['_az'])} for it in items]}
 
 
-def assemble(sh: dict, photo_path: str | None, views_dir: str, dst: str) -> None:
+def assemble(sh: dict, photo_path: str | None, views_dir: str, dst: str, suffix: str = '') -> None:
     from PIL import Image, ImageDraw, ImageFont
     S, hp = int(sh['size']), int(sh['header_px'])
     try:
@@ -76,7 +76,7 @@ def assemble(sh: dict, photo_path: str | None, views_dir: str, dst: str) -> None
     for i, v in enumerate(sh['views']):
         x = (i + 1) * S
         d.text((x + 5, 4), v['name'], fill='black', font=font)
-        p = os.path.join(views_dir, f'{i}.png')
+        p = os.path.join(views_dir, f'{i}{suffix}.png')
         if os.path.exists(p):
             sheet.paste(Image.open(p).convert('RGB'), (x, hp))
         else:
@@ -84,7 +84,7 @@ def assemble(sh: dict, photo_path: str | None, views_dir: str, dst: str) -> None
     sheet.save(dst)
 
 
-def batch(items: list, out: str, node: str = 'node', rules: dict | None = None, keep_work: bool = False, render_fn=None) -> dict:
+def batch(items: list, out: str, node: str = 'node', rules: dict | None = None, keep_work: bool = False, render_fn=None, clay: bool = False) -> dict:
     sh = load_rules(rules)
     os.makedirs(out, exist_ok=True)
     work = os.path.join(out, '_work')
@@ -95,7 +95,7 @@ def batch(items: list, out: str, node: str = 'node', rules: dict | None = None, 
             times[it['id']] = {'ok': False, 'seconds': 0, 'notes': ['нет азимута камеры фото' if az is None else f"нет файла {it['glb']}"]}
             continue
         todo.append(dict(it, _az=az))
-    spec = build_spec(sh, work, todo)
+    spec = build_spec(sh, work, todo, clay)
     os.makedirs(work, exist_ok=True)
     sp = os.path.join(work, 'spec.json')
     with open(sp, 'w', encoding='utf-8') as f:
@@ -112,6 +112,8 @@ def batch(items: list, out: str, node: str = 'node', rules: dict | None = None, 
         r_ = rep.get(it['id']) or {'ok': False, 'seconds': 0, 'notes': ['съёмка не дошла до товара']}
         if r_.get('tags'):                                               # частично снятые виды тоже собираем: пустые клетки подписаны
             assemble(sh, it.get('photo'), os.path.join(work, it['id']), os.path.join(out, it['id'] + '.png'))
+            if clay:                                                     # второй лист — «глина» (те же виды, белый материал): рядом, <id>.clay.png
+                assemble(sh, None, os.path.join(work, it['id']), os.path.join(out, it['id'] + '.clay.png'), '.clay')
         times[it['id']] = {'ok': bool(r_.get('ok')), 'seconds': r_.get('seconds'), 'notes': r_.get('notes', [])[:3]}
     times['_total'] = {'seconds': round(time.time() - t0, 1), 'items': len(items)}
     tp = os.path.join(out, 'times.json')
@@ -139,9 +141,10 @@ def main(argv: list) -> int:
     b.add_argument('--out', required=True)
     b.add_argument('--node', default='node')
     b.add_argument('--keep-work', action='store_true')
+    b.add_argument('--clay', action='store_true', help='кроме листа — второй лист «глина» <id>.clay.png (для sides_eval)')
     a = ap.parse_args(argv)
     items = json.load(open(a.items, encoding='utf-8'))
-    t = batch(items, a.out, a.node, keep_work=a.keep_work)
+    t = batch(items, a.out, a.node, keep_work=a.keep_work, clay=a.clay)
     bad = [k for k, v in t.items() if not k.startswith('_') and not v['ok']]
     tot = t['_total']
     print(f"в списке {len(items)}, не вышли {len([b for b in bad if b in {i['id'] for i in items}])}, {tot['seconds']} с" + (f", не вышли: {bad}" if bad else ''))
