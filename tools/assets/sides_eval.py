@@ -15,6 +15,8 @@ import os
 import sys
 
 import numpy as np
+sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), '..', 'scout'))   # общий свидетель «перёда»
+import front_axis as FA  # noqa: E402
 from scipy import ndimage as ndi
 
 HERE = os.path.dirname(os.path.abspath(__file__))
@@ -341,35 +343,12 @@ def eval_view(view_rgb: np.ndarray, photo_rgb: np.ndarray, photo_mask: np.ndarra
 
 
 def front_shares(V, F, UV, known, az_deg, R, names=None) -> dict:
-    """Доля известных (с фото) текселей по сторонам листа «перед/бок/зад/др. бок» (камера az, az+90, +180, +270; θ=0 — со стороны +Z).
-    V, F — меш; UV — на вершину (n,2), v вверх; known — 2D-маска (>0 известно), строки сверху вниз. Грани берутся с нормалью наружу, n·cam ≥ cos_min; вес — площадь."""
-    g = R['front_guard']
-    V, F = np.asarray(V, float), np.asarray(F, int)
-    tri = V[F]
-    nn = np.cross(tri[:, 1] - tri[:, 0], tri[:, 2] - tri[:, 0])
-    area = np.linalg.norm(nn, axis=1) * 0.5
-    nn = nn / np.maximum(np.linalg.norm(nn, axis=1, keepdims=True), 1e-12)
-    cen = tri.mean(axis=1)
-    nn = nn * np.where(((cen - V.mean(axis=0)) * nn).sum(axis=1) >= 0, 1.0, -1.0)[:, None]
-    uv = np.asarray(UV, float)[F].mean(axis=1)
-    h, w = known.shape[:2]
-    ix = np.clip((uv[:, 0] % 1.0 * w).astype(int), 0, w - 1)
-    iy = np.clip(((1.0 - uv[:, 1] % 1.0) * h).astype(int), 0, h - 1)
-    kn = (np.asarray(known)[iy, ix] > 0).astype(float)
-    out = {}
-    for name, d in zip(names or ('перед', 'бок', 'зад', 'др. бок'), (0, 90, 180, 270)):
-        t = np.deg2rad(float(az_deg) + d)
-        cam = np.array([np.sin(t), 0.0, np.cos(t)])
-        sel = (nn @ cam) >= g['cos_min']
-        a = area[sel]
-        out[name] = round(float((kn[sel] * a).sum() / a.sum()), 4) if a.sum() > 0 else None
-    return out
+    """Доля известных с фото текселей по сторонам листа — общий свидетель «перёда» `tools/scout/front_axis.py` (T-21/2: один источник для 06, 07 и листа)."""
+    return FA.front_shares(V, F, UV, known, az_deg, R, names)
 
 
 def front_flipped(shares: dict, R: dict) -> bool:
-    g = R['front_guard']
-    f, b = shares.get('перед'), shares.get('зад')
-    return bool(f is not None and b is not None and b > f + g['margin'] and b >= g['min_front_share'])
+    return FA.front_flipped(shares, R)
 
 
 def flip_sheet(sheet: np.ndarray, S: int, hp: int) -> np.ndarray:
