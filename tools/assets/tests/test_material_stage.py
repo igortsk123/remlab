@@ -559,8 +559,46 @@ def test_flat_top_roughness():
     ok((MS.bake_maps(lab, table, R, flat=np.zeros((12, 12), bool))["mr"] == m0["mr"]).all(), "нет плоскости — карта как была")
 
 
+def test_gloss_rule_record():
+    """T-20261123-50/1: правило R-GLOSS-08 пишет запись в `08-material/check.json: extra.rules[]` (формат rule_record.entry): щит/дерево — применено (глянец по слову или матовый по рецепту),
+    ткань/металл — воздержание с причиной, роль без типа — `no_type`; без записи `rule_registry_audit --run` давал «пустой охват» (29 из 29, круг 2 23.11)."""
+    try:
+        MS._paint_stage()
+    except SystemExit:
+        print("  – paint_stage.py не найден: проверка записи правила пропущена")
+        return
+    g = lambda name: MS.gloss_of({"name": name, "params": {}}, R)  # noqa: E731
+    res_of = lambda cls_, name: MS.resolve_parts([{"id": 0, "face_share": 1.0, "role": "main"}], dict(_cls(cls_, 0.9), gloss=g(name)), R)  # noqa: E731
+    ent = lambda role, cls_, name: MS.gloss_rule_entry(role, dict(_cls(cls_, 0.9), gloss=g(name)), res_of(cls_, name), R)  # noqa: E731
+    e = ent("шкаф", "mdf_film", "Тумба Глянец")
+    ok(e["rule_id"] == "R-GLOSS-08" and e["type"] == "шкаф" and e["applied"] is True and "глянец" in e["note"] and e["digest"], "щит с «Глянец»: применено, причина-слово в note, digest паспорта")
+    e = ent("шкаф", "ldsp", "Шкаф Белый")
+    ok(e["applied"] is True and "матовый" in e["note"], "ЛДСП без слов глянца: применено — матовый по рецепту")
+    e = ent("кресло", "velour", "Кресло Велюр")
+    ok("applied" not in e and "щита/дерева" in e["abstain"] and e["type"] == "кресло", "ткань: воздержание с причиной (нет частей щита/дерева)")
+    e = ent("неведомая-роль", "ldsp", "Шкаф")
+    ok(e["type"] is None and e["digest"] is None and "no_type" in e["abstain"], "роль без типа: запись abstain «no_type», охват не пустой")
+    bare = dict(R)
+    bare.pop("gloss_finish")
+    ok("gloss_finish" in MS.gloss_rule_entry("шкаф", _cls("ldsp", 0.9), {0: {"class": "ldsp"}}, bare)["abstain"], "нет gloss_finish в рецептах: воздержание с причиной")
+    with tempfile.TemporaryDirectory() as d:
+        src = os.path.join(d, "m.glb")
+        _tiny_glb(src)
+        run = os.path.join(d, "run")
+        for sku, name, role in (("s1", "Кресло Тест Велюр", "кресло"), ("s2", "Тумба Глянец", "комод")):
+            doc = MS.run_stage(src, run, sku, {"sid": "x", "name": name, "role": role, "params": {"Материал фасада": "МДФ в пленке ПВХ", "Материал обивки": "велюр"}}, frame=False)
+            rr = [x for x in doc["extra"].get("rules", []) if x["rule_id"] == "R-GLOSS-08"]
+            on_disk = json.load(open(os.path.join(run, sku, "08-material", "check.json"), encoding="utf-8"))["extra"]["rules"]
+            ok(len(rr) == 1 and rr[0]["type"] == role and (rr[0].get("applied") is True or rr[0].get("abstain")) and on_disk == doc["extra"]["rules"], f"{role}: запись R-GLOSS-08 в check.json и в возвращённом словаре (applied или abstain с причиной)")
+        sys.path.insert(0, os.path.join(HERE, "..", "..", "ops"))
+        import rule_registry_audit as RRA  # noqa: E402
+        out = RRA.audit(run_dir=run)
+        errs = [x for x in out["problems"] if x["rule_id"] == "R-GLOSS-08" and x["error"]]
+        ok(not errs, "rule_registry_audit --run: у R-GLOSS-08 нет ошибок («пустой охват» и др.) на прогоне из двух товаров" + (" — " + "; ".join(x["why"] for x in errs) if errs else ""))
+
+
 if __name__ == "__main__":
-    for t in (test_rules_complete, test_no_ids_in_code, test_resolve, test_legs_and_colour, test_bake, test_patch_glb, test_stage_end_to_end, test_shapes_without_stage3, test_top_zone_shade, test_stand_junction_is_metal, test_unsure_parts_report, test_soft_body_inherits_upholstery, test_stage3_roles, test_merge_roles_file, test_top_zone_bigger_than_body, test_inherit_unseen, test_stage_geometry_and_inherited, test_compound_field, test_painted_metal, test_gloss_finish, test_glass_keeps_colour_map, test_frame_gate, test_flat_top_roughness):
+    for t in (test_rules_complete, test_no_ids_in_code, test_resolve, test_legs_and_colour, test_bake, test_patch_glb, test_stage_end_to_end, test_shapes_without_stage3, test_top_zone_shade, test_stand_junction_is_metal, test_unsure_parts_report, test_soft_body_inherits_upholstery, test_stage3_roles, test_merge_roles_file, test_top_zone_bigger_than_body, test_inherit_unseen, test_stage_geometry_and_inherited, test_compound_field, test_painted_metal, test_gloss_finish, test_gloss_rule_record, test_glass_keeps_colour_map, test_frame_gate, test_flat_top_roughness):
         print(t.__name__)
         t()
     print(f"material_stage tests: ошибок {FAIL}")

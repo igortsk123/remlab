@@ -209,6 +209,32 @@ def _painted_metal(p: dict, r: dict, recipes: dict) -> None:
         r["reason"] += f"; крашеный металл: {why}"
 
 
+RULE_GLOSS = "R-GLOSS-08"
+
+
+def _rule_record():
+    """`tools/scout/rule_record.py` (запись «правило применено / воздержалось» в extra.rules[]) — рядом с paint_stage; в срезе Salad он есть (stage_files.txt)."""
+    _paint_stage()
+    import rule_record
+    return rule_record
+
+
+def gloss_rule_entry(role: str | None, cls: dict, res: dict, recipes: dict) -> dict:
+    """Запись правила R-GLOSS-08 для `08-material/check.json: extra.rules[]` (формат `rule_record.entry`; тип и digest — из паспорта по роли каталога).
+    Применено — у товара есть часть класса из `gloss_finish.class_map` (щит, дерево): правило решило, матовая она или глянцевая (слово из `words` — глянец, иначе матовая по рецепту).
+    Воздержание с причиной — нет таких частей (ткань, металл, стекло, кожа) или в рецептах нет `gloss_finish`; нет типа в паспортах — `no_type` (в `entry`)."""
+    rr = _rule_record()
+    gf = recipes.get("gloss_finish")
+    if not gf:
+        return rr.entry(RULE_GLOSS, role, False, "в рецептах нет gloss_finish")
+    cm = gf.get("class_map") or {}
+    touched = [r for r in res.values() if r.get("gloss_from") or r.get("class") in cm]
+    if not touched:
+        return rr.entry(RULE_GLOSS, role, False, "нет частей класса щита/дерева (class_map) — нечего решать про глянец")
+    g = cls.get("gloss")
+    return rr.entry(RULE_GLOSS, role, True, ("глянец: «%s» в %s" % (g["word"], g["where"])) if g else "матовый по рецепту: слов глянца нет")
+
+
 def gloss_of(product: dict, recipes: dict) -> dict | None:
     """Товар назван глянцевым/лакированным? (`gloss_finish`: слова в названии или значениях характеристик, без слов матовости). → {word, where} или None."""
     gf = recipes.get("gloss_finish")
@@ -930,7 +956,8 @@ def run_stage(glb: str, run: str, sku: str, product: dict, parts_dir: str | None
     t0 = time.time()
     recipes = load_recipes()
     sdir = ps.stage_dir(run, sku, STAGE)
-    fail = lambda why, **kw: ps.write_check(sdir, STAGE, sku, passed=False, reason=why, seconds=time.time() - t0, **kw)  # noqa: E731
+    fail = lambda why, **kw: ps.write_check(sdir, STAGE, sku, passed=False, reason=why, seconds=time.time() - t0,  # noqa: E731
+                                            rules=[_rule_record().entry(RULE_GLOSS, product.get("role"), False, "этап 08 не дошёл до материалов: " + why[:120])], **kw)
     mesh = _load_mesh(glb)
     nf = len(mesh.faces)
     uv = getattr(mesh.visual, "uv", None)
@@ -1079,6 +1106,7 @@ def run_stage(glb: str, run: str, sku: str, product: dict, parts_dir: str | None
         parts=parts_rep, classes=table, compound=cls.get("compound") or [], untouched_share=round(float(np.isin(part, [pid for pid, r in res.items() if r["class"] == "unknown"]).sum()) / nf, 4),
         painted_metal_share=round(float(np.isin(part, [pid for pid, r in res.items() if r.get("painted_from")]).sum()) / nf, 4),
         gloss_finish_share=round(float(np.isin(part, [pid for pid, r in res.items() if r.get("gloss_from")]).sum()) / nf, 4), gloss_finish=cls.get("gloss"),
+        rules=[gloss_rule_entry(product.get("role"), cls, res, recipes)],
         flat_top_parts=sorted(pid for pid, sh in horiz.items() if ftop and sh >= ftop["horizontal_min_share"]), glass_tone=tone_rep, part_photo=pp_rep, sheen=maps["hasSheen"], transmission=maps["hasTransmission"], recipes_sha=recipes_sha(), glb=pinfo)
     return doc
 
