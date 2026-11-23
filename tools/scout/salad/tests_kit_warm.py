@@ -217,6 +217,11 @@ try:
     a.keep_warm = 0.0
     env = ST.make_spec(a, {}).build_body('n', 'cls', {'basic': {'username': 'u', 'password': 'p'}})['container']['environment_variables']
     check(env.get('IDLE_S') == '900' and env.get('MAX_LIFETIME_S') == str(45 * 60 + 600), f'без --keep-warm прежние значения ({env.get("IDLE_S")}, {env.get("MAX_LIFETIME_S")})')
+    # A/B размера ноды: --variant big → 8 vCPU / 16 ГБ из профиля (не мимо профиля); без — 4 vCPU / 8 ГБ
+    res0 = ST.make_spec(a, {}).build_body('n', 'cls', {'basic': {'username': 'u', 'password': 'p'}})['container']['resources']
+    a.variant = 'big'
+    res1 = ST.make_spec(a, {}).build_body('n', 'cls', {'basic': {'username': 'u', 'password': 'p'}})['container']['resources']
+    check((res0['cpu'], res0['memory']) == (4, 8192) and (res1['cpu'], res1['memory']) == (8, 16384), f'вариант big: 8 vCPU/16 ГБ, по умолчанию 4/8 ({res0["cpu"]}/{res0["memory"]}, {res1["cpu"]}/{res1["memory"]})')
 except ImportError as exc:
     print('SKIP stage_trial (нет зависимостей):', exc)
 

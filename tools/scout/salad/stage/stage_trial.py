@@ -57,13 +57,13 @@ def worker_command(path: str | None = None) -> tuple[list[str], str]:
 
 
 def build_body(name: str, image: str, tier: str, class_id: str, auth: dict, life_s: int, idle_s: int, procs: int, fill_procs: int, threads: int, timeout_s: int,
-               worker_z: str | None = None) -> dict:
+               worker_z: str | None = None, variant: str = '') -> dict:
     env = {'PORT': str(PORT), 'MAX_LIFETIME_S': str(life_s), 'IDLE_S': str(idle_s), 'STAGE_PROCS': str(procs), 'STAGE_FILL_PROCS': str(fill_procs), 'STAGE_THREADS': str(threads),
            'STAGE_TIMEOUT_S': str(timeout_s), 'DEPLOYMENT_EPOCH': f'20261122-{name}'}
     command = None
     if worker_z:
         command, env['KIT_WORKER_Z'] = worker_command()[0], worker_z
-    return KD.group_body(name, image, tier, class_id, PORT, env, auth, command, work_type=WORK_TYPE)
+    return KD.group_body(name, image, tier, class_id, PORT, env, auth, command, work_type=WORK_TYPE, variant=variant)
 
 
 def load_inputs(path: str) -> dict[str, dict]:
@@ -445,7 +445,7 @@ def make_spec(a, inputs: dict) -> KD.Spec:
         warm = float(getattr(a, 'keep_warm', 0) or 0)
         life_s = int(float(getattr(a, 'warm_life_min', 120)) * 60) if warm else min(a.max_min * 60 + 600, 3 * 3600)
         return build_body(name, a.image, a.tier, class_id, auth, life_s, int(warm * 60) if warm else a.idle_s, a.procs, a.fill_procs, a.threads, a.stage_timeout_s,
-                          worker_z=None if getattr(a, 'worker_from_image', False) else worker_command()[1])
+                          worker_z=None if getattr(a, 'worker_from_image', False) else worker_command()[1], variant=getattr(a, 'variant', '') or '')
 
     def preflight():
         try:                                                                              # срез кода по SHA: сборка и проверка импорта ДО создания платной группы
@@ -497,6 +497,7 @@ def main() -> int:
     ap.add_argument('--card', default=CARD_NAME, help='класс Salad из профиля cpu_stage (запасные — в профиле)')
     ap.add_argument('--tier', default='low', choices=['low', 'medium'], help='low; нет машин → medium (автоматически); batch и high запрещены правилом владельца 22.11')
     ap.add_argument('--procs', type=int, default=4, help='заданий одновременно на ноде (по профилю: 4 vCPU)')
+    ap.add_argument('--variant', default='', choices=['', 'big'], help='T-34 A/B: вариант размера ноды из профиля cpu_stage (big = 8 vCPU / 16 ГБ); пусто — 4 vCPU / 8 ГБ. Тёплой ноде такого размера — своё имя (--suffix)')
     ap.add_argument('--fill-procs', type=int, default=2, help='из них этапа 07 (пик памяти до 9 ГБ при 8 ГБ ноды — вариант А директора 22.11)')
     ap.add_argument('--threads', type=int, default=1, help='потоков BLAS/OpenMP на одно задание')
     ap.add_argument('--stage-timeout-s', type=int, default=900)

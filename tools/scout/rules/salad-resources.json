@@ -179,13 +179,20 @@
    "memory_mb": 8192,
    "storage_gb": 20,
    "shm_mb": 1024,
+   "variants": {
+    "big": {
+     "cpu": 8,
+     "memory_mb": 16384,
+     "_about": "T-34 A/B (директор 23.11): та же нода, 8 vCPU / 16 ГБ — 4 процесса вместо 4 на 4 vCPU/8 ГБ; только для замера low-против-big, в боевые прогоны не идёт, пока не решено по $/товар и минутам на круг (stage_trial --variant big)"
+    }
+   },
    "tier": "low",
    "tier_fallback": "medium",
    "expect": {},
    "basis": "measured",
    "measured": {
     "date": "2026-11-22",
-    "log": "T-189/1: ~/remlab-logs/t189-1122/probe1.log, salad-out/items-06.json, items-07.json, compare.md"
+    "log": "T-189/1:~/remlab-logs/t189-1122/probe1.log, salad-out/items-06.json, items-07.json, compare.md"
    },
    "basis_note": "T-189/1 (22.11), 4 формы на ноде GTX 1650: этап 06 — 128–164 с на форму (медиана 146), пик памяти 1,2–1,4 ГБ; этап 07 — 38–66 с (медиана 52), пик 2,0–2,5 ГБ; на ноде 07 идёт не больше 2 сразу (STAGE_FILL_PROCS=2), общих процессов 4 → 8 ГБ с запасом (наш худший 07 за журнал heavy-slot — 8,9 ГБ при n=21, у 4 проб — до 2,5); проба $0,003, 28/28 сверок с локальным счётом = 0. Этапы 08–09 не мерили"
   },
