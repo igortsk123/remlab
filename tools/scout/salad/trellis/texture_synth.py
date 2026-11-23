@@ -192,6 +192,16 @@ def synth_group(lab: np.ndarray, known: np.ndarray, target: np.ndarray, maps: di
     """Остаток фактуры для невидимого текселя группы: → (res (T,T,3) в Lab (ΔL,Δa,Δb), info). Донора мало (< cfg.min_donor_px чистых текселей) — res = 0 (честно гладко), info.mode = 'smooth'.
     cfg: low_px, patch_px, overlap_px, min_donor_px, donor_erode_px, clip_k, chroma_max, n_cand, tol, up_min, seed_step. maps — результат `uv_field_maps` (angle, dens) или None."""
     T = lab.shape[0]
+    gate = float(cfg.get('min_sigma_L', 0.0))
+    if gate > 0 and target.any() and known.any():                     # дешёвый предзамер: энергия фото только по L (в 3 раза дешевле полного остатка); нет рисунка — квилтинг и остаток по a/b не считаем
+        from scipy.ndimage import binary_erosion
+        er = int(cfg['donor_erode_px'])
+        resL = lab[..., 0] - blur_fn(lab[..., :1], known, float(cfg['low_px']))[..., 0]
+        coreL = binary_erosion(known, iterations=er) if er > 0 else known
+        sigL = robust_sigma(resL[coreL]) if coreL.any() else 0.0
+        if sigL < gate and int(coreL.sum()) >= int(cfg['min_donor_px']):
+            return np.zeros((T, T, 3), np.float32), {'donor_px': int(coreL.sum()), 'target_px': int(target.sum()), 'sigma_donor_L': round(sigL, 3), 'patch_px': int(cfg['patch_px']), 'mode': 'skip',
+                                                        'why': f"энергия фото σL {sigL:.2f} < {gate:.2f}: рисунка нет, синтез не нужен"}
     res_d, clean, sig_d = donor_residual(lab, known, float(cfg['low_px']), int(cfg['donor_erode_px']), float(cfg['clip_k']), float(cfg['chroma_max']), keep_detail, blur_fn)
     n_clean = int(clean.sum())
     info = {'donor_px': n_clean, 'target_px': int(target.sum()), 'sigma_donor_L': round(sig_d, 3), 'patch_px': int(cfg['patch_px'])}
