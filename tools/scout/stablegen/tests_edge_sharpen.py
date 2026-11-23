@@ -6,6 +6,8 @@ import unittest
 import numpy as np
 
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), ".."))
+import remlab_tmp  # noqa: E402
+remlab_tmp.use("tests_edge_sharpen")
 import edge_sharpen as E  # noqa: E402
 
 
@@ -93,6 +95,87 @@ class T(unittest.TestCase):
         V2, kind, rep = E.sharpen(V, F, planes, R, ctx)
         got = float(np.median(V2[m, 2]))
         self.assertLess(abs((0.8 - got) - depth), depth * 0.1)               # глубина ниши ±10 %
+
+
+    # ───── режим «задняя панель» (T-20261123-41) ─────
+    def _relief_back(self, amp=0.02, ripple=0.0005, n=70):
+        """Коробка с рельефом на ЗАДУ (z≈0; камера смотрит с +z): две «рамки» шириной 0,2 выдавлены наружу (в −z) — как продублированные двери."""
+        V, F = grid_box(n=n, ripple=ripple)
+        back = (V[:, 2] < 0.05) & (V[:, 0] > 0.05) & (V[:, 0] < 0.95) & (V[:, 1] > 0.05) & (V[:, 1] < 0.55)
+        stripe = back & (((V[:, 0] > 0.15) & (V[:, 0] < 0.35)) | ((V[:, 0] > 0.6) & (V[:, 0] < 0.8)))
+        V = V.copy()
+        V[stripe, 2] -= amp
+        return V, F, back
+
+    def test_back_relief_flattened(self):
+        V, F, back = self._relief_back()
+        R = rules()
+        V2, moved, rep = E.back_panel(V, F, np.array([0.0, 0.0, 1.0]), R)
+        self.assertTrue(rep["apply"], rep)
+        self.assertGreater(float(V[back, 2].std()), 0.005)                      # рельеф был
+        self.assertLess(float(V2[back, 2].std()), float(V[back, 2].std()) / 5)  # стал плоскостью
+        self.assertEqual(float(np.abs(V2[V[:, 2] > 0.3] - V[V[:, 2] > 0.3]).max()), 0.0)     # лицо и верх тела не тронуты
+        self.assertEqual(rep["flipped_after"], 0)
+        self.assertLessEqual(rep["shift_max_pct"], R["back_panel"]["depth"] * 100 + 1e-9)
+
+    def test_back_flat_or_domed_refused(self):
+        V, F = grid_box(n=70, ripple=0.0005)                                   # зад уже плоский — рельефа нет
+        _, _, rep = E.back_panel(V, F, np.array([0.0, 0.0, 1.0]), rules())
+        self.assertFalse(rep["apply"])
+        self.assertIn("рельефа нет", rep["reason"])
+        V2 = V.copy()                                                           # зад — купол: плоскости нет, не корпусной
+        m = V2[:, 2] < 0.05
+        V2[m, 2] -= 0.3 * np.sin(np.pi * np.clip(V2[m, 0], 0, 1)) * np.sin(np.pi * np.clip(V2[m, 1] / 0.6, 0, 1))
+        _, _, rep2 = E.back_panel(V2, F, np.array([0.0, 0.0, 1.0]), rules())
+        self.assertFalse(rep2["apply"])
+        self.assertIn("нет плоскости", rep2["reason"])
+
+    def test_back_direction_and_roles(self):
+        V, F, back = self._relief_back()
+        _, _, rep = E.back_panel(V, F, np.array([0.0, 0.0, -1.0]), rules())     # камера с другой стороны — «зад» это z=0.8: он плоский
+        self.assertFalse(rep["apply"])
+        self.assertTrue(E.back_panel_role_allowed("Комод", rules()))
+        self.assertFalse(E.back_panel_role_allowed("диван", rules()))
+        self.assertFalse(E.back_panel_role_allowed("", rules()))
+        c = E.camera_dir(0.0, 0.0)
+        self.assertTrue(np.allclose(c, [0, 0, 1]) and np.allclose(E.camera_dir(90.0, 0.0), [1, 0, 0], atol=1e-9))
+
+    def test_back_glb_roundtrip(self):
+        import json as _json
+        import struct
+        import tempfile
+        V, F, back = self._relief_back(n=40)
+        Vf = V.astype(np.float32)
+        nrm = np.zeros_like(Vf)
+        nrm[:, 2] = 1.0
+        idx = F.astype(np.uint32).ravel()
+        pos_b, nrm_b, idx_b = Vf.tobytes(), nrm.tobytes(), idx.tobytes()
+        binc = pos_b + nrm_b + idx_b
+        js = {"asset": {"version": "2.0"}, "meshes": [{"primitives": [{"attributes": {"POSITION": 0, "NORMAL": 1}, "indices": 2}]}],
+              "accessors": [{"bufferView": 0, "componentType": 5126, "count": len(Vf), "type": "VEC3", "min": Vf.min(0).tolist(), "max": Vf.max(0).tolist()},
+                            {"bufferView": 1, "componentType": 5126, "count": len(Vf), "type": "VEC3"}, {"bufferView": 2, "componentType": 5125, "count": len(idx), "type": "SCALAR"}],
+              "bufferViews": [{"buffer": 0, "byteOffset": 0, "byteLength": len(pos_b)}, {"buffer": 0, "byteOffset": len(pos_b), "byteLength": len(nrm_b)},
+                              {"buffer": 0, "byteOffset": len(pos_b) + len(nrm_b), "byteLength": len(idx_b)}], "buffers": [{"byteLength": len(binc)}]}
+        jb = _json.dumps(js).encode()
+        jb += b" " * (-len(jb) % 4)
+        data = struct.pack("<4sII", b"glTF", 2, 12 + 8 + len(jb) + 8 + len(binc)) + struct.pack("<I4s", len(jb), b"JSON") + jb + struct.pack("<I4s", len(binc), b"BIN\x00") + binc
+        with tempfile.TemporaryDirectory() as t:
+            a, b = os.path.join(t, "a.glb"), os.path.join(t, "b.glb")
+            with open(a, "wb") as fh:
+                fh.write(data)
+            rep = E.back_panel_glb(a, b, 0.0, 0.0, rules())                     # азимут 0 → камера на +z
+            self.assertTrue(rep["written"], rep)
+            with open(b, "rb") as fh:
+                out = fh.read()
+            jl = struct.unpack_from("<I", out, 12)[0]
+            js2 = _json.loads(out[20:20 + jl])
+            bo = 20 + jl + 8
+            pos2 = np.frombuffer(out, np.float32, len(Vf) * 3, bo + js2["bufferViews"][0]["byteOffset"]).reshape(-1, 3)
+            idx2 = np.frombuffer(out, np.uint32, len(idx), bo + js2["bufferViews"][2]["byteOffset"])
+            self.assertTrue(np.array_equal(idx, idx2))                          # топология та же
+            self.assertLess(float(pos2[back, 2].std()), float(Vf[back, 2].std()) / 5)
+            self.assertEqual(float(np.abs(pos2[Vf[:, 2] > 0.3] - Vf[Vf[:, 2] > 0.3]).max()), 0.0)
+            self.assertAlmostEqual(js2["accessors"][0]["min"][2], float(pos2[:, 2].min()), places=5)    # границы позиций обновлены
 
     def test_deterministic(self):
         V, F = grid_box(n=40)

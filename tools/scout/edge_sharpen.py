@@ -390,10 +390,243 @@ def analyze(V, F, rules: dict | None = None, role: str | None = None):
     return V2, kind, planes, ctx, rep
 
 
+# ───────────────────────── режим «задняя панель» (T-20261123-41; план paint-cycles-1123 строка 7) ─────────────────────────
+def _axis_frame(V, vn, va, front_dir, br: dict):
+    """Ось глубины: средняя нормаль «лица» (вершины, у которых нормаль в пределах `front_cos_min` от направления на камеру), прижатая к ближайшей координатной оси, если ближе `axis_snap_deg`.
+    → (a — наружу к камере, u, v — оси плоскости кадра)."""
+    d = np.asarray(front_dir, np.float64)
+    d /= np.linalg.norm(d)
+    m = (vn @ d) > br["front_cos_min"]
+    if m.sum() < 50:
+        return None
+    a = (vn[m] * va[m, None]).sum(0)
+    a /= np.linalg.norm(a)
+    k = int(np.abs(a).argmax())
+    if abs(a[k]) >= np.cos(np.radians(br["axis_snap_deg"])):
+        a = np.eye(3)[k] * np.sign(a[k])
+    up = np.array([0.0, 1.0, 0.0]) if abs(a[1]) < 0.9 else np.array([0.0, 0.0, 1.0])
+    v = up - (up @ a) * a
+    v /= np.linalg.norm(v)
+    u = np.cross(v, a)
+    return a, u, v
+
+
+def _cells(V, u, v, lo, hi, G):
+    iu = np.clip(((V @ u - lo[0]) / (hi[0] - lo[0]) * G).astype(int), 0, G - 1)
+    iv = np.clip(((V @ v - lo[1]) / (hi[1] - lo[1]) * G).astype(int), 0, G - 1)
+    return iv * G + iu
+
+
+def _skin(t, c, sel, G, tol, outer_min: bool):
+    """Внешняя кожа: из `sel` — вершины, лежащие не глубже 2 допусков от самой внешней в своей клетке кадра (внутренние стенки полостей и «двойные» слои не считаются).
+    outer_min=True — внешняя = наименьшее t (зад), False — наибольшее (лицо)."""
+    ext = np.full(G * G, np.inf if outer_min else -np.inf)
+    (np.minimum if outer_min else np.maximum).at(ext, c[sel], t[sel])
+    return sel & ((t <= ext[c] + 2 * tol) if outer_min else (t >= ext[c] - 2 * tol))
+
+
+def _relief_map(t, c, skin, G, sign):
+    m = np.full(G * G, np.nan)
+    m[c[skin]] = sign * t[skin]
+    m = m.reshape(G, G)
+    return m - np.nanmedian(m)
+
+
+def _smooth_nan(m, sigma):
+    from scipy.ndimage import gaussian_filter
+    ok = np.isfinite(m).astype(float)
+    num, den = gaussian_filter(np.where(np.isfinite(m), m, 0.0), sigma), gaussian_filter(ok, sigma)
+    out = np.where(den > 0.2, num / np.maximum(den, 1e-9), np.nan)
+    out[gaussian_filter(ok, sigma * 2) <= 0.05] = np.nan
+    return out
+
+
+def _corr(a, b, min_cells):
+    ok = np.isfinite(a) & np.isfinite(b)
+    if ok.sum() < min_cells:
+        return None
+    x, y = a[ok], b[ok]
+    sx, sy = x.std(), y.std()
+    if sx < 1e-12 or sy < 1e-12:
+        return None
+    return float(((x - x.mean()) * (y - y.mean())).mean() / (sx * sy))
+
+
+def back_panel_analyze(V, F, front_dir, rules: dict | None = None, ctx: dict | None = None) -> dict:
+    """Мерки задней панели без изменения формы. Внешняя кожа зада (вершины, обращённые от камеры, самые внешние в клетке кадра) → уровень задней плоскости (самая площадная мода глубины) →
+    доли кожи в допуске плоскости и в `depth` от неё; справочно — корреляция рельефа зада с лицом (как есть и зеркально; на замере 7 товаров НЕ разделяет дубль и чистое — в решение не входит).
+    `apply` — по правилу `back_panel`: у зада есть плоскость (доля в `depth` ≥ plane_share_min) и на ней есть рельеф (доля вне допуска ≥ relief_share_min)."""
+    rules = rules or load_rules()
+    br = rules["back_panel"]
+    V = np.asarray(V, np.float64)
+    F = np.asarray(F, np.int64)
+    ctx = ctx or context(V, F, rules)
+    diag, vn, va = ctx["diag"], ctx["vn"], ctx["va"]
+    rep = {"apply": False, "reason": ""}
+    fr = _axis_frame(V, vn, va, front_dir, br)
+    if fr is None:
+        rep["reason"] = "лицо к камере не найдено"
+        return rep
+    a, u, v = fr
+    t = V @ a
+    tol = rules["tol_plane"] * diag
+    depth = br["depth"] * diag
+    P = np.stack([V @ u, V @ v], 1)
+    lo, hi = P.min(0), P.max(0)
+    G = int(br["grid"])
+    c = _cells(V, u, v, lo, hi, G)
+    ok_v = va > 0
+    back = ((vn @ a) < -br["back_cos_min"]) & ok_v
+    front = ((vn @ a) > br["back_cos_min"]) & ok_v
+    if back.sum() < 200 or front.sum() < 200:
+        rep["reason"] = "нет зада или лица"
+        return rep
+    skin = _skin(t, c, back, G, tol, True)
+    tb, wb = t[skin], va[skin]
+    h, e = np.histogram(tb, bins=max(int(np.ceil(np.ptp(tb) / tol)), 1), weights=wb)
+    k = int(h.argmax())
+    in_bin = (tb >= e[k]) & (tb <= e[k + 1])
+    level = float((tb[in_bin] * wb[in_bin]).sum() / max(wb[in_bin].sum(), 1e-12))
+    near = skin & (np.abs(t - level) <= depth)
+    # склоны рельефа: нормаль не «от камеры», но вершина в клетке внутри следа зада (не у его края — там боковая стенка корпуса) и не дальше `depth` от плоскости
+    foot = np.zeros(G * G, bool)
+    foot[c[skin]] = True
+    foot = foot.reshape(G, G)
+    for _ in range(int(br["rim_cells"])):
+        e = foot.copy()
+        e[1:, :] &= foot[:-1, :]
+        e[:-1, :] &= foot[1:, :]
+        e[:, 1:] &= foot[:, :-1]
+        e[:, :-1] &= foot[:, 1:]
+        e[0, :] = e[-1, :] = False
+        e[:, 0] = e[:, -1] = False
+        foot = e
+    slope = (~back) & ok_v & ((vn @ a) < br["slope_cos_max"]) & foot.reshape(-1)[c] & (t >= level - depth) & (t <= level + depth)
+    flat = skin & (np.abs(t - level) <= tol)
+    plane_share = float(va[near].sum() / max(va[skin].sum(), 1e-12))
+    relief_share = float(1.0 - va[flat].sum() / max(va[near].sum(), 1e-12)) if near.any() else 0.0
+    rep.update({"axis": [round(float(x), 4) for x in a], "back_level": round(level, 5), "plane_share": round(plane_share, 3), "relief_share": round(relief_share, 3),
+                "flat_share": round(float(va[flat].sum() / max(va[skin].sum(), 1e-12)), 3), "back_verts_in_depth": int(near.sum())})
+    fsk = _skin(t, c, front, G, tol, False)
+    ob = _smooth_nan(_relief_map(t, c, skin, G, -1.0), br["corr_smooth_cells"])
+    of = _smooth_nan(_relief_map(t, c, fsk, G, +1.0), br["corr_smooth_cells"])
+    cs, cf = _corr(ob, of, int(br["min_cells"])), _corr(ob, of[:, ::-1], int(br["min_cells"]))
+    rep["corr_same"], rep["corr_flip"] = (None if x is None else round(x, 3) for x in (cs, cf))
+    if plane_share < br["plane_share_min"]:
+        rep["reason"] = f"у зада нет плоскости (доля кожи в {br['depth']} диагонали от неё {plane_share:.2f} < {br['plane_share_min']}) — не корпусной зад, не трогаем"
+    elif relief_share < br["relief_share_min"]:
+        rep["reason"] = f"на заду рельефа нет (доля вне допуска {relief_share:.3f} < {br['relief_share_min']}) — уже плоский"
+    else:
+        rep["apply"] = True
+    rep["_near"] = near | slope
+    rep["_level"] = level
+    rep["_a"] = a
+    return rep
+
+
+def back_panel(V, F, front_dir, rules: dict | None = None, ctx: dict | None = None):
+    """Режим «задняя панель»: рельеф лица, повторённый на заду (TRELLIS дублирует его сквозь тело), → плоскость. Берутся вершины, обращённые от камеры и лежащие не глубже
+    `depth` от задней плоскости и входящие во внешнюю кожу зада; они садятся на неё (топология не меняется). Зад без плоскости (не корпусной) и уже плоский зад не трогаем.
+    → (V2, moved — маска сдвинутых вершин, rep). Права по роли — снаружи (`back_panel_role_allowed`)."""
+    rules = rules or load_rules()
+    V = np.asarray(V, np.float64)
+    rep = back_panel_analyze(V, F, front_dir, rules, ctx)
+    near, level, a = rep.pop("_near", None), rep.pop("_level", None), rep.pop("_a", None)
+    moved = np.zeros(len(V), bool)
+    if not rep["apply"]:
+        return V.copy(), moved, rep
+    V2 = V.copy()
+    br = rules["back_panel"]
+    dt = level - V[near] @ a
+    w = np.clip((br["depth"] * np.linalg.norm(np.ptp(V, axis=0)) - np.abs(dt)) / (br["depth"] * np.linalg.norm(np.ptp(V, axis=0)) * (1 - br["full_within"])), 0, 1)   # у края глубины вес спадает: стенки рельефа не рвутся
+    V2[near] += np.outer(w * dt, a)
+    moved[near] = True
+    Fi = np.asarray(F, np.int64)
+    for _ in range(8):                                                   # защита: перевёрнутые грани → вершины возвращаются
+        fl = _face_flips(V, V2, Fi)
+        if not fl.any():
+            break
+        bad = np.unique(Fi[fl])
+        V2[bad] = V[bad]
+        moved[bad] = False
+    rep["verts_moved"] = int(moved.sum())
+    rep["shift_max_pct"] = round(float(np.linalg.norm(V2 - V, axis=1).max() / np.linalg.norm(np.ptp(V, axis=0)) * 100), 4)
+    rep["flipped_after"] = int(_face_flips(V, V2, np.asarray(F, np.int64)).sum())
+    return V2, moved, rep
+
+
+def back_panel_role_allowed(role: str, rules: dict | None = None) -> bool:
+    rules = rules or load_rules()
+    return bool(role) and role.strip().lower() in {r.strip().lower() for r in rules["back_panel"]["roles"]}
+
+
+def camera_dir(az_deg: float, el_deg: float) -> np.ndarray:
+    """Направление от предмета на камеру в осях GLB для азимута/высоты камеры фото (этап 4, `06-visible/check.json: extra.camera`): так же, как `camera-orbit` у model-viewer (az 0 — со стороны +Z)."""
+    a, e = np.radians(az_deg), np.radians(el_deg)
+    return np.array([np.sin(a) * np.cos(e), np.sin(e), np.cos(a) * np.cos(e)])
+
+
+def back_panel_glb(src: str, dst: str, az_deg: float, el_deg: float, rules: dict | None = None) -> dict:
+    """GLB (одна геометрия, float32-позиции) → GLB с выровненным задом: двигаются только положения вершин (и нормали вершин сдвинутых граней — пересчитаны по новой форме), всё остальное байт в байт.
+    Расчёт — на склеенной по положению форме (glTF режет вершины по швам), результат раздаётся обратно по всем копиям вершины. → отчёт `back_panel` + {'written': bool}."""
+    import struct
+    rules = rules or load_rules()
+    with open(src, "rb") as fh:
+        data = fh.read()
+    jl, _ = struct.unpack_from("<II", data, 12)
+    js = json.loads(data[20:20 + jl])
+    bo = 20 + jl + 8
+    blen = struct.unpack_from("<I", data, 20 + jl)[0]
+    buf = bytearray(data[bo:bo + blen])
+    prims = [p for m in js["meshes"] for p in m["primitives"]]
+    if len(prims) != 1:
+        return {"apply": False, "reason": f"геометрий {len(prims)}, нужна одна", "written": False}
+    pr = prims[0]
+
+    def view(i, dt, n):
+        a = js["accessors"][i]
+        bv = js["bufferViews"][a["bufferView"]]
+        off = bv.get("byteOffset", 0) + a.get("byteOffset", 0)
+        if bv.get("byteStride") not in (None, n * np.dtype(dt).itemsize):
+            raise ValueError("чересстрочные атрибуты не поддержаны")
+        return np.frombuffer(buf, dt, a["count"] * n, off).reshape(-1, n)
+    pos = view(pr["attributes"]["POSITION"], np.float32, 3)
+    ia = js["accessors"][pr["indices"]]
+    F = view(pr["indices"], {5123: np.uint16, 5125: np.uint32}[ia["componentType"]], 1).reshape(-1, 3).astype(np.int64)
+    V = pos.astype(np.float64)
+    key = np.round(V / (np.ptp(V, axis=0).max() * 1e-6)).astype(np.int64)
+    _, first, inv = np.unique(key, axis=0, return_index=True, return_inverse=True)
+    inv = inv.reshape(-1)
+    Vw = V[first]
+    Fw = inv[F]
+    Fw = Fw[(Fw[:, 0] != Fw[:, 1]) & (Fw[:, 1] != Fw[:, 2]) & (Fw[:, 0] != Fw[:, 2])]
+    V2w, moved_w, rep = back_panel(Vw, Fw, camera_dir(az_deg, el_deg), rules)
+    rep["written"] = False
+    if not rep["apply"]:
+        return rep
+    pos[:] = V2w[inv].astype(np.float32)
+    mv = moved_w[inv]
+    if "NORMAL" in pr["attributes"]:
+        nrm = view(pr["attributes"]["NORMAL"], np.float32, 3)
+        a_ = np.asarray(rep["axis"])                                                                   # нормали на выровненном заду — «от камеры» (хранимые нормали рельефа иначе рисуют его тенью)
+        vn_old = context(Vw, Fw, rules)["vn"]
+        fix = moved_w | ((np.abs(V2w @ a_ - rep["back_level"]) <= 2 * rules["tol_plane"] * np.linalg.norm(np.ptp(Vw, axis=0))) & (vn_old @ a_ < -0.3))
+        nrm[fix[inv]] = (-a_).astype(np.float32)
+    a_pos = js["accessors"][pr["attributes"]["POSITION"]]
+    a_pos["min"], a_pos["max"] = pos.min(0).astype(float).tolist(), pos.max(0).astype(float).tolist()
+    jb = json.dumps(js, ensure_ascii=False, separators=(",", ":")).encode()
+    jb += b" " * (-len(jb) % 4)
+    out = struct.pack("<4sII", b"glTF", 2, 12 + 8 + len(jb) + 8 + len(buf)) + struct.pack("<I4s", len(jb), b"JSON") + jb + struct.pack("<I4s", len(buf), b"BIN\x00") + bytes(buf)
+    with open(dst, "wb") as f:
+        f.write(out)
+    rep["written"] = True
+    return rep
+
+
 def check() -> int:
     r = load_rules()
     need = ["roles", "tol_plane", "min_plane_share", "max_planes", "normal_cos_min", "ransac_trials", "ransac_sample", "smooth_rings", "edge_angle_min_deg", "edge_band", "edge_min_verts",
-            "edge_min_len", "edge_normal_cos_min", "max_shift", "full_within", "flat_share_min", "seed"]
+            "edge_min_len", "edge_normal_cos_min", "max_shift", "full_within", "flat_share_min", "seed", "back_panel"]
     miss = [k for k in need if k not in r]
     if miss:
         print("edge-sharpen: в правилах нет", miss)
@@ -401,9 +634,17 @@ def check() -> int:
     if not (0 < r["tol_plane"] < 0.02 and 0 < r["edge_band"] <= 0.05 and r["max_shift"] >= r["tol_plane"] and 0 < r["full_within"] < 1 and r["roles"]):
         print("edge-sharpen: пороги вне разумного")
         return 1
+    bp = r["back_panel"]
+    if not all(k in bp for k in ("roles", "front_cos_min", "axis_snap_deg", "back_cos_min", "depth", "full_within", "rim_cells", "slope_cos_max", "grid", "min_cells", "plane_share_min", "relief_share_min", "corr_smooth_cells")) or not (0 < bp["depth"] <= 0.2 and 0 < bp["plane_share_min"] <= 1 and bp["roles"]):
+        print("edge-sharpen: back_panel — нет порогов или они вне разумного")
+        return 1
     print("edge-sharpen: правила целы")
     return 0
 
 
 if __name__ == "__main__":
+    if len(sys.argv) > 1 and sys.argv[1] == "back-glb":                  # back-glb SRC DST AZ EL — выровнять зад GLB (проба; в конвейере — `back_panel`)
+        r_ = back_panel_glb(sys.argv[2], sys.argv[3], float(sys.argv[4]), float(sys.argv[5]))
+        print(json.dumps(r_, ensure_ascii=False))
+        sys.exit(0)
     sys.exit(check() if len(sys.argv) > 1 and sys.argv[1] == "check" else 2)
