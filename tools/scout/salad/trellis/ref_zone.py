@@ -792,7 +792,7 @@ def align_ut(geoms: list, tex_after: list, known: list, ut_geoms: list | None, y
         if len(kn_idx) > A['samples']:
             kn_idx = rng.choice(kn_idx, int(A['samples']), replace=False)
         for d in scores:
-            _dist, j = tree.query(_yaw_rotate(Po[kn_idx], center, d))
+            _dist, j = tree.query(_yaw_rotate(Po[kn_idx], center, d), workers=-1)
             a_, b_ = hp_p[idx_o[kn_idx]], hp_u[idx_u[j]]
             scores[d].append((a_, b_))
         cache.append((g, ug, ut, T, Tu, idx_o, Po, idx_u, tree, center))
@@ -822,10 +822,28 @@ def align_ut(geoms: list, tex_after: list, known: list, ut_geoms: list | None, y
         yaw = int(best)
         rep.update({'status': 'aligned' if yaw else 'identity', 'yaw_deg': yaw, 'corr_best': c_best})
     for g, ug, ut, T, Tu, idx_o, Po, idx_u, tree, center in cache:
-        _dist, j = tree.query(_yaw_rotate(Po, center, yaw))
         flat = ut.reshape(Tu * Tu, 3)
         img = np.zeros((T * T, 3), np.uint8)
-        img[idx_o] = flat[idx_u[j]]
+        st = 2 if int(T) // max(int(Tu), 1) >= 2 else 1                                      # тексель UltraTex крупнее нашего вдвое и больше: запрос по каждому 2-му, остальные — копия у опорного текселя блока (в 4 раза быстрее)
+        if st > 1:
+            x, y = idx_o % T, idx_o // T
+            base = (y - y % st) * T + (x - x % st)
+            isq = idx_o == base
+            q = np.flatnonzero(isq)
+            _dist, j = tree.query(_yaw_rotate(Po[q], center, yaw), workers=-1)
+            img[idx_o[q]] = flat[idx_u[j]]
+            occ = np.zeros(T * T, bool)
+            occ[idx_o[q]] = True
+            rest = np.flatnonzero(~isq)
+            cp = occ[base[rest]]
+            img[idx_o[rest[cp]]] = img[base[rest[cp]]]
+            nq = rest[~cp]                                                                     # опорный тексель блока вне карты (край острова) — свой запрос
+            if len(nq):
+                _dist, j2 = tree.query(_yaw_rotate(Po[nq], center, yaw), workers=-1)
+                img[idx_o[nq]] = flat[idx_u[j2]]
+        else:
+            _dist, j = tree.query(_yaw_rotate(Po, center, yaw), workers=-1)
+            img[idx_o] = flat[idx_u[j]]
         res.append({'V': g['V'], 'F': g['F'], 'UV': g['UV'], 'tex': img.reshape(T, T, 3)})
     return res, rep
 
