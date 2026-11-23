@@ -303,7 +303,37 @@ def render_persp(geo: dict, cam: dict, n: int) -> dict:
         cv2.fillConvexPoly(ids, pts[f], int(f), lineType=cv2.LINE_8, shift=SHIFT)
     mask = ids >= 0
     ys, xs = np.nonzero(mask)
-    f = ids[ys, xs].astype(np.int64)
+    pa = pixel_attrs(V, F, UV, N, cam, n, ids[ys, xs], ys, xs)
+    uv = np.zeros((n, n, 2), np.float32)
+    uv[ys, xs, 0] = pa['u']
+    uv[ys, xs, 1] = 1.0 - pa['v']
+    ncam = np.zeros((n, n, 3), np.float32)
+    ncam[ys, xs] = pa['ncam']
+    cos = np.zeros((n, n), np.float32)
+    cos[ys, xs] = pa['cos']
+    depth = np.zeros((n, n), np.float32)
+    depth[ys, xs] = pa['zpix']
+    px_len = float(np.median(pa['zpix']) / (cam['f'] * n))              # длина одного пикселя на предмете (единицы куба)
+    return {'ids': ids, 'mask': mask, 'uv': uv, 'normal': ncam, 'cos': cos, 'depth': depth, 'px_len': px_len}
+
+
+def smooth_normals(V: np.ndarray, F: np.ndarray) -> np.ndarray:
+    """Нормали вершин, сглаженные по площади граней (как `stages_cpu.load_geom`)."""
+    fn = np.cross(V[F[:, 1]] - V[F[:, 0]], V[F[:, 2]] - V[F[:, 0]])
+    N = np.zeros_like(V)
+    for k in range(3):
+        np.add.at(N, F[:, k], fn)
+    return N / np.maximum(np.linalg.norm(N, axis=1, keepdims=True), 1e-12)
+
+
+def pixel_attrs(V: np.ndarray, F: np.ndarray, UV: np.ndarray, N, cam: dict, n: int, fid: np.ndarray, ys: np.ndarray, xs: np.ndarray) -> dict:
+    """Свойства пикселей (ys, xs) кадра n×n, где видна грань fid (по одной на пиксель): перспективно-верные барицентры → UV (u, v — не перевёрнутая), глубина Z, нормаль в камере,
+    cos угла к лучу. Единственное место этой арифметики: `render_persp` (кадр этапа 4) и z-буфер этапа 6 (`tex_visible.zbuffer_fix`) считают одинаково. `N` — нормали вершин (None — сглаженные по площади)."""
+    if N is None:
+        N = smooth_normals(V, F)
+    x, y, Z = project(V, cam)
+    sx, sy = x * n, y * n
+    f = np.asarray(fid).astype(np.int64)
     a, b, c = F[f, 0], F[f, 1], F[f, 2]
     A_, B_, C_ = (np.stack([sx[i], sy[i]], 1) for i in (a, b, c))
     p = np.stack([xs + 0.5, ys + 0.5], 1)
@@ -319,9 +349,6 @@ def render_persp(geo: dict, cam: dict, n: int) -> dict:
     zpix = 1.0 / s
     u = la * UV[a, 0] + lb * UV[b, 0] + lc * UV[c, 0]
     v = la * UV[a, 1] + lb * UV[b, 1] + lc * UV[c, 1]
-    uv = np.zeros((n, n, 2), np.float32)
-    uv[ys, xs, 0] = u
-    uv[ys, xs, 1] = 1.0 - v
     nw = la[:, None] * N[a] + lb[:, None] * N[b] + lc[:, None] * N[c]
     nw /= np.maximum(np.linalg.norm(nw, axis=1, keepdims=True), 1e-12)
     Pw = la[:, None] * V[a] + lb[:, None] * V[b] + lc[:, None] * V[c]
@@ -330,15 +357,8 @@ def render_persp(geo: dict, cam: dict, n: int) -> dict:
     vv /= np.maximum(np.linalg.norm(vv, axis=1, keepdims=True), 1e-12)
     cosv = np.abs((nw * vv).sum(1))                                    # |cos| — порядок обхода граней у сеток TRELLIS не всегда «наружу»
     flip = np.where((nw * vv).sum(1, keepdims=True) < 0, -1.0, 1.0)
-    ncam = np.zeros((n, n, 3), np.float32)
     nf = nw * flip
-    ncam[ys, xs] = np.stack([nf @ right, nf @ up, -(nf @ fwd)], 1)
-    cos = np.zeros((n, n), np.float32)
-    cos[ys, xs] = cosv
-    depth = np.zeros((n, n), np.float32)
-    depth[ys, xs] = zpix
-    px_len = float(np.median(zpix) / (cam['f'] * n))                    # длина одного пикселя на предмете (единицы куба)
-    return {'ids': ids, 'mask': mask, 'uv': uv, 'normal': ncam, 'cos': cos, 'depth': depth, 'px_len': px_len}
+    return {'u': u, 'v': v, 'zpix': zpix, 'cos': cosv, 'ncam': np.stack([nf @ right, nf @ up, -(nf @ fwd)], 1)}
 
 
 def to_cube_geo(geo: dict, yaw: float) -> dict:

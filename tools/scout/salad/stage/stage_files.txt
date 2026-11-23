@@ -9,6 +9,7 @@ tools/scout/salad/color_steps.py
 tools/scout/salad/recolor_lp.py
 tools/scout/salad/recolor_variants_gate.py
 tools/scout/salad/trellis/mv_geometry.py
+tools/scout/salad/trellis/pose_fit.py
 tools/scout/salad/trellis/tex_coverage.py
 tools/scout/salad/trellis/tex_fill.py
 tools/scout/salad/trellis/ref_zone.py
