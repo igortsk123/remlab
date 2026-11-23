@@ -214,6 +214,12 @@ def synth_group(lab: np.ndarray, known: np.ndarray, target: np.ndarray, maps: di
     info['patch_levels_px'] = [x[0] for x in lv]
     cov = float(done.sum()) / max(int(target.sum()), 1)
     sig_s = robust_sigma(out[done][:, 0]) if done.any() else 0.0
+    floor = float(cfg.get('energy_floor', 0.0))
+    if done.any() and sig_s > 1e-6 and sig_d > 1e-6 and sig_s / sig_d < floor:   # квилтинг тянется к ровным кускам (мин. ошибка на перекрытии) → фактура тише фото; поднимаем до пола, не выше energy_max_gain
+        gain = min(floor * sig_d / sig_s, float(cfg.get('energy_max_gain', 2.5)))
+        out[done] *= gain
+        sig_s *= gain
+        info['energy_gain'] = round(float(gain), 3)
     info.update({'mode': 'quilt', 'covered': round(cov, 4), 'sigma_synth_L': round(sig_s, 3), 'energy_ratio': round(sig_s / max(sig_d, 1e-6), 3)})
     if cov < float(cfg['min_cover']):                                 # кусочки не накрыли цель — недокрытое остаётся гладким (0), это видно в info
         info['why'] = f"накрыто {cov:.0%} < {float(cfg['min_cover']):.0%}: остальное гладко"

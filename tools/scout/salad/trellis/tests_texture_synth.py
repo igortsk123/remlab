@@ -144,6 +144,13 @@ resh, infoh = TS.synth_group(lab_of(stripes(0.0)), known_h, target, None, cfg_bi
 ok(infoh['mode'] == 'quilt' and infoh['covered'] >= 0.9 and len(infoh['patch_levels_px']) >= 2, f"рваный донор: накрыто {infoh.get('covered')} кусками {infoh.get('patch_levels_px')}")
 ok(0.5 <= infoh['energy_ratio'] <= 1.5, f"энергия при рваном доноре {infoh['energy_ratio']} (цель 0,5–1,5)")
 
+print('4в. пол энергии: квилтинг тише фото → усиление до пола, не выше потолка')
+rg, ig = TS.synth_group(lab_of(stripes(0.0)), known, target, None, dict(CFG, energy_floor=1.2, energy_max_gain=1.5), blur_norm, seed=3)
+ok(ig.get('energy_gain', 0) > 1.0 and 1.1 <= ig['energy_ratio'] <= 1.3 and ig['energy_gain'] <= 1.5, f"пол 1,2: усиление {ig.get('energy_gain')}, энергия {ig['energy_ratio']}")
+rg2, ig2 = TS.synth_group(lab_of(stripes(0.0)), known, target, None, dict(CFG, energy_floor=5.0, energy_max_gain=1.5), blur_norm, seed=3)
+ok(ig2['energy_gain'] <= 1.5, f"усиление ограничено потолком: {ig2['energy_gain']} ≤ 1,5")
+ok('energy_gain' not in TS.synth_group(lab_of(stripes(0.0)), known, target, None, CFG, blur_norm, seed=3)[1], 'без пола усиления нет')
+
 print('5. выбросы-детали (контур ручки) не в доноре; у узора — остаются')
 lab = lab_of(stripes(0.0))
 lab[60:70, 40:50, 0] -= 40.0                                       # тёмная деталь на известном
