@@ -3053,15 +3053,37 @@ def load_conf_png(visible: str) -> list | None:
     return out or None
 
 
+def synth_known_trusted() -> bool:
+    """Считать ли тон с острого угла (prov=synth этапа 6) «известным» в 07. Правило `known_source.synth_trusted` (rules/paint-fill.json); env KNOWN_SYNTH_TRUSTED=0/1 — для A/B."""
+    e = os.environ.get('KNOWN_SYNTH_TRUSTED')
+    if e is not None:
+        return e not in ('0', 'false', '')
+    try:
+        import json
+        with open(RULES_PATH, encoding='utf-8') as f:
+            return bool((json.load(f).get('known_source') or {}).get('synth_trusted', False))
+    except OSError:
+        return False
+
+
 def load_known_png(visible: str) -> list:
-    """Маски «известно» этапа 6: `known.png`, `known1.png`, … (по геометриям, белое = известно)."""
+    """Маски «известно» этапа 6: `known.png`, `known1.png`, … (по геометриям, белое = известно).
+    Тон с острого угла (карта провенанса `prov.png`, значение 4 = synth) не наблюдался прямо — это кандидат низкого доверия: из «известного» он убирается, и его красит паспорт материала
+    (один материал — один тон), если `known_source.synth_trusted` = false (T-28/1). Нет prov-карты (старый выход 06) — маска как есть."""
     from PIL import Image
     kn = []
+    trusted = synth_known_trusted()
     for i in range(64):
         fp = os.path.join(visible, "known.png" if i == 0 else f"known{i}.png")
         if not os.path.exists(fp):
             break
-        kn.append(np.asarray(Image.open(fp).convert("L")) > 127)
+        k = np.asarray(Image.open(fp).convert("L")) > 127
+        pp = os.path.join(visible, "prov.png" if i == 0 else f"prov{i}.png")
+        if not trusted and os.path.exists(pp):
+            pv = np.asarray(Image.open(pp))
+            if pv.ndim == 2 and pv.shape == k.shape:
+                k = k & (pv != 4)
+        kn.append(k)
     return kn
 
 

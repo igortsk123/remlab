@@ -1900,6 +1900,39 @@ def test_part_deltas_same_as_reference():
 
 def main() -> int:
     for f in (test_part_deltas_same_as_reference, test_detail_zones_fill, test_check_on_final_texture, test_side_azimuths, test_top_prior_hook, test_mirror_off_by_default, test_shrink_layout, test_tie_picks_front_on_back, test_front_on_back, test_front_on_back_within_parts, test_front_on_back_unequal_parts, test_color, test_photo, test_parts, test_lighter_than_photo, test_no_known_part, test_mirror, test_texture, test_gutter_render, test_seam_steps_concavity, test_diffuse_quilt_far, test_draft_source, test_tone_mode_pattern, test_quilt_efros, test_quilt_holes, test_known_unchanged, test_render_pattern, test_outlier_blocks, test_dark_fabric, test_trellis_relief, test_part_roles_from_stage3, test_stage7_side_tone_smooth_rules, test_tone_from_neighbour, test_nail_twins, test_borrow_donors, test_tone_only, test_part_pattern_single_truth, test_pr_camera_and_winding, test_hidden_visible, test_stage6_gate, test_cli_run_stage, test_orphan_parts, test_cli_parts_flags, test_zones_fallback, test_brightness_target_median, test_run_stage_fallback, test_render_low, test_quilt_lattice, test_pattern_lattice, test_part_independence, test_unobserved_relief):
+
+
+def test_known_synth_not_trusted():
+    print("T-28/1: «известное» 07 — только с фото; тон с острого угла (prov=synth) не держится известным:")
+    import tempfile
+    from PIL import Image
+    with tempfile.TemporaryDirectory() as td:
+        k = np.zeros((8, 8), np.uint8)
+        k[:, :4] = 255                                               # известно: левая половина
+        pv = np.zeros((8, 8), np.uint8)
+        pv[:, :2] = 1                                                # фото
+        pv[:, 2:4] = 4                                               # тон synth
+        Image.fromarray(k).save(os.path.join(td, "known.png"))
+        Image.fromarray(pv).save(os.path.join(td, "prov.png"))
+        old = os.environ.pop("KNOWN_SYNTH_TRUSTED", None)
+        try:
+            a = TF.load_known_png(td)[0]
+            ok(int(a.sum()) == 8 * 2 and bool(a[:, :2].all()) and not a[:, 2:].any(), "synth исключён: остались только 2 колонки с фото", str(int(a.sum())))
+            os.environ["KNOWN_SYNTH_TRUSTED"] = "1"
+            b = TF.load_known_png(td)[0]
+            ok(int(b.sum()) == 8 * 4, "KNOWN_SYNTH_TRUSTED=1 — прежнее поведение (вся маска)")
+            os.environ["KNOWN_SYNTH_TRUSTED"] = "0"
+            os.remove(os.path.join(td, "prov.png"))
+            c = TF.load_known_png(td)[0]
+            ok(int(c.sum()) == 8 * 4, "нет prov.png (старый выход 06) — маска как есть")
+        finally:
+            os.environ.pop("KNOWN_SYNTH_TRUSTED", None)
+            if old is not None:
+                os.environ["KNOWN_SYNTH_TRUSTED"] = old
+
+
+def main() -> int:
+    for f in (test_known_synth_not_trusted, test_detail_zones_fill, test_check_on_final_texture, test_side_azimuths, test_top_prior_hook, test_mirror_off_by_default, test_shrink_layout, test_tie_picks_front_on_back, test_front_on_back, test_front_on_back_within_parts, test_front_on_back_unequal_parts, test_color, test_photo, test_parts, test_lighter_than_photo, test_no_known_part, test_mirror, test_texture, test_gutter_render, test_seam_steps_concavity, test_diffuse_quilt_far, test_draft_source, test_tone_mode_pattern, test_quilt_efros, test_quilt_holes, test_known_unchanged, test_render_pattern, test_outlier_blocks, test_dark_fabric, test_trellis_relief, test_part_roles_from_stage3, test_stage7_side_tone_smooth_rules, test_tone_from_neighbour, test_nail_twins, test_borrow_donors, test_tone_only, test_part_pattern_single_truth, test_pr_camera_and_winding, test_hidden_visible, test_stage6_gate, test_cli_run_stage, test_orphan_parts, test_cli_parts_flags, test_zones_fallback, test_brightness_target_median, test_run_stage_fallback, test_render_low, test_quilt_lattice, test_pattern_lattice, test_part_independence, test_unobserved_relief):
         f()
     print(f'tests_tex_fill: ошибок {bad}')
     return 1 if bad else 0
