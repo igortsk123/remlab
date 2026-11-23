@@ -697,13 +697,16 @@ def test_tone_mode_pattern():
     tex[ys[shade], xs[shade]] = [60, 55, 50]
     g = q.geom(tex)
     kn = [m.copy()]
-    out = TF.fill([g], kn, None, cfg={'gutter': 0, 'erode_known': 0}, mirror=False)
+    out = TF.fill([g], kn, None, cfg={"gutter": 0, "erode_known": 0, "pattern_min_blocks": 0.0}, mirror=False)
     rep = out['report']
     cream = TF.rgb2lab(np.array([[235, 225, 200]], np.uint8))[0]
     tone = np.array(rep['parts'][0]['mean_lab'])
     ok(float(TC.de2000_v(tone[None], cream[None])[0]) < 3.0, f'тон = кремовый фон, а не розовый средний (ΔE к фону {float(TC.de2000_v(tone[None], cream[None])[0]):.1f})')
     ok(rep['parts'][0]['pattern'] is True, 'часть с цветами помечена «узорной»')
     ok(rep.get('quilt') == 1 and rep['no_patch'] == 0, 'узор — квилтом из мелких блоков')
+    out2 = TF.fill([g], kn, None, cfg={'gutter': 0, 'erode_known': 0, 'pattern_min_blocks': 1e9}, mirror=False)   # известного «меньше любого числа блоков» → рисунок не наблюдаем: тон + зерно, квилта нет (решение директора 23.11)
+    ro = out2['report']
+    ok(0 in (ro.get('pattern_unobserved') or {}) and not ro.get('quilt') and ro['quilt_lattice'][0].get('unobserved') is True, 'узорная с малым известным → pattern_unobserved, не квилт; в report quilt_lattice flat/unobserved')
     back = tile_mask((.9, .9, 1.0, 1.0))
     lab_back = lab_of(out['tex'][0], back)
     med_back = np.median(lab_back, axis=0)
@@ -818,6 +821,10 @@ def test_pattern_lattice():
     ok(ex3 is not None and ex3 > 0.3, f'эталон по рваному известному (55 % дыр): периодический узор виден ({ex3})')
     ex4 = TF.known_lattice(np.stack([rng.randn(96, 96)] * 3, 2), holes, 8)
     ok(ex4 is not None and ex4 < 0.2, f'эталон по рваному известному: шум без периода — малый ({ex4})')
+    ok(TF.FILL['pattern_min_blocks'] == 8.0, 'порог «рисунок не наблюдаем» — 8 площадей блока (правило по умолчанию)')
+    ok(TF.pattern_unobserved(5 * 250, 250, TF.FILL['pattern_min_blocks']) and not TF.pattern_unobserved(20 * 250, 250, TF.FILL['pattern_min_blocks']), 'известного 5 блоков → не наблюдаем (тон+зерно); 20 блоков → прежняя логика с эталоном')
+    ok(TF.pattern_unobserved(100, 0, 8.0) is False, 'блока нет — не судим')
+    ok(TF._lattice_value({'quilt_lattice': {2: {'before': 0.0, 'rebuilt': 0, 'after': 0.0, 'flat': True, 'unobserved': True}}, 'patch_lattice': {}, 'own_panel': {}}) == 0.0, 'часть «не наблюдаем» → решётки нет (тон), мерка 0')
     rep_ = {'quilt_lattice': {3: {'before': 0.6, 'rebuilt': 8, 'flip': 1, 'after': 0.48}, 4: {'before': 0.2, 'rebuilt': 0}}, 'quilt_lattice_pattern': {3: {'src': 0.45, 'after': 0.48, 'limit': 0.55, 'verdict': 'pass', 'big': False}}, 'patch_lattice': {}, 'own_panel': {}}
     ok(TF._lattice_value(rep_) == 0.2, f'_lattice_value: узорная с verdict pass исключена ({TF._lattice_value(rep_)})')
     rep_['quilt_lattice_pattern'][3]['verdict'] = 'fail'
@@ -1434,9 +1441,9 @@ def _test_dark_fabric_body():
     try:
         with tempfile.TemporaryDirectory() as td:
             TF.write_glb([gq], [tx], os.path.join(td, "in.glb"))
-            good = TF.run_stage(td, "dk:1", os.path.join(td, "in.glb"), known=[m.copy()], parts=None, cfg={"gutter": 0, "erode_known": 0}, mirror=False)
+            good = TF.run_stage(td, "dk:1", os.path.join(td, "in.glb"), known=[m.copy()], parts=None, cfg={"gutter": 0, "erode_known": 0, "pattern_min_blocks": 0.0}, mirror=False)
             TF.RULES["quilt_extreme"]["black_rel"] = 1e9                       # прежний абсолютный порог
-            old = TF.run_stage(td, "dk:2", os.path.join(td, "in.glb"), known=[m.copy()], parts=None, cfg={"gutter": 0, "erode_known": 0}, mirror=False)
+            old = TF.run_stage(td, "dk:2", os.path.join(td, "in.glb"), known=[m.copy()], parts=None, cfg={"gutter": 0, "erode_known": 0, "pattern_min_blocks": 0.0}, mirror=False)
     finally:
         TF.RULES["quilt_extreme"].update(saved)
     mg, mo = good["check"]["metrics"]["pool_rejected_pct"], old["check"]["metrics"]["pool_rejected_pct"]

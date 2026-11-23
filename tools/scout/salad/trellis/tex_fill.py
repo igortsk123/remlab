@@ -67,6 +67,7 @@ FILL = {
     'quilt_overlap': 0.25,           # перекрытие блоков Efros–Freeman, доля блока (1/6–1/4)
     'quilt_block_min': 16, 'quilt_block_max': 48,   # блок — от периода узора (автокорреляция известного), в этих пределах
     'pattern_lattice_margin': 0.1,   # узорная часть: решётка допустима до эталона src (та же мерка по известному фото части) + этот запас, но не ниже quilt_lattice_max
+    'pattern_min_blocks': 8.0,       # узорная часть с известным меньше стольких площадей блока: «рисунок не наблюдаем» → тон части + зерно, без квилта (решение директора 23.11)
     'pattern_big_mul': 1.5,          # ступень (в) для узорной: блок крупнее во столько раз, пул — из всей части (развёртка)
     'quilt_lattice_max': 0.3,        # мерка «решётка квилта»: избыточная автокорреляция детали L на лагах, кратных шагу блока (B−перекрытие), выше — пул слишком мал (блоки повторяются по сетке), квилт пересобирается
     'quilt_stride_div': 2,           # шаг выборки блоков пула = блок / quilt_stride_div (2 = полблока); при решётке удваивается, пока мерка не уйдёт или не достигнет quilt_stride_div_max
@@ -483,6 +484,11 @@ def known_lattice(res: np.ndarray, ok: np.ndarray, step: int):
 def pattern_lattice_limit(src, lmax: float, margin: float) -> float:
     """Предел решётки узорной части: max(порог, src + запас); эталона нет (известного мало) — просто порог."""
     return float(lmax) if src is None else max(float(lmax), float(src) + float(margin))
+
+
+def pattern_unobserved(known_px: float, block_area: float, min_blocks: float) -> bool:
+    """«Рисунок не наблюдаем»: известного у узорной части меньше `min_blocks` площадей блока (в тех же единицах). Блока нет/0 — не судим (False)."""
+    return block_area > 0 and float(known_px) < float(min_blocks) * float(block_area)
 
 
 def lattice_end_action(is_pattern: bool, after: float, src, big_tried: bool, lmax: float, margin: float) -> str:
@@ -1232,6 +1238,7 @@ def fill(geoms: list, known: list, parts: list | None = None, cfg: dict | None =
     # --- шаг 3: фактура (остаток высоких частот известного участка той же части), только на залитое не зеркалом
     rng = np.random.RandomState(5)
     patches, patch_gain = {}, {}
+    qunobs = set()                                         # узорные «рисунок не наблюдаем»: ни квилта, ни образца-заплатки — тон части
     qflat = set()                                          # части, где решётка квилта/образца не ушла после всех пересборок: фактура гладко (тон части), в отчёте flat (T-187/7, 23.11)
     blk = {}                                                  # по геометрии: остаток, номер части и островка (пиксель карты)
     for gi, tx in enumerate(txs):
@@ -1317,6 +1324,14 @@ def fill(geoms: list, known: list, parts: list | None = None, cfg: dict | None =
                             pool.append(fill_[Y[by, bx]:Y[by, bx] + Bq, X[by, bx]:X[by, bx] + Bq])
                     if len(pool) >= int(c['quilt_pool_min']):
                         break
+            if p in pat_parts:                                         # узорная с малым известным (< pattern_min_blocks площадей блока): рисунок не наблюдаем → тон + зерно, без квилта
+                kpx_, barea_ = (int(okr.sum()), (Bq / max(sc, 1e-6)) ** 2) if rp is not None else (int(sum(cnt)), float(Bq * Bq))
+                if pattern_unobserved(kpx_, barea_, c['pattern_min_blocks']):
+                    rep.setdefault('pattern_unobserved', {})[int(p)] = {'known_px': kpx_, 'block_area': round(barea_, 1), 'blocks': round(kpx_ / max(barea_, 1.0), 2)}
+                    qflat.add(int(p))
+                    qunobs.add(int(p))
+                    rep.setdefault('quilt_lattice', {})[int(p)] = {'before': 0.0, 'rebuilt': 0, 'after': 0.0, 'flat': True, 'unobserved': True}
+                    continue
             if len(pool) < 4:
                 continue
             qo = RULES['quilt_outlier']
@@ -1396,7 +1411,7 @@ def fill(geoms: list, known: list, parts: list | None = None, cfg: dict | None =
                 lim_ = pattern_lattice_limit(qsrc.get(p_), c['quilt_lattice_max'], c['pattern_lattice_margin'])
                 rep.setdefault('quilt_lattice_pattern', {})[p_] = {'src': None if qsrc.get(p_) is None else round(qsrc[p_], 3), 'after': round(qlat[p_], 3), 'limit': round(lim_, 3), 'verdict': 'pass' if qlat[p_] <= lim_ else 'fail', 'big': True}
     for p in (part_ids if (dshift is None or c['draft_texture']) else []):
-        if p in patches:
+        if p in patches or int(p) in qunobs:
             continue
         for B, thr in ((int(c['patch']), c['patch_known_min']), (int(c['patch']) // 2, c['patch_known_min']), (int(c['patch']) // 4, c['patch_known_min2'])):
             cands = []
