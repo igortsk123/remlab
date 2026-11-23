@@ -118,6 +118,9 @@ def run_stage(run: str, sku: str, role: str | None, reg: dict | None = None, rul
     doc['policy'] = {k: g['policy'].get(k) for k in ('type', 'hidden_pattern', 'mode', 'digest', 'reason')}
     if not g['allowed']:
         return done('тип не допускает: ' + g['reason'])
+    bp = rules.get('back_panel') or {}
+    if not bp.get('enabled', True):                                  # выключатель в rules/edge-sharpen.json (back_panel.enabled): шаг припаркован, зад не трогаем
+        return done(str(bp.get('parked_reason') or 'шаг выключен (back_panel.enabled=false)'))
     if refusal:
         why = str(_json(os.path.join(d, 'check.json')).get('reason') or refusal)         # причина отказа — та, что записал сам этап 6 (check.json: reason), а не общая заглушка драйвера
         return done('этап 6 не прошёл (%s): зад не трогаем' % why[:120])

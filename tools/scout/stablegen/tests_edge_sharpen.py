@@ -45,6 +45,13 @@ def rules(**kw):
     return r
 
 
+def rules_on():
+    """Правила с ВКЛЮЧЁННЫМ шагом back_panel (в живых правилах он выключен выключателем back_panel.enabled — шаг припаркован)."""
+    r = E.load_rules()
+    r["back_panel"] = dict(r["back_panel"], enabled=True)
+    return r
+
+
 class T(unittest.TestCase):
     def test_rules_ok(self):
         self.assertEqual(E.check(), 0)
@@ -284,7 +291,28 @@ class BackPanelStage(unittest.TestCase):
             Image.fromarray(np.zeros((4, 4), np.uint8)).save(os.path.join(d, "prov.png"))
         with open(os.path.join(d, "check.json"), "w", encoding="utf-8") as f:
             _json.dump({"extra": check_extra}, f)
+        kw.setdefault("rules", rules_on())
         return BS.run_stage(t, "s1", role, reg=reg, glb_fn=glb_fn, **kw), d
+
+    def test_stage_parked_by_switch_leaves_files_and_records_abstain(self):
+        import json as _json
+        import tempfile
+        reg = self._reg({"комод": {"hidden_pattern": "body", "mode": "active"}, "ваза": {"hidden_pattern": "continue", "mode": "active"}})
+        live = E.load_rules()
+        self.assertFalse(live["back_panel"]["enabled"])                                  # живые правила: шаг припаркован
+        calls = []
+        with tempfile.TemporaryDirectory() as t:
+            doc, d = self._stage(t, {"camera": {"az": 0.0, "el": 0.0}, "front_check": {"edge_agree": 0.9}}, "комод", reg, lambda *a, **k: calls.append(1) or {}, rules=live)
+            self.assertFalse(doc["applied"])
+            self.assertEqual(calls, [])                                                  # расчёт не запускался
+            self.assertIn("припарковано", doc["reason"])
+            self.assertFalse(os.path.exists(os.path.join(d, "visible.pre-backpanel.glb")))
+            rec = [x for x in _json.load(open(os.path.join(d, "check.json"), encoding="utf-8"))["extra"]["rules"] if x["rule_id"] == "R-BACKPANEL-06"][0]
+            self.assertEqual(rec["type"], "комод")
+            self.assertIn("припарковано", rec["abstain"])
+        with tempfile.TemporaryDirectory() as t:                                         # чужой тип по-прежнему отказывает по ТИПУ (причина типа, не «припарковано»)
+            doc, d = self._stage(t, {"camera": {"az": 0.0, "el": 0.0}, "front_check": {"edge_agree": 0.9}}, "ваза", reg, None, rules=live)
+            self.assertIn("тип не допускает", doc["reason"])
 
     def test_stage_policy_refusal_leaves_files(self):
         import tempfile
@@ -310,7 +338,7 @@ class BackPanelStage(unittest.TestCase):
             self.assertTrue(os.path.exists(keep))
             self.assertNotEqual(hashlib.md5(open(keep, "rb").read()).hexdigest(), hashlib.md5(open(vis, "rb").read()).hexdigest())
             first = hashlib.md5(open(vis, "rb").read()).hexdigest()
-            doc2 = __import__("back_panel_stage").run_stage(t, "s1", "комод", reg=reg)      # повторный запуск идёт от исходного: тот же результат, не «выравнивание выровненного»
+            doc2 = __import__("back_panel_stage").run_stage(t, "s1", "комод", reg=reg, rules=rules_on())      # повторный запуск идёт от исходного: тот же результат, не «выравнивание выровненного»
             self.assertTrue(doc2["applied"])
             self.assertEqual(hashlib.md5(open(vis, "rb").read()).hexdigest(), first)
 
@@ -386,7 +414,7 @@ class BackPanelStage(unittest.TestCase):
             self.assertFalse(doc["applied"])
             self.assertIn("edge_corr 0.24", doc["reason"])
             _json.dump({"passed": False, "reason": "edge_bg_share 0.51 (нужно <= 0.05)", "extra": {"camera": {"az": 0.0, "el": 0.0}}}, open(os.path.join(d, "check.json"), "w"))      # причину пишет сам этап 6 — берём её, а не заглушку драйвера
-            doc2 = __import__("back_panel_stage").run_stage(t, "s1", "комод", reg=reg, refusal="отказ без причины")
+            doc2 = __import__("back_panel_stage").run_stage(t, "s1", "комод", reg=reg, rules=rules_on(), refusal="отказ без причины")
             self.assertIn("edge_bg_share 0.51", doc2["reason"])
             doc, d = doc2, d
             e = [x for x in _json.load(open(os.path.join(d, "check.json"), encoding="utf-8"))["extra"]["rules"] if x["rule_id"] == "R-BACKPANEL-06"]
@@ -407,7 +435,7 @@ class BackPanelStage(unittest.TestCase):
             V, F, _ = T._relief_back(None, n=40, amp=0.03)                                           # «06 прошёл заново»: другой visible.glb поверх нашего выхода
             T._write_glb(vis, V, F)
             new_in = hashlib.md5(open(vis, "rb").read()).hexdigest()
-            doc2 = BS.run_stage(t, "s1", "комод", reg=reg)
+            doc2 = BS.run_stage(t, "s1", "комод", reg=reg, rules=rules_on())
             self.assertTrue(doc2["applied"], doc2)
             self.assertEqual(hashlib.md5(open(keep, "rb").read()).hexdigest(), new_in)               # копия — НОВЫЙ исходник, а не старая
         with tempfile.TemporaryDirectory() as t:                                                     # Salad: исходник не храним

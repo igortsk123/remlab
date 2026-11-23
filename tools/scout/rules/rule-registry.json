@@ -134,10 +134,10 @@
       "test_positive": "tools/scout/stablegen/tests_edge_sharpen.py::test_stage_body_applies_and_keeps_original",
       "test_negative": "tools/scout/stablegen/tests_edge_sharpen.py::test_stage_policy_refusal_leaves_files",
       "run_id": null,
-      "flag": "tools/scout/rules/edge-sharpen.json#back_panel.paint_gate",
+      "flag": "tools/scout/rules/edge-sharpen.json#back_panel.enabled",
       "check_field": "06-visible.rules",
       "enabled": null,
-      "note": "шаг back_panel_stage стоит в paint-run-all.json (этап 06) и сам решает по типу: paint_gate (hidden_pattern=body, mode=active) из rules/edge-sharpen.json; след — 06-visible/back_panel.json (rule_id, applied, причина, digest паспорта). check.json этапа записи extra.rules[] пока не пишет (общий помощник tools/scout/rule_record.py — вызвать из шага); поза 04 на «перед/зад» у корпусных — отдельная нерешённая задача. active — после круга 2 и записи в check.json"
+      "note": "ПРИПАРКОВАНО (T-20261123-43/3, 23.11, решение директора): выключатель back_panel.enabled=false в rules/edge-sharpen.json — шаг для допущенного типа пишет воздержание «припарковано: крапинки, мерка 0,65 %» и зад не трогает. Причина: после выравнивания на заду комода/шкафа крапинки и рваный край у стыка зад/бок; мерка tools/scout/back_speckle.py (доля выбросов на листе «зад», порог back_panel.speckle.share_max 0,2 %): оригинал 0,05 %, после 0,65 %. Слои по высоте, спрятанные грани, нормали, цвет по плоскости дают ≤0,15 п.п. Край (зубчатость границы зоны, сетка 128) мерки пока не имеет. Включать — когда мерка ≤ порога на комоде и шкафе. Шаг стоит в paint-run-all.json (этап 06); допуск по типу — paint_gate; запись extra.rules[] — rule_record. Не active: run_id нет."
     },
     {
       "rule_id": "R-TYPE-FACADE-BACK",
