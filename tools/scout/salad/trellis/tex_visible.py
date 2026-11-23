@@ -72,6 +72,7 @@ TONE_REF_ITERS = int(R.get('tone_ref_iters', 12))           # сглаживан
 TONE_DIST_W = float(R.get('tone_dist_weight', 0.15))        # цена шага по поверхности: доля расстояния между центрами граней …
 TONE_CREASE_W = float(R.get('tone_crease_weight', 0.25))    # … плюс доля габарита × (1 − cos угла между нормалями соседних граней): излом дорог, плоскость почти бесплатна
 TONE_REACH_FRAC = float(R.get('tone_reach_frac', 0.3))     # тон растекается от наблюдавшейся грани не дальше доли габарита формы (по поверхности)
+TONE_SKIP_DROPPED = bool(int(os.environ['TEX_VISIBLE_TONE_DROP'])) if 'TEX_VISIBLE_TONE_DROP' in os.environ else bool(R.get('tone_skip_dropped', True))   # грань, наблюдавшаяся, но отброшенная по ΔE (другой материал/блик), соседским тоном не красится
 TONE_MAX_DE = float(R.get('tone_max_de', 20.0))             # ΔE00(наблюдение, опора) больше — другой материал или блик: не красим
 TONE_MIN_OBS = int(R.get('tone_min_obs_px', 30))            # меньше наблюдений в геометрии — тона нет
 BACK_ON = bool(int(os.environ['TEX_VISIBLE_BACK'])) if 'TEX_VISIBLE_BACK' in os.environ else bool(R.get('back_cull', True))
@@ -381,9 +382,15 @@ def tone_oblique(tex: np.ndarray, occ: np.ndarray, known: np.ndarray, fid: np.nd
     delta0[reached] = (lo_f - ref)[src[reached]]
     dn, dd = _gsmooth(B, delta0 * reached[:, None], reached.astype(np.float64), TONE_SMOOTH_ITERS)
     painted = reached & (dd > 0)
+    if TONE_SKIP_DROPPED:
+        dropped = np.setdiff1d(obs_faces, kept)
+        painted[dropped] = False
     delta = dn / np.maximum(dd, 1e-12)[:, None]
     near = np.clip(1.0 - dist / max(TONE_NEAR_FRAC * ext, 1e-9), 0.0, 1.0)[:, None]                  # 1 на наблюдавшейся грани → 0 дальше tone_near_frac·габарит
     wgt = near + (1.0 - near) * np.array([TONE_WL, TONE_WC, TONE_WC])[None, :]
+    own = np.zeros(nF, bool)
+    own[kept] = True                                                                                     # у самой наблюдавшейся грани — её собственное наблюдение (сглаженное Δ соседей светлее/темнее фото на этих пикселях)
+    delta = np.where(own[:, None], lo_f - ref, delta)
     lab_new = ref + delta * wgt
     frgb = LP.l2s8(LP.lab_to_lin(lab_new.astype(np.float32)[None]))[0]
     fcl = np.clip(fid, 0, nF - 1)
