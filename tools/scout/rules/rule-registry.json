@@ -169,7 +169,7 @@
     {
       "rule_id": "R-TYPE-OPENINGS",
       "title": "К2: у стеллажа/витрины проём остаётся пустотой, зад — каркас, стекло — своя зона",
-      "state": "proposed",
+      "state": "retired",
       "source": [
         "plans/mesh-type-rules-01.md § Черновик К2",
         "a-types-1123.md § 1 К2"
@@ -190,7 +190,8 @@
       "flag": null,
       "check_field": null,
       "enabled": null,
-      "note": "в паспорте стеллажа guards и paint пусты; политики «не заделывать проём» для 07 нет"
+      "note": "СЛИТО в R-OPENINGS-ZONES-07 (T-20261123-47/4: продуктовое поведение К2 и техническая зона 07 — одно правило, один rule_id)",
+      "merged_into": "R-OPENINGS-ZONES-07"
     },
     {
       "rule_id": "R-TYPE-SOFT-BACK",
@@ -676,23 +677,24 @@
       "executor": "р.6 (paint.hidden_exclusions → зоны 07)",
       "consumer": null,
       "runtime": "none",
-      "test": null,
-      "test_positive": null,
-      "test_negative": null,
+      "test": "tools/scout/salad/trellis/tests_detail_zones.py",
+      "test_positive": "tools/scout/salad/trellis/tests_detail_zones.py::test_detail_zones_positive",
+      "test_negative": "tools/scout/salad/trellis/tests_detail_zones.py::test_detail_zones_negative",
       "run_id": null,
       "flag": null,
       "check_field": null,
       "enabled": null,
-      "note": "paint.hidden_exclusions заданы в паспорте типов (12 типов), но 07 их не читает: данные есть, потребителя нет. Нужны: чтение в 07, зоны-исключения в маске закраски, парные тесты на типе"
+      "note": "S1 (23.11): зоны `detail_zones.py` — facade_hardware (роль handles + тёмные точки), door_relief (роль facade), glass (пары карточки), buttons (тёмные точки: мало — no_evidence, много — texture); pillows выключены правилом (ложные зоны на листах), stitching/bedding — not_implemented. Хуков в 07 ещё нет (S2): consumer пуст, state proposed. Пороги пробные, на 29 не подгонялись."
     },
     {
       "rule_id": "R-OPENINGS-ZONES-07",
-      "title": "Проёмы и стекло — отдельные зоны 07: проём остаётся пустотой, стекло не заливается цветом корпуса, зад стеллажа/витрины — каркас",
+      "title": "К2: у стеллажа/витрины проём остаётся пустотой, зад — каркас, стекло — своя зона 07 (не заливается цветом корпуса)",
       "state": "proposed",
       "source": [
         "plans/mesh-type-rules-01.md § Черновик К2",
         "отчёт р.6 (А1): «не сделано»",
-        "T-20261123-48/3 (директор)"
+        "T-20261123-48/3 (директор)",
+        "plans/mesh-type-rules-01.md § Черновик К2 (бывшее R-TYPE-OPENINGS)"
       ],
       "applies": {
         "types": [
@@ -703,14 +705,14 @@
       "executor": "р.6 (paint.openings → зоны 07)",
       "consumer": null,
       "runtime": "none",
-      "test": null,
-      "test_positive": null,
-      "test_negative": null,
+      "test": "tools/scout/salad/trellis/tests_detail_zones.py",
+      "test_positive": "tools/scout/salad/trellis/tests_detail_zones.py::test_detail_zones_positive",
+      "test_negative": "tools/scout/salad/trellis/tests_detail_zones.py::test_detail_zones_negative",
       "run_id": null,
       "flag": null,
       "check_field": null,
       "enabled": null,
-      "note": "paint.openings в паспорте стеллажа и витрины есть, зон проёма/стекла в 07 нет; смежно с R-TYPE-OPENINGS (К2) — то правило описывает продуктовое поведение, это — техническую зону 07; при реализации слить в одно"
+      "note": "S1 (23.11): чистая функция зон `detail_zones.py` + пороги `rules/detail-zones.json`; стекло — по парам карточки (нет данных → abstain no_glass_source / no_glass_part), проём void — детектора нет (abstain not_implemented). Хуков в 07 ещё нет (S2) → consumer пуст, state proposed. НА РЕАЛЬНОМ ТОВАРЕ НЕ ПРОВЕРЕНО: стеллажа/витрины в каталоге нет, тест — на заглушке (коробка с проёмом и стеклянной дверцей)."
     }
   ],
   "_active_rule": "active = consumer определён (ast) и вызывается боевым кодом + runtime=enforce и флаг включён + тест в CI + test_positive и test_negative на пример типа + run_id прогона. Без любого — trial (rule_registry_audit: ошибка). run_id — папка прогона в ~/remlab-logs, где правило отработало; проверка прогона структурная (--run): extra.rules[] с rule_id, type, digest, applied|abstain."
