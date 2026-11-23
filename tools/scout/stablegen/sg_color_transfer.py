@@ -726,6 +726,33 @@ def stage02(run: str, sku: str, native_glb: str, out_glb: str, rep: dict | None 
 
 
 
+def stage02_form(run: str, sku: str, form_glb: str, faces_max: int | None = None, seconds: float | None = None) -> dict:
+    """Этап 02-prep для формы БЕЗ родной (лесенка форм, T-20261123-45): `form_glb` — готовая форма с текстурой (выход TRELLIS.2 лесенки, её же берёт этап 7); переноса цвета и упрощения
+    там нет, поэтому мерки «против родной» (chamfer, color_texel_share, normal_dev) НЕ считаются и в check.json их нет (`compared_to_native=false`). Считаются: доля граней с текселем (главная,
+    порог как у этапа 02), справочные число граней / speckle / sliver. Число граней — БЕЗ порога (faces_max=None): 150 тыс. — это размер УПРОЩЁННОЙ формы обычного пути, а форма лесенки идёт дальше в 03–08 как есть (на 31 товаре 460–500 тыс. граней, GLB этапа 08 — столько же), так что порог тут признал бы негодным всё; задан faces_max — судится как в этапе 02. Нет файла/baseColor — passed=false с причиной. Папка `<run>/<sku>/02-prep/`: `shape.glb`, `frame.png`, `check.json`."""
+    ps = _paint_stage()
+    d = ps.stage_dir(run, sku, '02-prep')
+    metric0 = {'name': 'faces_with_texel', 'value': None, 'threshold': FACES_TEXEL_MIN, 'op': '>='}
+    if not os.path.exists(form_glb):
+        return ps.write_check(d, '02-prep', sku, False, metric=metric0, reason='нет GLB формы лесенки', seconds=seconds, compared_to_native=False)
+    try:
+        g = load_glb(form_glb)
+    except Exception as e:  # noqa: BLE001 — битый GLB = этап не пройден с причиной, не падение
+        return ps.write_check(d, '02-prep', sku, False, metric=metric0, reason=f'GLB формы не открылся: {type(e).__name__}: {str(e)[:100]}', seconds=seconds, compared_to_native=False)
+    if g['base'] is None:
+        return ps.write_check(d, '02-prep', sku, False, metric=metric0, reason='в GLB формы нет baseColor — не по чему мерить покрытие текселями', seconds=seconds, compared_to_native=False)
+    faces = int(len(g['F']))
+    _link(form_glb, os.path.join(d, 'shape.glb'))
+    _atlas_frame(g['base'], os.path.join(d, 'frame.png'))
+    cov = face_coverage(g['V'], g['F'], g['UV'], g['base'].size[0])
+    metrics = {'faces': {'value': faces, 'op': '<=', 'note': 'справочная, без порога: форма лесенки не упрощается до 150 тыс.'} if faces_max is None else {'value': faces, 'threshold': faces_max, 'op': '<='},
+               'speckle_share': {'value': atlas_speckle(g), 'op': '<=', 'note': 'справочная, без порога'},
+               'sliver_share': {'value': round(sliver_share(g['V'], g['F']), 5), 'op': '<=', 'note': 'справочная, без порога'}}
+    return ps.write_check(d, '02-prep', sku, None, metric={'name': 'faces_with_texel', 'value': round(cov, 5), 'threshold': FACES_TEXEL_MIN, 'op': '>='}, metrics=metrics,
+                          seconds=seconds, outputs=['shape.glb'], frame='frame.png', compared_to_native=False, atlas=int(g['base'].size[0]),
+                          note='форма лесенки без родной: меры против родной (chamfer, цвет, нормали) не считались')
+
+
 def selftest() -> int:
     """Тот же набор проверок, что `tests_color_transfer.py` (отдельный файл запускается в CI)."""
     sys.path.insert(0, HERE)

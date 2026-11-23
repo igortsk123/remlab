@@ -216,6 +216,16 @@ def save_stages(out: str, sku: str, job_id: str, data: bytes) -> dict:
     return {'zip': zp, 'dir': dest, 'bytes': len(data), 'files': n}
 
 
+def write_form_checks(out: str, sku: str, step: str, glb: str) -> dict:
+    """Лесенка: рядом с GLB ступени — check.json этапов 01 и 02 в `<out>/ladder-run/<ступень>/<магазин_товар>/` (ladder_checks.py; код общий с пересчётом по готовым файлам)."""
+    try:
+        sys.path.insert(0, SCOUT)
+        import ladder_checks as LC
+        return LC.write_for_job(out, sku, step, glb)
+    except Exception as e:  # noqa: BLE001 — запись проверок не должна ронять скачивание; причина — в сводку
+        return {'error': f'check.json лесенки НЕ записаны: {type(e).__name__}: {str(e)[:120]}'}
+
+
 def find_shape(shape_dir: str, sku: str) -> tuple[str, str] | None:
     """Форма товара из каталога форм (`~/remlab-logs/mesh-models-1118/trellis/`): `<магазин_товар>-1024-42-0.clean2.glb`, если есть, иначе `.clean.glb`. → (путь, вид) или None."""
     stem = os.path.join(os.path.expanduser(shape_dir), sku.replace(':', '_') + '-1024-42-0')
@@ -361,7 +371,7 @@ def parse_ladder(path: str) -> list[dict]:
 
 def expand_ladder_jobs(jobs: list[dict], ladder: list[dict]) -> list[dict]:
     """Задание на каждую ступень лесенки для каждого товара (порядок — по ступеням: сперва все товары первой ступени, затем второй…): `res`, фото (`cur` — как в БД 30 товаров, `hd` — `<товар>.hd.rgba.png`) и параметры ступени."""
-    return [dict(j, job_id=f'{j["sku"].replace(":", "_")}-{r["name"]}', res=r['res'], input=r['input'], worker_params=r['params'], seed=r['params'].get('seed', j['seed'])) for r in ladder for j in jobs]
+    return [dict(j, job_id=f'{j["sku"].replace(":", "_")}-{r["name"]}', res=r['res'], input=r['input'], worker_params=r['params'], seed=r['params'].get('seed', j['seed']), ladder_step=r['name']) for r in ladder for j in jobs]
 
 
 def price_usd_h(tier: str) -> float | None:
@@ -1020,6 +1030,8 @@ def run(a, MG, BR, gw_factory=Gateway, sleep=time.sleep, clock=time.time, hf_hea
                                         open(fp[:-4] + '.views.jpg', 'wb').write(base64.b64decode(vb))
                                         r['metrics']['views_jpeg_b64'] = 'saved:' + os.path.basename(fp[:-4]) + '.views.jpg'
                                     inflight['glb_bytes'] = len(glb)
+                                    if inflight.get('ladder_step'):                     # лесенка формы: этапы 01/02 пишут свои check.json (T-20261123-45) — сбой записи не роняет прогон, но виден в сводке
+                                        inflight['form_checks'] = write_form_checks(a.out, inflight['sku'], inflight['ladder_step'], fp)
                                     if (r.get('metrics') or {}).get('has_raw'):          # TRELLIS.2: сырая форма до упаковки (simplify/remesh/decimation) — вторым файлом, по ступеням с export_raw
                                         cr, glb_raw = gw.call('GET', '/glb/' + inflight['job_id'] + '?v=raw', timeout=600, raw=True)
                                         if cr == 200:
