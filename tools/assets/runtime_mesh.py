@@ -5,7 +5,10 @@
   * текстуры 2048² лежат base64 ВНУТРИ JSON-чанка → +18 % веса и разбор мегабайтного JSON
     до первой геометрии; переносим в бинарный чанк;
   * две карты на модель, из них metallicRoughness (PNG) = 41 % веса галереи, а на сцене
-    даёт почти ничего → выкидываем, ставим скалярные roughness/metalness по роли;
+    даёт почти ничего → тогда выкидывали, ставили скалярные roughness/metalness по роли. С T-20261123-10 карты материала
+    источника СОХРАНЯЮТСЯ у моделей, прошедших этап 08 «материал» (он кладёт именно их и sheen/transmission; без них вид на сайте терялся);
+    у старых (без отметки этапа 08 в самом GLB) — как раньше: карты долой, скаляры. Правило и числа — `rules/rt-weight.json:material`;
+    не влезло в вес — лестница сперва уменьшает карты, потом цвет;
   * 2048² albedo без сжатия = ~16 МБ видеопамяти на модель (у 15 моделей — сотни мегабайт, телефон не переживёт) → сторона текстуры — правило
      (T-20261123-31: 2048 + KTX2 держит мелкий рисунок, 1024 съедала узор фасада ×5 и стоит те же ~2–3 МБ; KTX2 в видеопамяти ≈5 МБ),
     512 — для мобильной версии (-lite, своим ключом --size).
@@ -114,35 +117,87 @@ def image_bytes(img: dict, js: dict, bin_chunk: bytes) -> bytes | None:
     return None
 
 
-def optimise(data: bytes, size: int, quality: int, drop_mr: bool = True) -> tuple[bytes, dict]:
+def material_refs(node, out: list | None = None) -> list[tuple[dict, str]]:
+    """Все ссылки на текстуры внутри материала: поля `*Texture` с `index` — основные карты и карты расширений (sheenColorTexture,
+    transmissionTexture, …). → [(родитель, ключ)]: по ним индексы правятся и висячие ссылки убираются."""
+    out = [] if out is None else out
+    if isinstance(node, dict):
+        for k, v in list(node.items()):
+            if k.endswith("Texture") and isinstance(v, dict) and isinstance(v.get("index"), int):
+                out.append((node, k))
+            else:
+                material_refs(v, out)
+    elif isinstance(node, list):
+        for v in node:
+            material_refs(v, out)
+    return out
+
+
+def stage_passed(js: dict, mrule: dict) -> bool:
+    """Модель прошла этап 08 «материал»? Признак — отметка В САМОМ GLB (`asset.extras[key] == value`, пишет `material_stage.patch_glb`;
+    key/value — `rules/rt-weight.json:material.stage_mark`), не ID и не папка. Правило без `stage_mark` ничего не требует (True).
+    ЗАЧЕМ: карты MR есть и у старых моделей (Hunyuan) — их на сайте по-прежнему выбрасываем; карты этапа 08 — кладём."""
+    sm = mrule.get("stage_mark")
+    if not sm:
+        return True
+    extras = (js.get("asset") or {}).get("extras")
+    return isinstance(extras, dict) and extras.get(sm["key"]) == sm["value"]
+
+
+def has_material_maps(data: bytes) -> bool:
+    """У материалов исходника есть текстуры кроме цвета (metallicRoughness, sheen, …)? Нужно отпечатку копии: перевыпуск только тем, у кого карты есть."""
+    try:
+        js, _b = parse_glb(data)
+    except ValueError:
+        return False
+    for m in js.get("materials", []):
+        pbr = m.get("pbrMetallicRoughness") or {}
+        for parent, key in material_refs(m):
+            if not (parent is pbr and key == "baseColorTexture"):
+                return True
+    return False
+
+
+def optimise(data: bytes, size: int, quality: int, drop_mr: bool | None = None, material: dict | None = None, mat_side: int | None = None) -> tuple[bytes, dict]:
+    """Исходный GLB → GLB с текстурами в бинарном чанке. Цвет — JPEG до `size` (как раньше). Карты материала (metallicRoughness, sheen,
+    transmission, …) — по правилу `rules/rt-weight.json:material`: keep=true — остаются, сжимаются как цвет (JPEG, сторона ≤ `mat_side`
+    или правило.max_side, и не больше `size`); keep=false — прежнее: MR и occlusion долой, скаляры (metallic 0, roughness 0.75).
+    `drop_mr` — прямое указание (True — прежнее поведение, False — оставить), None — решает правило; `material` — блок правила (None — файл правила)."""
     js, bin_chunk = parse_glb(data)
     images = js.get("images", [])
     materials = js.get("materials", [])
+    mrule = material if material is not None else (weight_rule().get("material") or {})
+    keep_maps = (bool(mrule.get("keep")) and stage_passed(js, mrule)) if drop_mr is None else not drop_mr
+    mat_cap = min(int(mat_side or mrule.get("max_side") or size), size)
 
-    keep_texture: set[int] = set()
+    base_tex: set[int] = set()
     for m in materials:
         pbr = m.get("pbrMetallicRoughness", {})
         base = pbr.get("baseColorTexture")
         if base is not None:
-            keep_texture.add(base["index"])
-        if drop_mr and "metallicRoughnessTexture" in pbr:
+            base_tex.add(base["index"])
+        if not keep_maps and "metallicRoughnessTexture" in pbr:
             pbr.pop("metallicRoughnessTexture")
             # скалярные значения вместо карты: мебель почти никогда не металл
             pbr["metallicFactor"] = 0.0
             pbr.setdefault("roughnessFactor", 0.75)
-        if drop_mr and "occlusionTexture" in m:
+        if not keep_maps and "occlusionTexture" in m:
             m.pop("occlusionTexture")
+    map_tex: set[int] = set()
+    if keep_maps:
+        map_tex = {m_[k]["index"] for mat in materials for m_, k in material_refs(mat)} - base_tex
 
     textures = js.get("textures", [])
-    keep_images: set[int] = set()
-    for ti in keep_texture:
-        if ti < len(textures):
-            src = textures[ti].get("source")
-            if src is not None:
-                keep_images.add(src)
+
+    def images_of(tex_idx: set[int]) -> set[int]:
+        return {textures[t]["source"] for t in tex_idx if t < len(textures) and textures[t].get("source") is not None}
+
+    base_img = images_of(base_tex)
+    map_img = images_of(map_tex) - base_img
+    keep_images = base_img | map_img
 
     new_bin = bytearray(bin_chunk)
-    stats = {"images_in": len(images), "images_out": 0, "px": 0}
+    stats = {"images_in": len(images), "images_out": 0, "px": 0, "maps_out": 0, "map_px": 0}
     for idx, img in enumerate(images):
         if idx not in keep_images:
             img["uri"] = None
@@ -151,10 +206,19 @@ def optimise(data: bytes, size: int, quality: int, drop_mr: bool = True) -> tupl
         if raw is None:
             continue
         pil = Image.open(io.BytesIO(raw)).convert("RGB")
-        if max(pil.size) > size:
-            pil = pil.resize((size, size), Image.LANCZOS)
+        is_map = idx in map_img
+        cap = mat_cap if is_map else size
+        if max(pil.size) > cap:
+            if is_map:                      # карта материала в UV общего листа: пропорции те же, что у исходной картинки
+                k = cap / max(pil.size)
+                pil = pil.resize((max(1, round(pil.size[0] * k)), max(1, round(pil.size[1] * k))), Image.LANCZOS)
+            else:
+                pil = pil.resize((size, size), Image.LANCZOS)
         buf = io.BytesIO()
-        pil.save(buf, format="JPEG", quality=quality, optimize=True)
+        if is_map:
+            pil.save(buf, format="JPEG", quality=int(mrule.get("quality", quality)), optimize=True, subsampling=int(mrule.get("subsampling", 0)))
+        else:
+            pil.save(buf, format="JPEG", quality=quality, optimize=True)
         payload = buf.getvalue()
         # кладём в бинарный чанк: base64 в JSON — это +33 % и разбор всего JSON до геометрии
         offset = len(new_bin)
@@ -169,16 +233,26 @@ def optimise(data: bytes, size: int, quality: int, drop_mr: bool = True) -> tupl
         img["bufferView"] = len(js["bufferViews"]) - 1
         img["mimeType"] = "image/jpeg"
         stats["images_out"] += 1
-        stats["px"] = max(stats["px"], pil.size[0])
+        if is_map:
+            stats["maps_out"] += 1
+            stats["map_px"] = max(stats["map_px"], max(pil.size))
+        else:
+            stats["px"] = max(stats["px"], pil.size[0])
 
-    # выкидываем изображения, на которые больше никто не смотрит
+    # выкидываем изображения и текстуры, на которые больше никто не смотрит; индексы текстур в материалах пересчитываем,
+    # ссылки на выброшенные (в том числе в расширениях) убираем — висячая ссылка ломает разбор GLB
     if images:
+        img_remap = {old: new for new, old in enumerate(sorted(keep_images))}
+        old_tex = [i for i, t in enumerate(textures) if t.get("source") in img_remap]
+        tex_remap = {old: new for new, old in enumerate(old_tex)}
         js["images"] = [im for i, im in enumerate(images) if i in keep_images]
-        remap = {old: new for new, old in enumerate(sorted(keep_images))}
-        for t in textures:
-            if t.get("source") in remap:
-                t["source"] = remap[t["source"]]
-        js["textures"] = [t for t in textures if t.get("source") in remap.values()]
+        js["textures"] = [{**textures[i], "source": img_remap[textures[i]["source"]]} for i in old_tex]
+        for mat in materials:
+            for parent, key in material_refs(mat):
+                if parent[key]["index"] in tex_remap:
+                    parent[key]["index"] = tex_remap[parent[key]["index"]]
+                else:
+                    parent.pop(key)
 
     if js.get("buffers"):
         js["buffers"][0]["byteLength"] = len(new_bin)
@@ -301,31 +375,80 @@ def weight_rule(path: str | None = None) -> dict:
     if not isinstance(r.get("max_bytes"), int) or r["max_bytes"] <= 0:
         raise ValueError(f"{p}: max_bytes — целое > 0")
     for s in r.get("ladder") or []:
-        if ("size" in s) == ("simplify" in s):
-            raise ValueError(f"{p}: шаг лестницы — либо size, либо simplify: {s}")
+        if sum(k in s for k in ("size", "simplify", "mat_size")) != 1:
+            raise ValueError(f"{p}: шаг лестницы — ровно одно из size, mat_size, simplify: {s}")
     t = r.get("texture") or {}
     if not isinstance(t.get("size"), int) or t["size"] <= 0 or not isinstance(t.get("quality"), int) or not 1 <= t["quality"] <= 100:
         raise ValueError(f"{p}: texture — {{size: целое > 0, quality: 1..100}} (сторона текстуры первой попытки и JPEG-качество)")
+    m = r.get("material")
+    if m is not None:                                  # блок есть — числа в нём обязательны (кода-умолчаний нет); блока нет — карты не хранятся, как раньше
+        if (not isinstance(m, dict) or not isinstance(m.get("keep"), bool) or not isinstance(m.get("max_side"), int) or m["max_side"] <= 0
+                or not isinstance(m.get("quality"), int) or not 1 <= m["quality"] <= 100 or m.get("subsampling") not in (0, 1, 2)):
+            raise ValueError(f"{p}: material — keep (bool), max_side (целое > 0), quality (1–100), subsampling (0, 1 или 2)")
+        sm = m.get("stage_mark")
+        if sm is not None and (not isinstance(sm, dict) or not all(isinstance(sm.get(k), str) and sm[k] for k in ("key", "value"))):
+            raise ValueError(f"{p}: material.stage_mark — {{key: строка, value: строка}} (отметка этапа 08 в asset.extras GLB) или блока нет")
+    elif any("mat_size" in s for s in r.get("ladder") or []):
+        raise ValueError(f"{p}: в лестнице есть mat_size, а блока material нет")
     r["fingerprint"] = hashlib.sha256(raw).hexdigest()[:8]
     return r
 
 
-def ladder_steps(rule: dict, size: int, simplify: float) -> list[tuple[str, int, float]]:
-    """Шаги по порядку: (метка, сторона текстуры, доля треугольников). Первый — запуск как есть; дальше шаги правила, которые
-    что-то меняют: размер не легче текущего и упрощение не мягче текущего пропускаются (у -lite стартовые 512 — шаги 1024/512 пустые)."""
-    steps = [(f"{size}" + (f"+si{simplify:g}" if simplify else ""), size, simplify)]
+def material_tag(rule: dict) -> str:
+    """Метка правила карт материала для отпечатка копии (`src_sha`): пусто, если карты не хранятся (keep=false или блока нет)."""
+    m = rule.get("material") or {}
+    return "" if not m.get("keep") else "mat=" + hashlib.sha256(json.dumps(m, sort_keys=True).encode()).hexdigest()[:8]
+
+
+def keeps_material_maps(src: bytes, rule: dict) -> bool:
+    """Карты материала ЭТОЙ модели попадут в копию для сайта: правило их хранит, модель прошла этап 08 (отметка в GLB) и карты в ней есть."""
+    m = rule.get("material") or {}
+    if not m.get("keep"):
+        return False
+    try:
+        js, _b = parse_glb(src)
+    except (ValueError, struct.error):
+        return False
+    return stage_passed(js, m) and has_material_maps(src)
+
+
+def recipe_for(src: bytes, recipe: str, rule: dict) -> str:
+    """Рецепт для отпечатка ЭТОГО исходника: метка карт материала добавляется ТОЛЬКО если у исходника такие карты есть. Копии моделей без карт
+    (почти вся галерея — один цвет) остаются «свежими»: перевыпуск нужен тем, у кого результат изменился."""
+    tag = material_tag(rule)
+    return f"{recipe};{tag}" if tag and keeps_material_maps(src, rule) else recipe
+
+
+def _src_recipe(src: bytes, recipe: str, rule: dict) -> tuple[bytes, str]:
+    """Аргументы `src_sha` для этого исходника (рецепт с меткой карт материала, если они есть)."""
+    return src, recipe_for(src, recipe, rule)
+
+
+def ladder_steps(rule: dict, size: int, simplify: float) -> list[tuple[str, int, float, int | None]]:
+    """Шаги по порядку: (метка, сторона текстуры цвета, доля треугольников, сторона карт материала или None). Первый — запуск как есть;
+    дальше шаги правила, которые что-то меняют: размер не легче текущего и упрощение не мягче текущего пропускаются (у -lite стартовые
+    512 — шаги 1024/512 пустые). `mat_size` — сторона карт материала (есть блок material с keep=true): меньше текущей — шаг; а есть ли у
+    модели такие карты и больше ли они этой стороны, знает только сборка (`build_light` такой шаг пропускает)."""
+    m = rule.get("material") or {}
+    cur_mat = int(m["max_side"]) if m.get("keep") else None
+    lowered = False
+    steps = [(f"{size}" + (f"+si{simplify:g}" if simplify else ""), size, simplify, cur_mat)]
     cur_size, cur_simp = size, simplify
     for s in rule.get("ladder") or []:
         if "size" in s:
             if int(s["size"]) >= cur_size:
                 continue
             cur_size = int(s["size"])
+        elif "mat_size" in s:
+            if cur_mat is None or int(s["mat_size"]) >= cur_mat:
+                continue
+            cur_mat, lowered = int(s["mat_size"]), True
         else:
             v = float(s["simplify"])
             if 0 < cur_simp <= v:
                 continue
             cur_simp = v
-        steps.append((f"{cur_size}" + (f"+si{cur_simp:g}" if cur_simp else ""), cur_size, cur_simp))
+        steps.append((f"{cur_size}" + (f"+m{cur_mat}" if lowered else "") + (f"+si{cur_simp:g}" if cur_simp else ""), cur_size, cur_simp, cur_mat))
     return steps
 
 
@@ -336,18 +459,29 @@ def build_light(src: bytes, dst: str, size: int, quality: int, simplify: float, 
     → {ok, kind: ''|'weight'|'texture', packed, how, probs, bytes, stats, tried: [{step, size, simplify, bytes|skip|problems}]}."""
     max_bytes, min_tri = rule["max_bytes"], int(rule.get("min_triangles") or 0)
     cand = dst[:-4] + ".cand.glb"
-    cache: dict[int, tuple[str, dict]] = {}
+    cache: dict[tuple[int, int | None], tuple[str, dict]] = {}
     tried: list[dict] = []
     res: dict = {"ok": False, "kind": "weight", "packed": False, "how": "", "probs": [], "bytes": 0, "stats": {}, "tried": tried}
+    material = rule.get("material") or {"keep": False}     # блока в правиле нет — карты не хранятся, как раньше
+    prev: tuple[int, int | None] | None = None
     try:
-        for label, sz, simp in ladder_steps(rule, size, simplify):
-            if sz not in cache:
-                out, stats = optimise(src, sz, quality)
-                tmp = dst[:-4] + f".src{sz}.glb"           # gltfpack узнаёт формат ПО РАСШИРЕНИЮ, поэтому промежуточный файл тоже .glb
+        for label, sz, simp, mat in ladder_steps(rule, size, simplify):
+            if prev is not None and mat is not None and prev[1] is not None and mat < prev[1] and sz == prev[0]:
+                # шаг только уменьшает карты материала: у модели без карт, или когда они и так не больше этой стороны, копия не изменится — шаг не делаем
+                ps = cache[prev][1]
+                if not ps.get("maps_out") or mat >= ps.get("map_px", 0):
+                    continue
+            key = (sz, mat)
+            if key not in cache:
+                out, stats = optimise(src, sz, quality, material=material, mat_side=mat)
+                tmp = dst[:-4] + f".src{sz}" + (f"-m{mat}" if mat is not None and stats.get("maps_out") else "") + ".glb"   # gltfpack узнаёт формат ПО РАСШИРЕНИЮ, поэтому промежуточный файл тоже .glb
                 with open(tmp, "wb") as fh:
                     fh.write(out)
-                cache[sz] = (tmp, stats)
-            tmp, stats = cache[sz]
+                cache[key] = (tmp, stats)
+            prev = key
+            tmp, stats = cache[key]
+            if not stats.get("maps_out"):
+                label = re.sub(r"\+m\d+", "", label)       # у модели без карт материала метку шага карт не пишем (в таблицу идут только честные шаги)
             if simp and min_tri and stats["triangles"] * simp < min_tri:
                 tried.append({"step": label, "size": sz, "simplify": simp, "skip": f"граней {stats['triangles']}×{simp:g} < {min_tri}"})
                 break                                      # дальше упрощение только мельче — стоп (силуэт не едим)
@@ -562,7 +696,7 @@ def main() -> int:
             dst = os.path.join(a.out, f"{mid}{a.suffix}.glb")
             try:
                 # свежая = того же исходника И цела (T-15: битая текстура с верным отпечатком — тоже «нет копии»)
-                fresh = (os.path.exists(dst) and manifest.get(mid, {}).get(sha_key) == src_sha(fetch_source(mid), recipe)
+                fresh = (os.path.exists(dst) and manifest.get(mid, {}).get(sha_key) == src_sha(*_src_recipe(fetch_source(mid), recipe, rule))
                          and os.path.getsize(dst) <= rule["max_bytes"]       # П-4: копия тяжелее порога — несвежая (собрать по лестнице)
                          and not copy_problems(dst, expect_texture=False))
             except Exception:  # noqa: BLE001 — исходник недоступен: копию не проверить, считаем несвежей
@@ -585,7 +719,7 @@ def main() -> int:
         dst = os.path.join(a.out, f"{mid}{a.suffix}.glb")
         try:
             src = fetch_source(mid)
-            sha = src_sha(src, recipe)
+            sha = src_sha(*_src_recipe(src, recipe, rule))
             # ПРОПУСК — ТОЛЬКО ДЛЯ КОПИИ ТОГО ЖЕ ИСХОДНИКА (demo-01 п.5): по одному факту существования файла
             # перегенерированная модель навсегда оставалась бы со старой копией. И только ЦЕЛОЙ копии (T-15): битая ночью
             # 07.11 копия числилась в таблице с верным отпечатком и пропускалась бы вечно

@@ -85,13 +85,15 @@ class FakePack:
 
 
 def leftovers(d):
-    return sorted(f for f in os.listdir(d) if re.search(r'\.(src\d*|cand|new)\.glb$|\.cand\.new\.glb$|\.cand\.glb$', f))
+    return sorted(f for f in os.listdir(d) if re.search(r'\.(src\d*(-m\d+)?|cand|new)\.glb$|\.cand\.new\.glb$|\.cand\.glb$', f))
 
 
 # ——— 1. порог — только в данных ———
 rule = RM.weight_rule()
 ok('порог из rules/rt-weight.json: 5 МБ (5 242 880 — решение П-4, TG 2671)', rule['max_bytes'] == 5 * 1024 * 1024, rule['max_bytes'])
-ok('лестница из правила: 1024 → 512 → упрощение 0,6 → 0,4', rule['ladder'] == [{'size': 1024}, {'size': 512}, {'simplify': 0.6}, {'simplify': 0.4}], rule['ladder'])
+ok('лестница из правила: карты материала 512 → 256, затем цвет 1024 → 512, затем упрощение 0,6 → 0,4 (T-20261123-10: сперва карты, потом цвет)',
+   rule['ladder'] == [{'mat_size': 512}, {'mat_size': 256}, {'size': 1024}, {'size': 512}, {'simplify': 0.6}, {'simplify': 0.4}], rule['ladder'])
+ok('карты материала по правилу хранятся (material.keep) у моделей этапа 08 (stage_mark), числа — в правиле', rule['material'] == {'keep': True, 'max_side': 1024, 'quality': 90, 'subsampling': 0, 'stage_mark': {'key': 'remlab_stage', 'value': '08-material'}}, rule.get('material'))
 code_files = [os.path.join(HERE, '..', f) for f in ('runtime_mesh.py', 'publish_rt.sh', 'demo_rt.sh')]
 # ——— 1б. сторона и качество текстуры первой попытки — тоже только в данных (T-20261123-31) ———
 ok('текстура копии из rules/rt-weight.json: сторона ≥ 2048 (1024 съедала мелкий рисунок: шкаф ×5, диван ×1,6 — диагностика T-27), JPEG-качество целое',
@@ -169,9 +171,14 @@ with tempfile.TemporaryDirectory(dir=os.environ.get('REMLAB_TMP') or None) as d:
 
     # ——— 2. шаги лестницы ———
     lab = lambda st: [s[0] for s in st]  # noqa: E731
-    ok('шаги при запуске 1024: 1024, 512, 512+si0.6, 512+si0.4', lab(RM.ladder_steps(rule, 1024, 0.0)) == ['1024', '512', '512+si0.6', '512+si0.4'], RM.ladder_steps(rule, 1024, 0.0))
-    ok('у -lite (запуск 512): шаги 1024 и 512 пустые → 512, +si0.6, +si0.4', lab(RM.ladder_steps(rule, 512, 0.0)) == ['512', '512+si0.6', '512+si0.4'])
-    ok('запуск уже с упрощением 0,5: шаги мягче (0,6) пропущены, 0,4 остаётся', lab(RM.ladder_steps(rule, 1024, 0.5)) == ['1024+si0.5', '512+si0.5', '512+si0.4'])
+    legacy_rule = {**rule, 'material': {'keep': False}, 'ladder': [s for s in rule['ladder'] if 'mat_size' not in s]}    # правило без карт материала: лестница как до T-20261123-10
+    ok('шаги при запуске 1024 (карт не храним): 1024, 512, 512+si0.6, 512+si0.4', lab(RM.ladder_steps(legacy_rule, 1024, 0.0)) == ['1024', '512', '512+si0.6', '512+si0.4'], RM.ladder_steps(legacy_rule, 1024, 0.0))
+    ok('у -lite (запуск 512): шаги 1024 и 512 пустые → 512, +si0.6, +si0.4', lab(RM.ladder_steps(legacy_rule, 512, 0.0)) == ['512', '512+si0.6', '512+si0.4'])
+    ok('запуск уже с упрощением 0,5: шаги мягче (0,6) пропущены, 0,4 остаётся', lab(RM.ladder_steps(legacy_rule, 1024, 0.5)) == ['1024+si0.5', '512+si0.5', '512+si0.4'])
+    ok('правило с картами материала, запуск 1024: сперва карты 512 и 256, потом цвет 512, потом грани',
+       lab(RM.ladder_steps(rule, 1024, 0.0)) == ['1024', '1024+m512', '1024+m256', '512+m256', '512+m256+si0.6', '512+m256+si0.4'], RM.ladder_steps(rule, 1024, 0.0))
+    ok('  у каждого шага сторона карт материала: 1024, 512, 256, 256, 256, 256', [s[3] for s in RM.ladder_steps(rule, 1024, 0.0)] == [1024, 512, 256, 256, 256, 256])
+    ok('у -lite с картами: шаг карт 512 есть в лестнице (пустым его делает сборка по факту карт), цвет 512 пустой', lab(RM.ladder_steps(rule, 512, 0.0)) == ['512', '512+m512', '512+m256', '512+m256+si0.6', '512+m256+si0.4'], RM.ladder_steps(rule, 512, 0.0))
 
     # ——— 3. build_light: лестница по порядку ———
     src = source_glb(tri=300_000)
@@ -238,7 +245,7 @@ with tempfile.TemporaryDirectory(dir=os.environ.get('REMLAB_TMP') or None) as d:
         RM.pack = broken
         bad_src = RM.write_glb({'asset': {'version': '2.0'}, 'materials': [{'pbrMetallicRoughness': {'baseColorTexture': {'index': 0}}}], 'textures': [{'source': 0}],
                                 'images': [{'uri': 'data:image/png;base64,ERR/'}]}, b'')
-        RM.optimise = lambda data, size, quality, drop_mr=True: (bad_src, {'images_out': 1, 'px': size, 'triangles': 300_000})    # исходник сам с битой картинкой
+        RM.optimise = lambda data, size, quality, drop_mr=None, material=None, mat_side=None: (bad_src, {'images_out': 1, 'px': size, 'triangles': 300_000})    # исходник сам с битой картинкой
         res = RM.build_light(src, os.path.join(d, 'g.glb'), 1024, 82, 0.0, True, rule1)
         RM.optimise = real_opt
         ok('битая текстура (и упаковка, и исходник): kind=texture, лестница не пошла дальше первого шага', res['kind'] == 'texture' and len(res['tried']) == 1 and bool(res['probs']), (res['kind'], res['tried']))

@@ -40,6 +40,7 @@ HERE = os.path.dirname(os.path.abspath(__file__))
 ROOT = os.path.abspath(os.path.join(HERE, "..", ".."))
 RECIPES_PATH = os.path.join(ROOT, "data", "flat3d", "material-recipes.json")
 STAGE = "08-material"
+STAGE_MARK_KEY = "remlab_stage"      # отметка «прошёл этап 08» в asset.extras GLB; её читает runtime_mesh (rules/rt-weight.json:material.stage_mark — те же key и value)
 BLENDER = os.environ.get("BLENDER", os.path.expanduser("~/opt/blender-4.5.9/blender"))
 FRAME_SCRIPT = os.path.join(HERE, "material_frame_blender.py")
 PROPS = ("roughness", "metallic", "sheen", "transmission")
@@ -889,6 +890,7 @@ def patch_glb(src: str, dst: str, maps: dict, base_png: bytes | None = None) -> 
     """Копия GLB с новыми картами материала 0: metallicRoughness заменена (на месте), sheenColor и transmission добавлены расширениями. Геометрия не тронута; цвет — тоже,
     кроме `base_png` (карта цвета с тоном стекла у стеклянных граней — `tint_base_color`; нет тона — None, байт в байт)."""
     doc, binb = read_glb(src)
+    doc.setdefault("asset", {"version": "2.0"}).setdefault("extras", {})[STAGE_MARK_KEY] = STAGE     # по ней лёгкая копия для сайта узнаёт модель этапа 08 (не по ID)
     views = [bytearray(_view_bytes(doc, binb, i)) for i in range(len(doc["bufferViews"]))]
     mat = doc["materials"][0]
     pbr = mat.setdefault("pbrMetallicRoughness", {})

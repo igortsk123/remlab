@@ -136,6 +136,12 @@ def test_patch_glb():
         dst2 = os.path.join(d, "c.glb")
         MS.patch_glb(dst, dst2, maps)
         ok(MS.geometry_sha(dst2) == MS.geometry_sha(src), "перевыпуск: второй проход не портит геометрию")
+        # отметка «прошёл этап 08» (T-20261123-10): по ней лёгкая копия для сайта оставляет карты материала; исходник без отметки — старая модель
+        ex = (doc.get("asset") or {}).get("extras") or {}
+        ok(ex.get(MS.STAGE_MARK_KEY) == MS.STAGE and not ((MS.read_glb(src)[0].get("asset") or {}).get("extras") or {}).get(MS.STAGE_MARK_KEY), "GLB: asset.extras — отметка этапа 08 (у исходника её не было)")
+        ok((MS.read_glb(dst2)[0]["asset"]["extras"] or {}).get(MS.STAGE_MARK_KEY) == MS.STAGE, "перевыпуск: отметка на месте, одна")
+        sm = json.load(open(os.path.join(HERE, "..", "..", "scout", "rules", "rt-weight.json"), encoding="utf-8"))["material"].get("stage_mark")
+        ok(sm == {"key": MS.STAGE_MARK_KEY, "value": MS.STAGE}, f"отметка в коде этапа = rules/rt-weight.json:material.stage_mark (один источник, не разъехались): {sm}")
 
 
 def test_stage_end_to_end():
