@@ -753,8 +753,85 @@ def test_panel_sibling_tone():
         RZ.panel_ids = orig
 
 
+def test_median_without():
+    print('median_without: медиана остатка по рангам равна np.median по копии (T-157/Б):')
+    rng = np.random.default_rng(5)
+    bad = 0
+    cases = 0
+    for dt in (np.float32, np.float64):
+        for n, m in ((3001, 300), (3000, 301), (5000, 4999 - 3000 + 3000), (40001, 12000), (4000, 3000), (3500, 1)):
+            for dup in (False, True):
+                v = rng.normal(50, 20, n).astype(dt)
+                if dup:
+                    v = np.round(v / 4.0) * 4.0                                   # много одинаковых значений (текстуры — uint8 → Lab с повторами)
+                    v = v.astype(dt)
+                m = min(m, n - 1)
+                pick = rng.choice(n, m, replace=False)
+                msk = np.zeros(n, bool)
+                msk[pick] = True
+                S_, M_ = np.sort(v), np.sort(v[msk])
+                want = np.median(v[~msk])
+                got = RZ.median_without(S_, M_)
+                cases += 1
+                bad += 0 if (got == want and got.dtype == want.dtype) else 1
+    ok(bad == 0, f'{cases} случаев (float32/64, чёт/нечёт, с повторами): расхождений {bad}')
+
+
+def test_panel_sibling_tone_rank_path():
+    print('несколько светлых панелей в одной части (путь по рангам nq ≥ 4) = путь по копии:')
+    n, T = 16, 256
+    V, F, UV = [], [], []
+    for j in range(n + 1):
+        for i in range(n + 1):
+            V.append([i / n, j / n, 0.0])
+            UV.append([i / n, j / n])
+    for j in range(n):
+        for i in range(n):
+            a = j * (n + 1) + i
+            F += [[a, a + 1, a + n + 2], [a, a + n + 2, a + n + 1]]
+    V, F, UV = np.array(V, float), np.array(F), np.array(UV, float)
+    cx = V[F][:, :, 0].mean(axis=1)
+    cy = V[F][:, :, 1].mean(axis=1)
+    pan = np.zeros(len(F), np.int32)
+    for k in range(5):                                                                   # пять узких светлых полос-панелей слева, остальное — панель 0
+        pan[(cx > k * 2.0 / n) & (cx < k * 2.0 / n + 1.0 / n) & (cy >= 0)] = k + 1
+    g = {'V': V, 'F': F, 'UV': UV}
+    rng = np.random.default_rng(3)
+    bef = np.full((T, T, 3), 120, np.uint8)
+    aft = np.clip(100 + rng.normal(0, 1.5, (T, T, 1)), 0, 255).astype(np.uint8) * np.ones((T, T, 3), np.uint8)
+    u = (np.arange(T) + 0.5) / T
+    for k in range(5):
+        cols = (u > k * 2.0 / n) & (u < k * 2.0 / n + 1.0 / n)
+        aft[:, cols] = np.clip(140 + rng.normal(0, 1.5, (T, int(cols.sum()), 1)), 0, 255).astype(np.uint8)
+    orig_ids = RZ.panel_ids
+    orig_med = RZ.median_without
+    calls = [0]
+
+    def counted(S_, M_):
+        calls[0] += 1
+        return orig_med(S_, M_)
+    try:
+        RZ.panel_ids = lambda V_, F_, parts_: pan
+        known = [np.zeros((T, T), bool)]
+        parts = [np.zeros(len(F), np.int32)]
+        RZ.median_without = counted
+        out_rank, rep_rank = RZ.panel_sibling_tone([g], [bef], [aft], known, parts)
+        used_rank = calls[0]
+        RZ.RANK_MIN_CANDS = 10 ** 9                                                  # путь по копии (как до T-157/Б)
+        out_copy, rep_copy = RZ.panel_sibling_tone([g], [bef], [aft], known, parts)
+    finally:
+        RZ.panel_ids = orig_ids
+        RZ.median_without = orig_med
+        RZ.RANK_MIN_CANDS = 4
+    ok(used_rank > 0, f'путь по рангам задействован ({used_rank} вызовов median_without)')
+    ok(np.array_equal(np.asarray(out_rank[0]), np.asarray(out_copy[0])) and rep_rank['panels'] == rep_copy['panels'], 'путь по рангам и путь по копии дают одно и то же (текстура и отчёт)')
+    ok(len(rep_rank['panels']) >= 4, f'сдвинуто панелей: {len(rep_rank["panels"])}')
+    o = np.asarray(out_rank[0]).astype(float)
+    ok(all(abs(float(o[8:-8, int((k * 2.0 / n + 0.2 / n) * T):int((k * 2.0 / n + 0.8 / n) * T)].mean()) - 100.0) < 3.0 for k in range(5)), 'тон всех светлых панелей стал как у остальных')
+
+
 def main():
-    for f in (test_norm_blocks, test_sibling_tone, test_panel_sibling_tone, test_own_panel_fabric_photo_quilt, test_sub_tone, test_own_panel_neutral_donor_needs_L, test_own_panel_keeps_our_L, test_align_tied, test_own_panel_smooth_no_quilt, test_align_ut, test_own_panel_clean_detail, test_own_panel_tone, test_same_mesh, test_decide, test_gate_per_property, test_propagate, test_object_basis, test_inconsistent_winding, test_outer_only, test_panel_with_bottom, test_panels, test_apply_to_fill, test_relief_source, test_ultratex_full):
+    for f in (test_norm_blocks, test_sibling_tone, test_panel_sibling_tone, test_median_without, test_panel_sibling_tone_rank_path, test_own_panel_fabric_photo_quilt, test_sub_tone, test_own_panel_neutral_donor_needs_L, test_own_panel_keeps_our_L, test_align_tied, test_own_panel_smooth_no_quilt, test_align_ut, test_own_panel_clean_detail, test_own_panel_tone, test_same_mesh, test_decide, test_gate_per_property, test_propagate, test_object_basis, test_inconsistent_winding, test_outer_only, test_panel_with_bottom, test_panels, test_apply_to_fill, test_relief_source, test_ultratex_full):
         f()
     print(f'tests_ref_zone: ошибок {len(FAILS)}')
     return 1 if FAILS else 0

@@ -923,6 +923,29 @@ def sibling_tone(geoms: list, tex_before: list, tex_after: list, known: list, pa
     return outs, rep
 
 
+RANK_MIN_CANDS = 4          # с стольких панелей-кандидатов в части медиана «остальных» берётся по рангам (одна сортировка части); меньше — по копии, как раньше
+
+
+def median_without(S, M):
+    """Точный `np.median` мультимножества S без M (M ⊂ S; оба по возрастанию, 1-D float) — без копии и без разбиения массива S (T-157/Б).
+    k-й по порядку элемент остатка — наименьшее S[i], у которого (число S ≤ S[i]) − (число M ≤ S[i]) ≥ k+1; двоичный поиск по i. Чётное число — `np.mean` двух средних, как у np.median."""
+    n = len(S) - len(M)
+
+    def kth(r):
+        lo, hi = 0, len(S) - 1
+        while lo < hi:
+            mid = (lo + hi) // 2
+            v = S[mid]
+            if np.searchsorted(S, v, 'right') - np.searchsorted(M, v, 'right') >= r + 1:
+                hi = mid
+            else:
+                lo = mid + 1
+        return S[lo]
+    if n % 2:
+        return np.mean(np.array([kth(n // 2)], dtype=S.dtype))
+    return np.mean(np.array([kth(n // 2 - 1), kth(n // 2)], dtype=S.dtype))
+
+
 def panel_sibling_tone(geoms: list, tex_before: list, tex_after: list, known: list, parts: list | None) -> tuple:
     """Панели внутри одной части (T-187/6, стул 7733, 23.11: полоса внизу спинки — панели ОДНОЙ части с тем же цветом 06, но тон 07 из мизерного известного светлее остальных на ΔL>12).
     Панель с известным < `max_known` и ≥ `min_texels` невидимых текселей, чей тон 07 (медиана L) отличается от медианы остальной части (по невидимым текселям других панелей части) более чем на `min_dL`
@@ -975,7 +998,10 @@ def panel_sibling_tone(geoms: list, tex_before: list, tex_after: list, known: li
             pb = np.flatnonzero(np.diff(pn_c[a_:b_])) + 1
             if len(pb) < 1:                                                    # панель одна — сравнивать не с чем
                 continue
-            for s_, e_ in zip(np.concatenate([[0], pb]).tolist(), np.concatenate([pb, [b_ - a_]]).tolist()):
+            bs = list(zip(np.concatenate([[0], pb]).tolist(), np.concatenate([pb, [b_ - a_]]).tolist()))
+            nq = sum(1 for s_, e_ in bs if e_ - s_ >= O['min_texels'] and float(ksum_pn[int(pn_c[a_ + s_])] / cnt_pn[int(pn_c[a_ + s_])]) < O['max_known'])
+            part_sorted = None                                                 # у части несколько кандидатов — медиану «остальных» берём по рангам из одной сортировки части, не по копии массива на панель
+            for s_, e_ in bs:
                 pid = int(pn_c[a_ + s_])
                 mine = ci[a_ + s_:a_ + e_]
                 if len(mine) < O['min_texels']:
@@ -983,12 +1009,23 @@ def panel_sibling_tone(geoms: list, tex_before: list, tex_after: list, known: li
                 ks = float(ksum_pn[pid] / cnt_pn[pid])
                 if ks >= O['max_known']:
                     continue
-                oth = np.concatenate([ci[a_:a_ + s_], ci[a_ + e_:b_]])         # порядок не важен: дальше только число и медиана
-                if len(oth) < O['min_others']:
+                if (b_ - a_) - len(mine) < O['min_others']:
                     continue
-                if float(np.linalg.norm(np.median(lb[mine], axis=0) - np.median(lb[oth], axis=0))) > O['same06_de']:
+                if nq >= RANK_MIN_CANDS:
+                    if part_sorted is None:
+                        ip = ci[a_:b_]
+                        part_sorted = (np.sort(lb[ip], axis=0), np.sort(la[ip], axis=0))
+                    lbm, lam = np.sort(lb[mine], axis=0), np.sort(la[mine], axis=0)
+                    med_lb_o = np.array([median_without(part_sorted[0][:, c], lbm[:, c]) for c in range(3)])
+                    med_la_o = np.array([median_without(part_sorted[1][:, c], lam[:, c]) for c in range(3)])
+                else:
+                    oth = np.concatenate([ci[a_:a_ + s_], ci[a_ + e_:b_]])     # порядок не важен: дальше только число и медиана
+                    med_lb_o, med_la_o = np.median(lb[oth], axis=0), None
+                if float(np.linalg.norm(np.median(lb[mine], axis=0) - med_lb_o)) > O['same06_de']:
                     continue
-                d = np.median(la[oth], axis=0) - np.median(la[mine], axis=0)
+                if med_la_o is None:
+                    med_la_o = np.median(la[oth], axis=0)
+                d = med_la_o - np.median(la[mine], axis=0)
                 if abs(float(d[0])) <= O['min_dL'] or abs(float(d[0])) > O['max_dL']:
                     continue
                 lab_new[mine] = la[mine] + d[None, :]
