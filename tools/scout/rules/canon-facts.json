@@ -205,7 +205,7 @@
   },
   {
    "id": "paint-stages-ultratex-off",
-   "mode": "warn",
+   "mode": "block",
    "claim": "Состав этапов покраски — один: блок «Как сейчас» в plans/paint-photo-fill-01.md; Ш8 UltraTex в нём выключен по умолчанию и не действующий шаг",
    "canon": [
     {
@@ -247,7 +247,7 @@
   },
   {
    "id": "paint-percent-is-not-share-passed",
-   "mode": "warn",
+   "mode": "block",
    "only_files": [
     ".memory_bank/plan-zadach.md",
     ".memory_bank/project-state.md"
@@ -278,7 +278,7 @@
   },
   {
    "id": "thirty-variants-name-denominator",
-   "mode": "warn",
+   "mode": "block",
    "claim": "«30 вариантов» — всегда с знаменателем: «на роль × ценовую ступень» (лента «Заменить», demo-swap.json per_group) или «на комнату × стиль» (комнаты) — это разные цели",
    "canon": [
     {
@@ -303,7 +303,7 @@
   },
   {
    "id": "site-model-5mb-only",
-   "mode": "warn",
+   "mode": "block",
    "claim": "Модель на сайте ≤5 МБ: число — только в P-040 и в гейте paint_web (код); в других доках рядом с «модель на сайте» иного числа МБ быть не должно",
    "canon": [
     {
