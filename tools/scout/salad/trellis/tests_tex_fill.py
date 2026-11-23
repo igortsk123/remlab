@@ -852,6 +852,14 @@ def test_unobserved_relief():
     lab = lab_of(out["tex"][0], mD)
     ok(float(lab[:, 0].std()) > 0.05, f"unobserved → σL залитого > 0 (σL {float(lab[:, 0].std()):.2f})", f"σL {float(lab[:, 0].std()):.2f}")
     ok(0 in rep["pattern_unobserved"] and rep["relief"][0]["fallback"] is None and rep.get("relief_texels", 0) > 0, "часть 0 (на ней D) «не наблюдаем» и получила рельеф UltraTex, а не fallback «узорная часть — stat»", str(rep["relief"].get(0))[:200])
+    cfgS = {"gutter": 0, "erode_known": 0, "source": "stat", "pattern_chroma": 0.0, "pattern_min_blocks": 1e9}              # боевой путь этапа 07: source=stat, UltraTex даёт рельеф ТОЛЬКО «не наблюдаем»
+    o2 = TF.fill([g], known, parts, cfg=cfgS, mirror=False, unobs_draft_fn=lambda: dt)
+    lab2 = lab_of(o2["tex"][0], mD)
+    ok(float(lab2[:, 0].std()) > 0.05 and o2["report"]["relief"][0]["fallback"] is None, f"боевой путь (stat + UltraTex): σL залитого > 0 (σL {float(lab2[:, 0].std()):.2f})", str(o2["report"].get("relief"))[:200])
+    o3 = TF.fill([g], known, parts, cfg=cfgS, mirror=False)
+    ok(float(lab_of(o3["tex"][0], mD)[:, 0].std()) < 0.01 and "relief" not in o3["report"], "контроль: без UltraTex-черновика «не наблюдаем» — голый тон (σL 0)")
+    o4 = TF.fill([g], known, parts, cfg=dict(cfgS, pattern_min_blocks=0.0, pattern_chroma=1e9), mirror=False, unobs_draft_fn=lambda: dt)
+    ok("relief" not in o4["report"], "нет «не наблюдаем» — рельеф UltraTex на stat-пути не включается (обычные части не трогаем)")
 
 
 def test_part_independence():

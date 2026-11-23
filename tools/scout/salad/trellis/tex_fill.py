@@ -804,7 +804,7 @@ def _band(lab_l: np.ndarray, mask: np.ndarray, s_lo: float, s_hi: float) -> tupl
     return b1 - b2[..., 0], w2
 
 
-def draft_relief(txs: list, draft: dict, labs: list, kn: list, part_ids: list, pat_parts: set, c: dict, R: dict, calib: dict | None = None) -> tuple:
+def draft_relief(txs: list, draft: dict, labs: list, kn: list, part_ids: list, pat_parts: set, c: dict, R: dict, calib: dict | None = None, no_homog: set | frozenset = frozenset()) -> tuple:
     """Вариант C-gated (T-164, Codex+директор 21.11): цвет — как stat, фактура невидимого — рельеф яркости черновика TRELLIS (DoG-полоса в МАСШТАБЕ ПОВЕРХНОСТИ, без цвета и пятен), только там, где это безопасно.
     Ворота по части: узорная (pat_parts) → stat; класс материала части (`c['part_class']`: {часть: семья}) вне `allowed_families` (дерево, металл, стекло…) → без рельефа; класса нет → только «однотонная» (σ низкочастотной L известного ≤ homog_max_std).
     Полоса: σ_lo/σ_hi = band_lo/band_hi (доли размера предмета) ÷ шаг текселя части (texel_spacing, поправка плотности UV). Амплитуда: gain = min(gain_max, σ_фото / σ_черновика) — оба σ робастные (MAD), фото — только уверенно известное
@@ -877,7 +877,7 @@ def draft_relief(txs: list, draft: dict, labs: list, kn: list, part_ids: list, p
         sd = _mad_sigma(DD)
         homog = float(np.concatenate([_blur_norm(np.repeat(labs[gi][..., 0][..., None], 3, axis=2), kn[gi], s_hi_k)[0][..., 0].reshape(-1)[tx.ti[selk[gi]]] for gi, tx in enumerate(txs)]).std())
         info = {'family': fam, 'spacing': round(sp, 5), 'sigma_lo_px': round(s_lo, 2), 'sigma_hi_px': round(s_hi, 2), 'sigma_photo': round(sv, 3), 'sigma_draft': round(sd, 3), 'p95_photo': round(p95, 3), 'homog_std': round(homog, 2), 'calib_donor': calib_q, 'fallback': None}
-        if fam is None and homog > R['homog_max_std']:
+        if fam is None and p not in no_homog and homog > R['homog_max_std']:
             info['fallback'] = f'класса нет, часть неоднотонная (σ низких частот {homog:.1f} > {R["homog_max_std"]}) — stat'
             rp[p] = info
             continue
@@ -929,7 +929,7 @@ def draft_relief(txs: list, draft: dict, labs: list, kn: list, part_ids: list, p
 
 
 # ---------------------------------------------------------------- заливка ---------------------------------------
-def fill(geoms: list, known: list, parts: list | None = None, cfg: dict | None = None, mirror: bool = True, draft: dict | None = None, tone_only: list | None = None) -> dict:
+def fill(geoms: list, known: list, parts: list | None = None, cfg: dict | None = None, mirror: bool = True, draft: dict | None = None, tone_only: list | None = None, unobs_draft_fn=None) -> dict:
     """geoms — `tex_coverage.load_geoms`; known — по геометрии (T×T bool), parts — по геометрии номера частей ГРАНЕЙ (None — одна часть).
     draft — черновик TRELLIS на ту же форму/развёртку (`draft_texels`): {'lab': [(T,T,3) Lab], 'ok': [(T,T) bool]}; нужен при cfg['source']=='trellis': невидимое берёт цвет черновика,
     сдвинутый переносом статистики Lab (медиана/разброс части: черновик → видимое фото), детали черновика сохраняются; стыки — та же растушёвка. 'stat' (по умолчанию) — цвет части + лоскут фактуры.
@@ -1533,16 +1533,21 @@ def fill(geoms: list, known: list, parts: list | None = None, cfg: dict | None =
             borrow_ratio = {}
     rep['texture_src'] = {int(p): ('borrow' if p in rep.get('borrowed', {}) else 'quilt' if p in rep.get('quilt_info', {}) else ('patch' if p in patches else 'none')) for p in part_ids}      # чем даётся фактура на каждой части: квилт из чистых блоков / один блок / ничем (гладко, счётчик no_patch)
     relief = None
-    if c['source'] == 'trellis_relief':
+    unobs_only = c['source'] != 'trellis_relief' and bool(qunobs) and unobs_draft_fn is not None       # боевой путь (stat): рельеф UltraTex — только «рисунок не наблюдаем»
+    if c['source'] == 'trellis_relief' or unobs_only:
         calib_ = {int(p_): int(v_['donor']) for p_, v_ in rep.get('tone_from_neighbour', {}).items()} if c.get('relief_calib_donor') else None
-        relief, rep["relief"] = draft_relief(txs, draft, labs, kn, part_ids, (set(raw_mean) | set(pat_parts)) - qunobs, c, RULES["trellis_relief"], calib=calib_)          # «рисунок не наблюдаем» — как обычная часть: рельеф UltraTex (T-187/6, 23.11)
+        if unobs_only:
+            draft = unobs_draft_fn()
+            relief, rep["relief"] = draft_relief(txs, draft, labs, kn, sorted(qunobs), set(), c, RULES["trellis_relief"], calib=calib_, no_homog=frozenset(qunobs))
+        else:
+            relief, rep["relief"] = draft_relief(txs, draft, labs, kn, part_ids, (set(raw_mean) | set(pat_parts)) - qunobs, c, RULES["trellis_relief"], calib=calib_, no_homog=frozenset(qunobs))          # «рисунок не наблюдаем» — как обычная часть: рельеф UltraTex (T-187/6, 23.11)
         Rr = RULES['trellis_relief']
         spac = [texel_spacing(tx) for tx in txs]
         fade = []
         for gi, tx in enumerate(txs):                            # затухание рельефа от границы фото в ФИЗИЧЕСКОМ расстоянии (шаг текселя × расстояние в карте), известные тексели не трогаем
             dpx = distance_transform_edt(~kn[gi])
             fade.append(np.clip(dpx.reshape(-1)[tx.ti] * spac[gi] / max(Rr['fade_len'], 1e-9), 0.0, 1.0))
-        smooth_parts = {p for p in part_ids if p not in raw_mean and p not in pat_parts and rep.get('quilt_rejected_share', {}).get(p, 0.0) > Rr['smooth_pool_rejected']}
+        smooth_parts = set() if unobs_only else {p for p in part_ids if p not in raw_mean and p not in pat_parts and rep.get('quilt_rejected_share', {}).get(p, 0.0) > Rr['smooth_pool_rejected']}
         rep['relief_smooth_parts'] = sorted(int(p) for p in smooth_parts)
     for gi, tx in enumerate(txs):
         T = tx.T
@@ -2554,8 +2559,14 @@ def run_stage_once(run: str, sku: str, glb: str, known: list | None = None, part
     kback = known_from_photo(geoms, azimuths=(180.0,))
     _to = load_tone_only_png(prev_dir) if (prev_dir and (cfg or {}).get('tone_only_use', True)) else None      # тон-слой этапа 6 (р.8): цвет оставить, фактуру положить поверх
 
+    _ut_early = None
+    if ut_glb and os.path.isfile(ut_glb) and (cfg or {}).get('source', 'stat') == 'stat':
+        _ug0 = TC.load_geoms(ut_glb)
+        _ut_early = _ug0 if RZ_same_mesh(geoms, _ug0) else None
+    _unobs_fn = (lambda: draft_texels(geoms, _ut_early, cfg)) if _ut_early is not None else None            # UltraTex — на нашей форме: яркостный рельеф для «рисунок не наблюдаем» (T-187/6, 23.11); считается только если такие части есть
+
     def one(cfg_, draft_):
-        r_ = fill(geoms, known, parts, cfg_, mirror, draft_, tone_only=_to)
+        r_ = fill(geoms, known, parts, cfg_, mirror, draft_, tone_only=_to, unobs_draft_fn=_unobs_fn if (cfg_ or {}).get('source', 'stat') == 'stat' else None)
         rp, tx_ = r_['report'], r_['tex']
         de_, bg, dw, dlw = _front_back_vals(geoms, parts, known, kback, tex_before, tx_, rp)
         vals = {'empty_pct': rp['unpainted_after_pct'], 'dE00_front_back': dw, 'dL_front_back': dlw, 'filled_faces_step_pct': rp['steps']['after']['filled_faces_step_pct'], 'far_excess_pct': rp['far_pct']['excess']}
