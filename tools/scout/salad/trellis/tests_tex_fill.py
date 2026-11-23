@@ -831,6 +831,41 @@ def test_pattern_lattice():
     ok(TF._lattice_value(rep_) == 0.48, f'_lattice_value: узорная с verdict fail держит максимум ({TF._lattice_value(rep_)})')
 
 
+def test_part_independence():
+    print('свой генератор на часть (T-187/6, 23.11): убрал одну часть — у остальных тот же результат побайтно:')
+    rs = np.random.RandomState(9)
+    cols = [(150, 110, 90)] * 3                                                     # один цвет: пятно соседней части не просачивается через размытие статистики (узорность, тон) — тест про генераторы
+    cfg = {"gutter": 0, "erode_known": 0, "src_dev_pattern": 0}
+
+    def build(keep):
+        qd = Quads()
+        tex = np.zeros((T, T, 3), np.uint8)
+        known = np.zeros((T, T), bool)
+        for p in keep:
+            u0, u1 = p / 3.0 + 0.03, (p + 1) / 3.0 - 0.03                              # зазоры между плитками: части не соприкасаются в карте
+            kt, ut = (u0, 0.53, u1, 0.97), (u0, 0.03, u1, 0.47)
+            qd.quad([[p, 1, 0], [p + 0.9, 1, 0], [p + 0.9, 2, 0], [p, 2, 0]], kt, part=p, sub=4)
+            qd.quad([[p, 0, 0], [p + 0.9, 0, 0], [p + 0.9, 1, 0], [p, 1, 0]], ut, part=p, sub=4)
+            m = tile_mask(kt)
+            ys, xs = np.nonzero(m)
+            tex[ys, xs] = np.clip(np.array(cols[p]) + np.random.RandomState(100 + p).normal(0, 4.0, (len(ys), 1)), 0, 255).astype(np.uint8)
+            known |= m
+        g = qd.geom(tex)
+        out = TF.fill([g], [known], [np.asarray(qd.part, np.int32)], cfg=cfg, mirror=False)
+        return out['tex'][0]
+    rs_ = np.random.RandomState(9)
+    a = build([0, 1, 2])
+    rs_ = np.random.RandomState(9)
+    b = build([0, 2])
+    diff = {}
+    for p in (0, 2):
+        m = tile_mask((p / 3.0 + 0.03, 0.03, (p + 1) / 3.0 - 0.03, 0.47))
+        diff[p] = int((a[m] != b[m]).sum())
+    ok(diff[0] == 0 and diff[2] == 0, f'части 0 и 2 одинаковы с частью 1 и без неё (разницы: {diff})')
+    m1 = tile_mask((1 / 3.0 + 0.03, 0.03, 2 / 3.0 - 0.03, 0.47))
+    ok(int((a[m1] != 0).sum()) > 0, 'контроль: у части 1 заливка есть (тест не пустой)')
+
+
 def test_quilt_holes():
     print('квилт при дырявом известном (вход этапа 6: грани мельче пикселя фото):')
     q = Quads()
@@ -1741,7 +1776,7 @@ def test_side_azimuths():
 
 
 def main() -> int:
-    for f in (test_check_on_final_texture, test_side_azimuths, test_top_prior_hook, test_mirror_off_by_default, test_shrink_layout, test_tie_picks_front_on_back, test_front_on_back, test_front_on_back_within_parts, test_front_on_back_unequal_parts, test_color, test_photo, test_parts, test_lighter_than_photo, test_no_known_part, test_mirror, test_texture, test_gutter_render, test_seam_steps_concavity, test_diffuse_quilt_far, test_draft_source, test_tone_mode_pattern, test_quilt_efros, test_quilt_holes, test_known_unchanged, test_render_pattern, test_outlier_blocks, test_dark_fabric, test_trellis_relief, test_part_roles_from_stage3, test_stage7_side_tone_smooth_rules, test_tone_from_neighbour, test_nail_twins, test_borrow_donors, test_tone_only, test_part_pattern_single_truth, test_pr_camera_and_winding, test_hidden_visible, test_stage6_gate, test_cli_run_stage, test_orphan_parts, test_cli_parts_flags, test_zones_fallback, test_brightness_target_median, test_run_stage_fallback, test_render_low, test_quilt_lattice, test_pattern_lattice):
+    for f in (test_check_on_final_texture, test_side_azimuths, test_top_prior_hook, test_mirror_off_by_default, test_shrink_layout, test_tie_picks_front_on_back, test_front_on_back, test_front_on_back_within_parts, test_front_on_back_unequal_parts, test_color, test_photo, test_parts, test_lighter_than_photo, test_no_known_part, test_mirror, test_texture, test_gutter_render, test_seam_steps_concavity, test_diffuse_quilt_far, test_draft_source, test_tone_mode_pattern, test_quilt_efros, test_quilt_holes, test_known_unchanged, test_render_pattern, test_outlier_blocks, test_dark_fabric, test_trellis_relief, test_part_roles_from_stage3, test_stage7_side_tone_smooth_rules, test_tone_from_neighbour, test_nail_twins, test_borrow_donors, test_tone_only, test_part_pattern_single_truth, test_pr_camera_and_winding, test_hidden_visible, test_stage6_gate, test_cli_run_stage, test_orphan_parts, test_cli_parts_flags, test_zones_fallback, test_brightness_target_median, test_run_stage_fallback, test_render_low, test_quilt_lattice, test_pattern_lattice, test_part_independence):
         f()
     print(f'tests_tex_fill: ошибок {bad}')
     return 1 if bad else 0

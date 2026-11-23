@@ -445,6 +445,11 @@ def quilt_lattice(patch: np.ndarray, step: int) -> dict:
     return best
 
 
+def part_rng(base: int, part, gi: int = 0) -> np.random.RandomState:
+    """Свой генератор на часть (и геометрию): результат части не зависит от того, сколько и каких частей рядом (T-187/6, 23.11)."""
+    return np.random.RandomState((int(base) + 1000003 * (int(part) + 1) + 7919 * int(gi)) % (2 ** 31 - 1))
+
+
 def known_lattice(res: np.ndarray, ok: np.ndarray, step: int):
     """Эталон src для узорной части (T-187/6, 23.11): та же мерка, что `quilt_lattice` (деталь L = L минус гаусс σ6; избыток автокорреляции на лагах k·step над средним соседних ±step/2), но по ВСЕМУ известному
     части с дырами: маскированная автокорреляция без обёртки (сумма произведений пар известных / число пар), нормирована на лаг 0. Это период самого рисунка фото, не квилта.
@@ -1256,12 +1261,13 @@ def fill(geoms: list, known: list, parts: list | None = None, cfg: dict | None =
         Lv = np.concatenate([labs[gi].reshape(-1, 3)[tx.ti[kn[gi].reshape(-1)[tx.ti] & (tx.part == p)], 0] for gi, tx in enumerate(txs)])
         shade_lo[p] = float(np.quantile(Lv, c['tone_shadow_q'])) if len(Lv) and c['tone_shadow_q'] > 0 else -1e9
     if c['patch_mode'] == 'quilt' and (dshift is None or c['draft_texture']):
-        qrng = np.random.RandomState(7)
+        qrngs = {}                                           # свой генератор на часть (живёт между ступенями лестницы: пересборки различаются)
         pr_S = pr_lab = pr_kn = pr_pm = None
         qwork = [(p, int(c['quilt_stride_div']), 0) for p in part_ids]      # часть может вернуться в конец списка с более плотным пулом (мерка решётки квилта); список растёт на ходу
         qlat = {}
         qsrc, qbq, qbig = {}, {}, {}          # узорные: эталон src решётки, блок первой сборки, пробовалась ли ступень (в)
         for p, qdiv, qaug in qwork:
+            qrng = qrngs.setdefault(int(p), part_rng(7, p))
             resg, okg = [], []
             for gi, tx in enumerate(txs):
                 res_, pm, _im = blk[gi]
@@ -1498,7 +1504,7 @@ def fill(geoms: list, known: list, parts: list | None = None, cfg: dict | None =
                 ss = np.array([x[0] for x in cands])
                 med = float(np.median(ss))
                 near = np.argsort(np.abs(ss - med))[:max(2, min(len(cands), 32))]
-                pick = rng.choice(near, size=nq * nq, replace=True)
+                pick = part_rng(5, p).choice(near, size=nq * nq, replace=True)
                 rows = [np.concatenate([cands[int(pick[r * nq + q])][1] for q in range(nq)], axis=1) for r in range(nq)]
                 patches[p] = np.concatenate(rows, axis=0)
                 patch_gain[p] = med / max(float(patches[p].std()), 1e-6)
@@ -1554,9 +1560,10 @@ def fill(geoms: list, known: list, parts: list | None = None, cfg: dict | None =
             if not sel.any():
                 continue
             Bp = patches[p].shape[0]
-            tile = patches[p] if p in raw_mean else _gaussian_tile(patches[p], rng)
-            ox1, oy1 = rng.randint(0, Bp, 2)
-            ox2, oy2 = rng.randint(0, Bp, 2)
+            rng_p = part_rng(5, p, gi)
+            tile = patches[p] if p in raw_mean else _gaussian_tile(patches[p], rng_p)
+            ox1, oy1 = rng_p.randint(0, Bp, 2)
+            ox2, oy2 = rng_p.randint(0, Bp, 2)
             t2 = np.rot90(tile)
             qx_, qy_ = px[sel], py[sel]
             if p in borrow_ratio and c.get('borrow_rescale', True):                                  # лоскут донора — в масштабе поверхности (физический размер зерна тот же)
