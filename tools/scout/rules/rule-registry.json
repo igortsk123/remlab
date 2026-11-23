@@ -1,24 +1,40 @@
 {
   "_why": "Реестр правил (T-20261123-48, план type-rules-code-01 § Б, владелец TG 2308): ОДИН адрес правила. Состояние у ПРАВИЛА, не у документа. Журнал брака паспорта, Ш-строки paint-photo-fill-01 и план кругов ссылаются на rule_id, второй формулировки не держат. Сверку делает tools/ops/rule_registry_audit.py (CI): active = consumer существует и читает правило, runtime=enforce, тест есть и прописан в ci.yml. Кандидатов (proposed) без вердикта директора не включать. Правит реестр директор/р.1; числа-пороги здесь не живут — они в rules/*.json потребителя.",
-  "version": 1,
+  "version": 2,
   "states": {
     "proposed": "записано, исполнителя нет или нет вердикта директора — конвейер правило НЕ применяет",
     "trial": "код есть, но работает в observe/частично/без боевого пути — конвейер не блокирует",
     "active": "конвейер применяет сам (runtime=enforce), есть consumer и тест в CI",
     "retired": "снято (отрицательный результат / заменено) — оставлено для истории"
   },
-  "runtime_values": ["enforce", "observe", "off", "none"],
+  "runtime_values": [
+    "enforce",
+    "observe",
+    "off",
+    "none"
+  ],
   "rules": [
     {
       "rule_id": "R-WIND-09",
       "title": "Обход граней согласован и объём наружу (иначе знаковая нормаль врёт в 06/08)",
       "state": "active",
-      "source": ["T-20261123-42", "plans/mesh-type-rules-01.md журнал 23.11 «исправлено (правило, порог проверен на порче)»"],
-      "applies": {"types": ["all"]},
+      "source": [
+        "T-20261123-42",
+        "plans/mesh-type-rules-01.md журнал 23.11 «исправлено (правило, порог проверен на порче)»"
+      ],
+      "applies": {
+        "types": [
+          "all"
+        ]
+      },
       "executor": "р.1 (T-42)",
       "consumer": "tools/scout/paint_surface_checks.py:winding_check",
       "runtime": "enforce",
       "test": "tools/scout/tests/test_mesh_winding.py",
+      "test_positive": "tools/scout/tests/test_rule_examples.py::test_wind_positive",
+      "test_negative": "tools/scout/tests/test_rule_examples.py::test_wind_negative",
+      "run_id": "t220-1123/run09e",
+      "flag": "tools/scout/rules/paint-surface-checks.json#enabled",
       "check_field": "09-check.surface.metrics.winding_consistency",
       "enabled": "2026-11-23",
       "note": "порог проверен только на порче копий; настоящего несогласованного меша в наборах нет"
@@ -27,12 +43,23 @@
       "rule_id": "R-LADDER-02",
       "title": "Форма лесенки: ≥99 % граней с текселем в атласе (иначе пятна не того цвета); без родной формы мерки «против родной» не считаются",
       "state": "active",
-      "source": ["T-20261123-45", "plans/mesh-type-rules-01.md журнал 23.11 «найдено, правило записано» (15404)"],
-      "applies": {"types": ["all"]},
+      "source": [
+        "T-20261123-45",
+        "plans/mesh-type-rules-01.md журнал 23.11 «найдено, правило записано» (15404)"
+      ],
+      "applies": {
+        "types": [
+          "all"
+        ]
+      },
       "executor": "р.1 (T-45)",
       "consumer": "tools/scout/stablegen/sg_color_transfer.py:stage02_form",
       "runtime": "enforce",
       "test": "tools/scout/tests/test_ladder_checks.py",
+      "test_positive": "tools/scout/tests/test_rule_examples.py::test_ladder_positive",
+      "test_negative": "tools/scout/tests/test_rule_examples.py::test_ladder_negative",
+      "run_id": "t45-dry",
+      "flag": null,
       "check_field": "02-prep.faces_with_texel",
       "enabled": "2026-11-23"
     },
@@ -40,12 +67,23 @@
       "rule_id": "R-PHOTO-05",
       "title": "Результат 05 принимается только если sha256 его исходного фото = фото пакета, иначе «нет данных»",
       "state": "active",
-      "source": ["T-20261123-46", "владелец: 05 по чужому фото — находка ❹ директора"],
-      "applies": {"types": ["all"]},
+      "source": [
+        "T-20261123-46",
+        "владелец: 05 по чужому фото — находка ❹ директора"
+      ],
+      "applies": {
+        "types": [
+          "all"
+        ]
+      },
       "executor": "р.1 (T-46)",
       "consumer": "tools/scout/plan09.py:photo_matches",
       "runtime": "enforce",
       "test": "tools/scout/tests_plan09.py",
+      "test_positive": "tools/scout/tests/test_rule_examples.py::test_photo_positive",
+      "test_negative": "tools/scout/tests/test_rule_examples.py::test_photo_negative",
+      "run_id": "t46-delight-1123",
+      "flag": null,
       "check_field": "05-delight.source_photo_sha256",
       "enabled": "2026-11-23"
     },
@@ -53,12 +91,24 @@
       "rule_id": "R-GLOSS-08",
       "title": "Шероховатость по классу: матовые материалы (ЛДСП, МДФ, дерево без лака) ≥0,7; глянец — только по слову лак/глянец в названии или характеристиках",
       "state": "active",
-      "source": ["T-20261123-33", "владелец TG 2240 «заплатками»", "plans/mesh-type-rules-01.md журнал 23.11 «исправлено (порог — гипотеза)» шкаф 10887"],
-      "applies": {"families": ["корпусное"]},
+      "source": [
+        "T-20261123-33",
+        "владелец TG 2240 «заплатками»",
+        "plans/mesh-type-rules-01.md журнал 23.11 «исправлено (порог — гипотеза)» шкаф 10887"
+      ],
+      "applies": {
+        "families": [
+          "корпусное"
+        ]
+      },
       "executor": "р.2 (T-33)",
       "consumer": "tools/assets/material_stage.py:_gloss_finish",
       "runtime": "enforce",
       "test": "tools/assets/tests/test_material_stage.py::test_gloss_finish",
+      "test_positive": "tools/scout/tests/test_rule_examples.py::test_gloss_positive",
+      "test_negative": "tools/scout/tests/test_rule_examples.py::test_gloss_negative",
+      "run_id": "t233-1123",
+      "flag": null,
       "check_field": "08-material.gloss_finish_share",
       "enabled": "2026-11-23",
       "note": "пороги шероховатости 0,7 — гипотеза на 4 товарах"
@@ -67,12 +117,24 @@
       "rule_id": "R-BACKPANEL-06",
       "title": "Зад корпусной: рельеф, дорисованный TRELLIS по лицу, выравнивается в плоскость; камере не верим при слабом согласии кромок; фото-сторону не трогаем",
       "state": "trial",
-      "source": ["T-20261123-41", "plans/mesh-type-rules-01.md журнал 23.11 «исправлено (порог — гипотеза)» + «найден дефект камеры»", "a-types-1123.md § 1 (строка «заднюю панель корпусного меша выравнивать»)"],
-      "applies": {"families": ["корпусное"]},
+      "source": [
+        "T-20261123-41",
+        "plans/mesh-type-rules-01.md журнал 23.11 «исправлено (порог — гипотеза)» + «найден дефект камеры»",
+        "a-types-1123.md § 1 (строка «заднюю панель корпусного меша выравнивать»)"
+      ],
+      "applies": {
+        "families": [
+          "корпусное"
+        ]
+      },
       "executor": "р.4 (T-41)",
       "consumer": "tools/scout/edge_sharpen.py:back_panel",
       "runtime": "off",
       "test": "tools/scout/stablegen/tests_edge_sharpen.py",
+      "test_positive": null,
+      "test_negative": null,
+      "run_id": null,
+      "flag": null,
       "check_field": null,
       "enabled": null,
       "note": "режим back_panel есть в edge_sharpen и rules/edge-sharpen.json; включён ли он в боевой путь и пишет ли rule_id в check.json — не подтверждено; поза 04 на «перед/зад» у корпусных — отдельная нерешённая задача этапа 4. Перевести в active — после проверки директором"
@@ -81,12 +143,25 @@
       "rule_id": "R-TYPE-FACADE-BACK",
       "title": "К1: фасад не переносить на зад; зад корпусной мебели — материал боков/корпуса (политика ТИПА в синтезе 07 и оценке сторон)",
       "state": "proposed",
-      "source": ["plans/mesh-type-rules-01.md § Черновик К1", "plans/paint-photo-fill-01.md (Ш-строки, мерка «один материал — один тон»)", "plans/paint-cycles-1123.md п.17", "a-types-1123.md § 1 К1"],
-      "applies": {"families": ["корпусное"]},
+      "source": [
+        "plans/mesh-type-rules-01.md § Черновик К1",
+        "plans/paint-photo-fill-01.md (Ш-строки, мерка «один материал — один тон»)",
+        "plans/paint-cycles-1123.md п.17",
+        "a-types-1123.md § 1 К1"
+      ],
+      "applies": {
+        "families": [
+          "корпусное"
+        ]
+      },
       "executor": "р.6 (синтез) + р.4 (оценка)",
       "consumer": null,
       "runtime": "none",
       "test": null,
+      "test_positive": null,
+      "test_negative": null,
+      "run_id": null,
+      "flag": null,
       "check_field": null,
       "enabled": null,
       "note": "общие surface_groups/body_override (rules/paint-fill.json) есть, но политику ТИПА не выбирают; план А1–А2 type-rules-code-01"
@@ -95,12 +170,24 @@
       "rule_id": "R-TYPE-OPENINGS",
       "title": "К2: у стеллажа/витрины проём остаётся пустотой, зад — каркас, стекло — своя зона",
       "state": "proposed",
-      "source": ["plans/mesh-type-rules-01.md § Черновик К2", "a-types-1123.md § 1 К2"],
-      "applies": {"types": ["стеллаж", "витрина"]},
+      "source": [
+        "plans/mesh-type-rules-01.md § Черновик К2",
+        "a-types-1123.md § 1 К2"
+      ],
+      "applies": {
+        "types": [
+          "стеллаж",
+          "витрина"
+        ]
+      },
       "executor": "р.6 (paint.openings)",
       "consumer": null,
       "runtime": "none",
       "test": null,
+      "test_positive": null,
+      "test_negative": null,
+      "run_id": null,
+      "flag": null,
       "check_field": null,
       "enabled": null,
       "note": "в паспорте стеллажа guards и paint пусты; политики «не заделывать проём» для 07 нет"
@@ -109,12 +196,27 @@
       "rule_id": "R-TYPE-SOFT-BACK",
       "title": "К3: зад и бока мягкой мебели — та же ткань, но без подушек, пуговиц и деталей лица; верх кровати — бельё",
       "state": "proposed",
-      "source": ["plans/mesh-type-rules-01.md § Черновик К3", "plans/paint-cycles-1123.md п.17", "a-types-1123.md § 1 К3"],
-      "applies": {"families": ["мягкое"], "types": ["кровать"]},
+      "source": [
+        "plans/mesh-type-rules-01.md § Черновик К3",
+        "plans/paint-cycles-1123.md п.17",
+        "a-types-1123.md § 1 К3"
+      ],
+      "applies": {
+        "families": [
+          "мягкое"
+        ],
+        "types": [
+          "кровать"
+        ]
+      },
       "executor": "р.6 (hidden_pattern=same_fabric, hidden_exclusions)",
       "consumer": null,
       "runtime": "none",
       "test": null,
+      "test_positive": null,
+      "test_negative": null,
+      "run_id": null,
+      "flag": null,
       "check_field": null,
       "enabled": null,
       "note": "surface_passport группирует по измеренному материалу, но политики «та же ткань без деталей фасада» не знает; кровать и кресло получают один family, верх кровати требует иной зоны"
@@ -123,12 +225,26 @@
       "rule_id": "R-TYPE-TABLE-CHAIR",
       "title": "К4: у стола зад может повторять перед; у стула обратная сторона спинки гладкая; тонкие ножки и просветы сохранить",
       "state": "proposed",
-      "source": ["plans/mesh-type-rules-01.md § Черновик К4", "plans/paint-cycles-1123.md п.17", "a-types-1123.md § 1 К4"],
-      "applies": {"types": ["стол обеденный", "столик", "стул"]},
+      "source": [
+        "plans/mesh-type-rules-01.md § Черновик К4",
+        "plans/paint-cycles-1123.md п.17",
+        "a-types-1123.md § 1 К4"
+      ],
+      "applies": {
+        "types": [
+          "стол обеденный",
+          "столик",
+          "стул"
+        ]
+      },
       "executor": "р.6 + р.4",
       "consumer": null,
       "runtime": "none",
       "test": null,
+      "test_positive": null,
+      "test_negative": null,
+      "run_id": null,
+      "flag": null,
       "check_field": null,
       "enabled": null,
       "note": "общие проверки ножек и контура в form_checks есть; различия стол↔стул в 07 нет; у стула paint пуст"
@@ -137,12 +253,30 @@
       "rule_id": "R-TYPE-ROUND-PATTERN",
       "title": "К5–К7: абажур, ваза, кашпо продолжают рисунок вокруг; подушка — с двух сторон; полупрозрачные шторы — не глухая ткань",
       "state": "proposed",
-      "source": ["plans/mesh-type-rules-01.md § Черновик К5–К7", "a-types-1123.md § 1 К5–К7"],
-      "applies": {"types": ["ваза", "кашпо", "торшер", "лампа", "люстра", "бра", "подушка", "шторы"]},
+      "source": [
+        "plans/mesh-type-rules-01.md § Черновик К5–К7",
+        "a-types-1123.md § 1 К5–К7"
+      ],
+      "applies": {
+        "types": [
+          "ваза",
+          "кашпо",
+          "торшер",
+          "лампа",
+          "люстра",
+          "бра",
+          "подушка",
+          "шторы"
+        ]
+      },
       "executor": "р.6 (hidden_pattern=continue)",
       "consumer": null,
       "runtime": "none",
       "test": null,
+      "test_positive": null,
+      "test_negative": null,
+      "run_id": null,
+      "flag": null,
       "check_field": null,
       "enabled": null,
       "note": "общий отсев узора по направлению к фото (tex_fill) для вазы может давать результат противоположный требуемому"
@@ -151,12 +285,23 @@
       "rule_id": "R-TYPE-FLAT-ROUTE",
       "title": "К8: плоские изделия (картина, ковёр и т.п.) не идут на обычную объёмную покраску — своя стратегия",
       "state": "trial",
-      "source": ["plans/mesh-type-rules-01.md § Черновик К8", "a-types-1123.md § 1 К8"],
-      "applies": {"families": ["плоское"]},
+      "source": [
+        "plans/mesh-type-rules-01.md § Черновик К8",
+        "a-types-1123.md § 1 К8"
+      ],
+      "applies": {
+        "families": [
+          "плоское"
+        ]
+      },
       "executor": "паспорта типов (mesh-type-passports-01)",
       "consumer": "tools/scout/asset_strategy.py:strategy",
       "runtime": "observe",
       "test": "tools/scout/tests/test_mesh_type_passports.py",
+      "test_positive": null,
+      "test_negative": null,
+      "run_id": null,
+      "flag": null,
       "check_field": null,
       "enabled": null,
       "note": "procedural_plane/cutout заданы для ряда типов, но паспорт provisional и маршрутом не управляет; проверяется только совпадение с каноном стратегий"
@@ -165,12 +310,25 @@
       "rule_id": "R-TYPE-PHOTO-VIEWS",
       "title": "Товару с «лицом» — фото только соответствующим видам; симметричному — любым",
       "state": "proposed",
-      "source": ["plans/mesh-type-rules-01.md (подписи видов)", "ADR-0451…0500 (paint.photo_views)", "a-types-1123.md § 1"],
-      "applies": {"types": ["кровать", "подушка"]},
+      "source": [
+        "plans/mesh-type-rules-01.md (подписи видов)",
+        "ADR-0451…0500 (paint.photo_views)",
+        "a-types-1123.md § 1"
+      ],
+      "applies": {
+        "types": [
+          "кровать",
+          "подушка"
+        ]
+      },
       "executor": "р.6/р.4 (новый путь: политика 06/07 по типу)",
       "consumer": null,
       "runtime": "none",
       "test": null,
+      "test_positive": null,
+      "test_negative": null,
+      "run_id": null,
+      "flag": null,
       "check_field": null,
       "enabled": null,
       "note": "код подписей видов — только в старом StableGen; новый путь проецирует фото камерой 04 и paint.photo_views не читает"
@@ -179,12 +337,24 @@
       "rule_id": "R-GUARD-HEADBOARD",
       "title": "Кровать: сторож потери изголовья при вырезке",
       "state": "trial",
-      "source": ["ADR-0456", "plans/mesh-type-passports-01", "a-types-1123.md § 1"],
-      "applies": {"types": ["кровать"]},
+      "source": [
+        "ADR-0456",
+        "plans/mesh-type-passports-01",
+        "a-types-1123.md § 1"
+      ],
+      "applies": {
+        "types": [
+          "кровать"
+        ]
+      },
       "executor": "паспорта типов",
       "consumer": "tools/scout/cutout_guards.py:policy_headboard_loss",
       "runtime": "observe",
       "test": "tools/scout/tests/test_mesh_type_passports.py",
+      "test_positive": null,
+      "test_negative": null,
+      "run_id": null,
+      "flag": null,
       "check_field": null,
       "enabled": null,
       "note": "сторож пишет вердикт в passport_shadow, но в mode=observe ничего не блокирует"
@@ -193,12 +363,24 @@
       "rule_id": "R-GUARD-PILLOW",
       "title": "Подушка: сторож однотонности при вырезке",
       "state": "trial",
-      "source": ["ADR-0456", "plans/mesh-type-passports-01", "a-types-1123.md § 1"],
-      "applies": {"types": ["подушка"]},
+      "source": [
+        "ADR-0456",
+        "plans/mesh-type-passports-01",
+        "a-types-1123.md § 1"
+      ],
+      "applies": {
+        "types": [
+          "подушка"
+        ]
+      },
       "executor": "паспорта типов",
       "consumer": "tools/scout/cutout_guards.py:policy_pillow_plain",
       "runtime": "observe",
       "test": "tools/scout/tests/test_mesh_type_passports.py",
+      "test_positive": null,
+      "test_negative": null,
+      "run_id": null,
+      "flag": null,
       "check_field": null,
       "enabled": null,
       "note": "то же: observe, ничего не блокирует"
@@ -207,12 +389,24 @@
       "rule_id": "R-CUT-LEGS-GAP",
       "title": "Фон между ножками кровати/кресла — вырезать, не превращать в плиту; не подклеивать провод у края",
       "state": "proposed",
-      "source": ["plans/mesh-type-rules-01.md строки «предл./вопрос»", "a-types-1123.md § 1"],
-      "applies": {"types": ["кровать", "кресло"]},
+      "source": [
+        "plans/mesh-type-rules-01.md строки «предл./вопрос»",
+        "a-types-1123.md § 1"
+      ],
+      "applies": {
+        "types": [
+          "кровать",
+          "кресло"
+        ]
+      },
       "executor": "не назначен",
       "consumer": null,
       "runtime": "none",
       "test": null,
+      "test_positive": null,
+      "test_negative": null,
+      "run_id": null,
+      "flag": null,
       "check_field": null,
       "enabled": null,
       "note": "гипотезы, не принятый гейт; у типов нет таких guards"
@@ -221,12 +415,24 @@
       "rule_id": "R-FORM-HARD",
       "title": "Ш0: жёсткий брак формы (битый GLB, открытые рёбра, парящие куски) → новый seed",
       "state": "trial",
-      "source": ["plans/paint-photo-fill-01.md Ш0", "владелец TG 1638", "P-064"],
-      "applies": {"types": ["all"]},
+      "source": [
+        "plans/paint-photo-fill-01.md Ш0",
+        "владелец TG 1638",
+        "P-064"
+      ],
+      "applies": {
+        "types": [
+          "all"
+        ]
+      },
       "executor": "р.1 (T-184)",
       "consumer": "tools/scout/salad/render/form_checks.py:glb_sane",
       "runtime": "enforce",
       "test": "tools/scout/salad/render/tests_form_checks.py",
+      "test_positive": null,
+      "test_negative": null,
+      "run_id": null,
+      "flag": null,
       "check_field": null,
       "enabled": null,
       "note": "общие мерки ловят 0 из 4 виденных браков (сверка 31 формы); критерии по типам (тонкие столешницы, бахрома, стекло) отсутствуют — потому trial, не active"
@@ -235,12 +441,25 @@
       "rule_id": "R-FORM-GATE",
       "title": "Ш0: корпусная форма — читаются щели, число дверей/ящиков как на фото, иначе новый seed (form_gate)",
       "state": "trial",
-      "source": ["plans/paint-photo-fill-01.md Ш0 (form_gate, 23.11)", "plans/mesh-type-rules-01.md § Ш0", "P-064", "a-types-1123.md § 1"],
-      "applies": {"families": ["корпусное"]},
+      "source": [
+        "plans/paint-photo-fill-01.md Ш0 (form_gate, 23.11)",
+        "plans/mesh-type-rules-01.md § Ш0",
+        "P-064",
+        "a-types-1123.md § 1"
+      ],
+      "applies": {
+        "families": [
+          "корпусное"
+        ]
+      },
       "executor": "р.1 (T-184/8)",
       "consumer": "tools/scout/salad/render/form_gate.py:gate",
       "runtime": "observe",
       "test": "tools/scout/salad/render/tests_form_gate.py",
+      "test_positive": null,
+      "test_negative": null,
+      "run_id": null,
+      "flag": null,
       "check_field": null,
       "enabled": null,
       "note": "form_gate пишет оценку (needs_review) и не останавливает путь; VLM — observe на трёх видах; legs_match — observe"
@@ -249,12 +468,28 @@
       "rule_id": "R-FORM-GLASS",
       "title": "Прозрачное стекло не принимать только по силуэту; цвет и прозрачность — по стеклянной части",
       "state": "proposed",
-      "source": ["plans/mesh-type-rules-01.md строки Ш0 «кандидат/проба»", "a-types-1123.md § 1"],
-      "applies": {"types": ["витрина", "лампа", "люстра", "торшер", "бра", "зеркало"]},
+      "source": [
+        "plans/mesh-type-rules-01.md строки Ш0 «кандидат/проба»",
+        "a-types-1123.md § 1"
+      ],
+      "applies": {
+        "types": [
+          "витрина",
+          "лампа",
+          "люстра",
+          "торшер",
+          "бра",
+          "зеркало"
+        ]
+      },
       "executor": "не назначен",
       "consumer": null,
       "runtime": "none",
       "test": null,
+      "test_positive": null,
+      "test_negative": null,
+      "run_id": null,
+      "flag": null,
       "check_field": null,
       "enabled": null,
       "note": "обязательного сквозного типового гейта нет"
@@ -263,12 +498,23 @@
       "rule_id": "R-SOFT-STITCH",
       "title": "Мягкая обивка: не удваивать глубину стёжки рельефом формы и нарисованной тенью",
       "state": "proposed",
-      "source": ["plans/mesh-type-rules-01.md (стёжка, 1–1,5 см → позднейшая мерка)", "a-types-1123.md § 1"],
-      "applies": {"families": ["мягкое"]},
+      "source": [
+        "plans/mesh-type-rules-01.md (стёжка, 1–1,5 см → позднейшая мерка)",
+        "a-types-1123.md § 1"
+      ],
+      "applies": {
+        "families": [
+          "мягкое"
+        ]
+      },
       "executor": "не назначен",
       "consumer": null,
       "runtime": "none",
       "test": null,
+      "test_positive": null,
+      "test_negative": null,
+      "run_id": null,
+      "flag": null,
       "check_field": null,
       "enabled": null,
       "note": "две величины в строках журнала — нельзя внедрять обе как независимые правила; нужен вердикт, какая из них действует"
@@ -277,12 +523,27 @@
       "rule_id": "R-TOP-PRIOR",
       "title": "Невидимый верх столешницы: материал и тон своей верхней поверхности, не торца; контрастный обод — отдельная зона",
       "state": "trial",
-      "source": ["plans/paint-photo-fill-01.md Ш3в", "plans/mesh-type-rules-01.md журнал 23.11 (комод 5624916724 «исправлено»)", "a-types-1123.md § 1"],
-      "applies": {"types": ["комод", "тв-тумба", "стол обеденный", "столик"]},
+      "source": [
+        "plans/paint-photo-fill-01.md Ш3в",
+        "plans/mesh-type-rules-01.md журнал 23.11 (комод 5624916724 «исправлено»)",
+        "a-types-1123.md § 1"
+      ],
+      "applies": {
+        "types": [
+          "комод",
+          "тв-тумба",
+          "стол обеденный",
+          "столик"
+        ]
+      },
       "executor": "р.6 (T-09/1)",
       "consumer": "tools/scout/salad/trellis/tex_fill.py:top_prior_hook",
       "runtime": "enforce",
       "test": "tools/scout/salad/trellis/tests_tex_fill.py",
+      "test_positive": null,
+      "test_negative": null,
+      "run_id": null,
+      "flag": null,
       "check_field": null,
       "enabled": null,
       "note": "хук есть; условие «тип верха и достоверность данных карточки» не сводится к «любой горизонтальный верх»; пороги обода — стартовые"
@@ -291,12 +552,23 @@
       "rule_id": "R-GROUPS-GRADIENT",
       "title": "Не заливать фактуру рисунком лица при малом числе наблюдаемых блоков; градиент — отдельная поверхность",
       "state": "trial",
-      "source": ["plans/mesh-type-rules-01.md журнал 23.11 (градиент, столик №22)", "a-types-1123.md § 1"],
-      "applies": {"types": ["all"]},
+      "source": [
+        "plans/mesh-type-rules-01.md журнал 23.11 (градиент, столик №22)",
+        "a-types-1123.md § 1"
+      ],
+      "applies": {
+        "types": [
+          "all"
+        ]
+      },
       "executor": "р.6 (T-09/1)",
       "consumer": "tools/scout/salad/trellis/surface_passport.py:fit_gradient",
       "runtime": "observe",
       "test": "tools/scout/salad/trellis/tests_surface_passport.py",
+      "test_positive": null,
+      "test_negative": null,
+      "run_id": null,
+      "flag": null,
       "check_field": null,
       "enabled": null,
       "note": "surface_groups.gradient включён в paint-fill.json, но его проверочный gate выключен; пороги — гипотеза; не заменяет семантическое правило «фасадный рисунок нельзя на корпус»"
@@ -305,12 +577,23 @@
       "rule_id": "R-SIDES-EVAL-TYPE",
       "title": "Оценка «рисунок перенесён» зависит от типа: ровный зад комода — не брак, у вазы — брак",
       "state": "proposed",
-      "source": ["plans/paint-cycles-1123.md п.17", "a-types-1123.md § 1 (последняя строка)"],
-      "applies": {"types": ["all"]},
+      "source": [
+        "plans/paint-cycles-1123.md п.17",
+        "a-types-1123.md § 1 (последняя строка)"
+      ],
+      "applies": {
+        "types": [
+          "all"
+        ]
+      },
       "executor": "р.4 (sides_eval)",
       "consumer": null,
       "runtime": "none",
       "test": null,
+      "test_positive": null,
+      "test_negative": null,
+      "run_id": null,
+      "flag": null,
       "check_field": null,
       "enabled": null,
       "note": "sides_eval.f_pattern одинаково требует узор на любой проверяемой стороне; test_sides_eval закрепляет это ожидание (ложный брак у комода) — нужен новый тест вместе с правилом"
@@ -319,12 +602,23 @@
       "rule_id": "R-CAMERA-AMBIG",
       "title": "Ш2: ничья поз камеры → camera_ambiguous, фото только на тексели, видимые во всех вероятных позах",
       "state": "proposed",
-      "source": ["plans/paint-photo-fill-01.md Ш2", "plans/paint-cycles-1123.md (z-буфер/ничья, ветка feat/t201-zbuf-1123)"],
-      "applies": {"types": ["all"]},
+      "source": [
+        "plans/paint-photo-fill-01.md Ш2",
+        "plans/paint-cycles-1123.md (z-буфер/ничья, ветка feat/t201-zbuf-1123)"
+      ],
+      "applies": {
+        "types": [
+          "all"
+        ]
+      },
       "executor": "р.4 (T-173/T-201)",
       "consumer": null,
       "runtime": "none",
       "test": null,
+      "test_positive": null,
+      "test_negative": null,
+      "run_id": null,
+      "flag": null,
       "check_field": null,
       "enabled": null,
       "note": "в main символа camera_ambiguous нет; ветка feat/t201-zbuf-1123 с ничьёй не влита"
@@ -333,15 +627,27 @@
       "rule_id": "R-SHADOW-LEAK",
       "title": "Ш3: тени/блики своей материальной зоны не идут в доноры; гейт shadow_leak; происхождение каждого текселя",
       "state": "proposed",
-      "source": ["plans/paint-photo-fill-01.md Ш3", "советник 21.11 sovetnik-delight"],
-      "applies": {"types": ["all"]},
+      "source": [
+        "plans/paint-photo-fill-01.md Ш3",
+        "советник 21.11 sovetnik-delight"
+      ],
+      "applies": {
+        "types": [
+          "all"
+        ]
+      },
       "executor": "р.4/р.5",
       "consumer": null,
       "runtime": "none",
       "test": null,
+      "test_positive": null,
+      "test_negative": null,
+      "run_id": null,
+      "flag": null,
       "check_field": null,
       "enabled": null,
       "note": "в main символа shadow_leak нет"
     }
-  ]
+  ],
+  "_active_rule": "active = consumer определён (ast) и вызывается боевым кодом + runtime=enforce и флаг включён + тест в CI + test_positive и test_negative на пример типа + run_id прогона. Без любого — trial (rule_registry_audit: ошибка). run_id — папка прогона в ~/remlab-logs, где правило отработало; проверка прогона структурная (--run): extra.rules[] с rule_id, type, digest, applied|abstain."
 }
