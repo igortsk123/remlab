@@ -19,6 +19,12 @@ CONTEXT
 - Scale constraint: must be automatic for ~50k products and thousands of types/variants; CPU only (heavy-slot), ≤ ~2 min per item; no
   product IDs in code; numbers in `tools/scout/rules/*.json`.
 
+OWNER CLARIFICATION (TG 1934/1936, after the first voice):
+"Main material — ONE tone. Exception — prints and patterns (рисунок и узоры)." and "Let it be worked out precisely and in detail."
+So: the main material is one even tone over the whole item (front, sides, back); patterned surfaces (printed fabric, ornament,
+pronounced wood figure?) are transferred as pattern, not flattened. Give the detailed per-type rules accordingly; say how to detect
+"this surface is a pattern/print" automatically vs "this is one tone + fine grain" vs "this is shading", and what to do with wood grain.
+
 QUESTIONS
 1. Design a general rule "one material — one tone": how to group stage-03 parts / panels into MATERIAL groups automatically (signals
    available: photo a,b/L after delight, part roles from catalogue material channels, UltraTex draft, geometry), how to pick the group's
