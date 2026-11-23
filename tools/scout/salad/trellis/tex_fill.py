@@ -2199,8 +2199,8 @@ def top_prior_hook(geoms: list, tex_after: list, known: list, parts, cfg: dict |
     """Хук 07 (T-187/7; канон paint-photo-fill-01 строка 7: «верх — Ш3в»): невидимые тексели ВЕРХА (нормаль вверх, верхний уровень; `top & ~known`) красятся тоном `top_prior`, если его уверенность ≥ порога
     (rules/top-prior.json → stage07.min_confidence), иначе верх остаётся как сделал 07 (донор / тон своей зоны). Идёт ПОСЛЕ own_panel_tone_hook и ДО front_on_back; known не меняется.
     cfg: `top_card` (карточка: класс материала верха, размеры), `top_photo` (фото: контраст узора). Узор — из rules `library_pat` (в репо и в срезе кода Salad). Сбой не роняет этап. → (текстуры, отчёт с `top_source`)."""
+    import top_prior as TP                                        # ВНЕ try: нет модуля в срезе кода = отказ этапа, не тихое «как было» (Salad ≠ локально, T-193/4)
     try:
-        import top_prior as TP
         rules = TP.load_rules()
         if not rules.get('stage07', {}).get('enabled', False):
             return tex_after, {'top_source': 'as_before', 'applied': False, 'gate': 'stage07.enabled = false'}
