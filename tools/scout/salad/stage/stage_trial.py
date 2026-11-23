@@ -474,7 +474,7 @@ def make_spec(a, inputs: dict) -> KD.Spec:
 
     return KD.Spec(prefix=PREFIX, card=a.card, model='cpu-stage', jobs=stages_of(a), build_body=build, submit=lambda gw, k, t: submit_stage(gw, a, inputs, k, t),
                    poll=lambda gw, cur, t: poll_stage(gw, a, cur, t), preflight=preflight, ready_keys=('version', 'libs', 'procs', 'fill_procs'), z_keys=('KIT_WORKER_Z',),
-                   worker_file=WORKER, work_type=WORK_TYPE, ordered=True)             # этапы идут по порядку: повтор после сбоя шлюза — в начало очереди (T-220/1)
+                   worker_file=WORKER, work_type=WORK_TYPE, variant=getattr(a, 'variant', '') or '', ordered=True)             # этапы идут по порядку: повтор после сбоя шлюза — в начало очереди (T-220/1)
 
 
 def main() -> int:
