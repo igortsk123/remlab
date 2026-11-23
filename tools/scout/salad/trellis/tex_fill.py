@@ -2884,18 +2884,25 @@ def run_stage_once(run: str, sku: str, glb: str, known: list | None = None, part
         rep['top_prior']['kept_from_groups_texels'] = int(sum(int(m.sum()) for m in sg_ctx['hook_keep']))
     rep['top_source'] = rep['top_prior'].get('top_source')
     rep['ultratex'] = ut_rep
+    _kn_released = None
+    k_ap = k_keep
     if sg_pas is not None:                                              # группы материала: тон группы + зерно на невидимом, ПОСЛЕ всех хуков (они тон не определяют); известное не меняется
         _t_ap = time.process_time()
         try:
             sg_ctx['product_role'] = ((cfg or {}).get('top_card') or {}).get('role')          # тип товара — для «рисунок на невидимое по типу» (paint.hidden_pattern паспорта типа)
+            _rw = ((sg_cfg.get('body_override') or {}).get('release_weak_known') or {})
+            if _rw.get('enabled') and _sy_dir and sg_pas.get('body_override'):                         # слабое фото (prov 2/3) на корпусных гранях красит корпус (T-28/1)
+                k_ap, _n_rw = SP.release_weak_known(k_keep, load_prov_png(_sy_dir, _rw.get('provs', [2, 3])), sg_ctx['over'], sg_cfg)
+                _kn_released = [np.asarray(a, bool) & ~np.asarray(b, bool) for a, b in zip(k_keep, k_ap)]
+                sg_rep['release_weak_known'] = _n_rw
             _m = _hmark()
-            m_b = SP.measure(geoms, tex_after, k_keep, sg_pas, sg_ctx, sg_cfg, sys.modules[__name__])
+            m_b = SP.measure(geoms, tex_after, k_ap, sg_pas, sg_ctx, sg_cfg, sys.modules[__name__])
             _hdone(hooks, 'sg_measure_before', _m)
             _m = _hmark()
-            tex_after, ap_ = SP.apply_groups(geoms, tex_after, k_keep, sg_pas, sg_ctx, sg_cfg, sys.modules[__name__])
+            tex_after, ap_ = SP.apply_groups(geoms, tex_after, k_ap, sg_pas, sg_ctx, sg_cfg, sys.modules[__name__])
             _hdone(hooks, 'sg_apply_groups', _m)
             _m = _hmark()
-            m_a = SP.measure(geoms, tex_after, k_keep, sg_pas, sg_ctx, sg_cfg, sys.modules[__name__])
+            m_a = SP.measure(geoms, tex_after, k_ap, sg_pas, sg_ctx, sg_cfg, sys.modules[__name__])
             _hdone(hooks, 'sg_measure_after', _m)
             sg_rep.update({'apply': ap_, 'before': {'worst': m_b['worst'], 'slits': m_b['slits']}, 'after': {'worst': m_a['worst'], 'slits': m_a['slits'], 'per_group': m_a['per_group'], 'ok_hypothesis': m_a['ok_hypothesis']}})
         except Exception as e:  # noqa: BLE001
@@ -2922,7 +2929,10 @@ def run_stage_once(run: str, sku: str, glb: str, known: list | None = None, part
     _hdone(hooks, 'front_on_back_corr', _m)
     rep['front_on_back_raw'] = rep['front_on_back'].get('raw')                      # старая мера (по яркости целиком) — для сравнения (T-198/1)
     _m = _hmark()
-    kchg = known_changed_share(pick.get('keep') or known, tex_before, tex_after, RULES['known_change_de'])
+    _kchk = pick.get('keep') or known
+    if _kn_released:                                                    # освобождённое слабое фото на корпусных гранях (T-28/1) — не «известное, которое изменили»
+        _kchk = [np.asarray(a, bool) & ~r for a, r in zip(_kchk, _kn_released)]
+    kchg = known_changed_share(_kchk, tex_before, tex_after, RULES['known_change_de'])
     rep['known_changed'] = kchg
     _hdone(hooks, 'known_changed_share', _m)
     try:                                                          # мерка узора — только отчёт (порог по трудным — позже), сбой её не роняет этап
@@ -3135,6 +3145,19 @@ def paint_policy_for(cfg: dict | None) -> dict:
     pol = MTP.paint_policy(role)
     pol['role'] = role
     return pol
+
+
+def load_prov_png(visible: str, provs) -> list:
+    """Маски текселей этапа 6 с провенансом из `provs` (`prov.png`, `prov1.png`, …): для слабого фото (2 splat, 3 дыра) на корпусных гранях (T-28/1). Нет карты — пусто."""
+    from PIL import Image
+    out = []
+    for i in range(64):
+        pp = os.path.join(visible, "prov.png" if i == 0 else f"prov{i}.png")
+        if not os.path.exists(pp):
+            break
+        pv = np.asarray(Image.open(pp))
+        out.append(np.isin(pv, list(provs)) if pv.ndim == 2 else np.zeros(pv.shape[:2], bool))
+    return out
 
 
 def load_synth_png(visible: str) -> list:

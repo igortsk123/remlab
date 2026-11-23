@@ -587,6 +587,33 @@ def edge_body_tone(lab_obs: np.ndarray, grp_tone, E: dict, min_de: float, de_fn=
     return {'ok': True, 'n': n, 'de00': round(de, 1), 'tone': [round(float(x), 2) for x in med], 'why': 'корпус по фото-текселям не-фасадных граней'}
 
 
+def facade_relief(cen: np.ndarray, plane_axes: np.ndarray, dep: np.ndarray, dsup: float, ext: float, side: np.ndarray, sup: np.ndarray, O: dict) -> np.ndarray:
+    """Рельеф фасада (T-28/1, дефект 2 листа 10887): боковые грани щелей/пазов между дверями лежат у плоскости фасада (глубина ≤ `relief_depth_frac` габарита от неё) и ВНУТРИ её контура
+    (отступ `relief_margin_frac` от краёв видимого фасада); они остаются тоном фасада, а не корпуса. Стенка корпуса (кромка фасадной плоскости) на границе контура — не рельеф. → bool по граням."""
+    fr = float(O.get('relief_depth_frac', 0.0))
+    if fr <= 0 or not np.asarray(sup).any():
+        return np.zeros(len(cen), bool)
+    uv = cen @ plane_axes
+    lo, hi = np.percentile(uv[sup], 1, axis=0), np.percentile(uv[sup], 99, axis=0)
+    mg = float(O.get('relief_margin_frac', 0.03)) * (hi - lo)
+    inside = np.all((uv > lo + mg) & (uv < hi - mg), axis=1)
+    return side & inside & (np.abs(dep - dsup) <= fr * ext)
+
+
+def release_weak_known(known_keep: list, weak: list, over: list, R: dict) -> tuple:
+    """Слабое фото на корпусных гранях (T-28/1, дефект 1б): известное с prov 2/3 (splat/дыра: цвет фасада, растёкшийся на зад/бок/низ) там, где паспорт назначил «корпус» (карта over ≥ 0), перестаёт быть
+    «известным» — его красит корпус; прямое фото (prov 1) остаётся. Правило `body_override.release_weak_known`. → (новая known_keep, число текселей)."""
+    Rr = (R.get('body_override') or {}).get('release_weak_known') or {}
+    if not Rr.get('enabled', False) or not weak:
+        return known_keep, 0
+    out, n = [], 0
+    for k, w, o in zip(known_keep, weak, over):
+        m = np.asarray(k, bool) & np.asarray(w, bool) & (np.asarray(o) >= 0)
+        n += int(m.sum())
+        out.append(np.asarray(k, bool) & ~m)
+    return out, n
+
+
 def body_override(geoms: list, parts: list, maps: Maps, kn_clean: list, groups: list, gid_of: dict, R: dict, tf, labs: list | None = None, fallback_tone=None) -> tuple:
     """«Фасад на зад не идёт» (владелец TG 1954): группа, чьё видимое лежит на ОДНОЙ плоскости (фасад/лицо), не красит невидимые грани других сторон (зад, бока, верх/низ) —
     они берут тон «корпуса»: другой группы с надёжным видимым тоном (≠ тон фасада). Нет такой группы (одноцветный предмет, диван) — ничего не меняется.
@@ -677,7 +704,9 @@ def body_override(geoms: list, parts: list, maps: Maps, kn_clean: list, groups: 
             unobs_q = kn_q < float(O['obs_share']) * np.maximum(tot_q, 1)
             side = np.abs(nrm @ ax) < np.cos(np.radians(float(O['side_deg'])))
             far = np.abs(dep - dsup) > float(O['depth_frac']) * ext
-            foreign = (faceG == G) & unobs_q[pg] & (side | far)
+            ebo = edge_mode and bool((O.get('edge_body') or {}).get('all_nonfacade', False))               # тип «body»: все не-фасадные грани (в т.ч. мелкие «наблюдаемые» панели и сироты) — корпус
+            relief = facade_relief(cen, evec[:, :2], dep, dsup, ext, side, sup, O)
+            foreign = ((faceG == G) | ((faceG < 0) if ebo else False)) & (unobs_q[pg] | ebo) & (side | far) & ~relief
             f_pct = 100 * float(ar[foreign].sum() / max(ar.sum(), 1e-12))
             if not small and f_pct < float(O['min_foreign_area_pct']):          # «зад» — большая доля площади (шкаф, комод); у каркаса стула/ножек невидимого мало — материал сквозной, тон корпуса не подставляем
                 rec['fired'] = False
@@ -707,7 +736,7 @@ def body_override(geoms: list, parts: list, maps: Maps, kn_clean: list, groups: 
             T = maps.T[gi]
             over[gi].reshape(-1)[tx] = vid
             n_over += int(tx.sum())
-            rec.update({'fired': True, 'foreign_faces': int(foreign.sum()), 'foreign_area_pct': round(100 * float(ar[foreign].sum() / max(ar.sum(), 1e-12)), 1), 'texels': int(tx.sum()), 'support_axis': [round(float(x), 2) for x in ax]})
+            rec.update({'fired': True, 'relief_faces': int(relief.sum()), 'foreign_faces': int(foreign.sum()), 'foreign_area_pct': round(100 * float(ar[foreign].sum() / max(ar.sum(), 1e-12)), 1), 'texels': int(tx.sum()), 'support_axis': [round(float(x), 2) for x in ax]})
             rep['rules'].append(rec)
         if n_over:
             vg['texels_total'] = n_over

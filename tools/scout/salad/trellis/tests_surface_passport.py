@@ -313,6 +313,27 @@ def test_rebuild_body_gates():
     ok(not SP.rebuild_body_from_top(pas0, {}, [], R2, None, top)['rebuilt'], 'use_top_tone=false — прежнее поведение')
 
 
+def test_facade_relief_and_release_weak():
+    O = {'relief_depth_frac': 0.12, 'relief_margin_frac': 0.03}
+    # плоскость фасада x∈[0,1], y∈[0,1], глубина z; опорные грани — сетка на z=0
+    g = np.array([[x, y, 0.0] for x in np.linspace(0.05, 0.95, 10) for y in np.linspace(0.05, 0.95, 10)])
+    sup = np.concatenate([np.ones(len(g), bool), np.zeros(3, bool)])
+    cen = np.concatenate([g, np.array([[0.5, 0.5, 0.02], [0.0, 0.5, 0.02], [0.5, 0.5, 0.9]])])   # щель внутри / стенка на границе / глубоко
+    side = np.concatenate([np.zeros(len(g), bool), np.ones(3, bool)])
+    dep = cen[:, 2]
+    r = SP.facade_relief(cen, np.array([[1.0, 0], [0, 1.0], [0, 0]]), dep, 0.0, 1.0, side, sup, O)
+    ok(bool(r[-3]) and not bool(r[-2]) and not bool(r[-1]), 'щель внутри контура — рельеф; стенка на краю и глубокая грань — нет')
+    ok(not SP.facade_relief(cen, np.array([[1.0, 0], [0, 1.0], [0, 0]]), dep, 0.0, 1.0, side, sup, {}).any(), 'правило выключено (нет relief_depth_frac) — рельефа нет')
+    R = {'body_override': {'release_weak_known': {'enabled': True}}}
+    k = [np.array([[True, True], [True, False]])]
+    w = [np.array([[True, False], [True, False]])]
+    o = [np.array([[0, 0], [-1, -1]])]
+    nk, n = SP.release_weak_known(k, w, o, R)
+    ok(n == 1 and not bool(nk[0][0, 0]) and bool(nk[0][0, 1]) and bool(nk[0][1, 0]), 'слабое фото на корпусной грани освобождено; прямое и слабое вне корпуса остались')
+    nk2, n2 = SP.release_weak_known(k, w, o, {'body_override': {'release_weak_known': {'enabled': False}}})
+    ok(n2 == 0 and nk2 is k, 'правило выключено — известное не меняется')
+
+
 def test_type_allows_body():
     print('роль панели — только по типу: paint.hidden_pattern == body (T-28/1, владелец TG 2306: всё по типам):')
     import mesh_type_passports as MTP
@@ -553,7 +574,7 @@ def test_blur_caches():
 
 
 def main() -> int:
-    for f in (test_blur_caches, test_split_plane_one_tone, test_contrast_door_own_group, test_gray_pattern_not_flattened, test_back_is_body_not_facade, test_back_not_tiny_contrast, test_top_follows_group, test_edge_body_tone, test_light_floor, test_rebuild_body_gates, test_type_allows_body, test_grain_no_dark_seams, test_gradient_continues, test_outlier_replaced, test_orphan_attached, test_orphan_guards, test_orphan_keeps_hook_tone, test_hook_keep_top, test_ultratex_switch_off, test_hidden_pattern_by_type):
+    for f in (test_blur_caches, test_split_plane_one_tone, test_contrast_door_own_group, test_gray_pattern_not_flattened, test_back_is_body_not_facade, test_back_not_tiny_contrast, test_top_follows_group, test_edge_body_tone, test_light_floor, test_rebuild_body_gates, test_type_allows_body, test_facade_relief_and_release_weak, test_grain_no_dark_seams, test_gradient_continues, test_outlier_replaced, test_orphan_attached, test_orphan_guards, test_orphan_keeps_hook_tone, test_hook_keep_top, test_ultratex_switch_off, test_hidden_pattern_by_type):
         f()
     print(f'tests_surface_passport: ошибок {bad}')
     return 1 if bad else 0
