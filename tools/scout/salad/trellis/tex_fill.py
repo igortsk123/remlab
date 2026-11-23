@@ -1747,7 +1747,7 @@ def fill(geoms: list, known: list, parts: list | None = None, cfg: dict | None =
             rgb[g_] = rgb[iy[g_], ix[g_]]
         outs.append(rgb)
 
-    def finish(outs):
+    def finish(outs, far_ref=None):
         """Мерки по ГОТОВОЙ текстуре (outs): непокрашенное, виды, ступени, далёкий цвет. fill() зовёт её сам; run_stage_once — ещё раз по итогу после всех хуков (р.7, 23.11)."""
         for gi, tx in enumerate(txs):
             T = tx.T
@@ -1779,7 +1779,12 @@ def fill(geoms: list, known: list, parts: list | None = None, cfg: dict | None =
                     if len(idx) > 100000:
                         idx = rs.choice(idx, 100000, replace=False)
                     if len(idx):
-                        far[nm].append((TC.de2000_v(lab_o[idx], np.broadcast_to(stat[p][0], (len(idx), 3)).copy()) > c['far_de']))
+                        ref_ = np.broadcast_to(stat[p][0], (len(idx), 3)).copy()
+                        if nm == 'filled' and far_ref is not None:                      # невидимое под группой материала меряем от тона ГРУППЫ (у «градиента» — от его значения в точке), не от тона своей части
+                            fr_ = far_ref[gi].reshape(-1, 3)[tx.ti[idx]]
+                            okr = np.isfinite(fr_[:, 0])
+                            ref_[okr] = fr_[okr]
+                        far[nm].append((TC.de2000_v(lab_o[idx], ref_) > c['far_de']))
         fk = float(np.concatenate(far['known']).mean()) * 100.0 if far['known'] else 0.0
         ff = float(np.concatenate(far['filled']).mean()) * 100.0 if far['filled'] else 0.0
         rep['far_pct'] = {'known': round(fk, 2), 'filled': round(ff, 2), 'excess': round(ff - fk, 2)}
@@ -1938,6 +1943,11 @@ def load_rules(path: str | None = None) -> dict:
               'contrast_gmin', 'contrast_gmax', 'contrast_floor', 'pair_mm', 'pair_cos', 'de_bad', 'poisson', 'crease_deg', 'normal_smooth_iters', 'min_panel_faces', 'feather_mm', 'feather_lo', 'feather_hi', 'rough_sigma_mm', 'accept_p95_ratio', 'accept_p95_abs', 'patch_texture', 'patch_reach_mm', 'patch_strength', 'patch_mm', 'patch_decay_mm', 'texture_band_mm', 'step_floor', 'texdev_floor', 'rough_tol', 'cpu_s_per_variant_geom', 'tone_zone_min_cells'):
         if k not in (r.get('seam') or {}):
             raise KeyError(f'rules/paint-fill.json: seam.{k} не задан')
+    if 'enabled' not in (r.get('ultratex') or {}):
+        raise KeyError("rules/paint-fill.json: нет ultratex.enabled (выключатель UltraTex)")
+    for k in ('enabled', 'merge_de_plane', 'merge_de_edge', 'thresholds', 'measure', 'seam_px', 'pattern_ac_peak', 'separate_roles', 'gate'):
+        if k not in (r.get('surface_groups') or {}):
+            raise KeyError(f'rules/paint-fill.json: surface_groups.{k} не задан')
     for k in ('gain_max', 'clip_k', 'patch_frac', 'patch_dl', 'dilate_px', 'part_max_share', 'band_lo', 'band_hi', 'sigma_lo_min', 'sigma_lo_max', 'sigma_hi_max', 'far_w', 'p95_cap',
               'ok_erode_px', 'allowed_families', 'homog_max_std', 'fade_len', 'smooth_pool_rejected'):
         if k not in r['trellis_relief']:
@@ -2659,6 +2669,33 @@ def run_stage_once(run: str, sku: str, glb: str, known: list | None = None, part
         _roles = roles_from_parts_json(os.path.join(os.path.dirname(parts_npz), 'parts.json'))
         if _roles:
             cfg = dict(cfg or {}, part_role=_roles)          # C: классы частей — из этапа 3 сами (CFG_C больше не нужен)
+    # ---- паспорт поверхностей (T-209/1, m4): группы материала между 06 и 07; нужен и выключателю UltraTex (подсказка — только группе «узор»)
+    sg_cfg = RULES['surface_groups']
+    SP = sg_pas = sg_ctx = None
+    sg_rep = {'enabled': bool(sg_cfg['enabled'])}
+    k_keep = [np.asarray(k_, bool) & ~unpainted_mask(np.asarray(t_)[..., :3]) for k_, t_ in zip(known, tex_before)]
+    if sg_cfg['enabled']:
+        _t_sg = time.process_time()
+        import surface_passport as SP                                  # ВНЕ try: нет модуля в срезе кода = отказ этапа, не тихое «без групп» (Salad ≠ локально, T-193/4)
+        try:
+            sg_pas, sg_ctx = SP.build(geoms, [np.asarray(t_)[..., :3] for t_ in tex_before], known, parts, (cfg or {}).get('part_role'), sg_cfg, FILL, sys.modules[__name__])
+            sg_rep['passport'] = {'groups': [{k_: g_.get(k_) for k_ in ('id', 'parts', 'class', 'tone_lab', 'sigma_grain_L', 'ac_peak', 'known_share', 'why_not_applied')} for g_ in sg_pas['groups']], 'merges': len(sg_pas['merges']), 'refusals': len(sg_pas['refusals'])}
+            with open(os.path.join(d, 'surface-passport.json'), 'w', encoding='utf-8') as f_:
+                json.dump(sg_pas, f_, ensure_ascii=False, indent=1, default=lambda o: o.item() if hasattr(o, 'item') else str(o))
+        except Exception as e:  # noqa: BLE001
+            sg_pas = sg_ctx = None
+            sg_rep['error'] = f'{type(e).__name__}: {e}'
+        sg_rep['cpu_passport_s'] = round(time.process_time() - _t_sg, 1)
+    ut_on = bool(RULES['ultratex']['enabled'])
+    ut_rep = {'enabled': ut_on, 'ut_glb_given': bool(ut_glb), 'used': False}
+    if ut_glb and not ut_on:
+        ut_rep['why'] = 'rules ultratex.enabled=false: UltraTex-меш не читается, зерно — из фото группы'
+        ut_glb = None
+    elif ut_glb and ut_on and not (sg_pas and any(g_['class'] == 'узор' for g_ in sg_pas['groups'])):
+        ut_rep['why'] = 'ultratex.enabled=true, но групп «узор» в паспорте нет — подсказка фактуры не нужна'
+        ut_glb = None
+    else:
+        ut_rep['used'] = bool(ut_glb)
     draft = None
     relief_src = None
     if (cfg or {}).get('source') in ('trellis', 'trellis_relief'):
@@ -2738,10 +2775,26 @@ def run_stage_once(run: str, sku: str, glb: str, known: list | None = None, part
         tex_after, rep['sub_tone'] = RZ.sub_tone(geoms, tex_before, tex_after, known, parts)
     except Exception as e:  # noqa: BLE001
         rep['sub_tone'] = {'error': f'{type(e).__name__}: {e}'}
+    _tex_pre_top = tex_after
     tex_after, rep['top_prior'] = top_prior_hook(geoms, tex_after, known, parts, cfg, None if relief_src == 'ultratex' else draft_glb)
+    if sg_pas is not None and rep['top_prior'].get('applied'):           # верх задан по карточке/по тону своей части: группа корпуса его не перекрашивает (другой материал — комод: дуб сверху, графит на фасадах)
+        sg_ctx['hook_keep'] = [np.any(np.asarray(a)[..., :3] != np.asarray(b)[..., :3], axis=-1) & ~np.asarray(k, bool) for a, b, k in zip(tex_after, _tex_pre_top, k_keep)]
+        rep['top_prior']['kept_from_groups_texels'] = int(sum(int(m.sum()) for m in sg_ctx['hook_keep']))
     rep['top_source'] = rep['top_prior'].get('top_source')
+    rep['ultratex'] = ut_rep
+    if sg_pas is not None:                                              # группы материала: тон группы + зерно на невидимом, ПОСЛЕ всех хуков (они тон не определяют); известное не меняется
+        _t_ap = time.process_time()
+        try:
+            m_b = SP.measure(geoms, tex_after, k_keep, sg_pas, sg_ctx, sg_cfg, sys.modules[__name__])
+            tex_after, ap_ = SP.apply_groups(geoms, tex_after, k_keep, sg_pas, sg_ctx, sg_cfg, sys.modules[__name__])
+            m_a = SP.measure(geoms, tex_after, k_keep, sg_pas, sg_ctx, sg_cfg, sys.modules[__name__])
+            sg_rep.update({'apply': ap_, 'before': {'worst': m_b['worst'], 'slits': m_b['slits']}, 'after': {'worst': m_a['worst'], 'slits': m_a['slits'], 'per_group': m_a['per_group'], 'ok_hypothesis': m_a['ok_hypothesis']}})
+        except Exception as e:  # noqa: BLE001
+            sg_rep['error'] = f'{type(e).__name__}: {e}'
+        sg_rep['cpu_apply_s'] = round(time.process_time() - _t_ap, 1)
+    rep['surface_groups'] = sg_rep
     rep['metrics_pre_hook'] = {k: pick['vals'].get(k) for k in ('empty_pct', 'dE00_front_back', 'dL_front_back', 'filled_faces_step_pct', 'far_excess_pct')}     # что было бы до хуков (для сравнения; на passed не влияет)
-    pick['finish'](tex_after)                                          # мерки — по ИТОГОВОЙ текстуре (после ref_zone_map, own_panel, top_prior), не по текстуре до хуков
+    pick['finish'](tex_after, None if sg_pas is None else SP.ref_maps(geoms, k_keep, sg_pas, sg_ctx))                                          # мерки — по ИТОГОВОЙ текстуре (после ref_zone_map, own_panel, top_prior), не по текстуре до хуков
     de, big, de_worst, _dlw = _front_back_vals(geoms, parts, known, kback, tex_before, tex_after, rep)
     pick['vals'] = dict(pick['vals'], empty_pct=rep['unpainted_after_pct'], dE00_front_back=de_worst, dL_front_back=_dlw, filled_faces_step_pct=rep['steps']['after']['filled_faces_step_pct'], far_excess_pct=rep['far_pct']['excess'])
     rep['front_on_back'] = front_on_back_corr(geoms, tex_after, front_axis_of_check(_chk6), parts=parts)
@@ -2778,6 +2831,19 @@ def run_stage_once(run: str, sku: str, glb: str, known: list | None = None, part
     }
     for k_, m in metrics.items():
         m['ok'] = True if (k_ == 'front_on_back_corr' and m['value'] is None) else PS.judge(m['value'], m['op'], m['threshold'])
+    _sga = (rep.get('surface_groups') or {}).get('after')
+    if _sga:                                                            # мерки групп материала: пороги — гипотеза пилота; gate=false → справочные (без порога), true → судят passed
+        _sgth = sg_cfg['thresholds']
+        for k_, v_, t_ in (('sg_dE_base', _sga['worst']['dE_base'], _sgth['dE_base']), ('sg_panel_spread_p95', _sga['worst']['panel_p95'], _sgth['panel_spread_de']),
+                           ('sg_jump_median', _sga['worst']['jump_median'], _sgth['jump_median']), ('sg_jump_p95', _sga['worst']['jump_p95'], _sgth['jump_p95'])) + ((('sg_grain_ratio', _sga['worst']['grain_ratio'], _sgth['grain_ratio']),) if _sga['worst'].get('grain_ratio') is not None else ()):
+            metrics[k_] = {'value': v_, 'op': t_[0], 'threshold': float(t_[1]) if sg_cfg['gate'] else None, 'hypothesis_threshold': float(t_[1]), 'ok': (PS.judge(v_, t_[0], float(t_[1])) if sg_cfg['gate'] else None)}
+        _orp = (sg_pas or {}).get('orphans')
+        if _orp:                                                           # счётчик сирот (частей без видимого тона и донора): до → после
+            metrics['sg_orphan_parts'] = {'value': len(_orp['after']['parts']), 'before': len(_orp['before']['parts']), 'ok': None}
+            metrics['sg_orphan_texels_share_pct'] = {'value': _orp['after']['texels_share_pct'], 'before': _orp['before']['texels_share_pct'], 'ok': None}
+        for k_, v_ in (('sg_violation_area_pct', _sga['worst']['violation_pct']), ('sg_slit_jump_median', (_sga['slits'] or {}).get('median')), ('sg_slit_jump_p95', (_sga['slits'] or {}).get('p95')), ('sg_slit_all_jump_p95_info', ((_sga['slits'] or {}).get('all') or {}).get('p95'))):
+            if v_ is not None:
+                metrics[k_] = {'value': v_, 'ok': None}
     if draft is not None:
         rep['draft_transfer'] = draft['report']
     report = {'report': rep, 'deltaE_by_part': de, 'big_parts': big, 'parts_note': parts_note, 'part_class_note': pc_note, 'empty_before_pct': rep['unpainted_before_pct']}
