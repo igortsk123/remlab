@@ -859,7 +859,7 @@ def own_panel_tone(geoms: list, tex_after: list, known: list, ut_geoms: list | N
     import tex_coverage as TC
     import tex_fill as TF
     O = dict({'enabled': True, 'min_known': 0.05, 'min_visible_texels': 200, 'min_hidden_texels': 300, 'donor_hue_de': 6.0, 'donor_tex_ratio': 1.6, 'quilt_block': 16, 'quilt_cells': 6,
-              'quilt_overlap': 4, 'quilt_pool': 300, 'quilt_tries': 40, 'ut_detail': True, 'max_panels': 80, 'seed': 7, 'edge_px': 4, 'wins_k': 2.5, 'quilt_min_sigma': 1.5, 'flat_photo_sigma': 2.0}, **R.get('own_panel', {}))
+              'quilt_overlap': 4, 'quilt_pool': 300, 'quilt_tries': 40, 'ut_detail': True, 'max_panels': 80, 'seed': 7, 'edge_px': 4, 'wins_k': 2.5, 'quilt_min_sigma': 1.5, 'flat_photo_sigma': 2.0, 'neutral_chroma': 8.0, 'neutral_dL': 25.0}, **R.get('own_panel', {}))
     FU = dict({'sigma': 12.0, 'clip': 35.0, 'photo_floor': 0.8}, **R.get('full', {}))
     out, rep = [], {'panels': {}, 'texels_changed': 0, 'hidden': 0, 'with_donor': 0, 'flat_texels': 0, 'flat_rough_texels': 0}
     if not O['enabled']:
@@ -960,6 +960,8 @@ def own_panel_tone(geoms: list, tex_after: list, known: list, ut_geoms: list | N
                     de = float(np.hypot(uh[1] - uv_[1], uh[2] - uv_[2]))
                     if de > O['donor_hue_de']:
                         continue
+                    if max(float(np.hypot(uh[1], uh[2])), float(np.hypot(uv_[1], uv_[2]))) < O['neutral_chroma'] and abs(float(uh[0]) - float(uv_[0])) > O['neutral_dL']:
+                        continue                                             # нейтральные (серое/чёрное/белое/беж): оттенок a,b почти один — светлота UltraTex различает чёрное и светлое
                     a_, b_ = max(sh, FU['photo_floor']), max(sv, FU['photo_floor'])
                     ratio = a_ / b_
                     same_tex = (sh < FU['photo_floor'] and sv < FU['photo_floor']) or (1.0 / O['donor_tex_ratio'] <= ratio <= O['donor_tex_ratio'])

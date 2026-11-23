@@ -519,6 +519,33 @@ def test_own_panel_keeps_our_L():
     ok(rep['flat_share_pct'] > 0.0, f'ровное при фактурном фото донора учтено: flat_share_pct {rep["flat_share_pct"]}')
 
 
+def test_own_panel_neutral_donor_needs_L():
+    print('нейтральные цвета: чёрное не берёт донором светло-бежевое, хотя a,b почти равны (Б, 23.11):')
+    sys.path[:0] = [os.path.join(HERE, '..'), os.path.join(HERE, '..', '..')]
+    import cv2
+    T = 192
+    g, side, mk = box_uv_geom(T)
+    rng = np.random.default_rng(31)
+
+    def tile(l, a, b, sd):
+        lab = np.stack([np.clip(l + rng.normal(0, sd, (T, T)), 0, 100), np.full((T, T), a), np.full((T, T), b)], -1).astype(np.float32)
+        return np.clip(cv2.cvtColor(lab, cv2.COLOR_Lab2RGB) * 255 + 0.5, 0, 255).astype(np.uint8)
+
+    photo = tile(65, 2, 6, 0)
+    photo[mk['front']] = tile(72, 2, 6, 5)[mk['front']]                  # беж с зерном на фото
+    ut = tile(50, 0, 0, 0)
+    ut[mk['front']] = tile(70, 2, 6, 5)[mk['front']]                      # UltraTex: беж, светло
+    ut[mk['right']] = tile(12, 1, 3, 5)[mk['right']]                      # правый: чёрный, a,b почти те же (ΔE_ab ~3)
+    out, rep = RZ.own_panel_tone([dict(g, tex=photo)], [photo], [mk['front']], [dict(g, tex=ut)], None)
+    pr = [v for v in rep['panels'].values() if v.get('tone_from') == 'donor']
+    ok(len(pr) == 0, f'чёрный правый не получил светлого донора (панелей с донором {len(pr)})')
+    ut2 = ut.copy()
+    ut2[mk['right']] = tile(62, 1, 5, 5)[mk['right']]                     # светлота близкая → донор допустим
+    out2, rep2 = RZ.own_panel_tone([dict(g, tex=photo)], [photo], [mk['front']], [dict(g, tex=ut2)], None)
+    pr2 = [v for v in rep2['panels'].values() if v.get('tone_from') == 'donor']
+    ok(len(pr2) == 1, f'при близкой светлоте донор допустим (панелей с донором {len(pr2)})')
+
+
 def test_align_tied():
     print('коробка с двумя равными поворотами (UltraTex одинаков на лице и на заду): ничья → tied с ties, yaw задан — перенос без оценки:')
     sys.path[:0] = [os.path.join(HERE, '..'), os.path.join(HERE, '..', '..')]
@@ -543,7 +570,7 @@ def test_align_tied():
 
 
 def main():
-    for f in (test_own_panel_keeps_our_L, test_align_tied, test_own_panel_smooth_no_quilt, test_align_ut, test_own_panel_clean_detail, test_own_panel_tone, test_same_mesh, test_decide, test_gate_per_property, test_propagate, test_object_basis, test_inconsistent_winding, test_outer_only, test_panel_with_bottom, test_panels, test_apply_to_fill, test_relief_source, test_ultratex_full):
+    for f in (test_own_panel_neutral_donor_needs_L, test_own_panel_keeps_our_L, test_align_tied, test_own_panel_smooth_no_quilt, test_align_ut, test_own_panel_clean_detail, test_own_panel_tone, test_same_mesh, test_decide, test_gate_per_property, test_propagate, test_object_basis, test_inconsistent_winding, test_outer_only, test_panel_with_bottom, test_panels, test_apply_to_fill, test_relief_source, test_ultratex_full):
         f()
     print(f'tests_ref_zone: ошибок {len(FAILS)}')
     return 1 if FAILS else 0
