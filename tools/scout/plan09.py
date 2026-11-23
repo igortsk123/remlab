@@ -21,6 +21,7 @@ OLD = {
 }
 NEW_STAGES = ('06-visible', '07-fill', '07-seam', '08-material')
 SOURCES = 'sources.json'                                                       # <out>/<sku>/sources.json: откуда каждый этап (how: origin | list | package | search); читает paint_check
+PHOTO_STAGES = ('05-delight',)                                                  # этапы, чей результат зависит от исходного фото: без `extra.source_photo` в check.json — не берутся (T-20261123-46)
 NEED = ['01-trellis', '02-prep', '03-parts', '04-camera', '05-delight', '06-visible', '07-fill', '08-material']
 
 
@@ -47,9 +48,10 @@ def _sha(path):
     return _SHA[k]
 
 
-def photo_matches(d, v):
+def photo_matches(d, v, stage=''):
     """Этап, чей check.json называет исходное фото (`extra.source_photo`, сейчас — 05-delight), берётся, только если это фото = фото пакета (`v['photo']`) по sha256 (T-20261123-46: свет снимали с
-    другого фото, чем то, по которому красим). У пакета нет фото или check.json фото не называет — этап от фото не зависит, берётся; фото check.json стёрто — сверить нечем, не берётся."""
+    другого фото, чем то, по которому красим). У пакета нет фото — сверять не с чем, берётся. Этап из PHOTO_STAGES (его результат зависит от фото) обязан назвать фото: не назвал (старый check.json) или
+    файл стёрт — сверить нечем, не берётся. Прочие этапы: фото названо — сверяется, не названо — этап от фото не зависит, берётся."""
     pkg = v.get('photo')
     if not pkg:
         return True
@@ -59,7 +61,7 @@ def photo_matches(d, v):
         return True
     sp = ex.get('source_photo')
     if not sp:
-        return True
+        return stage not in PHOTO_STAGES
     a, b = _sha(pkg), _sha(sp)
     return bool(a) and a == b
 
@@ -105,17 +107,17 @@ def find_old(sku, stage, roots, logs, skip=(), v=None):
     skp = [os.path.realpath(x) for x in skip if x]
     for p in origin_dirs(sku, stage, v, logs):
         rp = os.path.realpath(p)
-        if has_check(p) and not is_collection(p) and photo_matches(p, v) and not any(rp == x or rp.startswith(x + os.sep) for x in skp):
+        if has_check(p) and not is_collection(p) and photo_matches(p, v, stage) and not any(rp == x or rp.startswith(x + os.sep) for x in skp):
             return p, 'origin'
     for r in roots:
         p = os.path.join(r, sku, stage)
-        if has_check(p) and photo_matches(p, v):
+        if has_check(p) and photo_matches(p, v, stage):
             return p, 'list'
     cands = []
     for pat in (os.path.join(logs, '*', sku, stage), os.path.join(logs, '*', '*', sku, stage)):
         for p in glob.glob(pat):
             rp = os.path.realpath(p)
-            if os.path.isdir(p) and has_check(p) and not is_collection(p) and photo_matches(p, v) and not any(rp == x or rp.startswith(x + os.sep) for x in skp):
+            if os.path.isdir(p) and has_check(p) and not is_collection(p) and photo_matches(p, v, stage) and not any(rp == x or rp.startswith(x + os.sep) for x in skp):
                 cands.append(p)
     if not cands:
         return None, None

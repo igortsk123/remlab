@@ -105,7 +105,10 @@ with tempfile.TemporaryDirectory() as t:
     ok(r['q1'][0].get('05-delight') == d_bad, 'у пакета нет фото — сверять не с чем, этап берётся как раньше')
     mk5(prio, 'q3', None)
     r = {s: (f, h) for s, f, h in P.collect({'q3': {'photo': ph_pkg}}, [], logs, old5)}
-    ok('05-delight' in r['q3'][0], 'check.json фото не называет — этап от фото не зависит, берётся')
+    ok('05-delight' not in r['q3'][0], '05 без source_photo в check.json (старый) — сверить нечем, не берётся')
+    p3 = mk(prio, 'q3b', '03-parts')
+    r = {s: (f, h) for s, f, h in P.collect({'q3b': {'photo': ph_pkg}}, [], logs, old)}
+    ok(r['q3b'][0].get('03-parts') == p3, 'этап вне PHOTO_STAGES без source_photo (03) берётся как раньше')
     mk5(prio, 'q4', os.path.join(logs, 'стёрто.png'))
     r = {s: (f, h) for s, f, h in P.collect({'q4': {'photo': ph_pkg}}, [], logs, old5)}
     ok('05-delight' not in r['q4'][0], 'фото check.json стёрто — сверить нечем, этап не берётся')
