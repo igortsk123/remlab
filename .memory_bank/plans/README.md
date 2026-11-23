@@ -51,6 +51,7 @@ draft → in_progress → completed → перенос в completed_plans/
 | step07-speed-01 | Шаг 07 «докрасить невидимое» — где время, GPU или нет, как ускорить на 50k (ЧЕРНОВИК) | draft | — | 2026-11-23 |
 | price-segments-01 | Ценовые ступени по роли (П1.90) | in_progress | — | 2026-11-19 |
 | paint-photo-fill-01 | Покраска «фото + заливка» — порядок v3 (ADR-0457) | in_progress | — | 2026-11-23 |
+| paint-cycles-1123 | — | in_progress | — | 2026-11-23 |
 | mesh-models-trial-01 | Проба открытых генераторов мешей против Hunyuan3D 2.1 | in_progress | — | 2026-11-20 |
 | floorplan-advisor-trials-01 | Пробы по совету советника — этажи, OCR размеров, внешняя сверка | in_progress | — | 2026-11-10 |
 | partllm-zones-07-01 | PartLLM (этап 03) → границы материальных зон в 07, флаг zones_from | in_progress | 2026-11-22 | 2026-11-22 |
