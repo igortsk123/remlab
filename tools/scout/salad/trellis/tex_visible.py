@@ -75,8 +75,14 @@ TONE_REACH_FRAC = float(R.get('tone_reach_frac', 0.3))     # тон растек
 TONE_SKIP_DROPPED = bool(int(os.environ['TEX_VISIBLE_TONE_DROP'])) if 'TEX_VISIBLE_TONE_DROP' in os.environ else bool(R.get('tone_skip_dropped', True))   # грань, наблюдавшаяся, но отброшенная по ΔE (другой материал/блик), соседским тоном не красится
 TONE_MAX_DE = float(R.get('tone_max_de', 20.0))             # ΔE00(наблюдение, опора) больше — другой материал или блик: не красим
 TONE_MIN_OBS = int(R.get('tone_min_obs_px', 30))            # меньше наблюдений в геометрии — тона нет
+ZBUF_ON = bool(int(os.environ['TEX_VISIBLE_ZBUF'])) if 'TEX_VISIBLE_ZBUF' in os.environ else bool(R.get('z_buffer', True))   # z-буфер видимости (T-201); env 0 — контрольный прогон «как было»
+ZBUF_TOL = float(os.environ.get('TEX_VISIBLE_ZBUF_TOL', R.get('z_buffer_tol_px', 3.0)))                 # грань растра этапа 4 дальше ближайшей в пикселе больше чем на столько px предмета — растр ошибся (рисует без z-буфера), в пикселе видна ближайшая
+ZBUF_GEOM_TOL = float(R.get('z_buffer_geom_tol_px', 2.0))          # страховка «форма та же, что у камеры»: на пикселях, где растр и z-буфер назвали одну грань, глубины расходятся не больше (медиана, px предмета)
+ZBUF_MIN_COVER = float(R.get('z_buffer_min_cover', 0.5))           # … и z-буфер покрывает не меньше этой доли силуэта растра
 BACK_ON = bool(int(os.environ['TEX_VISIBLE_BACK'])) if 'TEX_VISIBLE_BACK' in os.environ else bool(R.get('back_cull', True))
-BACK_WINDING_MIN = float(R.get('back_winding_min', 0.95))           # знаковую нормаль грани берём, только если обход граней сетки согласован (доля парных рёбер с противоположными направлениями) и объём положителен
+ZBUF_BACK = bool(int(os.environ['TEX_VISIBLE_ZBUF_BACK'])) if 'TEX_VISIBLE_ZBUF_BACK' in os.environ else bool(R.get('z_buffer_replace_back', True))   # ничья по глубине: грань спиной к камере уступает ближайшей (знаковая нормаль — вторичный признак при z-буфере)
+PRUNE_ON = bool(int(os.environ['TEX_VISIBLE_PRUNE'])) if 'TEX_VISIBLE_PRUNE' in os.environ else bool(R.get('back_prune_panels', True))
+BACK_WINDING_MIN =float(R.get('back_winding_min', 0.95))           # знаковую нормаль грани берём, только если обход граней сетки согласован (доля парных рёбер с противоположными направлениями) и объём положителен
 BACK_CREASE_DEG = float(R.get('back_panel_crease_deg', 15.0))       # панель = связная по рёбрам группа граней с изломом между соседями не больше этого
 BACK_MIN_SHARE = float(R.get('back_panel_min_known_share', 0.05))   # на крупной панели с долей известного с фото меньше этой известное снимается (страховка; 07 красит панель тоном своей зоны)
 BACK_MIN_OCC = float(R.get('back_panel_min_occ_share', 0.01))       # «крупная» панель: не меньше этой доли занятых текселей геометрии (мелкие панели рельефа/обивки не трогаем)
@@ -402,30 +408,92 @@ def tone_oblique(tex: np.ndarray, occ: np.ndarray, known: np.ndarray, fid: np.nd
     return {'take': take, 'rgb': rgb, 'info': info}
 
 
-def back_face_mask(geoms: list, st: dict):
-    """Грани «спиной к камере» по ЗНАКОВОЙ нормали (порядок обхода) — этап 4 рисует кадр без z-буфера (дальние первыми по средней глубине граней) и берёт cos = |n·v|, поэтому у тонкой двойной стенки
-    (фасад TRELLIS: передний и задний слой почти рядом) задняя грань может оказаться «видимой» и пройти и порог cos, и допуск глубины (её глубина — из неё же). → (bool на грань по всем геометриям | None, пометка)."""
+def cube_frame(geoms: list, st: dict):
+    """Форма в кадре камеры этапа 4: вершины куба (`worker_trellis.to_cube` с yaw из manifest этапа 4) и центр перспективной камеры (None — ортографическая, смотрит на сторону +Z куба).
+    → ({'P', 'cam', 'C'} | None, пометка). Общее для z-буфера и правила «спиной к камере»."""
     cam = st.get('camera')
-    if not BACK_ON:
-        return None, 'выключено'
     if not cam:
         return None, 'нет камеры'
     if len(geoms) != 1:
         return None, 'несколько геометрий'
     try:
-        import worker_trellis as W
+        import mv_geometry as MG                                        # to_cube вынесена из worker_trellis сюда (тот же код); worker_trellis в образ этапов не входит
         yaw = 0.0
         mp = os.path.join(st.get('pose_run') or '', 'stages', 'manifest.json')
         if os.path.exists(mp):
             yaw = float(json.load(open(mp, encoding='utf-8')).get('yaw_deg') or 0.0)
-        P, _c, _s, _R = W.to_cube(geoms[0]['V'], yaw)
+        P, _c, _s, _R = MG.to_cube(geoms[0]['V'], yaw)
         if 'az' in cam:
             import pose_fit as PF
             C = PF.cam_basis(cam['az'], cam['el'], cam['d'])[0]
         else:
-            C = None                                                    # ортографическая камера этапа 4: смотрит на сторону +Z кубa
-    except Exception as e:  # noqa: BLE001 — правило страховочное, не роняет этап
+            C = None
+    except Exception as e:  # noqa: BLE001 — правила страховочные, этап не роняют
         return None, f'пропуск: {type(e).__name__}: {str(e)[:80]}'
+    return {'P': P, 'cam': cam, 'C': C}, ''
+
+
+def zbuffer_fix(geoms: list, st: dict) -> tuple[dict, dict]:
+    """Z-буфер видимости (T-201). Кадр этапа 4 (`pose_fit.render_persp`) рисует грани «дальние первыми» по СРЕДНЕЙ глубине грани, без z-буфера: у тонкой двойной стенки (фасад TRELLIS: передний и задний слой рядом)
+    и у больших косых граней на пикселе остаётся не ближайшая грань — ложная «видимая» грань проходит и cos, и допуск глубины (глубина берётся из неё же) и получает фото чужой стороны.
+    Здесь форма заново растрируется с настоящим z-буфером (`tex_coverage.raster`, глубина 1/Z — линейна по экрану, значит перспективно верна); в пикселе, где грань растра этапа 4 дальше ближайшей больше чем на
+    `z_buffer_tol_px` пикселей предмета, подставляется ближайшая (UV, cos, глубина — `pose_fit.pixel_attrs`, та же арифметика, что в кадре этапа 4). Остальное — как есть: допуск не даёт менять растр
+    из-за разных правил закраски краёв у cv2 и у нашего растеризатора. Нет перспективной камеры / форма не совпала с растром — растр остаётся, причина в пометке. → (st, {zbuf…})."""
+    if not ZBUF_ON:
+        return st, {'zbuf': 'выключено'}
+    fr, note = cube_frame(geoms, st)
+    if fr is None:
+        return st, {'zbuf': note}
+    if fr['C'] is None:
+        return st, {'zbuf': 'пропуск: камера не перспективная'}
+    import pose_fit as PF
+    P, cam, n = fr['P'], fr['cam'], int(st['px'])
+    F = np.asarray(geoms[0]['F'], np.int64)
+    x, y, Z = PF.project(P, cam)
+    ids_z, zb = TC.raster(np.stack([x * n, y * n], 1), F, n, 1.0 / np.maximum(Z, 1e-6))        # БОЛЬШЕ = БЛИЖЕ: 1/Z
+    ids_z = ids_z.reshape(n, n)
+    zn = np.where(np.isfinite(zb), 1.0 / np.maximum(zb, 1e-12), 0.0).reshape(n, n)
+    ids, depth, mask = st['ids'], st['depth'], st['mask']
+    both = mask & (ids >= 0) & (ids_z >= 0)
+    cover = float(both.sum() / max(int(mask.sum()), 1))
+    px_len = max(float(st.get('px_len') or 0.0), 1e-9)
+    same = both & (ids == ids_z)
+    med = float(np.median(np.abs(depth[same] - zn[same])) / px_len) if same.any() else float('inf')
+    if cover < ZBUF_MIN_COVER or med > ZBUF_GEOM_TOL:
+        return st, {'zbuf': f'пропуск: форма не совпала с растром камеры (покрытие {cover:.2f}, расхождение глубины {med:.1f} px)'}
+    wrong = both & (ids != ids_z) & ((depth - zn) > ZBUF_TOL * px_len)
+    n_back = 0
+    if ZBUF_BACK:                                                                    # ничья по глубине (двойная стенка толщиной < допуска): грань спиной к камере (знаковая нормаль) видимой поверхностью замкнутой формы быть не может — берём ближайшую
+        back, _bn = back_face_mask(geoms, st)
+        if back is not None:
+            tie = both & (ids != ids_z) & back[np.clip(ids, 0, len(back) - 1)] & ~back[np.clip(ids_z, 0, len(back) - 1)] & ~wrong
+            n_back = int(tie.sum())
+            wrong = wrong | tie
+    info = {'zbuf': 'вкл', 'zbuf_px_fixed': int(wrong.sum()), 'zbuf_px_back_tie': n_back, 'zbuf_faces_replaced': int(np.unique(ids[wrong]).size), 'zbuf_share': round(float(wrong.sum() / max(int(mask.sum()), 1)), 4)}
+    if not wrong.any():
+        return st, info
+    ys, xs = np.nonzero(wrong)
+    pa = PF.pixel_attrs(P, F, np.asarray(geoms[0]['UV'], np.float64), None, cam, n, ids_z[ys, xs], ys, xs)
+    out = dict(st)
+    out['ids'], out['uv'], out['cos'], out['depth'] = ids.copy(), st['uv'].copy(), st['cos'].copy(), depth.copy()
+    out['ids'][ys, xs] = ids_z[ys, xs]
+    out['uv'][ys, xs, 0] = pa['u']
+    out['uv'][ys, xs, 1] = 1.0 - pa['v']
+    out['cos'][ys, xs] = pa['cos']
+    out['depth'][ys, xs] = pa['zpix']
+    return out, info
+
+
+def back_face_mask(geoms: list, st: dict):
+    """T-201: ВТОРИЧНЫЙ признак поверх z-буфера (`zbuffer_fix`): основное — ближайшая грань в пикселе; знаковая нормаль решает ничью по глубине и снимает остатки (замкнутая форма — грань спиной видимой быть не может).
+    Грани «спиной к камере» по ЗНАКОВОЙ нормали (порядок обхода) — этап 4 рисует кадр без z-буфера (дальние первыми по средней глубине граней) и берёт cos = |n·v|, поэтому у тонкой двойной стенки
+    (фасад TRELLIS: передний и задний слой почти рядом) задняя грань может оказаться «видимой» и пройти и порог cos, и допуск глубины (её глубина — из неё же). → (bool на грань по всем геометриям | None, пометка)."""
+    if not BACK_ON:
+        return None, 'выключено'
+    fr, note = cube_frame(geoms, st)
+    if fr is None:
+        return None, note
+    P, C = fr['P'], fr['C']
     F = np.asarray(geoms[0]['F'], np.int64)
     nF = len(F)
     q = np.round(P / 1e-6).astype(np.int64)
@@ -552,7 +620,7 @@ def transfer(geoms: list, st: dict, prgb: np.ndarray, pmask: np.ndarray, cos_min
         known = known | fill
         prov[fill] = PROV['hole']
         n_fill = int(fill.sum())
-        n_pruned = prune_panels(g, fid, occ, known, tex, g['tex'].astype(np.float64), prov) if BACK_ON else 0
+        n_pruned = prune_panels(g, fid, occ, known, tex, g['tex'].astype(np.float64), prov) if (BACK_ON and PRUNE_ON) else 0
         known_photo = known.copy()                                                                     # известное С ФОТО (без тона): по нему считаются гейт и мерки
         tone_info, n_synth = {}, 0
         if use_tone:                                                                                    # Ш3б: тон с острого угла на наблюдаемых камерой неизвестных текселях
@@ -816,6 +884,7 @@ def _run(glb: str, photo: str, pose_run: str, run_dir: str, sku: str, cos_min: f
         return {'sku': sku, 'passed': False, 'reason': 'camera_gate', 'why': [cg_why]}
     geoms = load_shape(glb)
     st = load_stage(pose_run)
+    st, zbuf_info = zbuffer_fix(geoms, st)                           # растр камеры с z-буфером: дальше и перенос, и мерки, и кадр берут его
     P = np.asarray(Image.open(photo).convert('RGBA'))
     prgb, pmask = photo_to_frame(P, st['P'], st['px'])
     cut_row = None
@@ -855,7 +924,7 @@ def _run(glb: str, photo: str, pose_run: str, run_dir: str, sku: str, cos_min: f
     ok = not why
     PS.write_check(d, '06-visible', sku, passed=ok, metric={'name': 'silhouette_iou', **{k: main[k] for k in ('value', 'threshold', 'op')}}, metrics=mm,
                    reason='' if ok else '; '.join(why), seconds=round(time.time() - t0, 1), outputs=['visible.glb', 'known.png', 'frame.png'], frame='frame.png',
-                   needs_qwen=(not ok), cos_min=cos_min, camera=st['camera'], side_views=side_views, pose_run=pose_run, stats=tr['stats'], depth_band_share=tr['depth_band_share'], body_only=(cut_row is not None), cut_row=cut_row, legs_left_to_stage8=(cut_row is not None), extra_metrics={k: v for k, v in m.items() if k not in GATE})
+                   needs_qwen=(not ok), cos_min=cos_min, camera=st['camera'], side_views=side_views, pose_run=pose_run, stats=tr['stats'], depth_band_share=tr['depth_band_share'], body_only=(cut_row is not None), cut_row=cut_row, legs_left_to_stage8=(cut_row is not None), z_buffer=zbuf_info, extra_metrics={k: v for k, v in m.items() if k not in GATE})
     return {'sku': sku, 'passed': ok, 'metrics': m, 'why': why, 'dir': d}
 
 

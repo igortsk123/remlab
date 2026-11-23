@@ -456,17 +456,242 @@ class TestTexVisible(unittest.TestCase):
         st['mask'] = st['ids'] >= 0
         st['depth'] = np.where(st['mask'], 3.0, 0.0).astype(np.float32)
         pr, pm = TV.photo_to_frame(photo_red_blue(), np.eye(3), PX)
-        keep = TV.BACK_ON
+        keep = (TV.BACK_ON, TV.PRUNE_ON)
         try:
-            TV.BACK_ON = False
+            TV.BACK_ON, TV.PRUNE_ON = False, True
             raw = TV.transfer(self.geoms, st, pr, pm, tone=False)
             TV.BACK_ON = True
             fixed = TV.transfer(self.geoms, st, pr, pm, tone=False)
+            TV.PRUNE_ON = False                                                     # правило выключено — клочок остаётся (так и в rules/tex-visible.json по умолчанию, T-201)
+            off = TV.transfer(self.geoms, st, pr, pm, tone=False)
         finally:
-            TV.BACK_ON = keep
+            TV.BACK_ON, TV.PRUNE_ON = keep
         self.assertGreater(int(raw['known'][0].sum()), 0, 'контроль: без правила клочок известен')
         self.assertEqual(int(fixed['known'][0].sum()), 0)
         self.assertGreater(fixed['stats'][0]['known_pruned_panels'], 0)
+        self.assertEqual(int(off['known'][0].sum()), int(raw['known'][0].sum()))
+        self.assertEqual(off['stats'][0]['known_pruned_panels'], 0)
+
+    def test_panel_prune_is_off_in_rules(self):
+        """Мерка T-201 (8 товаров): страховка панелей снимает настоящее фото с крупных панелей (фасад −2…−3 % известного у двух товаров из восьми) и ничего не даёт сверх z-буфера и знаковой нормали — в правилах выключена."""
+        self.assertFalse(bool(TV._rules()['back_prune_panels']))
+
+CAM = {'az': 0.0, 'el': 0.0, 'd': 3.0, 'f': 1.3, 'cx': 0.5, 'cy': 0.5}      # настоящая перспективная камера (az/el/d/f/cx/cy, как у этапа 4)
+
+
+def _quad(p, uv0, uv1):
+    """Четырёхугольник p[0..3] → два треугольника; UV — прямоугольник uv0..uv1 текстуры (грани 2k и 2k+1)."""
+    (u0, v0), (u1, v1) = uv0, uv1
+    return np.array(p, float), np.array([(u0, v0), (u1, v0), (u1, v1), (u0, v1)], float)
+
+
+def z_scene(kind):
+    """Геометрии для проверки z-буфера (одна геометрия, текстура 256²):
+    'double' — большой наклонный треугольник A (грань 0, ближний край справа) и плоский квадрат B позади него (грани 1, 2, z = −0,1): средняя глубина B ближе средней глубины A — кадр «дальние первыми» рисует B ПОВЕРХ A.
+    'closed' — две плоскости одного размера: перед (грани 0, 1, z = +0,1) закрывает зад (грани 2, 3, z = −0,1) целиком.
+    'hole'   — то же, но у перед вырезана середина (грани 0–3 рамка), зад виден через окно."""
+    V, F, UV = [], [], []
+
+    def add_quad(p, uv0, uv1):
+        i = len(V)
+        q, uvs = _quad(p, uv0, uv1)
+        V.extend(q.tolist())
+        UV.extend(uvs.tolist())
+        F.extend([[i, i + 1, i + 2], [i, i + 2, i + 3]])
+
+    if kind == 'double':
+        V.extend([(-0.5, -0.5, -0.5), (0.5, -0.5, 0.6), (0.0, 0.5, -0.5)])
+        UV.extend([(0.05, 0.05), (0.45, 0.05), (0.25, 0.45)])
+        F.append([0, 1, 2])
+        add_quad([(0.1, -0.45, -0.1), (0.3, -0.45, -0.1), (0.3, -0.3, -0.1), (0.1, -0.3, -0.1)], (0.55, 0.05), (0.95, 0.45))
+    elif kind == 'closed':
+        add_quad([(-0.4, -0.4, 0.1), (0.4, -0.4, 0.1), (0.4, 0.4, 0.1), (-0.4, 0.4, 0.1)], (0.05, 0.05), (0.45, 0.45))
+        add_quad([(-0.4, -0.4, -0.1), (0.4, -0.4, -0.1), (0.4, 0.4, -0.1), (-0.4, 0.4, -0.1)], (0.55, 0.05), (0.95, 0.45))
+    elif kind == 'hole':
+        for (x0, x1, y0, y1) in ((-0.4, 0.4, -0.4, -0.1), (-0.4, 0.4, 0.1, 0.4)):             # рамка: нижняя и верхняя полосы перед (окно −0,1…0,1 по высоте)
+            add_quad([(x0, y0, 0.1), (x1, y0, 0.1), (x1, y1, 0.1), (x0, y1, 0.1)], (0.05, 0.05), (0.45, 0.45))
+        add_quad([(-0.4, -0.4, -0.1), (0.4, -0.4, -0.1), (0.4, 0.4, -0.1), (-0.4, 0.4, -0.1)], (0.55, 0.05), (0.95, 0.45))
+    return [{'name': 'z', 'V': np.array(V, float), 'F': np.array(F), 'UV': np.array(UV, float), 'tex': np.full((256, 256, 3), 128, np.uint8)}]
+
+
+def z_stage(geoms, cam=CAM, n=PX):
+    """Кадр камеры этапа 4 по форме: тем же `pose_fit.render_persp` («дальние первыми»), форма — в кубе `mv_geometry.to_cube`."""
+    import mv_geometry as MG
+    import pose_fit as PF
+    P = MG.to_cube(geoms[0]['V'], 0.0)[0]
+    r = PF.render_persp({'V': P, 'F': geoms[0]['F'], 'UV': geoms[0]['UV'], 'N': PF.smooth_normals(P, geoms[0]['F'])}, cam, n)
+    return {'ids': r['ids'], 'uv': r['uv'], 'depth': r['depth'], 'px_len': r['px_len'], 'cos': r['cos'], 'mask': r['mask'], 'px': n, 'P': np.eye(3), 'camera': cam, 'iou_frame': 1.0}
+
+
+def z_photo(n=PX):
+    pm = np.zeros((n, n), bool)
+    pm[6:n - 6, 6:n - 6] = True
+    return np.where(pm[..., None], np.array([200, 40, 40], np.uint8), 0).astype(np.uint8), pm
+
+
+def known_on(geoms, tr, faces):
+    """Сколько текселей известно с фото на гранях `faces`."""
+    import tex_coverage as TC
+    g = geoms[0]
+    T = g['tex'].shape[0]
+    fid, _ = TC.raster(np.stack([g['UV'][:, 0] * T, (1.0 - g['UV'][:, 1]) * T], 1), g['F'], T)
+    fid = fid.reshape(T, T)
+    return int((tr['known_photo'][0] & np.isin(fid, list(faces))).sum())
+
+
+class TestZBuffer(unittest.TestCase):
+    """Z-буфер видимости (T-201): кадр этапа 4 без z-буфера рисует ближние позади дальних, если у ближней грани средняя глубина больше."""
+
+    def setUp(self):
+        self.keep = (TV.BACK_ON, TV.ZBUF_ON)
+        TV.BACK_ON, TV.ZBUF_ON = False, True                       # правило «спиной к камере» выключено: проверяем именно z-буфер
+
+    def tearDown(self):
+        TV.BACK_ON, TV.ZBUF_ON = self.keep
+
+    def _nearest(self, geoms, st):
+        """Независимый z-буфер теста: id грани и глубина ближайшей в каждом пикселе."""
+        import mv_geometry as MG
+        import pose_fit as PF
+        import tex_coverage as TC
+        P = MG.to_cube(geoms[0]['V'], 0.0)[0]
+        x, y, Z = PF.project(P, st['camera'])
+        n = st['px']
+        ids, zb = TC.raster(np.stack([x * n, y * n], 1), geoms[0]['F'], n, 1.0 / Z)
+        return ids.reshape(n, n), np.where(np.isfinite(zb), 1.0 / np.maximum(zb, 1e-12), 0.0).reshape(n, n)
+
+    def test_double_wall_painter_error_fixed(self):
+        """Двойная стенка: кадр рисует заднюю грань B (1, 2) поверх лицевой A (0) → B берёт фото, A теряет его под B. С z-буфером: B не видна, фото — на A; допуск — из правил."""
+        g = z_scene('double')
+        st = z_stage(g)
+        ids_n, z_n = self._nearest(g, st)
+        wrong = np.isin(st['ids'], (1, 2)) & (ids_n == 0)
+        self.assertGreater(int(wrong.sum()), 50, 'предусловие: кадр без z-буфера должен ошибиться на этой сцене')
+        fixed, info = TV.zbuffer_fix(g, st)
+        self.assertEqual(info['zbuf'], 'вкл')
+        self.assertGreaterEqual(info['zbuf_px_fixed'], int(wrong.sum()))
+        self.assertFalse(np.isin(fixed['ids'], (1, 2)).any(), 'задняя грань осталась видимой')
+        self.assertTrue((fixed['ids'][wrong] == 0).all())
+        self.assertTrue((fixed['depth'][wrong] < st['depth'][wrong]).all(), 'глубина в исправленных пикселях должна стать ближе')
+        self.assertTrue((fixed['uv'][wrong, 0] < 0.5).all(), 'UV исправленных пикселей — из лицевой ячейки (u < 0,5)')
+        pr, pm = z_photo()
+        old = TV.transfer(g, st, pr, pm, tone=False)
+        new = TV.transfer(g, fixed, pr, pm, tone=False)
+        self.assertGreater(known_on(g, old, (1, 2)), 200, 'контроль: без z-буфера задняя грань получает фото')
+        self.assertEqual(known_on(g, new, (1, 2)), 0, 'с z-буфером зад не получает ни текселя')
+        self.assertGreater(known_on(g, new, (0,)), known_on(g, old, (0,)), 'лицевая грань под задней вернула фото')
+
+    def test_closed_front_face_hides_the_rear(self):
+        """Закрытая передняя грань: перед (0, 1) закрывает зад (2, 3) целиком — растр верен, z-буфер его не трогает, на заде фото нет совсем."""
+        g = z_scene('closed')
+        st = z_stage(g)
+        fixed, info = TV.zbuffer_fix(g, st)
+        self.assertEqual(info['zbuf_px_fixed'], 0)
+        self.assertTrue(fixed['ids'] is st['ids'] or (fixed['ids'] == st['ids']).all())
+        pr, pm = z_photo()
+        tr = TV.transfer(g, fixed, pr, pm, tone=False)
+        self.assertGreater(known_on(g, tr, (0, 1)), 2000)
+        self.assertEqual(known_on(g, tr, (2, 3)), 0)
+
+    def test_hole_shows_only_through_the_window(self):
+        """Окно в передней стенке: зад получает фото только там, где он виден камере (не по всей площади)."""
+        g = z_scene('hole')
+        st = z_stage(g)
+        fixed, _info = TV.zbuffer_fix(g, st)
+        pr, pm = z_photo()
+        tr = TV.transfer(g, fixed, pr, pm, tone=False)
+        rear, front = known_on(g, tr, (4, 5)), known_on(g, tr, (0, 1, 2, 3))
+        self.assertGreater(rear, 200, 'через окно зад виден — фото на нём честное')
+        import tex_coverage as TC
+        T = g[0]['tex'].shape[0]
+        fid, _ = TC.raster(np.stack([g[0]['UV'][:, 0] * T, (1.0 - g[0]['UV'][:, 1]) * T], 1), g[0]['F'], T)
+        occ_rear = int(np.isin(fid, (4, 5)).sum())
+        self.assertLess(rear, 0.5 * occ_rear, 'зад не должен быть известен весь: большая часть закрыта передней стенкой')
+        self.assertGreater(front, 1000)
+
+    def test_one_face_per_pixel_nothing_shows_through(self):
+        """«Полупрозрачного нет»: после исправления в КАЖДОМ пикселе одна грань — ближайшая (с допуском из правил); ни одна грань не просвечивает сквозь ближнюю."""
+        for kind in ('double', 'closed', 'hole'):
+            g = z_scene(kind)
+            st = z_stage(g)
+            fixed, _info = TV.zbuffer_fix(g, st)
+            ids_n, z_n = self._nearest(g, st)
+            m = st['mask'] & (fixed['ids'] >= 0) & (ids_n >= 0)
+            behind = (fixed['depth'] - z_n)[m] / st['px_len']
+            self.assertLessEqual(float(behind.max()), TV.ZBUF_TOL + 0.5, f'{kind}: в пикселе видна грань глубже ближайшей на {behind.max():.1f} px')
+            self.assertTrue((fixed['mask'] == st['mask']).all(), 'силуэт не меняется')
+
+    def test_tolerance_is_from_rules_and_keeps_near_ties(self):
+        """Допуск — из rules/tex-visible.json; грани глубже ближайшей меньше чем на допуск растр не меняют (шум разных правил закраски краёв)."""
+        rules = TV._rules()
+        self.assertEqual(TV.ZBUF_TOL, float(rules['z_buffer_tol_px']))
+        g = z_scene('double')
+        st = z_stage(g)
+        keep = TV.ZBUF_TOL
+        try:
+            TV.ZBUF_TOL = 1e6                                      # допуск огромный: «рядом» — всё, растр обязан остаться как есть
+            same, info = TV.zbuffer_fix(g, st)
+        finally:
+            TV.ZBUF_TOL = keep
+        self.assertEqual(info['zbuf_px_fixed'], 0)
+        self.assertTrue((same['ids'] == st['ids']).all())
+
+    def test_tie_back_face_yields_to_the_nearest(self):
+        """Ничья по глубине (двойная стенка тоньше допуска): грань спиной к камере (знаковая нормаль, замкнутая форма с согласованным обходом) не бывает видимой поверхностью — в пикселе берётся ближайшая;
+        без этого правила (`ZBUF_BACK` выкл.) допуск оставил бы её, как есть."""
+        V = np.array([(-.5, -.5, -.5), (.5, -.5, -.5), (.5, .5, -.5), (-.5, .5, -.5), (-.5, -.5, .5), (.5, -.5, .5), (.5, .5, .5), (-.5, .5, .5)], float)
+        F = np.array([(0, 3, 2), (0, 2, 1), (4, 5, 6), (4, 6, 7), (0, 1, 5), (0, 5, 4), (3, 7, 6), (3, 6, 2), (0, 4, 7), (0, 7, 3), (1, 2, 6), (1, 6, 5)])
+        g = [{'name': 'cube', 'V': V, 'F': F, 'UV': np.stack([V[:, 0] + .5, V[:, 1] + .5], 1) * .9 + .05, 'tex': np.full((64, 64, 3), 128, np.uint8)}]
+        st = z_stage(g)
+        keep = TV.BACK_ON
+        TV.BACK_ON = True
+        try:
+            back, _note = TV.back_face_mask(g, st)
+            self.assertIsNotNone(back, 'знаковая нормаль куба должна считаться')
+            front = int(np.bincount(st['ids'][st['mask']].ravel()).argmax())
+            self.assertFalse(back[front])
+            rear = int(np.nonzero(back)[0][0])
+            px = st['mask'] & (st['ids'] == front)
+            self.assertGreater(int(px.sum()), 500)
+            bad = dict(st, ids=st['ids'].copy(), depth=st['depth'].copy())
+            bad['ids'][px] = rear                                     # «растр ошибся в ничью»: грань спиной, глубже ближайшей на 1 px предмета (< допуска)
+            bad['depth'][px] += 1.0 * st['px_len']
+            self.assertLess(1.0, TV.ZBUF_TOL)
+            keep_b = TV.ZBUF_BACK
+            try:
+                TV.ZBUF_BACK = False
+                same, info0 = TV.zbuffer_fix(g, bad)
+                self.assertEqual(info0['zbuf_px_fixed'], 0, 'допуск ничью не трогает')
+                self.assertTrue((same['ids'][px] == rear).all())
+                TV.ZBUF_BACK = True
+                fixed, info1 = TV.zbuffer_fix(g, bad)
+            finally:
+                TV.ZBUF_BACK = keep_b
+            self.assertGreaterEqual(info1['zbuf_px_back_tie'], int(0.99 * px.sum()))             # пара краевых пикселей закрашивается у cv2 и у нашего растра по-разному
+            self.assertGreaterEqual(float((fixed['ids'][px] == front).mean()), 0.9, 'в ничью побеждает грань, обращённая к камере (у диагонали квадрата — второй его треугольник)')
+            left = px & (fixed['ids'] >= 0)
+            self.assertLess(float(back[fixed['ids'][left]].mean()), 0.01, 'грань спиной остаётся лишь там, где и ближайшая в z-буфере — спиной (краевые пиксели силуэта)')
+            self.assertTrue((fixed['ids'][~px] == st['ids'][~px]).all(), 'остальное не тронуто')
+        finally:
+            TV.BACK_ON = keep
+
+    def test_skips_without_perspective_camera_or_with_other_shape(self):
+        """Нет перспективной камеры (ортография, тестовая) и форма не та, что у растра — растр остаётся, причина в пометке."""
+        g = z_scene('double')
+        st = z_stage(g)
+        st_o = dict(st, camera={'kind': 'test'})
+        out, info = TV.zbuffer_fix(g, st_o)
+        self.assertIs(out, st_o)
+        self.assertIn('не перспективная', info['zbuf'])
+        other = z_scene('closed')
+        out2, info2 = TV.zbuffer_fix(other, st)                    # растр от другой формы
+        self.assertIs(out2, st)
+        self.assertIn('пропуск', info2['zbuf'])
+        TV.ZBUF_ON = False
+        out3, info3 = TV.zbuffer_fix(g, st)
+        self.assertIs(out3, st)
+        self.assertEqual(info3['zbuf'], 'выключено')
+
 
 if __name__ == '__main__':
     unittest.main()
