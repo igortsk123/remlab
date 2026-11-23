@@ -855,7 +855,7 @@ def sibling_tone(geoms: list, tex_before: list, tex_after: list, known: list, pa
     import cv2
     import tex_coverage as TC
     import tex_fill as TF
-    O = dict({'enabled': True, 'max_known': 0.10, 'partner_known': 0.10, 'same06_de': 3.0, 'min_dL': 12.0, 'min_texels': 300}, **R.get('sibling_tone', {}))
+    O = dict({'enabled': True, 'max_known': 0.10, 'partner_known': 0.10, 'same06_de': 3.0, 'min_dL': 12.0, 'consensus_enabled': False, 'consensus_n': 3, 'consensus_dL': 5.0, 'max_dL': 20.0, 'min_texels': 300}, **R.get('sibling_tone', {}))
     rep = {'enabled': bool(O['enabled']), 'pairs': [], 'texels_changed': 0, 'sibling_share_pct': 0.0}
     if not O['enabled'] or parts is None:
         return [np.asarray(t, np.uint8) for t in tex_after], rep
@@ -894,11 +894,19 @@ def sibling_tone(geoms: list, tex_before: list, tex_after: list, known: list, pa
                 continue
             cand = [(float(np.linalg.norm(v['m06'] - w['m06'])), q) for q, w in info.items() if q != p and w['ks'] >= O['partner_known']]
             cand = [c for c in cand if c[0] <= O['same06_de']]
-            if not cand:
-                continue
-            q = min(cand)[1]
-            d = info[q]['m07'] - v['m07']
-            if abs(float(d[0])) <= O['min_dL']:
+            if cand:
+                q = min(cand)[1]
+                d = info[q]['m07'] - v['m07']
+                dmin = O['min_dL']
+            else:                                                    # надёжной пары нет (у всех мало известного): консенсус частей с тем же цветом 06
+                sibs = [q_ for q_, w in info.items() if q_ != p and float(np.linalg.norm(v['m06'] - w['m06'])) <= O['same06_de']]
+                if not O['consensus_enabled'] or len(sibs) < int(O['consensus_n']):
+                    continue
+                q = -1
+                cand = [(float(np.median([np.linalg.norm(v['m06'] - info[q_]['m06']) for q_ in sibs])), -1)]
+                d = np.median(np.stack([info[q_]['m07'] for q_ in sibs]), axis=0) - v['m07']
+                dmin = O['consensus_dL']
+            if abs(float(d[0])) <= dmin or abs(float(d[0])) > O['max_dL']:      # локальный прогон 23.11: сдвиг >20 L ломал перёд/зад (4484: 34 % текселей, dE00 21) — это разные по тону части, не близнецы
                 continue
             idx = v['hid']
             lab_new[idx] = la[idx] + d[None, :]
@@ -907,11 +915,79 @@ def sibling_tone(geoms: list, tex_before: list, tex_after: list, known: list, pa
             rgbn = np.where((rgbn.max(axis=1) <= TF.BLACK_MAX)[:, None], np.maximum(rgbn, TF.BLACK_MAX + 1), rgbn)
             res[idx] = rgbn
             chg += int(len(idx))
-            rep['pairs'].append({'geom': gi, 'part': int(p), 'partner': int(q), 'known_share': round(v['ks'], 3), 'partner_known_share': round(info[q]['ks'], 3), 'dE06': round(min(cand)[0], 1),
+            rep['pairs'].append({'geom': gi, 'part': int(p), 'partner': int(q), 'known_share': round(v['ks'], 3), 'partner_known_share': round(info[q]['ks'], 3) if q >= 0 else None, 'dE06': round(min(cand)[0], 1),
                                  'dLab': [round(float(x), 1) for x in d], 'texels': int(len(idx))})
         outs[gi] = res.reshape(tex.shape)
     rep['texels_changed'] = chg
     rep['sibling_share_pct'] = round(100.0 * chg / max(tot, 1), 2)
+    return outs, rep
+
+
+def panel_sibling_tone(geoms: list, tex_before: list, tex_after: list, known: list, parts: list | None) -> tuple:
+    """Панели внутри одной части (T-187/6, стул 7733, 23.11: полоса внизу спинки — панели ОДНОЙ части с тем же цветом 06, но тон 07 из мизерного известного светлее остальных на ΔL>12).
+    Панель с известным < `max_known` и ≥ `min_texels` невидимых текселей, чей тон 07 (медиана L) отличается от медианы остальной части (по невидимым текселям других панелей части) более чем на `min_dL`
+    (но не более `max_dL`), при том же цвете 06 (ΔE76 ≤ `same06_de`) — сдвигается на разность медиан (L и a,b), зерно сохраняется. Нужны ≥ `min_others` текселей остальной части. Известные тексели не меняются."""
+    import cv2
+    import tex_coverage as TC
+    import tex_fill as TF
+    O = dict({'enabled': True, 'max_known': 0.10, 'same06_de': 3.0, 'min_dL': 12.0, 'max_dL': 20.0, 'min_texels': 300, 'min_others': 3000}, **R.get('panel_sibling_tone', {}))
+    rep = {'enabled': bool(O['enabled']), 'panels': [], 'texels_changed': 0}
+    if not O['enabled'] or parts is None:
+        return [np.asarray(t, np.uint8) for t in tex_after], rep
+
+    def lab_of(rgb):
+        return cv2.cvtColor(np.asarray(rgb, np.uint8).astype(np.float32) / 255.0, cv2.COLOR_RGB2Lab)
+
+    outs = []
+    for gi, g in enumerate(geoms):
+        tex = np.asarray(tex_after[gi], np.uint8)
+        outs.append(tex)
+        T = int(tex.shape[0])
+        bef = np.asarray(tex_before[gi], np.uint8)
+        if bef.shape[0] != T:
+            continue
+        F = np.asarray(g['F'])
+        pa = panel_ids(np.asarray(g['V'], np.float64), F, np.asarray(parts[gi]))
+        xy = np.stack([g['UV'][:, 0] * T, (1.0 - g['UV'][:, 1]) * T], 1)
+        fid, _ = TC.raster(xy, F, T)
+        fid = fid.reshape(-1)
+        occ = fid >= 0
+        f0 = np.maximum(fid, 0)
+        pp = np.where(occ, np.asarray(parts[gi])[f0], -1)
+        pn = np.where(occ, pa[f0], -1)
+        kn = np.asarray(known[gi], bool).ravel()
+        unp = TF.unpainted_mask(bef).reshape(-1)
+        lb, la = lab_of(bef).reshape(-1, 3), lab_of(tex).reshape(-1, 3)
+        res = tex.reshape(-1, 3).copy()
+        lab_new = la.copy()
+        for p in np.unique(pp[occ]).tolist():
+            sel = occ & (pp == p) & ~kn & ~unp
+            ids = np.unique(pn[sel])
+            if len(ids) < 2:
+                continue
+            for pid in ids.tolist():
+                mine = np.flatnonzero(sel & (pn == pid))
+                if len(mine) < O['min_texels']:
+                    continue
+                ks = float(kn[(pn == pid) & occ].mean())
+                if ks >= O['max_known']:
+                    continue
+                oth = np.flatnonzero(sel & (pn != pid))
+                if len(oth) < O['min_others']:
+                    continue
+                if float(np.linalg.norm(np.median(lb[mine], axis=0) - np.median(lb[oth], axis=0))) > O['same06_de']:
+                    continue
+                d = np.median(la[oth], axis=0) - np.median(la[mine], axis=0)
+                if abs(float(d[0])) <= O['min_dL'] or abs(float(d[0])) > O['max_dL']:
+                    continue
+                lab_new[mine] = la[mine] + d[None, :]
+                lab_new[mine, 0] = np.clip(lab_new[mine, 0], 0.0, 100.0)
+                rgbn = np.clip(cv2.cvtColor(lab_new[mine].reshape(-1, 1, 3).astype(np.float32), cv2.COLOR_Lab2RGB) * 255.0 + 0.5, 0, 255).astype(np.uint8).reshape(-1, 3)
+                rgbn = np.where((rgbn.max(axis=1) <= TF.BLACK_MAX)[:, None], np.maximum(rgbn, TF.BLACK_MAX + 1), rgbn)
+                res[mine] = rgbn
+                rep['texels_changed'] += int(len(mine))
+                rep['panels'].append({'geom': gi, 'part': int(p), 'panel': int(pid), 'known_share': round(ks, 3), 'dLab': [round(float(x), 1) for x in d], 'texels': int(len(mine))})
+        outs[gi] = res.reshape(tex.shape)
     return outs, rep
 
 
@@ -1203,11 +1279,25 @@ def own_panel_tone(geoms: list, tex_after: list, known: list, ut_geoms: list | N
                         pool, nb = norm_blocks(pool, float(O['quilt_drop_pct']), int(O['quilt_min_pool']))
                         info['quilt_norm'] = nb
                     q, lat_q = None, None
-                    for mul_ in (1.0, 1.25, 1.5):                                # решётка плитки (р.1, T-187/7): лучшая из сборок, плитка крупнее; не вышло — плоский тон
-                        c_ = TF.wrap_soften(TF.quilt_image(np.stack(pool).astype(np.float64), int(round(O['quilt_cells'] * mul_)), int(O['quilt_overlap']), rng, int(O['quilt_tries'])))
-                        l_ = TF.quilt_lattice(c_, int(O['quilt_block']) - int(O['quilt_overlap']))
-                        if lat_q is None or l_['excess'] < lat_q['excess']:
-                            q, lat_q = c_, l_
+                    pool0 = pool
+                    for sub_ in (1, 2, 4):                                       # решётка плитки (р.1, T-187/7): не вышло на пуле шагом B/2 — пул гуще (шаг B/4, B/8, как stride_div у р.1), потом плитка крупнее; не вышло — плоский тон
+                        if sub_ > 1:
+                            st_ = max(1, (B // 2) // sub_)
+                            ys_, xs_ = np.nonzero(frac[B // 2:T - B // 2 + 1:st_, B // 2:T - B // 2 + 1:st_] > 0.999)
+                            pool = [tex[y * st_:y * st_ + B, x * st_:x * st_ + B] for y, x in zip(ys_, xs_)]
+                            if len(pool) > O['quilt_pool'] * sub_:
+                                pool = [pool[i] for i in rng.choice(len(pool), int(O['quilt_pool'] * sub_), replace=False)]
+                            if O['quilt_norm']:
+                                pool, nb = norm_blocks(pool, float(O['quilt_drop_pct']), int(O['quilt_min_pool']))
+                                info['quilt_norm'] = nb
+                            info['quilt_pool_div'] = sub_
+                        for mul_ in (1.0, 1.25, 1.5):
+                            c_ = TF.wrap_soften(TF.quilt_image(np.stack(pool).astype(np.float64), int(round(O['quilt_cells'] * mul_)), int(O['quilt_overlap']), rng, int(O['quilt_tries'])))
+                            l_ = TF.quilt_lattice(c_, int(O['quilt_block']) - int(O['quilt_overlap']))
+                            if lat_q is None or l_['excess'] < lat_q['excess']:
+                                q, lat_q = c_, l_
+                            if lat_q['excess'] <= O['quilt_lattice_max']:
+                                break
                         if lat_q['excess'] <= O['quilt_lattice_max']:
                             break
                     info['quilt_lattice'] = round(float(lat_q['excess']), 3)
