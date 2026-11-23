@@ -219,7 +219,7 @@ jobs:
       - run: python tools/scout/tests/test_recolor_window.py   # путь перекраски на живое (T-20261119-03/2): проверки pre, окно без волны (занято/волна посреди/шаг упал), бэкап, выкладка, recolor_rollback.sh в сухом прогоне (нужны numpy, bash)
       - run: python3 tools/assets/tests/test_material_class.py   # классы материала мебели для рендера: характеристики → название → роль, отрицания, общее «ткань», части; результат собран по этим правилам (T-20261117-14)
       - run: python3 tools/assets/tests/test_material_parts.py   # маска частей мебели: ножки отдельно от обивки по геометрии, неуверенность — без слоя; результат собран по этим правилам (T-20261117-14/3)
-      - run: pip install pillow && python3 tools/assets/tests/test_loop5.py   # круг «на 5»: деление товаров по нодам, команды stage_trial, вход «до», страница до|после; без сети и платного (T-20261123-29/1)
+      - run: pip install pillow numpy scipy && python3 tools/assets/tests/test_loop5.py   # круг «на 5»: деление товаров по нодам, команды stage_trial, вход «до», страница до|после; без сети и платного (T-20261123-29/1)
       - run: python3 tools/assets/tests/test_material_stage.py   # этап 08 «материал»: класс части → PBR-рецепт, запекание в UV общего листа, GLB с sheen/transmission; цвет и форма не тронуты (T-20261121-170/1)
       - run: python3 tools/assets/tests/test_glass_finish.py   # вид и тон стекла: каталог → класс glass/glass_frosted и тон рецепта, сверка с фото, запекание только под тоном (T-20261121-169/9)
       - run: python3 tools/assets/tests/test_sheen_tint.py   # цвет sheen ткани = сила × цвет ткани (серость тёмного бархата): серый при on=false, floor, цвет и форма байт в байт (T-20261121-169)

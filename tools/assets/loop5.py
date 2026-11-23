@@ -11,6 +11,8 @@
     Код этапов едет в задании из `git archive <SHA>` (вход — только `--code-ref`; ветка/HEAD разрешаются в SHA и пишутся в итог).
  3. Пока идёт Salad, считает на наших ядрах листы «со всех сторон» для «до» (кэш `<out_root>/base-sheets/`), потом для «после».
  4. Складывает страницу `<out_root>/<прогон>/page/index.html` (+ png «до над после» на товар) и `summary.json` со временем, ценой и отказами.
+ 5. Сразу после листов «после» сам гоняет автооценку `sides_eval.py` (5 признаков × 6 сторон) и кладёт в `summary.json` (ключ `eval`) и наверх `page/index.html` таблицу
+    worst-first + общий % «все 5». «Перёд» листа «после» — `front_axis_resolved` (orient → камера 04 по геометрии → unknown), не голая камера 04 (T-47).
 Деплоя нет, `.env*` не читается (ключ Salad берёт сам драйвер как у T-220). Временное — `<out_root>/<прогон>/`."""
 from __future__ import annotations
 
@@ -242,6 +244,8 @@ def sheet_items(jobs: list[tuple]) -> list[dict]:
         it = {'id': os.path.splitext(os.path.basename(o))[0], 'glb': g, 'photo': p}
         if len(j) > 3 and j[3]:
             it['check06'] = j[3]
+        if len(j) > 4 and j[4] is not None:
+            it['az'] = float(j[4])                                       # «перёд» решён front_axis (T-47): камера листа = θ, check06 для ракурса не нужен
         items.append(it)
     return items
 
@@ -251,7 +255,7 @@ def batch_cmd(rules: dict, items_path: str, out: str) -> list[str]:
     hs = rules['heavy_slot']
     c = [a.format(python=ex(rules['python']), root=ROOT) for a in rules['sheets']['cmd']]
     return [HEAVY, 'loop5-sheets', '--min-gb', str(hs['min_gb_sheets_batch']), '--cores', str(hs['cores_sheets_batch']), '--prio', str(hs['prio']), '--timeout', '1500', '--',
-            *c, '--items', items_path, '--out', out]
+            *c, *(['--clay'] if rules['sheets'].get('clay') else []), '--items', items_path, '--out', out]
 
 
 def run_sheets(rules: dict, jobs: list[tuple], log: str) -> int:
@@ -282,7 +286,80 @@ def run_sheets(rules: dict, jobs: list[tuple], log: str) -> int:
         return subprocess.run(cmd, stdout=lf, stderr=subprocess.STDOUT).returncode
 
 
-def compose(rules: dict, run_dir: str, sha: str, start: str, rows: list[dict]) -> str:
+def front_of(rules: dict, glb: str, check06: str, res_dir: str, base_dir: str) -> dict:
+    """«Перёд» листа товара = front_axis_resolved (tools/scout/front_axis.py): orient (если лежит `07-fill/orient.json` результата или «до») → камера 04 по геометрии → unknown.
+    Неизвестен — лист по камере 04 как раньше, флаг front_unknown в таблице."""
+    sys.path.insert(0, os.path.join(ROOT, 'tools', 'scout'))
+    import front_axis as FA
+    op = next((p for p in (os.path.join(d, '07-fill', 'orient.json') for d in (res_dir, base_dir) if d) if os.path.isfile(p)), None)
+    return FA.resolve_from_files(glb, check06, op)
+
+
+def run_eval(rules: dict, sheets_dir: str, out_dir: str, items: list[dict]) -> dict:
+    """sides_eval.batch по листам «после» (+ глина, если rules.sheets.clay): {sku: {score, ok, fails:[{view, feature, r}], front}} и сводка {items, passed_all, passed_all_pct, worst_first}.
+    Предохранитель ракурса front_guard выключен: перёд уже решён front_axis (у items есть az и нет check06)."""
+    sys.path.insert(0, HERE)
+    import sides_eval as SE
+    by_id = {it['id']: it for it in items}
+    r = SE.batch(sheets_dir, out_dir, [i for i in by_id], items=by_id)
+    out = {}
+    for sku, v in r['eval'].items():
+        fails = []
+        for view, fs in v['views'].items():
+            for f, d in fs.items():
+                if f != 'na' and d.get('r') is not None and d['r'] > 1:
+                    fails.append({'view': view, 'feature': f, 'r': d['r']})
+        out[sku] = {'score': v['score'], 'ok': v['ok'], 'fails': sorted(fails, key=lambda x: -x['r']), 'views': v['views']}
+    return {'per_sku': out, 'summary': r['summary']}
+
+
+def eval_html(ev: dict, fronts: dict | None = None) -> str:
+    """Таблица worst-first: сверху общий % «все 5»; по товару — решётка признак × сторона (число r, > 1 красным), «перёд» и его источник."""
+    s = ev['summary']
+    feats = ['patches', 'sharpness', 'uniform', 'pattern', 'underpaint']
+    views = ['перед', '3/4', 'бок', 'зад', 'др. бок', 'верх']
+    pct = s.get('passed_all_pct')
+    out = [f'<h2>Автооценка: все 5 признаков на всех сторонах — {s["passed_all"]} из {s["items"]}' + (f' ({pct} %)' if pct is not None else '') + '</h2>'
+           '<p>Худшие сверху. Число — «насколько плохо к допуску» (r ≤ 1 — прошло, красным — не прошло); «—» — признак к стороне не применяется.</p>']
+    for sku in s['worst_first']:
+        v = ev['per_sku'][sku]
+        fr = (fronts or {}).get(sku) or {}
+        fl = ' '.join(fr.get('flags') or [])
+        src = fr.get('source') or ('не решён' if fr else '')
+        sc = '—' if v['score'] is None else f'{v["score"]:.2f}'
+        rows = []
+        for f in feats:
+            cells = []
+            for vw in views:
+                d = (v['views'].get(vw) or {}).get(f) if 'na' not in (v['views'].get(vw) or {}) else None
+                if not d or d.get('r') is None:
+                    cells.append('<td>—</td>')
+                else:
+                    bad = d['r'] > 1
+                    cells.append(f'<td style="{"background:#fbb;font-weight:bold" if bad else ""}">{d["r"]:.2f}</td>')
+            rows.append(f'<tr><th align="left">{f}</th>{"".join(cells)}</tr>')
+        out.append(f'<h4>{html.escape(sku)} — оценка {sc} {"✓ все 5" if v["ok"] else "✗"} · перёд: {html.escape(str(src))} {html.escape(fl)}</h4>'
+                   f'<table border="1" cellpadding="3" style="border-collapse:collapse;font-size:13px"><tr><th></th>{"".join(f"<th>{x}</th>" for x in views)}</tr>{"".join(rows)}</table>')
+    return ''.join(out)
+
+
+def eval_after(rules: dict, run_dir: str, jobs: list[tuple], fronts: dict) -> tuple[dict | None, str]:
+    """Оценка листов «после» сама, без ручного шага: (ev, html таблицы). Нет ни одного листа — (None, ''); сбой оценки не роняет круг (❗ в странице и в журнале)."""
+    sheets = os.path.join(run_dir, 'sheets')
+    items = [it for it in sheet_items(jobs) if os.path.isfile(os.path.join(sheets, it['id'] + '.png')) and os.path.getsize(os.path.join(sheets, it['id'] + '.png')) > 0]
+    if not items:
+        return None, '<p>❗ автооценка: нет ни одного листа «после»</p>'
+    try:
+        ev = run_eval(rules, sheets, os.path.join(run_dir, 'eval'), items)
+    except Exception as e:  # noqa: BLE001
+        say(f'❗ автооценка не посчиталась: {type(e).__name__}: {e}')
+        return None, f'<p>❗ автооценка не посчиталась: {html.escape(str(e))}</p>'
+    s0 = ev['summary']
+    say(f'автооценка: все 5 на всех сторонах {s0["passed_all"]} из {s0["items"]} ({s0["passed_all_pct"]} %); худший: {s0["worst_first"][:3]}')
+    return ev, eval_html(ev, fronts)
+
+
+def compose(rules: dict, run_dir: str, sha: str, start: str, rows: list[dict], ev_html: str = '') -> str:
     """Страница «до | после»: png «до над после» на товар + index.html."""
     from PIL import Image, ImageDraw
     page = os.path.join(run_dir, 'page')
@@ -307,7 +384,7 @@ def compose(rules: dict, run_dir: str, sha: str, start: str, rows: list[dict]) -
         body.append(f'<h3>{html.escape(r["sku"])} — {html.escape(st)}</h3>{pic}')
     doc = (f'<!doctype html><meta charset="utf-8"><title>круг на 5 — {sha[:8]}</title><body style="font-family:sans-serif;margin:16px">'
            f'<h2>Круг на 5 · код {sha[:8]} · с шага {start}</h2><p>Сверху — «до» (пакет T-20), снизу — «после» (этот прогон). Листы: фото и 6 видов: перед, 3/4, бок, зад, другой бок, верх.</p>'
-           + ''.join(body) + '</body>')
+           + ev_html + ''.join(body) + '</body>')
     p = os.path.join(page, 'index.html')
     open(p, 'w', encoding='utf-8').write(doc)
     return p
@@ -464,17 +541,27 @@ def main(argv=None) -> int:
     sheets_after = {s: os.path.join(run_dir, 'sheets', f'{s}.png') for s in skus}
     jobs = [(os.path.join(res[s], '08-material', 'material.glb'), photo[s], sheets_after[s],
              next((c for c in (os.path.join(res[s], '06-visible', 'check.json'), os.path.join(base[s], '06-visible', 'check.json')) if os.path.isfile(c)), '')) for s in skus if s in res]
+    fronts = {}
+    for j in list(jobs):                                                   # «перёд» листа «после» — front_axis_resolved, не голая камера 04 (T-47)
+        sku = os.path.splitext(os.path.basename(j[2]))[0]
+        fronts[sku] = front_of(rules, j[0], j[3], res[sku], base[sku]) if j[3] else {'theta': None, 'flags': ['front_unknown:no_check06'], 'source': None}
+        if fronts[sku].get('theta') is not None:
+            jobs[jobs.index(j)] = (*j[:4], fronts[sku]['theta'])
+        say(f'перёд {sku[-12:]}: θ={fronts[sku].get("theta")} ({fronts[sku].get("source")}) {fronts[sku].get("flags") or ""}')
     t_sa = time.time()
     rc_a = run_sheets(rules, jobs, os.path.join(run_dir, 'sheets-after.log'))
     sheets_s[1] = round(time.time() - t_sa, 1)
+    ev, ev_html = eval_after(rules, run_dir, jobs, fronts)
     rows = []
     for s in skus:
         ok = s in res
         rows.append({'sku': s, 'status': 'пересчитан' if ok else 'ОТКАЗ (нет 08-material/material.glb — см. log-sh*.log)', 'before_png': sheets_before[s], 'after_png': sheets_after[s]})
-    page = compose(rules, run_dir, sha, a.start, rows)
+    page = compose(rules, run_dir, sha, a.start, rows, ev_html)
     t_all = time.time() - t0
     summ = {'code_ref': a.code_ref, 'sha': sha, 'from': a.start, 'run_dir': run_dir, 'page': page, 'seconds_salad': round(t_salad), 'seconds_total': round(t_all), 'codes': rcs, 'sheets_rc': [rc_b, rc_a], 'sheets_s': sheets_s,
-            'money': money, 'skus': {r['sku']: r['status'] for r in rows}}
+            'money': money, 'skus': {r['sku']: r['status'] for r in rows},
+            'eval': None if ev is None else {'passed_all': ev['summary']['passed_all'], 'items': ev['summary']['items'], 'passed_all_pct': ev['summary']['passed_all_pct'], 'worst_first': ev['summary']['worst_first'],
+                                              'per_sku': {k: {'score': v['score'], 'ok': v['ok'], 'fails': v['fails'], 'front': {x: (fronts.get(k) or {}).get(x) for x in ('theta', 'source', 'flags')}} for k, v in ev['per_sku'].items()}}}
     with open(os.path.join(run_dir, 'summary.json'), 'w', encoding='utf-8') as fh:
         json.dump(summ, fh, ensure_ascii=False, indent=1)
     say(f'ГОТОВО за {t_all / 60:.1f} мин (Salad {t_salad / 60:.1f}); нод {money["groups"]}, ≈${money["cost_usd_est"]:.3f}, остановка подтверждена: {money["stop_verified"]}; страница {page}')

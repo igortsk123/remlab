@@ -215,7 +215,7 @@ class T(unittest.TestCase):
         c = L.batch_cmd(r, '/o/items.json', '/o/sheets')
         j = ' '.join(c)
         self.assertTrue(c[0].endswith('heavy-slot.sh'))
-        self.assertIn('sides_sheet.py batch --items /o/items.json --out /o/sheets', j)
+        self.assertIn('sides_sheet.py batch --clay --items /o/items.json --out /o/sheets', j)
         self.assertIn(f'--cores {r["heavy_slot"]["cores_sheets_batch"]}', j)
 
     def test_run_sheets_one_dir_and_skip_done(self):
@@ -253,6 +253,62 @@ class T(unittest.TestCase):
                 L.check_sheet_photos({'112923_1': os.path.join(tmp, 'нет.png')}, ['112923_1'])   # путь есть, файла нет
         src = open(os.path.join(HERE, '..', 'loop5.py'), encoding='utf-8').read()
         self.assertNotIn("'frame-photo.png')", src)                                     # запасного пути в коде нет
+
+    def test_eval_after_runs_by_itself_and_table_worst_first(self):
+        import numpy as np
+        from PIL import Image
+        sys.path.insert(0, HERE)
+        import sides_eval as SE
+        SR = SE.load_sheet_rules()
+        S, HP = int(SR['size']), int(SR['header_px'])
+        yy, xx = np.mgrid[0:S, 0:S]
+        m = (np.abs(xx - S / 2) < 95) & (np.abs(yy - S / 2) < 105)
+
+        def sheet(bad_back):
+            cells = []
+            for i in range(7):
+                c = np.full((S, S, 3), 245 if i == 0 else 255, np.uint8)
+                col = np.empty((S, S, 3))
+                col[:] = (170, 140, 100)
+                if bad_back and i == 4:                                  # «зад» — половина другого тона (заплатка)
+                    col[:, S // 2:, :] += (-60, 25, 40)
+                c[m] = np.clip(col, 0, 255).astype(np.uint8)[m]
+                cells.append(c)
+            out = np.full((S + HP, S * 7, 3), 255, np.uint8)
+            out[HP:] = np.concatenate(cells, axis=1)
+            return out
+        with tempfile.TemporaryDirectory() as tmp:
+            sh = os.path.join(tmp, 'sheets')
+            os.makedirs(sh)
+            Image.fromarray(sheet(False)).save(os.path.join(sh, 'a_good.png'))
+            Image.fromarray(sheet(True)).save(os.path.join(sh, 'b_bad.png'))
+            jobs = [('/g/a.glb', '/p/a.png', os.path.join(sh, 'a_good.png'), '', 12.0), ('/g/b.glb', '/p/b.png', os.path.join(sh, 'b_bad.png'), '', 190.0),
+                    ('/g/c.glb', '/p/c.png', os.path.join(sh, 'c_missing.png'), '')]
+            fronts = {'a_good': {'theta': 12.0, 'source': 'camera04', 'flags': []}, 'b_bad': {'theta': 190.0, 'source': 'camera04_flipped', 'flags': ['front_camera_opposite']}}
+            ev, page = L.eval_after(L.load_rules(), tmp, jobs, fronts)
+            self.assertEqual(ev['summary']['items'], 2)                                    # лист-призрак (нет файла) в оценку не идёт
+            self.assertEqual(ev['summary']['passed_all'], 1)
+            self.assertEqual(ev['summary']['worst_first'][0], 'b_bad')
+            self.assertTrue(any(f['view'] == 'зад' and f['feature'] == 'patches' for f in ev['per_sku']['b_bad']['fails']))
+            self.assertLess(page.index('b_bad'), page.index('a_good'))                     # worst-first в таблице
+            self.assertIn('(50.0 %)', page)
+            self.assertIn('camera04_flipped', page)                                        # источник «перёда» виден
+            self.assertTrue(os.path.isfile(os.path.join(tmp, 'eval', 'eval.json')))
+            self.assertEqual(L.eval_after(L.load_rules(), tmp, [('/g', '/p', os.path.join(tmp, 'нет.png'), '')], {})[0], None)   # нет листов — не падает
+
+    def test_front_resolved_and_items(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            r = L.front_of(L.load_rules(), os.path.join(tmp, 'нет.glb'), os.path.join(tmp, 'нет.json'), '', '')
+            self.assertIsNone(r['theta'])                                                  # нет входов: не падает, лист по камере 04
+            self.assertIn('front_unknown:no_inputs', r['flags'])
+        it = L.sheet_items([('/g/a.glb', '/p/a.png', '/o/s/x.png', '/v/check.json', 190.0), ('/g/b.glb', '/p/b.png', '/o/s/y.png', '/v/check.json')])
+        self.assertEqual(it[0]['az'], 190.0)
+        self.assertNotIn('az', it[1])
+        r = L.load_rules()
+        self.assertIn('--clay', L.batch_cmd(r, '/o/i.json', '/o/s'))
+        r['sheets']['clay'] = False
+        self.assertNotIn('--clay', L.batch_cmd(r, '/o/i.json', '/o/s'))
+
 
 if __name__ == '__main__':
     unittest.main()

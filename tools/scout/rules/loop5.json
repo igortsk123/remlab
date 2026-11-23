@@ -60,7 +60,7 @@
   "min_gb_sheets_batch": 2
  },
  "sheets": {
-  "mode": "batch",
+  "mode": "batch", "clay": true,
   "cmd": [
    "{python}",
    "-I",

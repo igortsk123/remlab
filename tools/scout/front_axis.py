@@ -142,6 +142,32 @@ def front_axis_resolved(orient=None, shares=None, photo_frontal=None, cam_az=Non
     return {'theta': th, 'front_yaw': th, 'axis': axis_of_theta(theta), 'source': src, 'flags': flags}
 
 
+def resolve_from_files(glb, check06, orient_path=None, R=None) -> dict:
+    """front_axis_resolved по файлам прогона: GLB (меш со своей UV), 06-visible/check.json (az камеры 04; known.png лежит рядом), orient.json (необязателен).
+    Нет файлов/azимута — {'theta': None, ..., 'flags': ['front_unknown:no_inputs']} (молча не падает: лист строится по камере 04)."""
+    try:
+        import trimesh
+        from PIL import Image
+        az = float(json.load(open(check06, encoding='utf-8'))['extra']['camera']['az'])
+        sc = trimesh.load(glb, force='scene')
+        gs = list(sc.geometry.values())
+        V = np.concatenate([g.vertices for g in gs])
+        off, F, UV = 0, [], []
+        for g in gs:
+            F.append(g.faces + off)
+            off += len(g.vertices)
+            UV.append(np.asarray(g.visual.uv))
+        F, UV = np.concatenate(F), np.concatenate(UV)
+        known = np.asarray(Image.open(os.path.join(os.path.dirname(check06), 'known.png')).convert('L'))
+        orient = json.load(open(orient_path, encoding='utf-8')) if orient_path and os.path.isfile(orient_path) else None
+        sh = front_shares(V, F, UV, known, az, R)
+        r = front_axis_resolved(orient, sh, None, az, R, V)
+        r['cam_az'] = az
+        return r
+    except Exception as e:  # noqa: BLE001 — нет GLB/known/az: ракурс не решаем, причина в флаге
+        return {'theta': None, 'front_yaw': None, 'axis': None, 'source': None, 'flags': ['front_unknown:no_inputs'], 'error': f'{type(e).__name__}: {e}'[:160]}
+
+
 def _box4():
     V, F, UV = [], [], []
     quads = [((-1, 0, 1), (1, 0, 1)), ((1, 0, 1), (1, 0, -1)), ((1, 0, -1), (-1, 0, -1)), ((-1, 0, -1), (-1, 0, 1))]   # +Z, +X, -Z, -X
