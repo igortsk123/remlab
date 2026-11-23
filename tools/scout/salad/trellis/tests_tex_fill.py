@@ -635,6 +635,45 @@ def test_quilt_efros():
     ok(abs(float(t_flat[0]) - float(np.median(spread[:, 0]))) < 1.0, f'равномерный разброс (ворс) — медиана, не случайная мода ({t_flat[0]:.1f})')
 
 
+def test_quilt_lattice():
+    print('решётка квилта (T-187/7, 23.11): мерка ловит повтор блоков по сетке шага и пересборка с густым пулом её убирает:')
+    from scipy.ndimage import gaussian_filter
+    rng = np.random.RandomState(5)
+    B, o = 24, 6
+
+    def grain(n):                                                      # «дерево»: волокно по x, вдоль волокна коррелирует на любом лаге
+        a = gaussian_filter(rng.randn(n, n), (0.8, 14.0), mode='wrap')
+        return a / a.std() * 6.0
+
+    def pool_of(k, drift=0.0):
+        big = grain(512)
+        out = []
+        for _ in range(k):
+            y, x = rng.randint(0, 512 - B, 2)
+            out.append(np.stack([big[y:y + B, x:x + B]] * 3, -1) * np.array([1.0, 0.1, 0.1]))
+        return np.stack(out)
+    tiny, wide = pool_of(3), pool_of(400)
+    q_tiny = TF.wrap_soften(TF.quilt_image(tiny, 6, o, np.random.RandomState(1)))
+    q_wide = TF.wrap_soften(TF.quilt_image(wide, 6, o, np.random.RandomState(1)))
+    l_tiny, l_wide = TF.quilt_lattice(q_tiny, B - o), TF.quilt_lattice(q_wide, B - o)
+    thr = TF.FILL['quilt_lattice_max']
+    ok(l_tiny['excess'] > thr, f'3 блока на 36 мест → решётка поймана (избыток {l_tiny["excess"]:.2f} > {thr}, лаг {l_tiny["lag"]})')
+    ok(l_wide['excess'] < thr, f'400 блоков → решётки нет (избыток {l_wide["excess"]:.2f} < {thr})')
+    one = np.tile(tiny[0], (3, 3, 1))
+    ok(TF.quilt_lattice(one, B)['excess'] > thr, f'один блок плиткой — период по построению, мерка ловит ({TF.quilt_lattice(one, B)["excess"]:.2f})')
+    ok(TF.quilt_lattice(np.zeros((40, 40, 3)), 10)['excess'] == 0.0 and TF.quilt_lattice(q_wide[:20, :20], 18)['lag'] is None, 'плоская плитка и плитка меньше двух шагов — 0, не падение')
+    ok(TF.FILL['quilt_lattice_max'] == 0.3 and TF.FILL['quilt_stride_div'] == 2 and TF.FILL['quilt_stride_div_max'] >= 4, 'правила по умолчанию: порог 0,3, шаг выборки полблока, потолок густоты')
+    q_d = TF.render_pool  # шаг выборки пула — параметр: гуще → не меньше блоков
+    yy, xx = np.mgrid[0:200, 0:200]
+    g_ = np.stack([grain(200)] * 3, -1)
+    okr = np.ones((200, 200), bool)
+    c1 = dict(TF.FILL, quilt_block=16, quilt_stride_div=2)
+    p2 = q_d(g_ * okr[..., None], okr, c1, 1.0, 2)
+    p4 = q_d(g_ * okr[..., None], okr, c1, 1.0, 4)
+    n2, n4 = len(p2[1]), len(p4[1])
+    ok(n4 > n2, f'густой шаг выборки даёт больше блоков пула ({n2} → {n4})')
+
+
 def test_quilt_holes():
     print('квилт при дырявом известном (вход этапа 6: грани мельче пикселя фото):')
     q = Quads()
@@ -1527,7 +1566,7 @@ def test_top_prior_hook():
 
 
 def main() -> int:
-    for f in (test_check_on_final_texture, test_top_prior_hook, test_mirror_off_by_default, test_shrink_layout, test_tie_picks_front_on_back, test_front_on_back, test_color, test_photo, test_parts, test_lighter_than_photo, test_no_known_part, test_mirror, test_texture, test_gutter_render, test_seam_steps_concavity, test_diffuse_quilt_far, test_draft_source, test_tone_mode_pattern, test_quilt_efros, test_quilt_holes, test_known_unchanged, test_render_pattern, test_outlier_blocks, test_dark_fabric, test_trellis_relief, test_part_roles_from_stage3, test_stage7_side_tone_smooth_rules, test_tone_from_neighbour, test_nail_twins, test_borrow_donors, test_tone_only, test_part_pattern_single_truth, test_pr_camera_and_winding, test_hidden_visible, test_stage6_gate, test_cli_run_stage, test_orphan_parts, test_cli_parts_flags, test_zones_fallback, test_run_stage_fallback, test_render_low):
+    for f in (test_check_on_final_texture, test_top_prior_hook, test_mirror_off_by_default, test_shrink_layout, test_tie_picks_front_on_back, test_front_on_back, test_color, test_photo, test_parts, test_lighter_than_photo, test_no_known_part, test_mirror, test_texture, test_gutter_render, test_seam_steps_concavity, test_diffuse_quilt_far, test_draft_source, test_tone_mode_pattern, test_quilt_efros, test_quilt_lattice, test_quilt_holes, test_known_unchanged, test_render_pattern, test_outlier_blocks, test_dark_fabric, test_trellis_relief, test_part_roles_from_stage3, test_stage7_side_tone_smooth_rules, test_tone_from_neighbour, test_nail_twins, test_borrow_donors, test_tone_only, test_part_pattern_single_truth, test_pr_camera_and_winding, test_hidden_visible, test_stage6_gate, test_cli_run_stage, test_orphan_parts, test_cli_parts_flags, test_zones_fallback, test_run_stage_fallback, test_render_low):
         f()
     print(f'tests_tex_fill: ошибок {bad}')
     return 1 if bad else 0
