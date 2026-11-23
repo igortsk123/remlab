@@ -225,7 +225,7 @@ def test_write_overwrites_manual_and_is_idempotent():
 def test_infer_is_preview_only():
     d, s = repo()
     registry_world(d)
-    t = '**П1.9 · р.1 · 80 %% — влито %s, ветка feat/side, T-20261123-77**\n' % s['c1'][:10]
+    t = '**П1.9 · р.1 · 80 %% — влито %s, ветка feat/side, T-20261123-77**\n' % s['c1']  # полный sha: 10-значный префикс из одних цифр HEX_RE не берёт (~1 %% прогонов, CI 23.11 20:18)
     c = ctx(d, prod=s['c3'])
     res = PE.analyse(t, c, infer=True)
     r = res['rows'][0]
