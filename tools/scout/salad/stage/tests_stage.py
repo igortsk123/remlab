@@ -246,6 +246,10 @@ open(photo, 'wb').write(b'png')
 inp = {'s1': {'glb': glb, 'photo': photo, 'pose_run': pr}}
 ok(ST.input_problems(inp) == [], 'драйвер: входы на месте — проблем нет')
 ok(WS.missing_inputs('06', zipfile.ZipFile(io.BytesIO(ST.input_zip_06(inp['s1']))).namelist()) == [], 'драйвер: zip входа 06 содержит всё, что требует воркер')
+photo_x = os.path.join(pr, '..', 'px.png')                                            # фото 07 из extra_in — другое, чем фото 06
+open(photo_x, 'wb').write(b'other-png')
+zdup = zipfile.ZipFile(io.BytesIO(ST.input_zip_06(dict(inp['s1'], extra_in={'photo.png': photo_x, 'card.json': glb}))))
+ok(zdup.namelist().count('photo.png') == 1 and zdup.read('photo.png') == b'png' and 'card.json' in zdup.namelist(), 'драйвер: фото 06 не дублируется доп. файлом photo.png (в zip одна запись, своё фото 06), прочие extra_in едут')
 os.remove(os.path.join(pr, 'stage_loss.json'))
 ok(any('stage_loss.json' in x for x in ST.input_problems(inp)), 'драйвер: нет stage_loss.json камеры — проблема до создания группы')
 

@@ -105,8 +105,10 @@ def add_extras(z: zipfile.ZipFile, v: dict, code_tar: bytes | None, key: str = '
     `key` — какой набор: у этапа 08 свой, `extra_in_08` (product.json, части `03-parts/…`, фото), чтобы не раздувать входы 06/07."""
     if code_tar:
         z.writestr('code.tar', code_tar)
+    have = set(z.namelist())                                  # имя, уже лежащее во входе (photo.png этапа 06), доп. файл не перекрывает: дубль в zip = при распаковке побеждает последний (пакет 23.11: UserWarning Duplicate name)
     for rel, path in sorted((v.get(key) or {}).items()):
-        z.write(path, rel)
+        if rel not in have:
+            z.write(path, rel)
 
 
 def input_zip_08(vis_dir: str, fill_dir: str, seam_dir: str, cam_check: str, code_tar: bytes | None = None, v: dict | None = None) -> bytes:
