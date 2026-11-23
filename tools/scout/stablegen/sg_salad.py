@@ -371,12 +371,9 @@ def hf_head(url: str) -> int:
         return -1
 
 
-def api_retry(MG, path: str, method: str, body, name: str, say, sleep=time.sleep, rules=None):
-    """create/start группы Salad с повтором при 502/503/504: цикл — общий (kit_driver.api_retry), признаки — rules/stablegen-transient.json → salad_api (T-153/1)."""
-    import sg_transient
-    r = (rules or sg_transient.load_rules())['salad_api']
-    return KD.api_retry(MG, path, method, body, name, say, sleep,
-                        {'retries': r['retries'], 'status_codes': r['status_codes'], 'pauses_s': [sg_transient.pause_s(r, i) for i in range(max(1, r['retries']))]})
+def api_retry(MG, path: str, method: str, body, name: str, say, sleep=time.sleep, rules=None, counters=None):
+    """create/start группы Salad: цикл и правила — ОБЩИЕ (kit_driver.api_retry, rules/salad-groups.json → api_retry; T-20261123-03/1). Своих чисел здесь нет (раздел salad_api из stablegen-transient.json снят)."""
+    return KD.api_retry(MG, path, method, body, name, say, sleep, rules, counters)
 
 
 def run(a, MG, BR, gw_factory=Gateway, sleep=time.sleep, clock=time.time, head=hf_head, popen=subprocess.Popen, ledger=None, image_check=None, slot_check=None) -> int:
@@ -428,11 +425,13 @@ def run(a, MG, BR, gw_factory=Gateway, sleep=time.sleep, clock=time.time, head=h
     if code == 200:
         say(f'группа {name} уже есть — не пересоздаю молча (другая --suffix)')
         return 2
-    code, resp, _n = api_retry(MG, '', 'POST', body, name, say, sleep)
+    summary = {'group': name, 'image': a.image, 'tier': a.tier, 'price_usd_h': price, 'cap_usd': a.cap, 'weights': spec, 'runs': [], 'failed': 0, 'stop_verified': False, 'stopped_by': None, **KD.API_COUNTERS}
+    code, resp, _n = api_retry(MG, '', 'POST', body, name, say, sleep, None, summary)
     say('POST создание', code, str(resp)[:200] if code >= 300 else 'ok')
     if code >= 300:
+        v = KD.orphan_check(MG, BR, name, say, summary)                                  # create отказал, а группа могла появиться (504) — гасим
+        say('ИТОГ', json.dumps({'group': name, 'stopped_by': f'create_http_{code}', 'stop_verified': True if v is None else v, **{k: summary[k] for k in KD.API_COUNTERS}}, ensure_ascii=False))
         return 1
-    summary = {'group': name, 'image': a.image, 'tier': a.tier, 'price_usd_h': price, 'cap_usd': a.cap, 'weights': spec, 'runs': [], 'failed': 0, 'stop_verified': False, 'stopped_by': None}
     os.makedirs(a.out, exist_ok=True)
     relay = None
     run_since = None
@@ -445,7 +444,7 @@ def run(a, MG, BR, gw_factory=Gateway, sleep=time.sleep, clock=time.time, head=h
                 break
             sleep(5)
         t_start = clock()
-        code, _, _n = api_retry(MG, f'/{name}/start', 'POST', None, name, say, sleep)
+        code, _, _n = api_retry(MG, f'/{name}/start', 'POST', None, name, say, sleep, None, summary)
         say('start HTTP', code)
         gw, ready_at, ever_ok, last_gb, last_gb_t, last_say, minute_say = None, None, False, None, None, 0.0, 0.0
         pending = list(runs)
@@ -589,7 +588,7 @@ def run(a, MG, BR, gw_factory=Gateway, sleep=time.sleep, clock=time.time, head=h
                            'jobs_done': sum(1 for r_ in summary.get('runs') or [] if (r_ or {}).get('ok')), 'jobs_failed': summary['failed'], 'driver': 'sg_salad'})
             if warn:
                 say('!!', warn)
-        say('ИТОГ', json.dumps({k: summary.get(k) for k in ('group', 'stopped_by', 'stop_verified', 'failed', 'running_s', 'cost_usd_est')}, ensure_ascii=False))
+        say('ИТОГ', json.dumps({k: summary.get(k) for k in ('group', 'stopped_by', 'stop_verified', 'failed', 'running_s', 'cost_usd_est', *KD.API_COUNTERS)}, ensure_ascii=False))
     return 0 if summary['stop_verified'] and summary['stopped_by'] == 'done' else 1
 
 

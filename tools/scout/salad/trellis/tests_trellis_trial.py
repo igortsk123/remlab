@@ -129,7 +129,8 @@ class FakeMG:
         if method == 'GET' and path.startswith('/trial-'):
             return (404, {}) if path[1:] not in self.created else (200, {'networking': {'dns': 'trial.example'}})
         if method == 'POST' and path == '':
-            self.created.append((body or {}).get('name'))
+            if self.create_code < 300:                              # отвергнутое создание группу не создаёт (иначе драйвер увидит «сироту» и погасит)
+                self.created.append((body or {}).get('name'))
             return self.create_code, {}
         return 200, {}
 

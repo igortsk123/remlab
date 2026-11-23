@@ -149,10 +149,154 @@ ok(code == 201 and n == 1, 'api_retry: 504 → повтор → 201')
 mg = FakeMG([(('POST', ''), (504, {}))])
 mg.created = True                                              # группа уже есть, хотя ответ 504
 code, _, n = KD.api_retry(mg, '', 'POST', {'a': 1}, 'g', lambda *a: None, clk.sleep)
-ok(code == 201 and n == 1 and mg.calls.count(('POST', '')) == 1, 'api_retry: 504, но группа уже создана — не создаём второй раз')
+ok(code == 201 and n == 0 and mg.calls.count(('POST', '')) == 1, 'api_retry: 504, но группа уже создана — не создаём второй раз')
 mg = FakeMG([(('POST', '/g/start'), (503, {}))] * 9)
 code, _, n = KD.api_retry(mg, '/g/start', 'POST', None, 'g', lambda *a: None, clk.sleep, {'retries': 3, 'status_codes': [503], 'pauses_s': [1]})
 ok(code == 503 and n == 3, 'api_retry: сбой не уходит — после лимита отдаём код')
+
+
+# --- T-20261123-03/1: 504/503/обрыв на create и start (ночь 22→23.11: 504 → повтор → 400 name_conflict, машина без присмотра)
+class LagMG:
+    """Salad с отставанием списка: после create группа видна по имени только через `lag` запросов GET; create поверх существующей — 400 name_conflict.
+    `posts` — ответы на POST создания по порядку (None = «вызови настоящее создание»), `created_on` — какие по счёту POST реально создали группу (504 мог создать)."""
+    API = 'https://x/projects/p/containers'
+
+    def __init__(self, posts, created_on=(), lag=0, starts=(), state='stopped'):
+        self.posts, self.created_on, self.lag, self.starts, self.state = list(posts), set(created_on), lag, list(starts), state
+        self.calls, self.n_post, self.exists, self.gets_since = [], 0, False, 0
+
+    def api(self, path, method='GET', body=None):
+        self.calls.append((method, path))
+        if method == 'POST' and path == '':
+            self.n_post += 1
+            if self.exists:
+                return 400, {'type': 'name_conflict', 'title': 'Bad Request', 'status': 400}
+            if self.n_post in self.created_on:
+                self.exists, self.gets_since = True, 0
+            r = self.posts.pop(0) if self.posts else (201, {})
+            if r[0] < 300:
+                self.exists, self.gets_since = True, 0
+            return r
+        if method == 'POST':
+            r = self.starts.pop(0) if self.starts else (202, {})
+            return r
+        if method == 'GET' and path.startswith('/'):
+            if not self.exists:
+                return 404, {}
+            self.gets_since += 1
+            return (200, {'current_state': {'status': self.state}}) if self.gets_since > self.lag else (404, {})
+        return 200, {}
+
+    def posts_made(self):
+        return self.calls.count(('POST', ''))
+
+
+def logged(rules=None, mg=None, path='', method='POST', body=None):
+    said, slept, cnt = [], [], {}
+    clk_ = Clock()
+
+    def sl(s):
+        slept.append(s)
+        clk_.sleep(s)
+    code, resp, n = KD.api_retry(mg, path, method, {'a': 1} if body is None and path == '' else body, 'g', lambda *a: said.append(' '.join(str(x) for x in a)), sl, rules, cnt)
+    return code, resp, n, cnt, said, slept
+
+
+# 504 → поиск по имени находит группу → подхват, второго create нет
+mg = LagMG([(504, {})], created_on=(1,))
+code, _, n, cnt, said, slept = logged(mg=mg)
+ok(code == 201 and mg.posts_made() == 1 and cnt.get('adopted_after_504') == 1 and not cnt.get('retries_create'), '504 на create → GET по имени нашёл → подхват, второй create НЕ вызван; adopted_after_504=1')
+ok(any('подхватываю' in s for s in said), 'подхват записан строкой в журнал')
+# 504, группа появилась в списке не сразу (отставание) — ещё проба поиска, всё равно подхват
+mg = LagMG([(504, {})], created_on=(1,), lag=2)
+code, _, n, cnt, said, slept = logged(mg=mg)
+ok(code == 201 and mg.posts_made() == 1 and cnt.get('adopted_after_504') == 1, '504 + список отстаёт на 2 запроса → поиск повторяется, группа подхвачена, второго create нет')
+# 504 → группы нет → ровно один повтор create
+mg = LagMG([(504, {}), (201, {})])
+code, _, n, cnt, said, slept = logged(mg=mg)
+ok(code == 201 and mg.posts_made() == 2 and n == 1 and cnt.get('retries_create') == 1 and not cnt.get('adopted_after_504'), '504 → GET пусто → один повтор create → 201; retries_create=1')
+ok(any('повтор 1' in s for s in said), 'повтор create записан строкой в журнал')
+# 504 дважды и группы нет → один повтор, дальше отказ (не бесконечно)
+mg = LagMG([(504, {}), (504, {}), (504, {})])
+code, _, n, cnt, said, slept = logged(mg=mg)
+ok(code == 504 and mg.posts_made() == 2 and cnt.get('retries_create') == 1, '504, 504 и группы нет → ровно один повтор, затем отказ 504')
+# ночной сбой: 504 создал группу, список отстаёт дольше проб поиска → повтор → 400 name_conflict → ищем снова → подхват
+mg = LagMG([(504, {})], created_on=(1,), lag=3)
+code, _, n, cnt, said, slept = logged(mg=mg)
+ok(code == 201 and mg.posts_made() == 2 and cnt.get('retries_create') == 1 and cnt.get('adopted_after_504') == 1, 'ночь 22→23.11: 504 создал группу, GET не видел, повтор → name_conflict → поиск → подхват (а не create_http_400)')
+# name_conflict без предшествующего 504 — чужая/старая группа: НЕ подхватываем
+mg = LagMG([(400, {'type': 'name_conflict'})])
+code, _, n, cnt, said, slept = logged(mg=mg)
+ok(code == 400 and n == 0 and not cnt and mg.posts_made() == 1, 'name_conflict без 504 — отказ без подхвата и повторов')
+# 503 → пауза из правил → повтор → успех
+mg = LagMG([(503, {}), (201, {})])
+code, _, n, cnt, said, slept = logged(mg=mg)
+ok(code == 201 and mg.posts_made() == 2 and cnt.get('retries_create') == 1 and slept[:1] == [float(KD.api_rules()['pauses_s'][0])], '503 на create → пауза из rules/salad-groups.json → один повтор → 201')
+# 503 дважды → понятный отказ, группы нет
+clk, mg, br = Clock(), LagMG([(503, {'x': 1}), (503, {'x': 1}), (503, {'x': 1})]), FakeBR()
+summ: dict = {}
+good, t_start, why = KD.create_and_start(mg, br, 'g', {}, lambda *a: None, clk.sleep, clk, wait_s=300, counters=summ)
+ok(not good and why == 'create_http_503' and mg.posts_made() == 2 and ('POST', '/g/start') not in mg.calls and br.stopped == 0 and summ.get('retries_create') == 1, '503 дважды → отказ create_http_503, группы нет, /start не зовём, гасить нечего')
+# 400/401 — без повторов
+for bad in (400, 401, 403):
+    mg = LagMG([(bad, {'e': 1})])
+    code, _, n, cnt, said, slept = logged(mg=mg)
+    ok(code == bad and n == 0 and mg.posts_made() == 1 and not cnt and not slept, f'{bad} на create — без повторов и пауз')
+# обрыв/таймаут сокета: MG.api бросает исключение → код 599, поиск по имени, подхват
+class BrokenMG(LagMG):
+    def api(self, path, method='GET', body=None):
+        if method == 'POST' and path == '' and not self.exists:
+            self.exists = True
+            self.calls.append((method, path))
+            self.n_post += 1
+            raise TimeoutError('timed out')
+        return super().api(path, method, body)
+
+
+mg = BrokenMG([])
+code, _, n, cnt, said, slept = logged(mg=mg)
+ok(code == 201 and mg.posts_made() == 1 and cnt.get('adopted_after_504') == 1, 'таймаут ответа на create (исключение сокета) → не падаем, ищем группу → подхват')
+class DeadMG(LagMG):
+    def api(self, path, method='GET', body=None):
+        self.calls.append((method, path))
+        raise OSError('no route')
+
+
+mg = DeadMG([])
+code, _, n, cnt, said, slept = logged(mg=mg)
+ok(code == KD.NO_ANSWER and code >= 300 and cnt.get('retries_create') == 1, 'нет связи совсем → код 599 (≥300: не «успех»), один повтор, без исключения наружу')
+# старт: 503 → один повтор → 202; 504 на старте при уже идущей группе → подхват
+mg = LagMG([], starts=[(503, {}), (202, {})])
+mg.exists = True
+code, _, n, cnt, said, slept = logged(mg=mg, path='/g/start', body=None)
+ok(code == 202 and n == 1 and cnt.get('retries_start') == 1, '503 на старте → один повтор → 202; retries_start=1')
+mg = LagMG([], starts=[(504, {})], state='deploying')
+mg.exists = True
+code, _, n, cnt, said, slept = logged(mg=mg, path='/g/start', body=None)
+ok(code == 202 and mg.calls.count(('POST', '/g/start')) == 1 and cnt.get('adopted_after_504') == 1, '504 на старте, группа уже deploying → подхват, второй /start не шлём')
+# сирота: create отказал (504, 504), но группа к проверке уже видна → гасим с проверкой, а не «stop_verified: true» вслепую
+class LateMG(LagMG):
+    """Группа становится видна только после трёх проб поиска за вторым 504 (на 4-й GET — это уже проверка сирот)."""
+    late_gets = 0
+
+    def api(self, path, method='GET', body=None):
+        if method == 'GET' and path.startswith('/') and self.n_post >= 2:
+            self.late_gets += 1
+            if self.late_gets > 3:
+                self.exists = True
+                self.gets_since = 99
+        return super().api(path, method, body)
+
+
+clk, mg, br = Clock(), LateMG([(504, {}), (504, {})]), FakeBR()
+summ = {}
+good, t_start, why = KD.create_and_start(mg, br, 'g', {}, lambda *a: None, clk.sleep, clk, wait_s=300, counters=summ)
+ok(not good and why.startswith('create_http_') and br.stopped == 1 and summ.get('orphans_stopped') == 1 and summ.get('orphan_stop_verified') is True, 'create отказал, но группа появилась → гасим с проверкой (сирот нет), orphans_stopped=1')
+# правила — данные, а не числа в коде
+r_ = KD.api_rules()
+ok(all(k in KD.salad_rules('api_retry') for k in ('retries', 'status_codes', 'pauses_s', 'timeout_codes', 'lookup_pauses_s', 'timeout_retries')) and r_['retries'] == 1 and 504 in r_['timeout_codes'], 'правила повтора лежат в rules/salad-groups.json → api_retry (1 повтор, 504 — через поиск по имени)')
+# счётчики итога
+ok(all(k in KD.API_COUNTERS for k in ('retries_create', 'adopted_after_504')), 'счётчики итога retries_create и adopted_after_504 заведены в API_COUNTERS (summary + строка ИТОГ)')
 
 # --- create_and_start
 clk, mg, br = Clock(), FakeMG([(('POST', '/g/start'), (400, {}))] * 3 + [(('POST', '/g/start'), (202, {}))]), FakeBR()

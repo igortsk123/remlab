@@ -34,19 +34,5 @@
       "server is not connected",
       "Salad Connection Error"
     ]
-  },
-  "salad_api": {
-    "_doc": "create/start группы Salad иногда отдаёт 504/502/503 (20.11: дважды, группа не создавалась/стартовала сама); перед повтором проверяем, не выполнилось ли действие",
-    "status_codes": [
-      502,
-      503,
-      504
-    ],
-    "retries": 3,
-    "pauses_s": [
-      5,
-      15,
-      30
-    ]
   }
 }

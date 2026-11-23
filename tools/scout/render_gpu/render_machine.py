@@ -346,6 +346,7 @@ class Salad:
         import migrate_groups as MG
         MG.env_from_file()
         self.MG, self.r = MG, rules
+        self.counters: dict = {}                        # retries_create / retries_start / adopted_after_504 — для журнала сбоя
 
     def group(self):
         code, g = self.MG.api(f"/{self.r['group']}")
@@ -379,12 +380,14 @@ class Salad:
             },
             'autostart_policy': False, 'restart_policy': 'never', 'replicas': 1, 'priority': self.r['tier'],
         }
-        code, d = self.MG.api('', 'POST', body)
+        import kit_driver as KD                         # общий вход Salad: 504 → ищем группу по имени, 503 → повтор, счётчики (T-20261123-03/1)
+        code, d, _n = KD.api_retry(self.MG, '', 'POST', body, self.r['group'], say, time.sleep, None, self.counters)
         if code not in (200, 201):
-            raise RuntimeError(f'создание группы HTTP {code} {str(d)[:120]}')
+            raise RuntimeError(f'создание группы HTTP {code} {str(d)[:120]} (счётчики {self.counters})')
 
     def start(self) -> int:
-        return self.MG.api(f"/{self.r['group']}/start", 'POST')[0]
+        import kit_driver as KD
+        return KD.api_retry(self.MG, f"/{self.r['group']}/start", 'POST', None, self.r['group'], say, time.sleep, None, self.counters)[0]
 
     def stop(self) -> int:
         return self.MG.api(f"/{self.r['group']}/stop", 'POST')[0]

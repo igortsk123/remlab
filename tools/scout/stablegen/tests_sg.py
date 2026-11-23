@@ -190,21 +190,24 @@ class SaladApiRetry(unittest.TestCase):
 
     def test_create_504_but_group_exists_is_not_recreated(self):
         mg = self.MG([(504, {})], group_state='stopped')
-        code, _r, n = S.api_retry(mg, '', 'POST', {'x': 1}, 'g', lambda *a: None, lambda s: None)
-        self.assertEqual((code, n), (201, 1))
+        cnt = {}
+        code, _r, n = S.api_retry(mg, '', 'POST', {'x': 1}, 'g', lambda *a: None, lambda s: None, None, cnt)
+        self.assertEqual((code, n), (201, 0))                      # повторов не было: подхват (T-20261123-03/1)
+        self.assertEqual(cnt.get('adopted_after_504'), 1)
         self.assertEqual([c for c in mg.calls if c[0] == 'POST'], [('POST', '')])
 
     def test_start_504_but_already_deploying_is_not_restarted(self):
         mg = self.MG([(504, {})], group_state='deploying')
         code, _r, n = S.api_retry(mg, '/g/start', 'POST', None, 'g', lambda *a: None, lambda s: None)
-        self.assertEqual((code, n), (202, 1))
+        self.assertEqual((code, n), (202, 0))
         self.assertEqual(len([c for c in mg.calls if c[0] == 'POST']), 1)
 
-    def test_start_504_while_stopped_is_retried_and_gives_up_after_three(self):
+    def test_start_504_while_stopped_is_retried_once_and_gives_up(self):
+        """Правило общее (rules/salad-groups.json → api_retry): один повтор после пустого поиска по имени, не три."""
         mg = self.MG([(504, {})], group_state='stopped')
         code, _r, n = S.api_retry(mg, '/g/start', 'POST', None, 'g', lambda *a: None, lambda s: None)
-        self.assertEqual((code, n), (504, 3))
-        self.assertEqual(len([c for c in mg.calls if c[0] == 'POST']), 4)
+        self.assertEqual((code, n), (504, 1))
+        self.assertEqual(len([c for c in mg.calls if c[0] == 'POST']), 2)
 
     def test_real_error_not_retried(self):
         mg = self.MG([(400, {'errors': 'name'})])
