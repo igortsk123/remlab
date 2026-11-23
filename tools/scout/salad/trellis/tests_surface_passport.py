@@ -113,7 +113,8 @@ def run(g, tex, known, parts, roles=None, hook_keep=None, product_role=None):
     pas, ctx = SP.build([g], [tex], [known], parts, roles, R, TF.FILL, TF)
     if hook_keep is not None:
         ctx['hook_keep'] = hook_keep
-    ctx['product_role'] = product_role
+    if product_role is not None:
+        ctx['paint_policy'] = TF.paint_policy_for({'top_card': {'role': product_role}})          # как в 07: роль карточки → политика типа до apply
     k0 = [known & ~TF.unpainted_mask(tex)]
     out, rep = SP.apply_groups([g], [tex], k0, pas, ctx, R, TF)
     return pas, ctx, out, rep, k0
@@ -388,16 +389,12 @@ def test_ultratex_switch_off():
 
 
 def test_hidden_pattern_by_type():
-    print('рисунок на невидимое — по ТИПУ товара (паспорт типов, paint.hidden_pattern): continue / body / same_fabric / plain (без ID, через mesh_type_passports):')
+    print('рисунок на невидимое — по ТИПУ товара (паспорт типов, paint.hidden_pattern/mode; без ID; 07 читает политику до build, пишет её в check.json):')
     import mesh_type_passports as MTP
-    reg = MTP.load()
-    ok(MTP.validate(reg) == [], 'реестр типов проходит схему (hidden_pattern ∈ continue/body/same_fabric/plain)')
-    ok(all((p.get('paint') or {}).get('hidden_pattern') in MTP.HIDDEN_PATTERNS for p in reg['types'].values()), 'у КАЖДОГО типа реестра задан paint.hidden_pattern')
-    want = {'ваза': 'continue', 'шкаф': 'body', 'кресло': 'same_fabric', 'стул': 'plain'}
-    for role, val in want.items():
-        ok(MTP.hidden_pattern(role, reg) == (val, None), f'{role} → {val}: {MTP.hidden_pattern(role, reg)}')
-    hv, hf = MTP.hidden_pattern('неведомая вещь', reg)
-    ok(hv == 'plain' and hf, f'нет типа → plain + флаг: {(hv, hf)}')
+    ok(MTP.validate(MTP.load()) == [], 'реестр типов проходит схему')
+    pf = TF.paint_policy_for({'top_card': {'role': 'шкаф'}})
+    ok(pf['hidden_pattern'] == 'body' and pf['type'] == 'шкаф' and pf['digest'] == MTP.digest('шкаф') and pf['reason'] is None and pf['role'] == 'шкаф', f'07: роль карточки → политика типа с digest паспорта: {pf}')
+    ok(TF.paint_policy_for({})['reason'] == 'no_role' and TF.paint_policy_for({'top_card': {'role': 'неведомая вещь'}})['reason'] == 'no_type', '07: нет роли → no_role; нет типа → no_type (воздержание с кодом причины)')
     q = Quads()
     q.quad([[-1, 0, 0], [1, 0, 0], [1, 1, 0], [-1, 1, 0]], (0, 0, 1, 1), part=0, sub=4)
     ys, xs = np.mgrid[0:T, 0:T]
@@ -407,17 +404,21 @@ def test_hidden_pattern_by_type():
     g = q.geom(tex)
     parts = [np.array(q.part, np.int32)]
     got = {}
-    for role in ('ваза', 'шкаф', 'кресло', 'стул', None):
+    for role in ('ваза', 'шкаф', 'кресло', 'стул', 'картина', 'пуф', 'неведомая вещь'):
         pas, ctx, out, rep, k0 = run(g, tex, known, parts, product_role=role)
         sy = [r.get('synth') for r in rep.values() if r.get('synth')]
         got[role] = sy[0] if sy else None
-    ok(got['ваза'] and got['ваза']['hidden_pattern'] == 'continue' and got['ваза']['mode'] != 'skip', f'ваза: рисунок продолжается (синтез идёт): {got["ваза"]}')
-    ok(got['кресло'] and got['кресло']['hidden_pattern'] == 'same_fabric' and got['кресло']['mode'] != 'skip', f'кресло: та же ткань (синтез без деталей фасада): {got["кресло"]}')
-    ok(got['шкаф'] and got['шкаф']['mode'] == 'skip' and got['шкаф']['hidden_pattern'] == 'body', f'шкаф: узор фасада не переносится (материал корпуса): {got["шкаф"]}')
-    ok(got['стул'] and got['стул']['mode'] == 'skip' and got['стул']['hidden_pattern'] == 'plain', f'стул: спинка сзади гладкая: {got["стул"]}')
-    ok(got[None] and got[None]['mode'] == 'skip' and got[None].get('why') and 'нет типа' in got[None]['why'], f'нет типа → plain + флаг в отчёте: {got[None]}')
+    ok(got['ваза'] and got['ваза']['hidden_pattern'] == 'continue' and got['ваза']['mode'] != 'skip', f'ваза (continue): рисунок продолжается, синтез идёт: {got["ваза"]}')
+    ok(got['кресло'] and got['кресло']['hidden_pattern'] == 'same_fabric' and got['кресло']['mode'] != 'skip', f'кресло (same_fabric): ткань без деталей лица, синтез идёт: {got["кресло"]}')
+    for role, hp in (('шкаф', 'body'), ('стул', 'plain'), ('картина', 'not_applicable')):
+        ok(got[role] and got[role]['mode'] == 'skip' and got[role]['hidden_pattern'] == hp, f'{role} ({hp}): узор лица не переносится, прежнее зерно: {got[role]}')
+    ok(got['пуф'] and got['пуф']['mode'] == 'skip' and 'observe' in got['пуф']['why'], f'пуф: политика в режиме observe — записана, не применяется: {got["пуф"]}')
+    ok(got['неведомая вещь'] and got['неведомая вещь']['mode'] == 'skip' and got['неведомая вещь']['hidden_pattern'] == 'unknown' and 'no_type' in got['неведомая вещь']['why'], f'неизвестный тип → воздержание с кодом no_type (не «обычная мебель»): {got["неведомая вещь"]}')
+    pas, ctx, out, rep, k0 = run(g, tex, known, parts)
+    sy0 = [r.get('synth') for r in rep.values() if r.get('synth')]
+    ok(sy0 and sy0[0]['mode'] == 'skip' and 'no_policy_in_ctx' in sy0[0]['why'], f'политики в контексте нет → воздержание: {sy0}')
     sg = TF.RULES['surface_groups']['synth']
-    ok(sg['by_hidden_pattern']['same_fabric']['clip_k'] <= 3.0 and sg['hidden_pattern_default'] == 'plain', 'same_fabric режет выбросы-детали (clip_k ≤ 3), умолчание — plain (пороги в rules)')
+    ok(sg['by_hidden_pattern']['same_fabric']['clip_k'] <= 3.0, 'same_fabric режет выбросы-детали (clip_k ≤ 3), пороги — в rules')
 
 
 def main() -> int:

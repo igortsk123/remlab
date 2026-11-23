@@ -623,16 +623,6 @@ def _gmap(maps: Maps, gi: int, gid_of: dict) -> np.ndarray:
     return np.where(pm >= 0, lut[np.maximum(pm, 0)], -1)
 
 
-def _hidden_pattern(role, syn: dict) -> tuple:
-    """Рисунок на невидимое по ТИПУ товара (паспорт типов, paint.hidden_pattern): continue / body / same_fabric / plain. Типа нет → plain + флаг (по умолчанию syn.hidden_pattern_default)."""
-    default = syn.get('hidden_pattern_default', 'plain')
-    try:
-        import mesh_type_passports as MTP
-        return MTP.hidden_pattern(role, None, default)
-    except Exception as e:  # noqa: BLE001 — нет реестра в срезе: гладко и видно в отчёте, не молча
-        return default, f'реестр типов недоступен: {type(e).__name__}'
-
-
 def apply_groups(geoms: list, tex_after: list, known_keep: list, pas: dict, ctx: dict, R: dict, tf) -> tuple:
     """Невидимое (не known_keep) каждой применимой группы: низкие частоты → тон группы, зерно — как дала заливка (клип выбросов; мало — гауссово зерно). Известное не меняется. → (текстуры, отчёт)."""
     from scipy.ndimage import distance_transform_edt, gaussian_filter
@@ -656,6 +646,7 @@ def apply_groups(geoms: list, tex_after: list, known_keep: list, pas: dict, ctx:
         noise = noise - gaussian_filter(noise, float(R['grain_fine_px']), mode='wrap')               # та же полоса, в которой измерено σL видимого (мелкая), без крупных пятен
         noise /= max(float(1.4826 * np.median(np.abs(noise - np.median(noise)))), 1e-9)               # единичный робастный σ в этой полосе
         syn = R.get('synth') or {}
+        pol = ctx.get('paint_policy') or {'hidden_pattern': 'unknown', 'mode': 'observe', 'reason': 'no_policy_in_ctx'}          # политика типа читается ДО build (tex_fill); нет её — воздержание, не «обычная мебель»
         uvm = TS.uv_field_maps(g['V'], g['F'], g['UV'], maps.ids[gi], T, float(syn.get('up_min', 0.5))) if syn.get('enabled') and 'UV' in g else None          # «вверх мира» и плотность атласа — для поворота/масштаба кусков
         new_all = lab.copy()
         touched = np.zeros((T, T), bool)
@@ -706,23 +697,20 @@ def apply_groups(geoms: list, tex_after: list, known_keep: list, pas: dict, ctx:
                     add = float(np.sqrt(max(amp * amp - sr * sr, 0.0)))
                     res[:, 0] += add * noise[m]
                     info['grain_added_sigma'] = round(add, 3)
+            syn_off = True
+            hp = pol['hidden_pattern']
             if syn.get('enabled') and grp['class'] not in (syn.get('skip_classes') or []):
-                hp, hflag = _hidden_pattern(ctx.get('product_role'), syn)
-                if hp in ('body', 'plain'):                               # зад и бока — материал корпуса / гладко: узор фасада НЕ переносим, остаётся прежнее зерно группы
-                    info['synth'] = {'mode': 'skip', 'hidden_pattern': hp, 'why': f'по типу: hidden_pattern={hp}' + (f' ({hflag})' if hflag else '')}
-                    syn_off = True
+                if pol.get('mode') != 'active' or hp not in ('continue', 'same_fabric'):          # body — тон/фактура корпуса (прежнее зерно группы), plain — гладко, not_applicable/unknown/observe — воздержание с причиной; узор лица на невидимое НЕ переносим
+                    why = pol.get('reason') or (f'политика типа в режиме {pol.get("mode")}' if pol.get('mode') != 'active' else f'hidden_pattern={hp}')
+                    info['synth'] = {'mode': 'skip', 'hidden_pattern': hp, 'why': 'по типу: ' + str(why)}
                 else:
                     syn_off = False
-            else:
-                syn_off = True
             if not syn_off:
                 cfg = dict(syn['common'])
                 cfg.update((syn.get('by_class') or {}).get(grp['class'], {}))
                 cfg.update((syn.get('by_hidden_pattern') or {}).get(hp, {}))     # same_fabric: только фактура ткани (без деталей фасада)
                 sres, sinfo = TS.synth_group(lab, (gm == gid) & k0, m, uvm, cfg, _blur_norm, keep_detail=(grp['class'] in R['dark_keep_classes'] and hp != 'same_fabric'), seed=int(syn.get('seed_step', 1009)) * (gi + 1) + int(gid))
                 sinfo['hidden_pattern'] = hp
-                if hflag:
-                    sinfo['hidden_pattern_flag'] = hflag
                 info['synth'] = sinfo
                 if sinfo['mode'] == 'quilt' or (sinfo['mode'] == 'smooth' and syn.get('smooth_fallback', True)):   # 'skip' (рисунка нет) — прежнее зерно, без синтеза
                     res = sres[m].astype(np.float64)                          # остаток фактуры из куска фото своей группы (нет донора — 0: гладко, не шум)

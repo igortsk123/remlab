@@ -2674,11 +2674,13 @@ def run_stage_once(run: str, sku: str, glb: str, known: list | None = None, part
     SP = sg_pas = sg_ctx = None
     sg_rep = {'enabled': bool(sg_cfg['enabled'])}
     k_keep = [np.asarray(k_, bool) & ~unpainted_mask(np.asarray(t_)[..., :3]) for k_, t_ in zip(known, tex_before)]
+    pp_pol = paint_policy_for(cfg)                      # политика покраски невидимых сторон по ТИПУ товара — читается ДО паспорта поверхностей (type-rules-code-01 А2); в check.json: тип, политика, digest, применено
     if sg_cfg['enabled']:
         _t_sg = time.process_time()
         import surface_passport as SP                                  # ВНЕ try: нет модуля в срезе кода = отказ этапа, не тихое «без групп» (Salad ≠ локально, T-193/4)
         try:
             sg_pas, sg_ctx = SP.build(geoms, [np.asarray(t_)[..., :3] for t_ in tex_before], known, parts, (cfg or {}).get('part_role'), sg_cfg, FILL, sys.modules[__name__])
+            sg_ctx['paint_policy'] = pp_pol
             sg_rep['passport'] = {'groups': [{k_: g_.get(k_) for k_ in ('id', 'parts', 'class', 'tone_lab', 'sigma_grain_L', 'ac_peak', 'known_share', 'why_not_applied')} for g_ in sg_pas['groups']], 'merges': len(sg_pas['merges']), 'refusals': len(sg_pas['refusals'])}
             with open(os.path.join(d, 'surface-passport.json'), 'w', encoding='utf-8') as f_:
                 json.dump(sg_pas, f_, ensure_ascii=False, indent=1, default=lambda o: o.item() if hasattr(o, 'item') else str(o))
@@ -2735,6 +2737,7 @@ def run_stage_once(run: str, sku: str, glb: str, known: list | None = None, part
     rep, tex_after, de, big, de_worst = pick['rep'], pick['tex'], pick['de'], pick['big'], pick['de_worst']
     tex_after, rep['ref_zone_map'] = apply_ref_zone_map(geoms, tex_after, known, cfg)
     rep['relief_source'] = relief_src
+    rep['paint_policy'] = pp_pol
     ut_g = None
     if ut_glb and os.path.isfile(ut_glb):
         _ug = TC.load_geoms(ut_glb)
@@ -2793,6 +2796,10 @@ def run_stage_once(run: str, sku: str, glb: str, known: list | None = None, part
         except Exception as e:  # noqa: BLE001
             sg_rep['error'] = f'{type(e).__name__}: {e}'
         sg_rep['cpu_apply_s'] = round(time.process_time() - _t_ap, 1)
+        _ap_items = ap_.values() if isinstance(ap_, dict) else (ap_ or [])
+        _modes = sorted({(v_.get('synth') or {}).get('mode') or 'нет' for v_ in _ap_items if isinstance(v_, dict)})
+        rep['paint_policy']['groups_synth'] = _modes
+        rep['paint_policy']['applied'] = 'synth' if 'quilt' in _modes else ('abstain' if rep['paint_policy'].get('reason') else 'no_synth')
     rep['surface_groups'] = sg_rep
     rep['metrics_pre_hook'] = {k: pick['vals'].get(k) for k in ('empty_pct', 'dE00_front_back', 'dL_front_back', 'filled_faces_step_pct', 'far_excess_pct')}     # что было бы до хуков (для сравнения; на passed не влияет)
     pick['finish'](tex_after, None if sg_pas is None else SP.ref_maps(geoms, k_keep, sg_pas, sg_ctx))                                          # мерки — по ИТОГОВОЙ текстуре (после ref_zone_map, own_panel, top_prior), не по текстуре до хуков
@@ -2851,7 +2858,7 @@ def run_stage_once(run: str, sku: str, glb: str, known: list | None = None, part
     with open(os.path.join(d, 'report.json'), 'w', encoding='utf-8') as f:
         json.dump(report, f, ensure_ascii=False, indent=1, default=lambda o: o.item() if hasattr(o, 'item') else str(o))
     check = PS.write_check(d, out_name or STAGE, sku, None, dict(metrics['empty_pct'], name='empty_pct'), '', metrics={k: v for k, v in metrics.items() if k != 'empty_pct'}, seconds=secs,
-                           outputs=['filled.glb', 'report.json'], frame=PS.FRAME, known_pct=rep['known_pct'], mirrored_pct=rep['mirrored_pct'], empty_before_pct=rep['unpainted_before_pct'], empty_by_view=rep['unpainted_by_view'], steps=rep['steps'], parts=parts_note, source_used=used, source_tried=tried, pattern_metric=rep['pattern_metric'], pattern_src=rep.get('pattern_src'), stage6=s6, quilt_rejected=rep.get('quilt_rejected'))
+                           outputs=['filled.glb', 'report.json'], frame=PS.FRAME, known_pct=rep['known_pct'], mirrored_pct=rep['mirrored_pct'], empty_before_pct=rep['unpainted_before_pct'], empty_by_view=rep['unpainted_by_view'], steps=rep['steps'], parts=parts_note, source_used=used, source_tried=tried, pattern_metric=rep['pattern_metric'], pattern_src=rep.get('pattern_src'), paint_policy=rep.get('paint_policy'), stage6=s6, quilt_rejected=rep.get('quilt_rejected'))
     return {'check': check, 'report': rep, 'geoms': geoms, 'tex_before': tex_before, 'tex_after': tex_after, 'known': known, 'parts': parts, 'dir': d, 'deltaE': de, 'kback': kback}
 
 
@@ -2937,6 +2944,21 @@ def load_known_png(visible: str) -> list:
             break
         kn.append(np.asarray(Image.open(fp).convert("L")) > 127)
     return kn
+
+
+def paint_policy_for(cfg: dict | None) -> dict:
+    """Политика покраски невидимых сторон по типу товара: роль — из карточки входа 07 (`--card-json`, поле role) → паспорт типов (`mesh_type_passports.paint_policy`). Нет карточки/роли/типа/реестра → hidden_pattern='unknown'
+    и код причины (воздержание: узор лица на невидимое не переносим, но и «обычной мебелью» товар не считаем)."""
+    role = ((cfg or {}).get('top_card') or {}).get('role')
+    if not role:
+        return {'type': None, 'hidden_pattern': 'unknown', 'exclusions': [], 'openings': [], 'mode': 'observe', 'digest': None, 'reason': 'no_role', 'role': None}
+    try:
+        import mesh_type_passports as MTP                              # срез кода Salad: модуль и rules/mesh-type-passports.json едут в tar (code_tar)
+        pol = MTP.paint_policy(role)
+    except Exception as e:  # noqa: BLE001 — нет модуля в срезе = видно в check.json, этап не падает
+        pol = {'type': None, 'hidden_pattern': 'unknown', 'exclusions': [], 'openings': [], 'mode': 'observe', 'digest': None, 'reason': f'registry_error:{type(e).__name__}'}
+    pol['role'] = role
+    return pol
 
 
 def main(argv: list | None = None) -> int:
