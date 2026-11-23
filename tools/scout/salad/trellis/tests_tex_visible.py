@@ -122,6 +122,10 @@ class TestTexVisible(unittest.TestCase):
         self.assertEqual(why, [])
         mm, why = TV.gate({**m, 'silhouette_iou': 0.5, 'edge_corr': 0.1})
         self.assertEqual(len(why), 2)
+        mm, why = TV.gate({**m, 'silhouette_iou': 0.758}, thin_pass=True)
+        self.assertTrue(not why and mm['silhouette_iou'].get('thin_not_a_measure'), f'тонкий предмет (камера по контуру): IoU площади 0,758 не отказ ({why})')
+        mm, why = TV.gate({**m, 'silhouette_iou': 0.758})
+        self.assertTrue(any('silhouette_iou' in w for w in why), 'без тонкого IoU 0,758 — отказ как прежде')
         mm, why = TV.gate({'silhouette_iou': 0.9})                 # нет измерений ≠ «ок»
         self.assertTrue(any('known_share' in w for w in why))
 
