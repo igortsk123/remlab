@@ -3107,8 +3107,12 @@ def main(argv: list | None = None) -> int:
       python3 tools/scout/salad/trellis/tex_fill.py run_stage <run> <sku> [--visible <папка 06-visible>] [--parts-npz <parts.npz> | --no-parts-npz] [--cfg <json>] [--no-mirror]
     Вход по умолчанию: выход этапа 6 `<run>/<sku>/06-visible/{visible.glb, known*.png, check.json}` и части этапа 3 `<run>/<sku>/03-parts/parts.npz` (нет файла — части по геометрии).
     Выход: `<run>/<sku>/07-fill/{filled.glb, report.json, frame.png, check.json}`. Этап 6 отказал (камера не прошла, нет выхода) — check.json passed=false, refused=true, заливки нет.
-    Код выхода: 0 — этап отработал (прошёл или не прошёл — см. check.json), 2 — сбой запуска (нет входа, исключение)."""
+    Код выхода: 0 — этап отработал (прошёл или не прошёл — см. check.json), 2 — сбой запуска (нет входа, исключение).
+    ЗАМЕР cpu_s (порог check.json ≤ 120): только с OMP_NUM_THREADS=OPENBLAS_NUM_THREADS=MKL_NUM_THREADS=1 — как в проде (salad/stage/worker_stage.py, STAGE_THREADS=1); с 15 потоками BLAS cpu_s завышен в ~1,3–1,6 раза (T-157)."""
     import argparse
+    _thr = {k: os.environ.get(k) for k in ("OMP_NUM_THREADS", "OPENBLAS_NUM_THREADS", "MKL_NUM_THREADS")}
+    if any(v != "1" for v in _thr.values()):                              # замер cpu_s (порог check.json) честен только как в проде: worker_stage.py ставит STAGE_THREADS=1 → все три = 1 (T-157)
+        print(f"ВНИМАНИЕ: потоки BLAS {_thr}; в проде 1 — cpu_s здесь завышен (потоки крутятся вхолостую). Для замера: OMP_NUM_THREADS=1 OPENBLAS_NUM_THREADS=1 MKL_NUM_THREADS=1", file=sys.stderr)
     import json
     import paint_stage as PS
     ap = argparse.ArgumentParser(prog="tex_fill.py run_stage")

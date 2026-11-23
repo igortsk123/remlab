@@ -1,11 +1,12 @@
 #!/usr/bin/env bash
 # Проба заливки А (stat) и Б (trellis) на ВЫХОДЕ ЭТАПА 6 (06-visible: visible.glb + known.png) — настоящий вход этапа 7. Запускать только под heavy-slot (P-038):
 #   tools/ops/heavy-slot.sh t164-abv --prio 1 --short --cores 2 --timeout 21600 -- nice -n 19 timeout -k 20 3000 bash tools/scout/salad/trellis/tex_fill_ab_visible.sh <выход> <корень этапа 6: …/run7> <папка черновиков out30> <sku> [<sku> …]
-# Черновик Б — `<папка черновиков>/<sku>-n1024.glb` (новая выдача out30); нет файла — Б этого товара пропущен (в B-trellis/skipped.txt). Внутри — 2 потока, А затем Б.
+# Черновик Б — `<папка черновиков>/<sku>-n1024.glb` (новая выдача out30); нет файла — Б этого товара пропущен (в B-trellis/skipped.txt). Внутри — потоки BLAS = STAGE_THREADS (по умолчанию 1, как в проде), А затем Б.
 set -u
 OUT="$1"; ROOT="$2"; DRAFTS="$3"; shift 3
 HERE="$(cd "$(dirname "$0")" && pwd)"
-export OMP_NUM_THREADS=2 OPENBLAS_NUM_THREADS=2 MKL_NUM_THREADS=2
+THR="${STAGE_THREADS:-1}"                                   # как в проде (worker_stage.py: STAGE_THREADS=1); cpu_s при других потоках завышен и с боевым не сравнивается (T-157)
+export OMP_NUM_THREADS="$THR" OPENBLAS_NUM_THREADS="$THR" MKL_NUM_THREADS="$THR"
 PY="$HOME/venvs/scout/bin/python"
 mkdir -p "$OUT/A-stat" "$OUT/B-trellis"
 "$PY" "$HERE/tex_fill_probe.py" --visible-root "$ROOT" --source stat "$OUT/A-stat" "$@" > "$OUT/A-stat/probe.log" 2>&1

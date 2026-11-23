@@ -8,7 +8,8 @@
 set -u
 OUT="$1"; ROOT="$2"; DRAFTS="$3"; shift 3
 HERE="$(cd "$(dirname "$0")" && pwd)"
-export OMP_NUM_THREADS=2 OPENBLAS_NUM_THREADS=2 MKL_NUM_THREADS=2
+THR="${STAGE_THREADS:-1}"                                   # как в проде (worker_stage.py: STAGE_THREADS=1); cpu_s при других потоках завышен и с боевым не сравнивается (T-157)
+export OMP_NUM_THREADS="$THR" OPENBLAS_NUM_THREADS="$THR" MKL_NUM_THREADS="$THR"
 PY="$HOME/venvs/scout/bin/python"
 CFG_C="${CFG_C:-}"; [ -n "$CFG_C" ] || CFG_C='{}'        # JSON-добавка к настройкам C, например роли частей этапа 3: CFG_C='{"part_class": {"0": "body", "1": "legs"}}' (нет — ворота C только по однородности известного)
 mkdir -p "$OUT/stat" "$OUT/trellis" "$OUT/trellis_relief" "$OUT/frames"

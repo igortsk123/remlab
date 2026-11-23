@@ -5,7 +5,8 @@
 set -u
 OUT="$1"; ROOT="$2"; shift 2
 HERE="$(cd "$(dirname "$0")" && pwd)"
-export OMP_NUM_THREADS=2 OPENBLAS_NUM_THREADS=2 MKL_NUM_THREADS=2
+THR="${STAGE_THREADS:-1}"                                   # как в проде (worker_stage.py: STAGE_THREADS=1); cpu_s при других потоках завышен и с боевым не сравнивается (T-157)
+export OMP_NUM_THREADS="$THR" OPENBLAS_NUM_THREADS="$THR" MKL_NUM_THREADS="$THR"
 PY="$HOME/venvs/scout/bin/python"
 for v in 'f25|{"pr_block_frac": 0.25}' 'f35|{}' 'f50|{"pr_block_frac": 0.5}'; do
   name="${v%%|*}"; cfg="${v#*|}"

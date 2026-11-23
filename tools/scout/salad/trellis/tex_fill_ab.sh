@@ -1,11 +1,12 @@
 #!/usr/bin/env bash
 # Проба заливки А (stat) и Б (trellis) на пакете «трудных» ОДНОЙ задачей — запускать только под heavy-slot (P-038):
 #   tools/ops/heavy-slot.sh t164-ab --prio 1 --short --timeout 2400 -- nice -n 19 bash tools/scout/salad/trellis/tex_fill_ab.sh <выход> <список.txt> [<папка черновиков TRELLIS>]
-# <список.txt> — строки «имя-прогона<TAB>…» (как canary12.txt), прогоны — ~/remlab-logs/t90-1119/sg/salad/<имя>-q2509t5i-*. Внутри — 2 потока, А затем Б по очереди.
+# <список.txt> — строки «имя-прогона<TAB>…» (как canary12.txt), прогоны — ~/remlab-logs/t90-1119/sg/salad/<имя>-q2509t5i-*. Внутри — потоки BLAS = STAGE_THREADS (по умолчанию 1, как в проде), А затем Б по очереди.
 set -u
 OUT="$1"; LIST="$2"; DRAFTS="${3:-$HOME/remlab-logs/mesh-models-1118/trellis2}"
 HERE="$(cd "$(dirname "$0")" && pwd)"
-export OMP_NUM_THREADS=2 OPENBLAS_NUM_THREADS=2 MKL_NUM_THREADS=2
+THR="${STAGE_THREADS:-1}"                                   # как в проде (worker_stage.py: STAGE_THREADS=1); cpu_s при других потоках завышен и с боевым не сравнивается (T-157)
+export OMP_NUM_THREADS="$THR" OPENBLAS_NUM_THREADS="$THR" MKL_NUM_THREADS="$THR"
 SALAD="$HOME/remlab-logs/t90-1119/sg/salad"
 RUNS=""
 for k in $(grep -v '^#' "$LIST" | cut -f1); do RUNS="$RUNS $(ls -d "$SALAD/$k"-q2509t5i-* | tail -1)"; done
