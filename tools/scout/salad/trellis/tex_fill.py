@@ -2266,22 +2266,56 @@ def resolve_part_class(cfg: dict | None, parts_npz: str | None, parts_from_stage
     return c, 'part_class: нет — ворота C только по однородности известного'
 
 
+_PD_TEX = {'key': None, 'txs': None}
+
+
+def _part_deltas_tex(geoms: list, parts) -> list:
+    """Tex по геометриям для part_deltas — с памятью на последний вызов (T-157/Б): `_front_back_vals` зовётся по 2–10 раз за товар с теми же геометрией и частями; Tex только читается.
+    Ключ — содержимое (вершины, грани, развёртка, сетка, части); сбрасывается в начале и конце `run_stage_once` (память под товар)."""
+    import hashlib
+    h = hashlib.blake2b(digest_size=16)
+    for gi, g in enumerate(geoms):
+        for a in (np.asarray(g['V'], np.float64), np.asarray(g['F'], np.int64), np.asarray(g['UV'], np.float64)):
+            h.update(repr(a.shape).encode())
+            h.update(np.ascontiguousarray(a).tobytes())
+        h.update(repr((_grid(g), None if parts is None else np.asarray(parts[gi]).tobytes())).encode())
+    key = h.digest()
+    if _PD_TEX['key'] != key:
+        _PD_TEX['txs'] = [Tex(g, np.asarray(g['V'], np.float64), _grid(g), None if parts is None else parts[gi]) for gi, g in enumerate(geoms)]
+        _PD_TEX['key'] = key
+    return _PD_TEX['txs']
+
+
 def part_deltas(geoms: list, parts, kfront: list, kback: list, tex_before: list, tex_after: list) -> dict:
     """ΔE00 перёд↔зад внутри одной части: средние Lab текселей, видимых спереди (kfront) и сзади (kback), до и после заливки. → {часть: {'before', 'after'}}."""
     res = {}
     ids = sorted({int(p) for pp in (parts or [np.zeros(len(g['F']), np.int32) for g in geoms]) for p in np.unique(pp)})
-    txs = [Tex(g, np.asarray(g['V'], np.float64), _grid(g), None if parts is None else parts[gi]) for gi, g in enumerate(geoms)]
+    txs = _part_deltas_tex(geoms, parts)
+    # всё, что не зависит от части, — один раз (T-157/Б): маска «не закрашено», маска перёд/зад, текселя части по устойчивой сортировке; раньше на каждую часть — маски по всем текселям
+    prep = []
+    for gi, tx in enumerate(txs):
+        per = {}
+        for nm, tex in (('before', tex_before[gi]), ('after', tex_after[gi])):
+            flat = np.asarray(tex).reshape(-1, 3)
+            good = ~unpainted_mask(flat[tx.ti])
+            for k, kk in ((0, kfront[gi]), (1, kback[gi])):
+                pos = np.flatnonzero(kk.reshape(-1)[tx.ti] & good)
+                pr = tx.part[pos]
+                o = np.argsort(pr, kind='stable')                           # устойчиво: внутри части тексели по возрастанию, как у маски
+                pos, pr = pos[o], pr[o]
+                uq, st = np.unique(pr, return_index=True)
+                en = np.append(st[1:], len(pr))
+                per[(nm, k)] = (flat[tx.ti[pos]], {int(u_): (int(a_), int(b_)) for u_, a_, b_ in zip(uq, st, en)})
+        prep.append(per)
     for p in ids:
         sets = {'before': ([], []), 'after': ([], [])}
         for gi, tx in enumerate(txs):
-            sel = tx.part == p
-            for nm, tex in (('before', tex_before[gi]), ('after', tex_after[gi])):
-                flat = np.asarray(tex).reshape(-1, 3)
-                for k, kk in ((0, kfront[gi]), (1, kback[gi])):
-                    m = kk.reshape(-1)[tx.ti] & sel
-                    m &= ~unpainted_mask(flat[tx.ti])
-                    if m.any():
-                        sets[nm][k].append(rgb2lab(flat[tx.ti[m]]))
+            for nm in ('before', 'after'):
+                for k in (0, 1):
+                    rgb_sorted, groups = prep[gi][(nm, k)]
+                    if p in groups:
+                        a_, b_ = groups[p]
+                        sets[nm][k].append(rgb2lab(rgb_sorted[a_:b_]))
         r = {}
         for nm, (fr, bk) in sets.items():
             if fr and bk:
@@ -2665,6 +2699,7 @@ def run_stage_once(run: str, sku: str, glb: str, known: list | None = None, part
     from PIL import Image
     import paint_stage as PS
     t0 = time.time()
+    _PD_TEX.update(key=None, txs=None)                            # память Tex для part_deltas — под этот товар
     hooks = {}                                                    # время хуков по именам → report.hooks_time_s
     cpu0 = time.process_time()                                    # мерка времени — процессорные секунды (не зависят от того, сколько ядер дала нода Salad)
     d = PS.stage_dir(run, sku, out_name or STAGE)
@@ -2941,6 +2976,7 @@ def run_stage_once(run: str, sku: str, glb: str, known: list | None = None, part
         json.dump(report, f, ensure_ascii=False, indent=1, default=lambda o: o.item() if hasattr(o, 'item') else str(o))
     check = PS.write_check(d, out_name or STAGE, sku, None, dict(metrics['empty_pct'], name='empty_pct'), '', metrics={k: v for k, v in metrics.items() if k != 'empty_pct'}, seconds=secs,
                            outputs=['filled.glb', 'report.json'], frame=PS.FRAME, known_pct=rep['known_pct'], mirrored_pct=rep['mirrored_pct'], empty_before_pct=rep['unpainted_before_pct'], empty_by_view=rep['unpainted_by_view'], steps=rep['steps'], parts=parts_note, source_used=used, source_tried=tried, pattern_metric=rep['pattern_metric'], pattern_src=rep.get('pattern_src'), paint_policy=rep.get('paint_policy'), stage6=s6, quilt_rejected=rep.get('quilt_rejected'), rules=_dz_rules + _tp_rules)
+    _PD_TEX.update(key=None, txs=None)
     return {'check': check, 'report': rep, 'geoms': geoms, 'tex_before': tex_before, 'tex_after': tex_after, 'known': known, 'parts': parts, 'dir': d, 'deltaE': de, 'kback': kback}
 
 

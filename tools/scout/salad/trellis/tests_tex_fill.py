@@ -1848,8 +1848,58 @@ def test_side_azimuths():
     ok(r0.get('fallback') is True and r0['back'] == 180.0, 'known пуст → запасной вариант 180 с пометкой')
 
 
+def _part_deltas_ref(geoms, parts, kfront, kback, tex_before, tex_after):
+    """Эталон — прежний part_deltas (до T-157/Б): на каждую часть маски по всем текселям."""
+    res = {}
+    ids = sorted({int(p) for pp in (parts or [np.zeros(len(g['F']), np.int32) for g in geoms]) for p in np.unique(pp)})
+    txs = [TF.Tex(g, np.asarray(g['V'], np.float64), TF._grid(g), None if parts is None else parts[gi]) for gi, g in enumerate(geoms)]
+    for p in ids:
+        sets = {'before': ([], []), 'after': ([], [])}
+        for gi, tx in enumerate(txs):
+            sel = tx.part == p
+            for nm, tex in (('before', tex_before[gi]), ('after', tex_after[gi])):
+                flat = np.asarray(tex).reshape(-1, 3)
+                for k, kk in ((0, kfront[gi]), (1, kback[gi])):
+                    m = kk.reshape(-1)[tx.ti] & sel
+                    m &= ~TF.unpainted_mask(flat[tx.ti])
+                    if m.any():
+                        sets[nm][k].append(TF.rgb2lab(flat[tx.ti[m]]))
+        r = {}
+        for nm, (fr, bk) in sets.items():
+            if fr and bk:
+                F_, B_ = np.concatenate(fr), np.concatenate(bk)
+                a, b = F_.mean(axis=0, keepdims=True), B_.mean(axis=0, keepdims=True)
+                r[nm] = round(float(TC.de2000_v(a, b)[0]), 2)
+                r['dL_' + nm] = round(float(np.median(B_[:, 0]) - np.median(F_[:, 0])), 2)
+            else:
+                r[nm] = None
+                r['dL_' + nm] = None
+        res[p] = r
+    return res
+
+
+def test_part_deltas_same_as_reference():
+    print('part_deltas (T-157/Б): новая версия = прежняя на тех же данных, память Tex не путает вызовы:')
+    g, parts, known, tl, col = scene_parts()
+    rng = np.random.RandomState(11)
+    before = np.asarray(g['tex']).copy()
+    after = np.clip(before.astype(int) + rng.randint(-25, 26, before.shape), 0, 255).astype(np.uint8)
+    after[~tile_mask(tl['D'])] = before[~tile_mask(tl['D'])]
+    kfront = [tile_mask(tl['A']) | tile_mask(tl['B'], 0.5)]
+    kback = [tile_mask(tl['C']) | tile_mask(tl['D']) | tile_mask(tl['B'], 0.5)]
+    want = _part_deltas_ref([g], parts, kfront, kback, [before], [after])
+    got = TF.part_deltas([g], parts, kfront, kback, [before], [after])
+    ok(got == want and any(v['after'] is not None for v in got.values()), 'те же числа, что у прежней версии', f'{got} ≠ {want}')
+    got2 = TF.part_deltas([g], parts, kfront, kback, [before], [after])
+    ok(got2 == want, 'повторный вызов (Tex из памяти) — те же числа')
+    after2 = np.clip(after.astype(int) + 40, 0, 255).astype(np.uint8)
+    ok(TF.part_deltas([g], parts, kfront, kback, [before], [after2]) == _part_deltas_ref([g], parts, kfront, kback, [before], [after2]), 'другая текстура «после» при той же геометрии — свои числа')
+    parts2 = [np.where(parts[0] == 0, 2, 0).astype(np.int32)]
+    ok(TF.part_deltas([g], parts2, kfront, kback, [before], [after]) == _part_deltas_ref([g], parts2, kfront, kback, [before], [after]), 'другие части той же геометрии — Tex пересчитан (ключ учитывает части)')
+
+
 def main() -> int:
-    for f in (test_detail_zones_fill, test_check_on_final_texture, test_side_azimuths, test_top_prior_hook, test_mirror_off_by_default, test_shrink_layout, test_tie_picks_front_on_back, test_front_on_back, test_front_on_back_within_parts, test_front_on_back_unequal_parts, test_color, test_photo, test_parts, test_lighter_than_photo, test_no_known_part, test_mirror, test_texture, test_gutter_render, test_seam_steps_concavity, test_diffuse_quilt_far, test_draft_source, test_tone_mode_pattern, test_quilt_efros, test_quilt_holes, test_known_unchanged, test_render_pattern, test_outlier_blocks, test_dark_fabric, test_trellis_relief, test_part_roles_from_stage3, test_stage7_side_tone_smooth_rules, test_tone_from_neighbour, test_nail_twins, test_borrow_donors, test_tone_only, test_part_pattern_single_truth, test_pr_camera_and_winding, test_hidden_visible, test_stage6_gate, test_cli_run_stage, test_orphan_parts, test_cli_parts_flags, test_zones_fallback, test_brightness_target_median, test_run_stage_fallback, test_render_low, test_quilt_lattice, test_pattern_lattice, test_part_independence, test_unobserved_relief):
+    for f in (test_part_deltas_same_as_reference, test_detail_zones_fill, test_check_on_final_texture, test_side_azimuths, test_top_prior_hook, test_mirror_off_by_default, test_shrink_layout, test_tie_picks_front_on_back, test_front_on_back, test_front_on_back_within_parts, test_front_on_back_unequal_parts, test_color, test_photo, test_parts, test_lighter_than_photo, test_no_known_part, test_mirror, test_texture, test_gutter_render, test_seam_steps_concavity, test_diffuse_quilt_far, test_draft_source, test_tone_mode_pattern, test_quilt_efros, test_quilt_holes, test_known_unchanged, test_render_pattern, test_outlier_blocks, test_dark_fabric, test_trellis_relief, test_part_roles_from_stage3, test_stage7_side_tone_smooth_rules, test_tone_from_neighbour, test_nail_twins, test_borrow_donors, test_tone_only, test_part_pattern_single_truth, test_pr_camera_and_winding, test_hidden_visible, test_stage6_gate, test_cli_run_stage, test_orphan_parts, test_cli_parts_flags, test_zones_fallback, test_brightness_target_median, test_run_stage_fallback, test_render_low, test_quilt_lattice, test_pattern_lattice, test_part_independence, test_unobserved_relief):
         f()
     print(f'tests_tex_fill: ошибок {bad}')
     return 1 if bad else 0
