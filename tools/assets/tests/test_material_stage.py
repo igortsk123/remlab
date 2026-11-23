@@ -519,7 +519,8 @@ def test_frame_gate():
     shifted = a.copy()
     shifted[...] = (230, 140, 60)
     ok(not FG.gate(a, shifted, mask, fg)["ok"], "сдвиг цвета: блок по ΔE")
-    ok(not FG.gate(a, a, np.zeros((40, 40), dtype=bool), fg)["ok"], "пустая маска: блок, не молчаливый проход")
+    e = FG.gate(a, a, np.zeros((40, 40), dtype=bool), fg)
+    ok(e["ok"] is None and not e["ok"], "пустая маска: не измерено (ok None) — не молчаливый проход и не отказ")
 
 
 def test_flat_top_roughness():

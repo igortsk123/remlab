@@ -1103,6 +1103,8 @@ def check() -> int:
     fg = recipes.get("frame_gate") or {}
     if not isinstance(fg.get("dE_max"), (int, float)) or not isinstance(fg.get("dC_min"), (int, float)) or fg["dE_max"] <= 0 or fg["dC_min"] >= 0:
         bad.append(f"frame_gate: {fg!r} (нужно dE_max > 0 и dC_min < 0)")
+    if not isinstance(fg.get("min_mask_px"), int) or fg["min_mask_px"] < 1 or not isinstance(fg.get("mask_alpha_min"), int) or not 1 <= fg["mask_alpha_min"] <= 255:
+        bad.append(f"frame_gate: min_mask_px/mask_alpha_min: {fg.get('min_mask_px')!r}/{fg.get('mask_alpha_min')!r} (нужны целые: пикселей ≥ 1, альфа 1…255)")
     if recipes["fallback_class"] not in recipes["recipes"]:
         bad.append("fallback_class без рецепта")
     gt = recipes.get("glass_tone") or {}
