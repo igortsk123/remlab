@@ -949,13 +949,91 @@ def draft_relief(txs: list, draft: dict, labs: list, kn: list, part_ids: list, p
 
 
 # ---------------------------------------------------------------- заливка ---------------------------------------
-def fill(geoms: list, known: list, parts: list | None = None, cfg: dict | None = None, mirror: bool = True, draft: dict | None = None, tone_only: list | None = None, unobs_draft_fn=None) -> dict:
+def seam_pass(txs: list, out_lab: list, labs: list, kn_keep: list, conf: list | None, seam_c: dict, gutter: int = 8, skip_fn=None) -> dict:
+    """Сведение шва «фото | заливка» (T-196, П1.136) на готовых растрах: out_lab[gi] (T,T,3 Lab, результат заливки) ПРАВИТСЯ на месте, kn_keep[gi] — тексели, оставшиеся 1:1 фото, тоже на месте.
+    labs[gi] — Lab фото (исходник), conf — доверие к фото-текселю (этап 6) или None, skip_fn(gi, tx) → bool (n,) зоны без перекраски. Граница = известное ↔ всё залитое (зеркало не при чём).
+    → отчёт: {'enabled', 'size_mm', 'conf_source', 'geoms': [{…, 'before', 'after'}], 'time_s'}. Общий код этапа 07 (при seam.enabled) и отдельного шага `seam_stage.py`."""
+    import tex_seam as TS
+    t_s = time.time()
+    size_mm = float(seam_c.get('size_mm') or seam_c['size_mm_default'])
+    srep = {'enabled': True}
+    srep.update({'size_mm': size_mm, 'geoms': [], 'conf_source': 'карта этапа 6' if conf is not None else 'запасное: от границы известного'})
+    for gi, tx in enumerate(txs):
+        ti = tx.ti
+        ol = out_lab[gi].reshape(-1, 3)
+        skip_ = skip_fn(gi, tx) if skip_fn else np.zeros(len(ti), bool)
+        cf = None if conf is None or gi >= len(conf) or conf[gi] is None else np.asarray(conf[gi], np.float64).reshape(-1)[ti]
+        k0f = kn_keep[gi].reshape(-1)[ti]
+        before = ol[ti].copy()
+        sb = TS.surface_dist(tx, ~(k0f & ~skip_), size_mm, seam_c['pair_mm'] + 1.0)
+        so = TS.surface_dist(tx, k0f & ~skip_, size_mm, seam_c['pair_mm'] + 1.0)
+        tmm = TS.texel_mm(tx, size_mm)
+
+        def _metric(lab_n, solid, s_in_, s_out_):
+            img = TS.atlas_with_gutter(tx, lab2rgb(lab_n), gutter if gutter > 0 else 8)
+            return TS.seam_metric(tx, TS.panel_zone(tx, seam_c['crease_deg'], seam_c['normal_smooth_iters'], seam_c['min_panel_faces']), lab_n, TS.mip1_lab(tx, img, rgb2lab), solid, s_in_, s_out_, seam_c, size_mm, tmm, TC.de2000_v)
+        m_before = _metric(before, k0f & ~skip_, sb, so)
+        # варианты сведения (T-196/1): полный (тон + контраст) | без контраста | только граница (feather); берём тот, у кого шов по мерке лучше; ни один не лучше «как было» — оставляем «как было»
+        # (мерка шва — ΔE00 p95 пар через границу; шов, который уже не виден, не трогаем: на 112923/114082 полный вариант портил шов, p95 6,7→8,2 и 3,0→5,5)
+        variants = [('full', seam_c), ('soft', dict(seam_c, contrast_gmax=min(1.3, seam_c['contrast_gmax']), patch_strength=0.5 * seam_c.get('patch_strength', 1.0))),
+                    ('no_patch', dict(seam_c, patch_texture=False)), ('no_contrast', dict(seam_c, patch_texture=False, contrast_gmin=1.0, contrast_gmax=1.0)),
+                    ('feather_only', dict(seam_c, patch_texture=False, contrast_gmin=1.0, contrast_gmax=1.0, tone_max=[0.0, 0.0, 0.0])),
+                    # только тон заливки у границы: фото не вытягивается в заливку (feather 0) и слабое фото не переводится в заливку (conf_min/full < 0) — для узких ободков, где вытяжка вредит (стул 114082_7733, ободок сиденья)
+                    ('tone_only', dict(seam_c, feather_mm=0.0, conf_min=-1.0, conf_full=-0.5, patch_texture=False, contrast_gmin=1.0, contrast_gmax=1.0))]
+
+        def _dev(mx):
+            return None if mx.get('texture_ratio') is None else abs(mx['texture_ratio'] - 1.0)
+        p95_b = m_before['dE00_p95'] if m_before['dE00_p95'] is not None else 0.0
+        step_b, dev_b = m_before.get('step_ratio'), _dev(m_before)
+        tried, best = {}, None
+        for vname, vc in variants:
+            rv = TS.blend_seam(tx, before, labs[gi].reshape(-1, 3)[ti], k0f, cf, skip_, vc, size_mm)
+            mv = _metric(rv['lab'], rv['solid'], rv['s_in'], rv['s_out'])
+            rb_, ra_ = rv['report']['rough_before'].get('rough_rms_mm'), rv['report']['rough_after'].get('rough_rms_mm')
+            tried[vname] = {k_: mv.get(k_) for k_ in ('dE00_median', 'dE00_p95', 'bad_share_pct', 'contrast_ratio', 'texture_ratio', 'step_ratio', 'step_ratio_p95')}
+            tried[vname]['rough_rms_mm'] = ra_
+            # «не навреди» по ВСЕМ меркам (те же пороги, что в check.json шва): ΔE00 p95, ступенька, фактура, шероховатость границы; не прошёл хотя бы одну — вариант отпадает
+            why = []
+            p95_v = mv['dE00_p95'] if mv['dE00_p95'] is not None else 99.0
+            if p95_v > p95_b * seam_c.get('accept_p95_ratio', 1.0) + seam_c.get('accept_p95_abs', 0.0):
+                why.append('p95')
+            if step_b is not None and mv.get('step_ratio') is not None and mv['step_ratio'] > max(step_b, seam_c.get('step_floor', 1.5)):
+                why.append('step')
+            if _dev(mv) is not None and dev_b is not None and _dev(mv) > max(dev_b, seam_c.get('texdev_floor', 0.3)):
+                why.append('texture')
+            if rb_ is not None and ra_ is not None and ra_ > rb_ * seam_c.get('rough_tol', 1.1):
+                why.append('rough')
+            tried[vname]['rejected'] = why
+            if why:
+                continue
+            key = (round(p95_v * 4.0) / 4.0, abs((mv['contrast_ratio'] or 0.0) - 1.0))     # p95 с шагом 0,25 (шум не решает), при равенстве — ближе контраст фактуры к 1
+            if best is None or key < best[0]:
+                best = (key, vname, rv, mv)
+        if best is not None:
+            _, chosen, r_, m_after_pre = best
+        else:                                                           # ни один вариант не прошёл «не навреди» — не трогаем
+            chosen, r_, m_after_pre = 'unchanged', None, m_before
+        if r_ is None:
+            r_ = {'lab': before.copy(), 'keep': k0f.copy(), 'solid': k0f & ~skip_, 's_in': sb, 's_out': so, 'report': {'zones': None, 'demoted_texels': 0, 'solid_texels': int((k0f & ~skip_).sum()), 'rough_before': TS.boundary_rough(tx, k0f, np.ones(len(ti), bool), tmm, seam_c['rough_sigma_mm'])}}
+            r_['report']['rough_after'] = r_['report']['rough_before']
+        ol[ti] = r_['lab']
+        kk = kn_keep[gi].reshape(-1).copy()
+        kk[ti] = r_['keep']
+        kn_keep[gi] = kk.reshape(kn_keep[gi].shape)
+        m_after = m_after_pre
+        srep['geoms'].append(dict(r_['report'], before=m_before, after=m_after, variant=chosen, variants=tried))
+    srep['time_s'] = round(time.time() - t_s, 2)
+    return srep
+
+
+def fill(geoms: list, known: list, parts: list | None = None, cfg: dict | None = None, mirror: bool = True, draft: dict | None = None, tone_only: list | None = None, unobs_draft_fn=None, conf: list | None = None) -> dict:
     """geoms — `tex_coverage.load_geoms`; known — по геометрии (T×T bool), parts — по геометрии номера частей ГРАНЕЙ (None — одна часть).
     draft — черновик TRELLIS на ту же форму/развёртку (`draft_texels`): {'lab': [(T,T,3) Lab], 'ok': [(T,T) bool]}; нужен при cfg['source']=='trellis': невидимое берёт цвет черновика,
     сдвинутый переносом статистики Lab (медиана/разброс части: черновик → видимое фото), детали черновика сохраняются; стыки — та же растушёвка. 'stat' (по умолчанию) — цвет части + лоскут фактуры.
     tone_only — (Ш6, р.8) по геометриям T×T bool: тексели с ТОНОВЫМ полем этапа 6 (цвет есть в visible.glb, фото-правды нет; в `known` НЕ входят). Цвет такого тексела остаётся как есть (тон-поле, среднее сохраняется),
     а фактура/заём кладутся поверх как на неизвестный (остаток без среднего); в статистику частей, пул блоков и доноры они не входят. Нет — поведение прежнее.
-    → {'tex': [uint8 (T,T,3) по геометриям], 'report': {...}}. Форма и развёртка не меняются."""
+    conf — (T-196) доверие к фото-текселю 0..1 по геометриям (T×T float; карта этапа 6 `conf.png`), нет — запасное от границы известного; нужен только сведению шва (`rules/paint-fill.json` → `seam`).
+    → {'tex': [uint8 (T,T,3) по геометриям], 'report': {...}, 'keep': [bool (T,T): тексели, оставшиеся 1:1 фото]}. Форма и развёртка не меняются."""
     from scipy.ndimage import binary_erosion, distance_transform_edt
     from scipy.sparse import coo_matrix
     from scipy.sparse.csgraph import dijkstra
@@ -1629,6 +1707,13 @@ def fill(geoms: list, known: list, parts: list | None = None, cfg: dict | None =
                 rep['tone_only_texels'] += int(ts_.sum())
         out_lab[gi].reshape(-1, 3)[tx.ti[unk_flat]] += add
     rep['time_s']['texture'] = round(time.time() - t0, 2)
+    # --- сведение шва «фото | заливка» (T-196, П1.136): доверие → тон зоны → контраст фактуры и переход на сомнительных краях фото; мерка шва до/после (на mip1)
+    seam_c = dict(RULES.get('seam') or {}, **((cfg or {}).get('seam') or {}))
+    rep['seam'] = {'enabled': bool(seam_c.get('enabled'))}
+    if seam_c.get('enabled'):
+        rep['seam'] = seam_pass(txs, out_lab, labs, kn_keep, conf, seam_c, c['gutter'],
+                                lambda gi, tx: (np.isin(tx.part, sorted(skip_parts)) & ~mirrored[gi].reshape(-1)[tx.ti]) if skip_parts else np.zeros(len(tx.ti), bool))
+        rep['time_s']['seam'] = rep['seam']['time_s']
     # --- итог: RGB, желоб, проверка покрытия
     outs = []
     nail_masks = {}
@@ -1720,7 +1805,7 @@ def fill(geoms: list, known: list, parts: list | None = None, cfg: dict | None =
         return rep
 
     finish(outs)
-    return {'tex': outs, 'report': rep, 'finish': finish}
+    return {'tex': outs, 'report': rep, 'finish': finish, 'keep': kn_keep}
 
 
 # ---------------------------------------------------------------- черновик TRELLIS на нашу форму --------------------
@@ -1849,6 +1934,10 @@ def load_rules(path: str | None = None) -> dict:
             raise KeyError(f'rules/paint-fill.json: нет ключа {k!r}')
     if 'trellis_relief' not in r:
         raise KeyError("rules/paint-fill.json: нет ключа 'trellis_relief'")
+    for k in ('enabled', 'size_mm_default', 'conf_min', 'conf_full', 'edge_mm', 'probe_mm', 'cell_mm', 'reach_mm', 'tone_decay_mm', 'tone_max', 'min_cell', 'hi_sigma_mm', 'contrast_decay_mm',
+              'contrast_gmin', 'contrast_gmax', 'contrast_floor', 'pair_mm', 'pair_cos', 'de_bad', 'poisson', 'crease_deg', 'normal_smooth_iters', 'min_panel_faces', 'feather_mm', 'feather_lo', 'feather_hi', 'rough_sigma_mm', 'accept_p95_ratio', 'accept_p95_abs', 'patch_texture', 'patch_reach_mm', 'patch_strength', 'patch_mm', 'patch_decay_mm', 'texture_band_mm', 'step_floor', 'texdev_floor', 'rough_tol', 'cpu_s_per_variant_geom', 'tone_zone_min_cells'):
+        if k not in (r.get('seam') or {}):
+            raise KeyError(f'rules/paint-fill.json: seam.{k} не задан')
     for k in ('gain_max', 'clip_k', 'patch_frac', 'patch_dl', 'dilate_px', 'part_max_share', 'band_lo', 'band_hi', 'sigma_lo_min', 'sigma_lo_max', 'sigma_hi_max', 'far_w', 'p95_cap',
               'ok_erode_px', 'allowed_families', 'homog_max_std', 'fade_len', 'smooth_pool_rejected'):
         if k not in r['trellis_relief']:
@@ -2579,6 +2668,8 @@ def run_stage_once(run: str, sku: str, glb: str, known: list | None = None, part
     kback = known_from_photo(geoms, azimuths=(180.0,))
     _to = load_tone_only_png(prev_dir) if (prev_dir and (cfg or {}).get('tone_only_use', True)) else None      # тон-слой этапа 6 (р.8): цвет оставить, фактуру положить поверх
 
+    _cf = load_conf_png(prev_dir) if prev_dir else None                                  # доверие к фото-текселю (этап 6, р.3) — нет файла: запасное от границы известного
+
     _ut_early = None
     if ut_glb and os.path.isfile(ut_glb) and (cfg or {}).get('source', 'stat') == 'stat':
         _ug0 = TC.load_geoms(ut_glb)
@@ -2586,12 +2677,12 @@ def run_stage_once(run: str, sku: str, glb: str, known: list | None = None, part
     _unobs_fn = (lambda: draft_texels(geoms, _ut_early, cfg)) if _ut_early is not None else None            # UltraTex — на нашей форме: яркостный рельеф для «рисунок не наблюдаем» (T-187/6, 23.11); считается только если такие части есть
 
     def one(cfg_, draft_):
-        r_ = fill(geoms, known, parts, cfg_, mirror, draft_, tone_only=_to, unobs_draft_fn=_unobs_fn if (cfg_ or {}).get('source', 'stat') == 'stat' else None)
+        r_ = fill(geoms, known, parts, cfg_, mirror, draft_, tone_only=_to, unobs_draft_fn=_unobs_fn if (cfg_ or {}).get('source', 'stat') == 'stat' else None, conf=_cf)
         rp, tx_ = r_['report'], r_['tex']
         de_, bg, dw, dlw = _front_back_vals(geoms, parts, known, kback, tex_before, tx_, rp)
         vals = {'empty_pct': rp['unpainted_after_pct'], 'dE00_front_back': dw, 'dL_front_back': dlw, 'filled_faces_step_pct': rp['steps']['after']['filled_faces_step_pct'], 'far_excess_pct': rp['far_pct']['excess']}
         nfail = sum(0 if PS.judge(vals[k], th[k][0], th[k][1]) else 1 for k in vals)
-        return {'finish': r_['finish'], 'rep': rp, 'tex': tx_, 'de': de_, 'big': bg, 'de_worst': dw, 'vals': vals, 'nfail': nfail, 'key': (nfail, dw if dw is not None else 99.0, vals['far_excess_pct'] if vals['far_excess_pct'] is not None else 99.0)}
+        return {'finish': r_['finish'], 'keep': r_.get('keep'), 'rep': rp, 'tex': tx_, 'de': de_, 'big': bg, 'de_worst': dw, 'vals': vals, 'nfail': nfail, 'key': (nfail, dw if dw is not None else 99.0, vals['far_excess_pct'] if vals['far_excess_pct'] is not None else 99.0)}
     tried = {}
     if draft is not None and (cfg or {}).get('source') == 'trellis' and dict(FILL, **(cfg or {}))['draft_fallback']:      # Б и А: Б берётся, только если мерки не хуже (число непрошедших, затем ΔE перёд↔зад, затем пятна)
         cA = one(dict(cfg or {}, source='stat'), None)
@@ -2655,7 +2746,7 @@ def run_stage_once(run: str, sku: str, glb: str, known: list | None = None, part
     pick['vals'] = dict(pick['vals'], empty_pct=rep['unpainted_after_pct'], dE00_front_back=de_worst, dL_front_back=_dlw, filled_faces_step_pct=rep['steps']['after']['filled_faces_step_pct'], far_excess_pct=rep['far_pct']['excess'])
     rep['front_on_back'] = front_on_back_corr(geoms, tex_after, front_axis_of_check(_chk6), parts=parts)
     rep['front_on_back_raw'] = rep['front_on_back'].get('raw')                      # старая мера (по яркости целиком) — для сравнения (T-198/1)
-    kchg = known_changed_share(known, tex_before, tex_after, RULES['known_change_de'])
+    kchg = known_changed_share(pick.get('keep') or known, tex_before, tex_after, RULES['known_change_de'])
     rep['known_changed'] = kchg
     try:                                                          # мерка узора — только отчёт (порог по трудным — позже), сбой её не роняет этап
         rep['pattern_metric'] = pattern_metrics(geoms, parts, known, tex_after, rep, dict(FILL, **(cfg or {})))
@@ -2754,6 +2845,18 @@ def load_tone_only_png(visible: str) -> list | None:
         if not os.path.exists(fp):
             break
         out.append(np.asarray(Image.open(fp).convert("L")) > 127)
+    return out or None
+
+
+def load_conf_png(visible: str) -> list | None:
+    """Доверие к фото-текселю этапа 6 (р.3, T-194/1): `conf.png`, `conf1.png`, … — uint8 = доверие×255, 0 где не известно. Нет файла — None (сведение шва берёт запасное)."""
+    from PIL import Image
+    out = []
+    for i in range(64):
+        fp = os.path.join(visible, "conf.png" if i == 0 else f"conf{i}.png")
+        if not os.path.exists(fp):
+            break
+        out.append(np.asarray(Image.open(fp).convert("L"), np.float32) / 255.0)
     return out or None
 
 
