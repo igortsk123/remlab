@@ -114,6 +114,21 @@ class T(unittest.TestCase):
             self.assertIn('нет листа', doc)                                    # отказ виден на странице, не молча
             self.assertTrue(os.path.isfile(os.path.join(tmp, 'page', f'{SK[0]}.png')))
 
+    def test_retry_names_and_collect(self):
+        self.assertEqual(L.tag_of(1), 'sh1')
+        self.assertEqual(L.tag_of(1, 2), 'sh1r2')
+        self.assertEqual(L.suffix_of('1300', 0), 'l51300s0')
+        self.assertEqual(L.suffix_of('1300', 0, 1), 'l51300s0r1')                  # у повтора своя группа Salad
+        with tempfile.TemporaryDirectory() as tmp:
+            for tag, sku, size in (('sh0', SK[0], 5), ('sh0', SK[1], 0), ('sh0r1', SK[1], 5)):   # пустой material.glb (диск был полон) — не результат
+                p = os.path.join(tmp, 'out', tag, sku, '08-material', 'material.glb')
+                os.makedirs(os.path.dirname(p))
+                open(p, 'wb').write(b'x' * size)
+            res, money = L.collect(tmp, SK[:3])
+            self.assertEqual(sorted(res), sorted(SK[:2]))
+            self.assertIn('sh0r1', res[SK[1]])
+            self.assertTrue(money['stop_verified'])
+
     def test_cli_dry_checks_before_money(self):
         with tempfile.TemporaryDirectory() as tmp:
             r, _ = make_base(tmp, with_fill=False)

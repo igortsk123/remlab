@@ -32,5 +32,6 @@ for k, (yaw, pitch, name) in enumerate(views, 1):
     sheet.paste(im, (k * S, 24))
     d.text((k * S + 5, 4), name, fill='black')
 os.makedirs(os.path.dirname(os.path.abspath(out)), exist_ok=True)
-sheet.save(out)
+sheet.save(out + '.tmp.png')                                                  # сначала во временный: обрыв (диск полон) не оставит пустой png «готово»
+os.replace(out + '.tmp.png', out)
 print(out)

@@ -105,14 +105,44 @@ def shard_inputs(rules: dict, skus: list[str], start: str, base: dict[str, str])
     return sel
 
 
-def stage_cmd(rules: dict, sha: str, start: str, idx: int, skus: list[str], run_dir: str, run_id: str, base_tree: str | None, inputs_file: str | None, apply: bool) -> list[str]:
-    """Команда одной ноды: heavy-slot → timeout → stage_trial. Всё, кроме пути, — из rules."""
+def suffix_of(run_id: str, idx: int, rnd: int = 0) -> str:
+    return f'l5{run_id}s{idx}' + (f'r{rnd}' if rnd else '')
+
+
+def stop_group(run_id: str, idx: int, rnd: int = 0) -> bool:
+    """Страховка денег: погасить группу ноды и проверить «0 нод» (драйвер умер на полном диске — группа осталась бы работать)."""
+    p = subprocess.run([ex('~/venvs/scout/bin/python'), '-I', STAGE_TRIAL, '--stop-only', '--suffix', suffix_of(run_id, idx, rnd)], capture_output=True, text=True, timeout=300)
+    return p.returncode == 0
+
+
+def photos(rules: dict) -> dict[str, str]:
+    """Настоящее фото товара для листа (вырезка из входов пакета 29: `photo`); frame-photo.png 07 у шкафа — боковой кадр (р.2, 23.11)."""
+    out = {}
+    for f in sorted(glob.glob(ex(rules['shard_inputs_glob']))):
+        with open(f, encoding='utf-8') as fh:
+            out.update({s: v.get('photo') or '' for s, v in json.load(fh).items()})
+    return out
+
+
+def free_gb(path: str) -> float:
+    import shutil
+    os.makedirs(path, exist_ok=True)
+    return shutil.disk_usage(path).free / 2**30
+
+
+def tag_of(idx: int, rnd: int = 0) -> str:
+    return f'sh{idx}' if rnd == 0 else f'sh{idx}r{rnd}'
+
+
+def stage_cmd(rules: dict, sha: str, start: str, idx: int, skus: list[str], run_dir: str, run_id: str, base_tree: str | None, inputs_file: str | None, apply: bool, rnd: int = 0) -> list[str]:
+    """Команда одной ноды: heavy-slot → timeout → stage_trial. Всё, кроме пути, — из rules. rnd>0 — повтор упавших (свои папка и группа)."""
     c, hs = rules['caps'], rules['heavy_slot']
-    out = os.path.join(run_dir, 'out', f'sh{idx}')
+    tag = tag_of(idx, rnd)
+    out = os.path.join(run_dir, 'out', tag)
     t = int(c['job_wait_min']) * 60 + 600
     py = ex(rules['python'])
-    cmd = [HEAVY, f'paid-loop5-{run_id}-sh{idx}', '--min-gb', str(hs['min_gb_salad']), '--cores', str(hs['cores_salad']), '--prio', str(hs['prio']), '--timeout', str(t + 300), '--',
-           'timeout', '-k', '20', str(t), py, '-I', STAGE_TRIAL, '--image', rules['image'], '--stages', rules['stages'][start], '--out', out, '--suffix', f'l5{run_id}s{idx}',
+    cmd = [HEAVY, f'paid-loop5-{run_id}-{tag}', '--min-gb', str(hs['min_gb_salad']), '--cores', str(hs['cores_salad']), '--prio', str(hs['prio']), '--timeout', str(t + 300), '--',
+           'timeout', '-k', '20', str(t), py, '-I', STAGE_TRIAL, '--image', rules['image'], '--stages', rules['stages'][start], '--out', out, '--suffix', suffix_of(run_id, idx, rnd),
            '--code-ref', sha, '--repo', ROOT, '--catalog', ex(rules['catalog']), '--probe-cap', str(c['probe_usd']), '--cap', str(c['cap_usd']), '--max-min', str(c['max_min'])]
     if rules.get('parts_root'):
         cmd += ['--parts-root', ex(rules['parts_root'])]
@@ -134,7 +164,7 @@ def sheet_job(rules: dict, glb: str, photo: str, png: str) -> list[str]:
 
 def run_sheets(rules: dict, jobs: list[tuple[str, str, str]], log: str) -> int:
     """Листы «со всех сторон» на наших ядрах под heavy-slot (параллельно `parallel`); готовые png пропускаются."""
-    todo = [j for j in jobs if not os.path.isfile(j[2])]
+    todo = [j for j in jobs if not (os.path.isfile(j[2]) and os.path.getsize(j[2]) > 0)]               # пустой png (диск был полон) — не «готово»
     if not todo:
         return 0
     lst = log + '.list'
@@ -157,7 +187,7 @@ def compose(rules: dict, run_dir: str, sha: str, start: str, rows: list[dict]) -
     os.makedirs(page, exist_ok=True)
     for r in rows:
         r['img'] = ''
-        if r.get('before_png') and r.get('after_png') and os.path.isfile(r['before_png']) and os.path.isfile(r['after_png']):
+        if all(r.get(k) and os.path.isfile(r[k]) and os.path.getsize(r[k]) > 0 for k in ('before_png', 'after_png')):
             a, b = Image.open(r['before_png']).convert('RGB'), Image.open(r['after_png']).convert('RGB')
             w = max(a.width, b.width)
             im = Image.new('RGB', (w, a.height + b.height + 36), 'white')
@@ -181,21 +211,47 @@ def compose(rules: dict, run_dir: str, sha: str, start: str, rows: list[dict]) -
     return p
 
 
-def collect(run_dir: str, skus: list[str], nshards: int) -> tuple[dict[str, str], dict]:
-    """{товар: папка результата} и сводка денег/минут нод из summary-trial-stage-*.json."""
+def done_sku(d: str) -> bool:
+    p = os.path.join(d, '08-material', 'material.glb')
+    return os.path.isfile(p) and os.path.getsize(p) > 0
+
+
+def collect(run_dir: str, skus: list[str]) -> tuple[dict[str, str], dict]:
+    """{товар: папка результата с готовым 08-material} (по всем нодам и повторам) и сводка денег/минут нод из summary-trial-stage-*.json."""
     res, money = {}, {'cost_usd_est': 0.0, 'running_s': 0.0, 'groups': 0, 'stop_verified': True}
-    for i in range(nshards):
-        d = os.path.join(run_dir, 'out', f'sh{i}')
+    for d in sorted(glob.glob(os.path.join(run_dir, 'out', 'sh*'))):
         for s in skus:
-            if os.path.isdir(os.path.join(d, s)):
+            if done_sku(os.path.join(d, s)):
                 res[s] = os.path.join(d, s)
         for f in glob.glob(os.path.join(d, 'summary-trial-stage-*.json')):
-            j = json.load(open(f, encoding='utf-8'))
+            with open(f, encoding='utf-8') as fh:
+                j = json.load(fh)
             money['groups'] += 1
             money['cost_usd_est'] += float(j.get('cost_usd_est') or 0)
             money['running_s'] += float(j.get('running_s') or 0)
             money['stop_verified'] = money['stop_verified'] and bool(j.get('stop_verified'))
     return res, money
+
+
+def run_round(rules: dict, sha: str, start: str, skus: list[str], run_dir: str, run_id: str, base: dict[str, str], base_tree: str | None, apply: bool, rnd: int) -> tuple[list[int], list[list[str]]]:
+    """Один заход: товары → ≤machines нод параллельно; после — страховочная остановка групп. → (коды драйверов, группы)."""
+    groups = split(skus, rules['machines'])
+    cmds, procs = [], []
+    for i, g in enumerate(groups):
+        inp = None
+        if start != '08':
+            inp = os.path.join(run_dir, f'inputs-{tag_of(i, rnd)}.json')
+            with open(inp, 'w', encoding='utf-8') as fh:
+                json.dump(shard_inputs(rules, g, start, base), fh, ensure_ascii=False, indent=1)
+        cmds.append(stage_cmd(rules, sha, start, i, g, run_dir, run_id, base_tree, inp, apply, rnd))
+    with open(os.path.join(run_dir, f'plan-r{rnd}.json'), 'w', encoding='utf-8') as fh:
+        json.dump({'sha': sha, 'from': start, 'groups': groups, 'cmds': cmds, 'apply': apply}, fh, ensure_ascii=False, indent=1)
+    for i, c in enumerate(cmds):
+        if not apply:
+            say('РАЗБОР: ' + ' '.join(shlex.quote(x) for x in c))
+        lf = open(os.path.join(run_dir, f'log-{tag_of(i, rnd)}.log'), 'w', encoding='utf-8')  # noqa: SIM115 — закрываем после wait
+        procs.append((subprocess.Popen(c, stdout=lf, stderr=subprocess.STDOUT, stdin=subprocess.DEVNULL), lf))
+    return procs, groups
 
 
 def main(argv=None) -> int:
@@ -205,10 +261,13 @@ def main(argv=None) -> int:
     ap.add_argument('--skus', default='', help='подмножество золотых через запятую (по умолчанию все)')
     ap.add_argument('--run-id', default=time.strftime('%H%M', time.gmtime()))
     ap.add_argument('--dry', action='store_true', help='только разбор: проверки и команды, Salad не создаётся, листов нет')
+    ap.add_argument('--machines', type=int, default=0, help='сколько нод одновременно (по умолчанию rules.machines; меньше — если рядом уже идёт другой прогон)')
     ap.add_argument('--rules', default=RULES)
     a = ap.parse_args(argv)
     t0 = time.time()
     rules = load_rules(a.rules)
+    if a.machines:
+        rules['machines'] = min(a.machines, int(rules['machines']))
     skus = [s for s in rules['golden'] if not a.skus or s in a.skus.split(',')]
     if not skus:
         raise SystemExit('нет товаров: --skus не совпал с золотыми')
@@ -229,55 +288,61 @@ def main(argv=None) -> int:
         for s, d in base.items():
             if not os.path.lexists(os.path.join(base_tree, s)):
                 os.symlink(d, os.path.join(base_tree, s))
-    cmds, procs = [], []
-    for i, g in enumerate(groups):
-        inp = None
-        if a.start != '08':
-            inp = os.path.join(run_dir, f'inputs-sh{i}.json')
-            json.dump(shard_inputs(rules, g, a.start, base), open(inp, 'w', encoding='utf-8'), ensure_ascii=False, indent=1)
-        cmds.append(stage_cmd(rules, sha, a.start, i, g, run_dir, a.run_id, base_tree, inp, not a.dry))
-    json.dump({'code_ref': a.code_ref, 'sha': sha, 'from': a.start, 'groups': groups, 'cmds': cmds, 'dry': a.dry}, open(os.path.join(run_dir, 'plan.json'), 'w', encoding='utf-8'), ensure_ascii=False, indent=1)
-    if a.dry:
-        for c in cmds:
-            say('РАЗБОР: ' + ' '.join(shlex.quote(x) for x in c))
-    for i, c in enumerate(cmds):
-        lf = open(os.path.join(run_dir, f'log-sh{i}.log'), 'w', encoding='utf-8')
-        procs.append((subprocess.Popen(c, stdout=lf, stderr=subprocess.STDOUT, stdin=subprocess.DEVNULL), lf))
-    # «до»: листы на наших ядрах параллельно с Salad (кэш на все прогоны)
-    sheets_before = {s: os.path.join(ex(rules['out_root']), 'base-sheets', f'{s}.png') for s in skus}
+    min_gb = float(rules.get('min_free_gb', 2))
+    if not a.dry and free_gb(run_dir) < min_gb:
+        raise SystemExit(f'мало места на диске: свободно {free_gb(run_dir):.1f} ГБ < {min_gb} ГБ (rules.min_free_gb) — платный прогон не стартую')
+    photo = photos(rules)
+    rcs, rnd_log = [], []
+    t_salad = 0.0
+    sheets_before = {s: os.path.join(ex(rules['out_root']), 'base-sheets-photo', f'{s}.png') for s in skus}
     rc_b = 0
-    if not a.dry:
-        jobs = [(before_glb(rules, s, base[s]), os.path.join(base[s], '07-fill', 'frame-photo.png'), sheets_before[s]) for s in skus]
-        os.makedirs(os.path.join(ex(rules['out_root']), 'base-sheets'), exist_ok=True)
-        rc_b = run_sheets(rules, jobs, os.path.join(run_dir, 'sheets-before.log'))
-        say(f'листы «до»: rc={rc_b}, готово {sum(os.path.isfile(p) for p in sheets_before.values())} из {len(skus)} (кэш {os.path.join(ex(rules["out_root"]), "base-sheets")})')
-    rcs = []
-    for p, lf in procs:
-        rcs.append(p.wait())
-        lf.close()
-    t_salad = time.time() - t0
-    say(f'Salad: коды {rcs}, {t_salad / 60:.1f} мин от старта')
-    if a.dry:
-        return 1 if any(rcs) else 0
-    res, money = collect(run_dir, skus, len(groups))
+    todo = list(skus)
+    for rnd in range(int(rules.get('retry_rounds', 1)) + 1):
+        if not todo:
+            break
+        procs, groups = run_round(rules, sha, a.start, todo, run_dir, a.run_id, base, base_tree, not a.dry, rnd)
+        if rnd == 0 and not a.dry:
+            # «до»: листы на наших ядрах параллельно с Salad (кэш на все прогоны)
+            jobs = [(before_glb(rules, s, base[s]), photo.get(s) or os.path.join(base[s], '07-fill', 'frame-photo.png'), sheets_before[s]) for s in skus]
+            os.makedirs(os.path.join(ex(rules['out_root']), 'base-sheets-photo'), exist_ok=True)
+            rc_b = run_sheets(rules, jobs, os.path.join(run_dir, 'sheets-before.log'))
+            say(f'листы «до»: rc={rc_b}, готово {sum(os.path.isfile(p) and os.path.getsize(p) > 0 for p in sheets_before.values())} из {len(skus)}')
+        codes = []
+        for p, lf in procs:
+            codes.append(p.wait())
+            lf.close()
+        rcs += codes
+        if not a.dry:
+            for i in range(len(groups)):
+                if not stop_group(a.run_id, i, rnd):
+                    say(f'❗ группа {suffix_of(a.run_id, i, rnd)}: остановка не подтверждена — гасить вручную (stage_trial --stop-only --suffix {suffix_of(a.run_id, i, rnd)})')
+        t_salad = time.time() - t0
+        say(f'Salad, заход {rnd}: коды {codes}, {t_salad / 60:.1f} мин от старта')
+        if a.dry:
+            return 1 if any(rcs) else 0
+        res, money = collect(run_dir, skus)
+        todo = [s for s in skus if s not in res]
+        if todo and rnd < int(rules.get('retry_rounds', 1)):
+            say(f'повтор только упавших ({len(todo)}): {todo}')
+    res, money = collect(run_dir, skus)
     sheets_after = {s: os.path.join(run_dir, 'sheets', f'{s}.png') for s in skus}
-    jobs = [(os.path.join(res[s], '08-material', 'material.glb'), os.path.join(res[s], '07-fill', 'frame-photo.png') if os.path.isfile(os.path.join(res[s], '07-fill', 'frame-photo.png'))
-             else os.path.join(base[s], '07-fill', 'frame-photo.png'), sheets_after[s]) for s in skus if s in res and os.path.isfile(os.path.join(res[s], '08-material', 'material.glb'))]
+    jobs = [(os.path.join(res[s], '08-material', 'material.glb'), photo.get(s) or os.path.join(base[s], '07-fill', 'frame-photo.png'), sheets_after[s]) for s in skus if s in res]
     rc_a = run_sheets(rules, jobs, os.path.join(run_dir, 'sheets-after.log'))
     rows = []
     for s in skus:
-        ok = s in res and os.path.isfile(os.path.join(res[s], '08-material', 'material.glb'))
+        ok = s in res
         rows.append({'sku': s, 'status': 'пересчитан' if ok else 'ОТКАЗ (нет 08-material/material.glb — см. log-sh*.log)', 'before_png': sheets_before[s], 'after_png': sheets_after[s]})
     page = compose(rules, run_dir, sha, a.start, rows)
     t_all = time.time() - t0
     summ = {'code_ref': a.code_ref, 'sha': sha, 'from': a.start, 'run_dir': run_dir, 'page': page, 'seconds_salad': round(t_salad), 'seconds_total': round(t_all), 'codes': rcs, 'sheets_rc': [rc_b, rc_a],
             'money': money, 'skus': {r['sku']: r['status'] for r in rows}}
-    json.dump(summ, open(os.path.join(run_dir, 'summary.json'), 'w', encoding='utf-8'), ensure_ascii=False, indent=1)
+    with open(os.path.join(run_dir, 'summary.json'), 'w', encoding='utf-8') as fh:
+        json.dump(summ, fh, ensure_ascii=False, indent=1)
     say(f'ГОТОВО за {t_all / 60:.1f} мин (Salad {t_salad / 60:.1f}); нод {money["groups"]}, ≈${money["cost_usd_est"]:.3f}, остановка подтверждена: {money["stop_verified"]}; страница {page}')
     fails = [r['sku'] for r in rows if r['status'] != 'пересчитан']
     if fails:
         say(f'ОТКАЗЫ: {fails}')
-    return 1 if fails or any(rcs) else 0
+    return 1 if fails else 0
 
 
 if __name__ == '__main__':
