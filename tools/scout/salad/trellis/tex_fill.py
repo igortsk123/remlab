@@ -2903,6 +2903,7 @@ def run_stage_once(run: str, sku: str, glb: str, known: list | None = None, part
     secs = time.time() - t0
     cpu_s = time.process_time() - cpu0
     rep['hooks_time_s'] = {k_: {'wall_s': round(v_['wall_s'], 2), 'cpu_s': round(v_['cpu_s'], 2), 'n': v_['n']} for k_, v_ in hooks.items()}        # время каждого хука этапа (T-157): раньше report.time_s показывал только fill()
+    rep['cache_stats'] = {'raster': dict(TC._RASTER_STATS), 'lab': dict(TC._LAB_STATS)}                  # попадания/промахи кэшей растра и Lab с начала процесса (T-157)
     rep['wall_s'], rep['cpu_s'] = round(secs, 1), round(cpu_s, 1)           # wall_s — только отчёт (на passed не влияет)
     metrics = {
         'empty_pct': {'value': rep['unpainted_after_pct'], 'threshold': th['empty_pct'][1], 'op': th['empty_pct'][0]},

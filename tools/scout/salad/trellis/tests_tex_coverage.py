@@ -133,6 +133,23 @@ _h1, _m1 = TC._RASTER_STATS['hit'], TC._RASTER_STATS['miss']
 _f = TC.raster(_xy, _fc, 10, _dp)
 os.environ['REMLAB_RASTER_CACHE'] = '1'
 ok('кэш растра: REMLAB_RASTER_CACHE=0 — мимо кэша, тот же результат', TC._RASTER_STATS['hit'] == _h1 and TC._RASTER_STATS['miss'] == _m1 and np.array_equal(_f[0], _a[0]) and np.array_equal(_f[1], _a[1]))
+# кэш Lab (T-157/Г): тот же массив — те же числа (копия); другой массив — свои; выключатель
+_rng = np.random.default_rng(7)
+_rgb = _rng.integers(0, 256, (3000, 3)).astype(np.uint8)
+_l0 = TC.rgb2lab(_rgb)
+_h = TC._LAB_STATS['hit']
+_l1 = TC.rgb2lab(_rgb)
+ok('кэш Lab: повтор того же массива — попадание, числа те же, это копия', TC._LAB_STATS['hit'] == _h + 1 and np.array_equal(_l0, _l1) and _l0 is not _l1)
+_l1[:] = 0.0
+ok('кэш Lab: правка копии не портит кэш', np.array_equal(TC.rgb2lab(_rgb), _l0))
+_rgb2 = _rgb.copy()
+_rgb2[5, 1] ^= 1
+ok('кэш Lab: изменён один байт — пересчёт (другой результат)', not np.array_equal(TC.rgb2lab(_rgb2), _l0))
+os.environ['REMLAB_LAB_CACHE'] = '0'
+_h2 = TC._LAB_STATS['hit']
+_l3 = TC.rgb2lab(_rgb)
+os.environ['REMLAB_LAB_CACHE'] = '1'
+ok('кэш Lab: REMLAB_LAB_CACHE=0 — мимо кэша, те же числа', TC._LAB_STATS['hit'] == _h2 and np.array_equal(_l3, _l0))
 try:
     import trimesh
     sphere = trimesh.creation.icosphere(subdivisions=3)

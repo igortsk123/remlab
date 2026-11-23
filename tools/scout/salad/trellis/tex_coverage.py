@@ -263,8 +263,42 @@ def project(P, view, ortho: float = 1.1):
 
 
 # ---------------------------------------------------------------- покрытие ----------------------------------------
+_LAB_CACHE: dict = {}
+_LAB_CACHE_BYTES = [0]
+_LAB_CACHE_MAX = int(os.environ.get('REMLAB_LAB_CACHE_MB', '160')) * 1024 * 1024
+_LAB_STATS = {'hit': 0, 'miss': 0}
+
+
 def rgb2lab(rgb):
-    """sRGB uint8 (N,3) → Lab (N,3), белая точка D65."""
+    """sRGB uint8 (N,3) → Lab (N,3), белая точка D65. С кэшем по содержимому (T-157/Г): на этапе 07 одна и та же текстура переводится в Lab 6–8 раз (мерки до/после, finish,
+    part_deltas, хуки); отдаём копию. REMLAB_LAB_CACHE=0 — выключить."""
+    import hashlib
+    import numpy as np
+    if os.environ.get('REMLAB_LAB_CACHE', '1') == '0' or _LAB_CACHE_MAX <= 0:
+        return _rgb2lab_compute(rgb)
+    a = np.ascontiguousarray(rgb)
+    if a.size < 4096:                                          # мелочь считается быстрее, чем хешируется
+        return _rgb2lab_compute(a)
+    h = hashlib.blake2b(digest_size=16)
+    h.update(repr((a.dtype.str, a.shape)).encode())
+    h.update(a.tobytes())
+    key = h.digest()
+    hit = _LAB_CACHE.pop(key, None)
+    if hit is not None:
+        _LAB_CACHE[key] = hit
+        _LAB_STATS['hit'] += 1
+        return hit.copy()
+    _LAB_STATS['miss'] += 1
+    out = _rgb2lab_compute(a)
+    if out.nbytes <= _LAB_CACHE_MAX // 2:
+        while _LAB_CACHE and _LAB_CACHE_BYTES[0] + out.nbytes > _LAB_CACHE_MAX:
+            _LAB_CACHE_BYTES[0] -= _LAB_CACHE.pop(next(iter(_LAB_CACHE))).nbytes
+        _LAB_CACHE[key] = out.copy()
+        _LAB_CACHE_BYTES[0] += out.nbytes
+    return out
+
+
+def _rgb2lab_compute(rgb):
     import numpy as np
     c = np.asarray(rgb, np.float64) / 255.0
     c = np.where(c > 0.04045, ((c + 0.055) / 1.055) ** 2.4, c / 12.92)
