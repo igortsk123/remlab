@@ -38,7 +38,7 @@ class Rules(unittest.TestCase):
     def test_block_list_and_complete(self):
         self.assertFalse(RULES['observe'])
         self.assertEqual(sorted(RULES['block']), ['detached', 'glb_sane', 'open_edges'])          # block — только GLB-проверки с 0 ложных на 27 годных (T-184/7)
-        for k in ('legs_match', 'leg_match_band', 'leg_match_area', 'alpha_min', 'mask_erode', 'relief_graze', 'back_relief', 'back_dup_mask', 'flat_back_roles'):
+        for k in ('alpha_min', 'mask_erode', 'relief_graze', 'back_relief', 'back_dup_mask', 'flat_back_roles'):
             self.assertIn(k, R)
         for k in ('min_extent', 'open_edge_share', 'detached_share', 'detached_piece_min', 'detached_gap', 'az_step', 'sil_points', 'holes_extra', 'leg_band', 'leg_fill', 'leg_min_w',
                   'back_dup_corr', 'bd_win', 'bd_sigma', 'bd_energy', 'relief_energy', 'sil_extra', 'sil_miss'):
@@ -194,17 +194,20 @@ class LegsMatch(unittest.TestCase):
         self.assertFalse(FC.legs_match(S, pa, R)['flag'])
         S, pa = self.masks(shift=30)
         c = FC.legs_match(S, pa, R)
-        self.assertTrue(c['flag'])                                               # 30 px при шаге между ножками 110 px = 0,27 > порога 0,2; силуэт-IoU такого почти не видит
-        self.assertGreater(c['value'], R['legs_match'])
+        self.assertTrue(c['flag'])                                               # сдвиг 30 px при толщине ножки 14 px: ошибка/толщина ≈ 2 > 0,5; силуэт-IoU такого почти не видит
+        self.assertGreater(c["value"], 0.6)
+        S, pa = self.masks(shift=3)
+        self.assertFalse(FC.legs_match(S, pa, R)['flag'])                        # 3 px при толщине 14 — 0,21 < 0,5: годная
 
-    def test_different_count_or_single_leg_not_counted(self):
+    def test_different_count_flagged_single_leg_not_counted(self):
         S, pa = self.masks(0, n_mesh=2)
         c = FC.legs_match(S, pa, R)
-        self.assertIsNone(c['value'])
-        self.assertFalse(c['flag'])
+        self.assertTrue(c['flag'])                                               # число ножек фото/формы 3/2 — провал сверки (T-191/3)
         one = np.zeros((100, 100), bool)
         one[:90, 20:80] = True
-        self.assertIsNone(FC.legs_match(one, one, R)['value'])
+        c1 = FC.legs_match(one, one, R)
+        self.assertIsNone(c1['value'])                                           # одна широкая ножка/цоколь — не применима
+        self.assertFalse(c1['flag'])
 
     def test_no_run_gives_nothing(self):
         self.assertEqual(FC.legs_checks('нет', None, [tempfile.mkdtemp(prefix='tests_fc_legs_')], R), [])

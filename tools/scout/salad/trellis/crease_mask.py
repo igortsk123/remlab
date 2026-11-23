@@ -141,9 +141,8 @@ def body_zone(mask: np.ndarray, rules: dict | None = None, cut_row: int | None =
     if rows.size == 0:
         return zone, 0
     top = int(rows[0])
-    w = mask.sum(axis=1).astype(np.float64)
-    full = np.nonzero(w >= float(r['body_cover_min']) * w.max())[0]
-    b = int(full[-1])
+    import legs_check as LC                                            # noqa: PLC0415 — одна функция границы корпуса для 04, 06, Ш0
+    b = int(LC.body_bottom_row(mask, float(r['body_cover_min'])))
     cut = int(b - float(r['body_margin_frac']) * (b - top)) + 1
     if cut_row is not None:
         cut = min(cut, int(cut_row))

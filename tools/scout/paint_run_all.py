@@ -102,7 +102,7 @@ def make_ctx(run: str, sku: str, a: dict, rules: dict, stage_dones: dict | None 
 def dynamic_ctx(run: str, sku: str, ctx: dict, rules: dict, state: dict | None = None, check_rules: dict | None = None) -> dict:
     """Значения, зависящие от ФАКТИЧЕСКИХ check.json предыдущих этапов (правила — `rules.dynamic`, по порядку, поздние видят ранние):
     `from_extra [этап, ключ]` — значение из extra (нет → fallback); `file_if_ok [этап, файл]` — файл этапа, если этап passed, мерка не N/A и файл есть (иначе fallback);
-    `if_extra_true [этап, ключ]` + `args` — список аргументов, если флаг в extra истинный;
+    `if_extra_true [этап, ключ]` + `args` — список аргументов, если флаг в extra истинный; `if_extra_true_any [[этап, ключ], …]` — если истинна любая из пар;
     `if_stage_ok {stage, file, args, else_args}` — `args` (с `{path}` = файл этапа), если этап прошёл (ok/soft; в плане — «как будет» из `state`) и файл есть, иначе `else_args`
     (этап 07: части этапа 3 — основной путь, геометрическое разбиение — запасной, когда 3 отказ/нет; файл отказанного 3 мог остаться на диске — потому запасной путь просит явный флаг)."""
     out = dict(ctx)
@@ -117,9 +117,13 @@ def dynamic_ctx(run: str, sku: str, ctx: dict, rules: dict, state: dict | None =
             path = os.path.join(base, st, fn)
             usable = chk.get('passed') and not (chk.get('metric') or {}).get('na') and os.path.exists(path)
             out[key] = path if usable else out[d['fallback']]
-        elif 'if_extra_true' in d:
-            chk = PS.read_check(os.path.join(base, d['if_extra_true'][0])) or {}
-            out[key] = list(d['args']) if (chk.get('extra') or {}).get(d['if_extra_true'][1]) else []
+        elif 'if_extra_true' in d or 'if_extra_true_any' in d:
+            pairs = [d['if_extra_true']] if 'if_extra_true' in d else list(d['if_extra_true_any'])      # любая из пар [этап, ключ] истинна → args
+            on = False
+            for st_, key_ in pairs:
+                chk = PS.read_check(os.path.join(base, st_)) or {}
+                on = on or bool((chk.get('extra') or {}).get(key_))
+            out[key] = list(d['args']) if on else []
         elif 'if_stage_ok' in d:
             c = d['if_stage_ok']
             st = (state or {}).get(c['stage']) or stage_status(run, sku, c['stage'], check_rules or {})['status']
