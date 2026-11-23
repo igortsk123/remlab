@@ -161,13 +161,30 @@ def attach_08(inputs: dict, catalog: str, out: str) -> dict:
             ex['product.json'] = pj
         npz = (v.get('extra_in') or {}).get('parts.npz')
         pjson = os.path.join(os.path.dirname(npz), 'parts.json') if npz else ''
-        if npz and os.path.isfile(pjson):
+        why = 'нет parts.npz+parts.json' if not (npz and os.path.isfile(pjson)) else parts_roles_problem(pjson)
+        if not why:
             ex['03-parts/parts.npz'], ex['03-parts/parts.json'] = npz, pjson
+            rj = os.path.join(os.path.dirname(npz), 'roles.json')
+            if os.path.isfile(rj):
+                ex['03-parts/roles.json'] = rj
         ph = v.get('photo') or (v.get('extra_in') or {}).get('photo.png') or ''                 # фото — вырезка товара: поле photo входа 06 или photo.png входа 07
         if os.path.isfile(ph):
             ex['photo.png'] = ph
-        rep[sku] = {'product': 'product.json' in ex, 'parts': '03-parts/parts.npz' in ex, 'photo': 'photo.png' in ex}
+        rep[sku] = {'product': 'product.json' in ex, 'parts': '03-parts/parts.npz' in ex, 'photo': 'photo.png' in ex, 'parts_why': why}
     return rep
+
+
+def parts_roles_problem(parts_json: str) -> str:
+    """'' если у КАЖДОЙ части этапа 3 есть роль (parts.json `role`, либо рядом roles.json с ней): 08 читает `p["role"]` без запаса. Части PartLLM до моста T-17 ролей не несут — тогда 08 идёт без частей
+    (по форме, как локально без 03-parts), а причина пишется в inputs-08.json. Иначе — причина строкой."""
+    try:
+        parts = json.load(open(parts_json, encoding='utf-8'))['parts']
+    except (OSError, ValueError, KeyError) as exc:
+        return f'parts.json не читается: {type(exc).__name__}'
+    rj = os.path.join(os.path.dirname(parts_json), 'roles.json')
+    roles = json.load(open(rj, encoding='utf-8')) if os.path.isfile(rj) else {}
+    bad = [p.get('id') for p in parts if not p.get('role') and not (roles.get(str(p.get('id'))) or {}).get('role')]
+    return f'у {len(bad)} из {len(parts)} частей нет роли (PartLLM без моста T-17): 08 без частей' if bad else ''
 
 
 def input_zip_06(v: dict, code_tar: bytes | None = None) -> bytes:
@@ -210,6 +227,11 @@ def stage_dirname(stage: str) -> str:
     return {'06': '06-visible', 'seam': '07-seam', '08': '08-material'}.get(stage, '07-fill')
 
 
+def job_args(stage: str, v: dict) -> list[str]:
+    """`args` товара из inputs.json — для 06/07 (`--card-json @in/card.json`, `--photo …`); шов и 08 свои аргументы строит воркер (проба 23.11: шов упал на чужих --card-json)."""
+    return list(v.get('args') or []) if stage not in ('seam', '08') else []
+
+
 def submit_stage(gw, a, inputs: dict, stage: str, t: float) -> tuple[dict | None, dict]:
     """Отправить задания этапа по одному на товар (POST /jobs; zip входа — zlib+base64). Для 07 вход — выход 06 (нет выхода — товар пропущен, причина в items)."""
     ids: dict[str, str] = {}
@@ -245,8 +267,8 @@ def submit_stage(gw, a, inputs: dict, stage: str, t: float) -> tuple[dict | None
         jid = job_id(stage, sku, data, a)
         body = {'job_id': jid, 'stage': stage, 'sku': sku, 'input_z': base64.b64encode(zlib.compress(data, 6)).decode(), 'body_only': bool(v.get('body_only')) and stage == '06',
                 'code_sha': code.get('sha', ''), 'code_tar_sha256': code.get('tar_sha256', '')}
-        if v.get('args') and stage != '08':                                               # args в inputs — для 07 (--card-json …); команда 08 свои аргументы строит сама
-            body['args'] = list(v['args'])
+        if job_args(stage, v):
+            body['args'] = job_args(stage, v)
         c, r, _tinfo = KD.post_job(gw, '/jobs', body, f'/jobs/{jid}', say_fn=say)
         if c == -1:                                                                       # воркер задания не видит; job_id идемпотентен — один повтор, дубля не будет
             say(f'товар {sku}: POST без ответа, воркер задания не видит — повтор один раз')
