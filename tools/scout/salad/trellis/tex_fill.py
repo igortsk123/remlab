@@ -1603,7 +1603,7 @@ def load_rules(path: str | None = None) -> dict:
     for k in ('quilt_extreme', 'mirror_extreme'):
         if 'black_rel' not in r[k]:
             raise KeyError(f'rules/paint-fill.json: {k}.black_rel не задан')
-    for k in ('pool_rejected_pct', 'empty_pct', 'dE00_front_back', 'dL_front_back', 'filled_faces_step_pct', 'far_excess_pct', 'known_changed_share_pct', 'time_s', 'front_on_back_corr'):
+    for k in ('pool_rejected_pct', 'empty_pct', 'dE00_front_back', 'dL_front_back', 'filled_faces_step_pct', 'far_excess_pct', 'known_changed_share_pct', 'cpu_s', 'front_on_back_corr'):
         if k not in r['thresholds']:
             raise KeyError(f'rules/paint-fill.json: threshold {k!r} не задан')
     return r
@@ -2230,6 +2230,7 @@ def run_stage_once(run: str, sku: str, glb: str, known: list | None = None, part
     from PIL import Image
     import paint_stage as PS
     t0 = time.time()
+    cpu0 = time.process_time()                                    # мерка времени — процессорные секунды (не зависят от того, сколько ядер дала нода Salad)
     d = PS.stage_dir(run, sku, out_name or STAGE)
     th = dict(THRESHOLDS, **(thresholds or {}))
     s6 = None
@@ -2313,6 +2314,8 @@ def run_stage_once(run: str, sku: str, glb: str, known: list | None = None, part
     b = render_ortho(geoms, tex_after, 180.0)
     Image.fromarray(np.concatenate([a, np.full((a.shape[0], 12, 3), 255, np.uint8), b], axis=1)).save(os.path.join(d, PS.FRAME))
     secs = time.time() - t0
+    cpu_s = time.process_time() - cpu0
+    rep['wall_s'], rep['cpu_s'] = round(secs, 1), round(cpu_s, 1)           # wall_s — только отчёт (на passed не влияет)
     metrics = {
         'empty_pct': {'value': rep['unpainted_after_pct'], 'threshold': th['empty_pct'][1], 'op': th['empty_pct'][0]},
         'dE00_front_back': {'value': de_worst, 'threshold': th['dE00_front_back'][1], 'op': th['dE00_front_back'][0]},
@@ -2321,7 +2324,7 @@ def run_stage_once(run: str, sku: str, glb: str, known: list | None = None, part
         'far_excess_pct': {'value': rep['far_pct']['excess'], 'threshold': th['far_excess_pct'][1], 'op': th['far_excess_pct'][0]},
         'known_changed_share_pct': {'value': kchg['share_pct'], 'threshold': th['known_changed_share_pct'][1], 'op': th['known_changed_share_pct'][0]},
         'pool_rejected_pct': {'value': round(100.0 * max(rep.get('quilt_rejected_share', {}).values(), default=0.0), 1), 'threshold': th['pool_rejected_pct'][1], 'op': th['pool_rejected_pct'][0]},     # мягкий провал: больше половины пула блоков отбраковано правилом — образец беден, запасной режим (плитка) вместо квилта
-        'time_s': {'value': round(secs, 1), 'threshold': th['time_s'][1], 'op': th['time_s'][0]},
+        'cpu_s': {'value': round(cpu_s, 1), 'threshold': th['cpu_s'][1], 'op': th['cpu_s'][0]},
         'front_on_back_corr': {'value': rep['front_on_back']['corr'], 'threshold': th['front_on_back_corr'][1], 'op': th['front_on_back_corr'][0]},      # перёд на заду (T-187/6): не измерено (None) — не провал
     }
     for k_, m in metrics.items():

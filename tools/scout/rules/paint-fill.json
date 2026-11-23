@@ -11,7 +11,7 @@
     "far_excess_pct": ["<=", 10.0],
     "pool_rejected_pct": ["<=", 50.0],
     "known_changed_share_pct": ["<=", 0.0],
-    "time_s": ["<=", 120.0]
+    "cpu_s": ["<=", 120.0]
   },
   "known_change_de": 1.0,
   "zones_from": "parts",

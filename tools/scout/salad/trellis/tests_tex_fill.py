@@ -676,6 +676,10 @@ def test_known_unchanged():
         ok(mt['value'] == 0.0 and mt['ok'] and mt['threshold'] == 0.0, f'известное не изменилось (доля {mt["value"]} %)')
         c = PS.read_check(r['dir'])
         ok('known_changed_share_pct' in c['metrics'], 'мерка записана в check.json')
+        ok('cpu_s' in c['metrics'] and 'time_s' not in c['metrics'] and c['metrics']['cpu_s']['value'] >= 0, 'мерка времени — cpu_s (процессорные секунды), настенные не судятся')
+        import json as _j
+        rj = _j.load(open(os.path.join(r["dir"], "report.json")))["report"]
+        ok(rj.get('wall_s') is not None and rj.get('cpu_s') is not None, f'wall_s и cpu_s в report.json: {rj.get("wall_s")} / {rj.get("cpu_s")}')
         bad = [a.copy() for a in r['tex_after']]
         bad[0][ys[:50], xs[:50]] = 255 - bad[0][ys[:50], xs[:50]]
         sh = TF.known_changed_share([m], r['tex_before'], bad, TF.RULES['known_change_de'])
