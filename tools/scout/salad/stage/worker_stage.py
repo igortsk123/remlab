@@ -62,6 +62,7 @@ COMMANDS = {
     '06': {'name': 'tex_visible', 'script': 'tools/scout/salad/trellis/tex_visible.py', 'out': '06-visible'},
     '07': {'name': 'tex_fill', 'script': 'tools/scout/salad/trellis/tex_fill.py', 'out': '07-fill'},
     'seam': {'name': 'seam_stage', 'script': 'tools/scout/salad/trellis/seam_stage.py', 'out': '07-seam'},      # T-196/1: сведение шва «фото | заливка» ПОСЛЕ 07 (вход 07-fill + 06-visible)
+    '08': {'name': 'material_stage', 'script': 'tools/assets/material_stage.py', 'out': '08-material'},     # T-220/1: материал по частям ПОСЛЕ 07+шва (вход: filled.glb/seam.glb, части, карточка товара, 04/06 check)
     'ref_zone': {'name': 'ref_zone', 'script': 'tools/scout/salad/trellis/ref_zone.py', 'out': ''},
     'render_unlit': {'name': 'render_unlit', 'script': 'tools/scout/salad/recolor_lp.py', 'out': ''},   # модуль с render_unlit; запускается встроенной обёрткой RENDER, не как скрипт
 }
@@ -75,8 +76,12 @@ NEED_06 = ('model.glb', 'photo.png', 'pose_run/stage_loss.json', 'pose_run/stage
            'pose_run/stages/render_view0/depth.npz', 'pose_run/stages/render_view0/aoi_cos16.png', 'pose_run/stages/render_view0/mask.png')
 NEED_07 = ('06-visible/visible.glb', '06-visible/check.json')
 NEED_SEAM = ('06-visible/known.png', '07-fill/filled.glb')                                  # шов: маска «известно» этапа 6 и выход 07 (conf*.png — по возможности, нет — запасное)
-FILL_STAGES = ('07', 'seam')                                                                 # этапы с большим пиком памяти: держат место из `fill_procs` (шов — на тех же текселях, что 07)
-DRIVER_STAGES = STAGES + ('seam',)                                                           # что может гнать драйвер пакета (в образ-запас `seam` не входит: код только из задания)
+# 08 (T-220/1): модель берётся из 07-seam/seam.glb, а без шва — из 07-fill/filled.glb; product.json — запись каталога {sid,name,role,params}; 04-camera и 06-visible check — для `photo_signal`
+# (06-visible/known.png и visible.glb — цвет частей с фото); части этапа 3 `03-parts/parts.npz`+`parts.json` и `photo.png` — по возможности (нет — части по форме / без сверки тона)
+NEED_08 = ('product.json', '04-camera/check.json', '06-visible/check.json')                # + модель: 07-seam/seam.glb ИЛИ 07-fill/filled.glb (missing_inputs)
+MODEL_08 = ('07-seam/seam.glb', '07-fill/filled.glb')
+FILL_STAGES = ('07', 'seam', '08')                                                           # этапы с большим пиком памяти: держат место из `fill_procs` (шов — на тех же текселях, что 07; 08 — карты по всему листу, пик замеряется пробой)
+DRIVER_STAGES = STAGES + ('seam', '08')                                                         # что может гнать драйвер пакета (в образ-запас `seam` не входит: код только из задания)
 NEED_RENDER = ('model.glb',)
 # рендер без света (команда render_unlit): `recolor_lp.render_unlit` из кода задания; argv: <корень кода> <model.glb> <out.png> [--yaw --pitch --size]
 RENDER = ("import sys,os,argparse\n"
@@ -98,6 +103,7 @@ def cfg() -> dict:
             'python': os.environ.get('STAGE_PYTHON', sys.executable),
             'procs': max(1, int(os.environ.get('STAGE_PROCS', '4'))),
             'fill_procs': max(1, int(os.environ.get('STAGE_FILL_PROCS', '2'))),
+            'm08_procs': max(1, int(os.environ.get('STAGE_M08_PROCS', '1'))),
             'threads': max(1, int(os.environ.get('STAGE_THREADS', '1'))),
             'timeout': float(os.environ.get('STAGE_TIMEOUT_S', '900')),
             'allow_baked': os.environ.get('STAGE_ALLOW_BAKED', '0') == '1'}
@@ -236,6 +242,16 @@ def stage_command(c: dict, stage: str, jdir: str, sku: str, body_only: bool, has
     if stage == 'seam':
         cmd = base + [script, out, sku, '--fill', os.path.join(jdir, 'in', '07-fill'), '--visible', os.path.join(jdir, 'in', '06-visible')]
         return cmd + extra, out, '07-seam'
+    if stage == '08':
+        inp = os.path.join(jdir, 'in')
+        seam = os.path.join(inp, '07-seam', 'seam.glb')
+        glb = seam if os.path.isfile(seam) else os.path.join(inp, '07-fill', 'filled.glb')          # шов есть — берём его модель, нет — выход 07 как есть (так же, как локально без шва)
+        cmd = base + [script, 'stage', '--glb', glb, '--run', out, '--sku', sku, '--product', os.path.join(inp, 'product.json'), '--stages-dir', inp, '--no-frame']   # кадр — Blender, на ноде его нет
+        if os.path.isfile(os.path.join(inp, '03-parts', 'parts.npz')) and os.path.isfile(os.path.join(inp, '03-parts', 'parts.json')):
+            cmd += ['--parts-dir', os.path.join(inp, '03-parts')]
+        if os.path.isfile(os.path.join(inp, 'photo.png')):
+            cmd += ['--photo', os.path.join(inp, 'photo.png')]
+        return cmd + extra, out, '08-material'
     if stage == 'render_unlit':
         return base + ['-c', RENDER, code_root or c['code'], os.path.join(jdir, 'in', 'model.glb'), os.path.join(out, 'render.png')] + extra, out, ''
     return base + [script] + extra, out, ''
@@ -262,6 +278,7 @@ class Pool:
         self.lock = threading.Lock()
         self.sem = threading.Semaphore(c['procs'])
         self.sem_fill = threading.Semaphore(c['fill_procs'])
+        self.sem_08 = threading.Semaphore(max(1, int(c.get('m08_procs', 1))))   # 08: пик памяти 4,5 ГБ (проба 23.11) — по умолчанию одно задание за раз (+ ещё одно место fill ≤ 2,3 ГБ — вместе < 8 ГБ ноды)
         self.opened = False
         self.peak: dict[str, float] = {}
 
@@ -350,6 +367,8 @@ class Pool:
 
     def _run(self, j: dict) -> None:
         stage = j['stage']
+        if stage == '08':
+            self.sem_08.acquire()                             # первым: два 08 по 4,5 ГБ не лягут в 8 ГБ ноды
         if stage in FILL_STAGES:
             self.sem_fill.acquire()                           # сначала «место для 07», потом общий слот: иначе 07 в ожидании держал бы слот
         self.sem.acquire()
@@ -375,7 +394,7 @@ class Pool:
             else:                                               # ref_zone / render_unlit: выход — вся папка out, check.json не обязателен
                 sdir = out if os.path.isdir(out) and any(f for _, _, fs in os.walk(out) for f in fs) else None
                 chk = os.path.join(sdir, 'check.json') if sdir else ''
-            ok_rc = (0, 1) if stage == '06' else (0,)           # 06: код 1 = «этап не прошёл» (выход есть); остальные: только 0
+            ok_rc = (0, 1) if stage in ('06', '08') else (0,)   # 06 и 08: код 1 = «этап не прошёл» (выход и check.json есть; падение без check.json — всё равно отказ ниже); остальные: только 0
             if rc not in ok_rc or not sdir or (sname and not os.path.isfile(chk)):
                 j['error'] = j['error'] or f"этап {stage} rc={rc}{'' if sdir else ', нет папки выхода'}: {tail(os.path.join(j['dir'], 'stage.log'), 400)}"
                 raise RuntimeError(j['error'])
@@ -399,12 +418,17 @@ class Pool:
             self.sem.release()
             if stage in FILL_STAGES:
                 self.sem_fill.release()
+            if stage == '08':
+                self.sem_08.release()
             self._refresh()
 
 
 def missing_inputs(stage: str, names: list[str]) -> list[str]:
-    need = {'06': NEED_06, '07': NEED_07, 'seam': NEED_SEAM, 'render_unlit': NEED_RENDER}.get(stage, ())
-    return [n for n in need if n not in names]
+    need = {'06': NEED_06, '07': NEED_07, 'seam': NEED_SEAM, '08': NEED_08, 'render_unlit': NEED_RENDER}.get(stage, ())
+    miss = [n for n in need if n not in names]
+    if stage == '08' and not any(n in names for n in MODEL_08):
+        miss.append(' или '.join(MODEL_08))
+    return miss
 
 
 class StageHandler(KW.KitHandler):

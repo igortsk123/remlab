@@ -25,6 +25,7 @@ tools/scout/rules/ref-zone.json
 tools/scout/rules/top-prior.json
 tools/scout/rules/mesh-color-guard.json
 tools/assets/material_parts.py
+tools/assets/material_stage.py
 tools/assets/part_shapes.py
 tools/assets/parts_refine.py
 tools/assets/parts_vote.py

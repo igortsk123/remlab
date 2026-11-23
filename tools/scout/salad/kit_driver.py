@@ -513,7 +513,8 @@ def post_timeout_s(body_chars: int, override: int = 0, rules: dict | None = None
     return int(min(top, base + per_mb * body_chars / 2 ** 20))
 
 
-GATEWAY_WAIT_DEFAULT = {'codes': [502, 503], 'pauses_s': [10, 20, 30, 60, 60], 'health_path': '/health'}      # запасные; живые — rules/salad-groups.json → gateway_post.gateway_wait
+GATEWAY_CODES = frozenset({502, 503, 504, 520, 521, 522, 523, 524})       # ответы ШЛЮЗА (HTML-страница), не воркера: 524 — шлюз не дождался ответа на крупное тело (T-220/1 23.11, POST 36 МБ)
+GATEWAY_WAIT_DEFAULT ={'codes': [502, 503], 'pauses_s': [10, 20, 30, 60, 60], 'health_path': '/health'}      # запасные; живые — rules/salad-groups.json → gateway_post.gateway_wait
 
 
 def post_job(gw, path: str, body: dict, check_path: str, override: int = 0, say_fn=say, rules: dict | None = None, sleep=time.sleep, counters: dict | None = None) -> tuple[int, dict, dict | None]:
@@ -1117,6 +1118,7 @@ class Spec:
     before_job: Callable[[str, float, float], str | None] | None = None   # (следующий ключ, деньги сейчас $, потолок сейчас $) → причина планового стопа или None: --max-meshes, файл-стоп,
                                                                            # «по средней длительности не успеет до потолка», первый провал (платное не шлём впустую); стоп = 'planned:<причина>', код 0
     cuda_archs: tuple = ()                                         # архитектуры CUDA образа ('12.0',): пусто — сверка с картой не делается (урок 742)
+    ordered: bool = False                                          # задания зависимы и идут строго по порядку (этапы 06→07→шов→08): повтор после сбоя шлюза — в начало очереди с паузой, не в конец
     work_type: str = ''                                            # тип работы → профиль ресурсов `rules/salad-resources.json` (T-186/1): ОБЯЗАТЕЛЕН, пусто/нет профиля → отказ до группы (код 3)
     variant: str = ''                                              # вариант профиля (`variants.<имя>`, например диск диагностики)
 
@@ -1238,7 +1240,8 @@ def _run_probe_once(a, MG, BR, spec: Spec, gw_factory=Gateway, sleep=time.sleep,
     gw = None
     streak = 0
     busy_waits = 0
-    post_retried: set = set()                                          # ключи, которым уже сделан повтор после POST без ответа (повтор — один)
+    post_tries: dict = {}                                              # ключ → сколько раз уже повторён после POST без ответа/5xx шлюза (потолок — gateway_post.requeue_max)
+    gw_rules = gateway_post_rules()
     last_job_look = 0.0
     stall = JobStall(getattr(a, 'stuck_min', STUCK_MIN))
     lost_obs, node_restarts = 0, 0
@@ -1357,16 +1360,30 @@ def _run_probe_once(a, MG, BR, spec: Spec, gw_factory=Gateway, sleep=time.sleep,
                         busy_waits += 1
                         if busy_waits in (1, 6) or busy_waits % 30 == 0:
                             say(f'задание {k}: нода занята (429) — жду, не провал (ожидание №{busy_waits})')
-                    elif cur is None and (info.get('post') or {}).get('worker_saw_job') is False and k not in post_retried:
-                        # POST без ответа/503 шлюза и воркер задание не видит (T-178 22.11): не провал — один повтор в конец очереди той же ноды
-                        post_retried.add(k)
-                        pending.append(k)
+                    elif cur is None and (info.get('post') or {}).get('worker_saw_job') is False and post_tries.get(k, 0) < int(gw_rules.get('requeue_max', 1)):
+                        # POST без ответа/5xx шлюза и воркер задание не видит (T-178 22.11): не провал — повтор той же ноды (до `gateway_post.requeue_max`, по умолчанию 1).
+                        # Независимые задания — в конец очереди; зависимые по порядку (`spec.ordered`, этапы 06→07→шов→08) — в НАЧАЛО с паузой: иначе следующий этап берёт пустой вход и жжёт серию отказов (T-220/1 23.11)
+                        post_tries[k] = post_tries.get(k, 0) + 1
                         summary.setdefault('post_timeouts', []).append({'key': k, **(info.get('post') or {})})
-                        say(f'задание {k}: POST без ответа — один повтор в конец очереди')
+                        if spec.ordered:
+                            pause = float(gw_rules.get('requeue_pause_s', 0) or 0)
+                            say(f'задание {k}: POST без ответа — повтор {post_tries[k]} в начале очереди после паузы {pause:.0f} с (этапы по порядку)')
+                            if pause > 0:
+                                sleep(pause)
+                            pending.insert(0, k)
+                        else:
+                            pending.append(k)
+                            say(f'задание {k}: POST без ответа — ' + ('один повтор' if post_tries[k] == 1 else f'повтор {post_tries[k]}') + ' в конец очереди')
                     elif cur is None:
-                        streak += 1
+                        post_i = info.get('post') or {}
+                        gw_down = post_i.get('reason') == 'gateway_503' or info.get('http') in GATEWAY_CODES or post_i.get('code') in GATEWAY_CODES
+                        cascade = bool(info.get('nothing_to_send')) and summary.get('gateway_refused', 0) > 0     # следующий этап без входа из-за отказа шлюза выше — не отдельный провал
+                        if gw_down:
+                            summary['gateway_refused'] = summary.get('gateway_refused', 0) + 1
+                        elif not cascade:
+                            streak += 1                                  # ошибка шлюза (502/503/504/52x) — не отказ задания и не отказ набора: серию не копим, нода гасится потолком/временем
                         summary['jobs'][k] = {'status': 'not_accepted', **info}
-                        say(f'задание {k}: не принято', str(info)[:160])
+                        say(f'задание {k}: не принято', str(info)[:160] + (' [шлюз — в серию отказов не идёт]' if gw_down or cascade else ''))
                 elif cur is not None:
                     if t - last_job_look >= 60:                   # ход задания из /health воркера (kit_worker State.job): какой шаг, сколько идёт — видно, считает или завис
                         last_job_look = t

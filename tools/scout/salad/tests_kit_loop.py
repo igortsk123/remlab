@@ -649,5 +649,62 @@ with tempfile.TemporaryDirectory() as tmp:                        # 3. един�
     check(rc == 1 and sm.get('stopped_by') == 'gateway_503' and sm.get('stop_verified'), f'шлюз не принял единственное задание: stopped_by=gateway_503 (не first_failed), стоп проверен ({sm.get("stopped_by")})')
 
 
+# T-20261123-20/1 (пакет 29, 23.11): шлюз отвечал 524/502 на POST 36–39 МБ первого этапа 06, второй этап «нечего отправлять» → 2 отказа подряд → нода погашена. Теперь: 524 — ошибка шлюза
+# (в retry_http), повтор зависимого этапа — в НАЧАЛО очереди с паузой (до `requeue_max`), отказ шлюза и «нечего отправлять» после него в серию отказов не идут
+check(524 in KD.gateway_post_rules()['retry_http'] and 524 in KD.gateway_post_rules()['gateway_wait']['codes'] and KD.gateway_post_rules()['requeue_max'] >= 2, 'правила шлюза: 524 в retry_http и gateway_wait.codes, requeue_max ≥ 2')
+
+
+class Gw524(Gw503):
+    def call(self, method, path, body=None, timeout=60, raw=False):
+        if method == 'POST' and path == '/generate' and (body or {}).get('job_id', '').split('-')[0] in self.bad:
+            k = body['job_id'].split('-')[0]
+            Gw503.seen[k] = Gw503.seen.get(k, 0) + 1
+            if Gw503.seen[k] <= self.first:
+                return 524, {}
+        return GW.call(self, method, path, body, timeout, raw)
+
+
+def make_spec_chain(keys, sleep, fail_http=None):
+    """Зависимые этапы: следующий берёт вход только после принятого предыдущего («нечего отправлять» с nothing_to_send)."""
+    sp = make_spec_post(keys, sleep)
+    first_submit, accepted = sp.submit, set()
+
+    def submit(gw, k, t):
+        order = keys.split(',')
+        if order.index(k) > 0 and order[order.index(k) - 1] not in accepted:
+            return None, {'detail': 'нечего отправлять: нет выхода предыдущего этапа', 'nothing_to_send': True}
+        if fail_http and k == order[0]:
+            return None, {'http': fail_http, 'detail': {}}
+        cur, info = first_submit(gw, k, t)
+        if cur is not None:
+            accepted.add(k)
+        return cur, info
+    sp.submit = submit
+    sp.ordered = True
+    return sp
+
+
+with tempfile.TemporaryDirectory() as tmp:                        # 1. 524 исчерпал паузы post_job → повтор этапа в начало очереди → принято; следующий этап не берёт пустой вход, серии отказов нет
+    clock = Clock()
+    Gw503.bad, Gw503.first, Gw503.seen = ('a',), 1 + len(KD.gateway_post_rules()['gateway_wait']['pauses_s']), {}
+    rc, a, out, mg, br = run_raw(tmp, make_spec_chain('a,b', clock.sleep), gw_cls=Gw524, clock=clock)
+    sm = json.load(open(os.path.join(tmp, 'out', 'summary-kit-loop-t.json')))
+    check(sm.get('stopped_by') == 'done' and sm['jobs']['a']['status'] == 'done' and sm['jobs']['b']['status'] == 'done' and len(sm.get('post_timeouts', [])) == 1 and 'начале очереди' in out,
+          f'524 → повтор этапа a в начале очереди → a и b готовы, серии отказов нет ({sm.get("stopped_by")}, {sm["jobs"]})')
+with tempfile.TemporaryDirectory() as tmp:                        # 2. шлюз не принял этап за все повторы: a — not_accepted, b — «нечего отправлять»; fail_streak НЕ срабатывает, причина — шлюз
+    clock = Clock()
+    Gw503.bad, Gw503.first, Gw503.seen = ('a',), 10 ** 9, {}
+    rc, a, out, mg, br = run_raw(tmp, make_spec_chain('a,b', clock.sleep), gw_cls=Gw524, clock=clock)
+    sm = json.load(open(os.path.join(tmp, 'out', 'summary-kit-loop-t.json')))
+    check(rc == 1 and sm.get('stopped_by') == 'gateway_503' and sm.get('gateway_refused', 0) >= 1 and sm['jobs']['a']['status'] == 'not_accepted' and sm.get('stop_verified')
+          and len(sm.get('post_timeouts', [])) == KD.gateway_post_rules()['requeue_max'], f'шлюз не принял этап: stopped_by=gateway_503 (не fail_streak), повторов ровно requeue_max, стоп проверен ({sm.get("stopped_by")}, {sm.get("post_timeouts")})')
+with tempfile.TemporaryDirectory() as tmp:                        # 3. НЕ шлюз (400 на первом этапе) + «нечего отправлять» следующему → по-прежнему fail_streak (чинить в коде)
+    clock = Clock()
+    Gw503.bad, Gw503.first, Gw503.seen = (), 0, {}
+    rc, a, out, mg, br = run_raw(tmp, make_spec_chain('a,b', clock.sleep, fail_http=400), gw_cls=Gw524, clock=clock)
+    sm = json.load(open(os.path.join(tmp, 'out', 'summary-kit-loop-t.json')))
+    check(sm.get('stopped_by') == 'fail_streak' and sm.get('gateway_refused', 0) == 0, f'не шлюз: 2 отказа подряд — fail_streak как раньше ({sm.get("stopped_by")})')
+
+
 print('\nИТОГ:', 'ВСЁ ЗЕЛЁНОЕ' if not FAILS else f'ПАДЕНИЙ {len(FAILS)}')
 sys.exit(1 if FAILS else 0)
