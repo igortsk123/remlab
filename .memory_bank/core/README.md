@@ -34,7 +34,7 @@
 | `mesh-color.md` | mesh-color | Цвет мешей — диагноз, мерка, рычаги | `../domain/viz-fidelity-playbook.md` | 2026-11-19 |
 | `mesh-owner-audit.md` | mesh-owner-audit | Приёмка мешей владельцем — /lab/mesh-audit | `../completed_plans/mesh-owner-audit.md` | 2026-11-20 |
 | `mesh-pipeline.md` | mesh-pipeline | 3D-меши — генерация, учёт, приёмка | `../domain/viz-fidelity-playbook.md` | 2026-11-20 |
-| `mesh-pool.md` | mesh-pool | Пул нод Salad — группы, тарифы, деньги, стопоры | `../domain/mesh-pool-ops.md` | 2026-11-22 |
+| `mesh-pool.md` | mesh-pool | Пул нод Salad — группы, тарифы, деньги, стопоры | `../domain/mesh-pool-ops.md` | 2026-11-23 |
 | `mesh-run.md` | mesh-run | Прогон мешей — РАБОЧИЙ вариант, старт, остановка | `../domain/mesh-run-playbook.md` | 2026-11-18 |
 | `observability-tracing.md` | observability-tracing | Трейсинг AI-пайплайна — лог, разбор | `../domain/observability.md` | 2026-11-18 |
 | `partners.md` | partners | Застройщик, ЖК, квартира, цена, сертификат — данные | `../completed_plans/b2b-06-apartment-as-data.md` | 2026-11-18 |
