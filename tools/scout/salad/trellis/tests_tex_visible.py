@@ -207,7 +207,7 @@ class TestTexVisible(unittest.TestCase):
 
     def test_gate_threshold_comes_from_rules(self):
         rules = json.load(open(os.path.join(TV.HERE, '..', '..', 'rules', 'tex-visible.json'), encoding='utf-8'))
-        self.assertEqual(TV.GATE['known_visible_share'], (float(rules['gate']['known_visible_share_min']), '>='))
+        self.assertEqual(TV.GATE['known_visible_share'], (float(rules['gate']['known_visible_share'][0]), '>='))
         self.assertTrue(rules['_gate_doc'].strip(), 'у числа порога должна быть строка обоснования')
 
     def _write_pose_run(self, d, iou_claim=1.0):

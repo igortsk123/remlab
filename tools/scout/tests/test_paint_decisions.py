@@ -25,7 +25,7 @@ def stage(name, **metrics):
     return {'stage': name, 'status': 'ok', 'reason': '', 'metrics': {k: v if isinstance(v, dict) else {'value': v, 'ok': True} for k, v in metrics.items()}}
 
 
-S06 = stage('06-visible', silhouette_iou=0.95, edge_bg_share=0.0, lab_dE=0.3, known_share=0.2, edge_corr=0.95)
+S06 = stage('06-visible', silhouette_iou=0.95, edge_bg_share=0.0, lab_dE=0.3, known_visible_share=0.8, known_share=0.2, edge_corr=0.95)
 S07 = stage('07-fill', dE00_front_back=2.0, dL_front_back=1.0, far_excess_pct=-5, filled_faces_step_pct=1.0, quilt_lattice_max=0.1, pool_rejected_pct=0, front_on_back_corr=0.1, known_changed_share_pct=0, empty_pct=0, cpu_s={'value': 300, 'ok': False}, time_s={'value': 100, 'ok': True})
 COV = {'stage': 'coverage', 'status': 'ok', 'reason': ''}
 PAL = {'stage': 'palette', 'status': 'ok', 'reason': ''}
@@ -42,7 +42,8 @@ def run(stages, extra=None):
 d = run([S06, S07])
 ok(d['items']['07.cpu_s']['state'] in ('uncertain', 'fail', 'pass') and d['items']['07.cpu_s']['severity'] == 'info', 'cpu_s — info')
 ok('07.cpu_s' not in d['uncertain'] and '07.cpu_s' not in d['fail'], 'info в итог не входит')
-ok(d['items']['06.known_share']['state'] == 'uncertain' and d['items']['06.known_share']['raw'] == 'pass', 'порог не откалиброван → uncertain, сырой итог сохранён')
+ok(d['items']['06.edge_corr']['state'] == 'uncertain' and d['items']['06.edge_corr']['raw'] == 'pass', 'порог не откалиброван → uncertain, сырой итог сохранён')
+ok(d['items']['06.known_visible_share']['state'] == 'pass' and d['items']['06.known_share']['severity'] == 'info', 'T-215: известность гейтится по known_visible_share; known_share справочная')
 
 # 2. пустое front_on_back_corr (раньше «прошло») → uncertain
 s7 = stage('07-fill', **{k: v for k, v in S07['metrics'].items()})
@@ -101,8 +102,8 @@ ok(all('threshold_ref' in x and 'owner' in x and 'requires' in x for x in REG['d
 pc = PC.load_rules()
 for stg in ('06-visible', '07-fill'):
     soft_pc = set(pc['soft'].get(stg, []))
-    soft_reg = {x['metric'] for x in REG['decisions'] if x['stage'] == stg and x['severity'] == 'soft'}
+    soft_reg = {x['metric'] for x in REG['decisions'] if x['stage'] == stg and x['severity'] in ('soft', 'info')}
     ok(soft_pc <= soft_reg, f'{stg}: мягкие мерки paint-check.json есть в реестре как soft ({sorted(soft_pc - soft_reg)})')
-ok(not re.search(r'"threshold"\s*:', txt), 'порогов-чисел в реестре нет (только ссылки)')
+ok(not re.search(r'"threshold"\s*:', txt) and '0.30' not in txt and '0,30' not in txt, 'порогов-чисел в реестре нет (только ссылки)')
 print('FAIL' if FAIL else 'ВСЁ ЗЕЛЁНОЕ', FAIL)
 sys.exit(1 if FAIL else 0)
