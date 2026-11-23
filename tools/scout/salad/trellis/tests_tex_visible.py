@@ -933,5 +933,43 @@ class ProductJsonCli(unittest.TestCase):
         self.assertEqual(calls, [('', {'keep_original': False, 'pose_run': 'pose', 'refusal': ''})])
 
 
+class TestToneSameSide(unittest.TestCase):
+    """T-28/1: тон Ш3б не красит грани другой стороны формы (зад/верх/бок) — иначе 07 держит их «известными» кусками тона фасада."""
+
+    def test_box_front_source_paints_only_front_plane(self):
+        g = box_geom()[0]
+        src = np.zeros(len(g['F']), np.int64)                     # источник тона у всех граней — грань 0 (перед)
+        ok = TV.tone_same_side(g['V'], g['F'], src, 0.7)
+        self.assertTrue(ok[0] and ok[1], 'вся лицевая плоскость (две грани) красится')
+        self.assertFalse(ok[2:].any(), 'зад, бока, верх и низ коробки (90° и 180°) не красятся')
+
+    def test_unreached_faces_stay_unpainted_and_off_switch(self):
+        g = box_geom()[0]
+        src = np.full(len(g['F']), -1, np.int64)
+        src[0] = 0
+        self.assertEqual(int(TV.tone_same_side(g['V'], g['F'], src, 0.7).sum()), 1)
+        src_all = np.zeros(len(g['F']), np.int64)
+        self.assertTrue(TV.tone_same_side(g['V'], g['F'], src_all, 0.0).all(), 'порог 0 — прежнее поведение (все достигнутые красятся)')
+
+    def test_bevel_chain_blocked_by_source_not_by_edge(self):
+        """Скос из 5 граней по 20° каждая: по одному ребру пройти можно (cos 0,94), но от источника цепочка уходит за порог — рёберный запрет это обходил."""
+        V = np.zeros((14, 3))
+        ang, pos = 0.0, np.zeros(3)
+        V[0], V[1] = (0, 0, 0), (0, 1, 0)
+        for i in range(1, 7):
+            ang += np.radians(20.0)
+            pos = pos + np.array([np.cos(ang), 0.0, np.sin(ang)])
+            V[2 * i], V[2 * i + 1] = pos, pos + np.array([0, 1.0, 0])
+        F = []
+        for i in range(6):
+            a, b, c, d = 2 * i, 2 * i + 1, 2 * i + 2, 2 * i + 3
+            F += [[a, c, d], [a, d, b]]
+        F = np.array(F)
+        src = np.zeros(len(F), np.int64)
+        ok = TV.tone_same_side(V, F, src, 0.7)
+        self.assertTrue(ok[:4].all(), 'ближние грани (до ~40°) красятся')
+        self.assertFalse(ok[-2:].any(), 'дальний конец скоса (> 45° от источника) не красится')
+
+
 if __name__ == '__main__':
     unittest.main()

@@ -73,6 +73,7 @@ TONE_NEAR_FRAC = float(R.get('tone_near_frac', 0.05))       # у самой на
 TONE_SMOOTH_ITERS = int(R.get('tone_smooth_iters', 12))    # сглаживание поля Δ по поверхности (шагов графа граней)
 TONE_REF_ITERS = int(R.get('tone_ref_iters', 12))           # сглаживание опорного цвета (известное рядом) по поверхности
 TONE_DIST_W = float(R.get('tone_dist_weight', 0.15))        # цена шага по поверхности: доля расстояния между центрами граней …
+TONE_SRC_COS = float(os.environ['TONE_SRC_COS']) if 'TONE_SRC_COS' in os.environ else float(R.get('tone_src_cos_min', 0.7))   # грань красится тоном, только если cos(её нормаль, нормаль наблюдавшейся грани-источника) не ниже порога (~45°); 0 = выкл.
 TONE_CREASE_W = float(R.get('tone_crease_weight', 0.25))    # … плюс доля габарита × (1 − cos угла между нормалями соседних граней): излом дорог, плоскость почти бесплатна
 TONE_REACH_FRAC = float(R.get('tone_reach_frac', 0.3))     # тон растекается от наблюдавшейся грани не дальше доли габарита формы (по поверхности)
 TONE_SKIP_DROPPED = bool(int(os.environ['TEX_VISIBLE_TONE_DROP'])) if 'TEX_VISIBLE_TONE_DROP' in os.environ else bool(R.get('tone_skip_dropped', True))   # грань, наблюдавшаяся, но отброшенная по ΔE (другой материал/блик), соседским тоном не красится
@@ -378,6 +379,18 @@ def _face_graph(V: np.ndarray, F: np.ndarray):
     return A, B, cen, ext
 
 
+def tone_same_side(V: np.ndarray, F: np.ndarray, src: np.ndarray, min_cos: float) -> np.ndarray:
+    """Грань «той же стороны», что её источник тона: cos(нормаль грани, нормаль источника) >= min_cos (src < 0 — не достигнута → False). min_cos <= 0 — без запрета.
+    Рёберный запрет обходится скошенной сеткой (угол размазан по цепочке мелких граней), поэтому сравниваем с ИСТОЧНИКОМ, а не с соседом: тон фасада не уходит на зад/верх/бок."""
+    ok = src >= 0
+    if min_cos <= 0:
+        return ok
+    nrm = np.cross(V[F[:, 1]] - V[F[:, 0]], V[F[:, 2]] - V[F[:, 0]])
+    nrm = nrm / np.maximum(np.linalg.norm(nrm, axis=1, keepdims=True), 1e-12)
+    cs = (nrm * nrm[np.clip(src, 0, None)]).sum(1)
+    return ok & (cs >= min_cos)
+
+
 def _gsmooth(B, num: np.ndarray, den: np.ndarray, iters: int) -> tuple[np.ndarray, np.ndarray]:
     """Нормированное сглаживание по графу граней: число и вес растекаются по соседям, значение = num/den (где den > 0)."""
     for _ in range(max(int(iters), 0)):
@@ -446,7 +459,7 @@ def tone_oblique(tex: np.ndarray, occ: np.ndarray, known: np.ndarray, fid: np.nd
         info['tone_skip'] = f'все наблюдения дальше {TONE_MAX_DE:g} ΔE00 от опоры'
         return zero
     dist, _p2, src = dijkstra(A, directed=False, indices=kept, min_only=True, return_predecessors=True, limit=TONE_REACH_FRAC * ext)
-    reached = src >= 0
+    reached = tone_same_side(V, F, src, TONE_SRC_COS)                                                    # другая сторона формы (зад/верх/бок) — другая поверхность: тон фасада на неё не переносим
     delta0 = np.zeros((nF, 3))
     delta0[reached] = (lo_f - ref)[src[reached]]
     dn, dd = _gsmooth(B, delta0 * reached[:, None], reached.astype(np.float64), TONE_SMOOTH_ITERS)
