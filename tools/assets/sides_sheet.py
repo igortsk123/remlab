@@ -84,6 +84,20 @@ def assemble(sh: dict, photo_path: str | None, views_dir: str, dst: str, suffix:
     sheet.save(dst)
 
 
+def node_env(sh: dict, root: str | None = None, env: dict | None = None) -> tuple:
+    """(env для node, строка журнала | None). Нет playwright рядом (в worktree нет node_modules) и в NODE_PATH его нет — подставляем путь основной копии из правил `node_fallback`."""
+    env = dict(os.environ if env is None else env)
+    root = root or os.path.abspath(os.path.join(HERE, '..', '..'))
+    has = lambda d: os.path.isdir(os.path.join(d, 'playwright'))
+    if has(os.path.join(root, 'node_modules')) or any(d and has(d) for d in env.get('NODE_PATH', '').split(os.pathsep)):
+        return env, None
+    for d in sh.get('node_fallback', {}).get('paths', []):
+        if has(d):
+            env['NODE_PATH'] = d + (os.pathsep + env['NODE_PATH'] if env.get('NODE_PATH') else '')
+            return env, f'sides_sheet: в {root} нет node_modules/playwright — NODE_PATH={d} (правило node_fallback)'
+    return env, 'sides_sheet: playwright не найден ни рядом, ни в node_fallback — node, скорее всего, упадёт'
+
+
 def batch(items: list, out: str, node: str = 'node', rules: dict | None = None, keep_work: bool = False, render_fn=None, clay: bool = False) -> dict:
     sh = load_rules(rules)
     os.makedirs(out, exist_ok=True)
@@ -102,7 +116,10 @@ def batch(items: list, out: str, node: str = 'node', rules: dict | None = None, 
         json.dump(spec, f, ensure_ascii=False, indent=1)
     t0 = time.time()
     if todo:
-        r = (render_fn or (lambda s: subprocess.run([shutil.which(node) or node, JS, s], capture_output=True, text=True)))(sp)
+        nenv, nlog = node_env(sh)
+        if nlog:
+            print(nlog)
+        r = (render_fn or (lambda s: subprocess.run([shutil.which(node) or node, JS, s], capture_output=True, text=True, env=nenv)))(sp)
         print((r.stdout + r.stderr).strip()[-300:])
     rep = {}
     rj = os.path.join(work, 'items.json')

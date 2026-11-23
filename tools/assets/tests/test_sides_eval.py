@@ -170,5 +170,37 @@ with tempfile.TemporaryDirectory() as t:
     ok(sm['items'] == 2 and sm['passed_all'] == 1 and sm['passed_all_pct'] == 50.0 and sm['worst_first'][0] == 'b_bad', 'сводка: 1 из 2 прошёл (50 %), худший первый')
     ok(os.path.exists(os.path.join(t, 'out', 'eval.json')) and json.load(open(os.path.join(t, 'out', 'summary.json')))['passed_all'] == 1, 'eval.json и summary.json записаны')
 
+# 11. предохранитель ракурса: «перед» листа = сторона с наибольшей долей известного с фото; развёрнут — пересчёт сторон на 180°
+def box4():
+    V, F, UV = [], [], []
+    quads = [((-1, 0, 1), (1, 0, 1)), ((1, 0, 1), (1, 0, -1)), ((1, 0, -1), (-1, 0, -1)), ((-1, 0, -1), (-1, 0, 1))]   # +Z, +X, -Z, -X
+    for i, (a, b) in enumerate(quads):
+        o = len(V)
+        for (x, y, z), (u, v) in ((a, (0, 0)), (b, (1, 0)), (b, (1, 1)), (a, (0, 1))):
+            V.append((x, -1.0 if v == 0 else 1.0, z))
+            UV.append((i / 4 + u / 4, v))
+        F += [(o, o + 1, o + 2), (o, o + 2, o + 3)]
+    return np.array(V, float), np.array(F), np.array(UV, float)
+
+
+V4, F4, UV4 = box4()
+kn = np.zeros((100, 400), np.uint8)
+kn[:, 200:300] = 255                               # известна грань −Z (третья)
+sh0 = SE.front_shares(V4, F4, UV4, kn, 0.0, R)
+sh180 = SE.front_shares(V4, F4, UV4, kn, 180.0, R)
+ok(sh0['зад'] == 1.0 and sh0['перед'] == 0.0 and SE.front_flipped(sh0, R), f'ракурс: камера на +Z, известно на −Z → развёрнут ({sh0})')
+ok(sh180['перед'] == 1.0 and not SE.front_flipped(sh180, R), 'ракурс: камера на −Z (там известно) → не развёрнут')
+ok(not SE.front_flipped({'перед': 0.30, 'зад': 0.32}, R) and not SE.front_flipped({'перед': None, 'зад': 0.5}, R), 'ракурс: разница меньше margin или нет данных → молчит')
+sheet_c = np.full((S + HP, S * 7, 3), 255, np.uint8)
+for i in range(1, 7):
+    sheet_c[HP:, i * S:(i + 1) * S] = (i * 30, 10, 10)
+fl = SE.flip_sheet(sheet_c, S, HP)
+c = lambda im, i: tuple(im[HP + 5, i * S + 5])
+ok(c(fl, 1) == c(sheet_c, 4) and c(fl, 4) == c(sheet_c, 1) and c(fl, 3) == c(sheet_c, 5) and c(fl, 5) == c(sheet_c, 3) and c(fl, 6) == c(sheet_c, 6) and c(fl, 2) == (255, 255, 255), 'поворот листа: перед↔зад, бок↔др. бок, верх на месте, 3/4 пустой')
+badback = sheet(view_fns={'зад': split_tone((-60, 25, 40))})
+nf = SE.eval_sheet(badback, R, SR)
+yf = SE.eval_sheet(badback, R, SR, flip=True)
+ok(not nf['views']['зад']['patches']['ok'] and not yf['views']['перед']['patches']['ok'] and yf['views']['зад']['patches']['ok'] and yf['flipped'] and 'na' in yf['views']['3/4'], 'пересчёт с поворотом: заплатка с «зад» переехала на «перед»')
+
 print('FAIL' if FAIL else 'OK', FAIL)
 sys.exit(1 if FAIL else 0)

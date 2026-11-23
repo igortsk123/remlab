@@ -248,7 +248,7 @@ def group_pattern(lab, gm, p):
         return None
     L = lab[..., 0]
     hp = ndi.gaussian_filter(L, p['sigma_lo']) - ndi.gaussian_filter(L, p['sigma_hi'])
-    return float(hp[m].std())
+    return float(hp[m].std()), float(max(L[m].mean(), p.get('mean_L_floor', 20.0)))
 
 
 def f_pattern(lab_s, m_s, lab_p, m_p, R, ctx) -> tuple:
@@ -260,11 +260,12 @@ def f_pattern(lab_s, m_s, lab_p, m_p, R, ctx) -> tuple:
     for g in gs:
         if g not in gp:
             continue
-        ep, es = group_pattern(lab_p, gp[g], p), group_pattern(lab_s, gs[g], p)
-        if ep is None or es is None or ep < p['photo_energy_min']:
+        gps, gss = group_pattern(lab_p, gp[g], p), group_pattern(lab_s, gs[g], p)
+        if gps is None or gss is None or gps[0] < p['photo_energy_min']:
             continue
-        rs.append(p['ratio_min'] / max(es / ep, 1e-6))
-        det[f'g{g}'] = [round(es, 2), round(ep, 2)]
+        # контраст рисунка относительно яркости группы: на стороне в тени тот же рисунок даёт меньший абсолютный размах (свет сайта темнее листа)
+        rs.append(p['ratio_min'] / max((gss[0] / gss[1]) / (gps[0] / gps[1]), 1e-6))
+        det[f'g{g}'] = [round(gss[0], 2), round(gps[0], 2)]
     if not rs:
         return None, {'why': 'на фото нет рисунка'}
     return max(rs), det
@@ -293,7 +294,8 @@ def jump_share(lab: np.ndarray, mask: np.ndarray, p: dict) -> float:
 
 def f_underpaint(lab_s, m_s, lab_p, m_p, R, ctx) -> tuple:
     p = R['underpaint']
-    s = underpaint_shares(lab_s, m_s, p)
+    s = underpaint_shares(lab_s, m_s, p)                # серое/чёрное/белое — по тону без света и формы (лист «глина»); без неё — по виду
+    lab_v = ctx.get('lab_r', lab_s)                      # скачки тона — по самому виду
     have = m_p.sum() >= R['geometry']['min_px']
     ph = underpaint_shares(lab_p, m_p, p) if have else {'grey': 0.0, 'black': 0.0, 'white': 0.0}
     ex = {k: max(0.0, s[k] - ph[k]) for k in s}
@@ -302,7 +304,7 @@ def f_underpaint(lab_s, m_s, lab_p, m_p, R, ctx) -> tuple:
         for k in ('black', 'white'):
             if near[k] >= p['near_share']:
                 ex[k] = 0.0
-    j, j_p = jump_share(lab_s, m_s, p), (jump_share(lab_p, m_p, p) if have else 0.0)
+    j, j_p = jump_share(lab_v, m_s, p), (jump_share(lab_p, m_p, p) if have else 0.0)
     r = max(ex['grey'] / p['grey_excess_max'], ex['black'] / p['black_excess_max'], ex['white'] / p['white_excess_max'], max(0.0, j - j_p) / p['jump_share_max'])
     return r, {'grey': round(s['grey'], 3), 'black': round(s['black'], 3), 'white': round(s['white'], 3), 'jump': round(j, 4), 'jump_photo': round(j_p, 4)}
 
@@ -328,22 +330,67 @@ def eval_view(view_rgb: np.ndarray, photo_rgb: np.ndarray, photo_mask: np.ndarra
     cs = palette(lab_p, p_m, P, wl) if p_m.sum() >= g['min_px'] else np.zeros((0, 3))
     if len(cs) == 0:
         return {'na': 'на фото не нашли предмет'}
-    ctx = {'s': groups_of(lab_s, m, cs, P, wl), 'p': groups_of(lab_p, p_m, cs, P, wl)}
+    ctx = {'s': groups_of(lab_s, m, cs, P, wl), 'p': groups_of(lab_p, p_m, cs, P, wl), 'lab_r': lab_r}
     out = {}
     for feat in FEATURES:
         if feat == 'sharpness' and name not in R['sharpness']['views']:
             continue
-        r, det = FUNCS[feat](lab_r if feat in ('sharpness', 'pattern', 'underpaint') else lab_s, m, lab_p, p_m, R, ctx)
+        r, det = FUNCS[feat](lab_r if feat in ('sharpness', 'pattern') else lab_s, m, lab_p, p_m, R, ctx)
         out[feat] = {'r': None if r is None else round(float(r), 3), 'score': score_of(r), 'ok': None if r is None else bool(r <= 1.0), **det}
     return out
 
 
-def eval_sheet(sheet_rgb: np.ndarray, R: dict, sheet_rules: dict | None = None, clay_rgb: np.ndarray | None = None) -> dict:
+def front_shares(V, F, UV, known, az_deg, R, names=None) -> dict:
+    """Доля известных (с фото) текселей по сторонам листа «перед/бок/зад/др. бок» (камера az, az+90, +180, +270; θ=0 — со стороны +Z).
+    V, F — меш; UV — на вершину (n,2), v вверх; known — 2D-маска (>0 известно), строки сверху вниз. Грани берутся с нормалью наружу, n·cam ≥ cos_min; вес — площадь."""
+    g = R['front_guard']
+    V, F = np.asarray(V, float), np.asarray(F, int)
+    tri = V[F]
+    nn = np.cross(tri[:, 1] - tri[:, 0], tri[:, 2] - tri[:, 0])
+    area = np.linalg.norm(nn, axis=1) * 0.5
+    nn = nn / np.maximum(np.linalg.norm(nn, axis=1, keepdims=True), 1e-12)
+    cen = tri.mean(axis=1)
+    nn = nn * np.where(((cen - V.mean(axis=0)) * nn).sum(axis=1) >= 0, 1.0, -1.0)[:, None]
+    uv = np.asarray(UV, float)[F].mean(axis=1)
+    h, w = known.shape[:2]
+    ix = np.clip((uv[:, 0] % 1.0 * w).astype(int), 0, w - 1)
+    iy = np.clip(((1.0 - uv[:, 1] % 1.0) * h).astype(int), 0, h - 1)
+    kn = (np.asarray(known)[iy, ix] > 0).astype(float)
+    out = {}
+    for name, d in zip(names or ('перед', 'бок', 'зад', 'др. бок'), (0, 90, 180, 270)):
+        t = np.deg2rad(float(az_deg) + d)
+        cam = np.array([np.sin(t), 0.0, np.cos(t)])
+        sel = (nn @ cam) >= g['cos_min']
+        a = area[sel]
+        out[name] = round(float((kn[sel] * a).sum() / a.sum()), 4) if a.sum() > 0 else None
+    return out
+
+
+def front_flipped(shares: dict, R: dict) -> bool:
+    g = R['front_guard']
+    f, b = shares.get('перед'), shares.get('зад')
+    return bool(f is not None and b is not None and b > f + g['margin'] and b >= g['min_front_share'])
+
+
+def flip_sheet(sheet: np.ndarray, S: int, hp: int) -> np.ndarray:
+    """Поворот на 180°: перед↔зад (ячейки 1↔4), бок↔др. бок (3↔5); «3/4» (2) без пары — белая (n/a). Фото (0) и верх (6) на месте."""
+    out = sheet.copy()
+    cell = lambda i: (slice(hp, hp + S), slice(i * S, (i + 1) * S))
+    for a, b in ((1, 4), (3, 5)):
+        out[cell(a)], out[cell(b)] = sheet[cell(b)], sheet[cell(a)]
+    out[cell(2)] = 255
+    return out
+
+
+def eval_sheet(sheet_rgb: np.ndarray, R: dict, sheet_rules: dict | None = None, clay_rgb: np.ndarray | None = None, flip: bool = False) -> dict:
     """Лист → {views: {имя: {признак: {...}}}, ok, score, worst}. ok = все признаки всех сторон r ≤ 1 (n/a и None не считаются).
     clay_rgb — лист «глина» (sides_sheet --clay): тогда тон считается без формы (albedo), иначе — прямо с видов."""
     sr = sheet_rules or load_sheet_rules()
     S, hp = int(sr['size']), int(sr['header_px'])
     names = [v['name'] for v in sr['views']]
+    if flip:                                                       # ракурс листа развёрнут на 180° — пересчёт сторон (предохранитель front_guard)
+        sheet_rgb = flip_sheet(sheet_rgb, S, hp)
+        clay_rgb = None if clay_rgb is None else flip_sheet(clay_rgb, S, hp)
     cells = [sheet_rgb[hp: hp + S, i * S: (i + 1) * S] for i in range(len(names) + 1)]
     p_rgb, p_m = photo_cell(cells[0], R['geometry'])
     tone = [None] * len(names)
@@ -367,10 +414,32 @@ def eval_sheet(sheet_rgb: np.ndarray, R: dict, sheet_rules: dict | None = None, 
             if worst is None or d['score'] < worst[2]:
                 worst = (n, f, d['score'])
     return {'views': views, 'albedo_scale': None if scale is None else round(float(scale), 3), 'ok': ok, 'score': min(scores) if scores else None, 'worst': None if worst is None else {'view': worst[0], 'feature': worst[1], 'score': worst[2]},
-            'photo_ok': bool(p_m.sum() >= R['geometry']['min_px'])}
+            'photo_ok': bool(p_m.sum() >= R['geometry']['min_px']), 'flipped': bool(flip)}
 
 
-def batch(sheets: str, out: str, only: list | None = None, rules: dict | None = None, clay_dir: str | None = None) -> dict:
+def known_shares_of(item: dict, R: dict) -> dict | None:
+    """Доли известного по сторонам для товара из items.json (glb + check06; known.png лежит рядом с check.json этапа 06). Нет файлов — None (предохранитель молчит)."""
+    try:
+        import trimesh
+        from PIL import Image
+        c6 = item.get('check06')
+        kp = os.path.join(os.path.dirname(c6), 'known.png')
+        az = json.load(open(c6, encoding='utf-8'))['extra']['camera']['az']
+        sc = trimesh.load(item['glb'], force='scene')
+        gs = list(sc.geometry.values())
+        V = np.concatenate([g.vertices for g in gs])
+        off, F, UV = 0, [], []
+        for g in gs:
+            F.append(g.faces + off)
+            off += len(g.vertices)
+            UV.append(np.asarray(g.visual.uv))
+        known = np.asarray(Image.open(kp).convert('L'))
+        return front_shares(V, np.concatenate(F), np.concatenate(UV), known, float(az), R)
+    except Exception:  # noqa: BLE001 — нет known/az/GLB: ракурс не проверяем, это видно в eval.json (front_shares=None)
+        return None
+
+
+def batch(sheets: str, out: str, only: list | None = None, rules: dict | None = None, clay_dir: str | None = None, items: dict | None = None) -> dict:
     from PIL import Image
     R = load_rules(rules)
     ids = sorted(f[:-4] for f in os.listdir(sheets) if f.endswith('.png') and not f.endswith('.clay.png'))
@@ -381,9 +450,15 @@ def batch(sheets: str, out: str, only: list | None = None, rules: dict | None = 
     for i in ids:
         cp = os.path.join(clay_dir or sheets, i + '.clay.png')
         clay = np.asarray(Image.open(cp).convert('RGB')) if os.path.exists(cp) else None
-        res[i] = eval_sheet(np.asarray(Image.open(os.path.join(sheets, i + '.png')).convert('RGB')), R, clay_rgb=clay)
+        fs = known_shares_of(items[i], R) if items and i in items else None
+        flip = front_flipped(fs, R) if fs else False
+        res[i] = eval_sheet(np.asarray(Image.open(os.path.join(sheets, i + '.png')).convert('RGB')), R, clay_rgb=clay, flip=flip)
+        res[i]['front_shares'] = fs
+        if flip:
+            res[i]['note'] = 'ракурс развёрнут'
     n_ok = sum(1 for v in res.values() if v['ok'])
-    summary = {'items': len(res), 'passed_all': n_ok, 'passed_all_pct': round(100.0 * n_ok / len(res), 1) if res else None,
+    flipped = sorted(k for k, v in res.items() if v.get('flipped'))
+    summary = {'items': len(res), 'flipped': len(flipped), 'flipped_ids': flipped, 'passed_all': n_ok, 'passed_all_pct': round(100.0 * n_ok / len(res), 1) if res else None,
                'worst_first': sorted(res, key=lambda k: (res[k]['score'] if res[k]['score'] is not None else 2.0, k))}
     with open(os.path.join(out, 'eval.json'), 'w', encoding='utf-8') as f:
         json.dump(res, f, ensure_ascii=False, indent=1)
@@ -399,11 +474,13 @@ def main(argv: list) -> int:
     b.add_argument('--sheets', required=True)
     b.add_argument('--out', required=True)
     b.add_argument('--only', default='')
+    b.add_argument('--items', default='', help='items.json листов (glb, check06) — для предохранителя ракурса front_guard')
     b.add_argument('--clay-dir', default='', help='папка с <id>.clay.png (по умолчанию — рядом с листами)')
     a = ap.parse_args(argv)
-    r = batch(a.sheets, a.out, [x for x in a.only.split(',') if x] or None, clay_dir=a.clay_dir or None)
+    items = {x['id']: x for x in json.load(open(a.items, encoding='utf-8'))} if a.items else None
+    r = batch(a.sheets, a.out, [x for x in a.only.split(',') if x] or None, clay_dir=a.clay_dir or None, items=items)
     s = r['summary']
-    print(f"товаров {s['items']}, прошли все 5 на всех сторонах {s['passed_all']} ({s['passed_all_pct']} %)")
+    print(f"товаров {s['items']}, прошли все 5 на всех сторонах {s['passed_all']} ({s['passed_all_pct']} %), ракурс развёрнут: {s['flipped']}")
     return 0
 
 

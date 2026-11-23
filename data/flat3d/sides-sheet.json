@@ -94,5 +94,12 @@
     6
    ]
   }
+ },
+ "node_fallback": {
+  "_about": "Где искать playwright, если в этой копии репозитория нет node_modules (git worktree): основная копия на pakardev. sides_sheet.py подставляет первый существующий путь в NODE_PATH для node и пишет строку в журнал; свой NODE_PATH с playwright или node_modules рядом — не трогаем.",
+  "paths": [
+   "/home/pakar/igor/remlab/node_modules/.pnpm/playwright@1.51.1/node_modules",
+   "/home/pakar/igor/remlab/node_modules"
+  ]
  }
 }

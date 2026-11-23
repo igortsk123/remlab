@@ -3,6 +3,7 @@
 Без ID товаров, чисел видов/размеров в коде нет. Запуск: python tools/assets/tests/test_sides_sheet.py      (numpy + Pillow)"""
 import json
 import os
+import shutil
 import re
 import struct
 import sys
@@ -113,6 +114,23 @@ sp = SS.build_spec(SH, 'x', [], False)
 sp_off = SS.build_spec(dict(SH, site=dict(site, enabled=False)), 'x', [], False)
 ok(sp['site'] is not None and sp['site']['light'] == Lj and sp_off['site'] is None, 'свет листа: spec несёт site.light; enabled=false → прежний model-viewer')
 ok('RoomEnvironment' in src_js and 'toneMapping = THREE.NeutralToneMapping' in src_js and not re.search(r'\b0\.(9|42|8)\b|1\.05', src_js), 'свет листа: JS собирает сцену как сайт (RoomEnvironment + Neutral), чисел света в нём нет')
+
+# 2в. node_fallback: нет node_modules/playwright рядом — NODE_PATH основной копии из правил + строка в журнал; есть — не трогаем
+with tempfile.TemporaryDirectory() as t:
+    root = os.path.join(t, 'wt'); main_nm = os.path.join(t, 'main', 'nm')
+    os.makedirs(os.path.join(root, 'tools')); os.makedirs(os.path.join(main_nm, 'playwright'))
+    rules_fb = {'node_fallback': {'paths': [os.path.join(t, 'нет-такого'), main_nm]}}
+    e1, l1 = SS.node_env(rules_fb, root, {'PATH': '/bin'})
+    ok(e1.get('NODE_PATH') == main_nm and l1 and 'node_fallback' in l1, 'node: в worktree нет node_modules → NODE_PATH = основная копия (первый существующий путь), строка в журнал')
+    os.makedirs(os.path.join(root, 'node_modules', 'playwright'))
+    e2, l2 = SS.node_env(rules_fb, root, {'PATH': '/bin'})
+    ok('NODE_PATH' not in e2 and l2 is None, 'node: node_modules/playwright рядом — окружение не трогаем')
+    shutil.rmtree(os.path.join(root, 'node_modules'))
+    e3, l3 = SS.node_env(rules_fb, root, {'NODE_PATH': main_nm})
+    ok(e3['NODE_PATH'] == main_nm and l3 is None, 'node: свой NODE_PATH с playwright — не трогаем')
+    e4, l4 = SS.node_env({'node_fallback': {'paths': []}}, root, {})
+    ok('NODE_PATH' not in e4 and l4 and 'не найден' in l4, 'node: ничего не нашли — честная строка, а не тихий провал')
+ok(SS.load_rules().get('node_fallback', {}).get('paths'), 'правила: node_fallback.paths заданы в sides-sheet.json, а не в коде')
 
 # 3. настоящая съёмка (Chromium + model-viewer), в CI включена
 if os.environ.get('REMLAB_SHEET_E2E') == '1':
