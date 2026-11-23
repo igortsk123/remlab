@@ -2913,6 +2913,7 @@ def run_stage_once(run: str, sku: str, glb: str, known: list | None = None, part
         rep['paint_policy']['groups_synth'] = _modes
         rep['paint_policy']['applied'] = 'synth' if 'quilt' in _modes else ('abstain' if rep['paint_policy'].get('reason') else 'no_synth')
     rep['surface_groups'] = sg_rep
+    rep['known_source'] = (cfg or {}).get('known_source_gate')
     rep['metrics_pre_hook'] = {k: pick['vals'].get(k) for k in ('empty_pct', 'dE00_front_back', 'dL_front_back', 'filled_faces_step_pct', 'far_excess_pct')}     # что было бы до хуков (для сравнения; на passed не влияет)
     if _dz_eff is not None:                                                                  # зоны деталей/стекла — как на входе (хуки после заливки их не меняют)
         import detail_zones as DZ
@@ -3089,13 +3090,24 @@ def synth_known_trusted() -> bool:
         return False
 
 
-def load_known_png(visible: str) -> list:
+def known_synth_trusted_for(role: str | None) -> tuple:
+    """Считать ли synth (prov 4) «известным» у ЭТОГО товара (T-28/1): правило «synth не известное» (`known_source.synth_trusted` = false) действует только у типа, чей паспорт говорит
+    `paint.hidden_pattern` == `known_source.require_hidden_pattern` (body); остальные типы / нет роли — как в main (synth известный). → (доверять synth, причина). env KNOWN_SYNTH_TRUSTED — для A/B."""
+    if synth_known_trusted():
+        return True, 'known_source.synth_trusted = true (или env KNOWN_SYNTH_TRUSTED)'
+    import mesh_type_passports as MTP
+    ok, why = MTP.allows_hidden_pattern(role, (RULES.get('known_source') or {}).get('require_hidden_pattern'))
+    return (not ok), ('правило «synth не известное» ' + ('действует: ' if ok else 'не действует (поведение main): ') + why)
+
+
+def load_known_png(visible: str, trusted: bool | None = None) -> list:
     """Маски «известно» этапа 6: `known.png`, `known1.png`, … (по геометриям, белое = известно).
     Тон с острого угла (карта провенанса `prov.png`, значение 4 = synth) не наблюдался прямо — это кандидат низкого доверия: из «известного» он убирается, и его красит паспорт материала
     (один материал — один тон), если `known_source.synth_trusted` = false (T-28/1). Нет prov-карты (старый выход 06) — маска как есть."""
     from PIL import Image
     kn = []
-    trusted = synth_known_trusted()
+    if trusted is None:
+        trusted = synth_known_trusted()
     for i in range(64):
         fp = os.path.join(visible, "known.png" if i == 0 else f"known{i}.png")
         if not os.path.exists(fp):
@@ -3216,8 +3228,10 @@ def main(argv: list | None = None) -> int:
     if a.photo:
         cfg["top_photo"] = a.photo
     cfg["synth_dir"] = visible
+    _kt, _kwhy = known_synth_trusted_for((cfg.get("top_card") or {}).get("role"))              # synth «не известное» — только у типа body (паспорт типа); шов читает это решение из report.json
+    cfg["known_source_gate"] = {"synth_trusted": bool(_kt), "why": _kwhy}
     try:
-        r = run_stage(a.run, a.sku, os.path.join(visible, "visible.glb"), known=load_known_png(visible) or None, cfg=cfg, mirror=not a.no_mirror, ut_glb=a.ut_glb, parts_npz=parts_npz, prev_dir=visible)
+        r = run_stage(a.run, a.sku, os.path.join(visible, "visible.glb"), known=load_known_png(visible, trusted=_kt) or None, cfg=cfg, mirror=not a.no_mirror, ut_glb=a.ut_glb, parts_npz=parts_npz, prev_dir=visible)
     except Exception as e:                                                       # noqa: BLE001 — сбой запуска: в check.json, не молча
         d = PS.stage_dir(a.run, a.sku, STAGE)
         PS.write_check(d, STAGE, a.sku, False, None, f"сбой этапа 7: {type(e).__name__}: {e}"[:300], outputs=[])

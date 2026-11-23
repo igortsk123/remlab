@@ -1931,8 +1931,38 @@ def test_known_synth_not_trusted():
                 os.environ["KNOWN_SYNTH_TRUSTED"] = old
 
 
+def test_known_synth_by_type():
+    print("T-28/1: «synth не известное» — только у типа paint.hidden_pattern=body; диван/стул/нет роли — как в main (synth известный):")
+    import tempfile
+    from PIL import Image
+    old = os.environ.pop("KNOWN_SYNTH_TRUSTED", None)
+    try:
+        ok(TF.RULES["known_source"].get("require_hidden_pattern") == "body", "ключ require_hidden_pattern=body лежит в rules/paint-fill.json")
+        for role, trusted in (("шкаф", False), ("комод", False), ("диван", True), ("кресло", True), ("стул", True), ("неведомое", True), (None, True)):
+            ok(TF.known_synth_trusted_for(role)[0] is trusted, f"{role}: synth доверенный = {trusted}")
+        with tempfile.TemporaryDirectory() as td:
+            k = np.zeros((8, 8), np.uint8)
+            k[:, :4] = 255
+            pv = np.zeros((8, 8), np.uint8)
+            pv[:, :2] = 1
+            pv[:, 2:4] = 4
+            Image.fromarray(k).save(os.path.join(td, "known.png"))
+            Image.fromarray(pv).save(os.path.join(td, "prov.png"))
+            ok(int(TF.load_known_png(td, trusted=True)[0].sum()) == 8 * 4, "диван: маска known как есть (байт-в-байт main)")
+            ok(int(TF.load_known_png(td, trusted=False)[0].sum()) == 8 * 2, "шкаф: synth из known убран")
+        import seam_stage as SS
+        with tempfile.TemporaryDirectory() as td:
+            import json
+            ok(SS._fill_known_trusted(td) is None, "шов: нет report.json — по правилу файла")
+            json.dump({"report": {"known_source": {"synth_trusted": True}}}, open(os.path.join(td, "report.json"), "w"))
+            ok(SS._fill_known_trusted(td) is True, "шов: решение 07 (synth доверенный) читается из report.json")
+    finally:
+        if old is not None:
+            os.environ["KNOWN_SYNTH_TRUSTED"] = old
+
+
 def main() -> int:
-    for f in (test_known_synth_not_trusted, test_detail_zones_fill, test_check_on_final_texture, test_side_azimuths, test_top_prior_hook, test_mirror_off_by_default, test_shrink_layout, test_tie_picks_front_on_back, test_front_on_back, test_front_on_back_within_parts, test_front_on_back_unequal_parts, test_color, test_photo, test_parts, test_lighter_than_photo, test_no_known_part, test_mirror, test_texture, test_gutter_render, test_seam_steps_concavity, test_diffuse_quilt_far, test_draft_source, test_tone_mode_pattern, test_quilt_efros, test_quilt_holes, test_known_unchanged, test_render_pattern, test_outlier_blocks, test_dark_fabric, test_trellis_relief, test_part_roles_from_stage3, test_stage7_side_tone_smooth_rules, test_tone_from_neighbour, test_nail_twins, test_borrow_donors, test_tone_only, test_part_pattern_single_truth, test_pr_camera_and_winding, test_hidden_visible, test_stage6_gate, test_cli_run_stage, test_orphan_parts, test_cli_parts_flags, test_zones_fallback, test_brightness_target_median, test_run_stage_fallback, test_render_low, test_quilt_lattice, test_pattern_lattice, test_part_independence, test_unobserved_relief):
+    for f in (test_known_synth_by_type, test_known_synth_not_trusted, test_detail_zones_fill, test_check_on_final_texture, test_side_azimuths, test_top_prior_hook, test_mirror_off_by_default, test_shrink_layout, test_tie_picks_front_on_back, test_front_on_back, test_front_on_back_within_parts, test_front_on_back_unequal_parts, test_color, test_photo, test_parts, test_lighter_than_photo, test_no_known_part, test_mirror, test_texture, test_gutter_render, test_seam_steps_concavity, test_diffuse_quilt_far, test_draft_source, test_tone_mode_pattern, test_quilt_efros, test_quilt_holes, test_known_unchanged, test_render_pattern, test_outlier_blocks, test_dark_fabric, test_trellis_relief, test_part_roles_from_stage3, test_stage7_side_tone_smooth_rules, test_tone_from_neighbour, test_nail_twins, test_borrow_donors, test_tone_only, test_part_pattern_single_truth, test_pr_camera_and_winding, test_hidden_visible, test_stage6_gate, test_cli_run_stage, test_orphan_parts, test_cli_parts_flags, test_zones_fallback, test_brightness_target_median, test_run_stage_fallback, test_render_low, test_quilt_lattice, test_pattern_lattice, test_part_independence, test_unobserved_relief):
         f()
     print(f'tests_tex_fill: ошибок {bad}')
     return 1 if bad else 0

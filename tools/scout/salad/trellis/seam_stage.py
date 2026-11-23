@@ -27,6 +27,18 @@ import paint_stage as PS  # noqa: E402
 STAGE = '07-seam'
 
 
+def _fill_known_trusted(fill_dir: str):
+    """Решение 07 «synth — известное?» (report.json → known_source.synth_trusted; T-28/1: по типу товара). Нет отчёта/поля — None (правило файла)."""
+    import json
+    try:
+        with open(os.path.join(fill_dir, 'report.json'), encoding='utf-8') as f:
+            r = json.load(f)
+        v = ((r.get('report') or r).get('known_source') or {}).get('synth_trusted')
+        return None if v is None else bool(v)
+    except (OSError, ValueError):
+        return None
+
+
 def run_seam(run: str, sku: str, fill_dir: str, visible: str, cfg: dict | None = None) -> dict:
     from PIL import Image
     t0 = time.time()
@@ -34,7 +46,7 @@ def run_seam(run: str, sku: str, fill_dir: str, visible: str, cfg: dict | None =
     d = PS.stage_dir(run, sku, STAGE)
     glb = os.path.join(fill_dir, 'filled.glb')
     geoms = TC.load_geoms(glb)
-    known = TF.load_known_png(visible)
+    known = TF.load_known_png(visible, trusted=_fill_known_trusted(fill_dir))
     if not known:
         raise ValueError(f'нет known.png в {visible}')
     conf = TF.load_conf_png(visible)
