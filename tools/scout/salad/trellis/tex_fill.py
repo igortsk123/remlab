@@ -2355,6 +2355,11 @@ def run_stage_once(run: str, sku: str, glb: str, known: list | None = None, part
         _ug = TC.load_geoms(ut_glb)
         ut_g = _ug if RZ_same_mesh(geoms, _ug) else None
     tex_after, rep['own_panel'] = own_panel_tone_hook(geoms, tex_after, known, ut_g, parts, front_axis_of_check(_chk6), float(th['front_on_back_corr'][1]))
+    try:                                                                  # подчасть по цвету 06 (Б, 23.11): мелкие невидимые панели со своим тоном; сбой не роняет этап
+        import ref_zone as RZ
+        tex_after, rep['sub_tone'] = RZ.sub_tone(geoms, tex_before, tex_after, known, parts)
+    except Exception as e:  # noqa: BLE001
+        rep['sub_tone'] = {'error': f'{type(e).__name__}: {e}'}
     tex_after, rep['top_prior'] = top_prior_hook(geoms, tex_after, known, parts, cfg, None if relief_src == 'ultratex' else draft_glb)
     rep['top_source'] = rep['top_prior'].get('top_source')
     rep['metrics_pre_hook'] = {k: pick['vals'].get(k) for k in ('empty_pct', 'dE00_front_back', 'dL_front_back', 'filled_faces_step_pct', 'far_excess_pct')}     # что было бы до хуков (для сравнения; на passed не влияет)

@@ -848,6 +848,128 @@ def align_ut(geoms: list, tex_after: list, known: list, ut_geoms: list | None, y
     return res, rep
 
 
+def sub_tone(geoms: list, tex_before: list, tex_after: list, known: list, parts: list | None) -> tuple:
+    """Подчасть по цвету 06 (T-187/6 Б, 23.11; разбор независимого рецензента). Часть красится одним тоном (`stat[p]`), а внутри неё бывают мелкие НЕВИДИМЫЕ панели со своим цветом (ножки дивана чёрные,
+    кронштейны стола, белые крошки): цвет 06 в их текселях (база, фото там не легло) — слабая подсказка. Абсолютный цвет 06 врёт (ΔE до 62 против фото), поэтому берётся ОТНОСИТЕЛЬНЫЙ контраст:
+    панель (не видна: известных < `min_known`) ровная (≥ `uniform_share` текселей в пределах `uniform_de` от своей медианы 06) и её медиана 06 далека от доминанты 06 невидимой части (D_p)
+    на ≥ `contrast_de` (оба нейтральные — ещё и |ΔL| ≥ `neutral_dL`) → «подчасть». Классы подчастей (медианы в `class_merge`) держатся, только если их площадь в пределах [`area_min`, `area_max`] площади
+    невидимой части (иначе — «цвет базы вообще другой», это не подчасть). Перенос: a,b = наш + `ab_gain`·(медиана 06 − D_p), L = наша × clip(L06/L_D, `L_lo`, `L_hi`) — квилт сохраняется, контраст масштабируется.
+    Известные (фото) тексели не меняются. → (текстуры, отчёт {'enabled', 'parts': {p: {...}}, 'texels_changed', 'subtone_share_pct', 'lost_contrast_pct'})."""
+    import cv2
+    import tex_coverage as TC
+    import tex_fill as TF
+    O = dict({'enabled': True, 'min_known': 0.05, 'min_texels': 150, 'uniform_share': 0.8, 'uniform_de': 10.0, 'contrast_de': 22.0, 'neutral_chroma': 8.0, 'neutral_dL': 30.0,
+              'class_merge': 8.0, 'area_min': 0.003, 'area_max': 0.20, 'small_part_share': 0.05, 'dark_L': 55.0, 'ab_gain': 0.8, 'L_lo': 0.15, 'L_hi': 1.3, 'lost_ratio': 0.3}, **R.get('sub_tone', {}))
+    rep = {'enabled': bool(O['enabled']), 'parts': {}, 'texels_changed': 0, 'subtone_share_pct': 0.0, 'lost_contrast_pct': 0.0}
+    if not O['enabled']:
+        return [np.asarray(t, np.uint8) for t in tex_after], rep
+
+    def lab_of(rgb):
+        return cv2.cvtColor(np.asarray(rgb, np.uint8).astype(np.float32) / 255.0, cv2.COLOR_RGB2Lab)
+
+    def lab2rgb(lab):
+        return np.clip(cv2.cvtColor(lab.astype(np.float32), cv2.COLOR_Lab2RGB) * 255.0 + 0.5, 0, 255).astype(np.uint8)
+
+    outs, hid_all, chg_all, lost_all = [], 0, 0, 0
+    for gi, g in enumerate(geoms):
+        tex = np.asarray(tex_after[gi], np.uint8)
+        T = int(tex.shape[0])
+        outs.append(tex)
+        if parts is None:
+            continue
+        F = np.asarray(g['F'])
+        pa = panel_ids(np.asarray(g['V'], np.float64), F, parts[gi])
+        xy = np.stack([g['UV'][:, 0] * T, (1.0 - g['UV'][:, 1]) * T], 1)
+        fid, _ = TC.raster(xy, F, T)
+        fid = fid.reshape(-1)
+        occ = fid >= 0
+        pmap = np.where(occ, pa[np.maximum(fid, 0)], -1)
+        part_f = np.asarray(parts[gi])
+        pmap_part = np.where(occ, part_f[np.maximum(fid, 0)], -1)
+        kn = np.asarray(known[gi], bool).ravel()
+        bef = np.asarray(tex_before[gi], np.uint8)
+        if bef.shape[0] != T:
+            continue
+        unp = TF.unpainted_mask(bef).reshape(-1)
+        lb = lab_of(bef).reshape(-1, 3)
+        la = lab_of(tex).reshape(-1, 3)
+        use = occ & ~unp
+        ids, inv = np.unique(pmap[use], return_inverse=True)
+        pidx = np.flatnonzero(use)
+        order = np.argsort(inv, kind='stable')
+        splits = np.split(pidx[order], np.cumsum(np.bincount(inv, minlength=len(ids)))[:-1])
+        panels = {int(i): sp for i, sp in zip(ids, splits)}
+        res = tex.reshape(-1, 3).copy()
+        hid_by = {}
+        for p in sorted({int(x) for x in np.unique(pmap_part[use])}):
+            pans = {k: v for k, v in panels.items() if int(pmap_part[v[0]]) == p}
+            h = {k: v[~kn[v]] for k, v in pans.items() if kn[v].mean() < O['min_known']}
+            h = {k: v for k, v in h.items() if len(v) >= O['min_texels']}
+            if h:
+                hid_by[p] = h
+        tot = sum(len(v) for h in hid_by.values() for v in h.values())
+        if tot < 4 * O['min_texels']:
+            continue
+        D_all = np.median(lb[np.concatenate([v for h in hid_by.values() for v in h.values()])], axis=0)
+        groups, small = {}, {}
+        for p, h in hid_by.items():
+            n_p = sum(len(v) for v in h.values())
+            if n_p >= O['small_part_share'] * tot:
+                groups[f'{p}'] = (h, None)                                       # большая часть: ссылка — её собственная доминанта 06
+            else:
+                small.update({(p, k): v for k, v in h.items()})                  # мелкие части: общая группа, ссылка — доминанта 06 всего товара
+        if small:
+            groups['small'] = (small, D_all)
+        for gname, (hid, Dref) in groups.items():
+            allh = np.concatenate(list(hid.values()))
+            Dp = np.median(lb[allh], axis=0) if Dref is None else Dref
+            area_den = len(allh) if Dref is None else tot
+            cls = []
+            for k, v in hid.items():
+                x = lb[v]
+                m = np.median(x, axis=0)
+                if float(np.mean(np.linalg.norm(x - m, axis=1) <= O['uniform_de'])) < O['uniform_share']:
+                    continue
+                dE = float(np.linalg.norm(m - Dp))
+                neut = max(float(np.hypot(m[1], m[2])), float(np.hypot(Dp[1], Dp[2]))) < O['neutral_chroma']
+                if dE < O['contrast_de'] or (neut and abs(float(m[0] - Dp[0])) < O['neutral_dL']):
+                    continue
+                if not (float(np.hypot(m[1], m[2])) < O['neutral_chroma'] and float(m[0]) < O['dark_L']):
+                    continue                                                     # только тёмное нейтральное (ножки, кронштейны, металл): светлое/цветное против базы товара ненадёжно (база бывает белой при бежевом фото)
+                for c in cls:
+                    if float(np.linalg.norm(c['m'] - m)) < O['class_merge']:
+                        c['panels'].append(k)
+                        c['n'] += len(v)
+                        break
+                else:
+                    cls.append({'m': m, 'panels': [k], 'n': len(v)})
+            kept = [c for c in cls if O['area_min'] <= c['n'] / area_den <= O['area_max']]
+            info = {'hidden_texels': int(len(allh)), 'ref': 'own' if Dref is None else 'product', 'D_ref': [round(float(x), 1) for x in Dp], 'classes': [], 'skipped_classes': len(cls) - len(kept)}
+            hid_all += int(len(allh))
+            for c in kept:
+                idx = np.concatenate([hid[k] for k in c['panels']])
+                la_i = la[idx]
+                lost = float(np.linalg.norm(np.median(la_i, axis=0) - Dp))
+                c_before = float(np.linalg.norm(c['m'] - Dp))
+                new = la_i.copy()
+                new[:, 1:] = la_i[:, 1:] + O['ab_gain'] * (c['m'][1:] - Dp[1:])
+                new[:, 0] = la_i[:, 0] * float(np.clip(c['m'][0] / max(float(Dp[0]), 1.0), O['L_lo'], O['L_hi']))
+                rgbn = lab2rgb(new.reshape(-1, 1, 3)).reshape(-1, 3)
+                rgbn = np.where((rgbn.max(axis=1) <= TF.BLACK_MAX)[:, None], np.maximum(rgbn, TF.BLACK_MAX + 1), rgbn)
+                if lost < O['lost_ratio'] * c_before:
+                    lost_all += int(len(idx))
+                res[idx] = rgbn
+                chg_all += int(len(idx))
+                info['classes'].append({'texels': int(len(idx)), 'panels': len(c['panels']), 'median_06': [round(float(x), 1) for x in c['m']], 'contrast_de': round(c_before, 1), 'our_contrast_de_before': round(lost, 1)})
+            if info['classes'] or info['skipped_classes']:
+                rep['parts'][f'{gi}:{gname}'] = info
+        outs[gi] = res.reshape(tex.shape)
+    rep['texels_changed'] = chg_all
+    rep['subtone_share_pct'] = round(100.0 * chg_all / max(hid_all, 1), 2)
+    rep['lost_contrast_pct'] = round(100.0 * lost_all / max(hid_all, 1), 2)
+    return outs, rep
+
+
 def own_panel_tone(geoms: list, tex_after: list, known: list, ut_geoms: list | None, parts: list | None) -> tuple:
     """Невидимые панели (T-187/6, владелец 22.11 TG 1737/1741/1744): зеркала и чужого квилта нет. Панель, у которой фото закрывает меньше `min_known` текселей, — «невидимая».
     Для неё среди ВИДИМЫХ панелей ищется донор по UltraTex (тот же меш, та же поза): тот же ОТТЕНОК (ΔE по a,b медиан UltraTex ≤ `donor_hue_de`) И та же ФАКТУРА (σ детали L−низкий пас σ `full.sigma`,
