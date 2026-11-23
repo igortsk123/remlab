@@ -20,6 +20,7 @@ import glob
 import html
 import json
 import os
+import re
 import shlex
 import subprocess
 import sys
@@ -105,13 +106,22 @@ def shard_inputs(rules: dict, skus: list[str], start: str, base: dict[str, str])
     return sel
 
 
-def suffix_of(run_id: str, idx: int, rnd: int = 0) -> str:
+def warm_on(rules: dict) -> bool:
+    return bool((rules.get('warm') or {}).get('enabled'))
+
+
+def suffix_of(rules: dict, run_id: str, idx: int, rnd: int = 0) -> str:
+    """Имя группы Salad (суффикс). Тёплая нода (T-34) — постоянное имя `w<нода>-<6 знаков digest образа>` (один образ — одна нода; смена образа — новое имя), общее для всех прогонов и повторов;
+    иначе — на прогон (`l5<прогон>s<нода>[r<повтор>]`)."""
+    if warm_on(rules):
+        m = re.search(r'@sha256:([0-9a-f]{6})', rules['image'])
+        return f'w{idx}-{m.group(1) if m else "x"}'
     return f'l5{run_id}s{idx}' + (f'r{rnd}' if rnd else '')
 
 
-def stop_group(run_id: str, idx: int, rnd: int = 0) -> bool:
-    """Страховка денег: погасить группу ноды и проверить «0 нод» (драйвер умер на полном диске — группа осталась бы работать)."""
-    p = subprocess.run([ex('~/venvs/scout/bin/python'), '-I', STAGE_TRIAL, '--stop-only', '--suffix', suffix_of(run_id, idx, rnd)], capture_output=True, text=True, timeout=300)
+def stop_group(rules: dict, run_id: str, idx: int, rnd: int = 0) -> bool:
+    """Погасить группу ноды и проверить «0 нод» (страховка при падении драйвера; для тёплой — команда `--warm-stop`)."""
+    p = subprocess.run([ex('~/venvs/scout/bin/python'), '-I', STAGE_TRIAL, '--stop-only', '--suffix', suffix_of(rules, run_id, idx, rnd)], capture_output=True, text=True, timeout=300)
     return p.returncode == 0
 
 
@@ -142,10 +152,13 @@ def stage_cmd(rules: dict, sha: str, start: str, idx: int, skus: list[str], run_
     t = int(c['job_wait_min']) * 60 + 600
     py = ex(rules['python'])
     cmd = [HEAVY, f'paid-loop5-{run_id}-{tag}', '--min-gb', str(hs['min_gb_salad']), '--cores', str(hs['cores_salad']), '--prio', str(hs['prio']), '--timeout', str(t + 300), '--',
-           'timeout', '-k', '20', str(t), py, '-I', STAGE_TRIAL, '--image', rules['image'], '--stages', rules['stages'][start], '--out', out, '--suffix', suffix_of(run_id, idx, rnd),
+           'timeout', '-k', '20', str(t), py, '-I', STAGE_TRIAL, '--image', rules['image'], '--stages', rules['stages'][start], '--out', out, '--suffix', suffix_of(rules, run_id, idx, rnd),
            '--code-ref', sha, '--repo', ROOT, '--catalog', ex(rules['catalog']), '--probe-cap', str(c['probe_usd']), '--cap', str(c['cap_usd']), '--max-min', str(c['max_min'])]
     if rules.get('parts_root'):
         cmd += ['--parts-root', ex(rules['parts_root'])]
+    if warm_on(rules):
+        wm = rules['warm']
+        cmd += ['--keep-warm', str(wm['idle_min']), '--warm-life-min', str(wm['life_min']), '--warm-min-left-min', str(wm['min_left_min'])]
     if start == '08':
         cmd += ['--fill-root', base_tree, '--vis-root', base_tree, '--skus', ','.join(skus)]
         if rules.get('pose_root'):
@@ -218,7 +231,7 @@ def done_sku(d: str) -> bool:
 
 def collect(run_dir: str, skus: list[str]) -> tuple[dict[str, str], dict]:
     """{товар: папка результата с готовым 08-material} (по всем нодам и повторам) и сводка денег/минут нод из summary-trial-stage-*.json."""
-    res, money = {}, {'cost_usd_est': 0.0, 'running_s': 0.0, 'groups': 0, 'stop_verified': True}
+    res, money = {}, {'cost_usd_est': 0.0, 'running_s': 0.0, 'groups': 0, 'stop_verified': True, 'kept_warm': 0, 'adopted_warm': 0}
     for d in sorted(glob.glob(os.path.join(run_dir, 'out', 'sh*'))):
         for s in skus:
             if done_sku(os.path.join(d, s)):
@@ -229,7 +242,9 @@ def collect(run_dir: str, skus: list[str]) -> tuple[dict[str, str], dict]:
             money['groups'] += 1
             money['cost_usd_est'] += float(j.get('cost_usd_est') or 0)
             money['running_s'] += float(j.get('running_s') or 0)
-            money['stop_verified'] = money['stop_verified'] and bool(j.get('stop_verified'))
+            money['kept_warm'] += 1 if j.get('kept_warm') else 0
+            money['adopted_warm'] += 1 if j.get('adopted_warm') else 0
+            money['stop_verified'] = money['stop_verified'] and bool(j.get('stop_verified') or j.get('kept_warm'))
     return res, money
 
 
@@ -256,18 +271,29 @@ def run_round(rules: dict, sha: str, start: str, skus: list[str], run_dir: str, 
 
 def main(argv=None) -> int:
     ap = argparse.ArgumentParser(description='круг «на 5»: пересчёт шага и следующих на золотых 5 + листы «до | после»')
-    ap.add_argument('--code-ref', required=True, help='SHA/ветка: чей код этапов считает Salad (в итог пишется SHA)')
-    ap.add_argument('--from', dest='start', required=True, choices=['06', '07', '08'], help='с какого шага пересчитывать (этот и следующие)')
+    ap.add_argument('--code-ref', default='', help='SHA/ветка: чей код этапов считает Salad (в итог пишется SHA)')
+    ap.add_argument('--from', dest='start', default='', choices=['', '06', '07', '08'], help='с какого шага пересчитывать (этот и следующие)')
     ap.add_argument('--skus', default='', help='подмножество золотых через запятую (по умолчанию все)')
     ap.add_argument('--run-id', default=time.strftime('%H%M', time.gmtime()))
     ap.add_argument('--dry', action='store_true', help='только разбор: проверки и команды, Salad не создаётся, листов нет')
     ap.add_argument('--machines', type=int, default=0, help='сколько нод одновременно (по умолчанию rules.machines; меньше — если рядом уже идёт другой прогон)')
+    ap.add_argument('--no-warm', action='store_true', help='не греть ноды между прогонами (как до T-34): группа на прогон, гасится в конце')
+    ap.add_argument('--warm-stop', action='store_true', help='погасить тёплые ноды сейчас (с проверкой «0 нод») и выйти')
     ap.add_argument('--rules', default=RULES)
     a = ap.parse_args(argv)
     t0 = time.time()
     rules = load_rules(a.rules)
     if a.machines:
         rules['machines'] = min(a.machines, int(rules['machines']))
+    if a.no_warm:
+        rules.setdefault('warm', {})['enabled'] = False
+    if a.warm_stop:
+        rules.setdefault('warm', {})['enabled'] = True
+        bad = [i for i in range(int(rules['machines'])) if not stop_group(rules, a.run_id, i)]
+        say(f'тёплые ноды погашены: {int(rules["machines"]) - len(bad)} из {int(rules["machines"])}' + (f'; ❗ не подтверждено у нод {bad}' if bad else ''))
+        return 1 if bad else 0
+    if not a.warm_stop and (not a.code_ref or not a.start):
+        raise SystemExit('нужны --code-ref и --from 06|07|08 (или --warm-stop)')
     skus = [s for s in rules['golden'] if not a.skus or s in a.skus.split(',')]
     if not skus:
         raise SystemExit('нет товаров: --skus не совпал с золотыми')
@@ -313,9 +339,11 @@ def main(argv=None) -> int:
             lf.close()
         rcs += codes
         if not a.dry:
-            for i in range(len(groups)):
-                if not stop_group(a.run_id, i, rnd):
-                    say(f'❗ группа {suffix_of(a.run_id, i, rnd)}: остановка не подтверждена — гасить вручную (stage_trial --stop-only --suffix {suffix_of(a.run_id, i, rnd)})')
+            for i, c in enumerate(codes):
+                if warm_on(rules) and c == 0:
+                    continue                                                   # чистый конец: нода осталась тёплой — сама остановится через rules.warm.idle_min простоя
+                if not stop_group(rules, a.run_id, i, rnd):
+                    say(f'❗ группа {suffix_of(rules, a.run_id, i, rnd)}: остановка не подтверждена — гасить вручную (stage_trial --stop-only --suffix {suffix_of(rules, a.run_id, i, rnd)})')
         t_salad = time.time() - t0
         say(f'Salad, заход {rnd}: коды {codes}, {t_salad / 60:.1f} мин от старта')
         if a.dry:

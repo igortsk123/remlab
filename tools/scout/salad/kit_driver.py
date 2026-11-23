@@ -325,17 +325,20 @@ def orphan_check(MG, BR, name: str, say_fn=say, counters: dict | None = None) ->
     return bool(BR.stop_and_verify(name))
 
 
-def create_and_start(MG, BR, name: str, body: dict, say_fn=say, sleep=time.sleep, clock=time.time, wait_s: float = 2400, rules: dict | None = None, counters: dict | None = None) -> tuple[bool, float, str]:
+def create_and_start(MG, BR, name: str, body: dict, say_fn=say, sleep=time.sleep, clock=time.time, wait_s: float = 2400, rules: dict | None = None, counters: dict | None = None, existing: bool = False) -> tuple[bool, float, str]:
     """Создать группу (201 + видна в списке), ЖДАТЬ образ бесплатно (состояние stopped), стартовать. `/start` раньше времени на большой образ — HTTP 400 (р.5 e022e305; образ 22 ГиБ ≈ 25 мин):
     повторяем до `wait_s`, пока не 202. Возвращает (ок, время /start, причина отказа). `counters` — словарь итога: retries_create/retries_start/adopted_after_504/orphans_stopped;
     отказ create с видимой группой → она гасится здесь (`orphans_stopped`, `orphan_stop_verified`)."""
-    code, resp, _ = api_retry(MG, '', 'POST', body, name, say_fn, sleep, rules, counters)
-    say_fn('POST создание', code, str(resp)[:200] if code >= 300 else 'ok')
-    if code >= 300:
-        v = orphan_check(MG, BR, name, say_fn, counters)
-        if v is not None and counters is not None:
-            counters['orphan_stop_verified'] = v
-        return False, 0.0, f'create_http_{code}'
+    if existing:                                                   # тёплая группа (T-34): она уже создана, образ в кэше — без POST создания
+        say_fn('группа уже создана — только старт', name)
+    else:
+        code, resp, _ = api_retry(MG, '', 'POST', body, name, say_fn, sleep, rules, counters)
+        say_fn('POST создание', code, str(resp)[:200] if code >= 300 else 'ok')
+        if code >= 300:
+            v = orphan_check(MG, BR, name, say_fn, counters)
+            if v is not None and counters is not None:
+                counters['orphan_stop_verified'] = v
+            return False, 0.0, f'create_http_{code}'
     t_wait = clock()
     seen = False
     last_note = t_wait
@@ -1172,6 +1175,47 @@ class Spec:
     variant: str = ''                                              # вариант профиля (`variants.<имя>`, например диск диагностики)
 
 
+WARM_DIR = '~/remlab-logs/warm-nodes'
+
+
+def warm_files(a, name: str) -> tuple[str, str]:
+    d = os.path.expanduser(getattr(a, 'warm_dir', '') or WARM_DIR)
+    return os.path.join(d, f'{name}.json'), os.path.join(d, f'{name}.lock')
+
+
+def warm_lock(path: str):
+    """Один прогон на тёплую ноду: flock на файле-замке (держится до конца прогона). Занято → None."""
+    import fcntl
+    os.makedirs(os.path.dirname(path), exist_ok=True)
+    fh = open(path, 'a')                                           # noqa: SIM115 — держим до конца прогона
+    try:
+        fcntl.flock(fh, fcntl.LOCK_EX | fcntl.LOCK_NB)
+    except OSError:
+        fh.close()
+        return None
+    return fh
+
+
+def warm_decide(status: str | None, state: dict, image: str, now: float, min_left_s: float) -> tuple[str, str]:
+    """Что делать с тёплой группой по её состоянию в Salad и записи: create | adopt | restart | restart_stop | refuse (+ причина).
+    adopt — нода жива, тот же образ, до предела жизни воркера (MAX_LIFETIME_S) ≥ min_left; restart — группа остановлена (воркер ушёл по простою): старт заново, образ в кэше;
+    restart_stop — жива, но записи нет/мало жизни/не та: гасим и стартуем заново; refuse — чужой образ или группа в переходном состоянии."""
+    if status is None:
+        return 'create', 'группы нет'
+    if status in ('stopped', 'pending', 'failed'):
+        return 'restart', f'группа {status}: старт заново (образ в кэше Salad)'
+    if status != 'running':
+        return 'refuse', f'группа в состоянии «{status}» — повторите позже'
+    if state.get('image') != image:
+        return 'refuse', 'у живой тёплой группы другой образ — возьмите другой --suffix или погасите её (--stop-only)'
+    if not state.get('expires_at'):
+        return 'restart_stop', 'записи о сроке жизни нет — перезапуск'
+    left = float(state['expires_at']) - now
+    if left < min_left_s:
+        return 'restart_stop', f'до предела жизни воркера {left / 60:.0f} мин < {min_left_s / 60:.0f} — перезапуск'
+    return 'adopt', f'нода жива, до предела жизни {left / 60:.0f} мин'
+
+
 def run_probe(a, MG, BR, spec: Spec, **kw) -> int:
     """Платная проба по профилю типа работы. Тариф `low`; нет машин (`no_machine`, $0 — до running не списывается) → ОДИН раз `tier_fallback` (medium) в ядре, не в драйверах.
     ВАЖНО: `a.tier`/`a.suffix` меняются на месте (замыкания `build_body` драйверов читают `a`). Выше medium и batch — нельзя (`tier_refusal`)."""
@@ -1263,7 +1307,35 @@ def _run_probe_once(a, MG, BR, spec: Spec, gw_factory=Gateway, sleep=time.sleep,
         say(f'живые чужие группы {live} — стоп')
         return 2
     code, g = MG.api(f'/{name}')
-    if code == 200:
+    keep_warm = float(getattr(a, 'keep_warm', 0) or 0)             # минут простоя до самостоятельной остановки воркера (IDLE_S); 0 — не греть между прогонами
+    warm_fh, adopt, restart, warm_state_path, warm_life_s = None, False, False, '', float(getattr(a, 'warm_life_min', 120) or 120) * 60
+    if keep_warm:
+        warm_state_path, lock_path = warm_files(a, name)
+        warm_fh = warm_lock(lock_path)
+        if warm_fh is None:
+            say(f'ОТКАЗ: тёплая нода {name} занята другим прогоном (замок {lock_path})')
+            return 4
+        if code == 200:
+            _, st0, _c0 = BR.group_state(name)
+            try:
+                state = json.load(open(warm_state_path, encoding='utf-8'))
+            except (OSError, ValueError):
+                state = {}
+            action, why = warm_decide(st0, state, a.image, clock(), float(getattr(a, 'warm_min_left_min', 25)) * 60)
+            if action == 'adopt':                                  # группа «running», но воркер мог уйти по простою (экземпляр остановлен) — без живого экземпляра подхватывать нечего
+                _ci, ins0 = BR.instances(name)
+                if not any(i.get('state') == 'running' and i.get('started') for i in (ins0 or [])):
+                    action, why = 'restart_stop', 'группа running, а живого экземпляра нет (воркер ушёл по простою) — перезапуск'
+            say(f'тёплая нода {name}: {action} — {why}')
+            if action == 'refuse':
+                warm_fh.close()
+                return 2
+            if action == 'restart_stop' and not stop_and_verify(BR, name):
+                warm_fh.close()
+                say('перезапуск тёплой ноды: остановка не подтверждена — стоп')
+                return 2
+            adopt, restart = action == 'adopt', action in ('restart', 'restart_stop')
+    elif code == 200:
         say(f'группа {name} уже есть — не пересоздаю молча (другая --suffix)')
         return 2
     os.makedirs(a.out, exist_ok=True)
@@ -1272,8 +1344,18 @@ def _run_probe_once(a, MG, BR, spec: Spec, gw_factory=Gateway, sleep=time.sleep,
                **API_COUNTERS}
     if result is not None:
         result['summary'] = summary
-    ok_create, t_start, refuse = create_and_start(MG, BR, name, body, say, sleep, clock, wait_s, counters=summary)
+    if adopt:
+        ok_create, t_start, refuse = True, clock(), ''
+        summary['adopted_warm'] = True
+        say(f'тёплая нода {name} подхвачена — прогрева нет')
+    else:
+        ok_create, t_start, refuse = create_and_start(MG, BR, name, body, say, sleep, clock, wait_s, counters=summary, existing=restart)
+        if ok_create and keep_warm:
+            os.makedirs(os.path.dirname(warm_state_path), exist_ok=True)
+            json.dump({'name': name, 'image': a.image, 'started_at': t_start, 'expires_at': t_start + warm_life_s, 'idle_min': keep_warm}, open(warm_state_path, 'w', encoding='utf-8'))
     if not ok_create:
+        if warm_fh is not None:
+            warm_fh.close()
         summary['stopped_by'] = refuse
         ok_stop = stop_and_verify(BR, name) if refuse.startswith(('start_http', 'create_wait')) else summary.get('orphan_stop_verified', True)   # create отказал, но группа была видна (504) — её уже погасили в create_and_start
         summary['stop_verified'] = ok_stop
@@ -1303,6 +1385,7 @@ def _run_probe_once(a, MG, BR, spec: Spec, gw_factory=Gateway, sleep=time.sleep,
     last_ins: list = []
     last_h: tuple = (None, {})
     seen_ev = 0
+    finished_ok = False                                                # тёплую ноду оставляем ТОЛЬКО при чистом конце цикла заданий (любой иной выход — гасим с проверкой)
     try:
         while True:
             t = clock()
@@ -1491,10 +1574,23 @@ def _run_probe_once(a, MG, BR, spec: Spec, gw_factory=Gateway, sleep=time.sleep,
                 if cur is None and not pending:
                     gw503 = any(v.get('reason') == 'gateway_503' for v in summary['jobs'].values())        # шлюз не принял ноду за все паузы при живом /health (T-20261123-04/1) — причина названа, не «первое упало»
                     summary['stopped_by'] = 'done' if w.first_done and summary['failed'] == 0 else (('gateway_503' if gw503 else 'first_failed') if not w.first_done else 'done_with_failures')
+                    finished_ok = summary['stopped_by'] in ('done', 'done_with_failures')
                     break
             sleep(10)
     finally:
-        summary['stop_verified'] = stop_and_verify(BR, name)
+        if keep_warm and finished_ok:
+            summary['stop_verified'] = False
+            summary['kept_warm'] = {'idle_min': keep_warm, 'worker_stops_itself_after_idle': True}
+            say(f'тёплая нода {name} ОСТАВЛЕНА: сама остановится через {keep_warm:.0f} мин простоя (воркер IDLE_S) или по пределу жизни; погасить сразу: stage_trial.py --stop-only --suffix {a.suffix}')
+        else:
+            summary['stop_verified'] = stop_and_verify(BR, name)
+            if keep_warm and warm_state_path:
+                try:
+                    os.remove(warm_state_path)
+                except OSError:
+                    pass
+        if warm_fh is not None:
+            warm_fh.close()
         summary['last_instances'] = last_ins
         summary['last_health'] = {'http': last_h[0], 'body': {k: v for k, v in (last_h[1] or {}).items() if k != 'weights'} if isinstance(last_h[1], dict) else None}
         summary['running_s'] = round((clock() - w.run_since), 1) if w.run_since is not None else 0.0
@@ -1508,4 +1604,4 @@ def _run_probe_once(a, MG, BR, spec: Spec, gw_factory=Gateway, sleep=time.sleep,
         if warn:
             say('!!', warn)
         say('ИТОГ', json.dumps({k: summary.get(k) for k in ('group', 'stopped_by', 'stop_verified', 'failed', 'running_s', 'cost_usd_est', *API_COUNTERS)}, ensure_ascii=False))
-    return 0 if summary['stop_verified'] and summary['stopped_by'] in ('done', 'planned') and not summary['failed'] else 1
+    return 0 if (summary['stop_verified'] or summary.get('kept_warm')) and summary['stopped_by'] in ('done', 'planned') and not summary['failed'] else 1

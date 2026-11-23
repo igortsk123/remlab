@@ -120,8 +120,13 @@ class T(unittest.TestCase):
     def test_retry_names_and_collect(self):
         self.assertEqual(L.tag_of(1), 'sh1')
         self.assertEqual(L.tag_of(1, 2), 'sh1r2')
-        self.assertEqual(L.suffix_of('1300', 0), 'l51300s0')
-        self.assertEqual(L.suffix_of('1300', 0, 1), 'l51300s0r1')                  # у повтора своя группа Salad
+        r0 = {'image': 'x@sha256:0b7c855d4f98', 'warm': {'enabled': False}}
+        self.assertEqual(L.suffix_of(r0, '1300', 0), 'l51300s0')
+        self.assertEqual(L.suffix_of(r0, '1300', 0, 1), 'l51300s0r1')              # у повтора своя группа Salad (без тёплой ноды)
+        rw = {'image': 'x@sha256:0b7c855d4f98', 'warm': {'enabled': True}}
+        self.assertEqual(L.suffix_of(rw, '1300', 1, 0), 'w1-0b7c85')
+        self.assertEqual(L.suffix_of(rw, '9999', 1, 2), 'w1-0b7c85')               # тёплая: имя постоянное — от прогона и повтора не зависит
+        self.assertNotEqual(L.suffix_of({**rw, 'image': 'x@sha256:ffffff000000'}, '1300', 1), 'w1-0b7c85')   # другой образ — другая нода
         with tempfile.TemporaryDirectory() as tmp:
             for tag, sku, size in (('sh0', SK[0], 5), ('sh0', SK[1], 0), ('sh0r1', SK[1], 5)):   # пустой material.glb (диск был полон) — не результат
                 p = os.path.join(tmp, 'out', tag, sku, '08-material', 'material.glb')
@@ -131,6 +136,27 @@ class T(unittest.TestCase):
             self.assertEqual(sorted(res), sorted(SK[:2]))
             self.assertIn('sh0r1', res[SK[1]])
             self.assertTrue(money['stop_verified'])
+
+    def test_warm_cmd_and_rules(self):
+        r = L.load_rules()
+        self.assertTrue(r['warm']['enabled'])
+        self.assertGreaterEqual(r['warm']['life_min'], r['warm']['min_left_min'] + r['warm']['idle_min'])   # жизни хватает хотя бы на простой и запас
+        c = L.stage_cmd(r, 'a' * 40, '07', 1, SK[:2], '/run', '1300', None, '/run/in.json', True)
+        j = ' '.join(c)
+        self.assertIn(f'--suffix {L.suffix_of(r, "1300", 1)}', j)
+        self.assertIn(f'--keep-warm {r["warm"]["idle_min"]}', j)
+        self.assertIn('--warm-min-left-min', j)
+        r2 = {**r, 'warm': {**r['warm'], 'enabled': False}}
+        self.assertNotIn('--keep-warm', ' '.join(L.stage_cmd(r2, 'a' * 40, '07', 1, SK[:2], '/run', '1300', None, '/run/in.json', True)))
+
+    def test_collect_kept_warm(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            for tag, kept in (('sh0', True), ('sh1', False)):
+                d = os.path.join(tmp, 'out', tag)
+                os.makedirs(d)
+                json.dump({'cost_usd_est': 0.004, 'running_s': 100, 'stop_verified': not kept, 'kept_warm': {'idle_min': 20} if kept else None, 'adopted_warm': kept}, open(os.path.join(d, 'summary-trial-stage-x.json'), 'w'))
+            _, money = L.collect(tmp, SK)
+            self.assertEqual((money['kept_warm'], money['adopted_warm'], money['stop_verified']), (1, 1, True))     # тёплая нода — не «остановка не подтверждена»
 
     def test_cli_dry_checks_before_money(self):
         with tempfile.TemporaryDirectory() as tmp:

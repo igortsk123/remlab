@@ -439,7 +439,9 @@ def seam_inputs(fill_root: str, vis_root: str, only: str = '') -> dict[str, dict
 
 def make_spec(a, inputs: dict) -> KD.Spec:
     def build(name, class_id, auth):
-        return build_body(name, a.image, a.tier, class_id, auth, min(a.max_min * 60 + 600, 3 * 3600), a.idle_s, a.procs, a.fill_procs, a.threads, a.stage_timeout_s,
+        warm = float(getattr(a, 'keep_warm', 0) or 0)
+        life_s = int(float(getattr(a, 'warm_life_min', 120)) * 60) if warm else min(a.max_min * 60 + 600, 3 * 3600)
+        return build_body(name, a.image, a.tier, class_id, auth, life_s, int(warm * 60) if warm else a.idle_s, a.procs, a.fill_procs, a.threads, a.stage_timeout_s,
                           worker_z=None if getattr(a, 'worker_from_image', False) else worker_command()[1])
 
     def preflight():
@@ -507,6 +509,10 @@ def main() -> int:
     ap.add_argument('--stall-gb', type=float, default=0.05)
     ap.add_argument('--job-min', type=int, default=0)
     ap.add_argument('--idle-s', type=int, default=900)
+    ap.add_argument('--keep-warm', type=float, default=0.0, help='T-34: не гасить ноду после прогона — она сама остановится через N мин простоя (воркер IDLE_S); следующий прогон с тем же --suffix и образом подхватит её без прогрева (0 — как раньше)')
+    ap.add_argument('--warm-life-min', type=float, default=120.0, help='с --keep-warm: предел жизни воркера, мин (MAX_LIFETIME_S); подхват ноды, у которой осталось меньше --warm-min-left-min, — перезапуск')
+    ap.add_argument('--warm-min-left-min', type=float, default=25.0)
+    ap.add_argument('--warm-dir', default='', help='папка записей и замков тёплых нод (по умолчанию ~/remlab-logs/warm-nodes)')
     ap.add_argument('--worker-from-image', action='store_true')
     ap.add_argument('--suffix', default=time.strftime('%m%d%H%M', time.gmtime()))
     ap.add_argument('--apply', action='store_true')
