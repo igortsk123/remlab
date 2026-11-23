@@ -388,7 +388,9 @@ def test_own_panel_tone():
     lw = cv2.cvtColor(wood.astype(np.float32) / 255.0, cv2.COLOR_RGB2Lab)[mk['front']].mean(0)
     ok((o[mk['front']] == photo[mk['front']]).all(), 'фото-тексели (фасад) не изменились')
     r = lab_o[mk['right']]
-    ok(np.abs(r.reshape(-1, 3).mean(0) - lw).max() < 4.0 and 3.0 < r[..., 0].std() < 9.0, f'правый (оттенок и фактура совпали) = тон и зерно фасада с фото (L {r[..., 0].mean():.0f}, фасад {lw[0]:.0f}; σ L {r[..., 0].std():.1f}); тёмность UltraTex не перенесена')
+    rm = r.reshape(-1, 3).mean(0)
+    ok(np.abs(rm[1:] - lw[1:]).max() < 4.0 and abs(rm[0] - 50.0) < 2.5 and 3.0 < r[..., 0].std() < 9.0,
+       f'правый (оттенок и фактура совпали) = оттенок и зерно фасада с фото, светлота НАША (ADR-0464): L {rm[0]:.0f} (своя 50, у фасада {lw[0]:.0f}); a,b {rm[1]:.0f},{rm[2]:.0f} (фасад {lw[1]:.0f},{lw[2]:.0f}); σ L {r[..., 0].std():.1f}')
     lf = lab_o[mk['left']]
     ok(abs(lf[..., 0].mean() - 50) < 3 and lf[..., 0].std() < 2.0 and abs(lf[..., 1].mean()) < 3, f'левый (оттенок совпал, фактура нет) — тон своей зоны (серый), дерево не берёт и шум заливки снят (σ L {lf[..., 0].std():.1f})')
     bk = lab_o[mk['back']]
@@ -490,6 +492,33 @@ def test_own_panel_smooth_no_quilt():
     ok(txt and all('квилт' not in str(x) for x in txt), f'в отчёте нет квилта: {txt}')
 
 
+def test_own_panel_keeps_our_L():
+    print('донор плоско: светлота L НАША (медиана своей заливки панели), от донора только оттенок a,b; ровное при фактурном фото донора видно в отчёте (flat_share_pct, р.7 23.11):')
+    sys.path[:0] = [os.path.join(HERE, '..'), os.path.join(HERE, '..', '..')]
+    import cv2
+    T = 192
+    g, side, mk = box_uv_geom(T)
+    rng = np.random.default_rng(21)
+
+    def tile(l, a, b, sd):
+        lab = np.stack([np.clip(l + rng.normal(0, sd, (T, T)), 0, 100), np.full((T, T), a), np.full((T, T), b)], -1).astype(np.float32)
+        return np.clip(cv2.cvtColor(lab, cv2.COLOR_Lab2RGB) * 255 + 0.5, 0, 255).astype(np.uint8)
+
+    photo = tile(65, 3, 6, 0)
+    photo[mk['front']] = tile(74, 14, 30, 6)[mk['front']]            # донор: светлый, с зерном
+    ut = tile(50, 0, 0, 0)
+    ut[mk['front']] = tile(60, 14, 30, 0)[mk['front']]               # у UltraTex оба гладкие → плоский тон
+    ut[mk['right']] = tile(40, 15, 28, 0)[mk['right']]
+    out, rep = RZ.own_panel_tone([dict(g, tex=photo)], [photo], [mk['front']], [dict(g, tex=ut)], None)
+    lab_o = cv2.cvtColor(out[0].astype(np.float32) / 255.0, cv2.COLOR_RGB2Lab)
+    r = lab_o[mk['right']]
+    ok(abs(r[..., 0].mean() - 65.0) < 2.0, f'L панели — своя 65, не донора 74: {r[..., 0].mean():.1f}')
+    ok(abs(r[..., 1].mean() - 14.0) < 3.0 and abs(r[..., 2].mean() - 30.0) < 3.0, f'оттенок a,b — донора: {r[..., 1].mean():.1f},{r[..., 2].mean():.1f}')
+    pr = [v for v in rep['panels'].values() if v.get('tone_from') == 'donor']
+    ok(pr and pr[0].get('L_policy') == 'наша' and pr[0].get('photo_sigma_L', 0) >= 2.0, f'в отчёте L_policy и σ L фото донора: {pr[0].get("L_policy") if pr else None} / {pr[0].get("photo_sigma_L") if pr else None}')
+    ok(rep['flat_share_pct'] > 0.0, f'ровное при фактурном фото донора учтено: flat_share_pct {rep["flat_share_pct"]}')
+
+
 def test_align_tied():
     print('коробка с двумя равными поворотами (UltraTex одинаков на лице и на заду): ничья → tied с ties, yaw задан — перенос без оценки:')
     sys.path[:0] = [os.path.join(HERE, '..'), os.path.join(HERE, '..', '..')]
@@ -514,7 +543,7 @@ def test_align_tied():
 
 
 def main():
-    for f in (test_align_tied, test_own_panel_smooth_no_quilt, test_align_ut, test_own_panel_clean_detail, test_own_panel_tone, test_same_mesh, test_decide, test_gate_per_property, test_propagate, test_object_basis, test_inconsistent_winding, test_outer_only, test_panel_with_bottom, test_panels, test_apply_to_fill, test_relief_source, test_ultratex_full):
+    for f in (test_own_panel_keeps_our_L, test_align_tied, test_own_panel_smooth_no_quilt, test_align_ut, test_own_panel_clean_detail, test_own_panel_tone, test_same_mesh, test_decide, test_gate_per_property, test_propagate, test_object_basis, test_inconsistent_winding, test_outer_only, test_panel_with_bottom, test_panels, test_apply_to_fill, test_relief_source, test_ultratex_full):
         f()
     print(f'tests_ref_zone: ошибок {len(FAILS)}')
     return 1 if FAILS else 0

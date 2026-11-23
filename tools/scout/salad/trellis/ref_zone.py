@@ -859,9 +859,9 @@ def own_panel_tone(geoms: list, tex_after: list, known: list, ut_geoms: list | N
     import tex_coverage as TC
     import tex_fill as TF
     O = dict({'enabled': True, 'min_known': 0.05, 'min_visible_texels': 200, 'min_hidden_texels': 300, 'donor_hue_de': 6.0, 'donor_tex_ratio': 1.6, 'quilt_block': 16, 'quilt_cells': 6,
-              'quilt_overlap': 4, 'quilt_pool': 300, 'quilt_tries': 40, 'ut_detail': True, 'max_panels': 80, 'seed': 7, 'edge_px': 4, 'wins_k': 2.5, 'quilt_min_sigma': 1.5}, **R.get('own_panel', {}))
+              'quilt_overlap': 4, 'quilt_pool': 300, 'quilt_tries': 40, 'ut_detail': True, 'max_panels': 80, 'seed': 7, 'edge_px': 4, 'wins_k': 2.5, 'quilt_min_sigma': 1.5, 'flat_photo_sigma': 2.0}, **R.get('own_panel', {}))
     FU = dict({'sigma': 12.0, 'clip': 35.0, 'photo_floor': 0.8}, **R.get('full', {}))
-    out, rep = [], {'panels': {}, 'texels_changed': 0, 'hidden': 0, 'with_donor': 0}
+    out, rep = [], {'panels': {}, 'texels_changed': 0, 'hidden': 0, 'with_donor': 0, 'flat_texels': 0, 'flat_rough_texels': 0}
     if not O['enabled']:
         return [np.asarray(t, np.uint8) for t in tex_after], dict(rep, off=True)
 
@@ -937,6 +937,11 @@ def own_panel_tone(geoms: list, tex_after: list, known: list, ut_geoms: list | N
                     ustat[k] = (np.median(lu[ugrp[k]], axis=0), detail(lu[:, 0], ugrp[k], T, clean=True)[1])      # σ без края панели/бликов/выбросов: кромка и щель не считаются «фактурой»
         photo_med = {k: np.median(lab[grp[k][kn[grp[k]]]], axis=0) for k in vis}
         newlab, newrgb = lab.copy(), None
+        painted_ = ~TF.unpainted_mask(rgb)                                       # свой L берём только с покрашенных текселей заливки (белое «незалитое» — не наша светлота)
+
+        def own_L(sel):
+            m_ = painted_[sel]
+            return float(np.median(lab[sel][m_, 0])) if int(m_.sum()) >= 50 else None
         paint = {}
         rng = np.random.RandomState(int(O['seed']))
         for k in hid:
@@ -978,11 +983,29 @@ def own_panel_tone(geoms: list, tex_after: list, known: list, ut_geoms: list | N
                         pool = [pool[i] for i in rng.choice(len(pool), int(O['quilt_pool']), replace=False)]
                     q = TF.wrap_soften(TF.quilt_image(np.stack(pool).astype(np.float64), int(O['quilt_cells']), int(O['quilt_overlap']), rng, int(O['quilt_tries'])))
                     S = q.shape[0]
-                    paint[k] = (sel, np.clip(q[(sel // T) % S, (sel % T) % S] + 0.5, 0, 255).astype(np.uint8))
+                    px = np.clip(q[(sel // T) % S, (sel % T) % S] + 0.5, 0, 255).astype(np.uint8)
+                    oL = own_L(sel)
+                    if oL is not None:                                           # светлота наша (ADR-0464): куски донора — оттенок и зерно, L сдвинута к медиане своей заливки панели
+                        lq = lab_of(px.reshape(-1, 1, 3)).reshape(-1, 3)
+                        lq[:, 0] = np.clip(lq[:, 0] + oL - float(np.median(lq[:, 0])), 0.0, 100.0)
+                        px = np.clip(cv2.cvtColor(lq.reshape(-1, 1, 3).astype(np.float32), cv2.COLOR_Lab2RGB) * 255.0 + 0.5, 0, 255).astype(np.uint8).reshape(-1, 3)
+                    info['L_policy'] = 'наша' if oL is not None else 'донора (своей нет)'
+                    paint[k] = (sel, px)
                     info['texture'] = 'куски донора (квилт)'
                 else:
-                    newlab[sel] = photo_med[v]
+                    tone = np.array(photo_med[v], np.float32)
+                    oL = own_L(sel)
+                    if oL is not None:
+                        tone[0] = oL                                             # светлота наша, оттенок a,b — донора (ADR-0464; раньше ровно весь Lab донора → скачок L)
+                    newlab[sel] = tone
+                    info['L_policy'] = 'наша' if oL is not None else 'донора (своей нет)'
                     info['texture'] = 'плоский тон донора (мало блоков)' if len(pool) < 4 else 'плоский тон донора (обе гладкие по UltraTex)'
+                    kv = grp[v][kn[grp[v]]]
+                    sph = detail(lab[:, 0], kv, T, clean=True)[1] if len(kv) >= 50 else 0.0     # σ L фото донора: ровно при фактурном фото — в отчёт (flat_share_pct)
+                    info['photo_sigma_L'] = round(float(sph), 2)
+                    rep['flat_texels'] += int(len(sel))
+                    if sph >= O['flat_photo_sigma']:
+                        rep['flat_rough_texels'] += int(len(sel))
             else:
                 tone = np.median(lab[sel], axis=0)
                 newlab[sel] = tone
@@ -1006,6 +1029,7 @@ def own_panel_tone(geoms: list, tex_after: list, known: list, ut_geoms: list | N
             res[sel] = px
         res[kn] = rgb[kn]
         out.append(res.reshape(T, T, 3))
+    rep['flat_share_pct'] = round(100.0 * rep['flat_rough_texels'] / max(rep['texels_changed'], 1), 2)      # доля изменённого, залитая ровным тоном при фактурном фото донора
     return out, rep
 
 
