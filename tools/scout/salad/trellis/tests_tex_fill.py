@@ -812,7 +812,12 @@ def test_pattern_lattice():
     res2[..., 0] = per
     ex2 = TF.known_lattice(res2, np.ones((96, 96), bool), 8)
     ok(ex2 is not None and ex2 > 0.3, f'эталон на периодическом узоре (период = шаг) — большой ({ex2})')
-    ok(TF.known_lattice(res, np.zeros((90, 90), bool), 8) is None and TF.known_lattice(res, okm[:, :], 80) is None, 'нет известного или квадрат меньше двух шагов → None')
+    ok(TF.known_lattice(res, np.zeros((90, 90), bool), 8) is None and TF.known_lattice(res, okm[:, :], 80) is None, 'нет известного или известного меньше 8 шагов² → None')
+    holes = rng.rand(96, 96) > 0.45                                                  # рваное известное (как у узорных частей): сплошного квадрата нет вовсе
+    ex3 = TF.known_lattice(res2, holes, 8)
+    ok(ex3 is not None and ex3 > 0.3, f'эталон по рваному известному (55 % дыр): периодический узор виден ({ex3})')
+    ex4 = TF.known_lattice(np.stack([rng.randn(96, 96)] * 3, 2), holes, 8)
+    ok(ex4 is not None and ex4 < 0.2, f'эталон по рваному известному: шум без периода — малый ({ex4})')
     rep_ = {'quilt_lattice': {3: {'before': 0.6, 'rebuilt': 8, 'flip': 1, 'after': 0.48}, 4: {'before': 0.2, 'rebuilt': 0}}, 'quilt_lattice_pattern': {3: {'src': 0.45, 'after': 0.48, 'limit': 0.55, 'verdict': 'pass', 'big': False}}, 'patch_lattice': {}, 'own_panel': {}}
     ok(TF._lattice_value(rep_) == 0.2, f'_lattice_value: узорная с verdict pass исключена ({TF._lattice_value(rep_)})')
     rep_['quilt_lattice_pattern'][3]['verdict'] = 'fail'

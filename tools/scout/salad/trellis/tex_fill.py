@@ -445,20 +445,39 @@ def quilt_lattice(patch: np.ndarray, step: int) -> dict:
 
 
 def known_lattice(res: np.ndarray, ok: np.ndarray, step: int):
-    """Эталон src для узорной части (T-187/6, 23.11): та же мерка `quilt_lattice` по САМОМУ БОЛЬШОМУ квадрату известного (фото-текселей части) — период самого рисунка, не квилта.
-    `res` (n,n,3) остаток цвета, `ok` (n,n) bool «известное этой части», `step` — тот же шаг лага (в пикселях/текселях этого массива). Квадрата меньше двух шагов нет — None."""
-    from scipy.ndimage import distance_transform_cdt
-    ok_ = np.pad(np.asarray(ok, bool), 1)
-    if not ok_.any():
+    """Эталон src для узорной части (T-187/6, 23.11): та же мерка, что `quilt_lattice` (деталь L = L минус гаусс σ6; избыток автокорреляции на лагах k·step над средним соседних ±step/2), но по ВСЕМУ известному
+    части с дырами: маскированная автокорреляция без обёртки (сумма произведений пар известных / число пар), нормирована на лаг 0. Это период самого рисунка фото, не квилта.
+    `res` (n,n,3) остаток цвета, `ok` (n,n) bool «известное этой части», `step` — шаг лага в пикселях/текселях ЭТОГО массива. Мало известного (< 8 шагов²) или нет лага с ≥ 50 пар — None."""
+    from scipy.ndimage import gaussian_filter
+    ok = np.asarray(ok, bool)
+    step = int(step)
+    n = ok.shape[0]
+    if step < 2 or n < 2 * step + 2 or int(ok.sum()) < 8 * step * step:
         return None
-    d = distance_transform_cdt(ok_, metric='chessboard')
-    r = int(d.max())
-    side = 2 * r - 1
-    if side < 2 * int(step) + 2:
+    m = ok.astype(np.float64)
+    L = np.asarray(res)[..., 0].astype(np.float64)
+    lo = gaussian_filter(L * m, 6) / np.maximum(gaussian_filter(m, 6), 1e-6)
+    H = (L - lo) * m
+    shp = (2 * n, 2 * n)
+    FH, FM = np.fft.rfft2(H, s=shp), np.fft.rfft2(m, s=shp)
+    num = np.fft.irfft2(FH * np.conj(FH), s=shp)
+    den = np.fft.irfft2(FM * np.conj(FM), s=shp)
+    ac = num / np.maximum(den, 1.0)
+    if ac[0, 0] <= 1e-9:
         return None
-    iy, ix = np.unravel_index(int(np.argmax(d)), d.shape)
-    y0, x0 = int(iy) - 1 - (r - 1), int(ix) - 1 - (r - 1)
-    return float(quilt_lattice(np.asarray(res)[y0:y0 + side, x0:x0 + side], int(step))['excess'])
+    ac = ac / ac[0, 0]
+    d = max(2, step // 2)
+    best = None
+    for ax in (0, 1):
+        prof = ac[:, 0] if ax == 0 else ac[0, :]
+        cnt = den[:, 0] if ax == 0 else den[0, :]
+        for k in range(1, (n // 2) // step + 1):
+            lag = k * step
+            if lag + d >= n or min(cnt[lag - d], cnt[lag], cnt[lag + d]) < 50:
+                break
+            ex = float(prof[lag] - 0.5 * (prof[lag - d] + prof[lag + d]))
+            best = ex if best is None or ex > best else best
+    return best
 
 
 def pattern_lattice_limit(src, lmax: float, margin: float) -> float:
