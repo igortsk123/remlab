@@ -1791,6 +1791,45 @@ def test_top_prior_hook():
     ok(TF.top_prior_hook([g3], [tex3.copy()], allk, None, cfg, None)[1]['top_source'] == 'photo_top', 'весь верх с фото — top_source=photo_top, красить нечего')
 
 
+def test_detail_zones_fill():
+    print('зоны деталей (T-47/4): protect — вне тона части и как на входе; texture_off — тон без фактуры; паспорт не просит — зон нет:')
+    g, parts, known, tl, col = scene_parts()
+    green = np.array([30, 200, 60])
+    tex = g['tex'].copy()
+    mA = tile_mask(tl['A'])
+    ys, xs = np.nonzero(mA)
+    zone = np.zeros_like(mA)
+    sel = np.arange(len(ys)) < int(0.7 * len(ys))                 # 70 % известного красного — «деталь» другого тона
+    zone[ys[sel], xs[sel]] = True
+    tex[zone] = green
+    g2 = dict(g, tex=tex)
+    cfg = {"seam": {"enabled": False}, "gutter": 0, "erode_known": 0, "tone": "median", "src_dev_pattern": 0}
+    base = TF.fill([g2], known, parts, cfg=cfg, mirror=False)
+    z = {'protect': [zone], 'texture_off': [np.zeros_like(zone)]}
+    out = TF.fill([g2], known, parts, cfg=cfg, mirror=False, detail_zones=z)
+    lab_D0 = lab_of(base['tex'][0], tile_mask(tl['D']))
+    lab_D1 = lab_of(out['tex'][0], tile_mask(tl['D']))
+    ok(de(lab_D0.mean(axis=0), TF.rgb2lab(green[None])[0]) < 12, 'контроль (без зон): тон части 0 тянется к «детали» (зелёный большинства)', f'ΔE {de(lab_D0.mean(axis=0), TF.rgb2lab(green[None])[0]):.1f}')
+    ok(de(lab_D1.mean(axis=0), TF.rgb2lab(col['red'][None])[0]) < 8, 'с protect: невидимая часть 0 — красный тон корпуса, деталь в статистику не вошла', f'ΔE {de(lab_D1.mean(axis=0), TF.rgb2lab(col["red"][None])[0]):.1f}')
+    ok(int((out['tex'][0][zone] != tex[zone]).sum()) == 0 and bool(out['keep'][0][zone].all()), 'protect: зона осталась 1:1 как на входе и в keep')
+    nz = TF.fill([g2], known, parts, cfg=cfg, mirror=False, detail_zones={'protect': [np.zeros_like(zone)], 'texture_off': [np.zeros_like(zone)]})
+    ok(all(int((a != b).sum()) == 0 for a, b in zip(nz['tex'], base['tex'])), 'пустые зоны = прежнее поведение байт в байт')
+    D = tile_mask(tl['D'])
+    half = np.zeros_like(D)
+    yy, xx = np.nonzero(D)
+    half[yy[: len(yy) // 2], xx[: len(yy) // 2]] = True
+    tf = TF.fill([g2], known, parts, cfg=dict(cfg, src_dev_pattern=1), mirror=False, detail_zones={'protect': [np.zeros_like(zone)], 'texture_off': [half]})
+    ok(tf['report'].get('texture_off_texels', 0) > 0, 'texture_off: счётчик текселей рельефа двери в отчёте', str(tf['report'].get('texture_off_texels')))
+    import detail_zones as DZ
+    import mesh_type_passports as MTP
+    ok(TF.detail_zones_hook([g2], [tex], known, parts, {'top_card': {'role': 'ваза'}}, TF.paint_policy_for({'top_card': {'role': 'ваза'}}))[0] is None, 'ваза: паспорт исключений не просит — зон нет, причина в отчёте')
+    eff, doc, res = TF.detail_zones_hook([g2], [tex], known, parts, {'top_card': {'role': 'диван', 'name': 'x'}}, TF.paint_policy_for({'top_card': {'role': 'диван'}}))
+    ok(doc['wanted'] and eff is not None and res is not None and DZ.entries_for('диван', res, doc)[0]['rule_id'] == 'R-DETAIL-EXCLUSIONS-07', 'диван: зоны считаются, запись R-DETAIL-EXCLUSIONS-07 готова', str(doc['why']))
+    obs = dict(TF.paint_policy_for({'top_card': {'role': 'диван'}}), mode='observe')
+    e2, d2, r2 = TF.detail_zones_hook([g2], [tex], known, parts, {'top_card': {'role': 'диван'}}, obs)
+    ok(e2 is None and 'observe' in d2['why'] and 'abstain' in DZ.entries_for('диван', r2, d2)[0], 'режим observe: зон нет, запись — воздержание с причиной')
+
+
 def test_side_azimuths():
     print('кадр по ориентации: зад — сторона без фото по known, фото-сторона — с известным (T-187/6, 23.11):')
     q = Quads()
@@ -1810,7 +1849,7 @@ def test_side_azimuths():
 
 
 def main() -> int:
-    for f in (test_check_on_final_texture, test_side_azimuths, test_top_prior_hook, test_mirror_off_by_default, test_shrink_layout, test_tie_picks_front_on_back, test_front_on_back, test_front_on_back_within_parts, test_front_on_back_unequal_parts, test_color, test_photo, test_parts, test_lighter_than_photo, test_no_known_part, test_mirror, test_texture, test_gutter_render, test_seam_steps_concavity, test_diffuse_quilt_far, test_draft_source, test_tone_mode_pattern, test_quilt_efros, test_quilt_holes, test_known_unchanged, test_render_pattern, test_outlier_blocks, test_dark_fabric, test_trellis_relief, test_part_roles_from_stage3, test_stage7_side_tone_smooth_rules, test_tone_from_neighbour, test_nail_twins, test_borrow_donors, test_tone_only, test_part_pattern_single_truth, test_pr_camera_and_winding, test_hidden_visible, test_stage6_gate, test_cli_run_stage, test_orphan_parts, test_cli_parts_flags, test_zones_fallback, test_brightness_target_median, test_run_stage_fallback, test_render_low, test_quilt_lattice, test_pattern_lattice, test_part_independence, test_unobserved_relief):
+    for f in (test_detail_zones_fill, test_check_on_final_texture, test_side_azimuths, test_top_prior_hook, test_mirror_off_by_default, test_shrink_layout, test_tie_picks_front_on_back, test_front_on_back, test_front_on_back_within_parts, test_front_on_back_unequal_parts, test_color, test_photo, test_parts, test_lighter_than_photo, test_no_known_part, test_mirror, test_texture, test_gutter_render, test_seam_steps_concavity, test_diffuse_quilt_far, test_draft_source, test_tone_mode_pattern, test_quilt_efros, test_quilt_holes, test_known_unchanged, test_render_pattern, test_outlier_blocks, test_dark_fabric, test_trellis_relief, test_part_roles_from_stage3, test_stage7_side_tone_smooth_rules, test_tone_from_neighbour, test_nail_twins, test_borrow_donors, test_tone_only, test_part_pattern_single_truth, test_pr_camera_and_winding, test_hidden_visible, test_stage6_gate, test_cli_run_stage, test_orphan_parts, test_cli_parts_flags, test_zones_fallback, test_brightness_target_median, test_run_stage_fallback, test_render_low, test_quilt_lattice, test_pattern_lattice, test_part_independence, test_unobserved_relief):
         f()
     print(f'tests_tex_fill: ошибок {bad}')
     return 1 if bad else 0

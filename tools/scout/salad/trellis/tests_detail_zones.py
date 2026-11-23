@@ -125,6 +125,20 @@ lab_copy = lab0[0].copy()
 DZ.detail_zones(lab0, kn0, pm0, {}, pol('диван'), None, R)
 ok(np.array_equal(lab0[0], lab_copy), 'функция не меняет вход (маска, не перекраска)')
 
+def test_effect_and_restore():
+    """действие зон: protect — деталь/стекло/ручки/пуговицы, texture_off — рельеф двери; restore возвращает входные тексели только в защищённых зонах"""
+    r = zones('комод', sc3, roles={2: 'handles', 3: 'facade'})
+    e = DZ.effect_masks(r, R)
+    assert e['protect'][0][10:30, 100:160].all() and not e['protect'][0][40:120, 20:200].any()
+    assert e['texture_off'][0][40:120, 20:200].all() and not e['texture_off'][0][10:30, 100:160].any()
+    before = [np.zeros((T, T, 3), np.uint8)]
+    after = [np.full((T, T, 3), 90, np.uint8)]
+    out = DZ.restore(before, after, e['protect'])
+    assert (out[0][10:30, 100:160] == 0).all() and (out[0][200:, 200:] == 90).all() and (after[0] == 90).all()
+    doc = DZ.zones_doc(r, e, True)
+    assert doc['protect_texels'] > 0 and doc['texture_off_texels'] > 0 and doc['applied'] is True
+
+
 def test_detail_zones_positive():
     """диван с пуговицами: зона buttons найдена, запись R-DETAIL-EXCLUSIONS-07 «применено»; витрина со стеклом по паре карточки: зона glass, запись R-OPENINGS-ZONES-07 «применено» (заглушка, не реальный товар)"""
     a = zones('диван', scene(dots=5))
@@ -142,6 +156,7 @@ def test_detail_zones_negative():
 
 
 try:
+    test_effect_and_restore()
     test_detail_zones_positive()
     test_detail_zones_negative()
     ok(True, 'парные тесты реестра: positive и negative')

@@ -226,3 +226,46 @@ def rule_entries(role: str | None, res: dict, extra_reason: str = '') -> list:
         else:
             out.append(RR.entry(rid, role, False, '; '.join(f'{k}:{rep[k]["reason"]}' for k in kinds)))
     return out
+
+
+def effect_masks(res: dict, rules: dict | None = None) -> dict:
+    """Что делает 07 с найденными зонами (правило `effect` в detail-zones.json, не в коде): `protect` — деталь/стекло: не входит в статистику частей, пул блоков, доноры, зеркало и перенос рельефа и остаётся на выходе КАК НА ВХОДЕ;
+    `texture_off` — рельеф двери: тон заливается как у части, фактура/рельеф на зону не кладутся. → {'protect': [bool T×T по геометриям], 'texture_off': […], 'texels': {вид: число}}."""
+    R = rules or load_rules()
+    n = len(res['any'])
+    out = {k: [np.zeros(res['any'][g].shape, bool) for g in range(n)] for k in ('protect', 'texture_off')}
+    for mode in ('protect', 'texture_off'):
+        for kind in R['effect'][mode]:
+            for g, m in enumerate((res['zones'].get(kind) or [])):
+                out[mode][g] |= m
+    out['texels'] = {k: sum(int(m.sum()) for m in v) for k, v in res['zones'].items()}
+    return out
+
+
+def restore(tex_before: list, tex_after: list, protect: list) -> list:
+    """Итог 07: тексели защищённых зон — как на входе этапа (хуки после заливки — группы, панели, верх — их не меняют). Остальное не трогаем."""
+    out = []
+    for tb, ta, z in zip(tex_before, tex_after, protect):
+        if z is not None and z.any():
+            ta = np.asarray(ta).copy()
+            ta[z] = np.asarray(tb)[z]
+        out.append(ta)
+    return out
+
+
+def zones_doc(res: dict, eff: dict, applied: bool, why: str = '') -> dict:
+    """JSON-сводка для `zones.json` и `report.json` (без растров): что просил паспорт, по каждому виду — зона/воздержание с причиной, число текселей, применено ли (режим паспорта)."""
+    return {'applied': bool(applied), 'why': why, 'wanted': res['wanted'], 'report': res['report'], 'texels': eff['texels'],
+            'protect_texels': sum(int(m.sum()) for m in eff['protect']), 'texture_off_texels': sum(int(m.sum()) for m in eff['texture_off'])}
+
+
+def entries_for(role: str | None, res: dict | None, doc: dict) -> list:
+    """Записи extra.rules[] для check.json этапа: зоны считались (res) — `rule_entries`; не считались (паспорт не просит / режим не active / выключено) — воздержание с причиной из `doc['why']`."""
+    if res is not None:
+        return rule_entries(role, res)
+    scout = os.path.join(ROOT, 'tools', 'scout')
+    if scout not in sys.path:
+        sys.path.insert(0, scout)
+    import rule_record as RR  # noqa: PLC0415
+    why = doc.get('why') or 'зоны не считались'
+    return [RR.entry(RULE_DETAIL, role, False, why), RR.entry(RULE_OPEN, role, False, why)]

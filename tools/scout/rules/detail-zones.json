@@ -122,5 +122,18 @@
   "bedding",
   "void",
   "pillows"
- ]
+ ],
+ "enabled": true,
+ "effect": {
+  "_about": "что 07 делает с зоной вида: protect — как на входе и вне статистики/пула/доноров/зеркала/рельефа; texture_off — тон как у части, без фактуры и рельефа. Вид без записи здесь зоной в 07 не действует (только отчёт).",
+  "protect": [
+   "facade_hardware",
+   "buttons",
+   "pillows",
+   "glass"
+  ],
+  "texture_off": [
+   "door_relief"
+  ]
+ }
 }

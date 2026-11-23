@@ -87,3 +87,6 @@ data/flat3d/material-part-rules.json
 data/flat3d/parts-sam-rules.json
 data/flat3d/material-recipes.json
 data/flat3d/furniture.json
+tools/scout/rule_record.py
+tools/scout/salad/trellis/detail_zones.py
+tools/scout/rules/detail-zones.json

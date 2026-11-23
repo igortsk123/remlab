@@ -1025,13 +1025,14 @@ def seam_pass(txs: list, out_lab: list, labs: list, kn_keep: list, conf: list | 
     return srep
 
 
-def fill(geoms: list, known: list, parts: list | None = None, cfg: dict | None = None, mirror: bool = True, draft: dict | None = None, tone_only: list | None = None, unobs_draft_fn=None, conf: list | None = None) -> dict:
+def fill(geoms: list, known: list, parts: list | None = None, cfg: dict | None = None, mirror: bool = True, draft: dict | None = None, tone_only: list | None = None, unobs_draft_fn=None, conf: list | None = None, detail_zones: dict | None = None) -> dict:
     """geoms — `tex_coverage.load_geoms`; known — по геометрии (T×T bool), parts — по геометрии номера частей ГРАНЕЙ (None — одна часть).
     draft — черновик TRELLIS на ту же форму/развёртку (`draft_texels`): {'lab': [(T,T,3) Lab], 'ok': [(T,T) bool]}; нужен при cfg['source']=='trellis': невидимое берёт цвет черновика,
     сдвинутый переносом статистики Lab (медиана/разброс части: черновик → видимое фото), детали черновика сохраняются; стыки — та же растушёвка. 'stat' (по умолчанию) — цвет части + лоскут фактуры.
     tone_only — (Ш6, р.8) по геометриям T×T bool: тексели с ТОНОВЫМ полем этапа 6 (цвет есть в visible.glb, фото-правды нет; в `known` НЕ входят). Цвет такого тексела остаётся как есть (тон-поле, среднее сохраняется),
     а фактура/заём кладутся поверх как на неизвестный (остаток без среднего); в статистику частей, пул блоков и доноры они не входят. Нет — поведение прежнее.
     conf — (T-196) доверие к фото-текселю 0..1 по геометриям (T×T float; карта этапа 6 `conf.png`), нет — запасное от границы известного; нужен только сведению шва (`rules/paint-fill.json` → `seam`).
+    detail_zones — (T-47/4, R-DETAIL-EXCLUSIONS-07) {'protect': [bool T×T], 'texture_off': [bool T×T]} по геометриям (`detail_zones.effect_masks`): protect-зоны (пуговицы, ручки, стекло) не входят в известное для статистики, пула блоков, доноров, зеркала и рельефа и остаются 1:1; texture_off (рельеф двери) — тон части, фактура не кладётся. Нет — поведение прежнее.
     → {'tex': [uint8 (T,T,3) по геометриям], 'report': {...}, 'keep': [bool (T,T): тексели, оставшиеся 1:1 фото]}. Форма и развёртка не меняются."""
     from scipy.ndimage import binary_erosion, distance_transform_edt
     from scipy.sparse import coo_matrix
@@ -1060,6 +1061,10 @@ def fill(geoms: list, known: list, parts: list | None = None, cfg: dict | None =
         if c['erode_known'] > 0:
             k = binary_erosion(k, iterations=int(c['erode_known']))
         k &= ~unpainted_mask(rgb)
+        if detail_zones is not None and gi < len(detail_zones['protect']) and detail_zones['protect'][gi].any():
+            zp_ = np.asarray(detail_zones['protect'][gi], bool)
+            k &= ~zp_                                        # деталь/стекло — не фото-правда для тона части, пула, доноров, зеркала и рельефа
+            k0 = k0 | zp_                                    # и никогда не перезаписывается заливкой
         txs.append(tx)
         kn.append(k)
         kn_keep.append(k0)
@@ -1696,6 +1701,10 @@ def fill(geoms: list, known: list, parts: list | None = None, cfg: dict | None =
             add[m_, 1:] = 0.0
             rep.setdefault('relief_texels', 0)
             rep['relief_texels'] += int(m_.sum())
+        if detail_zones is not None and gi < len(detail_zones['texture_off']) and detail_zones['texture_off'][gi].any():
+            add[np.asarray(detail_zones['texture_off'][gi], bool).reshape(-1)[tx.ti][unk_flat]] = 0.0     # рельеф двери: тон части без фактуры
+            rep.setdefault('texture_off_texels', 0)
+            rep['texture_off_texels'] += int(np.asarray(detail_zones['texture_off'][gi], bool).reshape(-1)[tx.ti][unk_flat].sum())
         if tone_only is not None and gi < len(tone_only):
             ts_ = np.asarray(tone_only[gi], bool).reshape(-1)[tx.ti][unk_flat] & ~unpainted_mask(tex_in[gi].reshape(-1, 3)[tx.ti[unk_flat]])
             if ts_.any():                                                       # цвет тон-только тексела — его собственный (поле этапа 6), не геодезическая заливка; остаток (без среднего) — поверх
@@ -2674,12 +2683,15 @@ def run_stage_once(run: str, sku: str, glb: str, known: list | None = None, part
     SP = sg_pas = sg_ctx = None
     sg_rep = {'enabled': bool(sg_cfg['enabled'])}
     k_keep = [np.asarray(k_, bool) & ~unpainted_mask(np.asarray(t_)[..., :3]) for k_, t_ in zip(known, tex_before)]
+    _dz_eff, _dz_doc, _dz_res = detail_zones_hook(geoms, tex_before, known, parts, cfg, paint_policy_for(cfg))      # зоны деталей/стекла по паспорту типа (T-47/4): считаются по входу 06, ДО групп и заливки
+    if _dz_eff is not None:
+        k_keep = [k_ & ~z_ for k_, z_ in zip(k_keep, _dz_eff['protect'])]                         # деталь — не опора для тона групп материала
     pp_pol = paint_policy_for(cfg)                      # политика покраски невидимых сторон по ТИПУ товара — читается ДО паспорта поверхностей (type-rules-code-01 А2); в check.json: тип, политика, digest, применено
     if sg_cfg['enabled']:
         _t_sg = time.process_time()
         import surface_passport as SP                                  # ВНЕ try: нет модуля в срезе кода = отказ этапа, не тихое «без групп» (Salad ≠ локально, T-193/4)
         try:
-            sg_pas, sg_ctx = SP.build(geoms, [np.asarray(t_)[..., :3] for t_ in tex_before], known, parts, (cfg or {}).get('part_role'), sg_cfg, FILL, sys.modules[__name__])
+            sg_pas, sg_ctx = SP.build(geoms, [np.asarray(t_)[..., :3] for t_ in tex_before], known if _dz_eff is None else [np.asarray(k_, bool) & ~z_ for k_, z_ in zip(known, _dz_eff['protect'])], parts, (cfg or {}).get('part_role'), sg_cfg, FILL, sys.modules[__name__])
             sg_ctx['paint_policy'] = pp_pol
             sg_rep['passport'] = {'groups': [{k_: g_.get(k_) for k_ in ('id', 'parts', 'class', 'tone_lab', 'sigma_grain_L', 'ac_peak', 'known_share', 'why_not_applied')} for g_ in sg_pas['groups']], 'merges': len(sg_pas['merges']), 'refusals': len(sg_pas['refusals'])}
             with open(os.path.join(d, 'surface-passport.json'), 'w', encoding='utf-8') as f_:
@@ -2716,7 +2728,7 @@ def run_stage_once(run: str, sku: str, glb: str, known: list | None = None, part
     _unobs_fn = (lambda: draft_texels(geoms, _ut_early, cfg)) if _ut_early is not None else None            # UltraTex — на нашей форме: яркостный рельеф для «рисунок не наблюдаем» (T-187/6, 23.11); считается только если такие части есть
 
     def one(cfg_, draft_):
-        r_ = fill(geoms, known, parts, cfg_, mirror, draft_, tone_only=_to, unobs_draft_fn=_unobs_fn if (cfg_ or {}).get('source', 'stat') == 'stat' else None, conf=_cf)
+        r_ = fill(geoms, known, parts, cfg_, mirror, draft_, tone_only=_to, unobs_draft_fn=_unobs_fn if (cfg_ or {}).get('source', 'stat') == 'stat' else None, conf=_cf, detail_zones=_dz_eff)
         rp, tx_ = r_['report'], r_['tex']
         de_, bg, dw, dlw = _front_back_vals(geoms, parts, known, kback, tex_before, tx_, rp)
         vals = {'empty_pct': rp['unpainted_after_pct'], 'dE00_front_back': dw, 'dL_front_back': dlw, 'filled_faces_step_pct': rp['steps']['after']['filled_faces_step_pct'], 'far_excess_pct': rp['far_pct']['excess']}
@@ -2738,6 +2750,7 @@ def run_stage_once(run: str, sku: str, glb: str, known: list | None = None, part
     tex_after, rep['ref_zone_map'] = apply_ref_zone_map(geoms, tex_after, known, cfg)
     rep['relief_source'] = relief_src
     rep['paint_policy'] = pp_pol
+    rep['detail_zones'] = _dz_doc
     ut_g = None
     if ut_glb and os.path.isfile(ut_glb):
         _ug = TC.load_geoms(ut_glb)
@@ -2802,6 +2815,9 @@ def run_stage_once(run: str, sku: str, glb: str, known: list | None = None, part
         rep['paint_policy']['applied'] = 'synth' if 'quilt' in _modes else ('abstain' if rep['paint_policy'].get('reason') else 'no_synth')
     rep['surface_groups'] = sg_rep
     rep['metrics_pre_hook'] = {k: pick['vals'].get(k) for k in ('empty_pct', 'dE00_front_back', 'dL_front_back', 'filled_faces_step_pct', 'far_excess_pct')}     # что было бы до хуков (для сравнения; на passed не влияет)
+    if _dz_eff is not None:                                                                  # зоны деталей/стекла — как на входе (хуки после заливки их не меняют)
+        import detail_zones as DZ
+        tex_after = DZ.restore(tex_before, tex_after, _dz_eff['protect'])
     pick['finish'](tex_after, None if sg_pas is None else SP.ref_maps(geoms, k_keep, sg_pas, sg_ctx))                                          # мерки — по ИТОГОВОЙ текстуре (после ref_zone_map, own_panel, top_prior), не по текстуре до хуков
     de, big, de_worst, _dlw = _front_back_vals(geoms, parts, known, kback, tex_before, tex_after, rep)
     pick['vals'] = dict(pick['vals'], empty_pct=rep['unpainted_after_pct'], dE00_front_back=de_worst, dL_front_back=_dlw, filled_faces_step_pct=rep['steps']['after']['filled_faces_step_pct'], far_excess_pct=rep['far_pct']['excess'])
@@ -2815,6 +2831,10 @@ def run_stage_once(run: str, sku: str, glb: str, known: list | None = None, part
         rep['pattern_metric'] = {'error': f'{type(e).__name__}: {e}'}
     rep['source_used'], rep['source_tried'] = used, tried
     rep['pr_camera'] = cam_note
+    import detail_zones as DZ
+    _dz_rules = DZ.entries_for(pp_pol.get('role'), _dz_res, _dz_doc)                       # R-DETAIL-EXCLUSIONS-07 и R-OPENINGS-ZONES-07: применено или воздержание с причиной
+    with open(os.path.join(d, 'zones.json'), 'w', encoding='utf-8') as f_:
+        json.dump(_dz_doc, f_, ensure_ascii=False, indent=1, default=lambda o: o.item() if hasattr(o, 'item') else str(o))
     write_glb(geoms, tex_after, os.path.join(d, 'filled.glb'))
     sides = side_azimuths(geoms, known)                        # зад — сторона без фото по known (не фиксированный 180: формы лежат передом в разные стороны)
     rep['frame_sides'] = sides
@@ -2858,7 +2878,7 @@ def run_stage_once(run: str, sku: str, glb: str, known: list | None = None, part
     with open(os.path.join(d, 'report.json'), 'w', encoding='utf-8') as f:
         json.dump(report, f, ensure_ascii=False, indent=1, default=lambda o: o.item() if hasattr(o, 'item') else str(o))
     check = PS.write_check(d, out_name or STAGE, sku, None, dict(metrics['empty_pct'], name='empty_pct'), '', metrics={k: v for k, v in metrics.items() if k != 'empty_pct'}, seconds=secs,
-                           outputs=['filled.glb', 'report.json'], frame=PS.FRAME, known_pct=rep['known_pct'], mirrored_pct=rep['mirrored_pct'], empty_before_pct=rep['unpainted_before_pct'], empty_by_view=rep['unpainted_by_view'], steps=rep['steps'], parts=parts_note, source_used=used, source_tried=tried, pattern_metric=rep['pattern_metric'], pattern_src=rep.get('pattern_src'), paint_policy=rep.get('paint_policy'), stage6=s6, quilt_rejected=rep.get('quilt_rejected'))
+                           outputs=['filled.glb', 'report.json'], frame=PS.FRAME, known_pct=rep['known_pct'], mirrored_pct=rep['mirrored_pct'], empty_before_pct=rep['unpainted_before_pct'], empty_by_view=rep['unpainted_by_view'], steps=rep['steps'], parts=parts_note, source_used=used, source_tried=tried, pattern_metric=rep['pattern_metric'], pattern_src=rep.get('pattern_src'), paint_policy=rep.get('paint_policy'), stage6=s6, quilt_rejected=rep.get('quilt_rejected'), rules=_dz_rules)
     return {'check': check, 'report': rep, 'geoms': geoms, 'tex_before': tex_before, 'tex_after': tex_after, 'known': known, 'parts': parts, 'dir': d, 'deltaE': de, 'kback': kback}
 
 
@@ -2944,6 +2964,31 @@ def load_known_png(visible: str) -> list:
             break
         kn.append(np.asarray(Image.open(fp).convert("L")) > 127)
     return kn
+
+
+def detail_zones_hook(geoms: list, tex_before: list, known: list, parts: list, cfg: dict | None, pol: dict) -> tuple:
+    """Зоны деталей и стекла/проёмов (T-47/4; R-DETAIL-EXCLUSIONS-07, R-OPENINGS-ZONES-07): что просит паспорт типа (`paint.hidden_exclusions`/`openings`) — ищем по текстуре 06, известному, частям и карточке (`detail_zones.py`).
+    Паспорт не просит / режим не active / выключено правилом (`detail-zones.json: enabled`, cfg `detail_zones_use`) — зон нет, но причина в отчёте. → (effect | None, doc, res | None); effect = {'protect','texture_off'} для `fill`."""
+    import detail_zones as DZ                                      # ВНЕ try: нет модуля в срезе кода = отказ этапа (T-193/4)
+    R = DZ.load_rules()
+    c = dict(FILL, **(cfg or {}))
+    want = list(pol.get('exclusions') or []) + list(pol.get('openings') or [])
+    if not want:
+        return None, {'applied': False, 'why': 'паспорт типа не просит исключений и проёмов', 'wanted': []}, None
+    if not (R.get('enabled', True) and c.get('detail_zones_use', True)):
+        return None, {'applied': False, 'why': 'выключено (detail-zones.json enabled / cfg detail_zones_use)', 'wanted': want}, None
+    if pol.get('mode') != 'active':
+        return None, {'applied': False, 'why': 'mode_' + str(pol.get('mode')), 'wanted': want}, None
+    labs, pms, kk = [], [], []
+    for gi, g in enumerate(geoms):
+        T = _grid(g)
+        rgb = np.asarray(tex_before[gi])[..., :3]
+        labs.append(rgb2lab(rgb.reshape(-1, 3)).reshape(T, T, 3))
+        pms.append(_part_map(g, T, parts[gi]))
+        kk.append(np.asarray(known[gi], bool))
+    res = DZ.detail_zones(labs, kk, pms, c.get('part_role') or {}, pol, c.get('top_card'), R)
+    eff = DZ.effect_masks(res, R)
+    return eff, DZ.zones_doc(res, eff, True), res
 
 
 def paint_policy_for(cfg: dict | None) -> dict:
