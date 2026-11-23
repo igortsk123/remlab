@@ -25,6 +25,7 @@ HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, HERE)
 sys.path.insert(0, os.path.join(HERE, '..', '..'))
 import tex_coverage as TC  # noqa: E402
+import texture_synth as TS  # noqa: E402
 
 
 # ------------------------------------------------------------------------------------------ вспомогательное
@@ -644,6 +645,8 @@ def apply_groups(geoms: list, tex_after: list, known_keep: list, pas: dict, ctx:
             noise = gaussian_filter(noise, float(R['grain_sigma_px']), mode='wrap')
         noise = noise - gaussian_filter(noise, float(R['grain_fine_px']), mode='wrap')               # та же полоса, в которой измерено σL видимого (мелкая), без крупных пятен
         noise /= max(float(1.4826 * np.median(np.abs(noise - np.median(noise)))), 1e-9)               # единичный робастный σ в этой полосе
+        syn = R.get('synth') or {}
+        uvm = TS.uv_field_maps(g['V'], g['F'], g['UV'], maps.ids[gi], T, float(syn.get('up_min', 0.5))) if syn.get('enabled') and 'UV' in g else None          # «вверх мира» и плотность атласа — для поворота/масштаба кусков
         new_all = lab.copy()
         touched = np.zeros((T, T), bool)
         for gid, grp in byid.items():
@@ -693,6 +696,13 @@ def apply_groups(geoms: list, tex_after: list, known_keep: list, pas: dict, ctx:
                     add = float(np.sqrt(max(amp * amp - sr * sr, 0.0)))
                     res[:, 0] += add * noise[m]
                     info['grain_added_sigma'] = round(add, 3)
+            if syn.get('enabled') and grp['class'] not in (syn.get('skip_classes') or []):
+                cfg = dict(syn['common'])
+                cfg.update((syn.get('by_class') or {}).get(grp['class'], {}))
+                sres, sinfo = TS.synth_group(lab, (gm == gid) & k0, m, uvm, cfg, _blur_norm, keep_detail=grp['class'] in R['dark_keep_classes'], seed=int(syn.get('seed_step', 1009)) * (gi + 1) + int(gid))
+                info['synth'] = sinfo
+                if sinfo['mode'] == 'quilt' or syn.get('smooth_fallback', True):
+                    res = sres[m].astype(np.float64)                          # остаток фактуры из куска фото своей группы (нет донора — 0: гладко, не шум)
             tgt = tone + res
             dm = wseam[m][:, None]
             new_all[m] = cur + dm * (tgt - cur)
