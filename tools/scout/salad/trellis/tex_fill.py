@@ -2644,6 +2644,19 @@ def _front_back_vals(geoms: list, parts, known: list, kback: list, tex_before: l
     return de_, bg, dw, dlw
 
 
+def _hmark() -> tuple:
+    """Метка начала замера хука: (стена, процессор)."""
+    return (time.time(), time.process_time())
+
+
+def _hdone(acc: dict, name: str, m: tuple) -> None:
+    """Дописать в acc[name] время хука с метки m: wall_s, cpu_s (суммой по повторам), n — число вызовов. Попадает в report.hooks_time_s (T-157: время хуков после fill() раньше нигде не писалось). Имя с точкой — вложенный замер внутри верхнего (в сумму не входит)."""
+    a = acc.setdefault(name, {'wall_s': 0.0, 'cpu_s': 0.0, 'n': 0})
+    a['wall_s'] += time.time() - m[0]
+    a['cpu_s'] += time.process_time() - m[1]
+    a['n'] += 1
+
+
 def run_stage_once(run: str, sku: str, glb: str, known: list | None = None, parts=None, cfg: dict | None = None, thresholds: dict | None = None, mirror: bool = True, draft_glb: str | None = None, ut_glb: str | None = None, out_name: str | None = None, parts_npz: str | None = None, prev_dir: str | None = None) -> dict:
     """Этап 07 «докрасить невидимое»: GLB (текстура = фото на видимом) → `<run>/<sku>/07-fill/` {filled.glb, report.json, frame.png (az180 до | после), check.json}.
     `known` — маска «видно с камеры фото» по геометриям (нет — из `known_from_photo`: az0/az45); `parts` — части граней (нет — `parts_from_geometry`). Не прошёл (check.json passed=false) — товар дальше не идёт.
@@ -2652,6 +2665,7 @@ def run_stage_once(run: str, sku: str, glb: str, known: list | None = None, part
     from PIL import Image
     import paint_stage as PS
     t0 = time.time()
+    hooks = {}                                                    # время хуков по именам → report.hooks_time_s
     cpu0 = time.process_time()                                    # мерка времени — процессорные секунды (не зависят от того, сколько ядер дала нода Salad)
     d = PS.stage_dir(run, sku, out_name or STAGE)
     th = dict(THRESHOLDS, **(thresholds or {}))
@@ -2666,7 +2680,9 @@ def run_stage_once(run: str, sku: str, glb: str, known: list | None = None, part
     _chk6 = PS.read_check(prev_dir) if prev_dir else None
     cfg, cam_note = pr_camera_from_extra((_chk6 or {}).get('extra'), cfg)               # камера образца узора — из этапа 4
     if known is None:
+        _m = _hmark()
         known = known_from_photo(geoms)
+        _hdone(hooks, 'known_from_photo', _m)
     parts_note = 'заданы'
     from_stage3 = parts is None and bool(parts_npz)
     if parts is None and parts_npz:
@@ -2683,12 +2699,15 @@ def run_stage_once(run: str, sku: str, glb: str, known: list | None = None, part
     SP = sg_pas = sg_ctx = None
     sg_rep = {'enabled': bool(sg_cfg['enabled'])}
     k_keep = [np.asarray(k_, bool) & ~unpainted_mask(np.asarray(t_)[..., :3]) for k_, t_ in zip(known, tex_before)]
+    _m = _hmark()
     _dz_eff, _dz_doc, _dz_res = detail_zones_hook(geoms, tex_before, known, parts, cfg, paint_policy_for(cfg))      # зоны деталей/стекла по паспорту типа (T-47/4): считаются по входу 06, ДО групп и заливки
+    _hdone(hooks, 'detail_zones', _m)
     if _dz_eff is not None:
         k_keep = [k_ & ~z_ for k_, z_ in zip(k_keep, _dz_eff['protect'])]                         # деталь — не опора для тона групп материала
     pp_pol = paint_policy_for(cfg)                      # политика покраски невидимых сторон по ТИПУ товара — читается ДО паспорта поверхностей (type-rules-code-01 А2); в check.json: тип, политика, digest, применено
     if sg_cfg['enabled']:
         _t_sg = time.process_time()
+        _m_sg = _hmark()
         import surface_passport as SP                                  # ВНЕ try: нет модуля в срезе кода = отказ этапа, не тихое «без групп» (Salad ≠ локально, T-193/4)
         try:
             sg_pas, sg_ctx = SP.build(geoms, [np.asarray(t_)[..., :3] for t_ in tex_before], known if _dz_eff is None else [np.asarray(k_, bool) & ~z_ for k_, z_ in zip(known, _dz_eff['protect'])], parts, (cfg or {}).get('part_role'), sg_cfg, FILL, sys.modules[__name__])
@@ -2700,6 +2719,7 @@ def run_stage_once(run: str, sku: str, glb: str, known: list | None = None, part
             sg_pas = sg_ctx = None
             sg_rep['error'] = f'{type(e).__name__}: {e}'
         sg_rep['cpu_passport_s'] = round(time.process_time() - _t_sg, 1)
+        _hdone(hooks, 'passport_build', _m_sg)
     ut_on = bool(RULES['ultratex']['enabled'])
     ut_rep = {'enabled': ut_on, 'ut_glb_given': bool(ut_glb), 'used': False}
     if ut_glb and not ut_on:
@@ -2716,7 +2736,9 @@ def run_stage_once(run: str, sku: str, glb: str, known: list | None = None, part
         if (cfg or {}).get('source') == 'trellis_relief':
             draft_glb, relief_src, _why = pick_relief_draft(geoms, draft_glb, ut_glb)
         draft = draft_texels(geoms, TC.load_geoms(draft_glb), cfg)
+    _m = _hmark()
     kback = known_from_photo(geoms, azimuths=(180.0,))
+    _hdone(hooks, 'known_from_photo_back', _m)
     _to = load_tone_only_png(prev_dir) if (prev_dir and (cfg or {}).get('tone_only_use', True)) else None      # тон-слой этапа 6 (р.8): цвет оставить, фактуру положить поверх
 
     _cf = load_conf_png(prev_dir) if prev_dir else None                                  # доверие к фото-текселю (этап 6, р.3) — нет файла: запасное от границы известного
@@ -2728,9 +2750,13 @@ def run_stage_once(run: str, sku: str, glb: str, known: list | None = None, part
     _unobs_fn = (lambda: draft_texels(geoms, _ut_early, cfg)) if _ut_early is not None else None            # UltraTex — на нашей форме: яркостный рельеф для «рисунок не наблюдаем» (T-187/6, 23.11); считается только если такие части есть
 
     def one(cfg_, draft_):
+        _m = _hmark()
         r_ = fill(geoms, known, parts, cfg_, mirror, draft_, tone_only=_to, unobs_draft_fn=_unobs_fn if (cfg_ or {}).get('source', 'stat') == 'stat' else None, conf=_cf, detail_zones=_dz_eff)
+        _hdone(hooks, 'fill', _m)
         rp, tx_ = r_['report'], r_['tex']
+        _m = _hmark()
         de_, bg, dw, dlw = _front_back_vals(geoms, parts, known, kback, tex_before, tx_, rp)
+        _hdone(hooks, 'front_back_vals_in_one', _m)
         vals = {'empty_pct': rp['unpainted_after_pct'], 'dE00_front_back': dw, 'dL_front_back': dlw, 'filled_faces_step_pct': rp['steps']['after']['filled_faces_step_pct'], 'far_excess_pct': rp['far_pct']['excess']}
         nfail = sum(0 if PS.judge(vals[k], th[k][0], th[k][1]) else 1 for k in vals)
         return {'finish': r_['finish'], 'keep': r_.get('keep'), 'rep': rp, 'tex': tx_, 'de': de_, 'big': bg, 'de_worst': dw, 'vals': vals, 'nfail': nfail, 'key': (nfail, dw if dw is not None else 99.0, vals['far_excess_pct'] if vals['far_excess_pct'] is not None else 99.0)}
@@ -2747,7 +2773,9 @@ def run_stage_once(run: str, sku: str, glb: str, known: list | None = None, part
     else:
         pick, used = one(cfg, draft), ((cfg or {}).get('source') or 'stat')
     rep, tex_after, de, big, de_worst = pick['rep'], pick['tex'], pick['de'], pick['big'], pick['de_worst']
+    _m = _hmark()
     tex_after, rep['ref_zone_map'] = apply_ref_zone_map(geoms, tex_after, known, cfg)
+    _hdone(hooks, 'ref_zone_map', _m)
     rep['relief_source'] = relief_src
     rep['paint_policy'] = pp_pol
     rep['detail_zones'] = _dz_doc
@@ -2755,8 +2783,11 @@ def run_stage_once(run: str, sku: str, glb: str, known: list | None = None, part
     if ut_glb and os.path.isfile(ut_glb):
         _ug = TC.load_geoms(ut_glb)
         ut_g = _ug if RZ_same_mesh(geoms, _ug) else None
+    _m = _hmark()
     tex_after, rep['own_panel'] = own_panel_tone_hook(geoms, tex_after, known, ut_g, parts, front_axis_of_check(_chk6), float(th['front_on_back_corr'][1]))
+    _hdone(hooks, 'own_panel', _m)
     import ref_zone as RZ
+    _m_sib = _hmark()
     try:                                                                  # части-близнецы (стул 7733, 23.11): тон из мизерного известного подтягивается к парной части с тем же цветом 06; сбой не роняет этап
         _, rep['sibling_tone'] = RZ.sibling_tone(geoms, tex_before, tex_after, known, parts)             # кандидаты (все пары)
         _cands = [(p['geom'], p['part']) for p in rep['sibling_tone'].get('pairs', [])]
@@ -2775,7 +2806,9 @@ def run_stage_once(run: str, sku: str, glb: str, known: list | None = None, part
         rep['sibling_tone']['accepted'] = [list(c) for c in _acc]
         rep['sibling_tone']['guard'] = _log
         rep['sibling_tone']['texels_changed'] = int(sum(p['texels'] for p in rep['sibling_tone'].get('pairs', []) if (p['geom'], p['part']) in set(_acc)))
+        _m = _hmark()
         _tp, _ps = RZ.panel_sibling_tone(geoms, tex_before, tex_sib, known, parts)
+        _hdone(hooks, 'sibling_tone_all.panel_sibling_tone', _m)
         if _ps.get('texels_changed'):
             _, _, _dwa, _dla = _front_back_vals(geoms, parts, known, kback, tex_before, tex_sib, rep)
             _, _, _dwb, _dlb = _front_back_vals(geoms, parts, known, kback, tex_before, _tp, rep)
@@ -2787,12 +2820,17 @@ def run_stage_once(run: str, sku: str, glb: str, known: list | None = None, part
         tex_after = tex_sib
     except Exception as e:  # noqa: BLE001
         rep['sibling_tone'] = {'error': f'{type(e).__name__}: {e}'}
+    _hdone(hooks, 'sibling_tone_all', _m_sib)
     try:                                                                  # подчасть по цвету 06 (Б, 23.11): мелкие невидимые панели со своим тоном; сбой не роняет этап
+        _m = _hmark()
         tex_after, rep['sub_tone'] = RZ.sub_tone(geoms, tex_before, tex_after, known, parts)
+        _hdone(hooks, 'sub_tone', _m)
     except Exception as e:  # noqa: BLE001
         rep['sub_tone'] = {'error': f'{type(e).__name__}: {e}'}
     _tex_pre_top = tex_after
+    _m = _hmark()
     tex_after, rep['top_prior'] = top_prior_hook(geoms, tex_after, known, parts, cfg, None if relief_src == 'ultratex' else draft_glb)
+    _hdone(hooks, 'top_prior', _m)
     if sg_pas is not None and rep['top_prior'].get('applied'):           # верх задан по карточке/по тону своей части: группа корпуса его не перекрашивает (другой материал — комод: дуб сверху, графит на фасадах)
         sg_ctx['hook_keep'] = [np.any(np.asarray(a)[..., :3] != np.asarray(b)[..., :3], axis=-1) & ~np.asarray(k, bool) for a, b, k in zip(tex_after, _tex_pre_top, k_keep)]
         rep['top_prior']['kept_from_groups_texels'] = int(sum(int(m.sum()) for m in sg_ctx['hook_keep']))
@@ -2802,9 +2840,15 @@ def run_stage_once(run: str, sku: str, glb: str, known: list | None = None, part
         _t_ap = time.process_time()
         try:
             sg_ctx['product_role'] = ((cfg or {}).get('top_card') or {}).get('role')          # тип товара — для «рисунок на невидимое по типу» (paint.hidden_pattern паспорта типа)
+            _m = _hmark()
             m_b = SP.measure(geoms, tex_after, k_keep, sg_pas, sg_ctx, sg_cfg, sys.modules[__name__])
+            _hdone(hooks, 'sg_measure_before', _m)
+            _m = _hmark()
             tex_after, ap_ = SP.apply_groups(geoms, tex_after, k_keep, sg_pas, sg_ctx, sg_cfg, sys.modules[__name__])
+            _hdone(hooks, 'sg_apply_groups', _m)
+            _m = _hmark()
             m_a = SP.measure(geoms, tex_after, k_keep, sg_pas, sg_ctx, sg_cfg, sys.modules[__name__])
+            _hdone(hooks, 'sg_measure_after', _m)
             sg_rep.update({'apply': ap_, 'before': {'worst': m_b['worst'], 'slits': m_b['slits']}, 'after': {'worst': m_a['worst'], 'slits': m_a['slits'], 'per_group': m_a['per_group'], 'ok_hypothesis': m_a['ok_hypothesis']}})
         except Exception as e:  # noqa: BLE001
             sg_rep['error'] = f'{type(e).__name__}: {e}'
@@ -2818,15 +2862,25 @@ def run_stage_once(run: str, sku: str, glb: str, known: list | None = None, part
     if _dz_eff is not None:                                                                  # зоны деталей/стекла — как на входе (хуки после заливки их не меняют)
         import detail_zones as DZ
         tex_after = DZ.restore(tex_before, tex_after, _dz_eff['protect'])
+    _m = _hmark()
     pick['finish'](tex_after, None if sg_pas is None else SP.ref_maps(geoms, k_keep, sg_pas, sg_ctx))                                          # мерки — по ИТОГОВОЙ текстуре (после ref_zone_map, own_panel, top_prior), не по текстуре до хуков
+    _hdone(hooks, 'finish_final', _m)
+    _m = _hmark()
     de, big, de_worst, _dlw = _front_back_vals(geoms, parts, known, kback, tex_before, tex_after, rep)
+    _hdone(hooks, 'front_back_vals_final', _m)
     pick['vals'] = dict(pick['vals'], empty_pct=rep['unpainted_after_pct'], dE00_front_back=de_worst, dL_front_back=_dlw, filled_faces_step_pct=rep['steps']['after']['filled_faces_step_pct'], far_excess_pct=rep['far_pct']['excess'])
+    _m = _hmark()
     rep['front_on_back'] = front_on_back_corr(geoms, tex_after, front_axis_of_check(_chk6), parts=parts)
+    _hdone(hooks, 'front_on_back_corr', _m)
     rep['front_on_back_raw'] = rep['front_on_back'].get('raw')                      # старая мера (по яркости целиком) — для сравнения (T-198/1)
+    _m = _hmark()
     kchg = known_changed_share(pick.get('keep') or known, tex_before, tex_after, RULES['known_change_de'])
     rep['known_changed'] = kchg
+    _hdone(hooks, 'known_changed_share', _m)
     try:                                                          # мерка узора — только отчёт (порог по трудным — позже), сбой её не роняет этап
+        _m = _hmark()
         rep['pattern_metric'] = pattern_metrics(geoms, parts, known, tex_after, rep, dict(FILL, **(cfg or {})))
+        _hdone(hooks, 'pattern_metrics', _m)
     except Exception as e:  # noqa: BLE001
         rep['pattern_metric'] = {'error': f'{type(e).__name__}: {e}'}
     rep['source_used'], rep['source_tried'] = used, tried
@@ -2835,15 +2889,20 @@ def run_stage_once(run: str, sku: str, glb: str, known: list | None = None, part
     _dz_rules = DZ.entries_for(pp_pol.get('role'), _dz_res, _dz_doc)                       # R-DETAIL-EXCLUSIONS-07 и R-OPENINGS-ZONES-07: применено или воздержание с причиной
     with open(os.path.join(d, 'zones.json'), 'w', encoding='utf-8') as f_:
         json.dump(_dz_doc, f_, ensure_ascii=False, indent=1, default=lambda o: o.item() if hasattr(o, 'item') else str(o))
+    _m = _hmark()
     write_glb(geoms, tex_after, os.path.join(d, 'filled.glb'))
+    _hdone(hooks, 'write_glb', _m)
+    _m = _hmark()
     sides = side_azimuths(geoms, known)                        # зад — сторона без фото по known (не фиксированный 180: формы лежат передом в разные стороны)
     rep['frame_sides'] = sides
     for _az, _nm in ((sides['back'], PS.FRAME), (sides['photo'], 'frame-photo.png')):
         a = render_ortho(geoms, tex_before, _az)
         b = render_ortho(geoms, tex_after, _az)
         Image.fromarray(np.concatenate([a, np.full((a.shape[0], 12, 3), 255, np.uint8), b], axis=1)).save(os.path.join(d, _nm))
+    _hdone(hooks, 'render_frames', _m)
     secs = time.time() - t0
     cpu_s = time.process_time() - cpu0
+    rep['hooks_time_s'] = {k_: {'wall_s': round(v_['wall_s'], 2), 'cpu_s': round(v_['cpu_s'], 2), 'n': v_['n']} for k_, v_ in hooks.items()}        # время каждого хука этапа (T-157): раньше report.time_s показывал только fill()
     rep['wall_s'], rep['cpu_s'] = round(secs, 1), round(cpu_s, 1)           # wall_s — только отчёт (на passed не влияет)
     metrics = {
         'empty_pct': {'value': rep['unpainted_after_pct'], 'threshold': th['empty_pct'][1], 'op': th['empty_pct'][0]},
