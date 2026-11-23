@@ -121,6 +121,19 @@ def test_tone():
     ok(abs(float(r['lab'][near, 0].mean() - lab[~near & k0, 0].mean())) < 3.0, 'заливка у границы по тону = фото', f"{float(r['lab'][near, 0].mean()):.1f} vs {float(lab[k0, 0].mean()):.1f}")
 
 
+def test_tone_zone_min_cells():
+    print("тон: зона с малым числом ячеек (шумный сдвиг на мелких зонах кромки) не трогается; при пороге 1 — как раньше:")
+    tx, x, lab, k0, r, c, smm = run_blend(50.0, 62.0, 2.0, 2.0)
+    s_out0 = TS.surface_dist(tx, k0, smm, 1000.0)
+    s_in0 = TS.surface_dist(tx, ~k0, smm, 1000.0)
+    zone = np.zeros(len(lab), int)
+    solid, fp = k0.copy(), ~k0
+    d1, rep1 = TS.tone_field(tx, zone, lab, solid, fp, s_in0, s_out0, dict(c, tone_zone_min_cells=1), smm)
+    d2, rep2 = TS.tone_field(tx, zone, lab, solid, fp, s_in0, s_out0, dict(c, tone_zone_min_cells=10 ** 6), smm)
+    ok(len(rep1) == 1 and float(np.abs(d1).max()) > 0.5, "порог 1: зона получила сдвиг", str(rep1))
+    ok(len(rep2) == 0 and float(np.abs(d2).max()) == 0.0, "порог выше числа ячеек: зона не тронута", str(rep2))
+
+
 def test_crease():
     print('излом панели > crease_deg: поле тона через излом не идёт (другая панель — другой свет); плоская — идёт:')
     g, tx, smm, x = panel(n=32, width_mm=200.0, fold=True)
@@ -292,7 +305,7 @@ def test_rules():
 
 
 def main():
-    for f in (test_surface_dist, test_tone, test_crease, test_other_zone, test_contrast, test_confidence, test_fallback_conf, test_fill_end_to_end, test_feather, test_patch, test_step_texture_metrics, test_rules):
+    for f in (test_surface_dist, test_tone, test_tone_zone_min_cells, test_crease, test_other_zone, test_contrast, test_confidence, test_fallback_conf, test_fill_end_to_end, test_feather, test_patch, test_step_texture_metrics, test_rules):
         print(f.__name__)
         f()
     print(f'tests_tex_seam: ошибок {bad}')

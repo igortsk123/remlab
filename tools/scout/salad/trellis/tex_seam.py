@@ -211,8 +211,9 @@ def tone_field(tx, zone: np.ndarray, lab: np.ndarray, solid: np.ndarray, fillpur
     lim = np.asarray(c['tone_max'], float)
     for p in np.unique(zone[tgt]):
         ap, af = zp == p, zf == p
-        if not ap.any() or not af.any():
-            continue
+        zmin = int(c.get('tone_zone_min_cells', 1))
+        if ap.sum() < zmin or af.sum() < zmin or not ap.any() or not af.any():
+            continue                                                   # мало ячеек с одной из сторон — сдвиг шумный (пятна на мелких зонах кромки), зона не трогается
         tz = tgt[zone[tgt] == p]
         eps = 0.25 * cell
         vp, okp = _idw(cKDTree(cp[ap]), mp[ap], tx.Q[tz], reach, eps)
