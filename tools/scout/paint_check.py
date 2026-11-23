@@ -167,6 +167,38 @@ def run_surface(glb: str | None, run: str, sku: str, out_dir: str, stage_runs: d
     return PSC.classify(glb, os.path.join(sr.get('06-visible', run), PS.safe_name(sku), '06-visible', 'known.png'), os.path.join(sr.get('08-material', run), PS.safe_name(sku), '08-material', 'parts08.npz'), out_dir=out_dir, role=role)
 
 
+def run_frame_gate(frames_dir: str) -> dict:
+    """Ворота кадра страницы (`tools/assets/frame_gate.py`, пороги — material-recipes.json#frame_gate): папка кадров → {status ok|refused|missing, reason, dE, dC, dL, mask_px, dE_max, dC_min}."""
+    sys.path.insert(0, os.path.join(HERE, '..', 'assets'))
+    import frame_gate as FG  # noqa: E402  (numpy/PIL — только здесь)
+    import material_stage as MS  # noqa: E402
+    fg = MS.load_recipes()['frame_gate']
+    r = FG.gate_dir(frames_dir, fg)
+    return dict(r, dE_max=fg['dE_max'], dC_min=fg['dC_min'])
+
+
+def classify_frame_gate(run: str, sku: str, rules: dict, stage_runs: dict | None = None, fg_fn=None) -> dict:
+    """Ворота кадра страницы как стадия 9: ok / refused (ΔE или ΔC вне порога) / missing (нет кадров, маска мала, ворота не импортируются — «не измерено», не «прошло»)."""
+    out = {'stage': 'frame_gate', 'status': 'missing', 'reason': 'ворота кадра выключены', 'hard_failed': [], 'soft_failed': [], 'metrics': {}}
+    c = rules.get('frame_gate') or {}
+    if not c.get('enabled', False):
+        return out
+    d = os.path.join((stage_runs or {}).get(c['stage'], run), PS.safe_name(sku), c['stage'])
+    out['dir'] = d
+    try:
+        r = (fg_fn or run_frame_gate)(d)
+    except Exception as e:                                                       # ворота упали — не «ок»: нет измерения
+        out['reason'] = f'ворота кадра упали: {type(e).__name__}: {str(e)[:120]}'
+        return out
+    out.update(status=r['status'], reason=r.get('reason') or '')
+    if r.get('dE') is not None:
+        out['metrics'] = {'frame_dE': {'value': r['dE'], 'threshold': r.get('dE_max'), 'op': '<=', 'ok': r['dE'] <= r['dE_max']},
+                          'frame_dC': {'value': r['dC'], 'threshold': r.get('dC_min'), 'op': '>=', 'ok': r['dC'] >= r['dC_min']}, 'frame_dL': {'value': r.get('dL')}}
+    if r['status'] == 'refused':
+        out['hard_failed'] = ['frame_gate']
+    return out
+
+
 def classify_coverage(glb: str | None, rules: dict, out_dir: str, cov_fn=None) -> dict:
     out = {'stage': 'coverage', 'status': 'missing', 'reason': 'нет итогового GLB (этап 08/07 не выдал файл)', 'hard_failed': [], 'soft_failed': [], 'metrics': {}, 'glb': glb, 'verdict': None}
     c = rules['coverage']
@@ -190,9 +222,9 @@ def classify_coverage(glb: str | None, rules: dict, out_dir: str, cov_fn=None) -
 
 
 # ----------------------------------------------------------------------------------------------- товар --------
-def judge_product(stages: list, cov: dict, rules: dict, pal: dict | None = None, surf: dict | None = None) -> dict:
+def judge_product(stages: list, cov: dict, rules: dict, pal: dict | None = None, surf: dict | None = None, fgate: dict | None = None) -> dict:
     """Итог товара: ready | ready_with_notes | not_ready, первая блокирующая причина, список пометок."""
-    allst = stages + [cov] + ([pal] if pal else []) + ([surf] if surf else [])
+    allst = stages + [cov] + ([pal] if pal else []) + ([surf] if surf else []) + ([fgate] if fgate and fgate['status'] in ('refused', 'soft') else [])    # кадров нет — не блок (в решениях это uncertain)
     block = [s for s in allst if s['status'] in ('refused', 'missing')]
     notes = [f"{s['stage']}: {s['reason']}" for s in allst if s['status'] == 'soft']
     if block:
@@ -201,7 +233,7 @@ def judge_product(stages: list, cov: dict, rules: dict, pal: dict | None = None,
     return {'final': 'ready_with_notes' if notes else 'ready', 'reason': '', 'notes': notes, 'blocking': []}
 
 
-def check_product(run: str, sku: str, rules: dict, stage_runs: dict | None = None, cov_fn=None, ribbon: bool = True, with_coverage: bool = True, pal_fn=None, surf_fn=None) -> dict:
+def check_product(run: str, sku: str, rules: dict, stage_runs: dict | None = None, cov_fn=None, ribbon: bool = True, with_coverage: bool = True, pal_fn=None, surf_fn=None, fg_fn=None) -> dict:
     t0 = time.time()
     sr = stage_runs or {}
     stages = []
@@ -220,14 +252,15 @@ def check_product(run: str, sku: str, rules: dict, stage_runs: dict | None = Non
         {'stage': 'palette', 'status': 'missing', 'reason': 'сторож палитры не запускался (--no-coverage)', 'hard_failed': [], 'soft_failed': [], 'metrics': {}, 'glb': glb}
     surf = (surf_fn or run_surface)(glb, run, sku, out_dir, sr) if with_coverage and rules.get('surface', {}).get('enabled', True) else \
         {'stage': 'surface', 'status': 'ok', 'reason': '', 'hard_failed': [], 'soft_failed': [], 'metrics': {}, 'glb': glb}
-    verdict = judge_product(stages, cov, rules, pal, surf)
-    dec = PD.decide_product(stages, {'coverage': cov, 'palette': pal, 'surface': surf})     # рядом со старым флагом, итог (`passed`) не меняет — решения в тени
+    fgate = classify_frame_gate(run, sku, rules, sr, fg_fn)
+    verdict = judge_product(stages, cov, rules, pal, surf, fgate)
+    dec = PD.decide_product(stages, {'coverage': cov, 'palette': pal, 'surface': surf, 'frame_gate': fgate})     # рядом со старым флагом, итог (`passed`) не меняет — решения в тени
     frame = None
     if ribbon:
         frame = build_ribbon(sku, stages, cov, verdict, rules, os.path.join(out_dir, PS.FRAME), pal)
     n_block = len(verdict['blocking'])
     missing = [s['stage'] for s in stages if s['status'] == 'missing']
-    hard = [s['stage'] for s in stages if s['status'] == 'refused'] + (['coverage'] if cov['status'] == 'refused' else []) + (['palette'] if pal['status'] == 'refused' else []) + (['surface'] if surf['status'] in ('refused', 'missing') else [])
+    hard = [s['stage'] for s in stages if s['status'] == 'refused'] + (['coverage'] if cov['status'] == 'refused' else []) + (['palette'] if pal['status'] == 'refused' else []) + (['surface'] if surf['status'] in ('refused', 'missing') else []) + (['frame_gate'] if fgate['status'] == 'refused' else [])
     doc = PS.write_check(
         out_dir, STAGE, sku, passed=verdict['final'] != 'not_ready',
         metric={'name': 'blocking_stages', 'value': n_block, 'threshold': 0, 'op': '<='},
@@ -238,7 +271,7 @@ def check_product(run: str, sku: str, rules: dict, stage_runs: dict | None = Non
         stages=[{k: s[k] for k in ('stage', 'status', 'reason', 'hard_failed', 'soft_failed', 'metrics', 'run')} for s in stages],
         coverage={k: cov.get(k) for k in ('status', 'verdict', 'reason', 'metrics', 'glb', 'seconds')},
         palette={k: pal.get(k) for k in ('status', 'reason', 'metrics', 'rgb')},
-        surface={k: surf.get(k) for k in ('status', 'reason', 'metrics')}, decisions=dec)
+        surface={k: surf.get(k) for k in ('status', 'reason', 'metrics')}, frame_gate={k: fgate.get(k) for k in ('status', 'reason', 'metrics')}, decisions=dec)
     return doc
 
 
