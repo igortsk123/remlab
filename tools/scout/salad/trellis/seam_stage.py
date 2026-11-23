@@ -104,12 +104,12 @@ def run_seam(run: str, sku: str, fill_dir: str, visible: str, cfg: dict | None =
         return round(float(max(v)), 3) if v else None
     txb, txa = _dev('before'), _dev('after')
     metrics = {
-        'seam_dE00_p95': {'value': p95a, 'threshold': p95b, 'op': '<=', 'note': 'после ≤ до'},
+        'seam_dE00_p95': {'value': p95a, 'threshold': (None if p95b is None else round(p95b * seam_c.get('accept_p95_ratio', 1.0) + seam_c.get('accept_p95_abs', 0.0), 3)), 'op': '<=', 'note': 'после ≤ до·accept_p95_ratio + accept_p95_abs (допуск шума мерки)'},
         'boundary_rough_rms_mm': {'value': ra, 'threshold': (None if rb is None else round(rb * seam_c.get('rough_tol', 1.1), 3)), 'op': '<=', 'note': 'после ≤ до·rough_tol (мерка шумная)'},
         'seam_step_ratio': {'value': sta, 'threshold': (None if stb is None else max(stb, 1.5)), 'op': '<=', 'note': 'скачок яркости поперёк шва / такой же внутри фото (цель ≈ 1); после ≤ max(до; 1,5)'},
         'seam_texture_dev': {'value': txa, 'threshold': (None if txb is None else max(txb, 0.3)), 'op': '<=', 'note': '|σ мелкого рельефа заливка/фото в полосе шва − 1| (цель ≈ 0); после ≤ max(до; 0,3)'},
         'photo_middle_changed_texels': {'value': mid_bad, 'threshold': 0, 'op': '<='},
-        'time_s': {'value': round(secs, 1), 'threshold': 120.0, 'op': '<='},
+        'time_s': {'value': round(secs, 1), 'threshold': float(seam_c.get('time_limit_s', 300.0)), 'op': '<=', 'note': 'шов на Salad cpu_stage: 5 вариантов на геометрию, ≈2 мин на товар'},
     }
     for m in metrics.values():
         m['ok'] = None if m['value'] is None or m['threshold'] is None else PS.judge(m['value'], m['op'], m['threshold'])
