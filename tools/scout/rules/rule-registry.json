@@ -714,6 +714,237 @@
       "check_field": "07-fill.extra.rules",
       "enabled": null,
       "note": "S2 (23.11): стекло — по парам карточки, хуки те же (tex_fill.detail_zones_hook). НА РЕАЛЬНОМ ТОВАРЕ НЕ ПРОВЕРЕНО: стеллажа/витрины в каталоге нет, тест — на заглушке (коробка с проёмом и стеклянной дверцей). Проём void — детектора нет (abstain not_implemented). Стекло на невидимой стороне остаётся как на входе: если вход непокрашен, «пустое» может подняться в empty_pct — проверить на первом реальном товаре."
+    },
+    {
+      "rule_id": "R-KNOWN-SOURCE-07",
+      "title": "Невидимое с острого угла (тон Ш3б, prov=synth) — не «известное»: красится тоном группы с зерном; только корпусные типы (hidden_pattern=body)",
+      "state": "trial",
+      "source": [
+        "T-20261123-28/1",
+        "plans/mesh-type-rules-01.md журнал 23.11 (строки р.5, п.5б)",
+        "ADR-0469 п.1"
+      ],
+      "applies": {
+        "types": [
+          "комод",
+          "тв-тумба",
+          "шкаф",
+          "тумба прикроватная",
+          "стеллаж",
+          "витрина",
+          "стенка",
+          "полка"
+        ]
+      },
+      "executor": "р.5 (T-28/1)",
+      "consumer": "tools/scout/salad/trellis/tex_fill.py:known_synth_trusted_for",
+      "runtime": "enforce",
+      "test": "tools/scout/salad/trellis/tests_surface_passport.py",
+      "test_positive": "tools/scout/salad/trellis/tests_surface_passport.py::test_rule_entries_body",
+      "test_negative": "tools/scout/salad/trellis/tests_surface_passport.py::test_rule_entries_not_body",
+      "run_id": null,
+      "flag": null,
+      "check_field": "07-fill.extra.rules",
+      "enabled": null,
+      "note": "T-28/1 круг 3: ключ known_source.synth_trusted=false + require_hidden_pattern=body (paint-fill.json, верхний уровень — флагом не выражается, flag=null). A/B на ядрах 15195: с synth известным шаг цвета 0,6 %, без 26,3 % (σ зерна по фото-текселям 3,95 против 1,14) — потому рядом grain_cap. Диван 114667 = main байт-в-байт (filled.glb). Не active: нет run_id и парных тестов по правилу."
+    },
+    {
+      "rule_id": "R-LIGHT-FLOOR-07",
+      "title": "«Светлое не темнеет»: у группы класса «свет» (L тона ≥ min_L) невидимое не темнее тона больше чем на max_darker_dL; только body",
+      "state": "trial",
+      "source": [
+        "T-20261123-28/1",
+        "plans/mesh-type-rules-01.md журнал 23.11 (строки р.5, п.5б)",
+        "ADR-0469 п.1"
+      ],
+      "applies": {
+        "types": [
+          "комод",
+          "тв-тумба",
+          "шкаф",
+          "тумба прикроватная",
+          "стеллаж",
+          "витрина",
+          "стенка",
+          "полка"
+        ]
+      },
+      "executor": "р.5 (T-28/1)",
+      "consumer": "tools/scout/salad/trellis/surface_passport.py:light_floor",
+      "runtime": "enforce",
+      "test": "tools/scout/salad/trellis/tests_surface_passport.py",
+      "test_positive": "tools/scout/salad/trellis/tests_surface_passport.py::test_rule_entries_body",
+      "test_negative": "tools/scout/salad/trellis/tests_surface_passport.py::test_rule_entries_not_body",
+      "run_id": null,
+      "flag": "tools/scout/rules/paint-fill.json#surface_groups.light_floor.enabled",
+      "check_field": "07-fill.extra.rules",
+      "enabled": null,
+      "note": "T-28/1: белый шкаф 10551 зад/бока/низ «не одним тоном» 0,8/25,8/8,4 % (main) → 0,1/0,2/0,3 % вместе с кандидатом верха и top_follow (по отдельности A/B не снималась); пороги min_L 90 / dL 4 — гипотезы."
+    },
+    {
+      "rule_id": "R-RELEASE-WEAK-07",
+      "title": "Слабое фото (prov 2/3) на корпусных гранях перестаёт быть «известным» — красит корпус; прямое фото остаётся; только body",
+      "state": "trial",
+      "source": [
+        "T-20261123-28/1",
+        "plans/mesh-type-rules-01.md журнал 23.11 (строки р.5, п.5б)",
+        "ADR-0469 п.1"
+      ],
+      "applies": {
+        "types": [
+          "комод",
+          "тв-тумба",
+          "шкаф",
+          "тумба прикроватная",
+          "стеллаж",
+          "витрина",
+          "стенка",
+          "полка"
+        ]
+      },
+      "executor": "р.5 (T-28/1)",
+      "consumer": "tools/scout/salad/trellis/surface_passport.py:release_weak_known",
+      "runtime": "enforce",
+      "test": "tools/scout/salad/trellis/tests_surface_passport.py",
+      "test_positive": "tools/scout/salad/trellis/tests_surface_passport.py::test_rule_entries_body",
+      "test_negative": "tools/scout/salad/trellis/tests_surface_passport.py::test_rule_entries_not_body",
+      "run_id": null,
+      "flag": "tools/scout/rules/paint-fill.json#surface_groups.body_override.release_weak_known.enabled",
+      "check_field": "07-fill.extra.rules",
+      "enabled": null,
+      "note": "T-28/1: на ядрах освободило 1385 текселей у 10887, 0 у 15195/10551; по отдельности A/B не снималась (в сумме с остальными новыми: 10887 низ/зад 42,4/10,2 → 10,3/4,4 %)."
+    },
+    {
+      "rule_id": "R-EDGE-BODY-07",
+      "title": "Тон корпуса для невидимых граней фасада — по фото-текселям не-фасадных граней (кромки, верх, боковина), если это другой материал; только body",
+      "state": "trial",
+      "source": [
+        "T-20261123-28/1",
+        "plans/mesh-type-rules-01.md журнал 23.11 (строки р.5, п.5б)",
+        "ADR-0469 п.1"
+      ],
+      "applies": {
+        "types": [
+          "комод",
+          "тв-тумба",
+          "шкаф",
+          "тумба прикроватная",
+          "стеллаж",
+          "витрина",
+          "стенка",
+          "полка"
+        ]
+      },
+      "executor": "р.5 (T-28/1)",
+      "consumer": "tools/scout/salad/trellis/surface_passport.py:edge_body_tone",
+      "runtime": "enforce",
+      "test": "tools/scout/salad/trellis/tests_surface_passport.py",
+      "test_positive": "tools/scout/salad/trellis/tests_surface_passport.py::test_rule_entries_body",
+      "test_negative": "tools/scout/salad/trellis/tests_surface_passport.py::test_rule_entries_not_body",
+      "run_id": null,
+      "flag": "tools/scout/rules/paint-fill.json#surface_groups.body_override.edge_body.enabled",
+      "check_field": "07-fill.extra.rules",
+      "enabled": null,
+      "note": "T-28/1: у 15195 не срабатывает (не-фасад близок к тону группы, ΔE00 1,4 ≤ 12); у 10887 даёт корпусной тон (в сумме с остальными новыми — низ/зад 42,4/10,2 → 10,3/4,4 %). Пороги — гипотезы."
+    },
+    {
+      "rule_id": "R-TOP-SYNTH-07",
+      "title": "Кандидат тона верха без фото: тон Ш3б (synth) или немногие фото-тексели верха вместо Ш3в, если светлое темнеет; только body",
+      "state": "trial",
+      "source": [
+        "T-20261123-28/1",
+        "plans/mesh-type-rules-01.md журнал 23.11 (строки р.5, п.5б)",
+        "ADR-0469 п.1"
+      ],
+      "applies": {
+        "types": [
+          "комод",
+          "тв-тумба",
+          "шкаф",
+          "тумба прикроватная",
+          "стеллаж",
+          "витрина",
+          "стенка",
+          "полка"
+        ]
+      },
+      "executor": "р.5 (T-28/1)",
+      "consumer": "tools/scout/salad/trellis/top_prior.py:choose_top_tone",
+      "runtime": "enforce",
+      "test": "tools/scout/salad/trellis/tests_surface_passport.py",
+      "test_positive": "tools/scout/salad/trellis/tests_surface_passport.py::test_rule_entries_body",
+      "test_negative": "tools/scout/salad/trellis/tests_surface_passport.py::test_rule_entries_not_body",
+      "run_id": null,
+      "flag": "tools/scout/rules/top-prior.json#stage07.synth_candidate.enabled",
+      "check_field": "07-fill.extra.rules",
+      "enabled": null,
+      "note": "T-28/1: на 3 body не сработало (10551: synth L55 против Ш3в L78 — «расхождение, не светлый случай» → Ш3в; 15195/10887: synth/фото верха мало) — верх 10551 чинит R-TOP-FOLLOW-07."
+    },
+    {
+      "rule_id": "R-TOP-FOLLOW-07",
+      "title": "Верх без фото (<10 %) с тоном Ш3в на ΔE00>8 от однотонной группы класса «свет» следует группе (хук Ш3в откатывается); только body",
+      "state": "trial",
+      "source": [
+        "T-20261123-28/1",
+        "plans/mesh-type-rules-01.md журнал 23.11 (строки р.5, п.5б)",
+        "ADR-0469 п.1"
+      ],
+      "applies": {
+        "types": [
+          "комод",
+          "тв-тумба",
+          "шкаф",
+          "тумба прикроватная",
+          "стеллаж",
+          "витрина",
+          "стенка",
+          "полка"
+        ]
+      },
+      "executor": "р.5 (T-28/1)",
+      "consumer": "tools/scout/salad/trellis/surface_passport.py:top_follows_group",
+      "runtime": "enforce",
+      "test": "tools/scout/salad/trellis/tests_surface_passport.py",
+      "test_positive": "tools/scout/salad/trellis/tests_surface_passport.py::test_rule_entries_body",
+      "test_negative": "tools/scout/salad/trellis/tests_surface_passport.py::test_rule_entries_not_body",
+      "run_id": null,
+      "flag": "tools/scout/rules/paint-fill.json#surface_groups.top_follow.enabled",
+      "check_field": "07-fill.extra.rules",
+      "enabled": null,
+      "note": "T-28/1 (trial по решению директора 23.11): 10551 верх «не одним тоном» 28,7 → 0,2 % (L верха Ш3в 78,4 против тела 90,9, ΔE00 8,5 против порога 8 — на грани); 15195/10887 не срабатывает (класс «тон + зерно»). Выключатель — top_follow.enabled."
+    },
+    {
+      "rule_id": "R-GRAIN-CAP-07",
+      "title": "Зерно залитого не выше max_sigma_l (σL группы по одним фото-текселям включает тень рельефа); только body",
+      "state": "trial",
+      "source": [
+        "T-20261123-28/1",
+        "plans/mesh-type-rules-01.md журнал 23.11 (строки р.5, п.5б)",
+        "ADR-0469 п.1"
+      ],
+      "applies": {
+        "types": [
+          "комод",
+          "тв-тумба",
+          "шкаф",
+          "тумба прикроватная",
+          "стеллаж",
+          "витрина",
+          "стенка",
+          "полка"
+        ]
+      },
+      "executor": "р.5 (T-28/1)",
+      "consumer": "tools/scout/salad/trellis/surface_passport.py:apply_groups",
+      "runtime": "enforce",
+      "test": "tools/scout/salad/trellis/tests_surface_passport.py",
+      "test_positive": "tools/scout/salad/trellis/tests_surface_passport.py::test_rule_entries_body",
+      "test_negative": "tools/scout/salad/trellis/tests_surface_passport.py::test_rule_entries_not_body",
+      "run_id": null,
+      "flag": "tools/scout/rules/paint-fill.json#surface_groups.grain_cap.enabled",
+      "check_field": "07-fill.extra.rules",
+      "enabled": null,
+      "note": "T-28/1 (trial по решению директора 23.11): 15195 σ зерна 3,95/3,87 → 2,5, filled_faces_step_pct 26,3 → 8,9 % (main 0,71; порог max(main,10)); 10887 σ 2,4 < 2,5 не срезается, шаг 8,6 %. Потолок 2,5 — гипотеза по трём body (σ у main 0,1–2,1)."
     }
   ],
   "_active_rule": "active = consumer определён (ast) и вызывается боевым кодом + runtime=enforce и флаг включён + тест в CI + test_positive и test_negative на пример типа + run_id прогона. Без любого — trial (rule_registry_audit: ошибка). run_id — папка прогона в ~/remlab-logs, где правило отработало; проверка прогона структурная (--run): extra.rules[] с rule_id, type, digest, applied|abstain."

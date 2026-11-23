@@ -935,7 +935,9 @@ def apply_groups(geoms: list, tex_after: list, known_keep: list, pas: dict, ctx:
                 if sinfo['mode'] == 'quilt' or (sinfo['mode'] == 'smooth' and syn.get('smooth_fallback', True)):   # 'skip' (рисунка нет) — прежнее зерно, без синтеза
                     res = sres[m].astype(np.float64)                          # остаток фактуры из куска фото своей группы (нет донора — 0: гладко, не шум)
             tgt = tone + res
+            _l0 = tgt[:, 0].copy()
             tgt[:, 0] = light_floor(tgt[:, 0], np.broadcast_to(np.asarray(tone, float)[..., 0], tgt[:, 0].shape), grp['class'], _LF)
+            ctx['light_floor_texels'] = int(ctx.get('light_floor_texels', 0)) + int((tgt[:, 0] != _l0).sum())      # для записи правила (extra.rules[]): сколько текселей подняло
             dm = wseam[m][:, None]
             new_all[m] = cur + dm * (tgt - cur)
             touched |= m

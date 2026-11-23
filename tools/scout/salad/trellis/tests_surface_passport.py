@@ -374,6 +374,46 @@ def test_type_allows_body():
     ok(SP.type_allows_body({'body_override': {'edge_body': {}}}, reg)[0], 'require_hidden_pattern не задан — без ограничения по типу')
 
 
+def _rule_inputs(role):
+    R = dict(TF.RULES['surface_groups'], _card_role=role)
+    ctx = {'light_floor_texels': 5}
+    pas = {'body_override': {'rules': [{'edge_body': {'ok': True, 'n': 678, 'de00': 14.0, 'why': ''}}]}}
+    sg_rep = {'release_weak_known': 7, 'apply': {'0': {'grain_capped': {'sigma_measured': 3.9, 'max_sigma_l': 2.5}}}}
+    top = {'applied': True, 'n_top': 100, 'photo_top_n': 1, 'synth_candidate': {'use': 'synth', 'top_lab': [78, 0, 0], 'synth_lab': [90, 0, 0], 'dL': 12},
+           'follow_group': {'follow': True, 'why': 'x', 'de00': 8.5, 'top_tone': [78, 0, 0], 'group_tone': [91, 0, 0]}}
+    return R, ctx, pas, sg_rep, top
+
+
+def test_rule_entries_body():
+    print('записи extra.rules[] (ADR-0469): у типа body все семь правил — applied с числами:')
+    import rule_record as RR
+    R, ctx, pas, sg, top = _rule_inputs('шкаф')
+    es = RR.surface_group_entries('шкаф', R, ctx, pas, sg, top, {'synth_trusted': False, 'why': 'действует'})
+    ok([e['rule_id'] for e in es] == list(RR.SURFACE_RULES), 'семь записей, по одной на правило, порядок реестра')
+    ok(all(e.get('applied') is True and e['type'] == 'шкаф' and e['digest'] for e in es), 'все applied, тип и digest из паспорта')
+    by = {e['rule_id']: e.get('note', '') for e in es}
+    ok('3.9' in by['R-GRAIN-CAP-07'] and '2.5' in by['R-GRAIN-CAP-07'], 'grain_cap: σ до→после в записи')
+    ok('8.5' in by['R-TOP-FOLLOW-07'] and '78' in by['R-TOP-FOLLOW-07'] and '91' in by['R-TOP-FOLLOW-07'], 'top_follow: L верха → тон группы, ΔE00 в записи')
+    ok('7' in by['R-RELEASE-WEAK-07'] and '5' in by['R-LIGHT-FLOOR-07'], 'числа текселей release/light_floor в записи')
+    es0 = RR.surface_group_entries('шкаф', R, {'light_floor_texels': 0}, {'body_override': {'rules': []}}, {'apply': {}}, {'applied': True, 'synth_candidate': {'skipped': 'мало'}, 'follow_group': {'follow': False, 'why': 'близок'}}, {'synth_trusted': False, 'why': 'д'})
+    ab = {e['rule_id']: e.get('abstain', '') for e in es0}
+    ok(all(ab[r_] for r_ in ab if r_ != 'R-KNOWN-SOURCE-07'), 'условие не выполнено — воздержание с причиной у каждого')
+    ok(all('условие не выполнено' in ab[r_] or ab[r_] in ('мало', 'близок') for r_ in ab if ab[r_]), 'причина — «условие не выполнено» или причина самого правила')
+    es1 = RR.surface_group_entries('шкаф', None, None, None, None, {}, None)
+    ok(all(e.get('abstain') for e in es1), 'паспорт выключен — воздержание у всех')
+
+
+def test_rule_entries_not_body():
+    print('записи extra.rules[] у не-body (диван, кресло, без роли) — воздержание «не тот тип», поведение main:')
+    import rule_record as RR
+    for role in ('диван', 'стул', None):
+        R, ctx, pas, sg, top = _rule_inputs(role)
+        top = dict(top, synth_candidate={'skipped': 'по типу: x'}, follow_group={'follow': False, 'why': 'по типу: x'})
+        es = RR.surface_group_entries(role, R, {'light_floor_texels': 0}, pas, {}, top, {'synth_trusted': True, 'why': 'не действует (поведение main)'})
+        ok(len(es) == 7 and all('abstain' in e and 'applied' not in e for e in es), f'{role}: все семь — abstain')
+        ok(all(('не тот тип' in e['abstain'] or 'по типу' in e['abstain'] or 'тип не определён' in e['abstain'] or 'поведение main' in e['abstain']) for e in es), f'{role}: причина — тип')
+
+
 def test_new_rules_only_body_type():
     print('кандидат/пол света/освобождение слабого фото — только у типа body по политике паспорта (T-28/1, вердикт директора):')
     import mesh_type_passports as MTP
@@ -629,7 +669,7 @@ def test_blur_caches():
 
 
 def main() -> int:
-    for f in (test_new_rules_only_body_type, test_blur_caches, test_split_plane_one_tone, test_contrast_door_own_group, test_gray_pattern_not_flattened, test_back_is_body_not_facade, test_back_not_tiny_contrast, test_top_follows_group, test_edge_body_tone, test_light_floor, test_rebuild_body_gates, test_type_allows_body, test_body_override_only_for_body_type, test_facade_relief_and_release_weak, test_grain_no_dark_seams, test_gradient_continues, test_outlier_replaced, test_orphan_attached, test_orphan_guards, test_orphan_keeps_hook_tone, test_hook_keep_top, test_ultratex_switch_off, test_hidden_pattern_by_type):
+    for f in (test_new_rules_only_body_type, test_rule_entries_body, test_rule_entries_not_body, test_blur_caches, test_split_plane_one_tone, test_contrast_door_own_group, test_gray_pattern_not_flattened, test_back_is_body_not_facade, test_back_not_tiny_contrast, test_top_follows_group, test_edge_body_tone, test_light_floor, test_rebuild_body_gates, test_type_allows_body, test_body_override_only_for_body_type, test_facade_relief_and_release_weak, test_grain_no_dark_seams, test_gradient_continues, test_outlier_replaced, test_orphan_attached, test_orphan_guards, test_orphan_keeps_hook_tone, test_hook_keep_top, test_ultratex_switch_off, test_hidden_pattern_by_type):
         f()
     print(f'tests_surface_passport: ошибок {bad}')
     return 1 if bad else 0

@@ -83,6 +83,103 @@ def _in_scope(applies: dict, type_name: str, family: str | None) -> bool:
     return 'all' in ts or type_name in ts or bool(family and family in (applies.get('families') or []))
 
 
+SURFACE_RULES = ('R-KNOWN-SOURCE-07', 'R-LIGHT-FLOOR-07', 'R-RELEASE-WEAK-07', 'R-EDGE-BODY-07', 'R-GRAIN-CAP-07', 'R-TOP-SYNTH-07', 'R-TOP-FOLLOW-07')
+
+
+def _gate(role: str | None, cfg: dict | None, reg: dict | None = None) -> tuple:
+    """(действует ли правило у этого товара, причина): выключено в rules / не тот тип по политике паспорта (`require_hidden_pattern` лежит в rules у самого правила)."""
+    c = cfg or {}
+    if not c.get('enabled', False):
+        return False, 'правило выключено (enabled=false)'
+    ok, why = MTP.allows_hidden_pattern(role, c.get('require_hidden_pattern'), reg)
+    return (True, why) if ok else (False, 'не тот тип: ' + why)
+
+
+def surface_group_entries(role: str | None, R: dict | None, ctx: dict | None, pas: dict | None, sg_rep: dict | None, top_rep: dict | None, known_gate: dict | None, reg: dict | None = None) -> list:
+    """Записи extra.rules[] для семи правил «по типу» этапа 07 (T-20261123-28/1; ADR-0469 п.1): по одной на правило, у каждого товара — применено (с числами) или воздержание с причиной
+    (не тот тип / выключено / условие не выполнено). R — rules `surface_groups` (+ `_card_role`), ctx/pas — паспорт поверхностей после apply_groups, sg_rep — его отчёт, top_rep — отчёт top_prior,
+    known_gate — `report.known_source` ({synth_trusted, why}). Паспорт поверхностей выключен (R/pas = None) — воздержание «паспорт выключен»; число и причина — из отчёта, порогов здесь нет."""
+    R, ctx, sg_rep, top_rep = R or {}, ctx or {}, sg_rep or {}, top_rep or {}
+    out = []
+
+    def add(rid, applied, why):
+        out.append(entry(rid, role, applied, why, reg))
+    if known_gate is None:
+        add('R-KNOWN-SOURCE-07', False, 'условие не выполнено: шлюз «известного» не записан')
+    elif not known_gate.get('synth_trusted', True):
+        add('R-KNOWN-SOURCE-07', True, str(known_gate.get('why') or 'synth не известное'))
+    else:
+        add('R-KNOWN-SOURCE-07', False, str(known_gate.get('why') or 'synth известный (как main)'))
+    sg_off = pas is None
+    err = sg_rep.get('error')
+    BO = R.get('body_override') or {}
+
+    def passport_rule(rid, cfg, applied_fn):
+        if sg_off:
+            return add(rid, False, 'паспорт поверхностей выключен')
+        ok, why = _gate(role, cfg, reg)
+        if not ok:
+            return add(rid, False, why)
+        if err:
+            return add(rid, False, 'условие не выполнено: применение групп не завершилось (%s)' % err)
+        a, note = applied_fn()
+        add(rid, a, note)
+
+    def _lf():
+        n = int(ctx.get('light_floor_texels') or 0)
+        return (True, 'пол света поднял %d текселей' % n) if n > 0 else (False, 'условие не выполнено: нет группы «свет» выше порога L, где невидимое темнее тона группы')
+    passport_rule('R-LIGHT-FLOOR-07', R.get('light_floor'), _lf)
+
+    def _rw():
+        n = sg_rep.get('release_weak_known')
+        if n is None:
+            return False, 'условие не выполнено: освобождение не вызывалось (нет маски слабого фото или нет корпусных граней)'
+        return (True, 'освобождено %d текселей слабого фото на корпусных гранях' % int(n)) if int(n) > 0 else (False, 'условие не выполнено: слабого фото на корпусных гранях нет')
+    passport_rule('R-RELEASE-WEAK-07', BO.get('release_weak_known'), _rw)
+
+    def _eb():
+        ebs = [r_['edge_body'] for r_ in ((pas or {}).get('body_override') or {}).get('rules') or [] if isinstance(r_, dict) and r_.get('edge_body')]
+        good = [e for e in ebs if e.get('ok')]
+        if good:
+            e = good[0]
+            return True, 'тон корпуса по фото-текселям не-фасада: n=%s, ΔE00 от тона группы %s' % (e.get('n'), e.get('de00'))
+        if ebs:
+            return False, 'условие не выполнено: ' + str(ebs[0].get('why'))
+        return False, 'условие не выполнено: невидимых граней фасадной группы нет (корпус не строился)'
+    passport_rule('R-EDGE-BODY-07', BO.get('edge_body'), _eb)
+
+    def _gc():
+        cap = [(g, i['grain_capped']) for g, i in (sg_rep.get('apply') or {}).items() if isinstance(i, dict) and i.get('grain_capped')]
+        if cap:
+            return True, 'σ зерна заливки до→после: ' + '; '.join('группа %s %s→%s' % (g, c['sigma_measured'], c['max_sigma_l']) for g, c in cap)
+        return False, 'условие не выполнено: σ зерна групп не выше потолка'
+    passport_rule('R-GRAIN-CAP-07', R.get('grain_cap'), _gc)
+    sc = top_rep.get('synth_candidate')
+    if not top_rep:
+        add('R-TOP-SYNTH-07', False, 'Ш3в (top_prior) не выполнялся')
+    elif sc is None:
+        add('R-TOP-SYNTH-07', False, 'условие не выполнено: кандидат тона верха не считался (Ш3в не применён)')
+    elif sc.get('skipped'):
+        add('R-TOP-SYNTH-07', False, str(sc['skipped']))
+    elif sc.get('use') == 'synth':
+        add('R-TOP-SYNTH-07', True, 'тон верха Ш3в %s → synth %s (dL %s)' % (sc.get('top_lab'), sc.get('synth_lab'), sc.get('dL')))
+    else:
+        add('R-TOP-SYNTH-07', False, 'условие не выполнено: use=%s (%s)' % (sc.get('use'), sc.get('why')))
+    tf = top_rep.get('follow_group')
+    if sg_off:
+        add('R-TOP-FOLLOW-07', False, 'паспорт поверхностей выключен')
+    elif tf is None:
+        ok, why = _gate(role, R.get('top_follow'), reg)
+        add('R-TOP-FOLLOW-07', False, why if not ok else 'условие не выполнено: Ш3в не применён — верх не рассчитан')
+    elif tf.get('follow'):
+        n_top = max(int(top_rep.get('n_top') or 0), 1)
+        add('R-TOP-FOLLOW-07', True, 'верх следует группе: L верха Ш3в %s → тон группы %s, ΔE00 %s, фото верха %.1f %%' % (
+            (tf.get('top_tone') or [None])[0], (tf.get('group_tone') or [None])[0], tf.get('de00'), 100.0 * float(top_rep.get('photo_top_n') or 0) / n_top))
+    else:
+        add('R-TOP-FOLLOW-07', False, str(tf.get('why')))
+    return out
+
+
 def type_policy_entries(pol: dict, modes: list | None, reg: dict | None = None, rules: dict | None = None, effect: dict | None = None) -> list:
     """Записи extra.rules[] для четырёх правил «политика невидимых сторон по типу» (К1/К3/К4/К5–К7; T-20261123-51/1): по одной записи на правило, у каждого товара.
     pol — `paint_policy_for(cfg)` 07 (type, role, hidden_pattern, mode, reason); modes — `paint_policy.groups_synth` (режимы синтеза невидимого по группам: quilt/smooth/skip) или None, если паспорт
