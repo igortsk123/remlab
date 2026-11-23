@@ -66,6 +66,8 @@ FILL = {
     'quilt_side': 96,                # минимальная сторона плитки квилта, пикселей
     'quilt_overlap': 0.25,           # перекрытие блоков Efros–Freeman, доля блока (1/6–1/4)
     'quilt_block_min': 16, 'quilt_block_max': 48,   # блок — от периода узора (автокорреляция известного), в этих пределах
+    'pattern_lattice_margin': 0.1,   # узорная часть: решётка допустима до эталона src (та же мерка по известному фото части) + этот запас, но не ниже quilt_lattice_max
+    'pattern_big_mul': 1.5,          # ступень (в) для узорной: блок крупнее во столько раз, пул — из всей части (развёртка)
     'quilt_lattice_max': 0.3,        # мерка «решётка квилта»: избыточная автокорреляция детали L на лагах, кратных шагу блока (B−перекрытие), выше — пул слишком мал (блоки повторяются по сетке), квилт пересобирается
     'quilt_stride_div': 2,           # шаг выборки блоков пула = блок / quilt_stride_div (2 = полблока); при решётке удваивается, пока мерка не уйдёт или не достигнет quilt_stride_div_max
     'quilt_stride_div_max': 8,
@@ -440,6 +442,40 @@ def quilt_lattice(patch: np.ndarray, step: int) -> dict:
             if ex > best['excess']:
                 best = {'excess': ex, 'r': float(prof[lag]), 'lag': ('y' if ax == 0 else 'x', lag)}
     return best
+
+
+def known_lattice(res: np.ndarray, ok: np.ndarray, step: int):
+    """Эталон src для узорной части (T-187/6, 23.11): та же мерка `quilt_lattice` по САМОМУ БОЛЬШОМУ квадрату известного (фото-текселей части) — период самого рисунка, не квилта.
+    `res` (n,n,3) остаток цвета, `ok` (n,n) bool «известное этой части», `step` — тот же шаг лага (в пикселях/текселях этого массива). Квадрата меньше двух шагов нет — None."""
+    from scipy.ndimage import distance_transform_cdt
+    ok_ = np.pad(np.asarray(ok, bool), 1)
+    if not ok_.any():
+        return None
+    d = distance_transform_cdt(ok_, metric='chessboard')
+    r = int(d.max())
+    side = 2 * r - 1
+    if side < 2 * int(step) + 2:
+        return None
+    iy, ix = np.unravel_index(int(np.argmax(d)), d.shape)
+    y0, x0 = int(iy) - 1 - (r - 1), int(ix) - 1 - (r - 1)
+    return float(quilt_lattice(np.asarray(res)[y0:y0 + side, x0:x0 + side], int(step))['excess'])
+
+
+def pattern_lattice_limit(src, lmax: float, margin: float) -> float:
+    """Предел решётки узорной части: max(порог, src + запас); эталона нет (известного мало) — просто порог."""
+    return float(lmax) if src is None else max(float(lmax), float(src) + float(margin))
+
+
+def lattice_end_action(is_pattern: bool, after: float, src, big_tried: bool, lmax: float, margin: float) -> str:
+    """Что делать, когда лестница (пул гуще → отражения ×4) кончилась, а решётка выше порога: 'ok' (после ≤ порога), 'flat' (обычная часть → плоский тон),
+    'pass' (узорная в пределах эталона — период рисунка), 'big' (узорная: ступень (в), ещё не пробовали), 'fail' (узорная: (в) была, не дошло — честный провал, рисунок не стираем)."""
+    if after <= lmax:
+        return 'ok'
+    if not is_pattern:
+        return 'flat'
+    if after <= pattern_lattice_limit(src, lmax, margin):
+        return 'pass'
+    return 'fail' if big_tried else 'big'
 
 
 def pattern_period(resL: np.ndarray, ok: np.ndarray, lo: int, hi: int) -> int:
@@ -1198,6 +1234,7 @@ def fill(geoms: list, known: list, parts: list | None = None, cfg: dict | None =
         pr_S = pr_lab = pr_kn = pr_pm = None
         qwork = [(p, int(c['quilt_stride_div']), 0) for p in part_ids]      # часть может вернуться в конец списка с более плотным пулом (мерка решётки квилта); список растёт на ходу
         qlat = {}
+        qsrc, qbq, qbig = {}, {}, {}          # узорные: эталон src решётки, блок первой сборки, пробовалась ли ступень (в)
         for p, qdiv, qaug in qwork:
             resg, okg = [], []
             for gi, tx in enumerate(txs):
@@ -1212,7 +1249,7 @@ def fill(geoms: list, known: list, parts: list | None = None, cfg: dict | None =
             if sum(cnt) < 200:
                 continue
             rp = None
-            if p in pat_parts and c["pattern_render"]:                  # узорная: блоки — из непрерывного кадра видимой стороны (az фото), не из дырявой развёртки
+            if p in pat_parts and c["pattern_render"] and int(p) not in qbig:                  # узорная: блоки — из непрерывного кадра видимой стороны (az фото), не из дырявой развёртки; ступень (в) — из развёртки всей части
                 if pr_S is None:
                     pr_S = view_samples(geoms, c["pr_az"], int(c["pr_res"]), c["pr_ortho"], c["pr_el"])
                     pr_lab = sample_view(pr_S, labs)
@@ -1235,6 +1272,8 @@ def fill(geoms: list, known: list, parts: list | None = None, cfg: dict | None =
             else:
                 gbest = int(np.argmax(cnt))                           # период узора — по геометрии, где у части больше всего известного
                 Bq = pattern_period(resg[gbest][..., 0], okg[gbest], int(c['quilt_block_min']), int(c['quilt_block_max']))
+                if int(p) in qbig:                                     # ступень (в): блок крупнее первой сборки
+                    Bq = int(min(max(Bq, int(round(qbq.get(int(p), Bq) * float(c['pattern_big_mul'])))), int(c['quilt_block_max'])))
                 oq = max(2, int(round(Bq * c['quilt_overlap'])))
                 pool = []
                 ints = {}
@@ -1303,19 +1342,40 @@ def fill(geoms: list, known: list, parts: list | None = None, cfg: dict | None =
                 if p in pat_parts:
                     raw_mean[p] = q.mean(axis=(0, 1))             # узорная: плитка без вычитания среднего и без смешения (фон = тон, цветы поверх)
             if first:
+                qbq[int(p)] = Bq
                 rep.setdefault('quilt_lattice', {})[int(p)] = {'before': round(lat['excess'], 3), 'rebuilt': 0}
             else:
                 rep['quilt_lattice'][int(p)]['rebuilt'] = qdiv
                 rep['quilt_lattice'][int(p)]['flip'] = qaug
                 rep['quilt_lattice'][int(p)]['after'] = round(qlat[int(p)], 3)
-            if lat['excess'] > c['quilt_lattice_max']:            # решётка: блоки повторяются по сетке (пул мал) — лестница: пул гуще (шаг вдвое мельче) → отражения ×4 → гладко
-                if qdiv * 2 <= int(c['quilt_stride_div_max']):
+            if lat['excess'] > c['quilt_lattice_max']:            # решётка: блоки повторяются по сетке (пул мал) — лестница: пул гуще (шаг вдвое мельче) → отражения ×4 → гладко (узорная: эталон src, ступень (в), без «гладко»)
+                if p in pat_parts and int(p) not in qsrc:                                   # эталон узора: та же мерка по известному фото части (шаг лага — в пикселях того массива)
+                    if rp is not None:
+                        qsrc[int(p)] = known_lattice(resr, okr, max(2, int(round((Bq - oq) / max(sc, 1e-6)))))
+                    else:
+                        qsrc[int(p)] = known_lattice(resg[gbest], okg[gbest], Bq - oq)
+                src_ = qsrc.get(int(p))
+                lim_ = pattern_lattice_limit(src_, c['quilt_lattice_max'], c['pattern_lattice_margin'])
+                if p in pat_parts and qlat[int(p)] <= lim_:                                   # решётка узорной не выше эталона (период самого рисунка) — не брак
+                    rep.setdefault('quilt_lattice_pattern', {})[int(p)] = {'src': None if src_ is None else round(src_, 3), 'after': round(qlat[int(p)], 3), 'limit': round(lim_, 3), 'verdict': 'pass', 'big': int(p) in qbig}
+                elif qdiv * 2 <= int(c['quilt_stride_div_max']) and int(p) not in qbig:
                     qwork.append((p, qdiv * 2, qaug))
-                elif not qaug:
+                elif not qaug and int(p) not in qbig:
                     qwork.append((p, qdiv, 1))
-                elif qlat[int(p)] > c['quilt_lattice_max'] and p not in pat_parts:        # узорная часть: период самого рисунка (обои, цветы) — не брак квилта, гладко не делаем
-                    qflat.add(int(p))
-                    rep['quilt_lattice'][int(p)].update({'after_best': round(qlat[int(p)], 3), 'after': 0.0, 'flat': True})
+                else:
+                    act_ = lattice_end_action(p in pat_parts, qlat[int(p)], src_, int(p) in qbig, c['quilt_lattice_max'], c['pattern_lattice_margin'])
+                    if act_ == 'flat':                                                        # обычная часть: гладко (тон части + зерно UltraTex)
+                        qflat.add(int(p))
+                        rep['quilt_lattice'][int(p)].update({'after_best': round(qlat[int(p)], 3), 'after': 0.0, 'flat': True})
+                    elif act_ == 'big':                                                       # узорная: ступень (в) — блок крупнее, пул из всей части, пул гуще и отражения
+                        qbig[int(p)] = float(c['pattern_big_mul'])
+                        qwork.append((p, int(c['quilt_stride_div_max']), 1))
+                    elif act_ == 'fail':                                                      # (в) не дошла — честный провал, рисунок не стираем
+                        rep.setdefault('quilt_lattice_pattern', {})[int(p)] = {'src': None if src_ is None else round(src_, 3), 'after': round(qlat[int(p)], 3), 'limit': round(lim_, 3), 'verdict': 'fail', 'big': True}
+        for p_ in qbig:                                          # (в) запускалась, но терминальной записи нет (пул мал → пропуск): итог по лучшей сборке
+            if p_ in qlat and p_ not in rep.get('quilt_lattice_pattern', {}):
+                lim_ = pattern_lattice_limit(qsrc.get(p_), c['quilt_lattice_max'], c['pattern_lattice_margin'])
+                rep.setdefault('quilt_lattice_pattern', {})[p_] = {'src': None if qsrc.get(p_) is None else round(qsrc[p_], 3), 'after': round(qlat[p_], 3), 'limit': round(lim_, 3), 'verdict': 'pass' if qlat[p_] <= lim_ else 'fail', 'big': True}
     for p in (part_ids if (dshift is None or c['draft_texture']) else []):
         if p in patches:
             continue
@@ -2197,7 +2257,10 @@ def _center_by_part(v: np.ndarray, lab: np.ndarray, min_n: int) -> np.ndarray:
 def _lattice_value(rep: dict) -> float:
     """Максимум решётки квилта по ИТОГОВЫМ сборкам всех путей (T-187/6, 23.11): fill-квилт (after, если пересобирали, иначе before), patch, own_panel (после пересборки/фоллбэка плоским)."""
     vals = []
-    for v in (rep.get('quilt_lattice') or {}).values():
+    qp = rep.get('quilt_lattice_pattern') or {}
+    for p_, v in (rep.get('quilt_lattice') or {}).items():
+        if (qp.get(p_) or qp.get(str(p_)) or {}).get('verdict') == 'pass':          # узорная: решётка в пределах эталона src (период рисунка) — не брак
+            continue
         vals.append(float(v.get('after', v.get('before', 0.0))))
     for v in (rep.get('patch_lattice') or {}).values():
         if isinstance(v, dict) and v.get('lattice', v.get('quilt_lattice')) is not None:

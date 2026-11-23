@@ -790,6 +790,35 @@ def test_quilt_lattice():
     ok(n4 > n2, f'густой шаг выборки даёт больше блоков пула ({n2} → {n4})')
 
 
+def test_pattern_lattice():
+    print('узорная часть (T-187/6, 23.11): решётка судится эталоном src; обычная — порогом 0,3:')
+    lmax, mg = 0.3, 0.1
+    ok(TF.pattern_lattice_limit(0.45, lmax, mg) == 0.55 and TF.pattern_lattice_limit(None, lmax, mg) == 0.3 and TF.pattern_lattice_limit(0.1, lmax, mg) == 0.3, 'предел = max(0,3; src+0,1); эталона нет — 0,3')
+    ok(TF.lattice_end_action(True, 0.48, 0.45, False, lmax, mg) == 'pass', '(1) узорная: src 0,45, after 0,48 → проходит (период рисунка)')
+    ok(TF.lattice_end_action(True, 0.4, 0.1, False, lmax, mg) == 'big', '(2) узорная: src 0,1, after 0,4 → ступень (в)')
+    ok(TF.lattice_end_action(True, 0.4, 0.1, True, lmax, mg) == 'fail', '(2) (в) была, не дошло → провал, и это НЕ flat (рисунок не стираем)')
+    ok(TF.lattice_end_action(True, 0.28, 0.1, True, lmax, mg) == 'ok', 'узорная дошла до порога — ок')
+    ok(TF.lattice_end_action(False, 0.4, 0.45, False, lmax, mg) == 'flat', '(3) обычная 0,4 → flat, эталон на неё не действует (src 0,45 не оправдывает)')
+    ok(TF.lattice_end_action(False, 0.2, None, False, lmax, mg) == 'ok', 'обычная ≤ порога — ок')
+    rng = np.random.RandomState(5)
+    res = np.zeros((90, 90, 3))
+    res[..., 0] = rng.randn(90, 90)
+    okm = np.zeros((90, 90), bool)
+    okm[10:80, 10:80] = True
+    ex = TF.known_lattice(res, okm, 8)
+    ok(ex is not None and ex < 0.2, f'эталон на шуме без периода — малый ({ex})')
+    per = np.tile(rng.randn(8, 8), (12, 12))
+    res2 = np.zeros((96, 96, 3))
+    res2[..., 0] = per
+    ex2 = TF.known_lattice(res2, np.ones((96, 96), bool), 8)
+    ok(ex2 is not None and ex2 > 0.3, f'эталон на периодическом узоре (период = шаг) — большой ({ex2})')
+    ok(TF.known_lattice(res, np.zeros((90, 90), bool), 8) is None and TF.known_lattice(res, okm[:, :], 80) is None, 'нет известного или квадрат меньше двух шагов → None')
+    rep_ = {'quilt_lattice': {3: {'before': 0.6, 'rebuilt': 8, 'flip': 1, 'after': 0.48}, 4: {'before': 0.2, 'rebuilt': 0}}, 'quilt_lattice_pattern': {3: {'src': 0.45, 'after': 0.48, 'limit': 0.55, 'verdict': 'pass', 'big': False}}, 'patch_lattice': {}, 'own_panel': {}}
+    ok(TF._lattice_value(rep_) == 0.2, f'_lattice_value: узорная с verdict pass исключена ({TF._lattice_value(rep_)})')
+    rep_['quilt_lattice_pattern'][3]['verdict'] = 'fail'
+    ok(TF._lattice_value(rep_) == 0.48, f'_lattice_value: узорная с verdict fail держит максимум ({TF._lattice_value(rep_)})')
+
+
 def test_quilt_holes():
     print('квилт при дырявом известном (вход этапа 6: грани мельче пикселя фото):')
     q = Quads()
@@ -1700,7 +1729,7 @@ def test_side_azimuths():
 
 
 def main() -> int:
-    for f in (test_check_on_final_texture, test_side_azimuths, test_top_prior_hook, test_mirror_off_by_default, test_shrink_layout, test_tie_picks_front_on_back, test_front_on_back, test_front_on_back_within_parts, test_front_on_back_unequal_parts, test_color, test_photo, test_parts, test_lighter_than_photo, test_no_known_part, test_mirror, test_texture, test_gutter_render, test_seam_steps_concavity, test_diffuse_quilt_far, test_draft_source, test_tone_mode_pattern, test_quilt_efros, test_quilt_holes, test_known_unchanged, test_render_pattern, test_outlier_blocks, test_dark_fabric, test_trellis_relief, test_part_roles_from_stage3, test_stage7_side_tone_smooth_rules, test_tone_from_neighbour, test_nail_twins, test_borrow_donors, test_tone_only, test_part_pattern_single_truth, test_pr_camera_and_winding, test_hidden_visible, test_stage6_gate, test_cli_run_stage, test_orphan_parts, test_cli_parts_flags, test_zones_fallback, test_brightness_target_median, test_run_stage_fallback, test_render_low, test_quilt_lattice):
+    for f in (test_check_on_final_texture, test_side_azimuths, test_top_prior_hook, test_mirror_off_by_default, test_shrink_layout, test_tie_picks_front_on_back, test_front_on_back, test_front_on_back_within_parts, test_front_on_back_unequal_parts, test_color, test_photo, test_parts, test_lighter_than_photo, test_no_known_part, test_mirror, test_texture, test_gutter_render, test_seam_steps_concavity, test_diffuse_quilt_far, test_draft_source, test_tone_mode_pattern, test_quilt_efros, test_quilt_holes, test_known_unchanged, test_render_pattern, test_outlier_blocks, test_dark_fabric, test_trellis_relief, test_part_roles_from_stage3, test_stage7_side_tone_smooth_rules, test_tone_from_neighbour, test_nail_twins, test_borrow_donors, test_tone_only, test_part_pattern_single_truth, test_pr_camera_and_winding, test_hidden_visible, test_stage6_gate, test_cli_run_stage, test_orphan_parts, test_cli_parts_flags, test_zones_fallback, test_brightness_target_median, test_run_stage_fallback, test_render_low, test_quilt_lattice, test_pattern_lattice):
         f()
     print(f'tests_tex_fill: ошибок {bad}')
     return 1 if bad else 0
