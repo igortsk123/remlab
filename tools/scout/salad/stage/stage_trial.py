@@ -295,6 +295,9 @@ def poll_stage(gw, a, cur: dict, t: float) -> tuple[str, dict]:
             items[sku] = cur['got'][sku]
             continue
         c, v = gw.call('GET', f'/jobs/{jid}', timeout=30)
+        if c == 404:                                       # воркер задание не знает: контейнер ноды перезапущен (память/сбой) — записи о задании нет, результат потерян; ждать нечего (T-34: тёплая нода 14:43, опрос шёл вечно)
+            cur['got'][sku] = items[sku] = {'status': 'failed', 'error': 'job_lost: воркер не знает задание (404) — нода перезапущена, результат потерян'}
+            continue
         if c != 200:
             running += 1                                   # шлюз моргнул — не провал; зависание ловят потолок денег и сторож хода
             continue

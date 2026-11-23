@@ -206,6 +206,14 @@ try:
     body = ST.make_spec(a, {}).build_body('n', 'cls', {'basic': {'username': 'u', 'password': 'p'}})
     env = body['container']['environment_variables']
     check(env.get('IDLE_S') == '1200' and env.get('MAX_LIFETIME_S') == '7200', f'тело группы: IDLE_S=1200, MAX_LIFETIME_S=7200 ({env.get("IDLE_S")}, {env.get("MAX_LIFETIME_S")})')
+    # 404 на опросе задания (нода перезапущена, записи нет) → отказ job_lost, а не вечное «идёт»
+    class Gw404:
+        def call(self, method, path, body=None, timeout=60, raw=False):
+            return 404, {'error': 'нет такого задания'}
+    with tempfile.TemporaryDirectory() as tmp404:
+        a404 = argparse.Namespace(out=tmp404, code=None)
+        st404, info404 = ST.poll_stage(Gw404(), a404, {'key': '07', 'ids': {'sku1': 'j1'}, 'got': {}, 'skipped': {}}, 0.0)
+        check(st404 == 'failed' and 'job_lost' in str(info404.get('error', '')) + str(info404.get('items')), f'404 на опросе: задание потеряно, не вечный опрос ({st404})')
     a.keep_warm = 0.0
     env = ST.make_spec(a, {}).build_body('n', 'cls', {'basic': {'username': 'u', 'password': 'p'}})['container']['environment_variables']
     check(env.get('IDLE_S') == '900' and env.get('MAX_LIFETIME_S') == str(45 * 60 + 600), f'без --keep-warm прежние значения ({env.get("IDLE_S")}, {env.get("MAX_LIFETIME_S")})')
