@@ -62,8 +62,12 @@ def _warp(donor: np.ndarray, valid: np.ndarray, cy: float, cx: float, P: int, de
     H, W = valid.shape
     if yy.min() < 0 or xx.min() < 0 or yy.max() > H - 1 or xx.max() > W - 1:
         return None, None
-    ch = [map_coordinates(donor[..., i], [yy, xx], order=1, mode='nearest') for i in range(donor.shape[-1])]
-    vv = map_coordinates(valid.astype(np.float32), [yy, xx], order=1, mode='nearest')
+    y0, y1 = int(np.floor(yy.min())), int(np.ceil(yy.max())) + 1    # режем окно вокруг куска: на всём атласе astype/копирование стоили ~65 % времени
+    x0, x1 = int(np.floor(xx.min())), int(np.ceil(xx.max())) + 1
+    yw, xw = yy - y0, xx - x0
+    sub = donor[y0:y1 + 1, x0:x1 + 1]
+    ch = [map_coordinates(np.ascontiguousarray(sub[..., i]), [yw, xw], order=1, mode='nearest') for i in range(sub.shape[-1])]
+    vv = map_coordinates(valid[y0:y1 + 1, x0:x1 + 1].astype(np.float32), [yw, xw], order=1, mode='nearest')
     return np.stack(ch, -1), vv
 
 
