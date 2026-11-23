@@ -82,7 +82,7 @@ def feats(res, view):
 # 1. правила и код: чисел порогов и ID в коде нет
 src = open(os.path.join(ASSETS, 'sides_eval.py'), encoding='utf-8').read()
 ok(not re.search(r'\b\d{5,}_\d{6,}\b', src) and not re.search(r"'(112923|114082|99272|114667)", src), 'в коде нет ID товаров')
-ok(all(k in R for k in ('patches', 'sharpness', 'uniform', 'pattern', 'underpaint', 'palette', 'albedo', 'geometry')) and len(SR['views']) == 6, 'правила: 5 признаков + палитра + albedo в sides-eval.json')
+ok(all(k in R for k in ('patches', 'sharpness', 'uniform', 'pattern', 'underpaint', 'palette', 'albedo', 'geometry', 'back_tone')) and len(SR['views']) == 6, 'правила: 5 признаков + back_tone (наблюдение) + палитра + albedo в sides-eval.json')
 ok(not re.search(r'(patch_dE|share_max|edges_max|ratio_min|jump_dab)\s*=\s*\d', src), 'в коде нет присвоенных порогов (читаются из правил)')
 
 # 2. чистый лист — проходит
@@ -287,6 +287,69 @@ with tempfile.TemporaryDirectory() as t3:
     ok(e1 == {'rule_id': 'R-SIDES-EVAL-TYPE', 'type': 'ваза', 'digest': want['digest'], 'applied': True}, 'extra.rules[]: применено — запись rule_record.entry (тип, digest паспорта, applied)')
     ok(e2['abstain'] == 'mode_observe' and 'applied' not in e2 and e2['digest'] == MTP.paint_policy('пуф')['digest'], 'extra.rules[]: observe — abstain с причиной, не applied')
     ok(e3['type'] is None and e3['digest'] is None and 'no_type' in e3['abstain'], 'extra.rules[]: нет типа — запись abstain «no_type», не пустой охват')
+
+# 14. T-34/4: правки оценщика рисунка по типу и тон тыла
+# А. размер элемента рисунка — пик спектра с интерполяцией: ответ не прыгает ступеньками шага корзины (раньше 12 и 13 px давали одно число, 18 и 20 — тоже)
+PS = {**R['pattern'], **R['pattern_by_type']['scale']}
+YY, XX = np.mgrid[0:S, 0:S]
+
+
+def wave_lab(wl):
+    lab = np.zeros((S, S, 3))
+    lab[..., 0] = 60 + 15 * np.sin(2 * np.pi * XX / wl)
+    return lab
+
+
+wls = [6, 7, 8, 9, 10, 11, 12, 13, 14, 16, 18, 20, 24]
+est = [SE.pattern_scale(wave_lab(w), blob_mask(), PS) for w in wls]
+ok(all(e is not None for e in est) and all(b > a for a, b in zip(est, est[1:])), f'масштаб рисунка: растёт строго вместе с периодом, без ступенек (12→{est[6]:.2f}, 13→{est[7]:.2f}, 18→{est[10]:.2f}, 20→{est[11]:.2f})')
+ok(all(abs(e / w - 1) <= 0.08 for e, w in zip(est, wls) if e is not None), 'масштаб рисунка: ошибка периода не больше 8 % на 6–24 px')
+
+# Б. «размер не измерен» не равно «размер сошёлся»: группу судит одна энергия, в отчёте — scale_na
+_orig_scale = SE.pattern_scale
+SE.pattern_scale = lambda *a, **k: None
+try:
+    n_good = E(sheet(photo_fn=st6, view_fns={'зад': st6}), 'continue')
+    n_flat = E(sheet(photo_fn=st6, view_fns={'зад': None}), 'continue')
+finally:
+    SE.pattern_scale = _orig_scale
+ok(pr(n_good, 'зад')['ok'] is True and pr(n_good, 'зад').get('scale_na'), 'continue, размер не измерен, энергия рисунка есть: проходит по энергии, группа записана в scale_na (не молчаливо)')
+ok(pr(n_flat, 'зад')['ok'] is False and pr(n_flat, 'зад').get('scale_na'), 'continue, размер не измерен, рисунок потерян: None НЕ проходит молча — брак по энергии')
+
+# В1. plain: группа стороны без пары на фото сравнивается с самой рябой группой фото, а не с полом rel_max
+def lab_noise(sd, seed):
+    lab = np.zeros((S, S, 3))
+    lab[..., 0] = 60 + np.random.default_rng(seed).normal(0, sd, (S, S))
+    return lab
+
+
+full = np.ones((S, S), bool)
+left, right = XX < S // 2, XX >= S // 2
+lab_p = lab_noise(5.0, 1)
+lab_s = np.where(left[..., None], lab_noise(5.0, 2), lab_noise(14.0, 3))
+rel = lambda lab, gm: (lambda x: x[0] / x[1])(SE.group_pattern(lab, gm, R['pattern']))
+T_PL = R['pattern_by_type']['plain']
+ctx = {'s': (None, None, {0: left, 1: right}), 'p': (None, None, {0: full}), 'hp': 'plain', 'view': 'зад'}
+r_pl, det_pl = SE.f_pattern_typed(lab_s, full, lab_p, full, R, ctx)
+want = rel(lab_s, right) / max(T_PL['rel_max'], T_PL['photo_k'] * rel(lab_p, full))
+floor_r = rel(lab_s, right) / T_PL['rel_max']
+ok(abs(r_pl - want) < 0.05 * want and r_pl < floor_r, f'plain: группа без пары на фото — опора самая рябая группа фото (r {r_pl:.2f}, было бы по полу {floor_r:.2f})')
+ok(r_pl > 1, 'plain: та же группа, втрое рябее фото — всё равно брак')
+
+# В2. тон тыла ≈ тон лица: наблюдение (enforce=false) — r пишется, ok и оценку не трогает; лицевые стороны не оцениваются
+def dark_band(frac):
+    def f(c):
+        c = c.copy()
+        c[:, S // 2 - 95: S // 2 - 95 + int(190 * frac), :] = (25, 25, 25)             # доля ширины предмета (маска blob_mask: 190 px)
+        return c
+    return f
+
+
+bt = SE.eval_sheet(sheet(photo_fn=dark_band(0.15), view_fns={'перед': dark_band(0.6), 'зад': dark_band(0.6), 'бок': dark_band(0.15)}), R, SR)
+b_back, b_side, b_face = bt['views']['зад']['back_tone'], bt['views']['бок']['back_tone'], bt['views']['перед']['back_tone']
+ok(b_back['r'] is not None and b_back['r'] > 1 and b_back.get('would_fail') is True and b_back['ok'] is None and b_back['score'] is None, f"back_tone: тёмного тыла втрое больше, чем на фото — r {b_back['r']} (>1), записано would_fail, но ok/score пусты (наблюдение)")
+ok(b_side['r'] is not None and b_side['r'] <= 1 and b_face['r'] is None, 'back_tone: тот же тон, что на фото — r ≤ 1; лицевая сторона (перед) не оценивается')
+ok(bt['views']['зад']['back_tone'].get('observe') is True and (bt['worst'] is None or bt['worst']['feature'] != 'back_tone'), 'back_tone: не попадает в worst и в общий ok, пока enforce=false')
 
 print('FAIL' if FAIL else 'OK', FAIL)
 sys.exit(1 if FAIL else 0)

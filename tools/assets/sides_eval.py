@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """Автооценка «со всех сторон» (T-20261123-37): 5 признаков владельца по каждой стороне листа `sides_sheet.py`.
 Признаки (правила и пороги — `data/flat3d/sides-eval.json`, в коде чисел нет): заплатки · чёткость лица · однотонно где однотонно · рисунок перенесён · недокрасы/переходы.
+Шестой признак `back_tone` (тон тыла ≈ тон лица, T-34/4) — в режиме наблюдения (`enforce=false` в правилах): r пишется в eval.json, на ok и оценку не влияет, пока не откалиброван.
 Каждая мерка → r («как плохо / допуск»); r ≤ 1 — прошла, оценка 0–1 = clip(1 − r/2). Сторона сравнивается с фото той же вещи: что есть на фото (рисунок дерева, градиент), браком не считается.
 Вход — лист PNG: клетки по `size` px (фото + виды по порядку `views` правил `sides-sheet.json`), заголовок `header_px`. Только numpy/scipy/PIL: секунды на товар, ядра, не Salad.
 
@@ -22,7 +23,7 @@ from scipy import ndimage as ndi
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 DATA = os.path.join(HERE, '..', '..', 'data', 'flat3d')
-FEATURES = ('patches', 'sharpness', 'uniform', 'pattern', 'underpaint')
+FEATURES = ('patches', 'sharpness', 'uniform', 'pattern', 'underpaint', 'back_tone')
 
 
 def load_rules(rules: dict | None = None) -> dict:
@@ -285,7 +286,13 @@ def pattern_scale(lab, gm, p):
     idx = np.digitize(f[sel], edges)
     prof = np.array([P[sel][idx == k].mean() if (idx == k).any() else 0.0 for k in range(1, len(edges))])
     k = int(prof.argmax())
-    return float(2.0 / (edges[k] + edges[k + 1]))
+    fc, df = (edges[k] + edges[k + 1]) / 2.0, edges[1] - edges[0]
+    if 0 < k < len(prof) - 1:                                                    # пик между корзинами: парабола по трём корзинам (T-34/4 А) — без ступенек шага корзины (ответы 1,0→1,455→1,683 при пороге между ними)
+        a, b, c = prof[k - 1], prof[k], prof[k + 1]
+        den = a - 2.0 * b + c
+        if den < 0.0:
+            fc += float(np.clip(0.5 * (a - c) / den, -0.5, 0.5)) * df
+    return float(1.0 / fc)
 
 
 def group_large(lab, gm, p):
@@ -307,6 +314,9 @@ def f_pattern_typed(lab_s, m_s, lab_p, m_p, R, ctx) -> tuple:
     _, _, gs = ctx['s']
     _, _, gp = ctx['p']
     rs, det = [], {}
+    rel_p_all = [gps[0] / gps[1] for gps in (group_pattern(lab_p, gp[g], p) for g in gp) if gps is not None] if mode == 'plain' else []
+    rel_p_top = max(rel_p_all) if rel_p_all else None                           # plain: у группы без пары на фото опора — самая рябая группа фото, а не пол (T-34/4 В)
+    na = []                                                                      # continue: группы, где размер элемента не измерен (энергия решает отдельно, но это видно в отчёте)
     if mode == 'same_fabric':                                                    # крупные детали (пятна, фасад) — по всему предмету, а не по тонам: тон рвётся на куски и не переживает размытие
         sc = T['same_fabric']
         lg, lgp = group_large(lab_s, m_s, ps), group_large(lab_p, m_p, ps)
@@ -321,7 +331,8 @@ def f_pattern_typed(lab_s, m_s, lab_p, m_p, R, ctx) -> tuple:
         gps = group_pattern(lab_p, gp[g], p) if g in gp else None
         rel_p = None if gps is None else gps[0] / gps[1]
         if mode == 'plain':
-            lim = max(T['plain']['rel_max'], 0 if rel_p is None else T['plain']['photo_k'] * rel_p)   # «ровно» = не рябее, чем сама вещь на фото (ткань стула имеет свой тканый рисунок)
+            ref = rel_p if rel_p is not None else rel_p_top                      # «ровно» = не рябее, чем сама вещь на фото (ткань стула имеет свой тканый рисунок)
+            lim = max(T['plain']['rel_max'], 0 if ref is None else T['plain']['photo_k'] * ref)
             rs.append(rel_s / lim)
             det[f'g{g}'] = [round(rel_s, 4), None if rel_p is None else round(rel_p, 4)]
         elif mode == 'body':
@@ -345,11 +356,17 @@ def f_pattern_typed(lab_s, m_s, lab_p, m_p, R, ctx) -> tuple:
                 continue
             r_e = p['ratio_min'] / max(rel_s / rel_p, 1e-6)
             ss, sp = pattern_scale(lab_s, gs[g], ps), pattern_scale(lab_p, gp[g], ps)
-            r_s = 0.0 if ss is None or sp is None else max(ss / sp, sp / ss) / T['continue']['scale_k']
-            rs.append(max(r_e, r_s))
-            det[f'g{g}'] = [round(rel_s / rel_p, 3), None if ss is None or sp is None else round(ss / sp, 3)]
+            if ss is None or sp is None:                                         # размер не измерен — НЕ «размер сошёлся» (r_s=0), а «не измерено»: группу судит одна энергия, группа попадает в scale_na
+                rs.append(r_e)
+                na.append(g)
+                det[f'g{g}'] = [round(rel_s / rel_p, 3), None]
+            else:
+                rs.append(max(r_e, max(ss / sp, sp / ss) / T['continue']['scale_k']))
+                det[f'g{g}'] = [round(rel_s / rel_p, 3), round(ss / sp, 3)]
     if not rs:
         return None, {'why': 'нет измеряемой группы', 'mode': mode}
+    if na:
+        det['scale_na'] = na
     return max(rs), {**det, 'mode': mode}
 
 
@@ -415,7 +432,30 @@ def f_underpaint(lab_s, m_s, lab_p, m_p, R, ctx) -> tuple:
     return r, {'grey': round(s['grey'], 3), 'black': round(s['black'], 3), 'white': round(s['white'], 3), 'jump': round(j, 4), 'jump_photo': round(j_p, 4)}
 
 
-FUNCS = {'patches': f_patches, 'sharpness': f_sharpness, 'uniform': f_uniform, 'pattern': f_pattern, 'underpaint': f_underpaint}
+def f_back_tone(lab_s, m_s, lab_p, m_p, R, ctx) -> tuple:
+    """Тон тыла ≈ тон лица (T-34/4 В): на не-лицевой стороне (вне `face_views`) ни один тон палитры не занимает заметно БОЛЬШЕ площади, чем на фото той же вещи
+    (избыток = доля тона на стороне − доля на фото, по сырым меткам, без отсева малых групп фото). Ловит тыл спинки в тоне ножек вместо ткани лица (доли тонов фото не переносятся на сторону без пары)."""
+    T = R['back_tone']
+    if ctx['view'] in T['face_views']:
+        return None, {'why': 'лицевая сторона'}
+    lbl_s, _, gs = ctx['s']
+    lbl_p, _, _ = ctx['p']
+    if not m_p.sum():
+        return None, {'why': 'нет фото'}
+    rs, det = [], {}
+    for g in gs:
+        sh_s = float((lbl_s[m_s] == g).mean())
+        if sh_s < T['min_share']:
+            continue
+        sh_p = float((lbl_p[m_p] == g).mean())
+        rs.append(max(0.0, sh_s - sh_p) / T['excess_max'])
+        det[f'g{g}'] = [round(sh_s, 3), round(sh_p, 3)]
+    if not rs:
+        return None, {'why': 'нет крупной группы'}
+    return max(rs), det
+
+
+FUNCS = {'patches': f_patches, 'sharpness': f_sharpness, 'uniform': f_uniform, 'pattern': f_pattern, 'underpaint': f_underpaint, 'back_tone': f_back_tone}
 
 
 def score_of(r: float | None) -> float | None:
@@ -450,6 +490,8 @@ def eval_view(view_rgb: np.ndarray, photo_rgb: np.ndarray, photo_mask: np.ndarra
             continue
         r, det = FUNCS[feat](lab_r if feat in ('sharpness', 'pattern') else lab_s, m, lab_p, p_m, R, ctx)
         out[feat] = {'r': None if r is None else round(float(r), 3), 'score': score_of(r), 'ok': None if r is None else bool(r <= 1.0), **det}
+        if r is not None and R.get(feat, {}).get('enforce') is False:                 # «наблюдение» (enforce=false в правилах): r и подробности пишутся, но ни ok, ни оценка не считаются — признак ещё не откалиброван
+            out[feat].update({'ok': None, 'score': None, 'observe': True, 'would_fail': bool(r > 1.0)})
     return out
 
 
