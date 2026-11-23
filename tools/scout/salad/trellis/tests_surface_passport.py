@@ -232,19 +232,25 @@ def test_back_not_tiny_contrast():
     q.quad([[-1, 0, 1], [1, 0, 1], [1, 0.5, 1], [-1, 0.5, 1]], (0, 0, .5, .5), part=0, sub=4)          # фасад (часть 0), виден целиком
     q.quad([[1, 0, 1], [1, 0, -1], [1, 1, -1], [1, 1, 1]], (0, .5, .5, 1), part=2, sub=4)              # боковина — крупный корпус (часть 2), тон близок к фасаду, виден целиком
     q.quad([[-1, 0, -1], [1, 0, -1], [1, 1, -1], [-1, 1, -1]], (.5, 0, 1, .5), part=0, sub=4)          # зад: часть 0, на фото не виден
-    q.quad([[-1, 1, -1], [1, 1, -1], [1, 1, 1], [-1, 1, 1]], (.5, .5, 1, 1), part=1, sub=4)            # «ниша» (часть 1): контрастный тон, видна полоской
+    q.quad([[-1, 1, -1], [1, 1, -1], [1, 1, 1], [-1, 1, 1]], (.5, .5, .5 + 56 / T, .5 + 56 / T), part=1, sub=4)            # «ниша» (часть 1): контрастный тон, мелкая (≈6 % площади; порог теста 10 %), видна целиком
     tex = np.zeros((T, T, 3), np.uint8)
     face, side = tile_mask((0, 0, .5, .5)), tile_mask((0, .5, .5, 1))
-    back, top = tile_mask((.5, 0, 1, .5)), tile_mask((.5, .5, 1, 1))
+    back, top = tile_mask((.5, 0, 1, .5)), tile_mask((.5, .5, .5 + 56 / T, .5 + 56 / T))
     tex[face] = lab_rgb(30.0)
     tex[side] = lab_rgb(36.0)
     tex[top] = lab_rgb(64.0, 3.0, 18.0)
     tex[back] = lab_rgb(30.0)
     ys, xs = np.mgrid[0:T, 0:T]
-    known = face | side | (top & (ys < 30))
+    known = face | side | top
     g = q.geom(tex)
     parts = [np.array(q.part, np.int32)]
-    pas, ctx, out, rep, k0 = run(g, tex, known, parts)
+    BO = TF.RULES['surface_groups']['body_override']
+    old = BO.get('body_min_area_frac')
+    BO['body_min_area_frac'] = 0.10
+    try:
+        pas, ctx, out, rep, k0 = run(g, tex, known, parts)
+    finally:
+        BO['body_min_area_frac'] = old
     bo = pas.get('body_override', {})
     ok(not any(r.get('fired') for r in bo.get('rules', [])), f'мелкая контрастная группа не даёт «корпус»: {bo.get("rules")}')
     ok(bool(bo.get('rejected_tiny')), f'отказ записан в паспорт: {bo.get("rejected_tiny")}')

@@ -541,10 +541,11 @@ def body_override(geoms: list, parts: list, maps: Maps, kn_clean: list, groups: 
         else:
             cand = [h for h in app.values() if h['id'] != G and h['texels_known'] >= int(R['min_group_texels'])
                     and float(_de(np.asarray(gg['tone_lab'], float), np.asarray(h['tone_lab'], float))[0]) > float(O['min_de'])]          # корпус — ДРУГОЙ материал (ΔE00 > min_de), а не оттенок того же: стол 1040 (L59 ↔ L70) не перекрашивался
-            kbig = max([h['texels_known'] for h in app.values() if h['id'] != G] or [0])
-            tiny = [h['id'] for h in cand if h['texels_known'] < float(O.get('body_min_known_frac', 0.0)) * kbig]
+            area = max(sum(h.get('texels_total') or 0 for h in app.values()), 1)
+            tiny = [h['id'] for h in cand if (h.get('texels_total') or 0) < float(O.get('body_min_area_frac', 0.0)) * area]
             if tiny:                                                                                  # контрастная мелочь (ниша, ручка, ножка) — не корпус: её тон на зад не переносится (T-28/1, шкаф с нишей: зад стал тёмно-рыжим)
-                rep.setdefault('rejected_tiny', []).append({'group': int(G), 'rejected': tiny, 'min_known': round(float(O.get('body_min_known_frac', 0.0)) * kbig)})
+                rep.setdefault('rejected_tiny', []).append({'group': int(G), 'rejected': tiny, 'min_area_frac': float(O.get('body_min_area_frac', 0.0)),
+                                                            'area_frac': {str(h['id']): round((h.get('texels_total') or 0) / area, 3) for h in cand if h['id'] in tiny}})
                 cand = [h for h in cand if h['id'] not in tiny]
             if not cand:
                 continue
