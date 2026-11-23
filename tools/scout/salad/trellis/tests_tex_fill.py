@@ -831,6 +831,29 @@ def test_pattern_lattice():
     ok(TF._lattice_value(rep_) == 0.48, f'_lattice_value: узорная с verdict fail держит максимум ({TF._lattice_value(rep_)})')
 
 
+def test_unobserved_relief():
+    print("«рисунок не наблюдаем» (T-187/6, 23.11): тон + зерно UltraTex, не голый тон; σL залитого > 0:")
+    g, parts, known, tl, col = scene_parts()
+    rn = np.random.RandomState(8)
+    tex0 = g["tex"].copy()
+    for tile, c0, sub in ((tl["A"], col["red"], None), (tl["B"], col["blue"], 0.5), (tl["C"], col["yellow"], None)):
+        mm = tile_mask(tile, sub)
+        tex0[mm] = np.clip(c0 + rn.normal(0, 4.0, (int(mm.sum()), 3)), 0, 255).astype(np.uint8)
+    g = dict(g, tex=tex0)
+    mD = tile_mask(tl["D"])
+    rr = np.random.RandomState(21)
+    dg_ = dict(g)
+    dg_["tex"] = np.clip(90.0 + rr.normal(0, 5.0, (T, T)), 0, 255).astype(np.uint8)[..., None].repeat(3, 2)
+    dt = TF.draft_texels([g], [dg_])
+    cfgU = {"gutter": 0, "erode_known": 0, "source": "trellis_relief", "pattern_chroma": 0.0, "pattern_min_blocks": 1e9}          # все части — «узорные», известного «меньше любого числа блоков»
+    out = TF.fill([g], known, parts, cfg=cfgU, mirror=False, draft=dt)
+    rep = out["report"]
+    ok(len(rep.get("pattern_unobserved") or {}) >= 1, "есть части «не наблюдаем»")
+    lab = lab_of(out["tex"][0], mD)
+    ok(float(lab[:, 0].std()) > 0.05, f"unobserved → σL залитого > 0 (σL {float(lab[:, 0].std()):.2f})", f"σL {float(lab[:, 0].std()):.2f}")
+    ok(0 in rep["pattern_unobserved"] and rep["relief"][0]["fallback"] is None and rep.get("relief_texels", 0) > 0, "часть 0 (на ней D) «не наблюдаем» и получила рельеф UltraTex, а не fallback «узорная часть — stat»", str(rep["relief"].get(0))[:200])
+
+
 def test_part_independence():
     print('свой генератор на часть (T-187/6, 23.11): убрал одну часть — у остальных тот же результат побайтно:')
     rs = np.random.RandomState(9)
@@ -1776,7 +1799,7 @@ def test_side_azimuths():
 
 
 def main() -> int:
-    for f in (test_check_on_final_texture, test_side_azimuths, test_top_prior_hook, test_mirror_off_by_default, test_shrink_layout, test_tie_picks_front_on_back, test_front_on_back, test_front_on_back_within_parts, test_front_on_back_unequal_parts, test_color, test_photo, test_parts, test_lighter_than_photo, test_no_known_part, test_mirror, test_texture, test_gutter_render, test_seam_steps_concavity, test_diffuse_quilt_far, test_draft_source, test_tone_mode_pattern, test_quilt_efros, test_quilt_holes, test_known_unchanged, test_render_pattern, test_outlier_blocks, test_dark_fabric, test_trellis_relief, test_part_roles_from_stage3, test_stage7_side_tone_smooth_rules, test_tone_from_neighbour, test_nail_twins, test_borrow_donors, test_tone_only, test_part_pattern_single_truth, test_pr_camera_and_winding, test_hidden_visible, test_stage6_gate, test_cli_run_stage, test_orphan_parts, test_cli_parts_flags, test_zones_fallback, test_brightness_target_median, test_run_stage_fallback, test_render_low, test_quilt_lattice, test_pattern_lattice, test_part_independence):
+    for f in (test_check_on_final_texture, test_side_azimuths, test_top_prior_hook, test_mirror_off_by_default, test_shrink_layout, test_tie_picks_front_on_back, test_front_on_back, test_front_on_back_within_parts, test_front_on_back_unequal_parts, test_color, test_photo, test_parts, test_lighter_than_photo, test_no_known_part, test_mirror, test_texture, test_gutter_render, test_seam_steps_concavity, test_diffuse_quilt_far, test_draft_source, test_tone_mode_pattern, test_quilt_efros, test_quilt_holes, test_known_unchanged, test_render_pattern, test_outlier_blocks, test_dark_fabric, test_trellis_relief, test_part_roles_from_stage3, test_stage7_side_tone_smooth_rules, test_tone_from_neighbour, test_nail_twins, test_borrow_donors, test_tone_only, test_part_pattern_single_truth, test_pr_camera_and_winding, test_hidden_visible, test_stage6_gate, test_cli_run_stage, test_orphan_parts, test_cli_parts_flags, test_zones_fallback, test_brightness_target_median, test_run_stage_fallback, test_render_low, test_quilt_lattice, test_pattern_lattice, test_part_independence, test_unobserved_relief):
         f()
     print(f'tests_tex_fill: ошибок {bad}')
     return 1 if bad else 0

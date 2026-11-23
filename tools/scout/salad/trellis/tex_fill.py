@@ -1535,7 +1535,7 @@ def fill(geoms: list, known: list, parts: list | None = None, cfg: dict | None =
     relief = None
     if c['source'] == 'trellis_relief':
         calib_ = {int(p_): int(v_['donor']) for p_, v_ in rep.get('tone_from_neighbour', {}).items()} if c.get('relief_calib_donor') else None
-        relief, rep['relief'] = draft_relief(txs, draft, labs, kn, part_ids, set(raw_mean) | set(pat_parts), c, RULES['trellis_relief'], calib=calib_)
+        relief, rep["relief"] = draft_relief(txs, draft, labs, kn, part_ids, (set(raw_mean) | set(pat_parts)) - qunobs, c, RULES["trellis_relief"], calib=calib_)          # «рисунок не наблюдаем» — как обычная часть: рельеф UltraTex (T-187/6, 23.11)
         Rr = RULES['trellis_relief']
         spac = [texel_spacing(tx) for tx in txs]
         fade = []
