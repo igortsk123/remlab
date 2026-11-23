@@ -108,8 +108,8 @@ def scene_plane_two_parts(part_split=True):
     return g, tex, known, parts, base
 
 
-def run(g, tex, known, parts, roles=None, hook_keep=None, product_role=None):
-    R = TF.RULES['surface_groups']
+def run(g, tex, known, parts, roles=None, hook_keep=None, product_role=None, card_role='шкаф'):
+    R = dict(TF.RULES['surface_groups'], _card_role=card_role)                      # роль товара: по умолчанию корпусной тип (paint.hidden_pattern = body); body_override действует только у него
     pas, ctx = SP.build([g], [tex], [known], parts, roles, R, TF.FILL, TF)
     if hook_keep is not None:
         ctx['hook_keep'] = hook_keep
@@ -224,6 +224,28 @@ def test_back_is_body_not_facade():
     tex2[back] = lab_rgb(30.0, 0.0, 0.0)
     pas2, _, out2, _, _ = run(q.geom(tex2), tex2, known, parts)
     ok(not any(r.get('fired') for r in pas2['body_override']['rules']), 'одноцветный предмет (корпус того же тона) — правило не срабатывает')
+
+
+def test_body_override_only_for_body_type():
+    print('роль панели «корпус»: только у типа paint.hidden_pattern = body (кресло 6070: обивка не «фасад», невидимое не отдаём дереву рамы):')
+    q = Quads()
+    q.quad([[-1, 0, 1], [1, 0, 1], [1, 1, 1], [-1, 1, 1]], (0, 0, .5, 1), part=0, sub=4)
+    q.quad([[-1, 0, -1], [1, 0, -1], [1, 1, -1], [-1, 1, -1]], (.5, 0, 1, .5), part=0, sub=4)
+    q.quad([[-1, 1, -1], [1, 1, -1], [1, 1, 1], [-1, 1, 1]], (.5, .5, 1, 1), part=1, sub=4)
+    tex = np.zeros((T, T, 3), np.uint8)
+    face, back, top = tile_mask((0, 0, .5, 1)), tile_mask((.5, 0, 1, .5)), tile_mask((.5, .5, 1, 1))
+    tex[face] = lab_rgb(30.0, 0.0, 0.0)
+    tex[top] = lab_rgb(64.0, 3.0, 18.0)
+    tex[back] = lab_rgb(30.0, 0.0, 0.0)
+    ys, xs = np.mgrid[0:T, 0:T]
+    known = face.copy() | (top & (xs >= 128) & (ys < 70))
+    g = q.geom(tex)
+    parts = [np.array(q.part, np.int32)]
+    for role, want in (('комод', True), ('шкаф', True), ('кресло', False), ('диван', False), (None, False)):
+        pas, ctx, out, rep, k0 = run(g, tex, known, parts, card_role=role)
+        bo = pas.get('body_override', {})
+        fired = any(r.get('fired') for r in bo.get('rules', []))
+        ok(fired == want, f'роль «{role}»: body_override {"сработал" if fired else "не сработал"} (ожидали {"да" if want else "нет"}); {bo.get("skipped_by_type", "")}')
 
 
 def test_back_not_tiny_contrast():
@@ -574,7 +596,7 @@ def test_blur_caches():
 
 
 def main() -> int:
-    for f in (test_blur_caches, test_split_plane_one_tone, test_contrast_door_own_group, test_gray_pattern_not_flattened, test_back_is_body_not_facade, test_back_not_tiny_contrast, test_top_follows_group, test_edge_body_tone, test_light_floor, test_rebuild_body_gates, test_type_allows_body, test_facade_relief_and_release_weak, test_grain_no_dark_seams, test_gradient_continues, test_outlier_replaced, test_orphan_attached, test_orphan_guards, test_orphan_keeps_hook_tone, test_hook_keep_top, test_ultratex_switch_off, test_hidden_pattern_by_type):
+    for f in (test_blur_caches, test_split_plane_one_tone, test_contrast_door_own_group, test_gray_pattern_not_flattened, test_back_is_body_not_facade, test_back_not_tiny_contrast, test_top_follows_group, test_edge_body_tone, test_light_floor, test_rebuild_body_gates, test_type_allows_body, test_body_override_only_for_body_type, test_facade_relief_and_release_weak, test_grain_no_dark_seams, test_gradient_continues, test_outlier_replaced, test_orphan_attached, test_orphan_guards, test_orphan_keeps_hook_tone, test_hook_keep_top, test_ultratex_switch_off, test_hidden_pattern_by_type):
         f()
     print(f'tests_surface_passport: ошибок {bad}')
     return 1 if bad else 0

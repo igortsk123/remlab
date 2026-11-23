@@ -625,6 +625,11 @@ def body_override(geoms: list, parts: list, maps: Maps, kn_clean: list, groups: 
     virt = []
     if not O['enabled']:
         return over, virt, rep
+    t_ok, t_why = type_allows_body(R)                                       # роль панели «фасад/корпус» — только у типов paint.hidden_pattern = body (кресло/диван: обивка не «фасад»)
+    rep['type_gate'] = {'allowed': bool(t_ok), 'why': t_why}
+    if not t_ok:
+        rep['skipped_by_type'] = t_why
+        return over, virt, rep
     app = {g['id']: g for g in groups if g.get('applied')}
     kmax = max([h['texels_known'] for h in app.values()] or [0])
     main_body = None                                                   # тон «корпуса» самой большой группы: мелкие группы (ручки, ножки, обрывки части) берут его же, а не тон крупного фасада
@@ -646,10 +651,6 @@ def body_override(geoms: list, parts: list, maps: Maps, kn_clean: list, groups: 
             edge_mode = False
             if not cand:
                 if not (O.get('edge_body') or {}).get('enabled', False) or labs is None:
-                    continue
-                t_ok, t_why = type_allows_body(R)
-                if not t_ok:
-                    rep.setdefault('edge_body_skipped', t_why)
                     continue
                 edge_mode = True                                                  # другой группы нет: тон корпуса возьмём по фото-текселям не-фасадных граней (внутри цикла по геометриям)
                 top, near, btone = gg, [], np.asarray(gg['tone_lab'], float)
