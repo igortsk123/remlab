@@ -625,3 +625,11 @@ _Скрипты переноса и проверки (parse/split/verify) — в
 - 883 — `python -I` ломает wave_guard/paint_stage → `lessons/dev-ops.md`
 - 884 — ✅ рабочего по виду без своего кадра; страница на старом 08 → `lessons/viz-render.md`
 - 885 — страница 12 владельцу после 2 из 12 с одной стороны (повтор 851) → `lessons/memory-process.md`
+- 886 — TaskStop r-фона оставляет цикл сиротой на pakardev → `lessons/dev-ops.md`
+- 887 — диск 100 %: место ели влитые рабочие копии, sel.py + сторож → `lessons/dev-ops.md`
+- 888 — проверки прогнаны на base после упавшего cherry-pick → `lessons/dev-ops.md`
+- 889 — /health Salad сбрасывал сторож простоя ноды → `lessons/dev-ops.md`
+- 890 — страница зависала вкладку, съёмщик держал ядра → `lessons/viz-render.md`
+- 891 — перёд листа развёрнут, выровнено настоящее лицо → `lessons/viz-render.md`
+- 892 — «ФОТО» листа = рендер frame-photo, а не фото → `lessons/viz-render.md`
+- 893 — 09 на чужих check.json и 05 по другому фото → `lessons/mesh-salad-pool.md`
