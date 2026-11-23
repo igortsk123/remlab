@@ -163,6 +163,19 @@ class SlotTimeout(Exception):
     pass
 
 
+DISK_LOW_RC = 3                                   # T-20261123-35: свободно на / меньше порога (rules/dev-disk.json start_min_free_gb) — тяжёлое не стартует
+
+
+def _disk_guard(label: str):
+    """Сторож места перед слотом (`disk_guard.check`: ❗ в журнал и в Telegram, порог — правила). Нет модуля рядом (урезанная копия) — не мешаем.
+    Отказ → DiskLow (в `run` — rc 3). `DISK_GUARD=0` в окружении выключает осознанно (уборка/перенос на HDD — сами освобождают место)."""
+    try:
+        import disk_guard as DG
+    except ImportError:
+        return
+    DG.require(f'heavy-slot «{label}»')
+
+
 def slot_dir() -> str:
     return os.path.expanduser(os.environ.get('HEAVY_SLOT_DIR') or '~/.cache/remlab-heavy-slot')
 
@@ -1237,6 +1250,7 @@ def heavy_slot(label: str, min_gb: float = 6.0, timeout: float | None = None, no
         log(label, msg)
         if say:
             say(msg)
+    _disk_guard(label)
     pr = prio_env() if prio is None else prio_clamp(prio)
     cores = CORES_DEFAULT if cores is None else max(float(cores), 0.0)
     info = {'label': label, 'waited_s': 0.0, 'free_gb': None, 'fd': None, 'nested': None, 'no_slot': no_slot, 'yields': 0,
@@ -1887,6 +1901,12 @@ def run(argv: list) -> int:
     except SlotTimeout:
         print(f'heavy-slot: {label} не дождался очереди/памяти (--timeout) — команда не запущена', file=sys.stderr)
         return TIMEOUT_RC
+    except RuntimeError as e:
+        if e.__class__.__name__ != 'DiskLow':
+            raise
+        log(label, str(e))
+        print(f'heavy-slot: {e}', file=sys.stderr)
+        return DISK_LOW_RC
     except FileNotFoundError as e:
         print(f'heavy-slot: команда не найдена: {e}', file=sys.stderr)
         return 127

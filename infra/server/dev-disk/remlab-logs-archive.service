@@ -1,0 +1,13 @@
+[Unit]
+Description=remlab: ночной перенос старых папок ~/remlab-logs на HDD (T-20261123-35)
+Documentation=file:%h/igor/remlab/tools/ops/logs_archive.py
+
+[Service]
+Type=oneshot
+# DISK_GUARD=0: перенос сам освобождает место, сторож старта ему мешать не должен
+Environment=DISK_GUARD=0
+WorkingDirectory=%h/igor/remlab
+ExecStart=/usr/bin/python3 %h/igor/remlab/tools/ops/logs_archive.py --apply --digest
+Nice=15
+IOSchedulingClass=idle
+TimeoutStartSec=6h

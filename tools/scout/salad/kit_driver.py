@@ -199,6 +199,24 @@ def require_slot(prio: int = SLOT_PRIO, env=None, proc_root: str = '/proc') -> N
             got = c.split('=', 1)[1]
     if got is None or not got.isdigit() or int(got) != prio:
         raise SlotRefused(f'heavy-slot с приоритетом {got!r}, нужен --prio {prio}')
+    if env is os.environ:                                                 # боевой вызов (тесты подставляют свой env — диск не трогают)
+        disk_guard_require('платный запуск Salad/RunPod')
+
+
+def disk_guard_require(label: str) -> None:
+    """T-20261123-35: места на `/` меньше порога (rules/dev-disk.json start_min_free_gb) — платное не стартует (23.11 09 упал на «No space left on device» уже после оплаты).
+    ❗ в журнал и Telegram пишет сам `tools/ops/disk_guard.py`; здесь только отказ (SlotRefused — деньги не тратим). `DISK_GUARD=0` выключает осознанно."""
+    import sys
+    ops = os.path.abspath(os.path.join(os.path.dirname(os.path.abspath(__file__)), '..', '..', 'ops'))
+    if ops not in sys.path:
+        sys.path.insert(0, ops)
+    try:
+        import disk_guard as DG
+    except ImportError:
+        return
+    ok, msg = DG.check(label)
+    if not ok:
+        raise SlotRefused(msg)
 
 
 # ---------------------------------------------------------------- Salad API

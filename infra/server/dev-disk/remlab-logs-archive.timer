@@ -1,0 +1,16 @@
+# remlab-logs-archive.timer — ночной перенос ~/remlab-logs/* старше 5 суток и без ссылок из репозитория на /mnt/hdd (T-20261123-35).
+# ВКЛЮЧАЕТ ТОЛЬКО ВЛАДЕЛЕЦ (P-072): до этого файл лежит в репозитории и ничего не делает.
+#   cp infra/server/dev-disk/remlab-logs-archive.{service,timer} ~/.config/systemd/user/
+#   systemctl --user daemon-reload && systemctl --user enable --now remlab-logs-archive.timer
+# Сначала сухой прогон: python3 tools/ops/logs_archive.py   (список и размеры, ничего не трогает)
+[Unit]
+Description=remlab: ночной перенос старых логов на HDD
+
+[Timer]
+# 01:10 по времени машины — до ночного свода и disk-keeper
+OnCalendar=*-*-* 01:10:00
+RandomizedDelaySec=300
+Persistent=true
+
+[Install]
+WantedBy=timers.target

@@ -183,6 +183,7 @@ jobs:
       - run: python tools/scout/kitchen_fit.py --check   # реестр конвейера: посадка кухонь в git = пересборка солвером, ручная правка — красный (T-20261112-121)
       # (здесь, не в scout-orient: «образ как есть» импортирует planner — нужны shapely/pydantic из requirements выше)
       - run: python tools/scout/tests/test_draft_image_rules.py   # образ запасного рендера несёт все rules/*, которые читает его код (improve-rooms.json 07.11), COPY ↔ белый список (T-20261107-03); в раскладке образа код находит приоры практики, planner не ищет файлы вне пакета (T-20261107-07)
+      - run: python -m pytest tools/ops/tests/test_disk_guard.py tools/ops/tests/test_logs_archive.py -q -p no:cacheprovider   # сторож места перед платным/тяжёлым (<15 ГБ — отказ, ❗) и ночной перенос ~/remlab-logs на HDD: на заглушках во временной папке (T-20261123-35)
       - run: python -m pytest tools/ops/tests/test_disk_clean.py -q -p no:cacheprovider   # уборка диска DEV второго круга: только влитое/чистое/старое, без одобрения не удаляет, запретные пути (T-20261110-30)
       - run: python -m pytest tools/ops/tests/test_trial_e2e.py -q -p no:cacheprovider   # замерщик пробы агента: стадии, p50/p95, 429/503, без --live на прод не грузит (T-20261109-14)
       - run: python -m pytest tools/ops/tests/test_forms_accept.py -q -p no:cacheprovider   # кадры приёмки формы: файлов = товары × виды × света, виды из одной таблицы (T-20261122-180/7)
