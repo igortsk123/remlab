@@ -461,7 +461,7 @@ def build(geoms: list, tex_rgb: list, known: list, parts: list, roles: dict | No
     for g in groups:
         g['known_share'] = round(g['texels_known'] / tot_known, 3)
     pas = {'groups': groups, 'part_group': {str(p): int(gid_of[p]) for p in all_parts}, 'donors': {str(k): int(v) for k, v in donors.items()}, 'merges': log['merged'], 'orphans': orph, 'refusals': log['refused'], 'rules_version': R.get('version', 1)}
-    over, virt, orep = body_override(geoms, parts, maps, kn_clean, groups, gid_of, R, tf)
+    over, virt, orep = body_override(geoms, parts, maps, kn_clean, groups, gid_of, R, tf, labs)
     pas['groups'].extend(virt)
     pas['body_override'] = orep
     ctx = {'maps': maps, 'labs': labs, 'kn_clean': kn_clean, 'gid_of': gid_of, 'over': over, 'cen': [_cen(maps, gi) for gi in range(ng)], 'samp': None}
@@ -518,7 +518,21 @@ def _tone_arr(grp: dict, ctx: dict, gi: int, m: np.ndarray) -> np.ndarray:
     return np.stack([gr['coef'][c][0] + gr['coef'][c][1] * s for c in range(3)], 1)
 
 
-def body_override(geoms: list, parts: list, maps: Maps, kn_clean: list, groups: list, gid_of: dict, R: dict, tf) -> tuple:
+def edge_body_tone(lab_obs: np.ndarray, grp_tone, E: dict, min_de: float, de_fn=None) -> dict:
+    """Тон «корпуса» по ФОТО-текселям не-фасадных граней группы (кромки, верх, видимая боковина; роль панели — по геометрии: не на плоскости фасада). Чистая функция.
+    lab_obs — Lab фото-текселей этих граней; берётся, если их ≥ `min_texels`, и их медиана — другой материал: ΔE00 от тона группы > `min_de`. → {'ok', 'tone', 'n', 'de00', 'why'}"""
+    de_fn = de_fn or (lambda a, b: float(_de(np.asarray(a, float), np.asarray(b, float))[0]))
+    n = int(len(lab_obs))
+    if n < int(E['min_texels']):
+        return {'ok': False, 'n': n, 'why': f'фото-текселей не-фасада {n} < {E["min_texels"]}'}
+    med = np.median(np.asarray(lab_obs, float), axis=0)
+    de = de_fn(grp_tone, med)
+    if de <= min_de:
+        return {'ok': False, 'n': n, 'de00': round(de, 1), 'why': f'не-фасад близок к тону группы (ΔE00 {de:.1f} ≤ {min_de})'}
+    return {'ok': True, 'n': n, 'de00': round(de, 1), 'tone': [round(float(x), 2) for x in med], 'why': 'корпус по фото-текселям не-фасадных граней'}
+
+
+def body_override(geoms: list, parts: list, maps: Maps, kn_clean: list, groups: list, gid_of: dict, R: dict, tf, labs: list | None = None) -> tuple:
     """«Фасад на зад не идёт» (владелец TG 1954): группа, чьё видимое лежит на ОДНОЙ плоскости (фасад/лицо), не красит невидимые грани других сторон (зад, бока, верх/низ) —
     они берут тон «корпуса»: другой группы с надёжным видимым тоном (≠ тон фасада). Нет такой группы (одноцветный предмет, диван) — ничего не меняется.
     Панель — геометрическая (RZ.panel_ids без частей): одна плоскость зада, разрезанная частями 03, красится целиком. → (over[gi] карта виртуальной группы или −1, виртуальные группы, отчёт)."""
@@ -547,16 +561,22 @@ def body_override(geoms: list, parts: list, maps: Maps, kn_clean: list, groups: 
                 rep.setdefault('rejected_tiny', []).append({'group': int(G), 'rejected': tiny, 'min_area_frac': float(O.get('body_min_area_frac', 0.0)),
                                                             'area_frac': {str(h['id']): round((h.get('texels_total') or 0) / area, 3) for h in cand if h['id'] in tiny}})
                 cand = [h for h in cand if h['id'] not in tiny]
+            edge_mode = False
             if not cand:
-                continue
-            top = max(cand, key=lambda h: h['texels_known'])
-            near = [h for h in cand if float(_de(np.asarray(top['tone_lab'], float), np.asarray(h['tone_lab'], float))[0]) <= float(O['back_merge_de'])]
-            wts = np.array([h['texels_known'] for h in near], float)
-            btone = (np.stack([np.asarray(h['tone_lab'], float) for h in near]) * wts[:, None]).sum(0) / wts.sum()
+                if not (O.get('edge_body') or {}).get('enabled', False) or labs is None:
+                    continue
+                edge_mode = True                                                  # другой группы нет: тон корпуса возьмём по фото-текселям не-фасадных граней (внутри цикла по геометриям)
+                top, near, btone = gg, [], np.asarray(gg['tone_lab'], float)
+            else:
+                top = max(cand, key=lambda h: h['texels_known'])
+                near = [h for h in cand if float(_de(np.asarray(top['tone_lab'], float), np.asarray(h['tone_lab'], float))[0]) <= float(O['back_merge_de'])]
+                wts = np.array([h['texels_known'] for h in near], float)
+                btone = (np.stack([np.asarray(h['tone_lab'], float) for h in near]) * wts[:, None]).sum(0) / wts.sum()
         vid = 100000 + int(G)
         vg = {'id': vid, 'virtual_for': int(G), 'parts': [], 'class': top['class'], 'class_why': 'виртуальная группа «корпус» для невидимых граней фасадной группы', 'tone_lab': [round(float(x), 2) for x in btone],
               'sigma_grain_L': top['sigma_grain_L'], 'sigma_band_L': top.get('sigma_band_L'), 'applied': True, 'texels_known': 0, 'texels_total': 0, 'from_groups': [h['id'] for h in near]}
         n_over = 0
+        edge_done = False
         for gi, g in enumerate(geoms):
             V = np.asarray(g['V'], np.float64)
             F = np.asarray(g['F'], np.int64)
@@ -606,6 +626,20 @@ def body_override(geoms: list, parts: list, maps: Maps, kn_clean: list, groups: 
                 rec['why'] = f'невидимых чужих граней {f_pct:.1f} % площади < {O["min_foreign_area_pct"]} % — не «зад», правило не применяется'
                 rep['rules'].append(rec)
                 continue
+            if edge_mode:
+                obs_f = (faceG == G) & (side | far) & (kn_f > 0)                  # не-фасадные грани группы, у которых есть фото-тексели
+                tx_o = occ & kn & obs_f[np.maximum(ids, 0)]
+                eb = edge_body_tone(np.asarray(labs[gi]).reshape(-1, 3)[tx_o], gg['tone_lab'], O['edge_body'], float(O['min_de']), lambda a, b: float(_de(np.asarray(a, float), np.asarray(b, float))[0]))
+                rec['edge_body'] = eb
+                if not eb['ok'] or edge_done:
+                    rec['fired'] = False
+                    rec['why'] = eb['why'] if not eb['ok'] else 'корпус по фото уже взят на другой геометрии'
+                    rep['rules'].append(rec)
+                    continue
+                vg['tone_lab'] = eb['tone']
+                vg['class_why'] = 'виртуальная группа «корпус» по фото-текселям не-фасадных граней (edge_body)'
+                rec['body_tone'] = eb['tone']
+                edge_done = True
             tx = occ & foreign[np.maximum(ids, 0)]
             T = maps.T[gi]
             over[gi].reshape(-1)[tx] = vid
@@ -616,7 +650,7 @@ def body_override(geoms: list, parts: list, maps: Maps, kn_clean: list, groups: 
             vg['texels_total'] = n_over
             virt.append(vg)
             if main_body is None and not small:
-                main_body = {'top': top, 'near': near, 'btone': btone}
+                main_body = {'top': top, 'near': near, 'btone': np.asarray(vg['tone_lab'], float)}
     return over, virt, rep
 
 

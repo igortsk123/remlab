@@ -276,6 +276,18 @@ def test_top_follows_group():
     ok(not SP.top_follows_group(top, pas, R2)['follow'], 'top_follow.enabled=false — прежнее поведение')
 
 
+def test_edge_body_tone():
+    print('корпус по фото-текселям не-фасадных граней (T-28/1, шкаф 10887: фасад серо-голубой, кромки — светлое дерево):')
+    E = {'enabled': True, 'min_texels': 600}
+    rng = np.random.default_rng(3)
+    wood = np.clip(np.array([77.7, 3.6, 20.3]) + rng.normal(0, 1.5, (900, 3)), -100, 100)
+    r = SP.edge_body_tone(wood, [70.7, -3.3, -0.6], E, 12.0)
+    ok(r['ok'] and abs(r['tone'][0] - 77.7) < 1.0 and r['de00'] > 12.0, f'900 фото-текселей дерева против серо-голубого → корпус ≈ дерево (ΔE00 {r.get("de00")})')
+    ok(not SP.edge_body_tone(wood[:300], [70.7, -3.3, -0.6], E, 12.0)['ok'], 'мало текселей (300 < 600) — не срабатывает')
+    same = np.clip(np.array([70.0, -3.0, -0.5]) + rng.normal(0, 1.0, (900, 3)), -100, 100)
+    ok(not SP.edge_body_tone(same, [70.7, -3.3, -0.6], E, 12.0)['ok'], 'не-фасад того же тона (тот же материал) — не срабатывает')
+
+
 def test_grain_no_dark_seams():
     print('зерно группы — без тёмных швов пула блоков:')
     g, tex, known, parts, base = scene_plane_two_parts()
@@ -503,7 +515,7 @@ def test_blur_caches():
 
 
 def main() -> int:
-    for f in (test_blur_caches, test_split_plane_one_tone, test_contrast_door_own_group, test_gray_pattern_not_flattened, test_back_is_body_not_facade, test_back_not_tiny_contrast, test_top_follows_group, test_grain_no_dark_seams, test_gradient_continues, test_outlier_replaced, test_orphan_attached, test_orphan_guards, test_orphan_keeps_hook_tone, test_hook_keep_top, test_ultratex_switch_off, test_hidden_pattern_by_type):
+    for f in (test_blur_caches, test_split_plane_one_tone, test_contrast_door_own_group, test_gray_pattern_not_flattened, test_back_is_body_not_facade, test_back_not_tiny_contrast, test_top_follows_group, test_edge_body_tone, test_grain_no_dark_seams, test_gradient_continues, test_outlier_replaced, test_orphan_attached, test_orphan_guards, test_orphan_keeps_hook_tone, test_hook_keep_top, test_ultratex_switch_off, test_hidden_pattern_by_type):
         f()
     print(f'tests_surface_passport: ошибок {bad}')
     return 1 if bad else 0
