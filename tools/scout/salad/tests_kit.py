@@ -724,7 +724,7 @@ def post503(gw, **kw):
 
 
 WAIT = KD.gateway_post_rules()['gateway_wait']
-ok(sum(WAIT['pauses_s']) <= 180 and set(WAIT['codes']) == {502, 503} and WAIT['health_path'] == '/health', f'rules/salad-groups.json: gateway_post.gateway_wait — паузы в сумме ≤ 3 мин ({sum(WAIT["pauses_s"])} с), коды 502/503')
+ok(sum(WAIT['pauses_s']) <= 180 and set(WAIT['codes']) == {502, 503, 524} and WAIT['health_path'] == '/health', f'rules/salad-groups.json: gateway_post.gateway_wait — паузы в сумме ≤ 3 мин ({sum(WAIT["pauses_s"])} с), коды 502/503/524 (524 — шлюз не дождался ответа на крупное тело, T-220/1 23.11; 504 и −1 по-прежнему не сюда)')
 g_ = _GW2([503, 503, 202])
 c_, i_, sl_, sd_ = post503(g_)
 ok(c_ == 202 and i_['worker_saw_job'] is True and i_['retries_post'] == 2 and g_.counters.get('retries_post') == 2 and sl_ == [float(x) for x in WAIT['pauses_s'][:2]] and g_.n_post == 3,
