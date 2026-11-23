@@ -240,5 +240,64 @@ class ConvertStep(unittest.TestCase):
         self.assertIn("error", bad)
 
 
+class BridgeFront(unittest.TestCase):
+    """T-34/5: «перёд» для моста — единый свидетель front_axis (камера 04 с поправкой «развёрнут на 180°»), а не сырая камера; не решён — az=None (фасад/ручка воздерживаются), без ctx['front'] — как раньше."""
+
+    def setUp(self):
+        import trimesh
+        import parts_to_npz as PNZ
+        import front_axis as FA
+        self.PNZ, self.FA = PNZ, FA
+        self.td = tempfile.mkdtemp(prefix="t345-")
+        V, F, UV = FA._box4()
+        sc = trimesh.Trimesh(vertices=V, faces=F, process=False, visual=trimesh.visual.TextureVisuals(uv=UV))
+        self.glb = os.path.join(self.td, "box.glb")
+        sc.export(self.glb)
+        self.vis = os.path.join(self.td, "06-visible")
+        os.makedirs(self.vis)
+        from PIL import Image
+        kn = np.zeros((100, 400), np.uint8)
+        kn[:, 200:300] = 255                                              # известна грань −Z: камера на +Z смотрит на ЗАД
+        Image.fromarray(kn).save(os.path.join(self.vis, "known.png"))
+        self.check06 = os.path.join(self.vis, "check.json")
+        json.dump({"extra": {"camera": {"az": 0.0}}}, open(self.check06, "w"))
+
+    def test_flipped_camera_needs_second_witness(self):
+        ctx = {"cam_az": 0.0, "front": {"glb": self.glb, "check06": self.check06}}
+        az, rep = self.PNZ.bridge_front(ctx)
+        self.assertEqual(az, 0.0)                                          # только доли известного — одного свидетеля мало (R-FRONT-PHOTO-WITNESS): перёд = камера
+        json.dump({"extra": {"camera": {"az": 0.0}, "front_check": {"edge_agree": 0.3}}}, open(self.check06, "w"))
+        az2, rep2 = self.PNZ.bridge_front(ctx)
+        self.assertEqual(az2, 180.0)                                       # + кромки позы 04 хуже edge_ref (второй свидетель) → развёрнуто: az+180
+        self.assertIn(rep2["source"], ("camera04_flipped", "known_share"))     # квадратный в плане макет — «перёд» по долям известного, θ тот же
+
+    def test_no_front_ctx_keeps_raw_camera(self):
+        az, rep = self.PNZ.bridge_front({"cam_az": 37.0})
+        self.assertEqual((az, rep["source"]), (37.0, "camera04_raw"))
+        self.assertEqual(self.PNZ.bridge_front({})[0], None)
+
+    def test_unresolved_front_gives_no_az(self):
+        az, rep = self.PNZ.bridge_front({"cam_az": 0.0, "front": {"glb": os.path.join(self.td, "нет.glb"), "check06": self.check06}})
+        self.assertIsNone(az)                                              # входов нет → не гадаем по сырой камере
+        self.assertTrue(any(str(f).startswith("front_unknown") for f in rep["flags"]))
+
+    def test_convert_writes_front_into_report_only(self):
+        import trimesh
+        v, f, part = table()
+        glb = os.path.join(self.td, "t.glb")
+        trimesh.Trimesh(vertices=v, faces=f, process=False).export(glb)
+        src = os.path.join(self.td, "src")
+        os.makedirs(src)
+        np.save(os.path.join(src, "faces.npy"), part.astype(np.int32))
+        json.dump({"names": ["Tabletop", "Leg", "Leg", "Leg", "Leg"]}, open(os.path.join(src, "meta.json"), "w"))
+        out = os.path.join(self.td, "o")
+        ctx = {"product_role": "столик", "channels": ["legs"], "channel_classes": {}, "front": {"glb": os.path.join(self.td, "нет.glb"), "check06": self.check06}}
+        r = self.PNZ.convert(src, glb, out, "fine", ctx)
+        self.assertTrue(r["ok"])
+        rep = json.load(open(os.path.join(out, "roles-bridge.json")))
+        self.assertIn("front", rep)                                        # отчёт моста: чем решён перёд
+        self.assertNotIn("role", json.load(open(os.path.join(out, "parts.json")))["parts"][0])   # dry: parts.json без ролей
+
+
 if __name__ == "__main__":
     unittest.main()

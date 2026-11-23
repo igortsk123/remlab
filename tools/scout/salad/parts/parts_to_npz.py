@@ -49,16 +49,31 @@ def glb_face_count(path: str) -> int:
     return int(sum(len(g.faces) for g in geoms))
 
 
+def bridge_front(ctx: dict) -> tuple:
+    """Азимут «перёда» для моста ролей (признаки front/right/front_facing_share считаются от него). → (az | None, отчёт).
+    ctx['front'] = {glb, check06[, orient]} (GLB с UV 06, 06-visible/check.json, 07-fill/orient.json) — «перёд» даёт ЕДИНЫЙ свидетель `front_axis.front_axis_resolved` (читаем, не правим):
+    камера 04 с поправкой «развёрнут на 180°» по известному, либо orient. Не решён (фото сбоку, нет входов) — az=None: роли, которым нужна сторона (фасад, ручка), честно воздерживаются (no_front),
+    а не гадают по сырой камере. Нет ctx['front'] — как до T-34/5: сырая камера `cam_az` (отчёт: source=camera04_raw)."""
+    fr = ctx.get('front')
+    if not fr:
+        return ctx.get('cam_az'), {'source': 'camera04_raw', 'theta': ctx.get('cam_az'), 'flags': []}
+    import front_axis as FA
+    r = FA.resolve_from_files(fr['glb'], fr['check06'], fr.get('orient'))
+    return r.get('theta'), {k: r.get(k) for k in ('theta', 'source', 'flags', 'cam_az', 'error') if k in r}
+
+
 def bridge_step(glb: str, lab, names: list, parts: list, doc: dict, out_dir: str, ctx: dict | None) -> dict | None:
     """Мост «название → роль» (T-217/2, `rules/part-llm-roles.json`, режим `mode`): роли по именам частей + геометрии → `roles-bridge.json` (отчёт, всегда при mode≠off и заданном `ctx`);
-    при mode=on — ещё и поля роли в записи `parts` (parts.json). dry — parts.json не меняется. ctx: {product_role, channels, channel_classes, cam_az}; нет ctx — шаг не выполняется (None).
+    при mode=on — ещё и поля роли в записи `parts` (parts.json). dry — parts.json не меняется. ctx: {product_role, channels, channel_classes, cam_az | front{glb, check06, orient}}; нет ctx — шаг не выполняется (None).
     Сбой расчёта не роняет конвертер: {error} в отчёте, части остаются."""
     sys.path.insert(0, os.path.abspath(os.path.join(HERE, '..', '..', '..', 'assets')))
     import parts_names_roles as PN
     rules = PN.load_rules()
     if PN.mode(rules) == 'off' or ctx is None:
         return None
-    res = PN.run_glb(glb, lab, names, ctx.get('product_role'), set(ctx.get('channels') or []), ctx.get('channel_classes') or {}, ctx.get('cam_az'), rules)
+    az, front = bridge_front(ctx)
+    res = PN.run_glb(glb, lab, names, ctx.get('product_role'), set(ctx.get('channels') or []), ctx.get('channel_classes') or {}, az, rules)
+    res['front'] = front
     json.dump(res, open(os.path.join(out_dir, 'roles-bridge.json'), 'w', encoding='utf-8'), ensure_ascii=False, indent=1)
     if res.get('mode') == 'on' and 'roles' in res:
         for p in parts:
