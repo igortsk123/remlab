@@ -86,6 +86,15 @@ def _in_scope(applies: dict, type_name: str, family: str | None) -> bool:
 SURFACE_RULES = ('R-KNOWN-SOURCE-07', 'R-LIGHT-FLOOR-07', 'R-RELEASE-WEAK-07', 'R-EDGE-BODY-07', 'R-GRAIN-CAP-07', 'R-TOP-SYNTH-07', 'R-TOP-FOLLOW-07')
 
 
+def _top_synth_rules() -> dict:
+    """rules/top-prior.json → stage07.synth_candidate (ключи enabled, require_hidden_pattern); нет файла/ключа — {} (правило не действует)."""
+    try:
+        with open(os.path.join(HERE, 'rules', 'top-prior.json'), encoding='utf-8') as f:
+            return (json.load(f).get('stage07') or {}).get('synth_candidate') or {}
+    except (OSError, ValueError):
+        return {}
+
+
 def _gate(role: str | None, cfg: dict | None, reg: dict | None = None) -> tuple:
     """(действует ли правило у этого товара, причина): выключено в rules / не тот тип по политике паспорта (`require_hidden_pattern` лежит в rules у самого правила)."""
     c = cfg or {}
@@ -155,7 +164,10 @@ def surface_group_entries(role: str | None, R: dict | None, ctx: dict | None, pa
         return False, 'условие не выполнено: σ зерна групп не выше потолка'
     passport_rule('R-GRAIN-CAP-07', R.get('grain_cap'), _gc)
     sc = top_rep.get('synth_candidate')
-    if not top_rep:
+    ts_ok, ts_why = _gate(role, _top_synth_rules(), reg)
+    if not ts_ok:                                                         # выключено / не тот тип — раньше любых условий
+        add('R-TOP-SYNTH-07', False, ts_why)
+    elif not top_rep:
         add('R-TOP-SYNTH-07', False, 'Ш3в (top_prior) не выполнялся')
     elif sc is None:
         add('R-TOP-SYNTH-07', False, 'условие не выполнено: кандидат тона верха не считался (Ш3в не применён)')
