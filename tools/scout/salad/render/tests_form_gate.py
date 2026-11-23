@@ -55,7 +55,7 @@ class T(unittest.TestCase):
     def test_writes_report_and_summary_without_photo(self):
         tmp = tempfile.mkdtemp(prefix='tests_fg_')
         glbs, out = mk(tmp, 's_1')
-        recs = FG.gate(out, glbs, ['s_1', 'нет_кадров'], {'s_1': 'шкаф'}, find_glb=lambda g, s: os.path.join(g, f'{s}-hd.glb'))
+        recs = FG.gate(out, glbs, ['s_1', 'нет_кадров'], {'s_1': 'шкаф'}, find_glb=lambda g, s: os.path.join(g, f'{s}-hd.glb'), vlm=False)      # без оценщика: mk() кладёт фото рядом, иначе — живой вызов шлюза без ключа (CI 22.11)
         self.assertEqual([r['sku'] for r in recs], ['s_1'])                          # без кадров товар не считается
         rec = json.load(open(os.path.join(out, 's_1', 'form_checks.json'), encoding='utf-8'))
         self.assertIn('status', rec)
