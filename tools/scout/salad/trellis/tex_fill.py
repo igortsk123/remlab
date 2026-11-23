@@ -1407,7 +1407,7 @@ def fill(geoms: list, known: list, parts: list | None = None, cfg: dict | None =
                     elif act_ == 'fail':                                                      # (в) не дошла — честный провал, рисунок не стираем
                         rep.setdefault('quilt_lattice_pattern', {})[int(p)] = {'src': None if src_ is None else round(src_, 3), 'after': round(qlat[int(p)], 3), 'limit': round(lim_, 3), 'verdict': 'fail', 'big': True}
         for p_ in qbig:                                          # (в) запускалась, но терминальной записи нет (пул мал → пропуск): итог по лучшей сборке
-            if p_ in qlat and p_ not in rep.get('quilt_lattice_pattern', {}):
+            if p_ in qlat and p_ not in qunobs and p_ not in rep.get("quilt_lattice_pattern", {}):
                 lim_ = pattern_lattice_limit(qsrc.get(p_), c['quilt_lattice_max'], c['pattern_lattice_margin'])
                 rep.setdefault('quilt_lattice_pattern', {})[p_] = {'src': None if qsrc.get(p_) is None else round(qsrc[p_], 3), 'after': round(qlat[p_], 3), 'limit': round(lim_, 3), 'verdict': 'pass' if qlat[p_] <= lim_ else 'fail', 'big': True}
     for p in (part_ids if (dshift is None or c['draft_texture']) else []):
