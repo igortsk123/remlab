@@ -162,6 +162,45 @@ class T(unittest.TestCase):
             self.assertIn('sh0r1', res[SK[1]])
             self.assertTrue(money['stop_verified'])
 
+    def test_salad_ceiling_live_count(self):
+        r = {**L.load_rules(), 'machines': 6, 'salad_ceiling': 10}
+        run = lambda name, st, n=None: {'name': name, 'current_state': {'status': st, 'instance_status_counts': {'running_count': n or 0}}}   # noqa: E731
+        live = lambda *rows: (lambda: list(rows))                                              # noqa: E731
+        self.assertEqual(L.salad_live(live(run('a', 'stopped'), run('b', 'failed'), run('c', 'running', 1), run('d', 'deploying'), run('e', 'stopped', 2))), {'c': 1, 'd': 1, 'e': 2})
+        # 4 чужих живых → из 6 запрошенных можно 6 (10−4)
+        can, other, mine = L.cap_machines(r, 6, '1', live(*[run(f'x{i}', 'running', 1) for i in range(4)]))
+        self.assertEqual((can, other, mine), (6, 4, []))
+        # 7 чужих → 3
+        self.assertEqual(L.cap_machines(r, 6, '1', live(*[run(f'x{i}', 'running', 1) for i in range(7)]))[0], 3)
+        # свои тёплые (те же имена) не считаются чужими: подхватим, а не создадим
+        mine_name = L.GROUP_PREFIX + L.suffix_of(r, '1', 0)
+        can, other, mine = L.cap_machines(r, 6, '1', live(run(mine_name, 'running', 1), *[run(f'x{i}', 'running', 1) for i in range(5)]))
+        self.assertEqual((can, other, mine), (5, 5, [mine_name]))
+        # 10 и больше чужих → 0 (отказ)
+        self.assertEqual(L.cap_machines(r, 6, '1', live(*[run(f'x{i}', 'running', 2) for i in range(6)]))[0], 0)
+
+    def test_cli_refuses_when_ceiling_exhausted_and_when_count_unreadable(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            r, _ = make_base(tmp, with_fill=True)
+            rp = os.path.join(tmp, 'rules.json')
+            json.dump({**r, 'salad_ceiling': 2}, open(rp, 'w'))
+            orig = L._salad_items
+            try:
+                L._salad_items = lambda: [{'name': f'x{i}', 'current_state': {'status': 'running', 'instance_status_counts': {'running_count': 1}}} for i in range(3)]
+                with self.assertRaises(SystemExit) as e:
+                    L.main(['--code-ref', 'HEAD', '--from', '08', '--dry', '--rules', rp])
+                self.assertIn('потолок 2', str(e.exception))
+                self.assertIn('исчерпан', str(e.exception))
+
+                def boom():
+                    raise RuntimeError('нет сети')
+                L._salad_items = boom
+                with self.assertRaises(SystemExit) as e2:
+                    L.main(['--code-ref', 'HEAD', '--from', '08', '--rules', rp])                  # боевой: счёт не прочитан — не стартуем
+                self.assertIn('не смог прочитать живой счёт', str(e2.exception))
+            finally:
+                L._salad_items = orig
+
     def test_queue_cmd_nodes_and_variant(self):
         r = L.load_rules()
         self.assertTrue(L.queue_on(r))

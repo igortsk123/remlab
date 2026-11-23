@@ -183,6 +183,51 @@ def check_sheet_photos(photo: dict, skus: list[str]) -> None:
         raise SystemExit(f'нет фото входа 06 для листов (frame-photo.png 07 — не фото, запасным не берётся): {miss[:5]}{"…" if len(miss) > 5 else ""}')
 
 
+SALAD_LIST = 'https://api.salad.com/api/public/organizations/prodstore/projects/dmodel/containers'
+GROUP_PREFIX = 'trial-stage-'                                                     # имя группы Salad = префикс stage_trial + суффикс ноды (suffix_of)
+
+
+def _salad_items() -> list[dict]:
+    """Список групп проекта в Salad — один GET (бесплатно). Через curl: WAF Salad режет python-UA (ADR-0137). Ключ — из env или ~/scout-scenes/salad.env (в журнал не идёт)."""
+    key = os.environ.get('SALAD_API_KEY', '')
+    if not key:
+        with open(ex('~/scout-scenes/salad.env'), encoding='utf-8') as f:
+            for line in f:
+                k, _, v = line.strip().partition('=')
+                if k == 'SALAD_API_KEY' and v:
+                    key = v.strip('"\'')
+    if not key:
+        raise RuntimeError('нет SALAD_API_KEY')
+    p = subprocess.run(['curl', '-sS', '--fail', '--max-time', '30', '-H', f'Salad-Api-Key: {key}', SALAD_LIST], capture_output=True, text=True, timeout=45)
+    if p.returncode != 0:
+        raise RuntimeError(f'список групп Salad не получен: curl rc={p.returncode} {p.stderr.strip()[:120]}')
+    return json.loads(p.stdout).get('items') or []
+
+
+def salad_live(fetch=None) -> dict[str, int]:
+    """{группа: живых машин} — всё, что не stopped/failed (подъём считается занятым: платная машина уже есть). Как ~/remlab-logs/router-r4/salad_live.sh."""
+    out: dict[str, int] = {}
+    for x in (fetch or _salad_items)():
+        cs = x.get('current_state') or {}
+        ic = cs.get('instance_status_counts') or {}
+        run = sum(int(ic.get(k) or 0) for k in ('allocating_count', 'creating_count', 'running_count'))
+        n = max(run, 1 if cs.get('status') in ('running', 'deploying', 'pending') else 0)
+        if n:
+            out[str(x.get('name'))] = n
+    return out
+
+
+def cap_machines(rules: dict, wanted: int, run_id: str, fetch=None) -> tuple[int, int, list[str]]:
+    """Потолок живых машин Salad на всех (rules.salad_ceiling, владелец TG 1754: ≤10). → (сколько нод можно, живых чужих, свои уже тёплые).
+    Свои тёплые ноды этого прогона (те же имена — подхватим, а не создадим) в «чужие» не входят. Не вышло прочитать счёт — исключение (на деньгах молча не стартуем)."""
+    ceiling = int(rules.get('salad_ceiling', 10))
+    live = salad_live(fetch)
+    mine = {GROUP_PREFIX + suffix_of(rules, run_id, i) for i in range(wanted)}
+    mine_live = sorted(n for n in live if n in mine)
+    other = sum(v for n, v in live.items() if n not in mine)
+    return max(0, min(wanted, ceiling - other)), other, mine_live
+
+
 def free_gb(path: str) -> float:
     import shutil
     os.makedirs(path, exist_ok=True)
@@ -482,6 +527,21 @@ def main(argv=None) -> int:
     bad = need_files(a.start, base)
     if bad:
         raise SystemExit('нет входов «до» для шага: ' + '; '.join(bad[:6]))
+    want = node_count(rules, len(skus))
+    try:                                                                           # потолок живых машин Salad на всех: перед стартом смотрим живой счёт, нод = min(запрошено, 10 − чужие живые)
+        can, other, mine_live = cap_machines(rules, want, a.run_id)
+    except (RuntimeError, OSError, ValueError, subprocess.SubprocessError) as exc:
+        if not a.dry:
+            raise SystemExit(f'не смог прочитать живой счёт Salad ({exc}) — платный прогон не стартую (потолок {rules.get("salad_ceiling", 10)})')
+        say(f'⚠ живой счёт Salad не прочитан ({exc}) — в разборе потолок не проверен')
+        can, other, mine_live = want, -1, []
+    if other >= 0:
+        say(f'Salad живо: чужих машин {other}, своих тёплых {len(mine_live)}; потолок {rules.get("salad_ceiling", 10)} → нод можно {can} из {want}')
+    if can <= 0:
+        raise SystemExit(f'ОТКАЗ: потолок {rules.get("salad_ceiling", 10)} живых машин Salad исчерпан (чужих живых {other}) — прогон не стартую; дождись освобождения или погаси лишнее')
+    if can < want:
+        say(f'нод урезано {want} → {can} по потолку живых машин')
+        rules['machines'] = can
     run_dir = os.path.join(ex(rules['out_root']), f'{a.run_id}-from{a.start}-{sha[:8]}')
     os.makedirs(os.path.join(run_dir, 'out'), exist_ok=True)
     say(f'круг на 5: код {sha[:8]} ({a.code_ref}), с шага {a.start} → этапы {rules["stages"][a.start]}; товаров {len(skus)}, нод Salad {node_count(rules, len(skus))} (≤{rules["machines"]}), '
