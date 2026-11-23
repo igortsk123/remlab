@@ -369,6 +369,30 @@ def test_type_allows_body():
     ok(SP.type_allows_body({'body_override': {'edge_body': {}}}, reg)[0], 'require_hidden_pattern не задан — без ограничения по типу')
 
 
+def test_new_rules_only_body_type():
+    print('кандидат/пол света/освобождение слабого фото — только у типа body по политике паспорта (T-28/1, вердикт директора):')
+    import mesh_type_passports as MTP
+    reg = MTP.load()
+    FR = TF.RULES['surface_groups']
+    for key, cfg in (('light_floor', FR['light_floor']), ('release_weak_known', FR['body_override']['release_weak_known'])):
+        ok(cfg.get('require_hidden_pattern') == 'body', f'{key}: ключ require_hidden_pattern=body лежит в rules/paint-fill.json')
+        for role, want in (('шкаф', True), ('комод', True), ('диван', False), ('кресло', False), ('стул', False), ('неведомое', False), (None, False)):
+            ok(SP.type_allows_rule({'_card_role': role}, cfg, reg)[0] is want, f'{key}: {role} → {want}')
+    # light_floor в apply_groups: у дивана (same_fabric) пол света не действует, у шкафа действует
+    tex, known, parts = None, None, None
+    R = dict(FR, _card_role='диван')
+    ok(not SP.type_allows_rule(R, R['light_floor'], reg)[0], 'диван: light_floor по типу отключён → apply_groups берёт пустое правило (как в main)')
+    # release_weak_known: у дивана известное не освобождается даже при enabled
+    k = [np.ones((4, 4), bool)]
+    w = [np.ones((4, 4), bool)]
+    o = [np.zeros((4, 4), np.int64)]
+    Rs = {'body_override': {'release_weak_known': {'enabled': True, 'require_hidden_pattern': 'body'}}}
+    nk, n = SP.release_weak_known(k, w, o, dict(Rs, _card_role='диван'))
+    ok(n == 0 and nk is k, 'диван: слабое фото не освобождается')
+    nk, n = SP.release_weak_known(k, w, o, dict(Rs, _card_role='шкаф'))
+    ok(n == 16 and not nk[0].any(), 'шкаф: слабое фото на корпусных гранях освобождается')
+
+
 def test_grain_no_dark_seams():
     print('зерно группы — без тёмных швов пула блоков:')
     g, tex, known, parts, base = scene_plane_two_parts()
@@ -596,7 +620,7 @@ def test_blur_caches():
 
 
 def main() -> int:
-    for f in (test_blur_caches, test_split_plane_one_tone, test_contrast_door_own_group, test_gray_pattern_not_flattened, test_back_is_body_not_facade, test_back_not_tiny_contrast, test_top_follows_group, test_edge_body_tone, test_light_floor, test_rebuild_body_gates, test_type_allows_body, test_body_override_only_for_body_type, test_facade_relief_and_release_weak, test_grain_no_dark_seams, test_gradient_continues, test_outlier_replaced, test_orphan_attached, test_orphan_guards, test_orphan_keeps_hook_tone, test_hook_keep_top, test_ultratex_switch_off, test_hidden_pattern_by_type):
+    for f in (test_new_rules_only_body_type, test_blur_caches, test_split_plane_one_tone, test_contrast_door_own_group, test_gray_pattern_not_flattened, test_back_is_body_not_facade, test_back_not_tiny_contrast, test_top_follows_group, test_edge_body_tone, test_light_floor, test_rebuild_body_gates, test_type_allows_body, test_body_override_only_for_body_type, test_facade_relief_and_release_weak, test_grain_no_dark_seams, test_gradient_continues, test_outlier_replaced, test_orphan_attached, test_orphan_guards, test_orphan_keeps_hook_tone, test_hook_keep_top, test_ultratex_switch_off, test_hidden_pattern_by_type):
         f()
     print(f'tests_surface_passport: ошибок {bad}')
     return 1 if bad else 0

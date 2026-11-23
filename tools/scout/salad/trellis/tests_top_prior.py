@@ -450,5 +450,19 @@ class TestChooseTopTone(unittest.TestCase):
         self.assertEqual(TP.choose_top_tone(None, [88.0, 0, 0], self.S)['use'], 'top')
 
 
+class TestSynthCandidateByType(unittest.TestCase):
+    """T-28/1: кандидат тона верха — ТОЛЬКО у типа paint.hidden_pattern=body; ключ — в rules/top-prior.json."""
+
+    def test_key_in_rules(self):
+        self.assertEqual(TP.load_rules()['stage07']['synth_candidate'].get('require_hidden_pattern'), 'body')
+
+    def test_gate_by_role(self):
+        import mesh_type_passports as MTP
+        need = TP.load_rules()['stage07']['synth_candidate']['require_hidden_pattern']
+        self.assertTrue(MTP.allows_hidden_pattern('шкаф', need)[0])
+        for role in ('диван', 'кресло', 'стул', None, 'неведомое'):
+            self.assertFalse(MTP.allows_hidden_pattern(role, need)[0], role)
+
+
 if __name__ == '__main__':
     unittest.main(verbosity=1)

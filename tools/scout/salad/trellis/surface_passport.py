@@ -545,24 +545,16 @@ def _tone_arr(grp: dict, ctx: dict, gi: int, m: np.ndarray) -> np.ndarray:
     return np.stack([gr['coef'][c][0] + gr['coef'][c][1] * s for c in range(3)], 1)
 
 
-def type_allows_body(R: dict, reg: dict | None = None) -> tuple:
-    """Роль панели (корпус ≠ фасад; T-28/1) действует только у типов, чей паспорт говорит `paint.hidden_pattern` == `body_override.edge_body.require_hidden_pattern` (у корпусных — «body»; поле — р.6 T-39).
+def type_allows_rule(R: dict, rule_cfg: dict | None, reg: dict | None = None) -> tuple:
+    """Правило этапа 07 действует только у типов, чей паспорт говорит `paint.hidden_pattern` == `rule_cfg.require_hidden_pattern` (T-28/1; ключ — в rules/paint-fill.json у самого правила, не ID и не роль в коде).
     Роль товара — `R['_card_role']` (card.json `role`). Нет роли / типа / поля / реестра — правило НЕ действует (причина в отчёте). → (bool, причина)."""
-    need = ((R.get('body_override') or {}).get('edge_body') or {}).get('require_hidden_pattern')
-    if not need:
-        return True, 'require_hidden_pattern не задан — по типу не ограничено'
-    role = R.get('_card_role')
-    if not role:
-        return False, 'нет роли товара (card.json role) — тип неизвестен'
-    try:
-        import mesh_type_passports as MTP
-        pol = MTP.paint_policy(role, reg) if reg is not None else MTP.paint_policy(role)
-    except Exception as e:  # noqa: BLE001
-        return False, f'реестр паспортов типов не прочитан: {type(e).__name__}: {e}'
-    v = pol.get('hidden_pattern')
-    if v in (None, 'unknown'):
-        return False, f'тип «{role}»: paint.hidden_pattern не определён ({pol.get("reason")}) — воздерживаемся'
-    return (v == need), f'тип «{role}»: paint.hidden_pattern = {v!r}' + ('' if v == need else f' ≠ {need!r}')
+    import mesh_type_passports as MTP
+    return MTP.allows_hidden_pattern(R.get('_card_role'), (rule_cfg or {}).get('require_hidden_pattern'), reg)
+
+
+def type_allows_body(R: dict, reg: dict | None = None) -> tuple:
+    """Роль панели (корпус ≠ фасад; T-28/1) — только у типов `paint.hidden_pattern` == `body_override.edge_body.require_hidden_pattern` (кресло/диван: обивка, не «фасад»). Одна проверка закрывает body_override и edge_body."""
+    return type_allows_rule(R, (R.get('body_override') or {}).get('edge_body'), reg)
 
 
 def light_floor(tgt_L, tone_L, cls: str, F: dict):
@@ -605,6 +597,8 @@ def release_weak_known(known_keep: list, weak: list, over: list, R: dict) -> tup
     «известным» — его красит корпус; прямое фото (prov 1) остаётся. Правило `body_override.release_weak_known`. → (новая known_keep, число текселей)."""
     Rr = (R.get('body_override') or {}).get('release_weak_known') or {}
     if not Rr.get('enabled', False) or not weak:
+        return known_keep, 0
+    if not type_allows_rule(R, Rr)[0]:                                      # только у типа по политике паспорта (T-28/1)
         return known_keep, 0
     out, n = [], 0
     for k, w, o in zip(known_keep, weak, over):
@@ -845,6 +839,9 @@ def apply_groups(geoms: list, tex_after: list, known_keep: list, pas: dict, ctx:
     maps, gid_of = ctx['maps'], ctx['gid_of']
     byid = {g['id']: g for g in pas['groups'] if g.get('applied')}
     out_tex, rep_g = [], {}
+    _lf_ok, _lf_why = type_allows_rule(R, R.get('light_floor'))                 # «светлое не темнеет» — только у типа по политике паспорта (T-28/1); у остальных — как в main
+    _LF = (R.get('light_floor') or {}) if _lf_ok else {}
+    ctx['light_floor_gate'] = {'allowed': bool(_lf_ok and (R.get('light_floor') or {}).get('enabled', False)), 'why': _lf_why}
     for gi, g in enumerate(geoms):
         T = maps.T[gi]
         tex = np.asarray(tex_after[gi]).copy()
@@ -929,7 +926,7 @@ def apply_groups(geoms: list, tex_after: list, known_keep: list, pas: dict, ctx:
                 if sinfo['mode'] == 'quilt' or (sinfo['mode'] == 'smooth' and syn.get('smooth_fallback', True)):   # 'skip' (рисунка нет) — прежнее зерно, без синтеза
                     res = sres[m].astype(np.float64)                          # остаток фактуры из куска фото своей группы (нет донора — 0: гладко, не шум)
             tgt = tone + res
-            tgt[:, 0] = light_floor(tgt[:, 0], np.broadcast_to(np.asarray(tone, float)[..., 0], tgt[:, 0].shape), grp['class'], R.get('light_floor') or {})
+            tgt[:, 0] = light_floor(tgt[:, 0], np.broadcast_to(np.asarray(tone, float)[..., 0], tgt[:, 0].shape), grp['class'], _LF)
             dm = wseam[m][:, None]
             new_all[m] = cur + dm * (tgt - cur)
             touched |= m

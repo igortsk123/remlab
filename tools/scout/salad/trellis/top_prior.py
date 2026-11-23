@@ -686,8 +686,14 @@ def stage07(geoms: list, tex_after: list, known: list, parts, roles: dict | None
     if not ok:
         return [np.asarray(t) for t in tex_after], rep
     SC = rules.get('stage07', {}).get('synth_candidate') or {}
+    if SC.get('enabled', False):                                         # кандидат тона верха — только у типа по политике паспорта (T-28/1; require_hidden_pattern в rules); у остальных — Ш3в как в main
+        import mesh_type_passports as MTP
+        _t_ok, _t_why = MTP.allows_hidden_pattern((card or {}).get('role'), SC.get('require_hidden_pattern'))
+        if not _t_ok:
+            SC = dict(SC, enabled=False)
+            rep['synth_candidate'] = {'skipped': 'по типу: ' + _t_why}
     if not SC.get('enabled', False) or synth is None:
-        rep['synth_candidate'] = {'skipped': 'правило выключено' if not SC.get('enabled', False) else 'маски synth не переданы (cfg.synth_dir)'}
+        rep.setdefault('synth_candidate', {'skipped': 'правило выключено' if not SC.get('enabled', False) else 'маски synth не переданы (cfg.synth_dir)'})
     if SC.get('enabled', False) and synth is not None:                       # T-28/1: тон-кандидат 06-synth против Ш3в (светлое не темнеет)
         _dg = {}
         sy = synth_top_lab(an, synth, int(SC.get('min_texels', 500)), _dg)
