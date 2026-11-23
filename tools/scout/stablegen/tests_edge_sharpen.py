@@ -140,11 +140,10 @@ class T(unittest.TestCase):
         c = E.camera_dir(0.0, 0.0)
         self.assertTrue(np.allclose(c, [0, 0, 1]) and np.allclose(E.camera_dir(90.0, 0.0), [1, 0, 0], atol=1e-9))
 
-    def test_back_glb_roundtrip(self):
+    @staticmethod
+    def _write_glb(path, V, F):
         import json as _json
         import struct
-        import tempfile
-        V, F, back = self._relief_back(n=40)
         Vf = V.astype(np.float32)
         nrm = np.zeros_like(Vf)
         nrm[:, 2] = 1.0
@@ -159,10 +158,19 @@ class T(unittest.TestCase):
         jb = _json.dumps(js).encode()
         jb += b" " * (-len(jb) % 4)
         data = struct.pack("<4sII", b"glTF", 2, 12 + 8 + len(jb) + 8 + len(binc)) + struct.pack("<I4s", len(jb), b"JSON") + jb + struct.pack("<I4s", len(binc), b"BIN\x00") + binc
+        with open(path, "wb") as fh:
+            fh.write(data)
+
+    def test_back_glb_roundtrip(self):
+        import json as _json
+        import struct
+        import tempfile
+        V, F, back = self._relief_back(n=40)
+        Vf = V.astype(np.float32)
+        idx = F.astype(np.uint32).ravel()
         with tempfile.TemporaryDirectory() as t:
             a, b = os.path.join(t, "a.glb"), os.path.join(t, "b.glb")
-            with open(a, "wb") as fh:
-                fh.write(data)
+            self._write_glb(a, V, F)
             rep = E.back_panel_glb(a, b, 0.0, 0.0, rules())                     # азимут 0 → камера на +z
             self.assertTrue(rep["written"], rep)
             with open(b, "rb") as fh:
@@ -176,6 +184,53 @@ class T(unittest.TestCase):
             self.assertLess(float(pos2[back, 2].std()), float(Vf[back, 2].std()) / 5)
             self.assertEqual(float(np.abs(pos2[Vf[:, 2] > 0.3] - Vf[Vf[:, 2] > 0.3]).max()), 0.0)
             self.assertAlmostEqual(js2["accessors"][0]["min"][2], float(pos2[:, 2].min()), places=5)    # границы позиций обновлены
+
+
+    def test_back_protect_mask(self):
+        V, F, back = self._relief_back()
+        prot = np.zeros(len(V), bool)
+        prot[np.flatnonzero(back)[::3]] = True                                  # часть вершин зада объявлена «фото» — не трогать никогда
+        V2, moved, rep = E.back_panel(V, F, np.array([0.0, 0.0, 1.0]), rules(), protect=prot)
+        self.assertTrue(rep["apply"], rep)
+        self.assertEqual(rep["photo_touched"], 0)
+        self.assertTrue(np.array_equal(V2[prot], V[prot]))
+        self.assertGreater(rep["protected_in_near"], 0)
+
+    def test_pose_edge_and_photo_guards(self):
+        import tempfile
+        import trimesh
+        from PIL import Image
+        self.assertAlmostEqual(E.pose_edge_min(), 0.5)                          # тот же порог, что у этапа камеры (camera-check.json)
+        # заглушка этапа 6: коробка с несклеенными вершинами; грани +z — на пикселе prov=1, остальные — 0
+        b = trimesh.creation.box((1.0, 0.6, 0.8))
+        Vb = b.vertices[b.faces].reshape(-1, 3)
+        Fb = np.arange(len(Vb)).reshape(-1, 3)
+        uv = np.where((b.face_normals[:, 2] > 0.9)[:, None], np.array([0.1, 0.9]), np.array([0.9, 0.1]))
+        uv = np.repeat(uv, 3, axis=0)
+        m = trimesh.Trimesh(Vb, Fb, process=False)
+        m.visual = trimesh.visual.TextureVisuals(uv=uv)
+        prov = np.zeros((4, 4), np.uint8)
+        prov[0, 0] = 1
+        with tempfile.TemporaryDirectory() as t:
+            vp, pp = os.path.join(t, "v.glb"), os.path.join(t, "prov.png")
+            m.export(vp)
+            Image.fromarray(prov).save(pp)
+            pv, pn, pf = E.photo_faces(vp, pp, [1, 2, 3])
+            self.assertEqual(pf, 2)
+            self.assertGreater(float(pn[2]), 0.99)
+            self.assertGreaterEqual(len(pv), 4)
+            self.assertEqual(E.photo_faces(vp, pp, [7])[2], 0)
+            # GLB туда-обратно: низкое согласие кромок камеры → отказ; фото-сторона не совпала с камерой → отказ
+            Vr, Fr, back = self._relief_back(n=40)
+            g = os.path.join(t, "a.glb")
+            self._write_glb(g, Vr, Fr)
+            rep = E.back_panel_glb(g, os.path.join(t, "o.glb"), 0.0, 0.0, rules(), pose_edge=0.2)
+            self.assertFalse(rep["apply"] or rep["written"])
+            self.assertIn("камере не верим", rep["reason"])
+            rep = E.back_panel_glb(g, os.path.join(t, "o.glb"), 180.0, 0.0, rules(), pose_edge=0.9, photo=(vp, pp))
+            self.assertFalse(rep["apply"] or rep["written"])
+            self.assertIn("не совпадает с камерой", rep["reason"])
+            self.assertLess(rep["photo_n_cam"], 0)
 
     def test_deterministic(self):
         V, F = grid_box(n=40)

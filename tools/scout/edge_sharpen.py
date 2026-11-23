@@ -524,15 +524,19 @@ def back_panel_analyze(V, F, front_dir, rules: dict | None = None, ctx: dict | N
     return rep
 
 
-def back_panel(V, F, front_dir, rules: dict | None = None, ctx: dict | None = None):
+def back_panel(V, F, front_dir, rules: dict | None = None, ctx: dict | None = None, protect: np.ndarray | None = None):
     """Режим «задняя панель»: рельеф лица, повторённый на заду (TRELLIS дублирует его сквозь тело), → плоскость. Берутся вершины, обращённые от камеры и лежащие не глубже
     `depth` от задней плоскости и входящие во внешнюю кожу зада; они садятся на неё (топология не меняется). Зад без плоскости (не корпусной) и уже плоский зад не трогаем.
+    `protect` — маска вершин, которые не трогаем НИКОГДА (сторона с фото этапа 6): они выпадают из `near` до сдвига; rep['photo_touched'] — сколько защищённых всё же сдвинулось (должно быть 0).
     → (V2, moved — маска сдвинутых вершин, rep). Права по роли — снаружи (`back_panel_role_allowed`)."""
     rules = rules or load_rules()
     V = np.asarray(V, np.float64)
     rep = back_panel_analyze(V, F, front_dir, rules, ctx)
     near, level, a = rep.pop("_near", None), rep.pop("_level", None), rep.pop("_a", None)
     moved = np.zeros(len(V), bool)
+    if protect is not None and near is not None:
+        rep["protected_in_near"] = int((near & protect).sum())
+        near = near & ~np.asarray(protect, bool)
     if not rep["apply"]:
         return V.copy(), moved, rep
     V2 = V.copy()
@@ -550,6 +554,7 @@ def back_panel(V, F, front_dir, rules: dict | None = None, ctx: dict | None = No
         V2[bad] = V[bad]
         moved[bad] = False
     rep["verts_moved"] = int(moved.sum())
+    rep["photo_touched"] = int((moved & protect).sum()) if protect is not None else None
     rep["shift_max_pct"] = round(float(np.linalg.norm(V2 - V, axis=1).max() / np.linalg.norm(np.ptp(V, axis=0)) * 100), 4)
     rep["flipped_after"] = int(_face_flips(V, V2, np.asarray(F, np.int64)).sum())
     return V2, moved, rep
@@ -566,9 +571,36 @@ def camera_dir(az_deg: float, el_deg: float) -> np.ndarray:
     return np.array([np.sin(a) * np.cos(e), np.sin(e), np.cos(a) * np.cos(e)])
 
 
-def back_panel_glb(src: str, dst: str, az_deg: float, el_deg: float, rules: dict | None = None) -> dict:
+def pose_edge_min() -> float:
+    """Порог согласия внутренних кромок камеры этапа 4 — тот же, что у самого этапа (`camera-check.json: edge_ref`), одним источником."""
+    with open(os.path.join(os.path.dirname(RULES_PATH), "camera-check.json"), encoding="utf-8") as f:
+        return float(json.load(f)["edge_ref"])
+
+
+def photo_faces(visible_glb: str, prov_png: str, values):
+    """Грани этапа 6 с фото-текселями (prov ∈ values) → (позиции вершин этих граней (N,3), средняя нормаль по площади, число граней). Нужны trimesh и Pillow."""
+    import trimesh
+    from PIL import Image
+    m = trimesh.load(visible_glb, force="mesh")
+    prov = np.asarray(Image.open(prov_png))
+    prov = prov if prov.ndim == 2 else prov[..., 0]
+    uv = np.asarray(m.visual.uv).reshape(-1, 2)
+    f = np.asarray(m.faces)
+    c = uv[f].mean(1)
+    t = prov.shape[0]
+    p = prov[np.clip(((1 - c[:, 1]) * t).astype(int), 0, t - 1), np.clip((c[:, 0] * t).astype(int), 0, t - 1)]
+    sel = np.isin(p, list(values))
+    if not sel.any():
+        return np.zeros((0, 3)), np.zeros(3), 0
+    n = (m.face_normals[sel] * m.area_faces[sel, None]).sum(0)
+    return np.asarray(m.vertices)[np.unique(f[sel])], n / (np.linalg.norm(n) + 1e-12), int(sel.sum())
+
+
+def back_panel_glb(src: str, dst: str, az_deg: float, el_deg: float, rules: dict | None = None, pose_edge: float | None = None, photo: tuple | None = None) -> dict:
     """GLB (одна геометрия, float32-позиции) → GLB с выровненным задом: двигаются только положения вершин (и нормали вершин сдвинутых граней — пересчитаны по новой форме), всё остальное байт в байт.
-    Расчёт — на склеенной по положению форме (glTF режет вершины по швам), результат раздаётся обратно по всем копиям вершины. → отчёт `back_panel` + {'written': bool}."""
+    Расчёт — на склеенной по положению форме (glTF режет вершины по швам), результат раздаётся обратно по всем копиям вершины. → отчёт `back_panel` + {'written': bool}.
+    Защиты (T-20261123-41/2): `pose_edge` — согласие кромок камеры этапа 4; ниже порога этапа (`camera-check.json: edge_ref`) азимуту не верим (по силуэту «перед» и «зад» корпусной не различить) → не трогаем;
+    `photo=(visible.glb, prov.png)` этапа 6 — сторона с фото-текселями никогда не двигается, а её нормаль должна совпасть с камерой (иначе отказ)."""
     import struct
     rules = rules or load_rules()
     with open(src, "rb") as fh:
@@ -582,6 +614,8 @@ def back_panel_glb(src: str, dst: str, az_deg: float, el_deg: float, rules: dict
     if len(prims) != 1:
         return {"apply": False, "reason": f"геометрий {len(prims)}, нужна одна", "written": False}
     pr = prims[0]
+    if pose_edge is not None and pose_edge < pose_edge_min():
+        return {"apply": False, "reason": f"камере не верим: согласие кромок {pose_edge:.3f} < {pose_edge_min():g} (по силуэту перед и зад не различить) — зад не трогаем", "written": False}
 
     def view(i, dt, n):
         a = js["accessors"][i]
@@ -600,7 +634,25 @@ def back_panel_glb(src: str, dst: str, az_deg: float, el_deg: float, rules: dict
     Vw = V[first]
     Fw = inv[F]
     Fw = Fw[(Fw[:, 0] != Fw[:, 1]) & (Fw[:, 1] != Fw[:, 2]) & (Fw[:, 0] != Fw[:, 2])]
-    V2w, moved_w, rep = back_panel(Vw, Fw, camera_dir(az_deg, el_deg), rules)
+    cam = camera_dir(az_deg, el_deg)
+    prot = None
+    ph_info = {}
+    if photo is not None:
+        pv, pn, pf = photo_faces(photo[0], photo[1], rules["back_panel"]["photo_prov"])
+        ph_info = {"photo_faces": pf, "photo_n_cam": round(float(pn @ cam), 3) if pf else None}
+        if pf == 0:
+            return {"apply": False, "reason": "на этапе 6 нет граней с фото — сторону с фото не определить", "written": False, **ph_info}
+        if float(pn @ cam) < rules["back_panel"]["photo_cos_min"]:
+            return {"apply": False, "reason": f"сторона с фото (cos {float(pn @ cam):.2f}) не совпадает с камерой — не трогаем", "written": False, **ph_info}
+        scale = np.ptp(V, axis=0).max() * 1e-6
+        kw = np.round(Vw / scale).astype(np.int64)
+        kp = np.round(pv / scale).astype(np.int64)
+        _, ii = np.unique(np.concatenate([kw, kp]), axis=0, return_inverse=True)
+        ii = ii.reshape(-1)
+        prot = np.isin(ii[:len(kw)], ii[len(kw):])
+        ph_info["photo_verts"] = int(prot.sum())
+    V2w, moved_w, rep = back_panel(Vw, Fw, cam, rules, protect=prot)
+    rep.update(ph_info)
     rep["written"] = False
     if not rep["apply"]:
         return rep
@@ -635,8 +687,13 @@ def check() -> int:
         print("edge-sharpen: пороги вне разумного")
         return 1
     bp = r["back_panel"]
-    if not all(k in bp for k in ("roles", "front_cos_min", "axis_snap_deg", "back_cos_min", "depth", "full_within", "rim_cells", "slope_cos_max", "grid", "min_cells", "plane_share_min", "relief_share_min", "corr_smooth_cells")) or not (0 < bp["depth"] <= 0.2 and 0 < bp["plane_share_min"] <= 1 and bp["roles"]):
+    if not all(k in bp for k in ("roles", "front_cos_min", "axis_snap_deg", "back_cos_min", "depth", "full_within", "rim_cells", "slope_cos_max", "grid", "min_cells", "plane_share_min", "relief_share_min", "corr_smooth_cells", "photo_prov", "photo_cos_min")) or not (0 < bp["depth"] <= 0.2 and 0 < bp["plane_share_min"] <= 1 and bp["roles"]):
         print("edge-sharpen: back_panel — нет порогов или они вне разумного")
+        return 1
+    try:
+        pose_edge_min()
+    except (OSError, KeyError, ValueError):
+        print("edge-sharpen: нет edge_ref в camera-check.json (порог доверия азимуту)")
         return 1
     print("edge-sharpen: правила целы")
     return 0
@@ -644,7 +701,9 @@ def check() -> int:
 
 if __name__ == "__main__":
     if len(sys.argv) > 1 and sys.argv[1] == "back-glb":                  # back-glb SRC DST AZ EL — выровнять зад GLB (проба; в конвейере — `back_panel`)
-        r_ = back_panel_glb(sys.argv[2], sys.argv[3], float(sys.argv[4]), float(sys.argv[5]))
+        ex = dict(a.split("=", 1) for a in sys.argv[6:])                 # необязательно: edge=<согласие кромок этапа 4> visible=<06 visible.glb> prov=<06 prov.png>
+        r_ = back_panel_glb(sys.argv[2], sys.argv[3], float(sys.argv[4]), float(sys.argv[5]), pose_edge=float(ex["edge"]) if "edge" in ex else None,
+                            photo=(ex["visible"], ex["prov"]) if "visible" in ex and "prov" in ex else None)
         print(json.dumps(r_, ensure_ascii=False))
         sys.exit(0)
     sys.exit(check() if len(sys.argv) > 1 and sys.argv[1] == "check" else 2)
