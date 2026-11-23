@@ -216,5 +216,19 @@ class T(unittest.TestCase):
             self.assertIn('нет входов', str(e.exception))                      # до создания платной группы
 
 
+    def test_sheet_photo_no_frame_photo_fallback(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            ph = os.path.join(tmp, 'a.png')
+            open(ph, 'wb').write(b'x')
+            L.check_sheet_photos({'112923_1': ph}, ['112923_1'])                           # есть настоящее фото — молчит
+            with self.assertRaises(SystemExit) as e:
+                L.check_sheet_photos({'112923_1': ph, '112923_2': ''}, ['112923_1', '112923_2'])
+            self.assertIn('112923_2', str(e.exception))
+            self.assertIn('frame-photo', str(e.exception))                              # причина названа
+            with self.assertRaises(SystemExit):
+                L.check_sheet_photos({'112923_1': os.path.join(tmp, 'нет.png')}, ['112923_1'])   # путь есть, файла нет
+        src = open(os.path.join(HERE, '..', 'loop5.py'), encoding='utf-8').read()
+        self.assertNotIn("'frame-photo.png')", src)                                     # запасного пути в коде нет
+
 if __name__ == '__main__':
     unittest.main()

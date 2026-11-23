@@ -162,6 +162,14 @@ def photos(rules: dict, keep_dir: str | None = None) -> dict[str, str]:
     return out
 
 
+def check_sheet_photos(photo: dict, skus: list[str]) -> None:
+    """Фото для колонки ФОТО листа — ТОЛЬКО настоящее фото входа 06 (`photo` из входов пакета). Запасного `07-fill/frame-photo.png` нет: это боковой
+    кадр-рендер 07, на нём мерки листа врут (T-21, 23.11). Нет фото — отказ ДО платного прогона, с перечнем товаров и причиной."""
+    miss = [f'{s}: {photo.get(s) or "(photo не задан во входах)"}' for s in skus if not photo.get(s) or not os.path.isfile(photo[s])]
+    if miss:
+        raise SystemExit(f'нет фото входа 06 для листов (frame-photo.png 07 — не фото, запасным не берётся): {miss[:5]}{"…" if len(miss) > 5 else ""}')
+
+
 def free_gb(path: str) -> float:
     import shutil
     os.makedirs(path, exist_ok=True)
@@ -378,6 +386,8 @@ def main(argv=None) -> int:
     if not a.dry and free_gb(run_dir) < min_gb:
         raise SystemExit(f'мало места на диске: свободно {free_gb(run_dir):.1f} ГБ < {min_gb} ГБ (rules.min_free_gb) — платный прогон не стартую')
     photo = photos(rules, os.path.join(run_dir, 'photos'))
+    if not a.dry:
+        check_sheet_photos(photo, skus)
     rcs, rnd_log = [], []
     t_salad = 0.0
     sheets_before = {s: os.path.join(ex(rules['out_root']), 'base-sheets-b', f'{s}.png') for s in skus}
@@ -390,7 +400,7 @@ def main(argv=None) -> int:
         procs, groups = run_round(rules, sha, a.start, todo, run_dir, a.run_id, base, base_tree, not a.dry, rnd)
         if rnd == 0 and not a.dry:
             # «до»: листы на наших ядрах параллельно с Salad (кэш на все прогоны)
-            jobs = [(before_glb(rules, s, base[s]), photo.get(s) or os.path.join(base[s], '07-fill', 'frame-photo.png'), sheets_before[s], os.path.join(base[s], '06-visible', 'check.json')) for s in skus]
+            jobs = [(before_glb(rules, s, base[s]), photo[s], sheets_before[s], os.path.join(base[s], '06-visible', 'check.json')) for s in skus]
             os.makedirs(os.path.join(ex(rules['out_root']), 'base-sheets-b'), exist_ok=True)
             t_sb = time.time()
             rc_b = run_sheets(rules, jobs, os.path.join(run_dir, 'sheets-before.log'))
@@ -417,7 +427,7 @@ def main(argv=None) -> int:
             say(f'повтор только упавших ({len(todo)}): {todo}')
     res, money = collect(run_dir, skus)
     sheets_after = {s: os.path.join(run_dir, 'sheets', f'{s}.png') for s in skus}
-    jobs = [(os.path.join(res[s], '08-material', 'material.glb'), photo.get(s) or os.path.join(base[s], '07-fill', 'frame-photo.png'), sheets_after[s],
+    jobs = [(os.path.join(res[s], '08-material', 'material.glb'), photo[s], sheets_after[s],
              next((c for c in (os.path.join(res[s], '06-visible', 'check.json'), os.path.join(base[s], '06-visible', 'check.json')) if os.path.isfile(c)), '')) for s in skus if s in res]
     t_sa = time.time()
     rc_a = run_sheets(rules, jobs, os.path.join(run_dir, 'sheets-after.log'))
