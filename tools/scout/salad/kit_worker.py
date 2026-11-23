@@ -328,7 +328,8 @@ class KitHandler(BaseHTTPRequestHandler):
         return False
 
     def do_GET(self):                                          # noqa: N802
-        self.wd.touch()
+        if self.path != "/health":                              # /health дёргает readiness-проба самой платформы (каждые секунды) и опрос драйвера — это не работа: иначе сторож простоя не срабатывает никогда (T-34: тёплые ноды жили до предела жизни)
+            self.wd.touch()
         if self.path == '/health':
             return self.send_json(200, self.health_body())
         if not self.handle_get(self.path):

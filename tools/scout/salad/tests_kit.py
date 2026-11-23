@@ -459,6 +459,23 @@ with tempfile.TemporaryDirectory() as root2:
     ok(c == 200 and h['job']['step'] == 'vae' and h['job']['id'] == 'j2', '/health отдаёт ход задания (шаг, время)')
     srv2.shutdown()
     srv2.server_close()
+# сторож простоя: /health (проба платформы, опрос драйвера) НЕ считается работой, иной GET — считается (T-34: иначе IDLE_S не срабатывал никогда)
+clk = [1000.0]
+wd3 = KW.Watchdog(1e9, 60, now=lambda: clk[0])
+with tempfile.TemporaryDirectory() as root3:
+    srv3 = KW.make_server(0, Ping.bind(KW.State(), wd3, threading.Event(), 'v', root_dir=root3))
+    threading.Thread(target=srv3.serve_forever, daemon=True).start()
+    clk[0] = 1030.0
+    http(f'http://127.0.0.1:{srv3.server_address[1]}/health')
+    ok(wd3.last_activity == 1000.0, 'сторож простоя: GET /health не сбрасывает простой')
+    http(f'http://127.0.0.1:{srv3.server_address[1]}/nope')
+    ok(wd3.last_activity == 1030.0, 'сторож простоя: другой GET сбрасывает простой')
+    clk[0] = 1089.0
+    ok(wd3.verdict(True, False) is None, 'сторож простоя: 59 с без работы — ещё не стоп')
+    clk[0] = 1091.0
+    ok(wd3.verdict(True, False) is not None, 'сторож простоя: 61 с без работы (одни /health) — стоп')
+    srv3.shutdown()
+    srv3.server_close()
 
 
 # --- прогрев
