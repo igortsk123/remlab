@@ -652,7 +652,7 @@
     {
       "rule_id": "R-DETAIL-EXCLUSIONS-07",
       "title": "Исключения деталей (пуговицы, подушки, фурнитура, ручки) не попадают в закраску невидимых сторон и в «тон корпуса»",
-      "state": "proposed",
+      "state": "trial",
       "source": [
         "plans/paint-cycles-1123.md п.17",
         "отчёт р.6 (А1): «не сделано»",
@@ -675,21 +675,21 @@
         ]
       },
       "executor": "р.6 (paint.hidden_exclusions → зоны 07)",
-      "consumer": null,
-      "runtime": "none",
+      "consumer": "tools/scout/salad/trellis/tex_fill.py:detail_zones_hook",
+      "runtime": "enforce",
       "test": "tools/scout/salad/trellis/tests_detail_zones.py",
       "test_positive": "tools/scout/salad/trellis/tests_detail_zones.py::test_detail_zones_positive",
       "test_negative": "tools/scout/salad/trellis/tests_detail_zones.py::test_detail_zones_negative",
       "run_id": null,
-      "flag": null,
-      "check_field": null,
+      "flag": "tools/scout/rules/detail-zones.json#enabled",
+      "check_field": "07-fill.extra.rules",
       "enabled": null,
-      "note": "S1 (23.11): зоны `detail_zones.py` — facade_hardware (роль handles + тёмные точки), door_relief (роль facade), glass (пары карточки), buttons (тёмные точки: мало — no_evidence, много — texture); pillows выключены правилом (ложные зоны на листах), stitching/bedding — not_implemented. Хуков в 07 ещё нет (S2): consumer пуст, state proposed. Пороги пробные, на 29 не подгонялись."
+      "note": "S2 (23.11): хуки в 07 (tex_fill.detail_zones_hook): protect-зоны (пуговицы, ручки, стекло) — вне статистики частей, пула, доноров, зеркала, рельефа и групп материала, на выходе как на входе; texture_off (рельеф двери) — тон без фактуры. Запись extra.rules[] и 07-fill/zones.json. Проба на диване Нумо (23.11, ядра): зона пуговиц 123 текселя, отличие итога от прогона без зон — зерно (медиана 3, max 12 из 255), известное не изменено. Подушки выключены (признак тона даёт ложные зоны — нужен признак по объёму частей 03, не сделан); stitching/bedding — not_implemented. Пороги пробные, калибровать на следующей партии."
     },
     {
       "rule_id": "R-OPENINGS-ZONES-07",
       "title": "К2: у стеллажа/витрины проём остаётся пустотой, зад — каркас, стекло — своя зона 07 (не заливается цветом корпуса)",
-      "state": "proposed",
+      "state": "trial",
       "source": [
         "plans/mesh-type-rules-01.md § Черновик К2",
         "отчёт р.6 (А1): «не сделано»",
@@ -703,16 +703,16 @@
         ]
       },
       "executor": "р.6 (paint.openings → зоны 07)",
-      "consumer": null,
-      "runtime": "none",
+      "consumer": "tools/scout/salad/trellis/tex_fill.py:detail_zones_hook",
+      "runtime": "enforce",
       "test": "tools/scout/salad/trellis/tests_detail_zones.py",
       "test_positive": "tools/scout/salad/trellis/tests_detail_zones.py::test_detail_zones_positive",
       "test_negative": "tools/scout/salad/trellis/tests_detail_zones.py::test_detail_zones_negative",
       "run_id": null,
-      "flag": null,
-      "check_field": null,
+      "flag": "tools/scout/rules/detail-zones.json#enabled",
+      "check_field": "07-fill.extra.rules",
       "enabled": null,
-      "note": "S1 (23.11): чистая функция зон `detail_zones.py` + пороги `rules/detail-zones.json`; стекло — по парам карточки (нет данных → abstain no_glass_source / no_glass_part), проём void — детектора нет (abstain not_implemented). Хуков в 07 ещё нет (S2) → consumer пуст, state proposed. НА РЕАЛЬНОМ ТОВАРЕ НЕ ПРОВЕРЕНО: стеллажа/витрины в каталоге нет, тест — на заглушке (коробка с проёмом и стеклянной дверцей)."
+      "note": "S2 (23.11): стекло — по парам карточки, хуки те же (tex_fill.detail_zones_hook). НА РЕАЛЬНОМ ТОВАРЕ НЕ ПРОВЕРЕНО: стеллажа/витрины в каталоге нет, тест — на заглушке (коробка с проёмом и стеклянной дверцей). Проём void — детектора нет (abstain not_implemented). Стекло на невидимой стороне остаётся как на входе: если вход непокрашен, «пустое» может подняться в empty_pct — проверить на первом реальном товаре."
     }
   ],
   "_active_rule": "active = consumer определён (ast) и вызывается боевым кодом + runtime=enforce и флаг включён + тест в CI + test_positive и test_negative на пример типа + run_id прогона. Без любого — trial (rule_registry_audit: ошибка). run_id — папка прогона в ~/remlab-logs, где правило отработало; проверка прогона структурная (--run): extra.rules[] с rule_id, type, digest, applied|abstain."
