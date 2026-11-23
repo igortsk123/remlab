@@ -852,20 +852,41 @@ def seam_pass(txs: list, out_lab: list, labs: list, kn_keep: list, conf: list | 
         m_before = _metric(before, k0f & ~skip_, sb, so)
         # варианты сведения (T-196/1): полный (тон + контраст) | без контраста | только граница (feather); берём тот, у кого шов по мерке лучше; ни один не лучше «как было» — оставляем «как было»
         # (мерка шва — ΔE00 p95 пар через границу; шов, который уже не виден, не трогаем: на 112923/114082 полный вариант портил шов, p95 6,7→8,2 и 3,0→5,5)
-        variants = [('full', seam_c), ('no_patch', dict(seam_c, patch_texture=False)), ('no_contrast', dict(seam_c, patch_texture=False, contrast_gmin=1.0, contrast_gmax=1.0)),
+        variants = [('full', seam_c), ('soft', dict(seam_c, contrast_gmax=min(1.3, seam_c['contrast_gmax']), patch_strength=0.5 * seam_c.get('patch_strength', 1.0))),
+                    ('no_patch', dict(seam_c, patch_texture=False)), ('no_contrast', dict(seam_c, patch_texture=False, contrast_gmin=1.0, contrast_gmax=1.0)),
                     ('feather_only', dict(seam_c, patch_texture=False, contrast_gmin=1.0, contrast_gmax=1.0, tone_max=[0.0, 0.0, 0.0]))]
+
+        def _dev(mx):
+            return None if mx.get('texture_ratio') is None else abs(mx['texture_ratio'] - 1.0)
+        p95_b = m_before['dE00_p95'] if m_before['dE00_p95'] is not None else 0.0
+        step_b, dev_b = m_before.get('step_ratio'), _dev(m_before)
         tried, best = {}, None
         for vname, vc in variants:
             rv = TS.blend_seam(tx, before, labs[gi].reshape(-1, 3)[ti], k0f, cf, skip_, vc, size_mm)
             mv = _metric(rv['lab'], rv['solid'], rv['s_in'], rv['s_out'])
+            rb_, ra_ = rv['report']['rough_before'].get('rough_rms_mm'), rv['report']['rough_after'].get('rough_rms_mm')
             tried[vname] = {k_: mv.get(k_) for k_ in ('dE00_median', 'dE00_p95', 'bad_share_pct', 'contrast_ratio', 'texture_ratio', 'step_ratio', 'step_ratio_p95')}
-            key = (round((mv['dE00_p95'] if mv['dE00_p95'] is not None else 99.0) * 4.0) / 4.0, abs((mv['contrast_ratio'] or 0.0) - 1.0))     # p95 с шагом 0,25 (шум не решает), при равенстве — ближе контраст фактуры к 1
+            tried[vname]['rough_rms_mm'] = ra_
+            # «не навреди» по ВСЕМ меркам (те же пороги, что в check.json шва): ΔE00 p95, ступенька, фактура, шероховатость границы; не прошёл хотя бы одну — вариант отпадает
+            why = []
+            p95_v = mv['dE00_p95'] if mv['dE00_p95'] is not None else 99.0
+            if p95_v > p95_b * seam_c.get('accept_p95_ratio', 1.0) + seam_c.get('accept_p95_abs', 0.0):
+                why.append('p95')
+            if step_b is not None and mv.get('step_ratio') is not None and mv['step_ratio'] > max(step_b, seam_c.get('step_floor', 1.5)):
+                why.append('step')
+            if _dev(mv) is not None and dev_b is not None and _dev(mv) > max(dev_b, seam_c.get('texdev_floor', 0.3)):
+                why.append('texture')
+            if rb_ is not None and ra_ is not None and ra_ > rb_ * seam_c.get('rough_tol', 1.1):
+                why.append('rough')
+            tried[vname]['rejected'] = why
+            if why:
+                continue
+            key = (round(p95_v * 4.0) / 4.0, abs((mv['contrast_ratio'] or 0.0) - 1.0))     # p95 с шагом 0,25 (шум не решает), при равенстве — ближе контраст фактуры к 1
             if best is None or key < best[0]:
                 best = (key, vname, rv, mv)
-        p95_b = m_before['dE00_p95'] if m_before['dE00_p95'] is not None else 0.0
-        if best[0][0] <= p95_b * seam_c.get('accept_p95_ratio', 1.0) + seam_c.get('accept_p95_abs', 0.0):
+        if best is not None:
             _, chosen, r_, m_after_pre = best
-        else:                                                           # ни один вариант не лучше «как было» — не трогаем
+        else:                                                           # ни один вариант не прошёл «не навреди» — не трогаем
             chosen, r_, m_after_pre = 'unchanged', None, m_before
         if r_ is None:
             r_ = {'lab': before.copy(), 'keep': k0f.copy(), 'solid': k0f & ~skip_, 's_in': sb, 's_out': so, 'report': {'zones': None, 'demoted_texels': 0, 'solid_texels': int((k0f & ~skip_).sum()), 'rough_before': TS.boundary_rough(tx, k0f, np.ones(len(ti), bool), tmm, seam_c['rough_sigma_mm'])}}
@@ -1652,7 +1673,7 @@ def load_rules(path: str | None = None) -> dict:
     if 'trellis_relief' not in r:
         raise KeyError("rules/paint-fill.json: нет ключа 'trellis_relief'")
     for k in ('enabled', 'size_mm_default', 'conf_min', 'conf_full', 'edge_mm', 'probe_mm', 'cell_mm', 'reach_mm', 'tone_decay_mm', 'tone_max', 'min_cell', 'hi_sigma_mm', 'contrast_decay_mm',
-              'contrast_gmin', 'contrast_gmax', 'contrast_floor', 'pair_mm', 'pair_cos', 'de_bad', 'poisson', 'crease_deg', 'normal_smooth_iters', 'min_panel_faces', 'feather_mm', 'feather_lo', 'feather_hi', 'rough_sigma_mm', 'accept_p95_ratio', 'accept_p95_abs', 'patch_texture', 'patch_reach_mm', 'patch_strength', 'patch_mm', 'patch_decay_mm', 'texture_band_mm'):
+              'contrast_gmin', 'contrast_gmax', 'contrast_floor', 'pair_mm', 'pair_cos', 'de_bad', 'poisson', 'crease_deg', 'normal_smooth_iters', 'min_panel_faces', 'feather_mm', 'feather_lo', 'feather_hi', 'rough_sigma_mm', 'accept_p95_ratio', 'accept_p95_abs', 'patch_texture', 'patch_reach_mm', 'patch_strength', 'patch_mm', 'patch_decay_mm', 'texture_band_mm', 'step_floor', 'texdev_floor', 'rough_tol'):
         if k not in (r.get('seam') or {}):
             raise KeyError(f'rules/paint-fill.json: seam.{k} не задан')
     for k in ('gain_max', 'clip_k', 'patch_frac', 'patch_dl', 'dilate_px', 'part_max_share', 'band_lo', 'band_hi', 'sigma_lo_min', 'sigma_lo_max', 'sigma_hi_max', 'far_w', 'p95_cap',

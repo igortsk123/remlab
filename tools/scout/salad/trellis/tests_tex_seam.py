@@ -203,6 +203,10 @@ def test_fill_end_to_end():
     out = TF.fill([g2], [known], None, cfg={'gutter': 0, 'erode_known': 0, 'seam': {'enabled': True, 'size_mm': smm, 'tone_decay_mm': 25.0}}, mirror=False)
     sm = out['report']['seam']
     ok(sm['enabled'] and len(sm['geoms']) == 1 and sm['geoms'][0]['after']['pairs'] > 0, 'отчёт шва: есть пары до/после', str(sm)[:200])
+    g0 = sm['geoms'][0]
+    ok(g0['variant'] in g0['variants'] or g0['variant'] == 'unchanged', 'выбран вариант из перечня или unchanged', str(g0['variant']))
+    ok(all('rejected' in v for v in g0['variants'].values()), 'у каждого варианта записано, по какой мерке отвергнут (пусто = прошёл «не навреди»)')
+    ok(g0['variant'] == 'unchanged' or g0['variants'][g0['variant']]['rejected'] == [], 'выбранный вариант прошёл все мерки (p95, ступенька, фактура, шероховатость)', str(g0['variants'].get(g0['variant'])))
     mid = np.zeros((T, T), bool)
     mid.reshape(-1)[tx.ti[x < 0.4]] = True
     ok(np.array_equal(out['tex'][0][mid], base[mid]), 'середина фото 1:1 после fill')
