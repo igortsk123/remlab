@@ -10,6 +10,7 @@ tools/scout/salad/trellis/a1_tone.py
 tools/scout/salad/trellis/ab_tint.py
 tools/scout/salad/trellis/tex_coverage.py
 tools/scout/salad/trellis/mv_geometry.py
+tools/scout/salad/trellis/legs_check.py
 tools/scout/salad/trellis/worker_trellis.py
 tools/scout/salad/clean_islands.py
 tools/scout/salad/collage.py
