@@ -6,7 +6,12 @@
 при seat_conflict поправляет поворот orienter'а: θ = yaw + seat − 180) → (2) камера 04 при `photo_frontal` (камера смотрит на длинную грань габарита,
 `photo_frontal_of`) с поправкой долями известного (развёрнуто → az+180) → (3) квадратные в плане (`photo_frontal=None`) — по долям известного → (4) unknown
 (фото с торца, нет данных). Симметричным по роли — всегда unknown. Расхождение θ с камерой: ≥ `camera_conflict_deg` — `front_camera_opposite`,
-между `photo_side_deg` и ним — `photo_side` (оба — пометки, не замена). θ — азимут «перёда» в системе меша: 0 = +Z, сторона листа на θ смотрится камерой
+между `photo_side_deg` и ним — `photo_side` (оба — пометки, не замена; у orient).
+СВИДЕТЕЛЬ — ФОТО (T-20261123-34/6, R-FRONT-PHOTO-WITNESS, trial; `front-axis.json: photo_witness`): θ из ДОЛЕЙ известного (known_share) или из переворота
+(camera04_flipped) принимается, только если не спорит с камерой 06: расхождение в [photo_side_deg, camera_conflict_deg) — доли отвергаются всегда (фото 3/4 —
+крупная боковая грань набирает долю, это не «перёд»: стул 1557, кресло 7671); ≥ camera_conflict_deg (перёд↔зад) — только со вторым свидетелем (согласие кромок
+позы 04 `edge_agree` ниже `camera-check.json: edge_ref`, как у `pose_rank.flip_trigger`). Отвергнуто — θ = камера 06, source `camera_ambiguous`, флаг
+`front_ambiguous:photo_side`, запись в `rules[]` (rule_id, applied, rejected). θ — азимут «перёда» в системе меша: 0 = +Z, сторона листа на θ смотрится камерой
 (sinθ, 0, cosθ); yaw orient (`legacy_front_yaw`) = θ.
 
 `front_shares(V, F, UV, known, az, R)` — доля текселей, известных с фото (known.png этапа 06), по сторонам «перед/бок/зад/др. бок»
@@ -81,6 +86,21 @@ def _ad(a: float, b: float) -> float:
     return abs((float(a) - float(b) + 180.0) % 360.0 - 180.0)
 
 
+def _edge_ref() -> float | None:
+    """Порог согласия кромок позы 04 — один источник с этапом камеры (`rules/camera-check.json: edge_ref`); нет файла — None (второго свидетеля нет)."""
+    try:
+        with open(os.path.join(HERE, 'rules', 'camera-check.json'), encoding='utf-8') as f:
+            return float(json.load(f)['edge_ref'])
+    except (OSError, ValueError, KeyError, TypeError):
+        return None
+
+
+def _second_witness(edge_agree) -> bool:
+    """Кромки позы 04 НЕ согласны с камерой (ниже edge_ref) — перёд↔зад перепутаны всерьёз; нет замера/порога — свидетеля нет."""
+    ref = _edge_ref()
+    return bool(edge_agree is not None and ref is not None and float(edge_agree) < ref)
+
+
 def axis_of_theta(theta) -> tuple | None:
     """(ось 0|2, знак) «перёда» с азимута θ — как `tex_fill.front_axis_of_check` (x = sinθ, z = cosθ)."""
     if theta is None:
@@ -111,10 +131,11 @@ def photo_frontal_of(V, cam_az, R=None):
     return bool(np.degrees(np.arccos(min(1.0, c))) <= rules['frontal_max_deg'])
 
 
-def front_axis_resolved(orient=None, shares=None, photo_frontal=None, cam_az=None, R=None, V=None) -> dict:
-    """{'theta': θ|None, 'front_yaw': то же, 'axis': (ось, знак)|None, 'source': orient|orient_seat|camera04|camera04_flipped|known_share|None, 'flags': [...]}.
+def front_axis_resolved(orient=None, shares=None, photo_frontal=None, cam_az=None, R=None, V=None, edge_agree=None) -> dict:
+    """{'theta': θ|None, 'front_yaw': то же, 'axis': (ось, знак)|None, 'source': orient|orient_seat|camera04|camera04_flipped|known_share|camera_ambiguous|None, 'flags': [...]}.
     orient — запись orient (`status`, `source`, `legacy_front_yaw`/`yaw`, `evidence.seat`); shares — `front_shares(...)` для камеры cam_az;
-    photo_frontal — True/False/None (если None и есть V — считается `photo_frontal_of`). Флаги: front_unknown(:причина), front_camera_opposite, photo_side."""
+    photo_frontal — True/False/None (если None и есть V — считается `photo_frontal_of`); edge_agree — согласие кромок позы 04 (check.json этапа 6: extra.front_check.edge_agree),
+    второй свидетель перёд↔зад. Флаги: front_unknown(:причина), front_camera_opposite, photo_side, front_ambiguous:photo_side; `rules` — запись R-FRONT-PHOTO-WITNESS, если сработало."""
     rules = json.load(open(AXIS_RULES, encoding='utf-8'))
     g = load_guard(R)
     if photo_frontal is None and V is not None:
@@ -141,14 +162,25 @@ def front_axis_resolved(orient=None, shares=None, photo_frontal=None, cam_az=Non
                 theta, src = (float(cam_az) + vals[0][1]) % 360.0, 'known_share'
         if theta is None:
             flags.append('front_unknown' + (':photo_side' if photo_frontal is False else ''))
-    if theta is not None and cam_az is not None and src not in ('camera04', 'camera04_flipped'):
+    recs = []
+    if theta is not None and cam_az is not None and src in ('known_share', 'camera04_flipped') and rules.get('photo_witness', True):
+        d = _ad(theta, cam_az)
+        if d >= rules['photo_side_deg'] and not (d >= rules['camera_conflict_deg'] and _second_witness(edge_agree)):
+            recs.append({'rule_id': 'R-FRONT-PHOTO-WITNESS', 'applied': True, 'decision': 'camera_ambiguous', 'rejected': {'source': src, 'theta': round(float(theta), 1), 'delta': round(d, 1)},
+                         'edge_agree': None if edge_agree is None else round(float(edge_agree), 4)})
+            theta, src = float(cam_az) % 360.0, 'camera_ambiguous'
+            flags.append('front_ambiguous:photo_side')
+    if theta is not None and cam_az is not None and src not in ('camera04', 'camera04_flipped', 'camera_ambiguous'):
         d = _ad(theta, cam_az)
         if d >= rules['camera_conflict_deg']:
             flags.append('front_camera_opposite')
         elif d >= rules['photo_side_deg']:
             flags.append('photo_side')
     th = None if theta is None else round(theta, 1)
-    return {'theta': th, 'front_yaw': th, 'axis': axis_of_theta(theta), 'source': src, 'flags': flags}
+    out = {'theta': th, 'front_yaw': th, 'axis': axis_of_theta(theta), 'source': src, 'flags': flags}
+    if recs:
+        out['rules'] = recs
+    return out
 
 
 def resolve_from_files(glb, check06, orient_path=None, R=None) -> dict:
@@ -170,7 +202,9 @@ def resolve_from_files(glb, check06, orient_path=None, R=None) -> dict:
         known = np.asarray(Image.open(os.path.join(os.path.dirname(check06), 'known.png')).convert('L'))
         orient = json.load(open(orient_path, encoding='utf-8')) if orient_path and os.path.isfile(orient_path) else None
         sh = front_shares(V, F, UV, known, az, R)
-        r = front_axis_resolved(orient, sh, None, az, R, V)
+        ea = ((json.load(open(check06, encoding='utf-8'))['extra'].get('front_check')) or {}).get('edge_agree')
+        ea = ea.get('value') if isinstance(ea, dict) else ea
+        r = front_axis_resolved(orient, sh, None, az, R, V, ea)
         r['cam_az'] = az
         return r
     except Exception as e:  # noqa: BLE001 — нет GLB/known/az: ракурс не решаем, причина в флаге
@@ -207,21 +241,21 @@ def selftest() -> int:
     okr = {'перед': 0.9, 'бок': 0.2, 'зад': 0.1, 'др. бок': 0.0}
     a = res(orient={'status': 'auto_resolved', 'source': 'orienter+seat_agree', 'legacy_front_yaw': 359}, cam_az=171, shares=flip, photo_frontal=True)
     b = res(orient={'status': 'vlm_pending'}, cam_az=154, shares=okr, photo_frontal=True)
-    c = res(orient={'status': 'vlm_pending'}, cam_az=171, shares=flip, photo_frontal=True)
+    c = res(orient={'status': 'vlm_pending'}, cam_az=171, shares=flip, photo_frontal=True, edge_agree=0.3)
     d = res(orient={'status': 'vlm_pending'}, cam_az=10, shares=okr, photo_frontal=False)
     e = res(orient={'status': 'auto_resolved', 'source': 'symmetric_by_role', 'legacy_front_yaw': 90}, cam_az=0, photo_frontal=True)
     f = res(orient={'status': 'review_pending', 'source': 'seat_conflict', 'legacy_front_yaw': 271, 'evidence': {'seat': {'status': 'confident', 'front_yaw': 270}}}, cam_az=358, photo_frontal=True)
     f2 = res(orient={'status': 'review_pending', 'source': 'seat_conflict', 'legacy_front_yaw': 271, 'evidence': {'seat': {'status': 'ambiguous', 'front_yaw': 270}}}, cam_az=358, photo_frontal=False)
-    g2 = res(orient={'status': 'vlm_pending'}, shares=flip, photo_frontal=None, cam_az=10)
+    g2 = res(orient={'status': 'vlm_pending'}, shares=flip, photo_frontal=None, cam_az=10, edge_agree=0.3)
     g3 = res(orient={'status': 'vlm_pending'}, shares={'перед': 0.5, 'бок': 0.5, 'зад': 0.5, 'др. бок': 0.5}, photo_frontal=None, cam_az=10)
     for ok, name in ((a['source'] == 'orient' and a['theta'] == 359 and 'front_camera_opposite' in a['flags'], 'orient решён → θ из orient (13994: 359, камера 171 напротив — флаг, не замена)'),
                      (b['source'] == 'camera04' and b['theta'] == 154 and b['flags'] == [], 'нет orient, фото фронтальное, доли не против → θ = камера 04 (7736: 154)'),
-                     (c['source'] == 'camera04_flipped' and c['theta'] == 351 and c['axis'] == (2, 1), 'фото фронтальное, но доли «зад» → развёрнуто: az+180 (13994: 351)'),
+                     (c['source'] == 'camera04_flipped' and c['theta'] == 351 and c['axis'] == (2, 1), 'фото фронтальное, доли «зад» И кромки позы согласны хуже edge_ref → развёрнуто: az+180 (13994: 351)'),
                      (d['theta'] is None and d['flags'] == ['front_unknown:photo_side'] and d['axis'] is None, 'камера на торец (photo_frontal=False) → unknown'),
                      (e['theta'] is None and e['flags'] == ['front_unknown:symmetric_by_role'], 'симметричная по роли → unknown, камера не подменяет'),
                      (f['source'] == 'orient_seat' and f['theta'] == 1.0, 'seat_conflict, сиденье confident → θ = yaw + seat − 180 (16411: 271+270−180 = 1)'),
                      (f2['theta'] is None and 'front_unknown' in f2['flags'][0], 'seat_conflict, сиденье не confident → не берём'),
-                     (g2['source'] == 'known_share' and g2['theta'] == 190.0, 'квадратная в плане → по долям известного'),
+                     (g2['source'] == 'known_share' and g2['theta'] == 190.0, 'квадратная в плане, доли на зад + кромки против камеры → по долям известного (второй свидетель)'),
                      (g3['theta'] is None and g3['flags'] == ['front_unknown'], 'квадратная и доли равны → unknown'),
                      (axis_of_theta(0) == (2, 1) and axis_of_theta(90) == (0, 1) and axis_of_theta(180) == (2, -1) and axis_of_theta(270) == (0, -1) and axis_of_theta(None) is None, 'axis_of_theta: 0→+Z, 90→+X, 180→−Z, 270→−X')):
         print(('  ✓ ' if ok else '  ✗ ') + name)

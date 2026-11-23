@@ -945,6 +945,31 @@
       "check_field": "07-fill.extra.rules",
       "enabled": null,
       "note": "T-28/1 (trial по решению директора 23.11): 15195 σ зерна 3,95/3,87 → 2,5, filled_faces_step_pct 26,3 → 8,9 % (main 0,71; порог max(main,10)); 10887 σ 2,4 < 2,5 не срезается, шаг 8,6 %. Потолок 2,5 — гипотеза по трём body (σ у main 0,1–2,1)."
+    },
+    {
+      "rule_id": "R-FRONT-PHOTO-WITNESS",
+      "title": "«Перёд» по долям известного или перевороту не спорит с фото: расхождение с камерой 06 ≥ 45° — перёд = камера 06 (front_ambiguous:photo_side); перёд↔зад — только со вторым свидетелем (кромки позы)",
+      "state": "trial",
+      "source": [
+        "T-20261123-34/6 (директор 23.11): стул 1557 и кресло 7671 — «перёд» листа показывает тыл/бок, лампа 9365 — сторона не как на фото",
+        "разбор круга 3 r3d-from06-edfde24d: 2 уверенно + 1 спорно из 29"
+      ],
+      "applies": {
+        "types": [
+          "all"
+        ]
+      },
+      "executor": "р.1 (front_axis_resolved, T-34/6)",
+      "consumer": "tools/scout/front_axis.py:front_axis_resolved",
+      "runtime": "enforce",
+      "test": "tools/scout/tests/test_front_axis_witness.py",
+      "test_positive": "tools/scout/tests/test_front_axis_witness.py::test_ambiguous_positive",
+      "test_negative": "tools/scout/tests/test_front_axis_witness.py::test_ambiguous_negative",
+      "run_id": null,
+      "flag": "data/flat3d/front-axis.json#photo_witness",
+      "check_field": null,
+      "enabled": null,
+      "note": "Решение пишется в результат front_axis_resolved: rules[] {rule_id, applied, decision, rejected{source,theta,delta}, edge_agree}, source=camera_ambiguous, flags[front_ambiguous:photo_side]; loop5 кладёт их в таблицу/кэш front_cache. Потребитель — лист оценки (loop5.front_of); 07 перёд из front_axis_resolved НЕ берёт (tex_fill.front_axis_of_check читает камеру 06). Порог второго свидетеля — camera-check.json: edge_ref (один источник). Охват круга 3: 3 из 29. trial: на следующей партии сверить глазами; в active — после прогона с run_id."
     }
   ],
   "_active_rule": "active = consumer определён (ast) и вызывается боевым кодом + runtime=enforce и флаг включён + тест в CI + test_positive и test_negative на пример типа + run_id прогона. Без любого — trial (rule_registry_audit: ошибка). run_id — папка прогона в ~/remlab-logs, где правило отработало; проверка прогона структурная (--run): extra.rules[] с rule_id, type, digest, applied|abstain."
