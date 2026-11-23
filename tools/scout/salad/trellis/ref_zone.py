@@ -848,6 +848,73 @@ def align_ut(geoms: list, tex_after: list, known: list, ut_geoms: list | None, y
     return res, rep
 
 
+def sibling_tone(geoms: list, tex_before: list, tex_after: list, known: list, parts: list | None) -> tuple:
+    """Части-близнецы (T-187/6, стул 7733, 23.11). Тон части, посчитанный по мизерному известному (< `max_known` текселей части — скользящие/блики), ненадёжен. Если у части есть пара с ТЕМ ЖЕ цветом 06 на невидимом
+    (ΔE76 медиан ≤ `same06_de`) и надёжным тоном (известного ≥ `partner_known`), а тоны после 07 различаются на |ΔL| > `min_dL` — невидимые тексели ненадёжной сдвигаются на разность медиан (L и a,b), зерно сохраняется;
+    граница частей перестаёт быть рваной светлой полосой. Известные (фото) тексели не меняются. → (текстуры, {'pairs': [...], 'texels_changed', 'sibling_share_pct'})."""
+    import cv2
+    import tex_coverage as TC
+    import tex_fill as TF
+    O = dict({'enabled': True, 'max_known': 0.10, 'partner_known': 0.10, 'same06_de': 3.0, 'min_dL': 12.0, 'min_texels': 300}, **R.get('sibling_tone', {}))
+    rep = {'enabled': bool(O['enabled']), 'pairs': [], 'texels_changed': 0, 'sibling_share_pct': 0.0}
+    if not O['enabled'] or parts is None:
+        return [np.asarray(t, np.uint8) for t in tex_after], rep
+
+    def lab_of(rgb):
+        return cv2.cvtColor(np.asarray(rgb, np.uint8).astype(np.float32) / 255.0, cv2.COLOR_RGB2Lab)
+
+    outs, chg, tot = [], 0, 0
+    for gi, g in enumerate(geoms):
+        tex = np.asarray(tex_after[gi], np.uint8)
+        T = int(tex.shape[0])
+        outs.append(tex)
+        bef = np.asarray(tex_before[gi], np.uint8)
+        if bef.shape[0] != T:
+            continue
+        F = np.asarray(g['F'])
+        xy = np.stack([g['UV'][:, 0] * T, (1.0 - g['UV'][:, 1]) * T], 1)
+        fid, _ = TC.raster(xy, F, T)
+        fid = fid.reshape(-1)
+        occ = fid >= 0
+        pp = np.where(occ, np.asarray(parts[gi])[np.maximum(fid, 0)], -1)
+        kn = np.asarray(known[gi], bool).ravel()
+        unp = TF.unpainted_mask(bef).reshape(-1)
+        lb, la = lab_of(bef).reshape(-1, 3), lab_of(tex).reshape(-1, 3)
+        info = {}
+        for p in np.unique(pp[occ]).tolist():
+            sel = occ & (pp == p)
+            hid = np.flatnonzero(sel & ~kn & ~unp)
+            if len(hid) >= O['min_texels']:
+                info[int(p)] = {'ks': float(kn[sel].mean()), 'hid': hid, 'm06': np.median(lb[hid], axis=0), 'm07': np.median(la[hid], axis=0)}
+        tot += sum(len(v['hid']) for v in info.values())
+        res = tex.reshape(-1, 3).copy()
+        lab_new = la.copy()
+        for p, v in sorted(info.items()):
+            if v['ks'] >= O['max_known']:
+                continue
+            cand = [(float(np.linalg.norm(v['m06'] - w['m06'])), q) for q, w in info.items() if q != p and w['ks'] >= O['partner_known']]
+            cand = [c for c in cand if c[0] <= O['same06_de']]
+            if not cand:
+                continue
+            q = min(cand)[1]
+            d = info[q]['m07'] - v['m07']
+            if abs(float(d[0])) <= O['min_dL']:
+                continue
+            idx = v['hid']
+            lab_new[idx] = la[idx] + d[None, :]
+            lab_new[idx, 0] = np.clip(lab_new[idx, 0], 0.0, 100.0)
+            rgbn = np.clip(cv2.cvtColor(lab_new[idx].reshape(-1, 1, 3).astype(np.float32), cv2.COLOR_Lab2RGB) * 255.0 + 0.5, 0, 255).astype(np.uint8).reshape(-1, 3)
+            rgbn = np.where((rgbn.max(axis=1) <= TF.BLACK_MAX)[:, None], np.maximum(rgbn, TF.BLACK_MAX + 1), rgbn)
+            res[idx] = rgbn
+            chg += int(len(idx))
+            rep['pairs'].append({'geom': gi, 'part': int(p), 'partner': int(q), 'known_share': round(v['ks'], 3), 'partner_known_share': round(info[q]['ks'], 3), 'dE06': round(min(cand)[0], 1),
+                                 'dLab': [round(float(x), 1) for x in d], 'texels': int(len(idx))})
+        outs[gi] = res.reshape(tex.shape)
+    rep['texels_changed'] = chg
+    rep['sibling_share_pct'] = round(100.0 * chg / max(tot, 1), 2)
+    return outs, rep
+
+
 def sub_tone(geoms: list, tex_before: list, tex_after: list, known: list, parts: list | None) -> tuple:
     """Подчасть по цвету 06 (T-187/6 Б, 23.11; разбор независимого рецензента). Часть красится одним тоном (`stat[p]`), а внутри неё бывают мелкие НЕВИДИМЫЕ панели со своим цветом (ножки дивана чёрные,
     кронштейны стола, белые крошки): цвет 06 в их текселях (база, фото там не легло) — слабая подсказка. Абсолютный цвет 06 врёт (ΔE до 62 против фото), поэтому берётся ОТНОСИТЕЛЬНЫЙ контраст:

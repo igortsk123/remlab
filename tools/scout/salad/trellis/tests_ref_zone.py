@@ -615,6 +615,47 @@ def test_sub_tone():
     ok(rep['texels_changed'] > 0 and 0 < rep['subtone_share_pct'] < 50, f'в отчёте доля подчасти: {rep["subtone_share_pct"]} %')
 
 
+def test_sibling_tone():
+    print('части-близнецы (стул 7733, 23.11): тон из мизерного известного подтягивается к парной части с тем же цветом 06; известные тексели не трогаем:')
+    sys.path[:0] = [os.path.join(HERE, '..'), os.path.join(HERE, '..', '..')]
+    import cv2
+    T = 192
+    g, side, mk = box_uv_geom(T)
+
+    def solid(l, a, b):
+        lab = np.full((T, T, 3), (l, a, b), np.float32)
+        return np.clip(cv2.cvtColor(lab, cv2.COLOR_Lab2RGB) * 255 + 0.5, 0, 255).astype(np.uint8)
+
+    before = solid(66, 2, 34)                                             # 06: обе части одного цвета
+    after = solid(66, 2, 30)
+    after[mk['back']] = solid(83, 2, 26)[mk['back']]                      # часть 1 (зад) 07 залил светло — тон из мизерного известного
+    known = np.zeros((T, T), bool)
+    known[mk['front']] = True                                             # у части 0 (перёд…) известное большое
+    known[mk['back']][:3] = True                                          # у части 1 — 3 тексельных ряда (<10 %)
+    kb = np.zeros((T, T), bool)
+    kb[mk['back']] = True
+    known[np.flatnonzero(kb.ravel())[:200] // T, np.flatnonzero(kb.ravel())[:200] % T] = True
+    parts = np.zeros(len(g['F']), np.int32)
+    parts[np.asarray(side) == 'back'] = 1
+    old = RZ.R.get('sibling_tone')
+    RZ.R['sibling_tone'] = {'min_texels': 100}
+    try:
+        out, rep = RZ.sibling_tone([g], [before], [after], [known], [parts])
+    finally:
+        if old is None:
+            RZ.R.pop('sibling_tone', None)
+        else:
+            RZ.R['sibling_tone'] = old
+    lab = cv2.cvtColor(out[0].astype(np.float32) / 255.0, cv2.COLOR_RGB2Lab)
+    bm = mk['back'] & ~known
+    ok(abs(float(np.median(lab[bm][:, 0])) - 66) < 3, f'невидимое парной ненадёжной части подтянуто к 66: L {np.median(lab[bm][:, 0]):.1f}; пары {rep["pairs"]}')
+    ok(bool((out[0][known] == after[known]).all()), 'известные тексели не изменились')
+    ok(abs(float(np.median(lab[mk['left'] & ~known][:, 0])) - 66) < 3, 'остальное не тронуто')
+    after2 = solid(66, 2, 30)                                             # тоны уже близки → не трогаем
+    out2, rep2 = RZ.sibling_tone([g], [before], [after2], [known], [parts])
+    ok(rep2['texels_changed'] == 0, 'тоны близки (ΔL ≤ 12) → без изменений')
+
+
 def test_align_tied():
     print('коробка с двумя равными поворотами (UltraTex одинаков на лице и на заду): ничья → tied с ties, yaw задан — перенос без оценки:')
     sys.path[:0] = [os.path.join(HERE, '..'), os.path.join(HERE, '..', '..')]
@@ -639,7 +680,7 @@ def test_align_tied():
 
 
 def main():
-    for f in (test_own_panel_fabric_photo_quilt, test_sub_tone, test_own_panel_neutral_donor_needs_L, test_own_panel_keeps_our_L, test_align_tied, test_own_panel_smooth_no_quilt, test_align_ut, test_own_panel_clean_detail, test_own_panel_tone, test_same_mesh, test_decide, test_gate_per_property, test_propagate, test_object_basis, test_inconsistent_winding, test_outer_only, test_panel_with_bottom, test_panels, test_apply_to_fill, test_relief_source, test_ultratex_full):
+    for f in (test_sibling_tone, test_own_panel_fabric_photo_quilt, test_sub_tone, test_own_panel_neutral_donor_needs_L, test_own_panel_keeps_our_L, test_align_tied, test_own_panel_smooth_no_quilt, test_align_ut, test_own_panel_clean_detail, test_own_panel_tone, test_same_mesh, test_decide, test_gate_per_property, test_propagate, test_object_basis, test_inconsistent_winding, test_outer_only, test_panel_with_bottom, test_panels, test_apply_to_fill, test_relief_source, test_ultratex_full):
         f()
     print(f'tests_ref_zone: ошибок {len(FAILS)}')
     return 1 if FAILS else 0

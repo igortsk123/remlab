@@ -2444,6 +2444,10 @@ def run_stage_once(run: str, sku: str, glb: str, known: list | None = None, part
         ut_g = _ug if RZ_same_mesh(geoms, _ug) else None
     tex_after, rep['own_panel'] = own_panel_tone_hook(geoms, tex_after, known, ut_g, parts, front_axis_of_check(_chk6), float(th['front_on_back_corr'][1]))
     import ref_zone as RZ
+    try:                                                                  # части-близнецы (стул 7733, 23.11): тон из мизерного известного подтягивается к парной части с тем же цветом 06; сбой не роняет этап
+        tex_after, rep['sibling_tone'] = RZ.sibling_tone(geoms, tex_before, tex_after, known, parts)
+    except Exception as e:  # noqa: BLE001
+        rep['sibling_tone'] = {'error': f'{type(e).__name__}: {e}'}
     try:                                                                  # подчасть по цвету 06 (Б, 23.11): мелкие невидимые панели со своим тоном; сбой не роняет этап
         tex_after, rep['sub_tone'] = RZ.sub_tone(geoms, tex_before, tex_after, known, parts)
     except Exception as e:  # noqa: BLE001
