@@ -383,6 +383,10 @@ def test_new_rules_only_body_type():
         ok(cfg.get('require_hidden_pattern') == 'body', f'{key}: ключ require_hidden_pattern=body лежит в rules/paint-fill.json')
         for role, want in (('шкаф', True), ('комод', True), ('диван', False), ('кресло', False), ('стул', False), ('неведомое', False), (None, False)):
             ok(SP.type_allows_rule({'_card_role': role}, cfg, reg)[0] is want, f'{key}: {role} → {want}')
+    gc = FR['grain_cap']
+    ok(gc.get('require_hidden_pattern') == 'body' and 0 < gc['max_sigma_l'] <= 3.0, 'grain_cap: ключ require_hidden_pattern=body и потолок σ в rules')
+    for role, want in (('шкаф', True), ('диван', False), (None, False)):
+        ok(SP.type_allows_rule({'_card_role': role}, gc, reg)[0] is want, f'grain_cap: {role} → {want}')
     # light_floor в apply_groups: у дивана (same_fabric) пол света не действует, у шкафа действует
     tex, known, parts = None, None, None
     R = dict(FR, _card_role='диван')

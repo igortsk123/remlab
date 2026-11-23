@@ -844,6 +844,9 @@ def apply_groups(geoms: list, tex_after: list, known_keep: list, pas: dict, ctx:
     out_tex, rep_g = [], {}
     _lf_ok, _lf_why = type_allows_rule(R, R.get('light_floor'))                 # «светлое не темнеет» — только у типа по политике паспорта (T-28/1); у остальных — как в main
     _LF = (R.get('light_floor') or {}) if _lf_ok else {}
+    _gc_ok, _gc_why = type_allows_rule(R, R.get('grain_cap'))                   # потолок зерна заливки — только у типа по политике паспорта (T-28/1); у остальных — как в main
+    _gcap = float(R['grain_cap']['max_sigma_l']) if (_gc_ok and (R.get('grain_cap') or {}).get('enabled', False)) else None
+    ctx['grain_cap_gate'] = {'allowed': _gcap is not None, 'max_sigma_l': _gcap, 'why': _gc_why}
     ctx['light_floor_gate'] = {'allowed': bool(_lf_ok and (R.get('light_floor') or {}).get('enabled', False)), 'why': _lf_why}
     for gi, g in enumerate(geoms):
         T = maps.T[gi]
@@ -882,6 +885,9 @@ def apply_groups(geoms: list, tex_after: list, known_keep: list, pas: dict, ctx:
                 res = cur - med
             sig_g = float(grp['sigma_grain_L'])
             info = {'texels': int(m.sum()), 'class': grp['class']}
+            if _gcap is not None and sig_g > _gcap:
+                info['grain_capped'] = {'sigma_measured': round(sig_g, 3), 'max_sigma_l': _gcap}
+                sig_g = _gcap
             if grp['class'] != 'узор':
                 sr = float(1.4826 * np.median(np.abs(res[:, 0] - np.median(res[:, 0]))))
                 lim = float(R['grain_clip_k']) * max(sig_g, 1e-6)                       # зерно залитого не выше измеренного на видимом (не по собственному разбросу заливки)
