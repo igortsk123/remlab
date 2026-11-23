@@ -27,6 +27,7 @@ sys.path.insert(0, HERE)
 import edge_sharpen as ES  # noqa: E402
 import mesh_type_passports as MTP  # noqa: E402
 import paint_stage as PS  # noqa: E402
+import rule_record as RR  # noqa: E402
 
 RULE_ID = 'R-BACKPANEL-06'
 STAGE_DIR = '06-visible'
@@ -72,32 +73,22 @@ def _sha(path: str) -> str:
     return h.hexdigest()
 
 
-def rule_entry(doc: dict) -> dict | None:
-    """Запись для `check.json: extra.rules[]` по формату `tools/ops/rule_registry_audit.py`: {rule_id, type, digest, applied: true | abstain: причина}. Нет типа паспорта — записи нет (аудит ждёт тип из паспорта)."""
-    pol = doc.get('policy') or {}
-    if not pol.get('type'):
-        return None
-    e = {'rule_id': RULE_ID, 'type': pol['type'], 'digest': pol.get('digest')}
-    if doc.get('applied'):
-        e['applied'] = True
-    else:
-        e['abstain'] = doc.get('reason') or 'не применено'
-    return e
-
-
-def put_rule_entry(check_path: str, entry: dict | None) -> bool:
-    """Дописать/заменить запись правила в `extra.rules[]` check.json этапа 6 (атомарно). Нет check.json или записи — False."""
-    if entry is None or not os.path.exists(check_path):
+def put_rule_record(check_path: str, doc: dict, reg: dict | None = None) -> bool:
+    """Запись правила в `06-visible/check.json: extra.rules[]` — ЕДИНЫМ форматом `rule_record.entry` (тип и digest — из паспорта, воздержание с причиной; неизвестный тип — воздержание `no_type`).
+    У товара один тип: прежняя запись этого правила (в т. ч. от другой роли) заменяется. Нет check.json — False."""
+    if not os.path.exists(check_path):
         return False
     d = _json(check_path)
     if not d:
         return False
-    ex = d.setdefault('extra', {})
-    ex['rules'] = [e for e in (ex.get('rules') or []) if not (isinstance(e, dict) and e.get('rule_id') == entry['rule_id'])] + [entry]
-    tmp = check_path + '.tmp'
-    with open(tmp, 'w', encoding='utf-8') as f:
-        json.dump(d, f, ensure_ascii=False, indent=2)
-    os.replace(tmp, check_path)
+    ex = d.get('extra')
+    if isinstance(ex, dict) and ex.get('rules'):
+        ex['rules'] = [e for e in ex['rules'] if not (isinstance(e, dict) and e.get('rule_id') == RULE_ID)]
+        tmp = check_path + '.tmp'
+        with open(tmp, 'w', encoding='utf-8') as f:
+            json.dump(d, f, ensure_ascii=False, indent=1)
+        os.replace(tmp, check_path)
+    RR.record_file(check_path, RULE_ID, doc.get('role'), bool(doc.get('applied')), '' if doc.get('applied') else (doc.get('reason') or 'не применено'), reg)
     return True
 
 
@@ -117,7 +108,7 @@ def run_stage(run: str, sku: str, role: str | None, reg: dict | None = None, rul
         if os.path.isdir(d):
             with open(os.path.join(d, OUT), 'w', encoding='utf-8') as f:
                 json.dump(doc, f, ensure_ascii=False, indent=1)
-            put_rule_entry(os.path.join(d, 'check.json'), rule_entry(doc))
+            put_rule_record(os.path.join(d, 'check.json'), doc, reg)
         return doc
     g = gate(role, reg, rules)
     doc['policy'] = {k: g['policy'].get(k) for k in ('type', 'hidden_pattern', 'mode', 'digest', 'reason')}

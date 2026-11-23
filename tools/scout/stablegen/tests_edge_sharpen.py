@@ -341,18 +341,27 @@ class BackPanelStage(unittest.TestCase):
             doc, d = self._stage(t, ex, "комод", reg, None, with_prov=False)
             e = [x for x in _json.load(open(os.path.join(d, "check.json"), encoding="utf-8"))["extra"]["rules"] if x["rule_id"] == "R-BACKPANEL-06"]
             self.assertEqual(len(e), 1)
-            self.assertTrue(e[0]["applied"] is True and e[0]["type"] == "комод" and e[0]["digest"] == MTP.digest_of(reg["types"]["комод"]), e)
+            self.assertTrue(e[0]["applied"] is True and e[0]["type"] == "комод" and e[0]["digest"] == MTP.paint_policy("комод", reg)["digest"], e)      # digest — из политики паспорта (тот же, что у 07 и оценки)
             self.assertEqual(len(_json.load(open(os.path.join(d, "check.json"), encoding="utf-8"))["extra"]["rules"]), 2)     # чужие записи целы
-            __import__("back_panel_stage").run_stage(t, "s1", "ваза", reg=reg)                      # повтор с другой ролью заменяет запись, а не дублирует
+            __import__("back_panel_stage").run_stage(t, "s1", "ваза", reg=reg)                      # повтор с другой ролью заменяет запись, а не копит рядом (у товара один тип)
             rules_ = _json.load(open(os.path.join(d, "check.json"), encoding="utf-8"))["extra"]["rules"]
             mine = [x for x in rules_ if x["rule_id"] == "R-BACKPANEL-06"]
             self.assertEqual(len(mine), 1)
             self.assertIn("continue", mine[0]["abstain"])
             self.assertNotIn("applied", mine[0])
-        with tempfile.TemporaryDirectory() as t:                                                    # неизвестный тип: записи нет (аудит ждёт тип паспорта), причина — в back_panel.json
+            self.assertEqual(len(rules_), 2)                                                       # чужая запись цела
+        with tempfile.TemporaryDirectory() as t:                                                    # неизвестный тип: запись воздержания no_type (пустого охвата не бывает), type=null
             doc, d = self._stage(t, ex, "неведомая вещь", reg, None, with_prov=False)
-            self.assertFalse([x for x in _json.load(open(os.path.join(d, "check.json"), encoding="utf-8"))["extra"]["rules"] if x["rule_id"] == "R-BACKPANEL-06"])
+            mine = [x for x in _json.load(open(os.path.join(d, "check.json"), encoding="utf-8"))["extra"]["rules"] if x["rule_id"] == "R-BACKPANEL-06"]
+            self.assertEqual(len(mine), 1)
+            self.assertIsNone(mine[0]["type"])
+            self.assertIn("no_type", mine[0]["abstain"])
             self.assertTrue(os.path.exists(os.path.join(d, "back_panel.json")))
+        with tempfile.TemporaryDirectory() as t:                                                    # запись делает единая функция rule_record.entry (тот же формат у всех этапов)
+            import rule_record as RR
+            doc, d = self._stage(t, ex, "комод", reg, None, with_prov=False)
+            mine = [x for x in _json.load(open(os.path.join(d, "check.json"), encoding="utf-8"))["extra"]["rules"] if x["rule_id"] == "R-BACKPANEL-06"]
+            self.assertEqual(mine, [RR.entry("R-BACKPANEL-06", "комод", True, reg=reg)])
 
     def test_stale_backup_not_used_after_new_06(self):
         import hashlib
