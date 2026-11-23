@@ -2730,7 +2730,7 @@ def run_stage_once(run: str, sku: str, glb: str, known: list | None = None, part
         if _roles:
             cfg = dict(cfg or {}, part_role=_roles)          # C: классы частей — из этапа 3 сами (CFG_C больше не нужен)
     # ---- паспорт поверхностей (T-209/1, m4): группы материала между 06 и 07; нужен и выключателю UltraTex (подсказка — только группе «узор»)
-    sg_cfg = RULES['surface_groups']
+    sg_cfg = dict(RULES['surface_groups'], _card_role=((cfg or {}).get('top_card') or {}).get('role'))      # роль товара — для правил «по типу» (паспорт типа, paint.hidden_pattern)
     SP = sg_pas = sg_ctx = None
     sg_rep = {'enabled': bool(sg_cfg['enabled'])}
     k_keep = [np.asarray(k_, bool) & ~unpainted_mask(np.asarray(t_)[..., :3]) for k_, t_ in zip(known, tex_before)]

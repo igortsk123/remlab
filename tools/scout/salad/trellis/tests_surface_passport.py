@@ -313,6 +313,18 @@ def test_rebuild_body_gates():
     ok(not SP.rebuild_body_from_top(pas0, {}, [], R2, None, top)['rebuilt'], 'use_top_tone=false — прежнее поведение')
 
 
+def test_type_allows_body():
+    print('роль панели — только по типу: paint.hidden_pattern == body (T-28/1, владелец TG 2306: всё по типам):')
+    reg = {'types': {'шкаф': {'aliases': [], 'paint': {'hidden_pattern': 'body'}}, 'диван': {'aliases': [], 'paint': {'hidden_pattern': 'same_fabric'}}, 'стул': {'aliases': [], 'paint': {}}}}
+    R = {'body_override': {'edge_body': {'require_hidden_pattern': 'body'}}}
+    ok(SP.type_allows_body(dict(R, _card_role='шкаф'), reg)[0], 'шкаф (body) — правило действует')
+    ok(not SP.type_allows_body(dict(R, _card_role='диван'), reg)[0], 'диван (same_fabric) — не действует')
+    ok(not SP.type_allows_body(dict(R, _card_role='стул'), reg)[0], 'тип без поля — не действует')
+    ok(not SP.type_allows_body(dict(R, _card_role='неведомое'), reg)[0], 'типа нет в паспортах — не действует')
+    ok(not SP.type_allows_body(R, reg)[0], 'нет роли товара — не действует')
+    ok(SP.type_allows_body({'body_override': {'edge_body': {}}}, reg)[0], 'require_hidden_pattern не задан — без ограничения по типу')
+
+
 def test_grain_no_dark_seams():
     print('зерно группы — без тёмных швов пула блоков:')
     g, tex, known, parts, base = scene_plane_two_parts()
@@ -540,7 +552,7 @@ def test_blur_caches():
 
 
 def main() -> int:
-    for f in (test_blur_caches, test_split_plane_one_tone, test_contrast_door_own_group, test_gray_pattern_not_flattened, test_back_is_body_not_facade, test_back_not_tiny_contrast, test_top_follows_group, test_edge_body_tone, test_light_floor, test_rebuild_body_gates, test_grain_no_dark_seams, test_gradient_continues, test_outlier_replaced, test_orphan_attached, test_orphan_guards, test_orphan_keeps_hook_tone, test_hook_keep_top, test_ultratex_switch_off, test_hidden_pattern_by_type):
+    for f in (test_blur_caches, test_split_plane_one_tone, test_contrast_door_own_group, test_gray_pattern_not_flattened, test_back_is_body_not_facade, test_back_not_tiny_contrast, test_top_follows_group, test_edge_body_tone, test_light_floor, test_rebuild_body_gates, test_type_allows_body, test_grain_no_dark_seams, test_gradient_continues, test_outlier_replaced, test_orphan_attached, test_orphan_guards, test_orphan_keeps_hook_tone, test_hook_keep_top, test_ultratex_switch_off, test_hidden_pattern_by_type):
         f()
     print(f'tests_surface_passport: ошибок {bad}')
     return 1 if bad else 0

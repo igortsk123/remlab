@@ -475,6 +475,9 @@ def rebuild_body_from_top(pas: dict, ctx: dict, geoms: list, R: dict, tf, top_re
     E = O.get('edge_body') or {}
     if not (O.get('enabled') and E.get('enabled') and E.get('use_top_tone', False)):
         return {'rebuilt': False, 'why': 'body_override.edge_body.use_top_tone = false'}
+    t_ok, t_why = type_allows_body(R)
+    if not t_ok:
+        return {'rebuilt': False, 'why': t_why}
     if not top_rep.get('applied') or not top_rep.get('tone_lab') or top_rep.get('other_material_hint'):
         return {'rebuilt': False, 'why': 'Ш3в не применён или «другой материал» по кромке≠плоскости'}
     if str(top_rep.get('top_source')) != 'same_part_inference':
@@ -542,6 +545,28 @@ def _tone_arr(grp: dict, ctx: dict, gi: int, m: np.ndarray) -> np.ndarray:
     return np.stack([gr['coef'][c][0] + gr['coef'][c][1] * s for c in range(3)], 1)
 
 
+def type_allows_body(R: dict, reg: dict | None = None) -> tuple:
+    """Роль панели (корпус ≠ фасад; T-28/1) действует только у типов, чей паспорт говорит `paint.hidden_pattern` == `body_override.edge_body.require_hidden_pattern` (у корпусных — «body»; поле — р.6 T-39).
+    Роль товара — `R['_card_role']` (card.json `role`). Нет роли / типа / поля / реестра — правило НЕ действует (причина в отчёте). → (bool, причина)."""
+    need = ((R.get('body_override') or {}).get('edge_body') or {}).get('require_hidden_pattern')
+    if not need:
+        return True, 'require_hidden_pattern не задан — по типу не ограничено'
+    role = R.get('_card_role')
+    if not role:
+        return False, 'нет роли товара (card.json role) — тип неизвестен'
+    try:
+        import mesh_type_passports as MTP
+        pp = MTP.get(role, reg)
+    except Exception as e:  # noqa: BLE001
+        return False, f'реестр паспортов типов не прочитан: {type(e).__name__}: {e}'
+    if pp is None:
+        return False, f'типа «{role}» нет в паспортах'
+    v = (pp.get('paint') or {}).get('hidden_pattern')
+    if v is None:
+        return False, f'у типа «{role}» не задан paint.hidden_pattern'
+    return (v == need), f'тип «{role}»: paint.hidden_pattern = {v!r}' + ('' if v == need else f' ≠ {need!r}')
+
+
 def light_floor(tgt_L, tone_L, cls: str, F: dict):
     """«Светлое не темнеет» (T-28/1, директор): у группы класса «свет» с L тона ≥ `min_L` невидимое не темнее тона группы больше чем на `max_darker_dL`. Чистая функция по L (массив/число)."""
     if not F.get('enabled', False) or cls != 'свет':
@@ -596,6 +621,10 @@ def body_override(geoms: list, parts: list, maps: Maps, kn_clean: list, groups: 
             edge_mode = False
             if not cand:
                 if not (O.get('edge_body') or {}).get('enabled', False) or labs is None:
+                    continue
+                t_ok, t_why = type_allows_body(R)
+                if not t_ok:
+                    rep.setdefault('edge_body_skipped', t_why)
                     continue
                 edge_mode = True                                                  # другой группы нет: тон корпуса возьмём по фото-текселям не-фасадных граней (внутри цикла по геометриям)
                 top, near, btone = gg, [], np.asarray(gg['tone_lab'], float)
