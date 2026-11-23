@@ -665,7 +665,7 @@ ok(not rep08b['sku1']['parts'] and 'нет роли' in rep08b['sku1']['parts_wh
 pool08 = WS.Pool(KW.State(), dict(C, work=tmpdir('work08')))
 ok(pool08.sem_08._value == 1,'08: по умолчанию одно задание за раз (пик памяти 4,5 ГБ, проба 23.11)')
 va = {'args': ['--card-json', '@in/card.json']}
-ok(ST.job_args('07', va) == va['args'] and ST.job_args('06', va) == va['args'] and ST.job_args('seam', va) == [] and ST.job_args('08', va) == [], 'job_args: args из inputs — только 06/07; шов и 08 — пусто (иначе шов падает на --card-json)')
+ok(ST.job_args('07', va) == va['args'] and ST.job_args('06', va) == [] and ST.job_args('seam', va) == [] and ST.job_args('08', va) == [], 'job_args: args из inputs — только 07; 06, шов и 08 — пусто (иначе падают на «unrecognized arguments --card-json»)')
 os.makedirs(os.path.join(d08, 'pr', 'sku1', '07-fill'), exist_ok=True)
 open(os.path.join(d08, 'pr', 'sku1', '07-fill', 'report.json'), 'w').write(json.dumps({'report': {'relief_source': None}}))
 os.makedirs(os.path.join(d08, 'pr', 'sku2', '07-fill'), exist_ok=True)

@@ -228,8 +228,9 @@ def stage_dirname(stage: str) -> str:
 
 
 def job_args(stage: str, v: dict) -> list[str]:
-    """`args` товара из inputs.json — для 06/07 (`--card-json @in/card.json`, `--photo …`); шов и 08 свои аргументы строит воркер (проба 23.11: шов упал на чужих --card-json)."""
-    return list(v.get('args') or []) if stage not in ('seam', '08') else []
+    """`args` товара из inputs.json — ТОЛЬКО для 07 (`--card-json @in/card.json`, `--photo …`: флаги tex_fill); 06 (tex_visible), шов и 08 их не знают и падают на «unrecognized arguments»
+    (проба и пакет 23.11: шов, затем 06 при общем inputs на всю цепочку)."""
+    return list(v.get('args') or []) if stage == '07' else []
 
 
 def submit_stage(gw, a, inputs: dict, stage: str, t: float) -> tuple[dict | None, dict]:
