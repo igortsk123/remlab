@@ -7,6 +7,8 @@ import tempfile
 HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, HERE)
 import plan09 as P  # noqa: E402
+import remlab_tmp  # noqa: E402
+remlab_tmp.use('tests_plan09')                                                  # временное — на диске и с уборкой (T-20261107-13)
 
 bad = 0
 
