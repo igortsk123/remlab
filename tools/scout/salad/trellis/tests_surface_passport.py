@@ -423,8 +423,37 @@ def test_hidden_pattern_by_type():
     ok(sg['by_hidden_pattern']['same_fabric']['clip_k'] <= 3.0, 'same_fabric режет выбросы-детали (clip_k ≤ 3), пороги — в rules')
 
 
+def test_blur_caches():
+    print('кэши по маске (T-157/В): знаменатель размытия и расстояние до известного = прямой расчёт; разные маски не путаются; только чтение:')
+    from scipy.ndimage import distance_transform_edt, gaussian_filter
+    rng = np.random.default_rng(2)
+    k1 = rng.random((96, 96)) > 0.6
+    k2 = k1.copy()
+    k2[10, 10] = ~k2[10, 10]
+    img = rng.normal(50, 9, (96, 96, 3))
+    SP._BLUR_CACHE.clear()
+    SP._BLUR_BYTES[0] = 0
+    for k in (k1, k2, k1):
+        want = np.stack([gaussian_filter(img[..., c] * k.astype(float), 3.0, mode='nearest') for c in range(3)], -1) / np.maximum(gaussian_filter(k.astype(float), 3.0, mode='nearest'), 1e-9)[..., None]
+        ok(np.array_equal(SP._blur_norm(img, k, 3.0), want), 'нормированное размытие совпало с прямым (бит в бит)')
+    ok(np.array_equal(SP._edt(k1), distance_transform_edt(~k1)) and np.array_equal(SP._edt(k2), distance_transform_edt(~k2)) and not np.array_equal(SP._edt(k1), SP._edt(k2)), 'расстояние до известного по маске; другая маска — свой результат')
+    e0 = np.zeros((96, 96), bool)
+    ok(np.array_equal(SP._edt(e0), np.full((96, 96), 1e6)), 'пустая маска → 1e6 (как раньше)')
+    ok(not SP._den(k1, 3.0).flags.writeable, 'из кэша отдаётся только для чтения')
+    ok(not np.array_equal(SP._den(k1, 3.0), SP._den(k1, 4.0)), 'другое σ — другое значение')
+    h0 = SP._BLUR_STATS['hit']
+    SP._den(k1, 3.0)
+    ok(SP._BLUR_STATS['hit'] == h0 + 1, 'повтор — из кэша')
+    os.environ['REMLAB_BLUR_CACHE'] = '0'
+    try:
+        h1, m1 = SP._BLUR_STATS['hit'], SP._BLUR_STATS['miss']
+        ok(np.array_equal(SP._den(k1, 3.0), gaussian_filter(k1.astype(float), 3.0, mode='nearest')) and SP._BLUR_STATS['hit'] == h1 and SP._BLUR_STATS['miss'] == m1, 'REMLAB_BLUR_CACHE=0 — без кэша, значения те же')
+    finally:
+        del os.environ['REMLAB_BLUR_CACHE']
+
+
 def main() -> int:
-    for f in (test_split_plane_one_tone, test_contrast_door_own_group, test_gray_pattern_not_flattened, test_back_is_body_not_facade, test_grain_no_dark_seams, test_gradient_continues, test_outlier_replaced, test_orphan_attached, test_orphan_guards, test_orphan_keeps_hook_tone, test_hook_keep_top, test_ultratex_switch_off, test_hidden_pattern_by_type):
+    for f in (test_blur_caches, test_split_plane_one_tone, test_contrast_door_own_group, test_gray_pattern_not_flattened, test_back_is_body_not_facade, test_grain_no_dark_seams, test_gradient_continues, test_outlier_replaced, test_orphan_attached, test_orphan_guards, test_orphan_keeps_hook_tone, test_hook_keep_top, test_ultratex_switch_off, test_hidden_pattern_by_type):
         f()
     print(f'tests_surface_passport: ошибок {bad}')
     return 1 if bad else 0

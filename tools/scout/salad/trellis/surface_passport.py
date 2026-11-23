@@ -59,10 +59,63 @@ def _de(a: np.ndarray, b: np.ndarray) -> np.ndarray:
     return TC.de2000_v(np.asarray(a, float).reshape(-1, 3), np.asarray(b, float).reshape(-1, 3))
 
 
+# Кэши по содержимому маски (T-157/В): знаменатель нормированного размытия и расстояние до известного зависят только от маски (и σ) — до/после и по группам маски повторяются.
+# Отдаются без копий и ТОЛЬКО на чтение (writeable=False). Объём ограничен (LRU по байтам); REMLAB_BLUR_CACHE=0 — выключить, REMLAB_BLUR_CACHE_MB — потолок (по умолчанию 192).
+import collections as _collections
+import hashlib as _hashlib
+
+_BLUR_CACHE = _collections.OrderedDict()
+_BLUR_BYTES = [0]
+_BLUR_STATS = {'hit': 0, 'miss': 0}
+
+
+def _mask_key(a) -> bytes:
+    a = np.ascontiguousarray(a)
+    h = _hashlib.blake2b(digest_size=16)
+    h.update(repr((a.shape, str(a.dtype))).encode())
+    h.update(a.tobytes())
+    return h.digest()
+
+
+def _cached(key, compute):
+    if os.environ.get('REMLAB_BLUR_CACHE', '1') == '0':
+        return compute()
+    hit = _BLUR_CACHE.get(key)
+    if hit is not None:
+        _BLUR_CACHE.move_to_end(key)
+        _BLUR_STATS['hit'] += 1
+        return hit
+    _BLUR_STATS['miss'] += 1
+    v = compute()
+    v.flags.writeable = False
+    cap = int(float(os.environ.get('REMLAB_BLUR_CACHE_MB', '192')) * 1e6)
+    if v.nbytes <= cap:
+        _BLUR_CACHE[key] = v
+        _BLUR_BYTES[0] += v.nbytes
+        while _BLUR_BYTES[0] > cap and len(_BLUR_CACHE) > 1:
+            _, old = _BLUR_CACHE.popitem(last=False)
+            _BLUR_BYTES[0] -= old.nbytes
+    return v
+
+
+def _den(known, sigma):
+    """gaussian_filter(known как float64, σ, 'nearest') — с памятью по содержимому маски."""
+    from scipy.ndimage import gaussian_filter
+    kn = np.asarray(known)
+    return _cached(('den', _mask_key(kn), float(sigma)), lambda: gaussian_filter(kn.astype(np.float64), float(sigma), mode='nearest'))
+
+
+def _edt(k0):
+    """distance_transform_edt(~k0), пустая маска — 1e6 (как раньше в measure/apply_groups); с памятью по содержимому маски."""
+    from scipy.ndimage import distance_transform_edt
+    k = np.asarray(k0, bool)
+    return _cached(('edt', _mask_key(k)), lambda: distance_transform_edt(~k) if k.any() else np.full(k.shape, 1e6))
+
+
 def _blur_norm(img, known, sigma):
     from scipy.ndimage import gaussian_filter
     w = known.astype(np.float64)
-    den = gaussian_filter(w, sigma, mode='nearest')
+    den = _den(known, sigma)
     if img.ndim == 2:
         return gaussian_filter(img * w, sigma, mode='nearest') / np.maximum(den, 1e-9)
     return np.stack([gaussian_filter(img[..., k] * w, sigma, mode='nearest') for k in range(img.shape[-1])], -1) / np.maximum(den, 1e-9)[..., None]
@@ -637,7 +690,7 @@ def apply_groups(geoms: list, tex_after: list, known_keep: list, pas: dict, ctx:
         lab = tf.rgb2lab(tex[..., :3].reshape(-1, 3)).reshape(T, T, 3)
         k0 = np.asarray(known_keep[gi], bool)
         gm = _gmap_ctx(ctx, gi)
-        d = distance_transform_edt(~k0) if k0.any() else np.full((T, T), 1e6)
+        d = _edt(k0)
         wseam = np.clip(d / max(float(R['seam_px']), 1e-6), 0.0, 1.0)
         wseam = wseam * wseam * (3.0 - 2.0 * wseam)
         noise = np.random.RandomState(5003 + gi).randn(T, T)
@@ -660,7 +713,7 @@ def apply_groups(geoms: list, tex_after: list, known_keep: list, pas: dict, ctx:
             K = len(uq)
             cur = lab[m]
             if grp['class'] == 'градиент':                                  # плавную зависимость от положения (и заливочную тоже) убираем низкочастотным фильтром, а не медианой ячейки
-                low = np.stack([_blur_norm(lab[..., c], m, float(R['slow_px']))[m] for c in range(3)], 1)
+                low = _blur_norm(lab, m, float(R['slow_px']))[m]                    # три канала одним вызовом: знаменатель один (то же число, что по каналам)
                 res = cur - low
                 med = cur - res
             else:
@@ -759,9 +812,9 @@ def measure(geoms: list, tex_after: list, known_keep: list, pas: dict, ctx: dict
         lab = tf.rgb2lab(tex[..., :3].reshape(-1, 3)).reshape(T, T, 3)
         k0 = np.asarray(known_keep[gi], bool)
         gm = _gmap_ctx(ctx, gi)
-        d = distance_transform_edt(~k0) if k0.any() else np.full((T, T), 1e6)
+        d = _edt(k0)
         away = d >= float(R['seam_px'])
-        sm = np.stack([gaussian_filter(lab[..., c], float(mg['jump_blur_px']), mode='nearest') for c in range(3)], -1)
+        sm = None                                                         # размытие Lab для скачка — по требованию (нужно, только если на границе частей есть пары)
         pm = maps.part[gi]
         for gid in list(acc):
             tone = np.asarray(next(x for x in pas['groups'] if x['id'] == gid)['tone_lab'], float)
@@ -801,6 +854,8 @@ def measure(geoms: list, tex_after: list, known_keep: list, pas: dict, ctx: dict
                 if len(ys) > int(mg['jump_max_pairs']):
                     s = np.random.RandomState(7).choice(len(ys), int(mg['jump_max_pairs']), replace=False)
                     ys, xs, y0, x0, y1, x1 = ys[s], xs[s], y0[s], x0[s], y1[s], x1[s]
+                if sm is None:
+                    sm = np.stack([gaussian_filter(lab[..., c], float(mg['jump_blur_px']), mode='nearest') for c in range(3)], -1)
                 a['jump'].append(_de(sm[y0, x0], sm[y1, x1]))
     gr_ratio = {}
     for gid in acc:
@@ -815,7 +870,7 @@ def measure(geoms: list, tex_after: list, known_keep: list, pas: dict, ctx: dict
                 continue
             Lg = tf.rgb2lab(np.asarray(tex_after[gi])[..., :3].reshape(-1, 3)).reshape(maps.T[gi], maps.T[gi], 3)[..., 0]
             k0g = np.asarray(known_keep[gi], bool)
-            dg = distance_transform_edt(~k0g) if k0g.any() else np.full(k0g.shape, 1e6)
+            dg = _edt(k0g)
             me = mm & (dg >= float(R['seam_px']))
             if int(me.sum()) < 500:
                 continue
@@ -902,17 +957,18 @@ def measure_slits(geoms: list, tex_after: list, known_keep: list, ctx: dict, R: 
         Dk = occ & (L < _blur_norm(L, occ, float(mg['slit_blur_px'])) - float(mg['slit_dl']))
         S_all = Dk & ~binary_opening(Dk, iterations=3)
         un = occ & ~k0
-        Lk = _blur_norm(lab, k0, 2.0)
-        Lu = _blur_norm(lab, un, 2.0)
-        den_u = gaussian_filter(un.astype(float), 2.0, mode='nearest')
+        Lk = Lu = None                                                    # размытия по своей стороне — по требованию (нужны, только если есть щели с границей фото|заливка)
         for key, S in (('photo', S_all & k0), ('all', S_all)):
             if S.sum() < 20:
                 continue
             ns[key] += int(S.sum())
             ring = binary_dilation(S, iterations=int(mg['slit_band_px'])) & ~binary_dilation(S, iterations=int(mg['slit_core_px'])) & occ
             bk = ring & k0 & binary_dilation(un, iterations=1)
-            sel = bk & (den_u > 0.05)
+            sel = bk & (_den(un, 2.0) > 0.05)
             if sel.any():
+                if Lk is None:
+                    Lk = _blur_norm(lab, k0, 2.0)
+                    Lu = _blur_norm(lab, un, 2.0)
                 acc[key].append(_de(Lk[sel], Lu[sel]))
     out = {}
     for key in ('photo', 'all'):
