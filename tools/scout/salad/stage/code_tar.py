@@ -37,6 +37,8 @@ DIRS = tuple(WS.CODE_DIRS) + (ASSETS,)                                    # гд
 FULL_EXTRA = ('tools/scout/paint_stage.py', 'tools/scout/salad/recolor_lp.py',
               'tools/assets/material_parts.py', 'tools/assets/parts_refine.py', 'tools/assets/parts_vote.py', 'tools/assets/part_shapes.py')   # кроме точек входа и trellis/**: учитываем и отложенные импорты (parts_refine: `from parts_vote import` внутри функции)
 DATA_FILES = ('data/flat3d/material-part-rules.json', 'data/flat3d/parts-sam-rules.json')   # правила модулей tools/assets (их RULES_PATH = ROOT/data/flat3d/…); едут в срезе вместе с модулями
+FRONT_AXIS_PY = 'tools/scout/front_axis.py'
+DATA_ALWAYS = ('data/flat3d/sides-eval.json', 'data/flat3d/front-axis.json')   # правила свидетеля «перёда» (front_axis.py: 06 front_check, T-43): без них на ноде проверка «n/a» у ВСЕХ товаров; едут в любом срезе
 MUST = ('06', '07')                                                       # точки входа, без которых срез не годится (ref_zone/render_unlit — если есть в коммите)
 SHA_RE = re.compile(r'^[0-9a-f]{40}$')
 
@@ -138,9 +140,12 @@ def build(repo: str, ref: str) -> dict:
     sha = resolve_sha(repo, ref)
     files = set(tree_files(repo, sha))
     outside, entries = closure(repo, sha, files)
-    data: list[str] = []
+    data: list[str] = list(DATA_ALWAYS) if FRONT_AXIS_PY in outside else []        # правила едут вместе с модулем, который их читает (учебные репо без front_axis — без них)
+    absent_always = [d for d in data if d not in files]
+    if absent_always:
+        raise CodeTarError(f'в коммите {sha[:8]} нет правил свидетеля перёда: {absent_always}')
     if any(f.startswith(ASSETS + '/') for f in outside):          # модули частей в срезе — значит и их правила обязаны быть (иначе на ноде «частей нет», T-193/3)
-        data = list(DATA_FILES)
+        data = data + list(DATA_FILES)
         absent = [d for d in data if d not in files]
         if absent:
             raise CodeTarError(f'в коммите {sha[:8]} нет правил модулей частей: {absent}')

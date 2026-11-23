@@ -1176,9 +1176,9 @@ def main() -> int:
             role = (json.load(open(a.product_json, encoding='utf-8')) or {}).get('role') or ''
         except (OSError, ValueError):
             role = ''
-        if r.get('passed'):                                                      # камера этапа 4 не прошла / этап отказал — выход 06 не годится, зад не трогаем
-            bp = BPS.run_stage(a.run_dir, a.sku, role, keep_original=False)
-            r['back_panel'] = {'applied': bp['applied'], 'reason': bp['reason']}
+        bp = BPS.run_stage(a.run_dir, a.sku, role, keep_original=False, pose_run=a.pose_run,      # согласие кромок — из pose.json прогона позы во входе (в папке товара на ноде его нет)
+                           refusal='' if r.get('passed') else str(r.get('reason') or 'отказ без причины'))   # этап отказал — выход 06 не годится, зад не трогаем, но запись правила пишется
+        r['back_panel'] = {'applied': bp['applied'], 'reason': bp['reason']}
     print(json.dumps(r, ensure_ascii=False, default=str)[:2000])
     return 0 if r['passed'] else 1
 

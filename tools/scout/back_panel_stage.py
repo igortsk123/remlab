@@ -57,11 +57,13 @@ def camera_of(check: dict) -> tuple[float | None, float | None, float | None]:
     return (None if az is None else float(az), None if el is None else float(el), None if ag is None else float(ag))
 
 
-def pose_edge_from_files(sku_dir: str) -> float | None:
-    for rel in ('04-camera/pose.json', 'pose.json'):
-        e = ((_json(os.path.join(sku_dir, rel)).get('picked') or {}).get('edge') or {})
-        if e and not e.get('no_edges') and e.get('agree') is not None:
-            return float(e['agree'])
+def pose_edge_from_files(*dirs: str | None) -> float | None:
+    """Согласие кромок позы из pose.json (`<папка>/04-camera/pose.json`, `<папка>/pose.json`): первая папка, где оно измерено. Папки: товара и прогона позы (`pose_run` — на ноде Salad он лежит во входе, а не в папке товара)."""
+    for dd in dirs:
+        for rel in ('04-camera/pose.json', 'pose.json'):
+            e = ((_json(os.path.join(dd, rel)).get('picked') or {}).get('edge') or {}) if dd else {}
+            if e and not e.get('no_edges') and e.get('agree') is not None:
+                return float(e['agree'])
     return None
 
 
@@ -92,9 +94,11 @@ def put_rule_record(check_path: str, doc: dict, reg: dict | None = None) -> bool
     return True
 
 
-def run_stage(run: str, sku: str, role: str | None, reg: dict | None = None, rules: dict | None = None, glb_fn=None, keep_original: bool = True) -> dict:
+def run_stage(run: str, sku: str, role: str | None, reg: dict | None = None, rules: dict | None = None, glb_fn=None, keep_original: bool = True,
+              pose_run: str | None = None, refusal: str = '') -> dict:
     """Весь шаг; `glb_fn` подменяется тестами. Пишет `06-visible/back_panel.json` и запись в `06-visible/check.json: extra.rules[]`, возвращает содержимое back_panel.json.
-    `keep_original=False` — исходный visible.glb не сохраняется (на ноде Salad этап 6 каждый раз считается с нуля)."""
+    `keep_original=False` — исходный visible.glb не сохраняется (на ноде Salad этап 6 каждый раз считается с нуля). `pose_run` — прогон позы этапа 4 (откуда брать согласие кромок, если его нет в check.json этапа 6).
+    `refusal` — этап 6 отказал (причина словами): зад не трогаем, но запись правила пишется (воздержание «этап 6 не прошёл») — пустого охвата не бывает."""
     t0 = time.time()
     rules = rules or ES.load_rules()
     sku_dir = os.path.join(run, PS.safe_name(sku))
@@ -114,6 +118,8 @@ def run_stage(run: str, sku: str, role: str | None, reg: dict | None = None, rul
     doc['policy'] = {k: g['policy'].get(k) for k in ('type', 'hidden_pattern', 'mode', 'digest', 'reason')}
     if not g['allowed']:
         return done('тип не допускает: ' + g['reason'])
+    if refusal:
+        return done('этап 6 не прошёл (%s): зад не трогаем' % refusal[:120])
     vis, prov = os.path.join(d, 'visible.glb'), os.path.join(d, 'prov.png')
     keep = os.path.join(d, KEEP)
     if not os.path.exists(vis):
@@ -125,7 +131,7 @@ def run_stage(run: str, sku: str, role: str | None, reg: dict | None = None, rul
     if az is None or el is None:
         return done('нет камеры этапа 4 в 06-visible/check.json (extra.camera)')
     if agree is None:
-        agree = pose_edge_from_files(sku_dir)
+        agree = pose_edge_from_files(sku_dir, pose_run)
     if agree is None:
         return done('согласие кромок камеры неизвестно: камере без проверки не верим, зад не трогаем')
     tmp = os.path.join(d, '_back_panel.tmp.glb')

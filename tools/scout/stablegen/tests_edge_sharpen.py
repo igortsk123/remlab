@@ -363,6 +363,32 @@ class BackPanelStage(unittest.TestCase):
             mine = [x for x in _json.load(open(os.path.join(d, "check.json"), encoding="utf-8"))["extra"]["rules"] if x["rule_id"] == "R-BACKPANEL-06"]
             self.assertEqual(mine, [RR.entry("R-BACKPANEL-06", "комод", True, reg=reg)])
 
+    def test_salad_input_pose_run_gives_edge_agree_and_refusal_is_recorded(self):
+        """Раскладка ноды Salad: в папке товара pose.json нет (он во входе: in/pose_run), check.json 06 без front_check.edge_agree (проверка «n/a») — согласие кромок берётся из pose_run; отказ 06 пишет запись, а не пустоту."""
+        import json as _json
+        import tempfile
+        reg = self._reg({"комод": {"hidden_pattern": "body", "mode": "active"}})
+        with tempfile.TemporaryDirectory() as t:
+            pr = os.path.join(t, "in", "pose_run")
+            os.makedirs(pr)
+            _json.dump({"picked": {"edge": {"agree": 0.9, "no_edges": False}}}, open(os.path.join(pr, "pose.json"), "w"))
+            doc, d = self._stage(t, {"camera": {"az": 0.0, "el": 0.0}, "front_check": {"state": "n/a", "why": "нет свидетеля"}}, "комод", reg, None, with_prov=False, keep_original=False, pose_run=pr)
+            self.assertTrue(doc["applied"], doc["reason"])
+            e = [x for x in _json.load(open(os.path.join(d, "check.json"), encoding="utf-8"))["extra"]["rules"] if x["rule_id"] == "R-BACKPANEL-06"]
+            self.assertEqual(len(e), 1)
+            self.assertTrue(e[0].get("applied"))
+        with tempfile.TemporaryDirectory() as t:                                                    # без pose_run и без front_check — по-прежнему «согласие неизвестно», запись есть
+            doc, d = self._stage(t, {"camera": {"az": 0.0, "el": 0.0}}, "комод", reg, None, with_prov=False, keep_original=False)
+            self.assertFalse(doc["applied"])
+            self.assertIn("согласие кромок", doc["reason"])
+        with tempfile.TemporaryDirectory() as t:                                                    # этап 6 отказал: воздержание с причиной отказа, файлы не тронуты
+            doc, d = self._stage(t, {"camera": {"az": 0.0, "el": 0.0}}, "комод", reg, lambda *a, **k: self.fail("расчёт не должен идти"), refusal="edge_corr 0.24 (нужно >= 0.7)")
+            self.assertFalse(doc["applied"])
+            e = [x for x in _json.load(open(os.path.join(d, "check.json"), encoding="utf-8"))["extra"]["rules"] if x["rule_id"] == "R-BACKPANEL-06"]
+            self.assertEqual(len(e), 1)
+            self.assertIn("этап 6 не прошёл", e[0]["abstain"])
+            self.assertEqual(e[0]["type"], "комод")
+
     def test_stale_backup_not_used_after_new_06(self):
         import hashlib
         import tempfile

@@ -922,13 +922,15 @@ class ProductJsonCli(unittest.TestCase):
     def test_role_from_product_json_after_passed_stage(self):
         rc, calls, out = self._main(True, {'role': 'комод'})
         self.assertEqual(rc, 0)
-        self.assertEqual(calls, [('комод', {'keep_original': False})])
+        self.assertEqual(calls, [('комод', {'keep_original': False, 'pose_run': 'pose', 'refusal': ''})])      # pose_run — откуда берётся согласие кромок на ноде (в папке товара pose.json нет)
         self.assertIn('back_panel', out)
 
-    def test_not_run_when_stage_failed_or_no_file(self):
-        self.assertEqual(self._main(False, {'role': 'комод'})[1], [])
+    def test_failed_stage_still_records_refusal_and_no_file(self):
+        rc, calls, _ = self._main(False, {'role': 'комод'})                                  # этап отказал: шаг зовётся с причиной → запись правила «этап 6 не прошёл», зад не трогается
+        self.assertEqual(rc, 1)
+        self.assertEqual(calls, [('комод', {'keep_original': False, 'pose_run': 'pose', 'refusal': 'отказ без причины'})])
         rc, calls, _ = self._main(True, None)                                                  # нет файла: роль пустая → шаг отработает воздержанием (причина в back_panel.json), не падение
-        self.assertEqual(calls, [('', {'keep_original': False})])
+        self.assertEqual(calls, [('', {'keep_original': False, 'pose_run': 'pose', 'refusal': ''})])
 
 
 if __name__ == '__main__':

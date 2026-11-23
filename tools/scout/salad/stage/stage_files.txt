@@ -41,6 +41,7 @@ tools/scout/rules/top-prior.json
 tools/scout/rules/mesh-color-guard.json
 tools/scout/rules/mesh-type-passports.json
 data/flat3d/sides-eval.json
+data/flat3d/front-axis.json
 tools/assets/material_parts.py
 tools/assets/material_stage.py
 tools/assets/part_shapes.py

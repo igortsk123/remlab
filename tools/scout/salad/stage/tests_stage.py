@@ -485,6 +485,16 @@ try:
     ok(_b == open(os.path.join(ROOT, 'data/flat3d/material-part-rules.json'), 'rb').read(), 'правила в срезе — те же байты, что data/flat3d/material-part-rules.json (один источник)')
     ok(PARTS_PY <= {f for f in files} and set(CT.DATA_FILES) <= set(files), 'stage_files.txt: те же модули частей и правила в списке образа')
     ok(CT.selfcheck(real2['tar'], real2['entries']) == '', 'срез HEAD: из ЧИСТОЙ распаковки (python -I) tex_fill находит и загружает модули частей и правила (`load_part_modules`)')
+    # T-43/3: на ноде front_check был «n/a» у ВСЕХ товаров — правил свидетеля «перёда» (sides-eval.json, front-axis.json) не было в срезе (воркер распаковывает только tools/…)
+    ok({CT.packed_name(d) for d in CT.DATA_ALWAYS} <= set(real2['files']) and set(CT.DATA_ALWAYS) <= set(files), 'срез HEAD: правила свидетеля перёда (sides-eval.json, front-axis.json) едут в срезе кода и есть в образе')
+    import tempfile as _tf2
+    import subprocess as _sp2
+    with _tf2.TemporaryDirectory() as _d2:
+        WS.safe_untar(real2['tar'], _d2)
+        _code = ("import sys,os\nr=sys.argv[1]\nfor x in reversed(%r): sys.path.insert(0, os.path.join(r,x))\nimport front_axis as FA\n"
+                 "g=FA.load_guard(); import json; json.load(open(FA.AXIS_RULES)); print('ok', sorted(g)[:2])\n") % (tuple(CT.DIRS),)
+        _r2 = _sp2.run([sys.executable, '-I', '-c', _code, _d2], capture_output=True, text=True)
+        ok(_r2.returncode == 0 and _r2.stdout.startswith('ok'), f'срез HEAD, чистая распаковка: front_axis читает оба файла правил (на ноде 06 не «n/a: нет файла») {_r2.stderr[-200:]}')
 except CT.CodeTarError as exc:
     ok(False, f'срез HEAD с частями не собран: {exc}')
 # срез без правил частей, но с модулями — отказ ДО платной группы

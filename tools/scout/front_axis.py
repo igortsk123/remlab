@@ -21,8 +21,17 @@ import os
 import numpy as np
 
 HERE = os.path.dirname(os.path.abspath(__file__))
-RULES = os.path.join(HERE, '..', '..', 'data', 'flat3d', 'sides-eval.json')
-AXIS_RULES = os.path.join(HERE, '..', '..', 'data', 'flat3d', 'front-axis.json')
+
+
+def _rules_file(name: str) -> str:
+    """`data/flat3d/<name>`; в срезе кода для Salad воркер распаковывает только `tools/…` — там те же байты лежат как `tools/assets/_data/flat3d/<name>` (code_tar.packed_name)."""
+    p = os.path.join(HERE, '..', '..', 'data', 'flat3d', name)
+    q = os.path.join(HERE, '..', 'assets', '_data', 'flat3d', name)
+    return p if os.path.exists(p) or not os.path.exists(q) else q
+
+
+RULES = _rules_file('sides-eval.json')
+AXIS_RULES = _rules_file('front-axis.json')
 RESOLVED = ('auto_resolved', 'human_resolved')            # = orient_policy.RESOLVED (модуль чистый, без импорта scout)
 SIDES = ('перед', 'бок', 'зад', 'др. бок')
 
