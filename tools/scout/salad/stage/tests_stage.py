@@ -277,6 +277,8 @@ ok(os.path.isfile(os.path.join(A.out, 's1', '06-visible', 'visible.glb')) and os
 # ---------------------------------------------------------------- список файлов образа
 files = SSC.read_list()
 ok(all(os.path.isfile(os.path.join(ROOT, f)) for f in files), 'stage_files.txt: все файлы есть в репозитории')
+dups = sorted({f for f in files if files.count(f) > 1})
+ok(not dups, f'stage_files.txt: нет повторов строк ({dups[:3]})')
 dest = os.path.join(tmpdir('ctx'), 'code')
 SSC.stage(ROOT, dest, files)
 ok(all(os.path.isfile(os.path.join(dest, f)) for f in files) and not any('pycache' in f for f in files), 'stager: копия по списку, кэшей нет')

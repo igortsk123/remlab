@@ -6,8 +6,6 @@ tools/scout/asset_strategy.py
 tools/scout/remlab_tmp.py
 tools/scout/mesh_color_check.py
 tools/scout/mesh_render.py
-tools/scout/asset_strategy.py
-tools/scout/mesh_type_passports.py
 tools/scout/edge_sharpen.py
 tools/scout/plate_strip.py
 tools/scout/back_panel_stage.py
@@ -39,7 +37,6 @@ tools/scout/rules/paint-fill.json
 tools/scout/rules/ref-zone.json
 tools/scout/rules/top-prior.json
 tools/scout/rules/mesh-color-guard.json
-tools/scout/rules/mesh-type-passports.json
 data/flat3d/sides-eval.json
 data/flat3d/front-axis.json
 tools/assets/material_parts.py
@@ -80,15 +77,8 @@ data/flat3d/top-library/pat512/Wood056.jpg
 data/flat3d/top-library/pat512/Wood057.jpg
 data/flat3d/top-library/pat512/Wood069.jpg
 data/flat3d/top-library/pat512/Wood071.jpg
-tools/assets/material_parts.py
-tools/assets/parts_refine.py
-tools/assets/parts_vote.py
-tools/assets/part_shapes.py
-data/flat3d/material-part-rules.json
-data/flat3d/parts-sam-rules.json
 data/flat3d/material-recipes.json
 data/flat3d/furniture.json
-tools/scout/rule_record.py
 tools/scout/rules/rule-registry.json
 tools/scout/rules/type-policy-effect.json
 tools/scout/salad/trellis/detail_zones.py
