@@ -141,11 +141,10 @@ def flat_panels(V: np.ndarray, F: np.ndarray, ang_deg: float, min_frac: float) -
     nc, comp = connected_components(g, directed=False)
     tot = ar.sum()
     out = []
-    for ci in range(nc):
+    area = np.bincount(comp, weights=ar, minlength=nc)                  # площадь компонент разом; цикл — только по крупным (раньше comp == ci по всем: ~4 с на 500 тыс. граней)
+    for ci in np.where(area / tot >= min_frac)[0]:
         m = comp == ci
         a = ar[m].sum()
-        if a / tot < min_frac:
-            continue
         mn = (n[m] * ar[m, None]).sum(axis=0)
         mn /= max(np.linalg.norm(mn), 1e-9)
         if float(((n[m] @ mn) * ar[m]).sum() / a) < 0.95:
