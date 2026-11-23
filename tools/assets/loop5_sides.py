@@ -9,7 +9,7 @@ from PIL import Image, ImageDraw  # noqa: E402
 
 glb, photo, out = sys.argv[1], sys.argv[2], sys.argv[3]
 parts = MR.load_parts(glb)
-views = [(0, 12, 'перед'), (40, 20, '3/4'), (90, 12, 'бок'), (180, 12, 'зад'), (270, 12, 'др. бок'), (0, 80, 'верх')]
+views = [(0, 12, 'front'), (40, 20, '3/4'), (90, 12, 'side'), (180, 12, 'back'), (270, 12, 'other side'), (0, 80, 'top')]
 S = 420
 sheet = Image.new('RGB', (S * 7, S + 24), 'white')
 d = ImageDraw.Draw(sheet)
@@ -18,8 +18,8 @@ try:
     ph.thumbnail((S, S))
     sheet.paste(ph, (0, 24))
 except Exception:  # noqa: BLE001 — нет фото: лист всё равно нужен
-    d.text((5, 30), 'нет фото', fill='black')
-d.text((5, 4), 'ФОТО', fill='black')
+    d.text((5, 30), 'no photo', fill='black')
+d.text((5, 4), 'PHOTO', fill='black')
 for k, (yaw, pitch, name) in enumerate(views, 1):
     im = MR.render(parts, yaw, pitch, size=(S, S))
     if not isinstance(im, Image.Image):
