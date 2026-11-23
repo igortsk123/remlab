@@ -13,6 +13,9 @@ HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, HERE)
 sys.path.insert(0, os.path.join(HERE, ".."))
 sys.path.insert(0, os.path.join(HERE, "..", "..", "scout", "salad", "parts"))
+sys.path.append(os.path.join(HERE, "..", "..", "scout"))
+import remlab_tmp  # noqa: E402
+remlab_tmp.use("test_parts_names_roles")
 import parts_names_roles as pn  # noqa: E402
 import parts_roles as pro  # noqa: E402
 import part_shapes as shp  # noqa: E402,F401
