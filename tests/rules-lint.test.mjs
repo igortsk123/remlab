@@ -81,6 +81,8 @@ test("цикл замен, битая ссылка, несогласованно
   assert.ok(none.errors.some((e) => e.includes("superseded без superseded_by")));
   const good = lint(mk({ "P-001": { rule_status: "superseded", superseded_by: "P-002" }, "P-002": { supersedes: "P-001" } }));
   assert.deepEqual(good.errors, []);
+  // свод 23.11: снятое правило в индексе «всегда в контексте» не обязательно (там только действующие), но если есть — предупреждение
+  assert.ok(good.warnings.some((w) => w.includes("снятое правило в 00-operating-index.md")));
 });
 
 test("истёкший trial и trial без срока; active с истёкшим сроком — предупреждение", () => {

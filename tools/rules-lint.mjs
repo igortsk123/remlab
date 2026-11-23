@@ -205,7 +205,10 @@ export function lintRules(root, opts = {}) {
   } else errors.push("RULES-INDEX .claude/rules/00-operating-index.md — файла нет");
   for (const id of byId.keys()) {
     if (existsSync(regIdx) && !regRows.has(id)) errors.push(`RULES-INDEX ${id} — нет строки в .memory_bank/rules/INDEX.md`);
-    if (existsSync(opIdx) && !opRows.has(id)) errors.push(`RULES-INDEX ${id} — нет строки в .claude/rules/00-operating-index.md`);
+    // всегда-в-контексте индекс держит только действующие; снятые (superseded/retired) — история в реестре (свод 23.11)
+    const gone = ["superseded", "retired"].includes(byId.get(id).fm.rule_status || "");
+    if (existsSync(opIdx) && !opRows.has(id) && !gone) errors.push(`RULES-INDEX ${id} — нет строки в .claude/rules/00-operating-index.md`);
+    if (existsSync(opIdx) && opRows.has(id) && gone) warnings.push(`RULES-INDEX ${id} — снятое правило в 00-operating-index.md (держать только действующие)`);
   }
   for (const id of regRows.keys()) if (!byId.has(id)) errors.push(`RULES-INDEX ${id} — строка в rules/INDEX.md, а файла правила нет`);
   for (const id of opRows) if (!byId.has(id)) errors.push(`RULES-INDEX ${id} — строка в 00-operating-index.md, а файла правила нет`);

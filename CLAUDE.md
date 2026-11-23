@@ -19,8 +19,7 @@ Tier 0 = этот файл + INDEX + `.claude/rules/*.md`; Tier 2 = `.memory_ban
 
 ## Критично
 Все правила работы — реестр `.memory_bank/rules/` (свод 20.11.2026): строка на правило — `.claude/rules/00-operating-index.md`,
-четыре гейта — `.claude/rules/10-decision-gates.md`. Главное: конец задачи = `/memory-check` (P-046); план first, code second (P-044);
-две роли — ведущий и рабочий, владелец говорит с ведущим (P-013); сложное решение — вывод → `ask-codex` → финал (P-048); гипотезы, не аксиомы (P-012).
+четыре гейта — `.claude/rules/10-decision-gates.md`. Свод 23.11: 7 сводных правил P-069…P-075 + правила продукта.
 
 ## Команды
 `pnpm test` · `pnpm e2e` · `pnpm typecheck` · `pnpm lint` · `pnpm db:migrate` · `pnpm build` · `./deploy.sh`
