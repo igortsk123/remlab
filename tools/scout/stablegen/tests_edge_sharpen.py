@@ -384,6 +384,11 @@ class BackPanelStage(unittest.TestCase):
         with tempfile.TemporaryDirectory() as t:                                                    # этап 6 отказал: воздержание с причиной отказа, файлы не тронуты
             doc, d = self._stage(t, {"camera": {"az": 0.0, "el": 0.0}}, "комод", reg, lambda *a, **k: self.fail("расчёт не должен идти"), refusal="edge_corr 0.24 (нужно >= 0.7)")
             self.assertFalse(doc["applied"])
+            self.assertIn("edge_corr 0.24", doc["reason"])
+            _json.dump({"passed": False, "reason": "edge_bg_share 0.51 (нужно <= 0.05)", "extra": {"camera": {"az": 0.0, "el": 0.0}}}, open(os.path.join(d, "check.json"), "w"))      # причину пишет сам этап 6 — берём её, а не заглушку драйвера
+            doc2 = __import__("back_panel_stage").run_stage(t, "s1", "комод", reg=reg, refusal="отказ без причины")
+            self.assertIn("edge_bg_share 0.51", doc2["reason"])
+            doc, d = doc2, d
             e = [x for x in _json.load(open(os.path.join(d, "check.json"), encoding="utf-8"))["extra"]["rules"] if x["rule_id"] == "R-BACKPANEL-06"]
             self.assertEqual(len(e), 1)
             self.assertIn("этап 6 не прошёл", e[0]["abstain"])
