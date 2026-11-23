@@ -775,7 +775,7 @@ def classify(glb: str | None, known_png: str | None, parts_path: str | None, rul
         return out
     j = judge(m, R)
     out.update(status=j['status'], metrics=j['metrics'], hard_failed=j['hard_failed'], soft_failed=j['soft_failed'], detail=m)
-    if j['status'] == 'ok' and j['unmeasured']:                           # не измерено ≠ прошло: этап 9 не отдаёт «готов» без мерки верха/зада
+    if j["status"] in ("ok", "soft") and j["unmeasured"]:                           # не измерено ≠ прошло: этап 9 не отдаёт «готов» без мерки верха/зада
         out['status'] = 'missing'
     why = []
     for k in j['hard_failed'] + j['soft_failed']:
