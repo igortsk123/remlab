@@ -405,6 +405,48 @@ def eval_html(ev: dict, fronts: dict | None = None) -> str:
     return ''.join(out)
 
 
+def product_types(rules: dict, skus: list[str], catalog: list | None = None) -> dict[str, dict]:
+    """Тип товара для оценки «по типу» (владелец TG 2306/2308): {товар: {role (роль каталога), type (имя паспорта из rules/mesh-type-passports.json или None), family, provisional}}.
+    Роль — из rules.catalog ([{sid, role, …}]), тип — загрузчик паспортов (`mesh_type_passports.normalize`: роль → паспорт по base_role и алиасам). Нет товара в каталоге или типа в реестре — type None
+    (честно «без паспорта», не угадываем); сбой реестра/каталога не роняет круг — всё None."""
+    out = {s: {'role': None, 'type': None, 'family': None, 'provisional': None} for s in skus}
+    try:
+        if catalog is None:
+            with open(ex(rules['catalog']), encoding='utf-8') as fh:
+                catalog = json.load(fh)
+        roles = {str(x.get('sid')): x.get('role') for x in catalog}
+        scout = os.path.join(ROOT, 'tools', 'scout')
+        if scout not in sys.path:
+            sys.path.insert(0, scout)
+        import mesh_type_passports as MTP  # noqa: PLC0415 — тяжёлый импорт только когда нужен
+        reg = MTP.load()
+        for s in skus:
+            role = roles.get(s)
+            t = MTP.normalize(role, reg) if role else None
+            pas = reg['types'].get(t) if t else None
+            out[s] = {'role': role, 'type': t, 'family': (pas or {}).get('family'), 'provisional': (pas or {}).get('provisional')}
+    except Exception as exc:  # noqa: BLE001 — оценка по типу не должна ронять круг
+        say(f'⚠ типы товаров не определены ({type(exc).__name__}: {str(exc)[:120]}) — в summary type=None')
+    return out
+
+
+def by_type(types: dict[str, dict], per_sku: dict | None) -> dict[str, dict]:
+    """Свод по типу: {тип|'без паспорта': {skus, n, passed (если есть оценка листов), failed}} — для оценки «по типу»."""
+    out: dict[str, dict] = {}
+    for sku, t in types.items():
+        k = t.get('type') or 'без паспорта'
+        d = out.setdefault(k, {'skus': [], 'n': 0, 'passed': 0, 'failed': []})
+        d['skus'].append(sku)
+        d['n'] += 1
+        v = (per_sku or {}).get(sku)
+        if v is not None:
+            if v.get('ok'):
+                d['passed'] += 1
+            else:
+                d['failed'].append(sku)
+    return out
+
+
 def eval_after(rules: dict, run_dir: str, jobs: list[tuple], fronts: dict) -> tuple[dict | None, str]:
     """Оценка листов «после» сама, без ручного шага: (ev, html таблицы). Нет ни одного листа — (None, ''); сбой оценки не роняет круг (❗ в странице и в журнале)."""
     sheets = os.path.join(run_dir, 'sheets')
@@ -636,6 +678,7 @@ def main(argv=None) -> int:
     rc_a = run_sheets(rules, jobs, os.path.join(run_dir, 'sheets-after.log'))
     sheets_s[1] = round(time.time() - t_sa, 1)
     ev, ev_html = eval_after(rules, run_dir, jobs, fronts)
+    types = product_types(rules, skus)
     rows = []
     for s in skus:
         ok = s in res
@@ -644,8 +687,9 @@ def main(argv=None) -> int:
     t_all = time.time() - t0
     summ = {'code_ref': a.code_ref, 'sha': sha, 'from': a.start, 'run_dir': run_dir, 'page': page, 'seconds_salad': round(t_salad), 'seconds_total': round(t_all), 'codes': rcs, 'sheets_rc': [rc_b, rc_a], 'sheets_s': sheets_s,
             'money': money, 'skus': {r['sku']: r['status'] for r in rows},
+            'types': types, 'by_type': by_type(types, None if ev is None else ev.get('per_sku')),
             'eval': None if ev is None else {'passed_all': ev['summary']['passed_all'], 'items': ev['summary']['items'], 'passed_all_pct': ev['summary']['passed_all_pct'], 'worst_first': ev['summary']['worst_first'],
-                                              'per_sku': {k: {'score': v['score'], 'ok': v['ok'], 'fails': v['fails'], 'front': {x: (fronts.get(k) or {}).get(x) for x in ('theta', 'source', 'flags')}} for k, v in ev['per_sku'].items()}}}
+                                              'per_sku': {k: {'score': v['score'], 'ok': v['ok'], 'fails': v['fails'], 'type': (types.get(k) or {}).get('type'), 'front': {x: (fronts.get(k) or {}).get(x) for x in ('theta', 'source', 'flags')}} for k, v in ev['per_sku'].items()}}}
     with open(os.path.join(run_dir, 'summary.json'), 'w', encoding='utf-8') as fh:
         json.dump(summ, fh, ensure_ascii=False, indent=1)
     say(f'ГОТОВО за {t_all / 60:.1f} мин (Salad {t_salad / 60:.1f}); нод {money["groups"]}, ≈${money["cost_usd_est"]:.3f}, остановка подтверждена: {money["stop_verified"]}; страница {page}')

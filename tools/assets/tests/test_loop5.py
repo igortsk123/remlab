@@ -162,6 +162,22 @@ class T(unittest.TestCase):
             self.assertIn('sh0r1', res[SK[1]])
             self.assertTrue(money['stop_verified'])
 
+    def test_product_types_and_by_type(self):
+        r = L.load_rules()
+        cat = [{'sid': '112923_1', 'role': 'кровать'}, {'sid': '112923_2', 'role': 'диван'}, {'sid': '112923_3', 'role': 'нет-такой-роли-в-реестре'}]
+        t = L.product_types(r, ['112923_1', '112923_2', '112923_3', '112923_4'], catalog=cat)
+        self.assertEqual(t['112923_1']['type'], 'кровать')                         # тип — из паспортов типов (rules/mesh-type-passports.json)
+        self.assertTrue(t['112923_1']['family'])
+        self.assertIsNone(t['112923_3']['type'])                                   # роль есть, паспорта нет — честно None
+        self.assertEqual(t['112923_3']['role'], 'нет-такой-роли-в-реестре')
+        self.assertEqual(t['112923_4'], {'role': None, 'type': None, 'family': None, 'provisional': None})   # товара нет в каталоге
+        bt = L.by_type(t, {'112923_1': {'ok': True}, '112923_2': {'ok': False}})
+        self.assertEqual(bt['кровать'], {'skus': ['112923_1'], 'n': 1, 'passed': 1, 'failed': []})
+        self.assertEqual(bt['без паспорта']['n'], 2)
+        self.assertEqual(L.by_type(t, None)['кровать']['passed'], 0)               # листов не оценивали — прошедших нет, отказов нет
+        # сбой каталога не роняет круг
+        self.assertEqual(L.product_types({**r, 'catalog': '/нет/такого.json'}, ['x'])['x']['type'], None)
+
     def test_all_skus_from_shards(self):
         with tempfile.TemporaryDirectory() as tmp:
             for i, ks in enumerate((['112923_9', '112923_1'], ['112923_5'])):
