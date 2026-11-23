@@ -27,6 +27,13 @@ def has_check(d):
     return os.path.isfile(os.path.join(d, 'check.json'))
 
 
+def is_collection(d):
+    """Папка этапа внутри прежней СБОРКИ plan09 (рядом с `<sku>/sources.json`, либо симлинк рядом с `09-check`): это симлинк на чужой прогон, а не прогон этапа — источником не берётся (запасной поиск читал свои же прежние сборки
+    `run09*` и выдавал их за «найденный прогон»: круг, источник терялся)."""
+    par = os.path.dirname(d)
+    return os.path.isfile(os.path.join(par, SOURCES)) or (os.path.islink(d) and os.path.isdir(os.path.join(par, '09-check')))     # сборка старого вида: sources.json нет, но папка этапа — симлинк рядом с 09-check
+
+
 def _passed(d):
     try:
         return bool(json.load(open(os.path.join(d, 'check.json'), encoding='utf-8')).get('passed'))
@@ -61,7 +68,7 @@ def find_old(sku, stage, roots, logs, skip=(), v=None):
     skp = [os.path.realpath(x) for x in skip if x]
     for p in origin_dirs(sku, stage, v, logs):
         rp = os.path.realpath(p)
-        if has_check(p) and not any(rp == x or rp.startswith(x + os.sep) for x in skp):
+        if has_check(p) and not is_collection(p) and not any(rp == x or rp.startswith(x + os.sep) for x in skp):
             return p, 'origin'
     for r in roots:
         p = os.path.join(r, sku, stage)
@@ -71,7 +78,7 @@ def find_old(sku, stage, roots, logs, skip=(), v=None):
     for pat in (os.path.join(logs, '*', sku, stage), os.path.join(logs, '*', '*', sku, stage)):
         for p in glob.glob(pat):
             rp = os.path.realpath(p)
-            if os.path.isdir(p) and has_check(p) and not any(rp == x or rp.startswith(x + os.sep) for x in skp):
+            if os.path.isdir(p) and has_check(p) and not is_collection(p) and not any(rp == x or rp.startswith(x + os.sep) for x in skp):
                 cands.append(p)
     if not cands:
         return None, None

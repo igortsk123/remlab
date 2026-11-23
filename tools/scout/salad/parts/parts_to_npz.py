@@ -13,6 +13,8 @@ import sys
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 RULES = os.path.abspath(os.path.join(HERE, '..', '..', 'rules', 'paint-fill.json'))
+CHECK_RULES = os.path.abspath(os.path.join(HERE, '..', '..', 'rules', 'part-llm-check.json'))
+sys.path.insert(0, os.path.abspath(os.path.join(HERE, '..', '..')))
 MODES = ('parts', 'panels')
 
 
@@ -23,6 +25,20 @@ def zones_mode(rules_path: str | None = None) -> str:
     if v not in MODES:
         raise ValueError(f'rules/paint-fill.json: zones_from={v!r}, ожидалось одно из {MODES}')
     return v
+
+
+def write_stage_check(out_dir: str, sku: str, res: dict, seconds: float | None = None, rules_path: str | None = None) -> dict:
+    """`check.json` этапа 03-parts рядом с parts.npz (T-20261123-44): раньше путь PartLLM писал только parts.npz/parts.json, и этап 9 брал `check.json` старого прогона другой формы.
+    Правило общее: этап без своего check.json = не пройден; отказ (нет faces.npy, не тот меш) тоже пишет check.json с passed=false и причиной. Пороги — rules/part-llm-check.json."""
+    import paint_stage as ps
+    with open(rules_path or CHECK_RULES, encoding='utf-8') as f:
+        R = json.load(f)
+    if not res.get('ok'):
+        return ps.write_check(out_dir, '03-parts', sku, passed=False, reason=res.get('reason') or 'этап не отдал части', seconds=seconds, outputs=[], source='partllm', **({'n_faces': res['n_faces']} if 'n_faces' in res else {}))
+    n, cover = res['n_parts'], round(1.0 - float(res['share_unlabeled']), 4)
+    metrics = {'n_parts': {'value': n, 'threshold': f"{R['min_parts']}–{R['max_parts']}", 'op': 'in', 'ok': R['min_parts'] <= n <= R['max_parts']},
+               'faces_with_part_share': {'value': cover, 'threshold': R['faces_with_part_min'], 'op': '>=', 'ok': cover >= R['faces_with_part_min']}}
+    return ps.write_check(out_dir, '03-parts', sku, passed=None, metric={'name': 'n_parts', **metrics['n_parts']}, metrics=metrics, seconds=seconds, outputs=['parts.npz', 'parts.json'], source='partllm', n_faces=res.get('n_faces'))
 
 
 def glb_face_count(path: str) -> int:
@@ -53,9 +69,23 @@ def bridge_step(glb: str, lab, names: list, parts: list, doc: dict, out_dir: str
     return {'mode': res.get('mode'), **({'error': res['error']} if 'error' in res else {'summary': res['summary']})}
 
 
-def convert(src_dir: str, glb: str, out_dir: str, prompt_set: str = 'fine', roles_ctx: dict | None = None) -> dict:
+def convert(src_dir: str, glb: str, out_dir: str, prompt_set: str = 'fine', roles_ctx: dict | None = None, sku: str | None = None) -> dict:
     """Один товар: `<src_dir>/faces.npy` (+ meta.json) → `<out_dir>/parts.npz`, `parts.json`. → {ok, reason, n_faces, n_parts, ...}. Число граней не совпало — файлов нет, ok=False.
-    `roles_ctx` — тип/каналы/камера товара для моста ролей (`bridge_step`); без него роли не считаются (parts.json как до T-217)."""
+    `roles_ctx` — тип/каналы/камера товара для моста ролей (`bridge_step`); без него роли не считаются (parts.json как до T-217).
+    Всегда пишет `<out_dir>/check.json` (T-20261123-44): годный выход — по мерам rules/part-llm-check.json, отказ — passed=false с причиной. sku — имя товара (нет — имя папки над `03-parts`)."""
+    import time
+    t0 = time.time()
+    res = _convert(src_dir, glb, out_dir, prompt_set, roles_ctx)
+    sku = sku or os.path.basename(os.path.dirname(os.path.abspath(out_dir)))
+    try:
+        write_stage_check(out_dir, sku, res, time.time() - t0)
+        res['check'] = 'check.json записан'
+    except Exception as e:  # noqa: BLE001 — запись check не должна ронять перевод частей, но и молчать нельзя
+        res['check'] = f'check.json НЕ записан: {type(e).__name__}: {str(e)[:100]}'
+    return res
+
+
+def _convert(src_dir: str, glb: str, out_dir: str, prompt_set: str, roles_ctx: dict | None) -> dict:
     import numpy as np
     fp = os.path.join(src_dir, 'faces.npy')
     if not os.path.isfile(fp):

@@ -1,0 +1,6 @@
+{
+  "_about": "Меры check.json этапа 03-parts на пути PartLLM (T-20261123-44; код salad/parts/parts_to_npz.py `write_stage_check`). Раньше этот путь писал только parts.npz/parts.json, и этап 9 брал check.json старого прогона (SAM/Blender, другая форма). min/max частей — санитарные: у PartLLM «fine» на 28 товарах пакета 29 — 2…25 частей (у старого SAM-пути 2–12), поэтому верх 40, а не 12; faces_with_part_min — как у старого пути (0,98). Пороги не откалиброваны на качество частей — это «часть есть и покрывает меш», а не «части верные» (качество — этап 07/09).",
+  "min_parts": 2,
+  "max_parts": 40,
+  "faces_with_part_min": 0.98
+}

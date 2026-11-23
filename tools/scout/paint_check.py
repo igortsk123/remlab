@@ -255,6 +255,20 @@ def _sources_by_search(run: str, sku: str) -> list:
         return []
 
 
+def apply_search_sources(stages: list, by_search: list, rules: dict) -> list:
+    """Этап, чей check.json plan09 нашёл ЗАПАСНЫМ поиском (другой прогон: форма/камера/части могли быть другими), своих данных у пакета не имеет (T-20261123-44).
+    rules `sources.search`: `no_data` (по умолчанию) — этап «нет данных» (status missing, блокирует «готов», причина называет найденный прогон); `note` — как раньше, пометка.
+    → список этапов, переведённых в «нет данных»."""
+    if ((rules.get('sources') or {}).get('search') or 'no_data') != 'no_data':
+        return []
+    done = []
+    for s in stages:
+        if s['stage'] in by_search and s['status'] != 'missing':
+            s.update(status='missing', reason=f"нет данных: check.json взят запасным поиском из другого прогона ({s.get('run') or '?'}), у этого пакета своего нет (был: {s['status']})", hard_failed=[], soft_failed=[], metrics={}, was_search=True)
+            done.append(s['stage'])
+    return done
+
+
 def check_product(run: str, sku: str, rules: dict, stage_runs: dict | None = None, cov_fn=None, ribbon: bool = True, with_coverage: bool = True, pal_fn=None, surf_fn=None, fg_fn=None) -> dict:
     t0 = time.time()
     sr = stage_runs or {}
@@ -264,6 +278,8 @@ def check_product(run: str, sku: str, rules: dict, stage_runs: dict | None = Non
         d = os.path.join(base, PS.safe_name(sku), st)
         stages.append(classify_stage(st, PS.read_check(d), rules, base))
         stages[-1]['dir'] = d
+    by_search = _sources_by_search(run, sku)                                       # plan09: этап взят запасным поиском, а не из прогона входа пакета — форма/камера могли быть другими
+    no_data = apply_search_sources(stages, by_search, rules)                       # …такой этап — «нет данных», не «ок» (правило sources.search)
     out_dir = PS.stage_dir(run, sku, STAGE)
     glb = find_final_glb(run, sku, rules, sr)
     if with_coverage:
@@ -276,8 +292,7 @@ def check_product(run: str, sku: str, rules: dict, stage_runs: dict | None = Non
         {'stage': 'surface', 'status': 'ok', 'reason': '', 'hard_failed': [], 'soft_failed': [], 'metrics': {}, 'glb': glb}
     fgate = classify_frame_gate(run, sku, rules, sr, fg_fn)
     verdict = judge_product(stages, cov, rules, pal, surf, fgate)
-    by_search = _sources_by_search(run, sku)                                       # plan09: этап взят запасным поиском, а не из прогона входа пакета — форма/камера могли быть другими
-    if by_search:
+    if by_search and not no_data:
         verdict['notes'] = verdict['notes'] + ['источник по поиску (не по происхождению пакета): ' + ', '.join(by_search)]
         if verdict['final'] == 'ready':
             verdict['final'] = 'ready_with_notes'

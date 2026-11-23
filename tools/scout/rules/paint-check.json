@@ -21,6 +21,10 @@
     "06-visible": ["known_visible_share", "edge_corr"],
     "07-fill": ["dE00_front_back", "dL_front_back", "filled_faces_step_pct"]
   },
+  "sources": {
+    "_about": "Источник check.json этапа, найденный plan09 ЗАПАСНЫМ поиском (`how=search`: прогон другой формы/камеры/частей, не из происхождения пакета). `no_data` — этап «нет данных»: status missing, итог товара «не готов» (этап без своего check.json = не пройден, T-20261123-44); `note` — прежнее поведение: берём его проверку и пишем пометку «источник по поиску».",
+    "search": "no_data"
+  },
   "final_glb": {
     "stages": ["08-material", "07-fill"],
     "_about": "итоговый GLB для сторожа охвата: первый `*.glb` из `outputs` check.json первого из этих этапов, у которого он есть"

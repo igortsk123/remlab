@@ -68,6 +68,26 @@ with tempfile.TemporaryDirectory() as t:
     r = {s: (f, h) for s, f, h in P.collect({'s4': {}, 's5': {}}, [], logs, old, skip=(out,))}
     ok('03-parts' not in r['s4'][0], 'выходная папка пропускается')
     ok(r['s5'][0] == {}, 'нигде нет — «нет этапа», без выдумывания')
+    # прежняя сборка plan09 (sources.json рядом) не источник: запасной поиск не читает свои же `run09*` (круг)
+    old_out = os.path.join(logs, 'run09old')
+    mk(old_out, 's7', '03-parts', True, 99999)
+    json.dump({'sources': {}}, open(os.path.join(old_out, 's7', P.SOURCES), 'w'))
+    real7 = mk(os.path.join(logs, 'realrun'), 's7', '03-parts', True, 10)
+    r = {s: (f, h) for s, f, h in P.collect({'s7': {}}, [], logs, old)}
+    ok(r['s7'][0].get('03-parts') == real7, f'запасной поиск берёт настоящий прогон, а не прежнюю сборку plan09 (свежее, но симлинк): {r["s7"][0].get("03-parts")}')
+    only = os.path.join(logs, 'onlycol')
+    mk(only, 's8', '03-parts', True, 5)
+    json.dump({'sources': {}}, open(os.path.join(only, 's8', P.SOURCES), 'w'))
+    r = {s: (f, h) for s, f, h in P.collect({'s8': {}}, [], logs, old)}
+    ok('03-parts' not in r['s8'][0], 'есть только прежняя сборка → «нет этапа», а не выдача сборки за прогон')
+    # сборка старого вида (без sources.json): симлинк этапа рядом с 09-check — тоже не источник
+    olds = os.path.join(logs, 'run09older')
+    os.makedirs(os.path.join(olds, 's9', '09-check'))
+    real9 = mk(os.path.join(logs, 'realrun9'), 's9', '03-parts', True, 10)
+    os.symlink(real9, os.path.join(olds, 's9', '03-parts'))
+    os.utime(real9 + '/check.json', (10, 10))
+    r = {s: (f, h) for s, f, h in P.collect({'s9': {}}, [], logs, old)}
+    ok(r['s9'][0].get('03-parts') == real9, f'симлинк старой сборки без sources.json не берётся как «найденный прогон»: {r["s9"][0].get("03-parts")}')
     # сборка: симлинк один раз + sources.json с how; paint_check видит search
     rows3 = P.collect({'s2': {}}, [], logs, old)
     n = P.link(rows3, out)
@@ -77,6 +97,16 @@ with tempfile.TemporaryDirectory() as t:
     try:
         import paint_check as PC
         ok(PC._sources_by_search(out, 's2') == ['03-parts'] and PC._sources_by_search(out, 'sX') == [], 'paint_check: этапы «по поиску» читаются из sources.json, файла нет — пусто')
+        rules = PC.load_rules()
+        st = [{'stage': '03-parts', 'status': 'ok', 'reason': '', 'hard_failed': [], 'soft_failed': [], 'metrics': {'a': {}}, 'run': '/x/other'},
+              {'stage': '01-trellis', 'status': 'ok', 'reason': '', 'hard_failed': [], 'soft_failed': [], 'metrics': {}, 'run': '/x/own'}]
+        done = PC.apply_search_sources(st, ['03-parts'], rules)
+        ok(done == ['03-parts'] and st[0]['status'] == 'missing' and '/x/other' in st[0]['reason'] and 'нет данных' in st[0]['reason'] and st[1]['status'] == 'ok',
+           'этап «по поиску» → нет данных (missing), причина называет чужой прогон; свой этап не тронут')
+        v = PC.judge_product([dict(s, status=s['status']) for s in st], {'status': 'ok', 'stage': 'coverage', 'reason': ''}, rules)
+        ok(v['final'] == 'not_ready' and '03-parts' in v['blocking'], 'итог товара «не готов», блокирует этап без своих данных')
+        st2 = [{'stage': '03-parts', 'status': 'ok', 'reason': '', 'hard_failed': [], 'soft_failed': [], 'metrics': {}, 'run': '/x/other'}]
+        ok(PC.apply_search_sources(st2, ['03-parts'], dict(rules, sources={'search': 'note'})) == [] and st2[0]['status'] == 'ok', 'правило sources.search=note — как раньше (пометка, этап как был)')
     except ImportError as e:  # нет numpy/PIL в окружении — проверка пометки пропущена явно
         print('  ~ paint_check не импортируется:', e)
 print(f'tests_plan09: ошибок {bad}')
