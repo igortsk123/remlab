@@ -7,6 +7,8 @@ import sys
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, os.path.join(HERE, '..'))
+import remlab_tmp  # noqa: E402
+remlab_tmp.use('test_front_axis_witness')
 import front_axis as FA  # noqa: E402
 
 G = FA.load_guard()
