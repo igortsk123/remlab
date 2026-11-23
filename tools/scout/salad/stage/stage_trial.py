@@ -483,7 +483,11 @@ def make_spec(a, inputs: dict) -> KD.Spec:
         q = CQ.Queue(os.path.expanduser(a.queue))
         node = a.suffix
         q.release_stale(node)                                                         # товары, оставшиеся за этой нодой от убитого процесса, — обратно в очередь
-        chain = CQ.Chain(q, node, stages_of(a), int(getattr(a, 'slots', 0) or a.fill_procs),
+        slots = int(getattr(a, 'slots', 0) or a.fill_procs)
+        nodes = int(getattr(a, 'nodes', 0) or 0)
+        if nodes > 0:                                                                 # ноды готовы не одновременно: без потолка первая заберёт сразу `slots` товаров, пока соседи греются
+            slots = max(1, min(slots, -(-sum(q.counts().values()) // nodes)))
+        chain = CQ.Chain(q, node, stages_of(a), slots,
                          lambda gw, sku, row, stage, t: submit_stage(gw, a, {sku: row}, stage, t), lambda gw, cur, t: poll_stage(gw, a, cur, t),
                          requeue_max=int(getattr(a, 'requeue_max', 1)), say=say)
         submit = lambda gw, k, t: ({'key': k, 'id': f'chain-{node}-{int(t)}', 't0': t}, {})            # noqa: E731
@@ -540,6 +544,7 @@ def main() -> int:
     ap.add_argument('--queue', default='', help='T-34: общая очередь товаров (папка): все ноды-процессы берут из неё товар, как освободился слот, и ведут его по всем --stages без барьера; '
                                                 'очередь наполняется из --inputs (повторно — не дублирует); с --suffix каждой ноды разный')
     ap.add_argument('--slots', type=int, default=0, help='с --queue: товаров в работе на ноде одновременно (0 = --fill-procs)')
+    ap.add_argument('--nodes', type=int, default=0, help='с --queue: сколько нод делят очередь; потолок товаров на ноду = ceil(товаров/нод) (0 — без потолка, только --slots)')
     ap.add_argument('--requeue-max', type=int, default=1, help='с --queue: сколько раз упавший товар возвращается в очередь (другая нода) до окончательного отказа')
     ap.add_argument('--stop-only', action='store_true')
     a = ap.parse_args()

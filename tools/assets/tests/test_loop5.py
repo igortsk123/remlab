@@ -40,8 +40,9 @@ def make_base(tmp, with_fill=True):
 class T(unittest.TestCase):
     def test_rules_ok(self):
         r = L.load_rules()
+        self.assertEqual(r['node']['variant'], 'big')                          # A/B 23.11: big в 4 раза быстрее на 07 (T-34)
         self.assertEqual(len(r['golden']), 5)
-        self.assertLessEqual(r['machines'], 2)
+        self.assertLessEqual(r['machines'], 6)                                 # потолок директора: до 6 нод (общий потолок 10 на всех)
         self.assertTrue(all(k in r['stages'] for k in ('06', '07', '08')))
         self.assertIn('@sha256:', r['image'])                                  # образ — по дайджесту, не по тегу (ADR-0137)
 
@@ -160,6 +161,29 @@ class T(unittest.TestCase):
             self.assertEqual(sorted(res), sorted(SK[:2]))
             self.assertIn('sh0r1', res[SK[1]])
             self.assertTrue(money['stop_verified'])
+
+    def test_queue_cmd_nodes_and_variant(self):
+        r = L.load_rules()
+        self.assertTrue(L.queue_on(r))
+        self.assertEqual(L.node_count(r, 5), min(5, r['machines']))
+        self.assertEqual(L.node_count(r, 2), 2)                                # нод не больше товаров
+        r_off = {**r, 'queue': {**r['queue'], 'enabled': False}}
+        self.assertEqual(L.node_count(r_off, 5), len(L.split(SK, r['machines'])))
+        c = L.stage_cmd(r, 'a' * 40, '07', 2, SK, '/run', '1300', None, '/run/in.json', True, 0, queue='/run/queue-r0')
+        j = ' '.join(c)
+        self.assertIn('--queue /run/queue-r0', j)
+        self.assertIn(f'--nodes {L.node_count(r, 5)}', j)
+        self.assertIn('--out /run/out/q', j)                                   # общий out для всех нод очереди
+        self.assertIn('--requeue-max', j)
+        self.assertIn('--out /run/out/sh2', ' '.join(L.stage_cmd(r, 'a' * 40, '07', 2, SK, '/run', '1300', None, '/run/in.json', True)))   # без очереди — прежний out на ноду
+        r = {**r, 'node': {'variant': '', 'procs': 0, 'fill_procs': 0, 'threads': 0}}                # база — нода low
+        self.assertNotIn('--variant', ' '.join(L.stage_cmd(r, 'a' * 40, '07', 0, SK, '/run', '1300', None, '/run/in.json', True)))
+        rb = {**r, 'node': {'variant': 'big', 'procs': 4, 'fill_procs': 3, 'threads': 2}}
+        jb = ' '.join(L.stage_cmd(rb, 'a' * 40, '07', 0, SK, '/run', '1300', None, '/run/in.json', True))
+        self.assertIn('--variant big', jb)
+        self.assertIn('--fill-procs 3', jb)
+        self.assertIn('--threads 2', jb)
+        self.assertNotEqual(L.suffix_of(rb, '1300', 0), L.suffix_of(r, '1300', 0))     # другой размер — другое имя тёплой ноды
 
     def test_warm_cmd_and_rules(self):
         r = L.load_rules()

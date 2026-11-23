@@ -136,10 +136,21 @@ def warm_on(rules: dict) -> bool:
 def suffix_of(rules: dict, run_id: str, idx: int, rnd: int = 0) -> str:
     """Имя группы Salad (суффикс). Тёплая нода (T-34) — постоянное имя `w<нода>-<6 знаков digest образа>` (один образ — одна нода; смена образа — новое имя), общее для всех прогонов и повторов;
     иначе — на прогон (`l5<прогон>s<нода>[r<повтор>]`)."""
+    var = ((rules.get('node') or {}).get('variant') or '')[:1]                         # другой размер ноды — другое имя (тёплую 4/8 не подхватить как 8/16)
     if warm_on(rules):
         m = re.search(r'@sha256:([0-9a-f]{6})', rules['image'])
-        return f'w{idx}-{m.group(1) if m else "x"}'
-    return f'l5{run_id}s{idx}' + (f'r{rnd}' if rnd else '')
+        return f'w{idx}{var}-{m.group(1) if m else "x"}'
+    return f'l5{run_id}s{idx}{var}' + (f'r{rnd}' if rnd else '')
+
+
+def queue_on(rules: dict) -> bool:
+    """Общая очередь товаров (T-34): ноды берут товар из общей папки и ведут его 07→шов→08 без барьера этапов; иначе — товары делятся по нодам заранее и идут этапами."""
+    return bool((rules.get('queue') or {}).get('enabled'))
+
+
+def node_count(rules: dict, n_skus: int) -> int:
+    """Сколько нод: при очереди — не больше товаров и не больше rules.machines; без неё — как раньше (split)."""
+    return min(n_skus, int(rules['machines'])) if queue_on(rules) else len(split(['x'] * n_skus, rules['machines']))
 
 
 def stop_group(rules: dict, run_id: str, idx: int, rnd: int = 0) -> bool:
@@ -180,11 +191,13 @@ def tag_of(idx: int, rnd: int = 0) -> str:
     return f'sh{idx}' if rnd == 0 else f'sh{idx}r{rnd}'
 
 
-def stage_cmd(rules: dict, sha: str, start: str, idx: int, skus: list[str], run_dir: str, run_id: str, base_tree: str | None, inputs_file: str | None, apply: bool, rnd: int = 0) -> list[str]:
-    """Команда одной ноды: heavy-slot → timeout → stage_trial. Всё, кроме пути, — из rules. rnd>0 — повтор упавших (свои папка и группа)."""
+def stage_cmd(rules: dict, sha: str, start: str, idx: int, skus: list[str], run_dir: str, run_id: str, base_tree: str | None, inputs_file: str | None, apply: bool, rnd: int = 0,
+              queue: str | None = None) -> list[str]:
+    """Команда одной ноды: heavy-slot → timeout → stage_trial. Всё, кроме пути, — из rules. rnd>0 — повтор упавших (свои папка и группа).
+    queue — папка общей очереди: все ноды пишут в один `out/q`, а не каждая в свой `out/sh<N>`."""
     c, hs = rules['caps'], rules['heavy_slot']
     tag = tag_of(idx, rnd)
-    out = os.path.join(run_dir, 'out', tag)
+    out = os.path.join(run_dir, 'out', 'q' if queue else tag)
     t = int(c['job_wait_min']) * 60 + 600
     py = ex(rules['python'])
     cmd = [HEAVY, f'paid-loop5-{run_id}-{tag}', '--min-gb', str(hs['min_gb_salad']), '--cores', str(hs['cores_salad']), '--prio', str(hs['prio']), '--timeout', str(t + 300), '--',
@@ -195,6 +208,14 @@ def stage_cmd(rules: dict, sha: str, start: str, idx: int, skus: list[str], run_
     if warm_on(rules):
         wm = rules['warm']
         cmd += ['--keep-warm', str(wm['idle_min']), '--warm-life-min', str(wm['life_min']), '--warm-min-left-min', str(wm['min_left_min'])]
+    nd = rules.get('node') or {}
+    if nd.get('variant'):
+        cmd += ['--variant', nd['variant']]
+    for k, flag in (('procs', '--procs'), ('fill_procs', '--fill-procs'), ('threads', '--threads')):
+        if nd.get(k):
+            cmd += [flag, str(nd[k])]
+    if queue:
+        cmd += ['--queue', queue, '--nodes', str(node_count(rules, len(skus))), '--slots', str(int((rules.get('queue') or {}).get('slots') or 0)), '--requeue-max', str(int((rules.get('queue') or {}).get('requeue_max', 1)))]
     if start == '08':
         cmd += ['--fill-root', base_tree, '--vis-root', base_tree, '--skus', ','.join(skus)]
         if rules.get('pose_root'):
@@ -300,13 +321,16 @@ def done_sku(d: str) -> bool:
 def collect(run_dir: str, skus: list[str]) -> tuple[dict[str, str], dict]:
     """{товар: папка результата с готовым 08-material} (по всем нодам и повторам) и сводка денег/минут нод из summary-trial-stage-*.json."""
     res, money = {}, {'cost_usd_est': 0.0, 'running_s': 0.0, 'groups': 0, 'stop_verified': True, 'kept_warm': 0, 'adopted_warm': 0}
-    for d in sorted(glob.glob(os.path.join(run_dir, 'out', 'sh*'))):
+    money['items'] = {}                                                                # товар → секунды по этапам (очередь: из итога цепочки ноды), для таблицы «шаг · с/товар»
+    for d in sorted(glob.glob(os.path.join(run_dir, 'out', '*'))):                     # out/sh<N> (делёж заранее) и out/q (общая очередь)
         for s in skus:
             if done_sku(os.path.join(d, s)):
                 res[s] = os.path.join(d, s)
         for f in glob.glob(os.path.join(d, 'summary-trial-stage-*.json')):
             with open(f, encoding='utf-8') as fh:
                 j = json.load(fh)
+            for k, v in (((j.get('jobs') or {}).get('chain') or {}).get('done') or {}).items():
+                money['items'][k] = v.get('stage_s') or {}
             money['groups'] += 1
             money['cost_usd_est'] += float(j.get('cost_usd_est') or 0)
             money['running_s'] += float(j.get('running_s') or 0)
@@ -318,15 +342,26 @@ def collect(run_dir: str, skus: list[str]) -> tuple[dict[str, str], dict]:
 
 def run_round(rules: dict, sha: str, start: str, skus: list[str], run_dir: str, run_id: str, base: dict[str, str], base_tree: str | None, apply: bool, rnd: int) -> tuple[list[int], list[list[str]]]:
     """Один заход: товары → ≤machines нод параллельно; после — страховочная остановка групп. → (коды драйверов, группы)."""
-    groups = split(skus, rules['machines'])
     cmds, procs = [], []
-    for i, g in enumerate(groups):
+    if queue_on(rules):                                                                # все ноды видят весь список товаров и одну очередь `queue-r<заход>`; кто свободен — берёт следующий
+        groups = [list(skus) for _ in range(node_count(rules, len(skus)))]
+        qdir = os.path.join(run_dir, f'queue-r{rnd}')
         inp = None
         if start != '08':
-            inp = os.path.join(run_dir, f'inputs-{tag_of(i, rnd)}.json')
+            inp = os.path.join(run_dir, f'inputs-q{rnd}.json')
             with open(inp, 'w', encoding='utf-8') as fh:
-                json.dump(shard_inputs(rules, g, start, base, os.path.join(run_dir, 'photos')), fh, ensure_ascii=False, indent=1)
-        cmds.append(stage_cmd(rules, sha, start, i, g, run_dir, run_id, base_tree, inp, apply, rnd))
+                json.dump(shard_inputs(rules, skus, start, base, os.path.join(run_dir, 'photos')), fh, ensure_ascii=False, indent=1)
+        for i in range(len(groups)):
+            cmds.append(stage_cmd(rules, sha, start, i, skus, run_dir, run_id, base_tree, inp, apply, rnd, queue=qdir))
+    else:
+        groups = split(skus, rules['machines'])
+        for i, g in enumerate(groups):
+            inp = None
+            if start != '08':
+                inp = os.path.join(run_dir, f'inputs-{tag_of(i, rnd)}.json')
+                with open(inp, 'w', encoding='utf-8') as fh:
+                    json.dump(shard_inputs(rules, g, start, base, os.path.join(run_dir, 'photos')), fh, ensure_ascii=False, indent=1)
+            cmds.append(stage_cmd(rules, sha, start, i, g, run_dir, run_id, base_tree, inp, apply, rnd))
     with open(os.path.join(run_dir, f'plan-r{rnd}.json'), 'w', encoding='utf-8') as fh:
         json.dump({'sha': sha, 'from': start, 'groups': groups, 'cmds': cmds, 'apply': apply}, fh, ensure_ascii=False, indent=1)
     for i, c in enumerate(cmds):
@@ -372,8 +407,8 @@ def main(argv=None) -> int:
         raise SystemExit('нет входов «до» для шага: ' + '; '.join(bad[:6]))
     run_dir = os.path.join(ex(rules['out_root']), f'{a.run_id}-from{a.start}-{sha[:8]}')
     os.makedirs(os.path.join(run_dir, 'out'), exist_ok=True)
-    groups = split(skus, rules['machines'])
-    say(f'круг на 5: код {sha[:8]} ({a.code_ref}), с шага {a.start} → этапы {rules["stages"][a.start]}; товаров {len(skus)}, нод Salad {len(groups)} (≤{rules["machines"]}); папка {run_dir}')
+    say(f'круг на 5: код {sha[:8]} ({a.code_ref}), с шага {a.start} → этапы {rules["stages"][a.start]}; товаров {len(skus)}, нод Salad {node_count(rules, len(skus))} (≤{rules["machines"]}), '
+        f'{"общая очередь, слотов на ноду " + str((rules.get("queue") or {}).get("slots") or "по fill_procs") if queue_on(rules) else "товары делятся заранее"}; папка {run_dir}')
     say('Salad или ядра: Salad (CPU-нода low, цепочка 06→08 на 5 товаров ≈ $0,01), как в T-20; листы — наши ядра')
     base_tree = None
     if a.start == '08':
