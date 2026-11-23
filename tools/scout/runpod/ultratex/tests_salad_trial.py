@@ -245,7 +245,7 @@ with tempfile.TemporaryDirectory() as tmp:
         rc, summ, out, mg, br = drive(tmp, 'a')
     finally:
         GW.post_fail = 0
-    check(summ.get('jobs', {}).get('a', {}).get('status') == 'not_accepted' and len(summ.get('post_timeouts', [])) == 1, 'повтор тоже без ответа → not_accepted (повтор один, не бесконечный)')
+    check(summ.get('jobs', {}).get('a', {}).get('status') == 'not_accepted' and len(summ.get('post_timeouts', [])) == int(KD.gateway_post_rules().get('requeue_max', 1)),f'повтор тоже без ответа → not_accepted (повторов ровно gateway_post.requeue_max={KD.gateway_post_rules().get("requeue_max", 1)}, не бесконечно)')
 
 with tempfile.TemporaryDirectory() as tmp:
     GW.post_fail, GW.post_code, GW.accepted_on_timeout = 1, 503, False

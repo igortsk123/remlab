@@ -1373,7 +1373,7 @@ def _run_probe_once(a, MG, BR, spec: Spec, gw_factory=Gateway, sleep=time.sleep,
                             pending.insert(0, k)
                         else:
                             pending.append(k)
-                            say(f'задание {k}: POST без ответа — повтор {post_tries[k]} в конец очереди')
+                            say(f'задание {k}: POST без ответа — ' + ('один повтор' if post_tries[k] == 1 else f'повтор {post_tries[k]}') + ' в конец очереди')
                     elif cur is None:
                         post_i = info.get('post') or {}
                         gw_down = post_i.get('reason') == 'gateway_503' or info.get('http') in GATEWAY_CODES or post_i.get('code') in GATEWAY_CODES
