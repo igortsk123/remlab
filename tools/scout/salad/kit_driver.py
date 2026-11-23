@@ -1208,6 +1208,78 @@ def warm_mark_used(path: str, now: float) -> None:
         pass
 
 
+def warm_set_owner(path: str, owner: str, now: float) -> None:
+    """Метка владельца в записи тёплой ноды (подхват/создание под flock): кто последним взял ноду и когда."""
+    try:
+        with open(path, encoding='utf-8') as f:
+            st = json.load(f)
+    except (OSError, ValueError):
+        st = {}
+    st['owner'], st['claimed_at'] = owner, now
+    try:
+        with open(path, 'w', encoding='utf-8') as f:
+            json.dump(st, f)
+    except OSError:
+        pass
+
+
+def warm_stop(warm_dir: str, name: str, stop: Callable[[str], bool], owner: str = '') -> tuple[str, str]:
+    """Остановить группу, не отбирая ноду у чужого прогона (инцидент 23.11 19:43: стоп ×5 пришёлся на ноды, которые прогон р.2 в ту же минуту подхватил → его прогон завис).
+    Нет записи тёплой ноды → обычная остановка. Есть → flock на .lock НЕ БЛОКИРУЯ: занято (чей-то прогон держит) → отказ; взяли → читаем метку `owner` ПОД замком: задана `owner` и она другая → отказ
+    с сообщением; иначе стоп прямо под замком (подхват в этот миг ждать не будет — получит «занята»: стоп и подхват не пересекаются).
+    → ('stopped' | 'failed' | 'refused', сообщение)."""
+    d = os.path.expanduser(warm_dir)
+    p = os.path.join(d, name + '.json')
+    if not os.path.isfile(p):
+        return ('stopped' if stop(name) else 'failed'), 'записи тёплой ноды нет — обычная остановка'
+    lp = os.path.join(d, name + '.lock')
+    fh = warm_lock(lp)
+    if fh is None:
+        try:
+            cur = json.load(open(p, encoding='utf-8')).get('owner') or '—'
+        except (OSError, ValueError):
+            cur = '—'
+        return 'refused', f'ОТКАЗ: нода {name} занята прогоном (замок {lp}, владелец {cur}) — не гашу'
+    try:
+        try:
+            cur = json.load(open(p, encoding='utf-8')).get('owner') or ''
+        except (OSError, ValueError):
+            cur = ''
+        if owner and cur != owner:
+            return 'refused', f'ОТКАЗ: у ноды {name} метка владельца «{cur or "—"}», а гасит «{owner}» — чужая нода, не гашу'
+        ok = bool(stop(name))
+        if ok:
+            try:
+                os.remove(p)
+            except OSError:
+                pass
+        return ('stopped' if ok else 'failed'), ('остановлена, «0 нод» подтверждено' if ok else 'ОСТАНОВКА НЕ ПОДТВЕРЖДЕНА')
+    finally:
+        fh.close()
+
+
+def warm_release(warm_dir: str, owner: str, stop: Callable[[str], bool]) -> list[tuple[str, str, str]]:
+    """Конец прогона `owner`: погасить ТОЛЬКО его тёплые ноды (метка владельца = он) — чтобы не простаивали до предела жизни. Ноду, которую уже подхватил другой прогон, не трогает.
+    → [(группа, статус warm_stop, сообщение)]."""
+    out: list[tuple[str, str, str]] = []
+    d = os.path.expanduser(warm_dir)
+    if not owner or not os.path.isdir(d):
+        return out
+    for fn in sorted(os.listdir(d)):
+        if not fn.endswith('.json'):
+            continue
+        try:
+            st = json.load(open(os.path.join(d, fn), encoding='utf-8'))
+        except (OSError, ValueError):
+            continue
+        if st.get('owner') != owner:
+            continue
+        name = st.get('name') or fn[:-5]
+        status, msg = warm_stop(warm_dir, name, stop, owner)
+        out.append((name, status, msg))
+    return out
+
+
 def warm_sweep(warm_dir: str, now: float, stop: Callable[[str], bool], grace_s: float = 120.0, locked: Callable[[str], bool] | None = None) -> list[tuple[str, str, bool]]:
     """Погасить тёплые ноды, которым пора: предел жизни (`expires_at`) вышел или простой > idle_min + запас (от `last_used`; нет `last_used` — по простою не трогаем).
     ЗАЧЕМ (T-34, замер 23.11): воркер при простое/пределе жизни ВЫХОДИТ, но Salad поднимает контейнер заново (restart_policy never этого не удержал: обе ноды w0b/w1b перезапустились
@@ -1367,6 +1439,7 @@ def _run_probe_once(a, MG, BR, spec: Spec, gw_factory=Gateway, sleep=time.sleep,
     code, g = MG.api(f'/{name}')
     keep_warm = float(getattr(a, 'keep_warm', 0) or 0)             # минут простоя до самостоятельной остановки воркера (IDLE_S); 0 — не греть между прогонами
     warm_fh, adopt, restart, warm_state_path, warm_life_s = None, False, False, '', float(getattr(a, 'warm_life_min', 120) or 120) * 60
+    warm_owner = str(getattr(a, 'warm_owner', '') or f'pid{os.getpid()}')      # метка владельца тёплой ноды (loop5 — его run-id)
     if keep_warm:
         warm_state_path, lock_path = warm_files(a, name)
         warm_fh = warm_lock(lock_path)
@@ -1405,12 +1478,14 @@ def _run_probe_once(a, MG, BR, spec: Spec, gw_factory=Gateway, sleep=time.sleep,
     if adopt:
         ok_create, t_start, refuse = True, clock(), ''
         summary['adopted_warm'] = True
+        warm_set_owner(warm_state_path, warm_owner, clock())                   # метка владельца под замком подхвата: чужой стоп/освобождение теперь видит, чья нода
         say(f'тёплая нода {name} подхвачена — прогрева нет')
     else:
         ok_create, t_start, refuse = create_and_start(MG, BR, name, body, say, sleep, clock, wait_s, counters=summary, existing=restart)
         if ok_create and keep_warm:
             os.makedirs(os.path.dirname(warm_state_path), exist_ok=True)
-            json.dump({'name': name, 'image': a.image, 'started_at': t_start, 'expires_at': t_start + warm_life_s, 'idle_min': keep_warm}, open(warm_state_path, 'w', encoding='utf-8'))
+            json.dump({'name': name, 'image': a.image, 'started_at': t_start, 'expires_at': t_start + warm_life_s, 'idle_min': keep_warm, 'owner': warm_owner, 'claimed_at': clock()},
+                      open(warm_state_path, 'w', encoding='utf-8'))
     if not ok_create:
         if warm_fh is not None:
             warm_fh.close()

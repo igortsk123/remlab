@@ -259,8 +259,18 @@ class T(unittest.TestCase):
         self.assertIn(f'--suffix {L.suffix_of(r, "1300", 1)}', j)
         self.assertIn(f'--keep-warm {r["warm"]["idle_min"]}', j)
         self.assertIn('--warm-min-left-min', j)
+        self.assertIn('--warm-owner 1300', j)                                   # метка владельца ноды = run-id: чужой стоп/освобождение видит, чья нода
         r2 = {**r, 'warm': {**r['warm'], 'enabled': False}}
         self.assertNotIn('--keep-warm', ' '.join(L.stage_cmd(r2, 'a' * 40, '07', 1, SK[:2], '/run', '1300', None, '/run/in.json', True)))
+        self.assertNotIn('--warm-owner', ' '.join(L.stage_cmd(r2, 'a' * 40, '07', 1, SK[:2], '/run', '1300', None, '/run/in.json', True)))
+
+    def test_release_on_done(self):
+        # T-34/16: по окончании Salad-части свои тёплые ноды гасятся (простой ≈8 мин у круга 2), если не просили оставить и не выключено правилом
+        r = L.load_rules()
+        self.assertTrue(L.release_on_done(r))
+        self.assertFalse(L.release_on_done(r, keep=True))                         # --keep-warm-nodes: следующий прогон подхватит
+        self.assertFalse(L.release_on_done({**r, 'warm': {**r['warm'], 'release_on_done': False}}))
+        self.assertFalse(L.release_on_done({**r, 'warm': {**r['warm'], 'enabled': False}}))   # без тёплых нод гасить нечего (группы гасятся по-старому)
 
     def test_collect_kept_warm(self):
         with tempfile.TemporaryDirectory() as tmp:

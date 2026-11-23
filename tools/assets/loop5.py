@@ -170,6 +170,20 @@ def stop_group(rules: dict, run_id: str, idx: int, rnd: int = 0) -> bool:
     return p.returncode == 0
 
 
+def release_on_done(rules: dict, keep: bool = False) -> bool:
+    """Гасить ли СВОИ тёплые ноды по окончании Salad-части (`rules.warm.release_on_done`, по умолчанию да; `--keep-warm-nodes` — оставить для заведомо следующего прогона)."""
+    return warm_on(rules) and not keep and bool((rules.get('warm') or {}).get('release_on_done', True))
+
+
+def release_warm(run_id: str) -> bool:
+    """Конец Salad-части (T-34/16: ноды круга 2 простояли тёплыми без дела ≈8 мин): погасить ТОЛЬКО ноды с меткой владельца run_id. Ноду, которую успел подхватить другой прогон,
+    не трогаем (метка/замок) — гашение атомарно с подхватом (инцидент 23.11 19:43). → всё ли свои погашены."""
+    p = subprocess.run([ex('~/venvs/scout/bin/python'), '-I', STAGE_TRIAL, '--warm-release', '--warm-owner', run_id], capture_output=True, text=True, timeout=600)
+    for line in (p.stdout or '').strip().splitlines()[-12:]:
+        say('warm-release: ' + line.strip()[:200])
+    return p.returncode == 0
+
+
 def sweep_warm() -> bool:
     """Погасить тёплые ноды, которым пора (T-34: воркер при простое выходит, а Salad поднимает его заново — сам он не гаснет). Занятые прогоном не трогает. → всё ли погашено."""
     p = subprocess.run([ex('~/venvs/scout/bin/python'), '-I', STAGE_TRIAL, '--sweep-warm'], capture_output=True, text=True, timeout=600)
@@ -271,7 +285,7 @@ def stage_cmd(rules: dict, sha: str, start: str, idx: int, skus: list[str], run_
         cmd += ['--parts-root', ex(rules['parts_root'])]
     if warm_on(rules):
         wm = rules['warm']
-        cmd += ['--keep-warm', str(wm['idle_min']), '--warm-life-min', str(wm['life_min']), '--warm-min-left-min', str(wm['min_left_min'])]
+        cmd += ['--keep-warm', str(wm['idle_min']), '--warm-life-min', str(wm['life_min']), '--warm-min-left-min', str(wm['min_left_min']), '--warm-owner', run_id]   # метка владельца: стоп/освобождение чужой метки — отказ
     nd = rules.get('node') or {}
     if nd.get('variant'):
         cmd += ['--variant', nd['variant']]
@@ -650,6 +664,7 @@ def main(argv=None) -> int:
     ap.add_argument('--dry', action='store_true', help='только разбор: проверки и команды, Salad не создаётся, листов нет')
     ap.add_argument('--machines', type=int, default=0, help='сколько нод одновременно (по умолчанию rules.machines; меньше — если рядом уже идёт другой прогон)')
     ap.add_argument('--no-warm', action='store_true', help='не греть ноды между прогонами (как до T-34): группа на прогон, гасится в конце')
+    ap.add_argument('--keep-warm-nodes', action='store_true', help='не гасить свои тёплые ноды по окончании Salad-части (следующий прогон подхватит; без этого — гасятся, rules.warm.release_on_done)')
     ap.add_argument('--warm-stop', action='store_true', help='погасить тёплые ноды сейчас (с проверкой «0 нод») и выйти')
     ap.add_argument('--warm-sweep', action='store_true', help='погасить тёплые ноды, которым пора (предел жизни/простой по записи); безопасно запускать часто — занятые не трогает')
     ap.add_argument('--rules', default=RULES)
@@ -751,6 +766,10 @@ def main(argv=None) -> int:
         if todo and rnd < int(rules.get('retry_rounds', 1)):
             say(f'повтор только упавших ({len(todo)}): {todo}')
     res, money = collect(run_dir, skus)
+    if not a.dry and release_on_done(rules, a.keep_warm_nodes):
+        money['warm_released'] = release_warm(a.run_id)
+        if not money['warm_released']:
+            say('❗ тёплые ноды: освобождение не подтверждено — смотри warm-release выше (погасит sweep по сроку; вручную: stage_trial --warm-release --warm-owner ' + a.run_id + ')')
     sheets_after = {s: os.path.join(run_dir, 'sheets', f'{s}.png') for s in skus}
     jobs = [(os.path.join(res[s], '08-material', 'material.glb'), photo[s], sheets_after[s],
              next((c for c in (os.path.join(res[s], '06-visible', 'check.json'), os.path.join(base[s], '06-visible', 'check.json')) if os.path.isfile(c)), '')) for s in skus if s in res]

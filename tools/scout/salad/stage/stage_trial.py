@@ -522,6 +522,23 @@ def make_spec(a, inputs: dict) -> KD.Spec:
                    worker_file=WORKER, work_type=WORK_TYPE, variant=getattr(a, 'variant', '') or '', ordered=ordered)             # этапы идут по порядку: повтор после сбоя шлюза — в начало очереди (T-220/1)
 
 
+def stop_only(a, stop) -> int:
+    """`--stop-only`: 0 — погашено (или тёплая нода погашена с проверкой «0 нод»), 1 — остановка не подтверждена, 3 — отказ: нода занята прогоном или у неё чужая метка владельца."""
+    name = f'{PREFIX}-{a.suffix}'
+    status, msg = KD.warm_stop(getattr(a, 'warm_dir', '') or KD.WARM_DIR, name, stop, getattr(a, 'warm_owner', '') or '')
+    say(f'{name}: {msg}')
+    return {'stopped': 0, 'failed': 1, 'refused': 3}[status]
+
+
+def warm_release_cmd(a, stop) -> int:
+    """`--warm-release --warm-owner X`: погасить тёплые ноды прогона X (метка владельца). 0 — всё свои погашены или своих нет, 1 — остановка не подтверждена."""
+    res = KD.warm_release(getattr(a, 'warm_dir', '') or KD.WARM_DIR, getattr(a, 'warm_owner', '') or '', stop)
+    for name, status, msg in res:
+        say(f'тёплая нода {name}: {msg}')
+    say(f'warm-release: погашено {sum(1 for r in res if r[1] == "stopped")} из {len(res)} (владелец {getattr(a, "warm_owner", "") or "—"})')
+    return 1 if any(r[1] == 'failed' for r in res) else 0
+
+
 def main() -> int:
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument('--image', help='образ группы: имя@sha256:digest (по тегу — отказ, ADR-0137)')
@@ -570,14 +587,19 @@ def main() -> int:
     ap.add_argument('--slots', type=int, default=0, help='с --queue: товаров в работе на ноде одновременно (0 = --fill-procs)')
     ap.add_argument('--nodes', type=int, default=0, help='с --queue: сколько нод делят очередь; потолок товаров на ноду = ceil(товаров/нод) (0 — без потолка, только --slots)')
     ap.add_argument('--requeue-max', type=int, default=1, help='с --queue: сколько раз упавший товар возвращается в очередь (другая нода) до окончательного отказа')
-    ap.add_argument('--stop-only', action='store_true')
+    ap.add_argument('--stop-only', action='store_true', help='погасить группу `--suffix`; тёплую ноду с записью — только если не занята прогоном и (при --warm-owner) метка владельца совпадает; иначе отказ, код 3')
+    ap.add_argument('--warm-owner', default='', help='метка владельца тёплой ноды (loop5 — его run-id): ставится при создании/подхвате; с --stop-only/--warm-release чужую метку не гасим')
+    ap.add_argument('--warm-release', action='store_true', help='конец прогона: погасить тёплые ноды с меткой --warm-owner (ровно свои; подхваченные другим прогоном не трогает)')
     ap.add_argument('--sweep-warm', action='store_true', help='T-34: погасить тёплые ноды, которым пора (предел жизни вышел или простой > idle_min по записи ~/remlab-logs/warm-nodes); занятые прогоном не трогает')
     a = ap.parse_args()
     import bench_run as BR
     import migrate_groups as MG
     if a.stop_only:
         MG.env_from_file()
-        return 0 if KD.stop_and_verify(BR, f'{PREFIX}-{a.suffix}') else 1
+        return stop_only(a, lambda n: KD.stop_and_verify(BR, n))
+    if a.warm_release:
+        MG.env_from_file()
+        return warm_release_cmd(a, lambda n: KD.stop_and_verify(BR, n))
     if a.sweep_warm:                                                               # T-34: воркер при простое выходит, но Salad его поднимает заново — гасим тёплые ноды сами
         MG.env_from_file()
         res = KD.warm_sweep(KD.WARM_DIR, time.time(), lambda n: KD.stop_and_verify(BR, n))
