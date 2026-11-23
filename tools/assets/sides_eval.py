@@ -10,6 +10,7 @@
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
 import os
 import sys
@@ -105,19 +106,27 @@ def nblur(img: np.ndarray, mask: np.ndarray, sigma: float) -> np.ndarray:
     return ndi.gaussian_filter(img * mask, sigma) / np.maximum(w, 1e-6)
 
 
-def rescale_to_area(rgb: np.ndarray, mask: np.ndarray, area: float) -> tuple[np.ndarray, np.ndarray]:
-    """Фото подгоняется по площади предмета к стороне, чтобы сравнивать резкость/рисунок в одном масштабе."""
+def rescale_to_area(rgb: np.ndarray, mask: np.ndarray, area: float, up_max: float | None = None, memo: dict | None = None) -> tuple[np.ndarray, np.ndarray]:
+    """Фото подгоняется по площади предмета к стороне, чтобы сравнивать резкость/рисунок в одном масштабе.
+    up_max (правила geometry.photo_upscale_max; нет — без потолка) — предел линейного увеличения: тонкая вещь (стол на ножках: маска фото ≈200 px) иначе раздувалась в 7000×7000 px (минуты на товар).
+    memo — одинаковый размер у разных видов не пересчитывается (resize зависит только от размера)."""
     from PIL import Image
     a0 = float(mask.sum())
     if a0 < 1 or area < 1:
         return rgb, mask
     s = float(np.sqrt(area / a0))
+    if up_max and s > up_max:
+        s = float(up_max)
     if abs(s - 1) < 0.05:
         return rgb, mask
     h, w = mask.shape
     sz = (max(8, int(round(w * s))), max(8, int(round(h * s))))
+    if memo is not None and ('rs', sz) in memo:
+        return memo[('rs', sz)]
     im = np.asarray(Image.fromarray(rgb).resize(sz, Image.LANCZOS))
     mk = np.asarray(Image.fromarray((mask * 255).astype(np.uint8)).resize(sz, Image.NEAREST)) > 127
+    if memo is not None:
+        memo[('rs', sz)] = (im, mk)
     return im, mk
 
 
@@ -318,7 +327,7 @@ def score_of(r: float | None) -> float | None:
     return None if r is None else round(float(min(1.0, max(0.0, 1.0 - r / 2.0))), 3)
 
 
-def eval_view(view_rgb: np.ndarray, photo_rgb: np.ndarray, photo_mask: np.ndarray, name: str, R: dict, tone_rgb: np.ndarray | None = None) -> dict:
+def eval_view(view_rgb: np.ndarray, photo_rgb: np.ndarray, photo_mask: np.ndarray, name: str, R: dict, tone_rgb: np.ndarray | None = None, memo: dict | None = None) -> dict:
     """tone_rgb — вид без формы (albedo_of, уже нормированный по фото); без него тон берётся прямо с вида (тень формы тогда считается тоном)."""
     g = R['geometry']
     m = view_mask(view_rgb, g)
@@ -326,13 +335,20 @@ def eval_view(view_rgb: np.ndarray, photo_rgb: np.ndarray, photo_mask: np.ndarra
         return {'na': f"предмета на виде {int(m.sum())} px (< {g['min_px']})"}
     lab_r = rgb_to_lab(np.asarray(view_rgb)[..., :3])
     lab_s = lab_r if tone_rgb is None else rgb_to_lab(tone_rgb)
-    p_rgb, p_m = rescale_to_area(photo_rgb, photo_mask, float(m.sum()))
-    lab_p = rgb_to_lab(p_rgb)
+    p_rgb, p_m = rescale_to_area(photo_rgb, photo_mask, float(m.sum()), g.get('photo_upscale_max'), memo)
     wl, P = R['lab_l_weight'], R['palette']
-    cs = palette(lab_p, p_m, P, wl) if p_m.sum() >= g['min_px'] else np.zeros((0, 3))
+    pk = ('ph', p_rgb.shape[:2], p_rgb is photo_rgb)
+    if memo is not None and pk in memo:                                # то же фото в том же размере: лаб, палитра, группы — один раз на товар (результат тот же)
+        lab_p, cs, gp = memo[pk]
+    else:
+        lab_p = rgb_to_lab(p_rgb)
+        cs = palette(lab_p, p_m, P, wl) if p_m.sum() >= g['min_px'] else np.zeros((0, 3))
+        gp = groups_of(lab_p, p_m, cs, P, wl) if len(cs) else None
+        if memo is not None:
+            memo[pk] = (lab_p, cs, gp)
     if len(cs) == 0:
         return {'na': 'на фото не нашли предмет'}
-    ctx = {'s': groups_of(lab_s, m, cs, P, wl), 'p': groups_of(lab_p, p_m, cs, P, wl), 'lab_r': lab_r}
+    ctx = {'s': groups_of(lab_s, m, cs, P, wl), 'p': gp, 'lab_r': lab_r}
     out = {}
     for feat in FEATURES:
         if feat == 'sharpness' and name not in R['sharpness']['views']:
@@ -372,6 +388,9 @@ def eval_sheet(sheet_rgb: np.ndarray, R: dict, sheet_rules: dict | None = None, 
         clay_rgb = None if clay_rgb is None else flip_sheet(clay_rgb, S, hp)
     cells = [sheet_rgb[hp: hp + S, i * S: (i + 1) * S] for i in range(len(names) + 1)]
     p_rgb, p_m = photo_cell(cells[0], R['geometry'])
+    pmin = R['geometry'].get('photo_min_px')
+    if pmin and int(p_m.sum()) < pmin:                              # тонкая вещь: маска фото съедена краем — сравнивать не с чем; не провал и не проход (директор 23.11)
+        return {'views': {}, 'albedo_scale': None, 'ok': None, 'score': None, 'worst': None, 'photo_ok': False, 'flipped': bool(flip), 'uncertain': f'маска фото {int(p_m.sum())} px (< {pmin}): не измерено'}
     tone = [None] * len(names)
     scale = None
     if clay_rgb is not None:
@@ -381,7 +400,8 @@ def eval_sheet(sheet_rgb: np.ndarray, R: dict, sheet_rules: dict | None = None, 
         a0, p0 = lum(alb[0], m0), lum(srgb_lin(p_rgb), p_m)
         scale = p0 / a0 if a0 > 1e-6 and p0 > 1e-6 else 1.0          # один общий множитель на все виды: тон лица = тон фото (общий сдвиг тона — дело ворот кадра, не этой мерки)
         tone = [lin_srgb(a * scale) for a in alb]
-    views = {n: eval_view(cells[i + 1], p_rgb, p_m, n, R, tone[i]) for i, n in enumerate(names)}
+    memo: dict = {}
+    views = {n: eval_view(cells[i + 1], p_rgb, p_m, n, R, tone[i], memo) for i, n in enumerate(names)}
     worst, scores, ok = None, [], True
     for n, fs in views.items():
         for f, d in fs.items():
@@ -418,27 +438,88 @@ def known_shares_of(item: dict, R: dict) -> dict | None:
         return None
 
 
-def batch(sheets: str, out: str, only: list | None = None, rules: dict | None = None, clay_dir: str | None = None, items: dict | None = None) -> dict:
+def _sha(*parts: bytes) -> str:
+    h = hashlib.sha256()
+    for p in parts:
+        h.update(hashlib.sha256(p).digest())
+    return h.hexdigest()
+
+
+def _file_bytes(p: str | None) -> bytes:
+    try:
+        with open(p, 'rb') as f:
+            return f.read()
+    except (OSError, TypeError):
+        return b''
+
+
+def cache_key(sheets: str, i: str, R: dict, clay_dir: str, item: dict | None) -> str:
+    """Ключ кэша оценки товара: лист + глина + правила + код оценки и «перёда» + вход ракурса (item, check06, known.png, GLB). Те же входы — тот же результат."""
+    it = dict(item or {})
+    c6 = it.get('check06')
+    extra = [_file_bytes(c6), _file_bytes(os.path.join(os.path.dirname(c6), 'known.png')) if c6 else b'', _file_bytes(it.get('glb')) if c6 else b'']
+    return _sha(_file_bytes(os.path.join(sheets, i + '.png')), _file_bytes(os.path.join(clay_dir, i + '.clay.png')), json.dumps(R, sort_keys=True, ensure_ascii=False).encode(),
+                json.dumps(it, sort_keys=True, ensure_ascii=False).encode(), _file_bytes(os.path.abspath(__file__)), _file_bytes(FA.__file__), *extra)
+
+
+def eval_one(sheets: str, i: str, R: dict, clay_dir: str, item: dict | None, cache_dir: str | None = None) -> dict:
+    """Оценка одного листа (общая для последовательного и параллельного прогона); при cache_dir — из кэша, если входы те же."""
     from PIL import Image
+    kp = None
+    if cache_dir:
+        kp = os.path.join(cache_dir, cache_key(sheets, i, R, clay_dir, item) + '.json')
+        if os.path.isfile(kp):
+            try:
+                with open(kp, encoding='utf-8') as f:
+                    return json.load(f)
+            except (OSError, ValueError):
+                pass
+    cp = os.path.join(clay_dir, i + '.clay.png')
+    clay = np.asarray(Image.open(cp).convert('RGB')) if os.path.exists(cp) else None
+    fs = known_shares_of(item, R) if item else None
+    flip = front_flipped(fs, R) if fs else False
+    r = eval_sheet(np.asarray(Image.open(os.path.join(sheets, i + '.png')).convert('RGB')), R, clay_rgb=clay, flip=flip)
+    r['front_shares'] = fs
+    if flip:
+        r['note'] = 'ракурс развёрнут'
+    if kp:
+        os.makedirs(cache_dir, exist_ok=True)
+        tmp = f'{kp}.{os.getpid()}.tmp'
+        with open(tmp, 'w', encoding='utf-8') as f:
+            json.dump(r, f, ensure_ascii=False)
+        os.replace(tmp, kp)
+    return r
+
+
+def _eval_job(a: tuple) -> dict:
+    return eval_one(*a)
+
+
+def batch(sheets: str, out: str, only: list | None = None, rules: dict | None = None, clay_dir: str | None = None, items: dict | None = None,
+          workers: int = 1, cache_dir: str | None = None) -> dict:
+    """workers > 1 — товары параллельно (пул процессов; число = ядра по heavy-slot, `HEAVY_SLOT_CORES`); результат тот же, порядок — по id. cache_dir — кэш оценки по sha входов."""
     R = load_rules(rules)
     ids = sorted(f[:-4] for f in os.listdir(sheets) if f.endswith('.png') and not f.endswith('.clay.png'))
     if only:
         ids = [i for i in ids if i in only]
     os.makedirs(out, exist_ok=True)
-    res = {}
-    for i in ids:
-        cp = os.path.join(clay_dir or sheets, i + '.clay.png')
-        clay = np.asarray(Image.open(cp).convert('RGB')) if os.path.exists(cp) else None
-        fs = known_shares_of(items[i], R) if items and i in items else None
-        flip = front_flipped(fs, R) if fs else False
-        res[i] = eval_sheet(np.asarray(Image.open(os.path.join(sheets, i + '.png')).convert('RGB')), R, clay_rgb=clay, flip=flip)
-        res[i]['front_shares'] = fs
-        if flip:
-            res[i]['note'] = 'ракурс развёрнут'
-    n_ok = sum(1 for v in res.values() if v['ok'])
+    cd = clay_dir or sheets
+    jobs = [(sheets, i, R, cd, (items or {}).get(i), cache_dir) for i in ids]
+    if workers > 1 and len(jobs) > 1:
+        import multiprocessing as mp
+        from concurrent.futures import ProcessPoolExecutor
+        with ProcessPoolExecutor(max_workers=min(workers, len(jobs)), mp_context=mp.get_context('fork')) as ex:
+            outs = list(ex.map(_eval_job, jobs))
+    else:
+        outs = [_eval_job(j) for j in jobs]
+    res = dict(zip(ids, outs))
+    unc = sorted(k for k, v in res.items() if v.get('uncertain'))                  # «не измерено» — вне знаменателя общего %
+    meas = [k for k in res if k not in unc]
+    n_ok = sum(1 for k in meas if res[k]['ok'])
     flipped = sorted(k for k, v in res.items() if v.get('flipped'))
-    summary = {'items': len(res), 'flipped': len(flipped), 'flipped_ids': flipped, 'passed_all': n_ok, 'passed_all_pct': round(100.0 * n_ok / len(res), 1) if res else None,
-               'worst_first': sorted(res, key=lambda k: (res[k]['score'] if res[k]['score'] is not None else 2.0, k))}
+    summary = {'items': len(res), 'measured': len(meas), 'uncertain': unc, 'flipped': len(flipped), 'flipped_ids': flipped, 'passed_all': n_ok,
+               'passed_all_pct': round(100.0 * n_ok / len(meas), 1) if meas else None,
+               'worst_first': sorted(meas, key=lambda k: (res[k]['score'] if res[k]['score'] is not None else 2.0, k)) + unc}
     with open(os.path.join(out, 'eval.json'), 'w', encoding='utf-8') as f:
         json.dump(res, f, ensure_ascii=False, indent=1)
     with open(os.path.join(out, 'summary.json'), 'w', encoding='utf-8') as f:
@@ -455,9 +536,11 @@ def main(argv: list) -> int:
     b.add_argument('--only', default='')
     b.add_argument('--items', default='', help='items.json листов (glb, check06) — для предохранителя ракурса front_guard')
     b.add_argument('--clay-dir', default='', help='папка с <id>.clay.png (по умолчанию — рядом с листами)')
+    b.add_argument('--workers', type=int, default=int(os.environ.get('HEAVY_SLOT_CORES') or 1), help='товаров параллельно (по умолчанию — ядра heavy-slot)')
+    b.add_argument('--cache', default='', help='папка кэша оценки по sha входов (лист, глина, правила, код)')
     a = ap.parse_args(argv)
     items = {x['id']: x for x in json.load(open(a.items, encoding='utf-8'))} if a.items else None
-    r = batch(a.sheets, a.out, [x for x in a.only.split(',') if x] or None, clay_dir=a.clay_dir or None, items=items)
+    r = batch(a.sheets, a.out, [x for x in a.only.split(',') if x] or None, clay_dir=a.clay_dir or None, items=items, workers=a.workers, cache_dir=a.cache or None)
     s = r['summary']
     print(f"товаров {s['items']}, прошли все 5 на всех сторонах {s['passed_all']} ({s['passed_all_pct']} %), ракурс развёрнут: {s['flipped']}")
     return 0

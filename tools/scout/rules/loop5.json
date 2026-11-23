@@ -58,7 +58,7 @@
   "cores_sheets": 4,
   "min_gb_sheets": 3,
   "prio": 2,
-  "cores_sheets_batch": 2,
+  "cores_sheets_batch": 2, "cores_eval": 4, "min_gb_eval": 5, "prio_eval": 0,
   "min_gb_sheets_batch": 2
  },
  "sheets": {
@@ -72,6 +72,7 @@
   "parallel": 4,
   "_about": "листы «со всех сторон» браузером (T-27, sides_sheet.py batch, ≈10 с/товар, один Chromium). mode≠batch — старый путь: cmd + <glb> <фото> <png> (loop5_sides.py, numpy ≈5 мин/товар). Ядра/память под heavy-slot — heavy_slot.*_sheets_batch."
  },
+ "eval": {"cache": "~/remlab-logs/eval-cache", "front_cache": "~/remlab-logs/front-cache", "front_threads": 4, "_about": "T-47/2: оценка листов — пул процессов на cores_eval ядрах heavy-slot, кэш по sha (лист, глина, правила, код); перёд — потоки + кэш по sha GLB/check06/known/orient. inproc=true — оценка в процессе (тесты)."},
  "warm": {
   "enabled": true,
   "idle_min": 20,

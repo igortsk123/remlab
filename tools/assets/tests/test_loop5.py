@@ -350,7 +350,9 @@ class T(unittest.TestCase):
             jobs = [('/g/a.glb', '/p/a.png', os.path.join(sh, 'a_good.png'), '', 12.0), ('/g/b.glb', '/p/b.png', os.path.join(sh, 'b_bad.png'), '', 190.0),
                     ('/g/c.glb', '/p/c.png', os.path.join(sh, 'c_missing.png'), '')]
             fronts = {'a_good': {'theta': 12.0, 'source': 'camera04', 'flags': []}, 'b_bad': {'theta': 190.0, 'source': 'camera04_flipped', 'flags': ['front_camera_opposite']}}
-            ev, page = L.eval_after(L.load_rules(), tmp, jobs, fronts)
+            rl = L.load_rules()
+            rl['eval'] = {'inproc': True}
+            ev, page = L.eval_after(rl, tmp, jobs, fronts)
             self.assertEqual(ev['summary']['items'], 2)                                    # лист-призрак (нет файла) в оценку не идёт
             self.assertEqual(ev['summary']['passed_all'], 1)
             self.assertEqual(ev['summary']['worst_first'][0], 'b_bad')
@@ -359,7 +361,7 @@ class T(unittest.TestCase):
             self.assertIn('(50.0 %)', page)
             self.assertIn('camera04_flipped', page)                                        # источник «перёда» виден
             self.assertTrue(os.path.isfile(os.path.join(tmp, 'eval', 'eval.json')))
-            self.assertEqual(L.eval_after(L.load_rules(), tmp, [('/g', '/p', os.path.join(tmp, 'нет.png'), '')], {})[0], None)   # нет листов — не падает
+            self.assertEqual(L.eval_after(rl, tmp, [('/g', '/p', os.path.join(tmp, 'нет.png'), '')], {})[0], None)   # нет листов — не падает
 
     def test_front_resolved_and_items(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -373,6 +375,110 @@ class T(unittest.TestCase):
         self.assertIn('--clay', L.batch_cmd(r, '/o/i.json', '/o/s'))
         r['sheets']['clay'] = False
         self.assertNotIn('--clay', L.batch_cmd(r, '/o/i.json', '/o/s'))
+
+
+    def test_eval_parallel_and_cache_same_result(self):
+        import numpy as np
+        from PIL import Image
+        sys.path.insert(0, HERE)
+        import sides_eval as SE
+        SR = SE.load_sheet_rules()
+        S, HP = int(SR['size']), int(SR['header_px'])
+        yy, xx = np.mgrid[0:S, 0:S]
+        m = (np.abs(xx - S / 2) < 95) & (np.abs(yy - S / 2) < 105)
+        rng = np.random.default_rng(3)
+
+        def sheet(k):
+            cells = []
+            for i in range(7):
+                c = np.full((S, S, 3), 245 if i == 0 else 255, np.uint8)
+                col = np.empty((S, S, 3))
+                col[:] = (170 - 9 * k, 140, 100 + 7 * k)
+                col = col + rng.normal(0, 2 + k, col.shape)
+                if k % 2 and i == 4:
+                    col[:, S // 2:, :] += (-60, 25, 40)
+                c[m] = np.clip(col, 0, 255).astype(np.uint8)[m]
+                cells.append(c)
+            out = np.full((S + HP, S * 7, 3), 255, np.uint8)
+            out[HP:] = np.concatenate(cells, axis=1)
+            return out
+        with tempfile.TemporaryDirectory() as tmp:
+            sh = os.path.join(tmp, 'sheets')
+            os.makedirs(sh)
+            for k in range(5):
+                Image.fromarray(sheet(k)).save(os.path.join(sh, f'p{k}.png'))
+            a = SE.batch(sh, os.path.join(tmp, 'a'))
+            cache = os.path.join(tmp, 'cache')
+            b = SE.batch(sh, os.path.join(tmp, 'b'), workers=3, cache_dir=cache)            # пул процессов + кэш пишется
+            self.assertEqual(len(os.listdir(cache)), 5)
+            c = SE.batch(sh, os.path.join(tmp, 'c'), workers=3, cache_dir=cache)            # всё из кэша
+            for x in 'abc':
+                self.assertTrue(os.path.isfile(os.path.join(tmp, x, 'eval.json')))
+            ref = open(os.path.join(tmp, 'a', 'eval.json'), 'rb').read()
+            self.assertEqual(ref, open(os.path.join(tmp, 'b', 'eval.json'), 'rb').read())   # пул даёт тот же файл байт в байт
+            self.assertEqual(ref, open(os.path.join(tmp, 'c', 'eval.json'), 'rb').read())   # кэш — тот же файл байт в байт
+            self.assertEqual(a['summary'], c['summary'])
+            Image.fromarray(sheet(9)).save(os.path.join(sh, 'p0.png'))                       # лист изменился — ключ другой, пересчёт
+            d = SE.batch(sh, os.path.join(tmp, 'd'), workers=2, cache_dir=cache)
+            self.assertEqual(len(os.listdir(cache)), 6)
+            self.assertNotEqual(a['eval']['p0'], d['eval']['p0'])
+
+    def test_photo_upscale_cap_and_front_cache(self):
+        sys.path.insert(0, HERE)
+        import numpy as np
+        import sides_eval as SE
+        rgb = np.full((420, 420, 3), 240, np.uint8)
+        mk = np.zeros((420, 420), bool)
+        mk[100:110, 100:121] = True                                                         # тонкая вещь: маска фото 210 px
+        big, _ = SE.rescale_to_area(rgb, mk, 55000.0)
+        self.assertGreater(big.shape[0], 3000)                                              # без потолка — раздувание, как раньше
+        capped, _ = SE.rescale_to_area(rgb, mk, 55000.0, 4.0)
+        self.assertEqual(capped.shape[:2], (1680, 1680))                                    # потолок 4× линейно
+        memo = {}
+        x1 = SE.rescale_to_area(rgb, mk, 5000.0, None, memo)
+        x2 = SE.rescale_to_area(rgb, mk, 5000.0, None, memo)
+        self.assertIs(x1[0], x2[0])                                                         # тот же размер — один resize
+        with tempfile.TemporaryDirectory() as tmp:
+            r = L.load_rules()
+            r['eval'] = {'front_cache': os.path.join(tmp, 'fc')}
+            L.front_of(r, os.path.join(tmp, 'нет.glb'), os.path.join(tmp, 'нет.json'), '', '')
+            self.assertFalse(os.path.isdir(os.path.join(tmp, 'fc')) and os.listdir(os.path.join(tmp, 'fc')))   # сбой чтения не кэшируется
+
+
+    def test_thin_photo_is_uncertain_not_fail(self):
+        import numpy as np
+        from PIL import Image
+        sys.path.insert(0, HERE)
+        import sides_eval as SE
+        SR = SE.load_sheet_rules()
+        S, HP = int(SR['size']), int(SR['header_px'])
+        yy, xx = np.mgrid[0:S, 0:S]
+        m = (np.abs(xx - S / 2) < 95) & (np.abs(yy - S / 2) < 105)
+        thin = (np.abs(xx - S / 2) < 40) & (np.abs(yy - S / 2) < 2)                       # фото: тонкая полоска — после съедания края почти ничего
+
+        def sheet(photo_mask):
+            cells = []
+            for i in range(7):
+                c = np.full((S, S, 3), 245 if i == 0 else 255, np.uint8)
+                c[(photo_mask if i == 0 else m)] = (170, 140, 100)
+                cells.append(c)
+            out = np.full((S + HP, S * 7, 3), 255, np.uint8)
+            out[HP:] = np.concatenate(cells, axis=1)
+            return out
+        with tempfile.TemporaryDirectory() as tmp:
+            sh = os.path.join(tmp, 'sheets')
+            os.makedirs(sh)
+            Image.fromarray(sheet(m)).save(os.path.join(sh, 'good.png'))
+            Image.fromarray(sheet(thin)).save(os.path.join(sh, 'thin.png'))
+            r = SE.batch(sh, os.path.join(tmp, 'o'))
+            s = r['summary']
+            self.assertEqual(r['eval']['thin']['uncertain'][:10], 'маска фото')
+            self.assertIsNone(r['eval']['thin']['ok'])                                      # не провал и не проход
+            self.assertEqual((s['items'], s['measured'], s['passed_all'], s['passed_all_pct'], s['uncertain']), (2, 1, 1, 100.0, ['thin']))   # вне знаменателя
+            self.assertEqual(s['worst_first'], ['good', 'thin'])
+            page = L.eval_html(L.run_eval({**L.load_rules(), 'eval': {'inproc': True}}, sh, os.path.join(tmp, 'o2'), [{'id': 'good'}, {'id': 'thin'}]))
+            self.assertIn('не измерено', page)
+            self.assertIn('из 1 (100.0 %)', page)
 
 
 if __name__ == '__main__':

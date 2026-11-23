@@ -350,20 +350,77 @@ def run_sheets(rules: dict, jobs: list[tuple], log: str) -> int:
 
 def front_of(rules: dict, glb: str, check06: str, res_dir: str, base_dir: str) -> dict:
     """«Перёд» листа товара = front_axis_resolved (tools/scout/front_axis.py): orient (если лежит `07-fill/orient.json` результата или «до») → камера 04 по геометрии → unknown.
-    Неизвестен — лист по камере 04 как раньше, флаг front_unknown в таблице."""
+    Неизвестен — лист по камере 04 как раньше, флаг front_unknown в таблице. Кэш по sha входов (GLB, check06, known.png, orient, код и правила «перёда») — `rules.eval.front_cache`."""
     sys.path.insert(0, os.path.join(ROOT, 'tools', 'scout'))
     import front_axis as FA
     op = next((p for p in (os.path.join(d, '07-fill', 'orient.json') for d in (res_dir, base_dir) if d) if os.path.isfile(p)), None)
-    return FA.resolve_from_files(glb, check06, op)
+    cdir = ex(rules.get('eval', {}).get('front_cache', '')) if rules.get('eval', {}).get('front_cache') else ''
+    kp = ''
+    if cdir:
+        import hashlib
+
+        def fb(p):
+            try:
+                with open(p, 'rb') as f:
+                    return hashlib.sha256(f.read()).digest()
+            except (OSError, TypeError):
+                return b'-'
+        h = hashlib.sha256(b'|'.join([fb(glb), fb(check06), fb(os.path.join(os.path.dirname(check06 or ''), 'known.png')), fb(op), fb(FA.__file__), fb(FA.AXIS_RULES), fb(FA.RULES)])).hexdigest()
+        kp = os.path.join(cdir, h + '.json')
+        if os.path.isfile(kp):
+            try:
+                with open(kp, encoding='utf-8') as f:
+                    return json.load(f)
+            except (OSError, ValueError):
+                pass
+    r = FA.resolve_from_files(glb, check06, op)
+    if kp and 'error' not in r:                                            # сбой чтения не кэшируем
+        os.makedirs(cdir, exist_ok=True)
+        tmp = f'{kp}.{os.getpid()}.tmp'
+        with open(tmp, 'w', encoding='utf-8') as f:
+            json.dump(r, f, ensure_ascii=False)
+        os.replace(tmp, kp)
+    return r
+
+
+def fronts_for(rules: dict, jobs: list[tuple], res: dict, base: dict) -> dict:
+    """«Перёд» по всем товарам круга параллельно (потоки; численное — numpy/trimesh без GIL), с кэшем: {sku: front_of(...)}."""
+    def one(j):
+        sku = os.path.splitext(os.path.basename(j[2]))[0]
+        return sku, (front_of(rules, j[0], j[3], res.get(sku, ''), base.get(sku, '')) if j[3] else {'theta': None, 'flags': ['front_unknown:no_check06'], 'source': None})
+    with cf.ThreadPoolExecutor(max_workers=max(1, int(rules.get('eval', {}).get('front_threads', 4)))) as pool:
+        return dict(pool.map(one, jobs))
 
 
 def run_eval(rules: dict, sheets_dir: str, out_dir: str, items: list[dict]) -> dict:
-    """sides_eval.batch по листам «после» (+ глина, если rules.sheets.clay): {sku: {score, ok, fails:[{view, feature, r}], front}} и сводка {items, passed_all, passed_all_pct, worst_first}.
-    Предохранитель ракурса front_guard выключен: перёд уже решён front_axis (у items есть az и нет check06)."""
-    sys.path.insert(0, HERE)
-    import sides_eval as SE
+    """sides_eval batch по листам «после» (+ глина, если rules.sheets.clay): {sku: {score, ok, fails:[{view, feature, r}], views}} и сводка {items, passed_all, passed_all_pct, worst_first}.
+    Предохранитель ракурса front_guard выключен: перёд уже решён front_axis (у items есть az и нет check06). Товары — параллельно, в пуле процессов на ядрах heavy-slot
+    (`heavy_slot.cores_eval`), кэш оценки по sha входов — `rules.eval.cache` (T-47/2); rules.eval.inproc — в этом же процессе (тесты)."""
+    ev = rules.get('eval', {})
     by_id = {it['id']: it for it in items}
-    r = SE.batch(sheets_dir, out_dir, [i for i in by_id], items=by_id)
+    cache = ex(ev['cache']) if ev.get('cache') else None
+    hs = rules['heavy_slot']
+    cores = int(hs.get('cores_eval', 1))
+    if ev.get('inproc'):
+        sys.path.insert(0, HERE)
+        import sides_eval as SE
+        r = SE.batch(sheets_dir, out_dir, [i for i in by_id], items=by_id, workers=cores, cache_dir=cache)
+    else:
+        os.makedirs(out_dir, exist_ok=True)
+        ip = os.path.join(out_dir, 'items.json')
+        with open(ip, 'w', encoding='utf-8') as f:
+            json.dump(list(by_id.values()), f, ensure_ascii=False, indent=1)
+        cmd = [HEAVY, 'loop5-eval', '--min-gb', str(hs.get('min_gb_eval', 5)), '--cores', str(cores), '--prio', str(hs.get('prio_eval', 0)), '--timeout', '1500', '--',
+               ex(rules['python']), '-I', os.path.join(HERE, 'sides_eval.py'), 'batch', '--sheets', sheets_dir, '--out', out_dir, '--items', ip, '--only', ','.join(by_id),
+               '--workers', str(cores)] + (['--cache', cache] if cache else [])
+        with open(os.path.join(out_dir, 'eval.log'), 'w', encoding='utf-8') as lf:
+            rc = subprocess.run(cmd, stdout=lf, stderr=subprocess.STDOUT).returncode
+        if rc != 0 or not os.path.isfile(os.path.join(out_dir, 'eval.json')):
+            raise RuntimeError(f'sides_eval rc={rc}, см. {out_dir}/eval.log')
+        with open(os.path.join(out_dir, 'eval.json'), encoding='utf-8') as f:
+            e = json.load(f)
+        with open(os.path.join(out_dir, 'summary.json'), encoding='utf-8') as f:
+            r = {'eval': e, 'summary': json.load(f)}
     out = {}
     for sku, v in r['eval'].items():
         fails = []
@@ -371,7 +428,7 @@ def run_eval(rules: dict, sheets_dir: str, out_dir: str, items: list[dict]) -> d
             for f, d in fs.items():
                 if f != 'na' and d.get('r') is not None and d['r'] > 1:
                     fails.append({'view': view, 'feature': f, 'r': d['r']})
-        out[sku] = {'score': v['score'], 'ok': v['ok'], 'fails': sorted(fails, key=lambda x: -x['r']), 'views': v['views']}
+        out[sku] = {'score': v['score'], 'ok': v['ok'], 'fails': sorted(fails, key=lambda x: -x['r']), 'views': v['views'], **({'uncertain': v['uncertain']} if v.get('uncertain') else {})}
     return {'per_sku': out, 'summary': r['summary']}
 
 
@@ -381,11 +438,16 @@ def eval_html(ev: dict, fronts: dict | None = None) -> str:
     feats = ['patches', 'sharpness', 'uniform', 'pattern', 'underpaint']
     views = ['перед', '3/4', 'бок', 'зад', 'др. бок', 'верх']
     pct = s.get('passed_all_pct')
-    out = [f'<h2>Автооценка: все 5 признаков на всех сторонах — {s["passed_all"]} из {s["items"]}' + (f' ({pct} %)' if pct is not None else '') + '</h2>'
+    unc = s.get('uncertain') or []
+    out = [f'<h2>Автооценка: все 5 признаков на всех сторонах — {s["passed_all"]} из {s.get("measured", s["items"])}' + (f' ({pct} %)' if pct is not None else '')
+           + (f' · не измерено (тонкая вещь, маска фото мала): {len(unc)}' if unc else '') + '</h2>'
            '<p>Худшие сверху. Число — «насколько плохо к допуску» (r ≤ 1 — прошло, красным — не прошло); «—» — признак к стороне не применяется.</p>']
     for sku in s['worst_first']:
         v = ev['per_sku'][sku]
         fr = (fronts or {}).get(sku) or {}
+        if v.get('uncertain'):
+            out.append(f'<h4 style="color:#888">{html.escape(sku)} — не измерено: {html.escape(str(v["uncertain"]))}</h4>')
+            continue
         fl = ' '.join(fr.get('flags') or [])
         src = fr.get('source') or ('не решён' if fr else '')
         sc = '—' if v['score'] is None else f'{v["score"]:.2f}'
@@ -459,7 +521,7 @@ def eval_after(rules: dict, run_dir: str, jobs: list[tuple], fronts: dict) -> tu
         say(f'❗ автооценка не посчиталась: {type(e).__name__}: {e}')
         return None, f'<p>❗ автооценка не посчиталась: {html.escape(str(e))}</p>'
     s0 = ev['summary']
-    say(f'автооценка: все 5 на всех сторонах {s0["passed_all"]} из {s0["items"]} ({s0["passed_all_pct"]} %); худший: {s0["worst_first"][:3]}')
+    say(f'автооценка ({len(items)} товаров, не измерено {len(s0.get("uncertain") or [])}): все 5 на всех сторонах {s0["passed_all"]} из {s0.get("measured", s0["items"])} ({s0["passed_all_pct"]} %); худший: {s0["worst_first"][:3]}')
     return ev, eval_html(ev, fronts)
 
 
@@ -667,17 +729,20 @@ def main(argv=None) -> int:
     sheets_after = {s: os.path.join(run_dir, 'sheets', f'{s}.png') for s in skus}
     jobs = [(os.path.join(res[s], '08-material', 'material.glb'), photo[s], sheets_after[s],
              next((c for c in (os.path.join(res[s], '06-visible', 'check.json'), os.path.join(base[s], '06-visible', 'check.json')) if os.path.isfile(c)), '')) for s in skus if s in res]
-    fronts = {}
-    for j in list(jobs):                                                   # «перёд» листа «после» — front_axis_resolved, не голая камера 04 (T-47)
+    t_fr = time.time()
+    fronts = fronts_for(rules, jobs, res, base)                            # «перёд» листа «после» — front_axis_resolved, не голая камера 04 (T-47); параллельно, с кэшем
+    for k, j in enumerate(list(jobs)):
         sku = os.path.splitext(os.path.basename(j[2]))[0]
-        fronts[sku] = front_of(rules, j[0], j[3], res[sku], base[sku]) if j[3] else {'theta': None, 'flags': ['front_unknown:no_check06'], 'source': None}
         if fronts[sku].get('theta') is not None:
-            jobs[jobs.index(j)] = (*j[:4], fronts[sku]['theta'])
+            jobs[k] = (*j[:4], fronts[sku]['theta'])
         say(f'перёд {sku[-12:]}: θ={fronts[sku].get("theta")} ({fronts[sku].get("source")}) {fronts[sku].get("flags") or ""}')
+    say(f'перёд по {len(jobs)} товарам: {time.time() - t_fr:.1f} с')
     t_sa = time.time()
     rc_a = run_sheets(rules, jobs, os.path.join(run_dir, 'sheets-after.log'))
     sheets_s[1] = round(time.time() - t_sa, 1)
+    t_ev = time.time()
     ev, ev_html = eval_after(rules, run_dir, jobs, fronts)
+    sheets_s.append(round(time.time() - t_ev, 1))                          # секунды на листы «до», «после», оценку
     types = product_types(rules, skus)
     rows = []
     for s in skus:
@@ -688,7 +753,7 @@ def main(argv=None) -> int:
     summ = {'code_ref': a.code_ref, 'sha': sha, 'from': a.start, 'run_dir': run_dir, 'page': page, 'seconds_salad': round(t_salad), 'seconds_total': round(t_all), 'codes': rcs, 'sheets_rc': [rc_b, rc_a], 'sheets_s': sheets_s,
             'money': money, 'skus': {r['sku']: r['status'] for r in rows},
             'types': types, 'by_type': by_type(types, None if ev is None else ev.get('per_sku')),
-            'eval': None if ev is None else {'passed_all': ev['summary']['passed_all'], 'items': ev['summary']['items'], 'passed_all_pct': ev['summary']['passed_all_pct'], 'worst_first': ev['summary']['worst_first'],
+            'eval': None if ev is None else {'passed_all': ev['summary']['passed_all'], 'items': ev['summary']['items'], 'passed_all_pct': ev['summary']['passed_all_pct'], 'measured': ev['summary'].get('measured'), 'uncertain': ev['summary'].get('uncertain'), 'worst_first': ev['summary']['worst_first'],
                                               'per_sku': {k: {'score': v['score'], 'ok': v['ok'], 'fails': v['fails'], 'type': (types.get(k) or {}).get('type'), 'front': {x: (fronts.get(k) or {}).get(x) for x in ('theta', 'source', 'flags')}} for k, v in ev['per_sku'].items()}}}
     with open(os.path.join(run_dir, 'summary.json'), 'w', encoding='utf-8') as fh:
         json.dump(summ, fh, ensure_ascii=False, indent=1)
