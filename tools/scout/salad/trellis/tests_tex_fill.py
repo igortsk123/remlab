@@ -1473,6 +1473,7 @@ def test_top_prior_hook():
     ok(ph is not None and ph[0] > 45 and ph[1] > 5, f'верх теплее и светлее серого заливки (Lab {ph}) — тон фасада дерева')
     o2, r2 = TF.top_prior_hook([g], [tex.copy()], [kn], None, {}, None)
     ok(r2['top_source'] == 'as_before' and not r2['applied'] and np.array_equal(o2[0], tex), f'нет карточки (класс неизвестен) — как делал 07: {r2.get("gate")}')
+    ok(r2.get('top_skip') == 'no_card', f'нет карточки — причина в отчёте top_skip=no_card (не молчаливый as_before): {r2.get("top_skip")}')
     o3, r3 = TF.top_prior_hook([g], [tex.copy()], [kn], None, {'top_card': {'role': 'диван', 'name': 'Диван', 'Материал обивки': 'велюр'}}, None)
     ok(r3['top_source'] == 'as_before' and np.array_equal(o3[0], tex), f'ткань/не дерево — как делал 07: {r3.get("gate")}')
     r_ = copy.deepcopy(TP.load_rules())
