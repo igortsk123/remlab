@@ -18,6 +18,8 @@ import numpy as np
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 RULES = os.path.join(HERE, '..', '..', 'data', 'flat3d', 'sides-eval.json')
+AXIS_RULES = os.path.join(HERE, '..', '..', 'data', 'flat3d', 'front-axis.json')
+RESOLVED = ('auto_resolved', 'human_resolved')            # = orient_policy.RESOLVED (модуль чистый, без импорта scout)
 SIDES = ('перед', 'бок', 'зад', 'др. бок')
 
 
@@ -62,6 +64,53 @@ def front_flipped(shares: dict, R=None) -> bool:
     return bool(f is not None and b is not None and b > f + g['margin'] and b >= g['min_front_share'])
 
 
+def _ad(a: float, b: float) -> float:
+    return abs((float(a) - float(b) + 180.0) % 360.0 - 180.0)
+
+
+def axis_of_theta(theta) -> tuple | None:
+    """(ось 0|2, знак) «перёда» с азимута θ — как `tex_fill.front_axis_of_check` (x = sinθ, z = cosθ)."""
+    if theta is None:
+        return None
+    a = np.radians(float(theta))
+    sx, cz = float(np.sin(a)), float(np.cos(a))
+    return (0, 1 if sx >= 0 else -1) if abs(sx) > abs(cz) else (2, 1 if cz >= 0 else -1)
+
+
+def front_axis_resolved(orient=None, geom=None, shares=None, photo_frontal=None, cam_az=None, R=None) -> dict:
+    """{'theta': θ|None, 'front_yaw': то же, 'axis': (ось, знак)|None, 'source': orient|geometry|known_share|None, 'flags': [...]}.
+    orient — запись orient (`status`, `source`, `legacy_front_yaw`/`yaw`); geom — {'theta', 'source'}; shares — `front_shares(...)` для камеры cam_az;
+    photo_frontal — True только когда фото фронтальное (доли берутся лишь так). Флаги: front_unknown(:причина), front_camera_opposite, photo_side."""
+    rules = json.load(open(AXIS_RULES, encoding='utf-8'))
+    g = load_guard(R)
+    flags, theta, src = [], None, None
+    o = orient or {}
+    osrc = str(o.get('source') or o.get('orient') or '')
+    yaw = o.get('legacy_front_yaw', o.get('yaw'))
+    if 'symmetric' in osrc:
+        flags.append('front_unknown:symmetric_by_role')
+    else:
+        if o.get('status') in RESOLVED and yaw is not None:
+            theta, src = float(yaw) % 360.0, 'orient'
+        elif geom and geom.get('theta') is not None:
+            theta, src = float(geom['theta']) % 360.0, 'geometry:' + str(geom.get('source') or '')
+        elif photo_frontal is True and shares and cam_az is not None:
+            vals = [(shares.get(n), d) for n, d in zip(SIDES, (0, 90, 180, 270)) if shares.get(n) is not None]
+            vals.sort(reverse=True)
+            if vals and (len(vals) == 1 or vals[0][0] > vals[1][0] + g['margin']):
+                theta, src = (float(cam_az) + vals[0][1]) % 360.0, 'known_share'
+        if theta is None:
+            flags.append('front_unknown')
+    if theta is not None and cam_az is not None:
+        d = _ad(theta, cam_az)
+        if d >= rules['camera_conflict_deg']:
+            flags.append('front_camera_opposite')
+        elif d >= rules['photo_side_deg']:
+            flags.append('photo_side')
+    th = None if theta is None else round(theta, 1)
+    return {'theta': th, 'front_yaw': th, 'axis': axis_of_theta(theta), 'source': src, 'flags': flags}
+
+
 def _box4():
     V, F, UV = [], [], []
     quads = [((-1, 0, 1), (1, 0, 1)), ((1, 0, 1), (1, 0, -1)), ((1, 0, -1), (-1, 0, -1)), ((-1, 0, -1), (-1, 0, 1))]   # +Z, +X, -Z, -X
@@ -84,6 +133,26 @@ def selftest() -> int:
                      (s180['перед'] == 1.0 and not front_flipped(s180), 'камера на −Z → не развёрнут'),
                      (not front_flipped({'перед': 0.30, 'зад': 0.32}) and not front_flipped({'перед': None, 'зад': 0.5}), 'разница меньше margin / нет данных → молчит'),
                      (front_shares(V, F, UV, kn, 0.0, load_guard())['зад'] == 1.0, 'R = сам блок front_guard')):
+        print(('  ✓ ' if ok else '  ✗ ') + name)
+        bad += 0 if ok else 1
+    G = load_guard()
+    res = lambda **k: front_axis_resolved(R=G, **k)
+    sh = {'перед': 0.1, 'бок': 0.2, 'зад': 0.9, 'др. бок': 0.0}
+    a = res(orient={'status': 'auto_resolved', 'source': 'orienter+seat_agree', 'legacy_front_yaw': 359}, cam_az=171, shares=sh, photo_frontal=True)
+    b = res(orient={'status': 'vlm_pending'}, geom={'theta': 270, 'source': 'm3'}, cam_az=154)
+    c = res(orient={'status': 'vlm_pending'}, shares=sh, photo_frontal=True, cam_az=10)
+    d = res(orient={'status': 'vlm_pending'}, shares=sh, photo_frontal=None, cam_az=10)
+    e = res(orient={'status': 'auto_resolved', 'source': 'symmetric_by_role', 'legacy_front_yaw': 90}, geom={'theta': 90}, cam_az=0)
+    f = res(orient={'status': 'review_pending', 'source': 'seat_conflict', 'legacy_front_yaw': 271}, cam_az=358)
+    g2 = res(orient={'status': 'auto_resolved', 'source': 'orienter+seat_agree', 'legacy_front_yaw': 0}, cam_az=315)
+    for ok, name in ((a['source'] == 'orient' and a['theta'] == 359 and 'front_camera_opposite' in a['flags'], 'orient решён → θ из orient; камера напротив (171 против 359) — флаг, не замена'),
+                     (b['source'] == 'geometry:m3' and b['theta'] == 270 and 'photo_side' in b['flags'] and 'front_camera_opposite' not in b['flags'], 'нет orient → геометрия; камера сбоку (116°) — «фото сбоку», не конфликт'),
+                     (c['source'] == 'known_share' and c['theta'] == 190.0 and c['axis'] == (2, -1), 'фото фронтальное → перёд по долям известного (зад 0,9 → θ = az+180)'),
+                     (d['theta'] is None and d['flags'] == ['front_unknown'] and d['axis'] is None, 'фото не фронтальное/неизвестно → доли не берём → unknown (камера перёд не решает)'),
+                     (e['theta'] is None and e['flags'] == ['front_unknown:symmetric_by_role'], 'симметричная по роли → unknown, геометрия не подменяет'),
+                     (f['theta'] is None and 'front_unknown' in f['flags'], 'orient не решён (seat_conflict) и нет геометрии → unknown'),
+                     (g2['flags'] == ['photo_side'] or g2['flags'] == [], 'камера 45° от перёда — не ошибка'),
+                     (axis_of_theta(0) == (2, 1) and axis_of_theta(90) == (0, 1) and axis_of_theta(180) == (2, -1) and axis_of_theta(270) == (0, -1) and axis_of_theta(None) is None, 'axis_of_theta: 0→+Z, 90→+X, 180→−Z, 270→−X')):
         print(('  ✓ ' if ok else '  ✗ ') + name)
         bad += 0 if ok else 1
     print('FAIL' if bad else 'OK', bad)
