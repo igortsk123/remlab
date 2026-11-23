@@ -258,6 +258,24 @@ def test_back_not_tiny_contrast():
     ok(abs(Lb - 64.0) > 15.0, f'зад не тоном мелочи ({Lb:.1f}, не 64)')
 
 
+def test_top_follows_group():
+    print('верх (Ш3в) без фото с тоном, далёким от однотонной группы, следует группе (T-28/1):')
+    R = dict(TF.RULES['surface_groups'])
+    R['top_follow'] = {'enabled': True, 'max_photo_share': 0.10, 'min_de00': 8.0, 'classes': ['тон + зерно', 'свет']}
+    pas = {'groups': [{'id': 0, 'applied': True, 'class': 'тон + зерно', 'tone_lab': [70.7, -3.3, -0.6], 'texels_known': 100000},
+                      {'id': 5, 'applied': True, 'class': 'узор', 'tone_lab': [40.0, 10.0, 20.0], 'texels_known': 3000}]}
+    top = {'applied': True, 'tone_lab': [77.7, 3.6, 20.3], 'n_top': 57284, 'photo_top_n': 0, 'other_material_hint': False}
+    r = SP.top_follows_group(top, pas, R)
+    ok(r['follow'] and r['de00'] > 8.0, f'без фото, ΔE00 {r.get("de00")} от тона группы → следует группе')
+    ok(not SP.top_follows_group(dict(top, photo_top_n=20000), pas, R)['follow'], 'верх виден на фото (35 %) — Ш3в остаётся')
+    ok(not SP.top_follows_group(dict(top, other_material_hint=True), pas, R)['follow'], '«другой материал» по кромке≠плоскости — Ш3в остаётся')
+    ok(not SP.top_follows_group(dict(top, tone_lab=[72.0, -3.0, 0.0]), pas, R)['follow'], 'тон Ш3в близок к группе (ΔE00 ≤ 8) — Ш3в остаётся')
+    pas2 = {'groups': [dict(pas['groups'][0], **{'class': 'узор'})]}
+    ok(not SP.top_follows_group(top, pas2, R)['follow'], 'класс «узор» не трогаем')
+    R2 = dict(R, top_follow=dict(R['top_follow'], enabled=False))
+    ok(not SP.top_follows_group(top, pas, R2)['follow'], 'top_follow.enabled=false — прежнее поведение')
+
+
 def test_grain_no_dark_seams():
     print('зерно группы — без тёмных швов пула блоков:')
     g, tex, known, parts, base = scene_plane_two_parts()
@@ -485,7 +503,7 @@ def test_blur_caches():
 
 
 def main() -> int:
-    for f in (test_blur_caches, test_split_plane_one_tone, test_contrast_door_own_group, test_gray_pattern_not_flattened, test_back_is_body_not_facade, test_back_not_tiny_contrast, test_grain_no_dark_seams, test_gradient_continues, test_outlier_replaced, test_orphan_attached, test_orphan_guards, test_orphan_keeps_hook_tone, test_hook_keep_top, test_ultratex_switch_off, test_hidden_pattern_by_type):
+    for f in (test_blur_caches, test_split_plane_one_tone, test_contrast_door_own_group, test_gray_pattern_not_flattened, test_back_is_body_not_facade, test_back_not_tiny_contrast, test_top_follows_group, test_grain_no_dark_seams, test_gradient_continues, test_outlier_replaced, test_orphan_attached, test_orphan_guards, test_orphan_keeps_hook_tone, test_hook_keep_top, test_ultratex_switch_off, test_hidden_pattern_by_type):
         f()
     print(f'tests_surface_passport: ошибок {bad}')
     return 1 if bad else 0

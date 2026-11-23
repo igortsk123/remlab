@@ -2866,6 +2866,12 @@ def run_stage_once(run: str, sku: str, glb: str, known: list | None = None, part
     _m = _hmark()
     tex_after, rep['top_prior'] = top_prior_hook(geoms, tex_after, known, parts, cfg, None if relief_src == 'ultratex' else draft_glb)
     _hdone(hooks, 'top_prior', _m)
+    if sg_pas is not None and rep['top_prior'].get('applied'):                  # T-28/1: верх без фото с тоном, далёким от однотонной группы, следует группе (хук откатывается, красит паспорт)
+        _tf = SP.top_follows_group(rep['top_prior'], sg_pas, sg_cfg)
+        rep['top_prior']['follow_group'] = _tf
+        if _tf['follow']:
+            tex_after = _tex_pre_top
+            rep['top_prior'].update(applied=False, top_source='group_tone', texels_changed=0)
     if sg_pas is not None and rep['top_prior'].get('applied'):           # верх задан по карточке/по тону своей части: группа корпуса его не перекрашивает (другой материал — комод: дуб сверху, графит на фасадах)
         sg_ctx['hook_keep'] = [np.any(np.asarray(a)[..., :3] != np.asarray(b)[..., :3], axis=-1) & ~np.asarray(k, bool) for a, b, k in zip(tex_after, _tex_pre_top, k_keep)]
         rep['top_prior']['kept_from_groups_texels'] = int(sum(int(m.sum()) for m in sg_ctx['hook_keep']))

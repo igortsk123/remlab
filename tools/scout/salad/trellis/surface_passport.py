@@ -620,6 +620,34 @@ def body_override(geoms: list, parts: list, maps: Maps, kn_clean: list, groups: 
     return over, virt, rep
 
 
+def top_follows_group(top_rep: dict, pas: dict, R: dict) -> dict:
+    """Правило «верх следует группе» (T-28/1): тон верха от Ш3в (top_prior) заменяет тон группы только когда верх — другой материал. Откат хука, если (rules `top_follow`): включено; хук применён; `other_material_hint` нет;
+    фото верха < `max_photo_share` от всех текселей верха; у основной группы (больше всего известного) класс в `classes` (однотон; «узор»/«зерно»/«градиент» не трогаем); ΔE00 (тон Ш3в, тон группы) > `min_de00`.
+    → {'follow': bool, 'why': str, ...}; чистая функция."""
+    F = R.get('top_follow') or {}
+    if not F.get('enabled', False):
+        return {'follow': False, 'why': 'top_follow.enabled = false'}
+    if not top_rep.get('applied') or not top_rep.get('tone_lab'):
+        return {'follow': False, 'why': 'Ш3в не применён'}
+    if top_rep.get('other_material_hint'):
+        return {'follow': False, 'why': 'кромка и плоскость говорят «другой материал» — верх остаётся по Ш3в'}
+    n_top = max(int(top_rep.get('n_top') or 0), 1)
+    share = float(top_rep.get('photo_top_n') or 0) / n_top
+    if share >= float(F['max_photo_share']):
+        return {'follow': False, 'why': f'верх виден на фото ({100 * share:.1f} % ≥ {100 * float(F["max_photo_share"]):.0f} %)', 'photo_share': round(share, 4)}
+    gs = [g for g in pas.get('groups', []) if g.get('applied') and not g.get('virtual_for')]
+    if not gs:
+        return {'follow': False, 'why': 'нет применимых групп'}
+    G = max(gs, key=lambda g: g.get('texels_known') or 0)
+    if G.get('class') not in F['classes']:
+        return {'follow': False, 'why': f'класс основной группы «{G.get("class")}» не в {F["classes"]} — не трогаем', 'group': G.get('id')}
+    de = float(_de(np.asarray(top_rep['tone_lab'], float), np.asarray(G['tone_lab'], float))[0])
+    if de <= float(F['min_de00']):
+        return {'follow': False, 'why': f'тон Ш3в близок к группе (ΔE00 {de:.1f} ≤ {F["min_de00"]})', 'de00': round(de, 1), 'group': G.get('id')}
+    return {'follow': True, 'why': f'верх без фото ({100 * share:.1f} %), тон Ш3в на ΔE00 {de:.1f} > {F["min_de00"]} от тона группы «{G.get("class")}» — следует группе', 'de00': round(de, 1), 'group': G.get('id'),
+            'group_tone': G['tone_lab'], 'top_tone': top_rep['tone_lab']}
+
+
 # ------------------------------------------------------------------------------------------ применение (внутри 07)
 def _gmap_ctx(ctx: dict, gi: int) -> np.ndarray:
     base = _gmap(ctx['maps'], gi, ctx['gid_of'])
