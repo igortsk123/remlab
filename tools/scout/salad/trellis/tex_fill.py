@@ -66,6 +66,10 @@ FILL = {
     'quilt_side': 96,                # минимальная сторона плитки квилта, пикселей
     'quilt_overlap': 0.25,           # перекрытие блоков Efros–Freeman, доля блока (1/6–1/4)
     'quilt_block_min': 16, 'quilt_block_max': 48,   # блок — от периода узора (автокорреляция известного), в этих пределах
+    'quilt_lattice_max': 0.3,        # мерка «решётка квилта»: избыточная автокорреляция детали L на лагах, кратных шагу блока (B−перекрытие), выше — пул слишком мал (блоки повторяются по сетке), квилт пересобирается
+    'quilt_stride_div': 2,           # шаг выборки блоков пула = блок / quilt_stride_div (2 = полблока); при решётке удваивается, пока мерка не уйдёт или не достигнет quilt_stride_div_max
+    'quilt_stride_div_max': 8,
+    'patch_quilt_min_pool': 8,       # блок-образец (patch 64/32/16): один «типичный» блок плиткой даёт решётку с периодом B; при стольких и более годных блоках плитка собирается квилтом из ВСЕХ (если решётка меньше)
     'quilt_pool': 600,               # блоков-кандидатов на часть (шаг полблока, только чистые по части и известные)
     'quilt_fill_px': 4,              # блок квилта: дыры известного не дальше стольких пикселей от известного (закрываются ближайшим известным остатком)
     'quilt_pool_min': 24,            # меньше блоков в пуле — порог доли известного снижается (0,9 → 0,7 → 0,5)
@@ -408,6 +412,36 @@ def quilt_jump(patch: np.ndarray, step: int) -> float:
     return float(0.5 * (np.abs(np.diff(L, axis=0)).mean() + np.abs(np.diff(L, axis=1)).mean()))
 
 
+def quilt_lattice(patch: np.ndarray, step: int) -> dict:
+    """Мерка «решётка квилта» (T-187/7, 23.11): повторяются ли одни и те же блоки по сетке шага `step` = B − перекрытие. Деталь яркости (L минус гауссов низкий пас σ6, плитка циклическая — она кладётся с обёрткой),
+    циклическая автокорреляция r; на каждом лаге k·step по осям — ИЗБЫТОК r над средним двух соседних лагов (±step/2): волокно дерева коррелирует на любом лаге вдоль волокна (избыток ≈ 0), повтор блока — пик
+    ровно на k·step. → {'excess': максимум избытка, 'r': r на этом лаге, 'lag': (ось, лаг)}; плитка меньше двух шагов — 0."""
+    from scipy.ndimage import gaussian_filter
+    S = patch.shape[0]
+    step = int(step)
+    if step < 2 or S < 2 * step + 2:
+        return {'excess': 0.0, 'r': 0.0, 'lag': None}
+    L = patch[..., 0].astype(np.float64)
+    L = L - gaussian_filter(L, 6, mode='wrap')
+    F = np.fft.rfft2(L)
+    ac = np.fft.irfft2(F * np.conj(F), s=L.shape)
+    if ac[0, 0] <= 1e-9:
+        return {'excess': 0.0, 'r': 0.0, 'lag': None}
+    ac = ac / ac[0, 0]
+    d = max(2, step // 2)
+    best = {'excess': -1.0, 'r': 0.0, 'lag': None}
+    for ax in (0, 1):
+        prof = ac[:, 0] if ax == 0 else ac[0, :]
+        for k in range(1, (S // 2) // step + 1):
+            lag = k * step
+            if lag + d >= S:
+                break
+            ex = float(prof[lag] - 0.5 * (prof[lag - d] + prof[lag + d]))
+            if ex > best['excess']:
+                best = {'excess': ex, 'r': float(prof[lag]), 'lag': ('y' if ax == 0 else 'x', lag)}
+    return best
+
+
 def pattern_period(resL: np.ndarray, ok: np.ndarray, lo: int, hi: int) -> int:
     """Размер блока квилта по периоду узора: длина автокорреляции остатка яркости на известной части (первый лаг, где корреляция < 1/e, по осям), блок ≈ 3 длины, в [lo,hi], кратно 4."""
     from scipy.fft import rfft2, irfft2, next_fast_len
@@ -543,7 +577,7 @@ def reject_extreme_blocks(pool: list, tone_l: float, dl_hi: float, black_abs: fl
     return [b for b, kp in zip(pool, keep) if kp], int((~keep).sum())
 
 
-def render_pool(resq: np.ndarray, okr: np.ndarray, c: dict, scale: float):
+def render_pool(resq: np.ndarray, okr: np.ndarray, c: dict, scale: float, stride_div: int | None = None):
     """Блоки узора из НЕПРЕРЫВНОГО кадра видимой стороны: `resq` (res,res,3) — остаток цвета от тона части, `okr` — пиксели «известное, эта часть, лицом к камере». Блок — по периоду узора, дыры ≤ `quilt_fill_px`
     закрываются ближайшим известным; блоки пересчитываются в масштаб карты (`scale` = текселей на пиксель кадра). → (сторона блока в текселях, [блоки]) | None, если блоков мало."""
     from scipy.ndimage import distance_transform_edt, zoom
@@ -559,7 +593,7 @@ def render_pool(resq: np.ndarray, okr: np.ndarray, c: dict, scale: float):
     R = okr.shape[0]
     if R < Bq:
         return None
-    s = max(Bq // 2, 1)
+    s = max(Bq // int(stride_div or c['quilt_stride_div']), 1)
     ys = np.arange(0, R - Bq + 1, s)
     Y, X = np.meshgrid(ys, ys, indexing='ij')
 
@@ -1161,7 +1195,9 @@ def fill(geoms: list, known: list, parts: list | None = None, cfg: dict | None =
     if c['patch_mode'] == 'quilt' and (dshift is None or c['draft_texture']):
         qrng = np.random.RandomState(7)
         pr_S = pr_lab = pr_kn = pr_pm = None
-        for p in part_ids:
+        qwork = [(p, int(c['quilt_stride_div'])) for p in part_ids]      # часть может вернуться в конец списка с более плотным пулом (мерка решётки квилта); список растёт на ходу
+        qlat = {}
+        for p, qdiv in qwork:
             resg, okg = [], []
             for gi, tx in enumerate(txs):
                 res_, pm, _im = blk[gi]
@@ -1190,7 +1226,7 @@ def fill(geoms: list, known: list, parts: list | None = None, cfg: dict | None =
                     lim = max(c["pr_clip_l"] * 1.4826 * float(np.median(np.abs(rl - np.median(rl)))), c["pr_clip_l_min"])
                     resr[..., 0] = np.minimum(resr[..., 0], lim)
                 sc = texel_scale(geoms, parts, p, pr_S["ppu"])
-                rp = render_pool(resr * okr[..., None], okr, c, sc)
+                rp = render_pool(resr * okr[..., None], okr, c, sc, qdiv)
                 rep.setdefault("pattern_src", {})[int(p)] = ({"render": True, "pixels": int(okr.sum()), "scale": round(sc, 3), "block": rp[0], "pool": len(rp[1])} if rp is not None else {"render": False, "pixels": int(okr.sum()), "scale": round(sc, 3)})
             if rp is not None:
                 Bq, pool = rp
@@ -1211,7 +1247,7 @@ def fill(geoms: list, known: list, parts: list | None = None, cfg: dict | None =
                     pool = []
                     for gi, (fill_, (I_ok, I_pm, I_nr)) in ints.items():
                         T = txs[gi].T
-                        s = max(Bq // 2, 1)
+                        s = max(Bq // qdiv, 1)
                         ys = np.arange(0, T - Bq + 1, s)
                         Y, X = np.meshgrid(ys, ys, indexing='ij')
 
@@ -1250,13 +1286,26 @@ def fill(geoms: list, known: list, parts: list | None = None, cfg: dict | None =
             glo, ghi = c['quilt_gain'] if p in pat_parts else (0.6, 1.6)
             P = P * np.clip(float(np.median(sd)) / np.maximum(sd, 1e-6), glo, ghi)[:, None, None, None]
             nq = int(max(c['quilt_cells'], np.ceil((c['quilt_side'] - oq) / (Bq - oq))))
-            q = wrap_soften(quilt_image(P, nq, oq, qrng, int(c['quilt_tries'])))
-            patches[p] = q
-            patch_gain[p] = 1.0
-            rep['quilt'] = rep.get('quilt', 0) + 1
-            rep.setdefault('quilt_info', {})[int(p)] = {'block': Bq, 'overlap': oq, 'cells': nq, 'pool': len(pool), 'jump_L': round(quilt_jump(q, Bq - oq), 3)}
-            if p in pat_parts:
-                raw_mean[p] = q.mean(axis=(0, 1))                 # узорная: плитка без вычитания среднего и без смешения (фон = тон, цветы поверх)
+            q = wrap_soften(quilt_image(P, nq, oq, qrng, int(c['quilt_tries']) * max(1, qdiv // int(c['quilt_stride_div']))))
+            lat = quilt_lattice(q, Bq - oq)
+            first = int(p) not in qlat
+            if first or lat['excess'] < qlat[int(p)]:             # лучшая из сборок (первая, либо с меньшей решёткой)
+                qlat[int(p)] = lat['excess']
+                patches[p] = q
+                patch_gain[p] = 1.0
+                if first:
+                    rep['quilt'] = rep.get('quilt', 0) + 1
+                rep.setdefault('quilt_info', {})[int(p)] = {'block': Bq, 'overlap': oq, 'cells': nq, 'pool': len(pool), 'jump_L': round(quilt_jump(q, Bq - oq), 3), 'stride_div': qdiv,
+                                                           'lattice': round(lat['excess'], 3), 'lattice_r': round(lat['r'], 3), 'lattice_lag': lat['lag']}
+                if p in pat_parts:
+                    raw_mean[p] = q.mean(axis=(0, 1))             # узорная: плитка без вычитания среднего и без смешения (фон = тон, цветы поверх)
+            if first:
+                rep.setdefault('quilt_lattice', {})[int(p)] = {'before': round(lat['excess'], 3), 'rebuilt': 0}
+            else:
+                rep['quilt_lattice'][int(p)]['rebuilt'] = qdiv
+                rep['quilt_lattice'][int(p)]['after'] = round(qlat[int(p)], 3)
+            if lat['excess'] > c['quilt_lattice_max'] and qdiv * 2 <= int(c['quilt_stride_div_max']):
+                qwork.append((p, qdiv * 2))                       # решётка: блоки повторяются по сетке (пул мал) — пул гуще (шаг выборки вдвое мельче) и сборка заново
     for p in (part_ids if (dshift is None or c['draft_texture']) else []):
         if p in patches:
             continue
@@ -1286,6 +1335,26 @@ def fill(geoms: list, known: list, parts: list | None = None, cfg: dict | None =
                 pick = cands[int(np.argmin(np.abs(ss - med)))]
                 patches[p] = pick[1]
                 patch_gain[p] = med / max(pick[0], 1e-6)       # типичный блок по контрастности; амплитуда подгоняется к медиане разброса известного
+                lat0 = quilt_lattice(np.tile(pick[1], (3, 3, 1)), B)             # один блок плиткой — период B по построению: решётка (T-187/7, 23.11: дерево №20, блок 16, r 0,6 на лагах 16/32/64/96)
+                info_ = {'block': B, 'cands': len(cands), 'single_lattice': round(lat0['excess'], 3), 'used': 'single'}
+                if len(cands) >= int(c['patch_quilt_min_pool']) and B - max(2, int(round(B * c['quilt_overlap']))) >= 2:
+                    prng = np.random.RandomState(11 + int(p))                    # свой генератор: общий rng (смещения плиток ниже) не сдвигается
+                    Pq = np.stack([x[1] for x in cands]).astype(np.float64)
+                    if len(Pq) > int(c['quilt_pool']):
+                        Pq = Pq[prng.choice(len(Pq), int(c['quilt_pool']), replace=False)]
+                    Pq = Pq - Pq.mean(axis=(1, 2), keepdims=True)
+                    sdq = Pq.reshape(len(Pq), -1).std(axis=1)
+                    Pq = Pq * np.clip(med / np.maximum(sdq, 1e-6), c['quilt_gain'][0], c['quilt_gain'][1])[:, None, None, None]
+                    oq_ = max(2, int(round(B * c['quilt_overlap'])))
+                    nq_ = int(max(c['quilt_cells'], np.ceil((c['quilt_side'] - oq_) / (B - oq_))))
+                    q_ = wrap_soften(quilt_image(Pq, nq_, oq_, prng, int(c['quilt_tries'])))
+                    lat1 = quilt_lattice(q_, B - oq_)
+                    info_.update({'quilt_lattice': round(lat1['excess'], 3), 'quilt_tile': int(q_.shape[0])})
+                    if lat1['excess'] < lat0['excess']:
+                        patches[p] = q_
+                        patch_gain[p] = med / max(float(q_.std()), 1e-6)
+                        info_['used'] = 'quilt'
+                rep.setdefault('patch_lattice', {})[int(p)] = info_
                 break
         else:
             Bq, nq = int(c['quilt_block']), int(c['quilt_n'])
