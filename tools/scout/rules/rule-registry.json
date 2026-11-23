@@ -127,17 +127,17 @@
           "корпусное"
         ]
       },
-      "executor": "р.4 (T-41)",
-      "consumer": "tools/scout/edge_sharpen.py:back_panel",
-      "runtime": "off",
+      "executor": "р.4 (T-41) + шаг back_panel_stage (T-43, А1: разрешение по типу паспорта)",
+      "consumer": "tools/scout/back_panel_stage.py:run_stage",
+      "runtime": "enforce",
       "test": "tools/scout/stablegen/tests_edge_sharpen.py",
       "test_positive": null,
       "test_negative": null,
       "run_id": null,
-      "flag": null,
-      "check_field": null,
+      "flag": "tools/scout/rules/edge-sharpen.json#back_panel.paint_gate",
+      "check_field": "back_panel.json",
       "enabled": null,
-      "note": "режим back_panel есть в edge_sharpen и rules/edge-sharpen.json; включён ли он в боевой путь и пишет ли rule_id в check.json — не подтверждено; поза 04 на «перед/зад» у корпусных — отдельная нерешённая задача этапа 4. Перевести в active — после проверки директором"
+      "note": "шаг back_panel_stage стоит в paint-run-all.json (этап 06) и сам решает по типу: paint_gate (hidden_pattern=body, mode=active) из rules/edge-sharpen.json; след — 06-visible/back_panel.json (rule_id, applied, причина, digest паспорта). check.json этапа записи extra.rules[] пока не пишет (общий помощник tools/scout/rule_record.py — вызвать из шага); поза 04 на «перед/зад» у корпусных — отдельная нерешённая задача. active — после круга 2 и записи в check.json"
     },
     {
       "rule_id": "R-TYPE-FACADE-BACK",
@@ -576,7 +576,7 @@
     {
       "rule_id": "R-SIDES-EVAL-TYPE",
       "title": "Оценка «рисунок перенесён» зависит от типа: ровный зад комода — не брак, у вазы — брак",
-      "state": "proposed",
+      "state": "trial",
       "source": [
         "plans/paint-cycles-1123.md п.17",
         "a-types-1123.md § 1 (последняя строка)"
@@ -586,17 +586,17 @@
           "all"
         ]
       },
-      "executor": "р.4 (sides_eval)",
-      "consumer": null,
-      "runtime": "none",
-      "test": null,
+      "executor": "р.4 (sides_eval, T-47/3 влит: pattern_by_type)",
+      "consumer": "tools/assets/sides_eval.py:f_pattern_typed",
+      "runtime": "enforce",
+      "test": "tools/assets/tests/test_sides_eval.py",
       "test_positive": null,
       "test_negative": null,
       "run_id": null,
       "flag": null,
       "check_field": null,
       "enabled": null,
-      "note": "sides_eval.f_pattern одинаково требует узор на любой проверяемой стороне; test_sides_eval закрепляет это ожидание (ложный брак у комода) — нужен новый тест вместе с правилом"
+      "note": "f_pattern_typed: рисунок по hidden_pattern паспорта (continue/body/same_fabric/plain); unknown/not_applicable — «не оценено», не проход и не брак. Сквозная доставка hidden_pattern и policy_reason из 07 в оценку и запись extra.rules[] в check.json — не подтверждены; парных тестов (комод: ровный зад — не брак, ваза: брак) как отдельных функций пока нет — до них trial"
     },
     {
       "rule_id": "R-CAMERA-AMBIG",
@@ -647,6 +647,70 @@
       "check_field": null,
       "enabled": null,
       "note": "в main символа shadow_leak нет"
+    },
+    {
+      "rule_id": "R-DETAIL-EXCLUSIONS-07",
+      "title": "Исключения деталей (пуговицы, подушки, фурнитура, ручки) не попадают в закраску невидимых сторон и в «тон корпуса»",
+      "state": "proposed",
+      "source": [
+        "plans/paint-cycles-1123.md п.17",
+        "отчёт р.6 (А1): «не сделано»",
+        "T-20261123-48/3 (директор)"
+      ],
+      "applies": {
+        "types": [
+          "кровать",
+          "комод",
+          "кресло",
+          "тв-тумба",
+          "диван",
+          "шкаф",
+          "тумба прикроватная",
+          "пуф",
+          "стеллаж",
+          "витрина",
+          "полка",
+          "стенка"
+        ]
+      },
+      "executor": "р.6 (paint.hidden_exclusions → зоны 07)",
+      "consumer": null,
+      "runtime": "none",
+      "test": null,
+      "test_positive": null,
+      "test_negative": null,
+      "run_id": null,
+      "flag": null,
+      "check_field": null,
+      "enabled": null,
+      "note": "paint.hidden_exclusions заданы в паспорте типов (12 типов), но 07 их не читает: данные есть, потребителя нет. Нужны: чтение в 07, зоны-исключения в маске закраски, парные тесты на типе"
+    },
+    {
+      "rule_id": "R-OPENINGS-ZONES-07",
+      "title": "Проёмы и стекло — отдельные зоны 07: проём остаётся пустотой, стекло не заливается цветом корпуса, зад стеллажа/витрины — каркас",
+      "state": "proposed",
+      "source": [
+        "plans/mesh-type-rules-01.md § Черновик К2",
+        "отчёт р.6 (А1): «не сделано»",
+        "T-20261123-48/3 (директор)"
+      ],
+      "applies": {
+        "types": [
+          "стеллаж",
+          "витрина"
+        ]
+      },
+      "executor": "р.6 (paint.openings → зоны 07)",
+      "consumer": null,
+      "runtime": "none",
+      "test": null,
+      "test_positive": null,
+      "test_negative": null,
+      "run_id": null,
+      "flag": null,
+      "check_field": null,
+      "enabled": null,
+      "note": "paint.openings в паспорте стеллажа и витрины есть, зон проёма/стекла в 07 нет; смежно с R-TYPE-OPENINGS (К2) — то правило описывает продуктовое поведение, это — техническую зону 07; при реализации слить в одно"
     }
   ],
   "_active_rule": "active = consumer определён (ast) и вызывается боевым кодом + runtime=enforce и флаг включён + тест в CI + test_positive и test_negative на пример типа + run_id прогона. Без любого — trial (rule_registry_audit: ошибка). run_id — папка прогона в ~/remlab-logs, где правило отработало; проверка прогона структурная (--run): extra.rules[] с rule_id, type, digest, applied|abstain."

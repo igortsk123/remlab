@@ -186,6 +186,8 @@ def flag_state(root: str, flag: str | None):
         if not isinstance(cur, dict) or k not in cur:
             return ('<нет ключа>', 'флаг %s: нет ключа' % flag)
         cur = cur[k]
+    if isinstance(cur, dict):                                   # блок-разрешение вроде {"mode": "active"}: смотрим enabled, иначе mode
+        cur = cur['enabled'] if 'enabled' in cur else cur.get('mode', '<нет enabled/mode>')
     return (cur, '')
 
 

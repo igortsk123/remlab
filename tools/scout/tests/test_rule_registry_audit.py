@@ -94,6 +94,13 @@ def test_intentionally_disabled_rule_is_not_active():
     # флаг включён → чисто
     res, _, errs, _ = run([rule(**dict(GOOD, flag='tools/f.json#on'))])
     assert errs == 0, res
+    # блок-словарь: {"mode": "active"} — включено, {"mode": "observe"} / {"enabled": false} — выключено
+    fl = {'blk': {'mode': 'active', 'x': 1}, 'blk_obs': {'mode': 'observe'}, 'blk_off': {'enabled': False, 'mode': 'active'}}
+    res, _, errs, _ = run([rule(**dict(GOOD, flag='tools/f.json#blk'))], flags=fl)
+    assert errs == 0, res
+    for k in ('blk_obs', 'blk_off'):
+        res, _, errs, _ = run([rule(**dict(GOOD, flag='tools/f.json#' + k))], flags=fl)
+        assert errs >= 1 and ('R-T-1', RA.C_OBSERVE, True) in classes(res), k
     # у trial то же — только класс, без ошибки
     res, _, errs, _ = run([rule(**dict(GOOD, state='trial', runtime='observe'))])
     assert errs == 0 and ('R-T-1', RA.C_OBSERVE, False) in classes(res)
