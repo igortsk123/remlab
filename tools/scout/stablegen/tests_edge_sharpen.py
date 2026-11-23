@@ -239,5 +239,105 @@ class T(unittest.TestCase):
         self.assertTrue(np.array_equal(a, b))
 
 
+class BackPanelStage(unittest.TestCase):
+    """Шаг `back_panel_stage` (T-43/❓2): разрешение по типу паспорта (body+active), след, откаты. Реестр — копия с подменой политики на заглушках; ID товаров нет."""
+
+    @staticmethod
+    def _reg(role_pol: dict):
+        import copy
+        import mesh_type_passports as MTP
+        reg = copy.deepcopy(MTP.load())
+        for role, pol in role_pol.items():
+            t = MTP.normalize(role, reg)
+            reg["types"][t]["paint"] = dict(pol)
+        return reg
+
+    def test_gate_body_continue_unknown(self):
+        import back_panel_stage as BS
+        reg = self._reg({"комод": {"hidden_pattern": "body", "mode": "active"}, "ваза": {"hidden_pattern": "continue", "mode": "active"},
+                         "шкаф": {"hidden_pattern": "body", "mode": "observe"}})
+        self.assertTrue(BS.gate("комод", reg)["allowed"])
+        g = BS.gate("ваза", reg)
+        self.assertFalse(g["allowed"])
+        self.assertIn("continue", g["reason"])
+        g = BS.gate("шкаф", reg)
+        self.assertFalse(g["allowed"])
+        self.assertIn("observe", g["reason"])
+        g = BS.gate("неведомая вещь", reg)                                      # нет типа → unknown: воздержание с кодом причины
+        self.assertFalse(g["allowed"])
+        self.assertIn("unknown", g["reason"])
+        self.assertFalse(BS.gate("", reg)["allowed"])
+        self.assertFalse(BS.gate(None, reg)["allowed"])
+
+    def _stage(self, t, check_extra, role, reg, glb_fn, with_prov=True):
+        import json as _json
+        import back_panel_stage as BS
+        sku_dir = os.path.join(t, "s1")
+        d = os.path.join(sku_dir, "06-visible")
+        os.makedirs(d)
+        V, F, _ = T._relief_back(None, n=40)
+        T._write_glb(os.path.join(d, "visible.glb"), V, F)
+        if with_prov:
+            from PIL import Image
+            Image.fromarray(np.zeros((4, 4), np.uint8)).save(os.path.join(d, "prov.png"))
+        with open(os.path.join(d, "check.json"), "w", encoding="utf-8") as f:
+            _json.dump({"extra": check_extra}, f)
+        return BS.run_stage(t, "s1", role, reg=reg, glb_fn=glb_fn), d
+
+    def test_stage_policy_refusal_leaves_files(self):
+        import tempfile
+        reg = self._reg({"комод": {"hidden_pattern": "body", "mode": "active"}, "ваза": {"hidden_pattern": "continue", "mode": "active"}})
+        calls = []
+        with tempfile.TemporaryDirectory() as t:
+            doc, d = self._stage(t, {"camera": {"az": 0.0, "el": 0.0}, "front_check": {"edge_agree": 0.9}}, "ваза", reg, lambda *a, **k: calls.append(1) or {})
+            self.assertFalse(doc["applied"])
+            self.assertEqual(calls, [])                                         # расчёт даже не запускался
+            self.assertIn("тип не допускает", doc["reason"])
+            self.assertTrue(os.path.exists(os.path.join(d, "back_panel.json")))
+            self.assertFalse(os.path.exists(os.path.join(d, "visible.pre-backpanel.glb")))
+
+    def test_stage_body_applies_and_keeps_original(self):
+        import hashlib
+        import tempfile
+        reg = self._reg({"комод": {"hidden_pattern": "body", "mode": "active"}})
+        with tempfile.TemporaryDirectory() as t:
+            doc, d = self._stage(t, {"camera": {"az": 0.0, "el": 0.0}, "front_check": {"edge_agree": 0.9}}, "комод", reg, None, with_prov=False)   # без prov.png: защита фото-стороны покрыта test_pose_edge_and_photo_guards
+            self.assertTrue(doc["applied"], doc)
+            self.assertEqual(doc["policy"]["hidden_pattern"], "body")
+            keep, vis = os.path.join(d, "visible.pre-backpanel.glb"), os.path.join(d, "visible.glb")
+            self.assertTrue(os.path.exists(keep))
+            self.assertNotEqual(hashlib.md5(open(keep, "rb").read()).hexdigest(), hashlib.md5(open(vis, "rb").read()).hexdigest())
+            first = hashlib.md5(open(vis, "rb").read()).hexdigest()
+            doc2 = __import__("back_panel_stage").run_stage(t, "s1", "комод", reg=reg)      # повторный запуск идёт от исходного: тот же результат, не «выравнивание выровненного»
+            self.assertTrue(doc2["applied"])
+            self.assertEqual(hashlib.md5(open(vis, "rb").read()).hexdigest(), first)
+
+    def test_stage_camera_trust_and_missing_inputs(self):
+        import tempfile
+        reg = self._reg({"комод": {"hidden_pattern": "body", "mode": "active"}})
+        with tempfile.TemporaryDirectory() as t:
+            doc, d = self._stage(t, {"camera": {"az": 0.0, "el": 0.0}}, "комод", reg, None)       # согласие кромок неизвестно → зад не трогаем
+            self.assertFalse(doc["applied"])
+            self.assertIn("согласие кромок", doc["reason"])
+            self.assertFalse(os.path.exists(os.path.join(d, "visible.pre-backpanel.glb")))
+        with tempfile.TemporaryDirectory() as t:
+            doc, d = self._stage(t, {"camera": {"az": 0.0, "el": 0.0}, "front_check": {"edge_agree": 0.1}}, "комод", reg, None)   # камере не верим (порог — camera-check.json)
+            self.assertFalse(doc["applied"])
+            self.assertIn("камере не верим", doc["reason"])
+        with tempfile.TemporaryDirectory() as t:
+            doc, d = self._stage(t, {}, "комод", reg, None)
+            self.assertFalse(doc["applied"])
+            self.assertIn("камеры", doc["reason"])
+
+    def test_no_ids_in_code_and_rules_wired(self):
+        import json as _json
+        import re
+        src = open(os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "back_panel_stage.py"), encoding="utf-8").read()
+        self.assertFalse(re.search(r"\b\d{5,}_\d{3,}\b", src))
+        self.assertEqual(rules()["back_panel"]["paint_gate"], {"hidden_pattern": "body", "mode": "active"})
+        ra = _json.load(open(os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "rules", "paint-run-all.json"), encoding="utf-8"))
+        self.assertTrue(any("back_panel_stage.py" in " ".join(s["argv"]) for s in ra["stages"]["06"]["steps"]))
+
+
 if __name__ == "__main__":
     unittest.main()

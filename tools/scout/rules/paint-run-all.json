@@ -227,6 +227,19 @@
             "min_gb": 4,
             "cores": 2
           }
+        },
+        {
+          "argv": [
+            "{py}",
+            "{root}/tools/scout/back_panel_stage.py",
+            "--run",
+            "{run}",
+            "--sku",
+            "{sku}",
+            "--product-role",
+            "{product_role}"
+          ],
+          "_about": "T-43/❓2: зад корпусной после 06 — только тип с политикой body+active (rules/edge-sharpen.json: back_panel.paint_gate); иначе воздержание с причиной в 06-visible/back_panel.json; rc 0 всегда"
         }
       ],
       "needs_tolerate": {
