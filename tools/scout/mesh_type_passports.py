@@ -233,6 +233,20 @@ def paint_policy(role: str | None, reg: dict | None = None) -> dict:
             'mode': pt.get('mode') if pt.get('mode') in PAINT_MODES else 'observe', 'digest': digest_of(p), 'reason': None}
 
 
+def allows_hidden_pattern(role: str | None, need: str | None, reg: dict | None = None) -> tuple:
+    """Правило «только у типов с paint.hidden_pattern == need» (T-28/1): ЕДИНАЯ проверка для всех правил этапов 07, что включаются по политике типа (ключ `require_hidden_pattern` в rules/*.json). → (bool, причина).
+    need пусто — по типу не ограничено; роли / типа / поля нет — правило НЕ действует (воздерживаемся, причина в отчёте); поведение остальных типов — как до правила."""
+    if not need:
+        return True, 'require_hidden_pattern не задан — по типу не ограничено'
+    if not role:
+        return False, 'нет роли товара (card.json role) — тип неизвестен'
+    pol = paint_policy(role, reg) if reg is not None else paint_policy(role)
+    v = pol.get('hidden_pattern')
+    if v in (None, 'unknown'):
+        return False, f'тип «{role}»: paint.hidden_pattern не определён ({pol.get("reason")}) — воздерживаемся'
+    return (v == need), f'тип «{role}»: paint.hidden_pattern = {v!r}' + ('' if v == need else f' ≠ {need!r}')
+
+
 def digest(role: str | None, reg: dict | None = None) -> str | None:
     p = get(role, reg)
     return digest_of(p) if p else None
