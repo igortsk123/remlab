@@ -34,6 +34,12 @@ GUARD_NAMES = ('headboard_loss', 'pillow_plain')
 CHAIN_FLAGS = ('grow', 'solid_silhouette', 'attached_prune', 'solid_body')
 FAMILIES = ('мягкое', 'корпусное', 'каркасное', 'плоское', 'свет', 'вращательное', 'текстиль', 'смешанное', 'декор', 'настенное')
 MODES = ('observe', 'enforce')
+# Политика покраски невидимых сторон по типу (план type-rules-code-01 § А): что делать с рисунком лица там, где фото нет. Закрытые списки, у КАЖДОГО типа явно.
+HIDDEN_PATTERNS = ('continue', 'body', 'same_fabric', 'plain', 'not_applicable')     # продолжать рисунок / материал корпуса / та же ткань / гладко / к типу не относится (плоское, текстиль, декор)
+HIDDEN_EXCLUSIONS = ('facade_hardware', 'door_relief', 'glass', 'buttons', 'pillows', 'stitching', 'bedding')   # что НЕ переносить с лица на невидимое
+OPENINGS = ('void', 'glass')                                                          # проём остаётся пустотой / стекло — своя зона
+PAINT_MODES = ('active', 'observe')                                                   # политика покраски применяется / только записана (не путать с `mode` сторожей вырезки)
+PAINT_KEYS = ('photo_views', 'hidden_pattern', 'hidden_exclusions', 'openings', 'mode')
 SUBTYPES_ALLOWED = ('hb_low',)
 # Поля-селекторы товара запрещены (правила — по признакам, без ID): sku, id, url, sha, product*, *_id.
 _BAD_KEY = re.compile(r'^(sku|id|url|sha|product.*|.*_id)$', re.I)
@@ -142,6 +148,20 @@ def validate(reg, strategies: set | None = None) -> list:
                 errs.append(f'{gw}.thresholds: нужны числа 0…1000')
             elif not set(g.get('pixel_params') or ()) <= set(th):
                 errs.append(f'{gw}.pixel_params: ключи вне thresholds')
+        pt = p.get('paint')
+        if not isinstance(pt, dict):
+            errs.append(f'{w}.paint: нужен объект')
+        else:
+            if set(pt) - set(PAINT_KEYS):
+                errs.append(f'{w}.paint: неизвестные ключи {sorted(set(pt) - set(PAINT_KEYS))}, допустимо {PAINT_KEYS}')
+            if pt.get('hidden_pattern') not in HIDDEN_PATTERNS:
+                errs.append(f'{w}.paint.hidden_pattern={pt.get("hidden_pattern")!r}: нужно явно, допустимо {HIDDEN_PATTERNS}')
+            if pt.get('mode') not in PAINT_MODES:
+                errs.append(f'{w}.paint.mode={pt.get("mode")!r}: нужно явно, допустимо {PAINT_MODES}')
+            for key, allowed in (('hidden_exclusions', HIDDEN_EXCLUSIONS), ('openings', OPENINGS)):
+                v = pt.get(key)
+                if not isinstance(v, list) or any(x not in allowed for x in v):
+                    errs.append(f'{w}.paint.{key}={v!r}: нужен список (может быть пустым), допустимо подмножество {allowed}')
         sub = p.get('subtypes')
         if sub is not None and (not isinstance(sub, list) or any(s not in SUBTYPES_ALLOWED for s in sub)):
             errs.append(f'{w}.subtypes: допустимо {SUBTYPES_ALLOWED}')
@@ -192,6 +212,25 @@ def get(role: str | None, reg: dict | None = None) -> dict | None:
     reg = reg or load()
     t = normalize(role, reg)
     return reg['types'][t] if t else None
+
+
+def paint_policy(role: str | None, reg: dict | None = None) -> dict:
+    """Политика покраски невидимых сторон для роли каталога: → {type, hidden_pattern, exclusions, openings, mode, digest, reason}. Типа нет (или реестр не читается) → hidden_pattern='unknown', mode='observe',
+    reason=код причины: потребитель воздерживается и пишет причину в check.json, не считает товар «обычной мебелью». reason=None — политика определена."""
+    try:
+        reg = reg or load()
+        t = normalize(role, reg)
+    except Exception as e:  # noqa: BLE001 — битый реестр не роняет этап, но и не молчит
+        return {'type': None, 'hidden_pattern': 'unknown', 'exclusions': [], 'openings': [], 'mode': 'observe', 'digest': None, 'reason': f'registry_error:{type(e).__name__}'}
+    if t is None:
+        return {'type': None, 'hidden_pattern': 'unknown', 'exclusions': [], 'openings': [], 'mode': 'observe', 'digest': None, 'reason': 'no_type'}
+    p = reg['types'][t]
+    pt = p.get('paint') or {}
+    hp = pt.get('hidden_pattern')
+    if hp not in HIDDEN_PATTERNS:
+        return {'type': t, 'hidden_pattern': 'unknown', 'exclusions': [], 'openings': [], 'mode': 'observe', 'digest': digest_of(p), 'reason': 'no_policy'}
+    return {'type': t, 'hidden_pattern': hp, 'exclusions': list(pt.get('hidden_exclusions') or []), 'openings': list(pt.get('openings') or []),
+            'mode': pt.get('mode') if pt.get('mode') in PAINT_MODES else 'observe', 'digest': digest_of(p), 'reason': None}
 
 
 def digest(role: str | None, reg: dict | None = None) -> str | None:
@@ -377,6 +416,28 @@ def _selftest() -> int:
     finally:
         PATH, _REG = saved_path, saved_reg
         reset_stats()
+    # ---- политика покраски невидимых сторон (type-rules-code-01 § А)
+    ok('у КАЖДОГО из 30 типов paint.hidden_pattern/mode/hidden_exclusions/openings заданы явно',
+       all(p['paint'].get('hidden_pattern') in HIDDEN_PATTERNS and p['paint'].get('mode') in PAINT_MODES and isinstance(p['paint'].get('hidden_exclusions'), list) and isinstance(p['paint'].get('openings'), list) for p in reg['types'].values()))
+    want = {'continue': ['ваза', 'кашпо', 'торшер', 'лампа', 'люстра', 'бра', 'подушка', 'стол обеденный', 'столик'], 'body': ['комод', 'шкаф', 'тумба прикроватная', 'тв-тумба', 'стеллаж', 'витрина', 'стенка', 'полка'],
+            'same_fabric': ['диван', 'кресло', 'пуф', 'кровать'], 'plain': ['стул'], 'not_applicable': ['картина', 'ковёр', 'зеркало', 'часы', 'растение', 'статуэтка', 'шторы', 'плед']}
+    wrong = [(n, v, paint_policy(n, reg)['hidden_pattern']) for v, ns in want.items() for n in ns if paint_policy(n, reg)['hidden_pattern'] != v]
+    ok('политика по типам совпадает с планом (' + str(sum(len(v) for v in want.values())) + ' типов)' + (f' — расхождения: {wrong}' if wrong else ''), not wrong and sum(len(v) for v in want.values()) == 30)
+    al = [(a, n) for n, p in reg['types'].items() for a in p.get('aliases') or () if paint_policy(a, reg)['type'] != n]
+    ok('каждый алиас даёт политику своего типа' + (f' — {al}' if al else ''), not al)
+    pol = paint_policy('кресло', reg)
+    ok('кресло: same_fabric, исключения-детали, digest паспорта, reason=None', pol['hidden_pattern'] == 'same_fabric' and 'buttons' in pol['exclusions'] and pol['digest'] == digest('кресло', reg) and pol['reason'] is None)
+    ok('витрина: проём + стекло; стеллаж: проём', paint_policy('витрина', reg)['openings'] == ['void', 'glass'] and paint_policy('стеллаж', reg)['openings'] == ['void'])
+    ok('пуф и кашпо (смешанное): политика записана, но mode=observe (не наследуют)', paint_policy('пуф', reg)['mode'] == 'observe' and paint_policy('кашпо', reg)['mode'] == 'observe')
+    unk = paint_policy('неведомая вещь', reg)
+    ok('неизвестный тип → unknown + reason=no_type (воздержание, не plain)', unk['hidden_pattern'] == 'unknown' and unk['reason'] == 'no_type' and unk['mode'] == 'observe' and unk['type'] is None)
+    ok('схема: нет paint.hidden_pattern / значение вне списка / неизвестное исключение / неизвестный ключ → ошибка',
+       bool(mut(lambda t: t['комод']['paint'].pop('hidden_pattern'))) and bool(mut(lambda t: t['комод']['paint'].update(hidden_pattern='zzz')))
+       and bool(mut(lambda t: t['комод']['paint'].update(hidden_exclusions=['teleport']))) and bool(mut(lambda t: t['комод']['paint'].update(openings='void')))
+       and bool(mut(lambda t: t['комод']['paint'].update(mode='enforce'))) and bool(mut(lambda t: t['комод']['paint'].update(extra=1))))
+    ok('digest меняется от политики покраски', digest_of({**reg['types']['комод'], 'paint': {**reg['types']['комод']['paint'], 'hidden_pattern': 'continue'}}) != digest('комод', reg))
+    p0 = dict(reg['types'])
+    ok('битый реестр → unknown + registry_error, не исключение', paint_policy('шкаф', {'types': 5})['reason'] == 'no_type' or paint_policy('шкаф', {'types': 5})['reason'].startswith('registry_error'))
     print(f'mesh_type_passports selftest: ошибок {bad}')
     return 1 if bad else 0
 

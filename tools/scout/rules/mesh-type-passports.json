@@ -38,7 +38,16 @@
     ]
    },
    "paint": {
-    "photo_views": "grain_only"
+    "photo_views": "grain_only",
+    "hidden_pattern": "same_fabric",
+    "hidden_exclusions": [
+     "buttons",
+     "pillows",
+     "bedding",
+     "stitching"
+    ],
+    "openings": [],
+    "mode": "active"
    },
    "sample": {
     "count": 131,
@@ -59,7 +68,15 @@
     ],
     "guards": []
    },
-   "paint": {},
+   "paint": {
+    "hidden_pattern": "body",
+    "hidden_exclusions": [
+     "facade_hardware",
+     "door_relief"
+    ],
+    "openings": [],
+    "mode": "active"
+   },
    "sample": {
     "count": 130,
     "period": "2026-11-20",
@@ -77,7 +94,12 @@
     "chain_flags": [],
     "guards": []
    },
-   "paint": {},
+   "paint": {
+    "hidden_pattern": "plain",
+    "hidden_exclusions": [],
+    "openings": [],
+    "mode": "active"
+   },
    "sample": {
     "count": 93,
     "period": "2026-11-20",
@@ -99,7 +121,12 @@
     ],
     "guards": []
    },
-   "paint": {},
+   "paint": {
+    "hidden_pattern": "not_applicable",
+    "hidden_exclusions": [],
+    "openings": [],
+    "mode": "observe"
+   },
    "sample": {
     "count": 90,
     "period": "2026-11-20",
@@ -137,7 +164,11 @@
     ]
    },
    "paint": {
-    "photo_views": "grain_only"
+    "photo_views": "grain_only",
+    "hidden_pattern": "continue",
+    "hidden_exclusions": [],
+    "openings": [],
+    "mode": "active"
    },
    "sample": {
     "count": 89,
@@ -158,7 +189,16 @@
     ],
     "guards": []
    },
-   "paint": {},
+   "paint": {
+    "hidden_pattern": "same_fabric",
+    "hidden_exclusions": [
+     "buttons",
+     "pillows",
+     "stitching"
+    ],
+    "openings": [],
+    "mode": "active"
+   },
    "sample": {
     "count": 89,
     "period": "2026-11-20",
@@ -178,7 +218,15 @@
     ],
     "guards": []
    },
-   "paint": {},
+   "paint": {
+    "hidden_pattern": "body",
+    "hidden_exclusions": [
+     "facade_hardware",
+     "door_relief"
+    ],
+    "openings": [],
+    "mode": "active"
+   },
    "sample": {
     "count": 85,
     "period": "2026-11-20",
@@ -199,7 +247,16 @@
     ],
     "guards": []
    },
-   "paint": {},
+   "paint": {
+    "hidden_pattern": "same_fabric",
+    "hidden_exclusions": [
+     "buttons",
+     "pillows",
+     "stitching"
+    ],
+    "openings": [],
+    "mode": "active"
+   },
    "sample": {
     "count": 71,
     "period": "2026-11-20",
@@ -219,7 +276,15 @@
     ],
     "guards": []
    },
-   "paint": {},
+   "paint": {
+    "hidden_pattern": "body",
+    "hidden_exclusions": [
+     "facade_hardware",
+     "door_relief"
+    ],
+    "openings": [],
+    "mode": "active"
+   },
    "sample": {
     "count": 67,
     "period": "2026-11-20",
@@ -239,7 +304,15 @@
     ],
     "guards": []
    },
-   "paint": {},
+   "paint": {
+    "hidden_pattern": "body",
+    "hidden_exclusions": [
+     "facade_hardware",
+     "door_relief"
+    ],
+    "openings": [],
+    "mode": "active"
+   },
    "sample": {
     "count": 65,
     "period": "2026-11-20",
@@ -260,7 +333,15 @@
     ],
     "guards": []
    },
-   "paint": {},
+   "paint": {
+    "hidden_pattern": "same_fabric",
+    "hidden_exclusions": [
+     "buttons",
+     "stitching"
+    ],
+    "openings": [],
+    "mode": "observe"
+   },
    "sample": {
     "count": 60,
     "period": "2026-11-20",
@@ -278,7 +359,16 @@
     "chain_flags": [],
     "guards": []
    },
-   "paint": {},
+   "paint": {
+    "hidden_pattern": "body",
+    "hidden_exclusions": [
+     "facade_hardware"
+    ],
+    "openings": [
+     "void"
+    ],
+    "mode": "active"
+   },
    "sample": {
     "count": 54,
     "period": "2026-11-20",
@@ -296,7 +386,12 @@
     "chain_flags": [],
     "guards": []
    },
-   "paint": {},
+   "paint": {
+    "hidden_pattern": "not_applicable",
+    "hidden_exclusions": [],
+    "openings": [],
+    "mode": "observe"
+   },
    "sample": {
     "count": 51,
     "period": "2026-11-20",
@@ -314,7 +409,12 @@
     "chain_flags": [],
     "guards": []
    },
-   "paint": {},
+   "paint": {
+    "hidden_pattern": "continue",
+    "hidden_exclusions": [],
+    "openings": [],
+    "mode": "active"
+   },
    "sample": {
     "count": 39,
     "period": "2026-11-20",
@@ -332,7 +432,12 @@
     "chain_flags": [],
     "guards": []
    },
-   "paint": {},
+   "paint": {
+    "hidden_pattern": "continue",
+    "hidden_exclusions": [],
+    "openings": [],
+    "mode": "active"
+   },
    "sample": {
     "count": 36,
     "period": "2026-11-20",
@@ -353,7 +458,12 @@
     ],
     "guards": []
    },
-   "paint": {},
+   "paint": {
+    "hidden_pattern": "continue",
+    "hidden_exclusions": [],
+    "openings": [],
+    "mode": "observe"
+   },
    "sample": {
     "count": 33,
     "period": "2026-11-20",
@@ -374,7 +484,12 @@
     ],
     "guards": []
    },
-   "paint": {},
+   "paint": {
+    "hidden_pattern": "continue",
+    "hidden_exclusions": [],
+    "openings": [],
+    "mode": "active"
+   },
    "sample": {
     "count": 31,
     "period": "2026-11-20",
@@ -392,7 +507,12 @@
     "chain_flags": [],
     "guards": []
    },
-   "paint": {},
+   "paint": {
+    "hidden_pattern": "continue",
+    "hidden_exclusions": [],
+    "openings": [],
+    "mode": "active"
+   },
    "sample": {
     "count": 29,
     "period": "2026-11-20",
@@ -410,7 +530,12 @@
     "chain_flags": [],
     "guards": []
    },
-   "paint": {},
+   "paint": {
+    "hidden_pattern": "not_applicable",
+    "hidden_exclusions": [],
+    "openings": [],
+    "mode": "observe"
+   },
    "sample": {
     "count": 27,
     "period": "2026-11-20",
@@ -430,7 +555,12 @@
     "chain_flags": [],
     "guards": []
    },
-   "paint": {},
+   "paint": {
+    "hidden_pattern": "not_applicable",
+    "hidden_exclusions": [],
+    "openings": [],
+    "mode": "observe"
+   },
    "sample": {
     "count": 11,
     "period": "2026-11-20",
@@ -448,7 +578,19 @@
     "chain_flags": [],
     "guards": []
    },
-   "paint": {},
+   "paint": {
+    "hidden_pattern": "body",
+    "hidden_exclusions": [
+     "facade_hardware",
+     "door_relief",
+     "glass"
+    ],
+    "openings": [
+     "void",
+     "glass"
+    ],
+    "mode": "active"
+   },
    "sample": {
     "count": 9,
     "period": "2026-11-20",
@@ -466,7 +608,12 @@
     "chain_flags": [],
     "guards": []
    },
-   "paint": {},
+   "paint": {
+    "hidden_pattern": "continue",
+    "hidden_exclusions": [],
+    "openings": [],
+    "mode": "active"
+   },
    "sample": {
     "count": 3,
     "period": "2026-11-20",
@@ -484,7 +631,12 @@
     "chain_flags": [],
     "guards": []
    },
-   "paint": {},
+   "paint": {
+    "hidden_pattern": "continue",
+    "hidden_exclusions": [],
+    "openings": [],
+    "mode": "active"
+   },
    "sample": {
     "count": 2,
     "period": "2026-11-20",
@@ -505,7 +657,12 @@
     ],
     "guards": []
    },
-   "paint": {}
+   "paint": {
+    "hidden_pattern": "not_applicable",
+    "hidden_exclusions": [],
+    "openings": [],
+    "mode": "observe"
+   }
   },
   "бра": {
    "aliases": [],
@@ -518,7 +675,12 @@
     "chain_flags": [],
     "guards": []
    },
-   "paint": {}
+   "paint": {
+    "hidden_pattern": "continue",
+    "hidden_exclusions": [],
+    "openings": [],
+    "mode": "active"
+   }
   },
   "зеркало": {
    "aliases": [],
@@ -531,7 +693,12 @@
     "chain_flags": [],
     "guards": []
    },
-   "paint": {}
+   "paint": {
+    "hidden_pattern": "not_applicable",
+    "hidden_exclusions": [],
+    "openings": [],
+    "mode": "observe"
+   }
   },
   "полка": {
    "aliases": [],
@@ -544,7 +711,14 @@
     "chain_flags": [],
     "guards": []
    },
-   "paint": {}
+   "paint": {
+    "hidden_pattern": "body",
+    "hidden_exclusions": [
+     "facade_hardware"
+    ],
+    "openings": [],
+    "mode": "active"
+   }
   },
   "растение": {
    "aliases": [],
@@ -557,7 +731,12 @@
     "chain_flags": [],
     "guards": []
    },
-   "paint": {}
+   "paint": {
+    "hidden_pattern": "not_applicable",
+    "hidden_exclusions": [],
+    "openings": [],
+    "mode": "observe"
+   }
   },
   "стенка": {
    "aliases": [],
@@ -570,7 +749,15 @@
     "chain_flags": [],
     "guards": []
    },
-   "paint": {}
+   "paint": {
+    "hidden_pattern": "body",
+    "hidden_exclusions": [
+     "facade_hardware",
+     "door_relief"
+    ],
+    "openings": [],
+    "mode": "active"
+   }
   },
   "часы": {
    "aliases": [],
@@ -583,7 +770,12 @@
     "chain_flags": [],
     "guards": []
    },
-   "paint": {}
+   "paint": {
+    "hidden_pattern": "not_applicable",
+    "hidden_exclusions": [],
+    "openings": [],
+    "mode": "observe"
+   }
   }
  }
 }
