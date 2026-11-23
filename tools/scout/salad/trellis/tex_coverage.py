@@ -124,7 +124,56 @@ def _commit(pix, d, fid, ids, zb):
     zb[pix[better]] = d[better]
 
 
+# Кэш растра (T-157/А): один и тот же растр (те же вершины, грани, размер, глубина) на этапе 07 строится 10+ раз — fill, known_from_photo, part_deltas, ref_zone,
+# surface_passport, render_ortho до/после. Результат — чистая функция входа, поэтому ключ = хеш содержимого; отдаём КОПИИ (вызывающий может писать в буфер).
+# Бюджет по байтам (LRU); REMLAB_RASTER_CACHE=0 — выключить (проверка «до/после» байт-в-байт).
+_RASTER_CACHE: dict = {}
+_RASTER_CACHE_BYTES = [0]
+_RASTER_CACHE_MAX = int(os.environ.get('REMLAB_RASTER_CACHE_MB', '160')) * 1024 * 1024
+_RASTER_STATS = {'hit': 0, 'miss': 0}
+
+
+def raster_cache_clear() -> None:
+    _RASTER_CACHE.clear()
+    _RASTER_CACHE_BYTES[0] = 0
+
+
 def raster(xy, faces, n: int, depth=None, chunk: int = 3_000_000):
+    """Растр с кэшем по содержимому входа (см. `_raster_compute`); возвращает копии буферов."""
+    import hashlib
+    import numpy as np
+    if os.environ.get('REMLAB_RASTER_CACHE', '1') == '0' or _RASTER_CACHE_MAX <= 0:
+        return _raster_compute(xy, faces, n, depth, chunk)
+    xa = np.ascontiguousarray(xy, np.float64)
+    fa = np.ascontiguousarray(faces, np.int64)
+    h = hashlib.blake2b(digest_size=16)
+    h.update(repr((xa.shape, fa.shape, int(n), int(chunk), depth is None)).encode())
+    h.update(xa.tobytes())
+    h.update(fa.tobytes())
+    da = None
+    if depth is not None:
+        da = np.ascontiguousarray(depth, np.float64)
+        h.update(repr(da.shape).encode())
+        h.update(da.tobytes())
+    key = h.digest()
+    hit = _RASTER_CACHE.pop(key, None)
+    if hit is not None:
+        _RASTER_CACHE[key] = hit                              # LRU: в конец
+        _RASTER_STATS['hit'] += 1
+        return hit[0].copy(), hit[1].copy()
+    _RASTER_STATS['miss'] += 1
+    ids, zb = _raster_compute(xa, fa, n, da, chunk)
+    size = ids.nbytes + zb.nbytes
+    if size <= _RASTER_CACHE_MAX // 2:
+        while _RASTER_CACHE and _RASTER_CACHE_BYTES[0] + size > _RASTER_CACHE_MAX:
+            old = _RASTER_CACHE.pop(next(iter(_RASTER_CACHE)))
+            _RASTER_CACHE_BYTES[0] -= old[0].nbytes + old[1].nbytes
+        _RASTER_CACHE[key] = (ids.copy(), zb.copy())
+        _RASTER_CACHE_BYTES[0] += size
+    return ids, zb
+
+
+def _raster_compute(xy, faces, n: int, depth=None, chunk: int = 3_000_000):
     """Треугольники → буфер id граней n×n (плоский, -1 пусто) и буфер глубины. `xy` — вершины в пикселях (x вправо, y вниз; центр пикселя (i+0,5; j+0,5)); `depth` — по вершинам, БОЛЬШЕ = БЛИЖЕ
     (None — все 0: кто первый, тот и занял). Маленькие грани (в сумме — почти все) идут пачками без цикла, большие (>16 px) — по одной."""
     import numpy as np

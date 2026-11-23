@@ -113,6 +113,26 @@ ids, _ = TC.raster(np.array([[-50, -50], [200, -50], [-50, 200.0]]), np.array([[
 ok('большой треугольник (больше 16 px): закрыт весь кадр в пределах, лишнего за кадром нет', int((ids >= 0).sum()) > 400 and ids.size == 32 * 32)
 ids, _ = TC.raster(np.array([[1, 1], [1, 1], [1, 1.0]]), np.array([[0, 1, 2]]), 4)
 ok('вырожденный треугольник пропускается без ошибки', int((ids >= 0).sum()) == 0)
+# кэш растра (T-157/А): повтор с тем же входом — тот же результат (копии, не общий буфер); другой вход (глубина, размер, вершины) — другой ключ; выключатель
+_xy, _fc, _dp = np.array([[0, 0], [10, 0], [0, 10], [0, 0], [10, 0], [0, 10.0]]), np.array([[0, 1, 2], [3, 4, 5]]), np.array([0, 0, 0, 1, 1, 1.0])
+TC.raster_cache_clear()
+_h0 = TC._RASTER_STATS['hit']
+_a = TC.raster(_xy, _fc, 10, _dp)
+_b = TC.raster(_xy, _fc, 10, _dp)
+ok('кэш растра: второй такой же вызов — попадание, результат равен первому', TC._RASTER_STATS['hit'] == _h0 + 1 and np.array_equal(_a[0], _b[0]) and np.array_equal(_a[1], _b[1]))
+_b[0][:] = 7
+_b[1][:] = 7.0
+_c = TC.raster(_xy, _fc, 10, _dp)
+ok('кэш растра: правка буфера вызывающим не портит кэш (отдаются копии)', np.array_equal(_c[0], _a[0]) and np.array_equal(_c[1], _a[1]) and _a[0] is not _c[0])
+_d = TC.raster(_xy, _fc, 10, _dp + np.array([0, 0, 0, -2, -2, -2.0]))
+ok('кэш растра: другая глубина — другой результат (ключ учитывает глубину)', not np.array_equal(_c[0], _d[0]))
+_e = TC.raster(_xy, _fc, 12, _dp)
+ok('кэш растра: другой размер — свой результат', _e[0].size == 144)
+os.environ['REMLAB_RASTER_CACHE'] = '0'
+_h1, _m1 = TC._RASTER_STATS['hit'], TC._RASTER_STATS['miss']
+_f = TC.raster(_xy, _fc, 10, _dp)
+os.environ['REMLAB_RASTER_CACHE'] = '1'
+ok('кэш растра: REMLAB_RASTER_CACHE=0 — мимо кэша, тот же результат', TC._RASTER_STATS['hit'] == _h1 and TC._RASTER_STATS['miss'] == _m1 and np.array_equal(_f[0], _a[0]) and np.array_equal(_f[1], _a[1]))
 try:
     import trimesh
     sphere = trimesh.creation.icosphere(subdivisions=3)
