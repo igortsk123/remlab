@@ -1,0 +1,26 @@
+{
+  "_doc": "ПОРОГИ РЕШЕНИЯ сторожа охвата (раньше — словарь THRESHOLDS в tex_coverage.py; ЧЕРНОВЫЕ). `max`: метрика БОЛЬШЕ порога → сработало; `min`: МЕНЬШЕ порога → сработало. Порядок: сначала reject, потом repaint; ничего → keep. Метрики — ключи flat_metrics (проценты) и колонки таблицы пробы. Читает tex_coverage.py строго (нет файла/раздела — ошибка). Строгость решения (hard/soft) — rules/paint-decisions.json.",
+  "thresholds": {
+    "reject": {
+      "max": {
+        "unseen_outer_tex_pct": 45.0,
+        "unpainted_seen_tex_pct": 30.0,
+        "de00": 40.0,
+        "seam_tex_pct": 12.0,
+        "seam_len_pct": 60.0
+      },
+      "min": {}
+    },
+    "repaint": {
+      "max": {
+        "unseen_outer_tex_pct": 20.0,
+        "grazing_outer_tex_pct": 30.0,
+        "unpainted_outer_tex_pct": 8.0,
+        "de00": 25.0,
+        "seam_tex_pct": 4.0,
+        "seam_len_pct": 30.0
+      },
+      "min": {}
+    }
+  }
+}

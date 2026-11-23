@@ -54,7 +54,6 @@ EDGE_BG_MEASURE = float(R.get('edge_bg_measure_px', 6.0))
 EDGE_BG_DL = float(R.get('edge_bg_dL', 6.0))
 EDGE_BG_WHITE_L = float(R.get('edge_bg_white_L', 90.0))   # медиана ядра светлее — ткань белая, мерка и правило каймы слепы (N/A)
 FRAYED_PX = int(R.get('frayed_px', 3))           # рваность: известный пиксель в этих px от неизвестного внутри силуэта
-EDGE_BG_MAX = float(R.get('edge_bg_share_max', 0.05))
 DEPTH_MED = int(R.get('depth_median_px', 7))   # медиана карты глубины перед поиском разрыва: на рёбрах треугольников в ней пятна-выбросы
 DEPTH_BAND = int(R.get('depth_band_px', 2))      # ширина этой полосы, пикселей кадра
 COS_FULL = float(R.get('cos_full', 0.60))         # полный вес с этого косинуса; между COS_MIN и COS_FULL — плавная передача заготовке
@@ -98,13 +97,16 @@ PHOTO_INTERP = str(R.get('photo_interp', 'lanczos'))   # перевод фото
 SAMPLE_ORDER = int(R.get('sample_order', 3))             # выборка цвета в тексель из кадра: порядок сплайна (3 — бикубика; 1 — билинейная, теряла 15–40 % мелкого контраста; T-197)
 FRONT_COS = 0.80       # мерка света «перёд↔бок»: перёд — cos ≥ этого, бок — от cos_min до SIDE_COS
 SIDE_COS = 0.65
-GATE = {                # (порог, op) — провизорно, см. шапку
-    'silhouette_iou': (0.85, '>='),
-    'known_visible_share': (float(R.get('gate', {}).get('known_visible_share_min', 0.30)), '>='),   # rules/tex-visible.json § gate (_gate_doc): число и обоснование там
-    'edge_corr': (0.90, '>='),
-    'lab_dE': (3.0, '<='),
-    'edge_bg_share': (EDGE_BG_MAX, '<='),      # светлая кайма/ореол вырезки среди взятых у края (нет достаточно краевых пикселей — мерки нет, это не отказ)
-}
+def _gate(r: dict) -> dict:
+    """Пороги гейта — только из rules/tex-visible.json `gate` (T-20261123-19/1: числа не в коде). Нет раздела или мерки — ошибка: нет порога ≠ «прошло»."""
+    g = r.get('gate')
+    need = ('silhouette_iou', 'known_visible_share', 'edge_corr', 'lab_dE', 'edge_bg_share')
+    if not isinstance(g, dict) or any(k not in g for k in need):
+        raise RuntimeError(f"rules/tex-visible.json: нет раздела gate с порогами {need}")
+    return {k: (float(g[k][0]), str(g[k][1])) for k in need}
+
+
+GATE = _gate(R)         # (порог, op) — провизорно, см. шапку
 
 
 # ── вход ───────────────────────────────────────────────────────────────────────────────────────────────────────────
