@@ -1013,6 +1013,37 @@ def node_lost_step(w: 'Watch', t: float, ins: list, lost_obs: int, cur, pending:
     return 0, restarts + 1, 'restart'
 
 
+def gateway_node_swap(w: 'Watch', t: float, ins: list, group: str, series: int, swaps: int, rules: dict, swap: Callable[[str, str, str], bool] | None = None,
+                      take_slot: Callable[[], int] | None = None, say_fn=say) -> bool:
+    """Нода «заклинена» шлюзом (T-20/2, 23.11: 524 на POST шва при /health 200 — 3 серии повторов, 33 мин тишины): ПОТОЛОК повторов на ноду — `gateway_post.node_series_max` серий
+    (по умолчанию 1 серия = пауза-/health-повтор из `gateway_wait`, исчерпана → нода в отказ). Нода пересаживается (Salad выдаёт свежую; деньги старой — в `banked`, отсчёты заново),
+    задание возвращает вызывающий (в начало очереди). Не более `gateway_post.node_swap_max` пересадок за пробу и в пределах общего часового бюджета пересадок (`node_health.take_cull_slot`).
+    False — пересаживать не нужно/нельзя (потолок серий не достигнут, бюджет исчерпан, нет running-ноды): остаётся прежний путь `requeue_max`."""
+    cap = int(rules.get('node_series_max', 0) or 0)
+    if cap <= 0 or series < cap or swaps >= int(rules.get('node_swap_max', 2)):
+        return False
+    run = [i for i in ins if i.get('state') == 'running' and i.get('id')]
+    if not run:
+        return False
+    if take_slot is None or swap is None:
+        import sys
+        here = os.path.dirname(os.path.abspath(__file__))
+        if here not in sys.path:
+            sys.path.insert(0, here)
+        import node_health as NH
+        take_slot = take_slot or NH.take_cull_slot
+        swap = swap or NH.reallocate
+    if not take_slot():
+        say_fn('шлюз заклинил ноду, но общий бюджет пересадок на час исчерпан — прежний путь повторов')
+        return False
+    iid = run[0]['id']
+    say_fn(f'шлюз не принимает POST ({series} серий повторов при /health 200): нода {iid[:8]} в отказ → пересаживаю (№{swaps + 1}), задание — на свежую ноду')
+    if not swap(group, iid, 'gateway_stuck'):
+        return False
+    node_reset(w, t)
+    return True
+
+
 def disk_guard_wanted(a) -> bool:
     """DiskGuard (профиль, включён по умолчанию) и сторож `Watch.slow_window_s` (--slow-window-min, T-178/3) делают одно и то же: работает ОДИН. Явное окно сторожа весов выключает DiskGuard; `a.disk_guard=False` выключает его всегда."""
     return bool(getattr(a, 'disk_guard', True)) and not float(getattr(a, 'slow_window_s', 0) or 0) > 0
@@ -1141,7 +1172,8 @@ def run_probe(a, MG, BR, spec: Spec, **kw) -> int:
 
 def _run_probe_once(a, MG, BR, spec: Spec, gw_factory=Gateway, sleep=time.sleep, clock=time.time, slot_check=require_slot,
                     image_check=check_image, ledger=ledger_append, wait_s: float = 2400, pull_guard: Callable[[str], PullGuard] | None = None,
-                    disk_guard: Callable[[str], DiskGuard] | None = None, result: dict | None = None) -> int:
+                    disk_guard: Callable[[str], DiskGuard] | None = None, result: dict | None = None,
+                    gw_swap: Callable[[str, str, str], bool] | None = None, gw_take_slot: Callable[[], int] | None = None) -> int:
     """Платная проба на Salad по общему образцу. `a`: image, suffix, tier, apply, cap, probe_cap, max_min, running_min, start_min, health_min, ready_min, stall_min, stall_gb,
     job_min, out. Без `--apply` — только разбор (тело без секретов, группа НЕ создаётся)."""
     name = f'{spec.prefix}-{a.suffix}'
@@ -1242,6 +1274,7 @@ def _run_probe_once(a, MG, BR, spec: Spec, gw_factory=Gateway, sleep=time.sleep,
     busy_waits = 0
     post_tries: dict = {}                                              # ключ → сколько раз уже повторён после POST без ответа/5xx шлюза (потолок — gateway_post.requeue_max)
     gw_rules = gateway_post_rules()
+    gw_series, gw_swaps = 0, 0                                         # серий повторов шлюза на ТЕКУЩЕЙ ноде без принятого задания; пересадок нод из-за шлюза за пробу (T-20/2)
     last_job_look = 0.0
     stall = JobStall(getattr(a, 'stuck_min', STUCK_MIN))
     lost_obs, node_restarts = 0, 0
@@ -1354,12 +1387,27 @@ def _run_probe_once(a, MG, BR, spec: Spec, gw_factory=Gateway, sleep=time.sleep,
                 if cur is None and pending and not held:
                     k = pending.pop(0)
                     cur, info = spec.submit(gw, k, t)
+                    if cur is not None:
+                        gw_series = 0                                          # шлюз принял задание — нода здорова, серии считаем заново
                     if cur is None and info.get('http') == 429:
                         # «занят»: нода ещё считает прежнее задание (p4 21.11: Сакура получила 429 и сожгла серию провалов, пока комод считался) — не провал: ключ в начало очереди, ждём
                         pending.insert(0, k)
                         busy_waits += 1
                         if busy_waits in (1, 6) or busy_waits % 30 == 0:
                             say(f'задание {k}: нода занята (429) — жду, не провал (ожидание №{busy_waits})')
+                    elif (cur is None and (info.get('post') or {}).get('worker_saw_job') is False
+                          and (gw_series := gw_series + 1) and gateway_node_swap(w, t, ins, name, gw_series, gw_swaps, gw_rules, gw_swap, gw_take_slot)):
+                        # потолок повторов на ноду исчерпан (`gateway_post.node_series_max`): нода в отказ, задание — в начало очереди на свежую ноду, его счёт повторов — заново
+                        gw_swaps += 1
+                        gw_series = 0
+                        summary['gateway_swaps'] = gw_swaps
+                        summary.setdefault('post_timeouts', []).append({'key': k, 'swapped': True, **(info.get('post') or {})})
+                        post_tries.pop(k, None)
+                        pending.insert(0, k)
+                        cur = None
+                        gw = None
+                        last_h = (None, {})
+                        seen_ev = len(w.events)
                     elif cur is None and (info.get('post') or {}).get('worker_saw_job') is False and post_tries.get(k, 0) < int(gw_rules.get('requeue_max', 1)):
                         # POST без ответа/5xx шлюза и воркер задание не видит (T-178 22.11): не провал — повтор той же ноды (до `gateway_post.requeue_max`, по умолчанию 1).
                         # Независимые задания — в конец очереди; зависимые по порядку (`spec.ordered`, этапы 06→07→шов→08) — в НАЧАЛО с паузой: иначе следующий этап берёт пустой вход и жжёт серию отказов (T-220/1 23.11)

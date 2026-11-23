@@ -84,7 +84,7 @@ class BR:
         if self.t0 is None:
             return 200, []
         up = self.clock() - self.t0 >= self.running_after
-        return 200, [{'state': 'running' if up else 'creating', 'started': up}]
+        return 200, [{'id': 'inst-0123456789', 'state': 'running' if up else 'creating', 'started': up}]
 
     def stop_and_verify(self, name):
         self.stopped += 1
@@ -470,6 +470,7 @@ def run_raw(tmp, spec, mg=None, br=None, gw_cls=None, tier='low', suffix='t', cl
             br.t0 = clock()
         return r_
     mg.api = api
+    kw.setdefault('gw_take_slot', lambda: 0)                          # T-20/2: по умолчанию пересадка из-за шлюза запрещена бюджетом (реальный node_health в тестах не трогаем)
     a = argparse.Namespace(image='x@sha256:1', suffix=suffix, tier=tier, apply=True, cap=4.0, probe_cap=1.0, max_min=600, running_min=30, start_min=20, health_min=8, ready_min=30,
                            stall_min=5, stall_gb=0.05, job_min=0, out=os.path.join(tmp, 'out'))
     out = io.StringIO()
@@ -704,6 +705,48 @@ with tempfile.TemporaryDirectory() as tmp:                        # 3. НЕ шл
     rc, a, out, mg, br = run_raw(tmp, make_spec_chain('a,b', clock.sleep, fail_http=400), gw_cls=Gw524, clock=clock)
     sm = json.load(open(os.path.join(tmp, 'out', 'summary-kit-loop-t.json')))
     check(sm.get('stopped_by') == 'fail_streak' and sm.get('gateway_refused', 0) == 0, f'не шлюз: 2 отказа подряд — fail_streak как раньше ({sm.get("stopped_by")})')
+
+
+# T-20/2 (23.11, пакет 29, нода t220m5): шлюз заклинил ноду (524 на POST при /health 200) — 3 серии повторов, 33 мин тишины. Потолок на ноду — `gateway_post.node_series_max` серий:
+# исчерпана → нода в отказ (пересадка), задание — на свежую ноду в начале очереди; пересадок не больше `node_swap_max`; нет бюджета — прежний путь `requeue_max`
+check(KD.gateway_post_rules().get('node_series_max') == 1 and KD.gateway_post_rules().get('node_swap_max', 0) >= 1, 'правила шлюза: node_series_max=1, node_swap_max задан')
+SERIES = 1 + len(KD.gateway_post_rules()['gateway_wait']['pauses_s'])        # POST-ов в одной серии: первый + повторы по паузам
+with tempfile.TemporaryDirectory() as tmp:                        # 1. первая серия исчерпана → нода пересажена один раз, задание на свежей ноде принято, повторов requeue не было
+    clock = Clock()
+    Gw503.bad, Gw503.first, Gw503.seen = ('a',), SERIES, {}
+    swaps = []
+    rc, a, out, mg, br = run_raw(tmp, make_spec_chain('a,b', clock.sleep), gw_cls=Gw524, clock=clock, gw_take_slot=lambda: 1, gw_swap=lambda g, i, w_: (swaps.append((g, i, w_)) or True))
+    sm = json.load(open(os.path.join(tmp, 'out', 'summary-kit-loop-t.json')))
+    check(len(swaps) == 1 and swaps[0][2] == 'gateway_stuck' and sm.get('gateway_swaps') == 1 and sm.get('stopped_by') == 'done' and sm['jobs']['a']['status'] == 'done' and sm['jobs']['b']['status'] == 'done'
+          and 'пересаживаю' in out and 'повтор 1 в начале очереди' not in out, f'524: серия исчерпана → ровно одна пересадка (gateway_stuck), a и b готовы, requeue не нужен ({swaps}, {sm.get("stopped_by")}, {sm["jobs"]})')
+with tempfile.TemporaryDirectory() as tmp:                        # 2. шлюз не принимает и на свежих нодах: пересадок не больше node_swap_max, дальше прежний путь и итог gateway_503 (не вечный цикл)
+    clock = Clock()
+    Gw503.bad, Gw503.first, Gw503.seen = ('a',), 10 ** 9, {}
+    swaps = []
+    rc, a, out, mg, br = run_raw(tmp, make_spec_chain('a,b', clock.sleep), gw_cls=Gw524, clock=clock, gw_take_slot=lambda: 1, gw_swap=lambda g, i, w_: (swaps.append((g, i)) or True))
+    sm = json.load(open(os.path.join(tmp, 'out', 'summary-kit-loop-t.json')))
+    check(rc == 1 and len(swaps) == KD.gateway_post_rules()['node_swap_max'] and sm.get('gateway_swaps') == len(swaps) and sm.get('stopped_by') == 'gateway_503' and sm.get('stop_verified'),
+          f'524 навсегда: пересадок ровно node_swap_max, затем gateway_503 и проверенный стоп ({len(swaps)}, {sm.get("stopped_by")})')
+with tempfile.TemporaryDirectory() as tmp:                        # 3. общий бюджет пересадок исчерпан (take_slot=0): не пересаживаем, прежний путь requeue_max
+    clock = Clock()
+    Gw503.bad, Gw503.first, Gw503.seen = ('a',), 10 ** 9, {}
+    swaps = []
+    rc, a, out, mg, br = run_raw(tmp, make_spec_chain('a,b', clock.sleep), gw_cls=Gw524, clock=clock, gw_take_slot=lambda: 0, gw_swap=lambda g, i, w_: (swaps.append((g, i)) or True))
+    sm = json.load(open(os.path.join(tmp, 'out', 'summary-kit-loop-t.json')))
+    check(not swaps and not sm.get('gateway_swaps') and sm.get('stopped_by') == 'gateway_503' and len(sm.get('post_timeouts', [])) == KD.gateway_post_rules()['requeue_max'] and 'бюджет пересадок' in out,
+          f'нет бюджета: пересадок нет, повторов ровно requeue_max, итог gateway_503 ({swaps}, {sm.get("stopped_by")})')
+with tempfile.TemporaryDirectory() as tmp:                        # 4. правило выключено (node_series_max=0) — пересадки нет, как до T-20/2
+    clock = Clock()
+    Gw503.bad, Gw503.first, Gw503.seen = ('a',), SERIES, {}
+    swaps = []
+    orig_rules = KD.gateway_post_rules
+    KD.gateway_post_rules = lambda: {**orig_rules(), 'node_series_max': 0}
+    try:
+        rc, a, out, mg, br = run_raw(tmp, make_spec_chain('a,b', clock.sleep), gw_cls=Gw524, clock=clock, gw_take_slot=lambda: 1, gw_swap=lambda g, i, w_: (swaps.append((g, i)) or True))
+    finally:
+        KD.gateway_post_rules = orig_rules
+    sm = json.load(open(os.path.join(tmp, 'out', 'summary-kit-loop-t.json')))
+    check(not swaps and sm.get('stopped_by') == 'done' and len(sm.get('post_timeouts', [])) == 1, f'node_series_max=0: пересадок нет, один requeue как раньше ({swaps}, {sm.get("stopped_by")})')
 
 
 print('\nИТОГ:', 'ВСЁ ЗЕЛЁНОЕ' if not FAILS else f'ПАДЕНИЙ {len(FAILS)}')
