@@ -546,6 +546,43 @@ def test_own_panel_neutral_donor_needs_L():
     ok(len(pr2) == 1, f'при близкой светлоте донор допустим (панелей с донором {len(pr2)})')
 
 
+def test_sub_tone():
+    print('подчасть по цвету 06 (Б, 23.11): тёмная нейтральная невидимая панель против светлой доминанты — остаётся тёмной; светлая/цветная и известные тексели — нет:')
+    sys.path[:0] = [os.path.join(HERE, '..'), os.path.join(HERE, '..', '..')]
+    import cv2
+    T = 192
+    g, side, mk = box_uv_geom(T)
+
+    def solid(l, a, b):
+        lab = np.full((T, T, 3), (l, a, b), np.float32)
+        return np.clip(cv2.cvtColor(lab, cv2.COLOR_Lab2RGB) * 255 + 0.5, 0, 255).astype(np.uint8)
+
+    before = solid(70, 2, 8)
+    before[mk['back']] = solid(12, 0, 0)[mk['back']]                      # в 06 зад (панель) тёмный нейтральный — как ножки
+    before[mk['top']] = solid(45, 30, 20)[mk['top']]                      # цветная панель (красная): не «тёмное нейтральное» — не трогаем
+    after = solid(70, 2, 8)                                               # 07 покрасил всю часть одним беж-тоном
+    known = np.zeros((T, T), bool)
+    known[mk['front']] = True
+    parts = np.zeros(len(g['F']), np.int32)
+    side = np.asarray(side)
+    parts[side == 'right'] = 1
+    old = RZ.R.get('sub_tone')
+    RZ.R['sub_tone'] = {'area_max': 0.3, 'min_texels': 100}
+    try:
+        out, rep = RZ.sub_tone([g], [before], [after], [known], [parts])
+    finally:
+        if old is None:
+            RZ.R.pop('sub_tone', None)
+        else:
+            RZ.R['sub_tone'] = old
+    lab = cv2.cvtColor(out[0].astype(np.float32) / 255.0, cv2.COLOR_RGB2Lab)
+    ok(float(np.median(lab[mk['back']][:, 0])) < 25, f'зад (тёмный в 06) остался тёмным: L {np.median(lab[mk["back"]][:, 0]):.1f}; отчёт {rep["parts"]}')
+    ok(abs(float(np.median(lab[mk['left']][:, 0])) - 70) < 3, f'левый (обычный) не тронут: L {np.median(lab[mk["left"]][:, 0]):.1f}')
+    ok(abs(float(np.median(lab[mk['top']][:, 0])) - 70) < 3, f'цветная панель не «подчасть» (тёмное нейтральное — только): L {np.median(lab[mk["top"]][:, 0]):.1f}')
+    ok(bool((out[0][known] == after[known]).all()), 'известные (фото) тексели не изменились')
+    ok(rep['texels_changed'] > 0 and 0 < rep['subtone_share_pct'] < 50, f'в отчёте доля подчасти: {rep["subtone_share_pct"]} %')
+
+
 def test_align_tied():
     print('коробка с двумя равными поворотами (UltraTex одинаков на лице и на заду): ничья → tied с ties, yaw задан — перенос без оценки:')
     sys.path[:0] = [os.path.join(HERE, '..'), os.path.join(HERE, '..', '..')]
@@ -570,7 +607,7 @@ def test_align_tied():
 
 
 def main():
-    for f in (test_own_panel_neutral_donor_needs_L, test_own_panel_keeps_our_L, test_align_tied, test_own_panel_smooth_no_quilt, test_align_ut, test_own_panel_clean_detail, test_own_panel_tone, test_same_mesh, test_decide, test_gate_per_property, test_propagate, test_object_basis, test_inconsistent_winding, test_outer_only, test_panel_with_bottom, test_panels, test_apply_to_fill, test_relief_source, test_ultratex_full):
+    for f in (test_sub_tone, test_own_panel_neutral_donor_needs_L, test_own_panel_keeps_our_L, test_align_tied, test_own_panel_smooth_no_quilt, test_align_ut, test_own_panel_clean_detail, test_own_panel_tone, test_same_mesh, test_decide, test_gate_per_property, test_propagate, test_object_basis, test_inconsistent_winding, test_outer_only, test_panel_with_bottom, test_panels, test_apply_to_fill, test_relief_source, test_ultratex_full):
         f()
     print(f'tests_ref_zone: ошибок {len(FAILS)}')
     return 1 if FAILS else 0

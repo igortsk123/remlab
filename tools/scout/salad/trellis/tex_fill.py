@@ -1630,6 +1630,25 @@ def draft_texels(geoms: list, draft_geoms: list, cfg: dict | None = None) -> dic
 
 
 # ---------------------------------------------------------------- кадры «до | после» -------------------------------
+def side_azimuths(geoms: list, known: list, cands=(0.0, 90.0, 180.0, 270.0), res: int = 256) -> dict:
+    """Стороны предмета по known (T-187/6, 23.11): фото-сторона — азимут, с которого видно больше всего известных (фото) текселей; зад — противоположный. Не по числу: формы лежат передом в разные стороны.
+    → {'photo': az, 'back': az, 'shares': {az: доля известного в кадре}}; known нет/пуст — {'photo': 0, 'back': 180, 'shares': {}, 'fallback': True}."""
+    try:
+        kn = [np.where(np.asarray(k, bool)[..., None], np.array([255, 0, 0], np.uint8), np.array([0, 0, 255], np.uint8)).astype(np.uint8) for k in known]      # известное — красное, нет — синее (фон серый, не считается)
+        sh = {}
+        for az in cands:
+            im = render_ortho(geoms, kn, az, res=res)
+            red = int((im[..., 0].astype(int) - im[..., 2].astype(int) > 40).sum())
+            blue = int((im[..., 2].astype(int) - im[..., 0].astype(int) > 40).sum())
+            sh[az] = red / max(red + blue, 1)
+        best = max(sh, key=lambda a: sh[a])
+        if sh[best] <= 0.005:
+            return {'photo': 0.0, 'back': 180.0, 'shares': sh, 'fallback': True}
+        return {'photo': float(best), 'back': float((best + 180.0) % 360.0), 'shares': {str(int(k)): round(v, 4) for k, v in sh.items()}}
+    except Exception as e:  # noqa: BLE001
+        return {'photo': 0.0, 'back': 180.0, 'shares': {}, 'fallback': True, 'error': f'{type(e).__name__}: {e}'}
+
+
 def render_ortho(geoms: list, texs: list, azimuth: float = 180.0, res: int = 1024, ortho: float = 1.25, elevation: float = 0.0):
     """Ортографический кадр предмета с заданного азимута (0 — в лоб, 180 — сзади) с текстурами `texs` (по геометриям): цвет текстуры × освещение лоб-светом. Для проб, не для продукта."""
     ctr, size = frame_of(geoms)
@@ -2446,9 +2465,12 @@ def run_stage_once(run: str, sku: str, glb: str, known: list | None = None, part
     rep['source_used'], rep['source_tried'] = used, tried
     rep['pr_camera'] = cam_note
     write_glb(geoms, tex_after, os.path.join(d, 'filled.glb'))
-    a = render_ortho(geoms, tex_before, 180.0)
-    b = render_ortho(geoms, tex_after, 180.0)
-    Image.fromarray(np.concatenate([a, np.full((a.shape[0], 12, 3), 255, np.uint8), b], axis=1)).save(os.path.join(d, PS.FRAME))
+    sides = side_azimuths(geoms, known)                        # зад — сторона без фото по known (не фиксированный 180: формы лежат передом в разные стороны)
+    rep['frame_sides'] = sides
+    for _az, _nm in ((sides['back'], PS.FRAME), (sides['photo'], 'frame-photo.png')):
+        a = render_ortho(geoms, tex_before, _az)
+        b = render_ortho(geoms, tex_after, _az)
+        Image.fromarray(np.concatenate([a, np.full((a.shape[0], 12, 3), 255, np.uint8), b], axis=1)).save(os.path.join(d, _nm))
     secs = time.time() - t0
     cpu_s = time.process_time() - cpu0
     rep['wall_s'], rep['cpu_s'] = round(secs, 1), round(cpu_s, 1)           # wall_s — только отчёт (на passed не влияет)
