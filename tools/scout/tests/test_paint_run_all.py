@@ -72,10 +72,10 @@ with tempfile.TemporaryDirectory() as run:
     RA.execute(run, 's2', A, r, CR)
     ok(calls(run) == ['01-trellis', '02-prep', '09-check'], 'отказ 02 (жёсткий) → 03 и 06 не получили вход: ' + ' '.join(calls(run)))
 with tempfile.TemporaryDirectory() as run:
-    r = fake_rules(d={'produces': ['06-visible'], 'needs': ['03-parts'], 'steps': [writer('06-visible', passed=False, metric={'name': 'known_share', 'value': 0.1, 'threshold': 0.15, 'op': '>=', 'ok': False})]},
+    r = fake_rules(d={'produces': ['06-visible'], 'needs': ['03-parts'], 'steps': [writer('06-visible', passed=False, metric={'name': 'known_visible_share', 'value': 0.1, 'threshold': 0.30, 'op': '>=', 'ok': False})]},
                    e={'produces': ['07-fill'], 'needs': ['06-visible'], 'steps': [writer('07-fill')]})
     RA.execute(run, 's3', A, r, CR)
-    ok('07-fill' in calls(run) and '08-material' in calls(run), 'мягкий провал 06 (known_share) не блокирует 07 и 08')
+    ok('07-fill' in calls(run) and '08-material' in calls(run), 'мягкий провал 06 (known_visible_share) не блокирует 07 и 08')
 
 # 3. повтор пропускает готовое, --force гонит заново
 with tempfile.TemporaryDirectory() as run:

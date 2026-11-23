@@ -71,18 +71,17 @@ SEAM = {'neigh': 2.5, 'abs_de': 10.0, 'ratio': 1.5, 'inner_pct': 95.0, 'inner_sa
 # но смотрят на все 6 видов ребром (|cos| ≤ COS_SEEN: каркас дивана, торцы), `gap_occluded` — закрыты другими частями формы во всех 6 видах (боковины под подлокотником, зазоры под подушками).
 EXPLAIN = {'crumb_area_frac': 0.01, 'crevice_max_dirs': 2}
 
-# --- ПОРОГИ РЕШЕНИЯ (ЧЕРНОВЫЕ; единственное место чисел). `max`: метрика БОЛЬШЕ порога → сработало; `min`: метрика МЕНЬШЕ порога → сработало.
-# Порядок: сначала `reject`, потом `repaint`; ничего не сработало → `keep`. Метрики — ключи `flat_metrics` (проценты) и колонки таблицы пробы.
-THRESHOLDS = {
-    'reject': {
-        'max': {'unseen_outer_tex_pct': 45.0, 'unpainted_seen_tex_pct': 30.0, 'de00': 40.0, 'seam_tex_pct': 12.0, 'seam_len_pct': 60.0},
-        'min': {},
-    },
-    'repaint': {
-        'max': {'unseen_outer_tex_pct': 20.0, 'grazing_outer_tex_pct': 30.0, 'unpainted_outer_tex_pct': 8.0, 'de00': 25.0, 'seam_tex_pct': 4.0, 'seam_len_pct': 30.0},
-        'min': {},          # например {'pattern_grad_ncc': 0.05}: слабая справочная мера, пока без порога
-    },
-}
+# --- ПОРОГИ РЕШЕНИЯ (ЧЕРНОВЫЕ) — теперь в rules/tex-coverage.json (`max`: метрика БОЛЬШЕ порога → сработало; `min`: МЕНЬШЕ; сначала reject, потом repaint; ничего → keep).
+def _load_thresholds() -> dict:
+    """Пороги решения — только rules/tex-coverage.json (T-20261123-19/1: числа не в коде). Нет файла/раздела — ошибка, не «keep»."""
+    p = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))), 'rules', 'tex-coverage.json')
+    th = json.load(open(p, encoding='utf-8')).get('thresholds')
+    if not isinstance(th, dict) or not all(k in th for k in ('reject', 'repaint')):
+        raise RuntimeError(f'{p}: нет раздела thresholds с reject и repaint')
+    return th
+
+
+THRESHOLDS = _load_thresholds()
 
 
 # ---------------------------------------------------------------- решение ---------------------------------------

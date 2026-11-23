@@ -277,7 +277,8 @@ try:
 except ValueError as e:
     ok('GLB без текстуры/развёртки — ошибка с понятным текстом', 'нет развёртки или текстуры' in str(e))
 ok('CLI: код возврата 1, если у какого-то товара ошибка; 0, если все посчитаны', TC.main([p0, '--out', os.path.join(tmp, 'c1')]) == 1 and TC.main([glb, '--out', os.path.join(tmp, 'c2'), '--grid', '256', '--no-glb']) == 0)
-ok('в коде проверок нет номеров товаров и порогов: числа порогов только в THRESHOLDS', 'THRESHOLDS = {' in open(os.path.join(HERE, 'tex_coverage.py'), encoding='utf-8').read())
+_src = open(os.path.join(HERE, 'tex_coverage.py'), encoding='utf-8').read()
+ok('в коде проверок нет номеров товаров и порогов: числа порогов только в rules/tex-coverage.json', 'THRESHOLDS = _load_thresholds()' in _src and 'THRESHOLDS = {' not in _src and TC.THRESHOLDS['reject']['max']['unseen_outer_tex_pct'] == json.load(open(os.path.join(HERE, '..', '..', 'rules', 'tex-coverage.json'), encoding='utf-8'))['thresholds']['reject']['max']['unseen_outer_tex_pct'])
 
 # ---------------------------------------------------------------- 8. швы видов --------------------------------------------
 print('8. швы: скачок цвета на границе главных видов')
