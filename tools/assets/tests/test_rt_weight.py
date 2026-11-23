@@ -62,10 +62,10 @@ def packed_glb(nbytes: int) -> bytes:
     return out
 
 
-def write_rule(d, name, max_bytes, ladder=None, min_tri=40000):
+def write_rule(d, name, max_bytes, ladder=None, min_tri=40000, texture=None):
     p = os.path.join(d, name)
     json.dump({'max_bytes': max_bytes, 'ladder': ladder if ladder is not None else [{'size': 1024}, {'size': 512}, {'simplify': 0.6}, {'simplify': 0.4}],
-               'min_triangles': min_tri, 'refuse_reason': 'rt_weight_over_limit'}, open(p, 'w'))
+               'min_triangles': min_tri, 'refuse_reason': 'rt_weight_over_limit', 'texture': texture or {'size': 1024, 'quality': 82}}, open(p, 'w'))
     return p
 
 
@@ -93,6 +93,60 @@ rule = RM.weight_rule()
 ok('порог из rules/rt-weight.json: 5 МБ (5 242 880 — решение П-4, TG 2671)', rule['max_bytes'] == 5 * 1024 * 1024, rule['max_bytes'])
 ok('лестница из правила: 1024 → 512 → упрощение 0,6 → 0,4', rule['ladder'] == [{'size': 1024}, {'size': 512}, {'simplify': 0.6}, {'simplify': 0.4}], rule['ladder'])
 code_files = [os.path.join(HERE, '..', f) for f in ('runtime_mesh.py', 'publish_rt.sh', 'demo_rt.sh')]
+# ——— 1б. сторона и качество текстуры первой попытки — тоже только в данных (T-20261123-31) ———
+ok('текстура копии из rules/rt-weight.json: сторона ≥ 2048 (1024 съедала мелкий рисунок: шкаф ×5, диван ×1,6 — диагностика T-27), JPEG-качество целое',
+   isinstance(rule['texture']['size'], int) and rule['texture']['size'] >= 2048 and isinstance(rule['texture']['quality'], int), rule.get('texture'))
+_src_rm = open(os.path.join(HERE, '..', 'runtime_mesh.py'), encoding='utf-8').read()
+_src_sh = open(os.path.join(HERE, '..', 'demo_rt.sh'), encoding='utf-8').read()
+ok('в коде и в demo_rt.sh нет стороны 1024 / качества 82 по умолчанию (флаг --size/--quality без значения берёт правило)',
+   'default=1024' not in _src_rm and 'default=82' not in _src_rm and '--size 1024' not in _src_sh, 'литерал в runtime_mesh.py/demo_rt.sh')
+_bad_tex = os.path.join(tempfile.mkdtemp(prefix='rtw-'), 'bad.json')
+json.dump({'max_bytes': 10, 'ladder': [], 'texture': {'size': 0, 'quality': 82}}, open(_bad_tex, 'w'))
+try:
+    RM.weight_rule(_bad_tex)
+    ok('правило без годной texture (size 0) отвергается', False)
+except ValueError:
+    ok('правило без годной texture (size 0) отвергается', True)
+
+
+def pattern_glb(px=2048, period=4):
+    """Исходник с мелким рисунком (косая полоска с периодом в `period` px — как узор фасада): по нему меряем, сколько рисунка переживает копия."""
+    from PIL import Image, ImageDraw
+    im = Image.new('RGB', (px, px), (150, 150, 150))
+    dr = ImageDraw.Draw(im)
+    for k in range(-px, px, period):
+        dr.line([(k, 0), (k + px, px)], fill=(95, 95, 95), width=max(1, period // 2))
+    buf = io.BytesIO()
+    im.save(buf, format='PNG')
+    payload = buf.getvalue()
+    js = {'asset': {'version': '2.0'}, 'materials': [{'pbrMetallicRoughness': {'baseColorTexture': {'index': 0}}}],
+          'textures': [{'source': 0}], 'images': [{'bufferView': 0, 'mimeType': 'image/png'}],
+          'buffers': [{'byteLength': len(payload)}], 'bufferViews': [{'buffer': 0, 'byteOffset': 0, 'byteLength': len(payload)}],
+          'accessors': [{'count': 3, 'componentType': 5125, 'type': 'SCALAR'}], 'meshes': [{'primitives': [{'indices': 0}]}]}
+    return RM.write_glb(js, payload), im
+
+
+def detail_kept(src_im, glb_bytes, side):
+    """σ мелкого рисунка (яркость минус её размытие радиусом 1 px) копии к исходнику; копию приводим к стороне исходника, как её видит экран."""
+    from PIL import Image, ImageChops, ImageFilter, ImageStat
+    js, b = RM.parse_glb(glb_bytes)
+    im = Image.open(io.BytesIO(RM.image_bytes(js['images'][0], js, b))).convert('L')
+    assert im.size[0] == side, (im.size, side)
+    im = im.resize(src_im.size, Image.BILINEAR)
+    def sigma(x):
+        d = ImageChops.difference(x, x.filter(ImageFilter.GaussianBlur(1.0)))
+        return ImageStat.Stat(d).rms[0]
+    return sigma(im) / max(sigma(src_im.convert('L')), 1e-9)
+
+
+# ——— 1в. мерка рисунка: сторона из правила держит мелкий рисунок, 1024 — нет (диагностика T-27: узор фасада ×5) ———
+_pg, _pim = pattern_glb()
+_tx = rule['texture']
+_k_rule = detail_kept(_pim, RM.optimise(_pg, _tx['size'], _tx['quality'])[0], _tx['size'])
+_k_1024 = detail_kept(_pim, RM.optimise(_pg, 1024, _tx['quality'])[0], 1024)
+ok(f'мерка рисунка на синтетическом узоре: сторона из правила ({_tx["size"]}) сохраняет ≥ 0,8 мелкого рисунка исходника (есть {_k_rule:.2f})', _k_rule >= 0.8, _k_rule)
+ok(f'  а 1024 теряет заметно больше (есть {_k_1024:.2f} < {_k_rule:.2f}) — мерка отличает плохую копию от хорошей', _k_1024 < _k_rule - 0.15, (_k_1024, _k_rule))
+
 lit = re.compile(r'5242880|5\s*\*\s*1024\s*\*\s*1024|5\s*<<\s*20|5\s*\*\s*2\s*\*\*\s*20|\b5_?000_?000\b')
 found = [os.path.basename(f) for f in code_files if lit.search(open(f, encoding='utf-8').read())]
 ok('в коде (runtime_mesh.py, publish_rt.sh, demo_rt.sh) литерала порога нет', not found, found)
@@ -228,6 +282,17 @@ with tempfile.TemporaryDirectory(dir=os.environ.get('REMLAB_TMP') or None) as d:
     common = ['--id', '111_222', '--out', out_d, '--manifest', man_p, '--size', '1024', '--no-ktx2']
     gate = ['--ids-from-demo', demo_p, '--out', out_d, '--manifest', man_p, '--size', '1024', '--no-ktx2', '--check']
     try:
+        # сторона текстуры без --size — из правила (texture.size), --size перекрывает (-lite 512); качество — из правила
+        r_t = write_rule(d, 'rt.json', 3_000_000, texture={'size': 768, 'quality': 70})
+        os.environ['RT_WEIGHT_RULES'] = r_t
+        man_t, out_t = os.path.join(d, 'man-t.json'), os.path.join(d, 'rt-t')
+        fpt = FakePack(lambda s, si: 500_000)
+        rc, out, err = run(['--id', '111_222', '--out', out_t, '--manifest', man_t, '--no-ktx2'], fpt)
+        ok('main без --size: первая сборка с texture.size правила (768), не со своим числом', rc == 0 and fpt.calls and fpt.calls[0][0] == 768, (rc, fpt.calls, err[-200:]))
+        fpl = FakePack(lambda s, si: 500_000)
+        rc, out, err = run(['--id', '111_222', '--out', out_t, '--manifest', man_t, '--size', '512', '--suffix=-lite', '--no-ktx2'], fpl)
+        ok('main --size 512 (-lite): флаг перекрывает правило', rc == 0 and fpl.calls and fpl.calls[0][0] == 512, (rc, fpl.calls))
+        os.environ['RT_WEIGHT_RULES'] = r1
         fp = FakePack(lambda s, si: 2_000_000)
         rc, out, err = run(common, fp)
         man = json.load(open(man_p))['meshes']['111_222']

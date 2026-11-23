@@ -6,8 +6,9 @@
     до первой геометрии; переносим в бинарный чанк;
   * две карты на модель, из них metallicRoughness (PNG) = 41 % веса галереи, а на сцене
     даёт почти ничего → выкидываем, ставим скалярные roughness/metalness по роли;
-  * 2048² albedo = ~16 МБ видеопамяти на модель после распаковки (у 15 моделей — сотни
-    мегабайт, телефон не переживёт) → 1024 для десктопа, 512 для мобильной версии.
+  * 2048² albedo без сжатия = ~16 МБ видеопамяти на модель (у 15 моделей — сотни мегабайт, телефон не переживёт) → сторона текстуры — правило
+     (T-20261123-31: 2048 + KTX2 держит мелкий рисунок, 1024 съедала узор фасада ×5 и стоит те же ~2–3 МБ; KTX2 в видеопамяти ≈5 МБ),
+    512 — для мобильной версии (-lite, своим ключом --size).
 Геометрию (40k треугольников) НЕ трогаем: она в GLB весит ~1 МБ и не является узким местом —
 и это же защищает силуэт товара, ради которого модель и делалась.
 
@@ -302,6 +303,9 @@ def weight_rule(path: str | None = None) -> dict:
     for s in r.get("ladder") or []:
         if ("size" in s) == ("simplify" in s):
             raise ValueError(f"{p}: шаг лестницы — либо size, либо simplify: {s}")
+    t = r.get("texture") or {}
+    if not isinstance(t.get("size"), int) or t["size"] <= 0 or not isinstance(t.get("quality"), int) or not 1 <= t["quality"] <= 100:
+        raise ValueError(f"{p}: texture — {{size: целое > 0, quality: 1..100}} (сторона текстуры первой попытки и JPEG-качество)")
     r["fingerprint"] = hashlib.sha256(raw).hexdigest()[:8]
     return r
 
@@ -498,8 +502,8 @@ def main() -> int:
     ap.add_argument("--ids-from", default="data/flat3d/furniture.json")
     ap.add_argument("--id", action="append", default=[])
     ap.add_argument("--out", default=os.path.expanduser("~/scout-scenes/flat3d-rt"))
-    ap.add_argument("--size", type=int, default=1024)
-    ap.add_argument("--quality", type=int, default=82)
+    ap.add_argument("--size", type=int, default=None, help="сторона текстуры; по умолчанию — rules/rt-weight.json:texture.size (-lite для телефона задаёт свою, 512)")
+    ap.add_argument("--quality", type=int, default=None, help="JPEG-качество до KTX2; по умолчанию — rules/rt-weight.json:texture.quality")
     ap.add_argument("--suffix", default="")
     ap.add_argument("--force", action="store_true")
     ap.add_argument("--manifest", default="data/flat3d/runtime-meshes.json")
@@ -514,6 +518,8 @@ def main() -> int:
     ap.add_argument("--heavy-in", default="", help="папка с копиями: перечислить файлы тяжелее порога (код 1 — есть); зовёт publish_rt.sh")
     a = ap.parse_args()
     rule = weight_rule()
+    a.size = rule["texture"]["size"] if a.size is None else a.size
+    a.quality = rule["texture"]["quality"] if a.quality is None else a.quality
     if a.heavy_in:
         bad = heavy_files(os.path.expanduser(a.heavy_in), rule)
         for f, n in bad[:50]:

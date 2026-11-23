@@ -26,11 +26,11 @@ if [ -s "$Q" ] && mv -f "$Q" "$Q.taking"; then
   while read -r m; do QIDS+=(--id "$m"); done < <(grep -E '^[0-9]+_[0-9]+$' "$Q.taking" | sort -u | head -200)
   if [ ${#QIDS[@]} -gt 0 ]; then
     echo "очередь туров: моделей $(( ${#QIDS[@]} / 2 ))"
-    "$PY" tools/assets/runtime_mesh.py "${QIDS[@]}" --manifest "$M" --out "$OUT" --size 1024 2>&1 | grep -E "$SUM" | sed 's/^/туры: /'
+    "$PY" tools/assets/runtime_mesh.py "${QIDS[@]}" --manifest "$M" --out "$OUT" 2>&1 | grep -E "$SUM" | sed 's/^/туры: /'
     "$PY" tools/assets/runtime_mesh.py "${QIDS[@]}" --manifest "$M" --out "$OUT" --size 512 --suffix=-lite 2>&1 | grep -E "$SUM" | sed 's/^/туры: /'
   fi
 fi
-"$PY" tools/assets/runtime_mesh.py --ids-from-demo "$DATA" --manifest "$M" --out "$OUT" --size 1024 2>&1 | grep -E "$SUM"
+"$PY" tools/assets/runtime_mesh.py --ids-from-demo "$DATA" --manifest "$M" --out "$OUT" 2>&1 | grep -E "$SUM"
 "$PY" tools/assets/runtime_mesh.py --ids-from-demo "$DATA" --manifest "$M" --out "$OUT" --size 512 --suffix=-lite 2>&1 | grep -E "$SUM"
 bad=0
 # П-4: сводка веса по таблице копий — в отчёт ночи (WARN:rt_weight; ворота публикации — `--check` ниже, он тоже считает вес)
@@ -62,7 +62,7 @@ PYEOF
 )
 echo "копии моделей вариантов на проде: не хватает ${miss:-?}"
 case "$miss" in 0*) ;; *) bad=1;; esac
-"$PY" tools/assets/runtime_mesh.py --ids-from-demo "$DATA" --manifest "$M" --out "$OUT" --size 1024 --check || bad=1
+"$PY" tools/assets/runtime_mesh.py --ids-from-demo "$DATA" --manifest "$M" --out "$OUT" --check || bad=1
 "$PY" tools/assets/runtime_mesh.py --ids-from-demo "$DATA" --manifest "$M" --out "$OUT" --size 512 --suffix=-lite --check || bad=1
 if [ "$bad" = 1 ]; then
   echo "WARN:demo_rt_missing: у моделей вариантов демо нет свежих лёгких копий — демо этой ночью не публикуется (вчерашнее остаётся)"
