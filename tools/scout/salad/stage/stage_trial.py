@@ -163,8 +163,9 @@ def attach_08(inputs: dict, catalog: str, out: str) -> dict:
         pjson = os.path.join(os.path.dirname(npz), 'parts.json') if npz else ''
         if npz and os.path.isfile(pjson):
             ex['03-parts/parts.npz'], ex['03-parts/parts.json'] = npz, pjson
-        if v.get('photo') and os.path.isfile(v['photo']):
-            ex['photo.png'] = v['photo']
+        ph = v.get('photo') or (v.get('extra_in') or {}).get('photo.png') or ''                 # фото — вырезка товара: поле photo входа 06 или photo.png входа 07
+        if os.path.isfile(ph):
+            ex['photo.png'] = ph
         rep[sku] = {'product': 'product.json' in ex, 'parts': '03-parts/parts.npz' in ex, 'photo': 'photo.png' in ex}
     return rep
 

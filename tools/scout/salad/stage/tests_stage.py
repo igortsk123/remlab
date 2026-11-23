@@ -646,7 +646,7 @@ ok(ST.seam_model_08(a08, 'sku1', {})[3].endswith('pose/sku1/04-camera/check.json
    'камера 08: --pose-root находит и <корень>/<товар>, и <корень>/g1/<товар>')
 cat08 = os.path.join(d08, 'cat.json')
 json.dump([{'sid': 'sku1', 'name': 'Стол', 'role': 'dining_table', 'params': {'color': 'белый'}}], open(cat08, 'w', encoding='utf-8'), ensure_ascii=False)
-inp08 = {'sku1': {'extra_in': {'parts.npz': os.path.join(d08, 'p.npz')}, 'photo': os.path.join(d08, 'p.npz')}, 'sku2': {}}
+inp08 = {'sku1': {'extra_in': {'parts.npz': os.path.join(d08, 'p.npz'), 'photo.png': os.path.join(d08, 'p.npz')}}, 'sku2': {}}      # фото — из extra_in['photo.png'] (так у входов 07)
 open(os.path.join(d08, 'parts.json'), 'wb').write(b'{}')
 rep08 = ST.attach_08(inp08, cat08, d08)
 ok(rep08['sku1']['product'] and rep08['sku1']['photo'] and rep08['sku1']['parts'] and not rep08['sku2']['product'] and not rep08['sku2']['parts'], 'attach_08: product.json из каталога, чего нет в каталоге — не выдумывается; части — парой npz+json')
