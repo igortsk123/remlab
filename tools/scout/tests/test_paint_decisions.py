@@ -42,7 +42,8 @@ def run(stages, extra=None):
 d = run([S06, S07])
 ok(d['items']['07.cpu_s']['state'] in ('uncertain', 'fail', 'pass') and d['items']['07.cpu_s']['severity'] == 'info', 'cpu_s — info')
 ok('07.cpu_s' not in d['uncertain'] and '07.cpu_s' not in d['fail'], 'info в итог не входит')
-ok(d['items']['06.edge_corr']['state'] == 'uncertain' and d['items']['06.edge_corr']['raw'] == 'pass', 'порог не откалиброван → uncertain, сырой итог сохранён')
+ok(d['items']['09.group_bleed']['state'] == 'uncertain' and d['items']['09.group_bleed']['raw'] == 'pass', 'порог не откалиброван → uncertain, сырой итог сохранён')
+ok(d['items']['06.edge_corr']['state'] == 'pass', 'edge_corr откалиброван (0,70) → pass/fail по порогу')
 ok(d['items']['06.known_visible_share']['state'] == 'pass' and d['items']['06.known_share']['severity'] == 'info', 'T-215: известность гейтится по known_visible_share; known_share справочная')
 
 # 2. пустое front_on_back_corr (раньше «прошло») → uncertain
