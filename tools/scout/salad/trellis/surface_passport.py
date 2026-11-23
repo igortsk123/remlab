@@ -748,6 +748,9 @@ def top_follows_group(top_rep: dict, pas: dict, R: dict) -> dict:
     F = R.get('top_follow') or {}
     if not F.get('enabled', False):
         return {'follow': False, 'why': 'top_follow.enabled = false'}
+    t_ok, t_why = type_allows_rule(R, F)                                    # только у типа по политике паспорта (T-28/1)
+    if not t_ok:
+        return {'follow': False, 'why': 'по типу: ' + t_why}
     if not top_rep.get('applied') or not top_rep.get('tone_lab'):
         return {'follow': False, 'why': 'Ш3в не применён'}
     if top_rep.get('other_material_hint'):

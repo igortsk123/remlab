@@ -294,6 +294,11 @@ def test_top_follows_group():
     ok(not SP.top_follows_group(dict(top, tone_lab=[72.0, -3.0, 0.0]), pas, R)['follow'], 'тон Ш3в близок к группе (ΔE00 ≤ 8) — Ш3в остаётся')
     pas2 = {'groups': [dict(pas['groups'][0], **{'class': 'узор'})]}
     ok(not SP.top_follows_group(top, pas2, R)['follow'], 'класс «узор» не трогаем')
+    Rt = dict(R, top_follow=dict(R['top_follow'], require_hidden_pattern='body'))
+    ok(SP.top_follows_group(top, pas, dict(Rt, _card_role='шкаф'))['follow'], 'тип body (шкаф) — следует группе')
+    ok(not SP.top_follows_group(top, pas, dict(Rt, _card_role='диван'))['follow'], 'диван (same_fabric) — Ш3в остаётся (как main)')
+    ok(not SP.top_follows_group(top, pas, Rt)['follow'], 'нет роли товара — Ш3в остаётся')
+    ok(TF.RULES['surface_groups']['top_follow'].get('require_hidden_pattern') == 'body' and TF.RULES['surface_groups']['top_follow']['classes'] == ['свет'], 'rules: top_follow только body и только класс «свет»')
     R2 = dict(R, top_follow=dict(R['top_follow'], enabled=False))
     ok(not SP.top_follows_group(top, pas, R2)['follow'], 'top_follow.enabled=false — прежнее поведение')
 
