@@ -18,26 +18,26 @@ SP, SH = BS.load_rules()
 S, HP = int(SH["size"]), int(SH["header_px"])
 
 
-def sheet(path, back_noise=0.0, seed=1, with_object=True):
+def sheet(path, back_noise=0.0, seed=1, with_object=True, base=(160, 30, 10), speck=(230, 120, 90)):
     """Лист: белый, на виде «зад» — тёмно-красный прямоугольник; доля `back_noise` пикселей внутри — светлые точки (как крапинки)."""
     rng = np.random.default_rng(seed)
     im = np.full((S + HP, S * (len(SH["views"]) + 1), 3), 255, np.uint8)
     col = [i for i, v in enumerate(SH["views"]) if v["dtheta"] == SP["view_dtheta"]][0] + 1
     if with_object:
         cell = im[HP:, col * S:(col + 1) * S]
-        cell[int(S * .25):int(S * .8), int(S * .1):int(S * .9)] = (160, 30, 10)
+        cell[int(S * .25):int(S * .8), int(S * .1):int(S * .9)] = base
         h, w = cell.shape[:2]
         m = rng.random((h, w)) < back_noise
         inside = np.zeros((h, w), bool)
         inside[int(S * .25):int(S * .8), int(S * .1):int(S * .9)] = True
-        cell[m & inside] = (230, 120, 90)
+        cell[m & inside] = speck
     Image.fromarray(im).save(path)
     return path
 
 
 class T(unittest.TestCase):
     def test_rules_present_and_no_hardcode(self):
-        for k in ("view_dtheta", "median_px", "dev_levels", "core_shrink", "white_sum", "share_max", "ratio_max"):
+        for k in ("view_dtheta", "median_px", "dev_levels", "core_shrink", "white_sum", "share_max", "ratio_max", "rel_k", "rel_min"):
             self.assertIn(k, SP)
         with open(os.path.join(os.path.dirname(BS.__file__), "back_speckle.py"), encoding="utf-8") as f:
             src = f.read()
@@ -52,6 +52,16 @@ class T(unittest.TestCase):
             self.assertFalse(noisy["ok"], noisy)
             self.assertGreater(noisy["share"], SP["share_max"])
             self.assertIn("порога", noisy["reason"])
+
+    def test_dark_side_dark_specks_caught(self):
+        with tempfile.TemporaryDirectory() as t:
+            dark, speck = (45, 43, 40), (32, 30, 28)                                    # графит с чёрными крапинами: абсолютная разница сумм RGB < dev_levels
+            self.assertLess(sum(dark) - sum(speck), SP["dev_levels"])
+            clean = BS.measure(sheet(os.path.join(t, "h.png"), 0.0, base=dark, speck=speck), SP, SH)
+            bad = BS.measure(sheet(os.path.join(t, "i.png"), 0.02, base=dark, speck=speck), SP, SH)
+            self.assertTrue(clean["ok"], clean)
+            self.assertFalse(bad["ok"], bad)                                           # тёмное на тёмном — ловится по контрасту к тону стороны
+            self.assertFalse(BS.compare(os.path.join(t, "h.png"), os.path.join(t, "i.png"), SP, SH)["ok"])
 
     def test_edge_of_silhouette_not_counted(self):
         with tempfile.TemporaryDirectory() as t:

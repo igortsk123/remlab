@@ -56,7 +56,11 @@ def measure_cell(cell, sp: dict) -> dict:
     if reg.size == 0:
         return {'share': None, 'mean_dev': None, 'px': 0, 'box': [int(y0), int(y1), int(x0), int(x1)]}
     dev = np.abs(reg - median_filter(reg, size=int(sp['median_px'])))
-    return {'share': float((dev > sp['dev_levels']).mean()), 'mean_dev': float(dev.mean()), 'px': int(reg.size), 'box': [int(y0), int(y1), int(x0), int(x1)]}
+    thr = float(sp['dev_levels'])
+    tone = float(np.median(reg))
+    if sp.get('rel_k') is not None:                                  # контраст — к тону стороны: на тёмной стороне тёмная крапина мала по абсолютной сумме RGB, но заметна глазами
+        thr = min(thr, max(float(sp['rel_min']), float(sp['rel_k']) * tone))
+    return {'share': float((dev > thr).mean()), 'mean_dev': float(dev.mean()), 'px': int(reg.size), 'box': [int(y0), int(y1), int(x0), int(x1)], 'tone': tone, 'thr': thr}
 
 
 def measure(sheet_png: str, sp: dict | None = None, sh: dict | None = None) -> dict:

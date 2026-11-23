@@ -635,6 +635,8 @@ def back_panel(V, F, front_dir, rules: dict | None = None, ctx: dict | None = No
         fixed = anch | ~inside
         val = np.where(anch, w * dt, 0.0)
         d = _harmonic(A, fixed, val) * ramp
+        sn = inside & (ramp >= 1.0) & (np.abs(t + d - level) <= br["snap_tol"] * tol)                # у вершин, что после поля легли рядом с плоскостью (мелкая ряби поля), — ровно на неё: иначе по мелкой сетке остаются наклонные грани, и плоский свет рисует пятна
+        d = np.where(sn, level - t, d)
         V2 = V + np.outer(d, a)
         fl = _face_folds(V, V2, F, br["collapse_frac"])
         rep["folded_iter%d" % it] = int(fl.sum())
