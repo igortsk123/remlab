@@ -848,7 +848,7 @@ def align_ut(geoms: list, tex_after: list, known: list, ut_geoms: list | None, y
     return res, rep
 
 
-def sibling_tone(geoms: list, tex_before: list, tex_after: list, known: list, parts: list | None) -> tuple:
+def sibling_tone(geoms: list, tex_before: list, tex_after: list, known: list, parts: list | None, only: set | None = None) -> tuple:
     """Части-близнецы (T-187/6, стул 7733, 23.11). Тон части, посчитанный по мизерному известному (< `max_known` текселей части — скользящие/блики), ненадёжен. Если у части есть пара с ТЕМ ЖЕ цветом 06 на невидимом
     (ΔE76 медиан ≤ `same06_de`) и надёжным тоном (известного ≥ `partner_known`), а тоны после 07 различаются на |ΔL| > `min_dL` — невидимые тексели ненадёжной сдвигаются на разность медиан (L и a,b), зерно сохраняется;
     граница частей перестаёт быть рваной светлой полосой. Известные (фото) тексели не меняются. → (текстуры, {'pairs': [...], 'texels_changed', 'sibling_share_pct'})."""
@@ -890,7 +890,7 @@ def sibling_tone(geoms: list, tex_before: list, tex_after: list, known: list, pa
         res = tex.reshape(-1, 3).copy()
         lab_new = la.copy()
         for p, v in sorted(info.items()):
-            if v['ks'] >= O['max_known']:
+            if v['ks'] >= O['max_known'] or (only is not None and (gi, int(p)) not in only):
                 continue
             cand = [(float(np.linalg.norm(v['m06'] - w['m06'])), q) for q, w in info.items() if q != p and w['ks'] >= O['partner_known']]
             cand = [c for c in cand if c[0] <= O['same06_de']]

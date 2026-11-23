@@ -2479,19 +2479,33 @@ def run_stage_once(run: str, sku: str, glb: str, known: list | None = None, part
     tex_after, rep['own_panel'] = own_panel_tone_hook(geoms, tex_after, known, ut_g, parts, front_axis_of_check(_chk6), float(th['front_on_back_corr'][1]))
     import ref_zone as RZ
     try:                                                                  # части-близнецы (стул 7733, 23.11): тон из мизерного известного подтягивается к парной части с тем же цветом 06; сбой не роняет этап
-        tex_sib, rep['sibling_tone'] = RZ.sibling_tone(geoms, tex_before, tex_after, known, parts)
-        tex_sib, _ps = RZ.panel_sibling_tone(geoms, tex_before, tex_sib, known, parts)
+        _, rep['sibling_tone'] = RZ.sibling_tone(geoms, tex_before, tex_after, known, parts)             # кандидаты (все пары)
+        _cands = [(p['geom'], p['part']) for p in rep['sibling_tone'].get('pairs', [])]
+        _acc, _log = [], []
+        _cur = tex_after
+        _, _, _dw0, _dl0 = _front_back_vals(geoms, parts, known, kback, tex_before, _cur, rep) if _cands else (None, None, None, None)
+        for _c in _cands:                                              # страж ПО ПАРЕ: перёд↔зад не должен ухудшиться (локально 23.11: стул 7733, №20) — иначе эта пара откатывается
+            _try, _r1 = RZ.sibling_tone(geoms, tex_before, _cur, known, parts, only={_c})
+            _, _, _dw1, _dl1 = _front_back_vals(geoms, parts, known, kback, tex_before, _try, rep)
+            _bad = (_dw1 is not None and _dw0 is not None and _dw1 > _dw0 + 1.0) or (_dl1 is not None and _dl0 is not None and _dl1 > _dl0 + 1.0)
+            _log.append({'geom': _c[0], 'part': _c[1], 'dE00': [_dw0, _dw1], 'dL': [_dl0, _dl1], 'reverted': bool(_bad)})
+            if not _bad:
+                _cur, _dw0, _dl0 = _try, _dw1, _dl1
+                _acc.append(_c)
+        tex_sib = _cur
+        rep['sibling_tone']['accepted'] = [list(c) for c in _acc]
+        rep['sibling_tone']['guard'] = _log
+        rep['sibling_tone']['texels_changed'] = int(sum(p['texels'] for p in rep['sibling_tone'].get('pairs', []) if (p['geom'], p['part']) in set(_acc)))
+        _tp, _ps = RZ.panel_sibling_tone(geoms, tex_before, tex_sib, known, parts)
+        if _ps.get('texels_changed'):
+            _, _, _dwa, _dla = _front_back_vals(geoms, parts, known, kback, tex_before, tex_sib, rep)
+            _, _, _dwb, _dlb = _front_back_vals(geoms, parts, known, kback, tex_before, _tp, rep)
+            _pbad = (_dwb is not None and _dwa is not None and _dwb > _dwa + 1.0) or (_dlb is not None and _dla is not None and _dlb > _dla + 1.0)
+            _ps['reverted'] = bool(_pbad)
+            if not _pbad:
+                tex_sib = _tp
         rep['sibling_tone']['panels_in_part'] = _ps
-        rep['sibling_tone']['texels_changed'] = int(rep['sibling_tone'].get('texels_changed', 0)) + int(_ps.get('texels_changed', 0))
-        if rep['sibling_tone'].get('texels_changed'):                  # страж: перёд↔зад не должен ухудшиться (локальный прогон 23.11: №20 dE00 2,4→13,5) — иначе близнецы откатываются
-            _, _, dw0, dl0 = _front_back_vals(geoms, parts, known, kback, tex_before, tex_after, rep)
-            _, _, dw1, dl1 = _front_back_vals(geoms, parts, known, kback, tex_before, tex_sib, rep)
-            worse = (dw1 is not None and dw0 is not None and dw1 > dw0 + 1.0) or (dl1 is not None and dl0 is not None and dl1 > dl0 + 1.0)
-            rep['sibling_tone']['guard'] = {'dE00': [dw0, dw1], 'dL': [dl0, dl1], 'reverted': bool(worse)}
-            if not worse:
-                tex_after = tex_sib
-        else:
-            tex_after = tex_sib
+        tex_after = tex_sib
     except Exception as e:  # noqa: BLE001
         rep['sibling_tone'] = {'error': f'{type(e).__name__}: {e}'}
     try:                                                                  # подчасть по цвету 06 (Б, 23.11): мелкие невидимые панели со своим тоном; сбой не роняет этап
