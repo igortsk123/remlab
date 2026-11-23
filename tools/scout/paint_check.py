@@ -31,6 +31,7 @@ HERE = os.path.dirname(os.path.abspath(__file__))
 RULES = os.path.join(HERE, 'rules', 'paint-check.json')
 STAGE = '09-check'
 sys.path.insert(0, os.environ.get('PAINT_STAGE_DIR') or HERE)
+import paint_decisions as PD  # noqa: E402  (4 состояния pass/fail/uncertain/not_applicable по реестру; без numpy)
 import paint_stage as PS  # noqa: E402  (общий писатель/читатель check.json)
 
 SEV = {'ok': 0, 'soft': 1, 'refused': 2, 'missing': 2}
@@ -157,6 +158,15 @@ def classify_palette(glb: str | None, photo: str | None, rules: dict, pal_fn=Non
     return out
 
 
+def run_surface(glb: str | None, run: str, sku: str, out_dir: str, stage_runs: dict | None = None) -> dict:
+    """Мерки паспорта на итоговом GLB (T-20261123-19/1, `paint_surface_checks.py`): верх ↔ фото, затёк между группами, пустая плоскость. known — этап 6, части — этап 8 (если есть)."""
+    import paint_surface_checks as PSC  # noqa: E402  (numpy/trimesh — только здесь)
+    sr = stage_runs or {}
+    pj = os.path.join(run, PS.safe_name(sku), 'work', 'product.json')                                  # класс каталога — только подсказка (флаг role_mismatch, в гейт не идёт)
+    role = (json.load(open(pj, encoding='utf-8')).get('role') if os.path.exists(pj) else None)
+    return PSC.classify(glb, os.path.join(sr.get('06-visible', run), PS.safe_name(sku), '06-visible', 'known.png'), os.path.join(sr.get('08-material', run), PS.safe_name(sku), '08-material', 'parts08.npz'), out_dir=out_dir, role=role)
+
+
 def classify_coverage(glb: str | None, rules: dict, out_dir: str, cov_fn=None) -> dict:
     out = {'stage': 'coverage', 'status': 'missing', 'reason': 'нет итогового GLB (этап 08/07 не выдал файл)', 'hard_failed': [], 'soft_failed': [], 'metrics': {}, 'glb': glb, 'verdict': None}
     c = rules['coverage']
@@ -180,9 +190,9 @@ def classify_coverage(glb: str | None, rules: dict, out_dir: str, cov_fn=None) -
 
 
 # ----------------------------------------------------------------------------------------------- товар --------
-def judge_product(stages: list, cov: dict, rules: dict, pal: dict | None = None) -> dict:
+def judge_product(stages: list, cov: dict, rules: dict, pal: dict | None = None, surf: dict | None = None) -> dict:
     """Итог товара: ready | ready_with_notes | not_ready, первая блокирующая причина, список пометок."""
-    allst = stages + [cov] + ([pal] if pal else [])
+    allst = stages + [cov] + ([pal] if pal else []) + ([surf] if surf else [])
     block = [s for s in allst if s['status'] in ('refused', 'missing')]
     notes = [f"{s['stage']}: {s['reason']}" for s in allst if s['status'] == 'soft']
     if block:
@@ -191,7 +201,7 @@ def judge_product(stages: list, cov: dict, rules: dict, pal: dict | None = None)
     return {'final': 'ready_with_notes' if notes else 'ready', 'reason': '', 'notes': notes, 'blocking': []}
 
 
-def check_product(run: str, sku: str, rules: dict, stage_runs: dict | None = None, cov_fn=None, ribbon: bool = True, with_coverage: bool = True, pal_fn=None) -> dict:
+def check_product(run: str, sku: str, rules: dict, stage_runs: dict | None = None, cov_fn=None, ribbon: bool = True, with_coverage: bool = True, pal_fn=None, surf_fn=None) -> dict:
     t0 = time.time()
     sr = stage_runs or {}
     stages = []
@@ -208,13 +218,16 @@ def check_product(run: str, sku: str, rules: dict, stage_runs: dict | None = Non
         cov = {'stage': 'coverage', 'status': 'missing', 'reason': 'сторож охвата не запускался (--no-coverage)', 'hard_failed': [], 'soft_failed': [], 'metrics': {}, 'glb': glb, 'verdict': None}
     pal = classify_palette(glb, find_photo(run, sku, rules, sr), rules, pal_fn) if with_coverage else \
         {'stage': 'palette', 'status': 'missing', 'reason': 'сторож палитры не запускался (--no-coverage)', 'hard_failed': [], 'soft_failed': [], 'metrics': {}, 'glb': glb}
-    verdict = judge_product(stages, cov, rules, pal)
+    surf = (surf_fn or run_surface)(glb, run, sku, out_dir, sr) if with_coverage and rules.get('surface', {}).get('enabled', True) else \
+        {'stage': 'surface', 'status': 'ok', 'reason': '', 'hard_failed': [], 'soft_failed': [], 'metrics': {}, 'glb': glb}
+    verdict = judge_product(stages, cov, rules, pal, surf)
+    dec = PD.decide_product(stages, {'coverage': cov, 'palette': pal, 'surface': surf})     # рядом со старым флагом, итог (`passed`) не меняет — решения в тени
     frame = None
     if ribbon:
         frame = build_ribbon(sku, stages, cov, verdict, rules, os.path.join(out_dir, PS.FRAME), pal)
     n_block = len(verdict['blocking'])
     missing = [s['stage'] for s in stages if s['status'] == 'missing']
-    hard = [s['stage'] for s in stages if s['status'] == 'refused'] + (['coverage'] if cov['status'] == 'refused' else []) + (['palette'] if pal['status'] == 'refused' else [])
+    hard = [s['stage'] for s in stages if s['status'] == 'refused'] + (['coverage'] if cov['status'] == 'refused' else []) + (['palette'] if pal['status'] == 'refused' else []) + (['surface'] if surf['status'] in ('refused', 'missing') else [])
     doc = PS.write_check(
         out_dir, STAGE, sku, passed=verdict['final'] != 'not_ready',
         metric={'name': 'blocking_stages', 'value': n_block, 'threshold': 0, 'op': '<='},
@@ -224,7 +237,8 @@ def check_product(run: str, sku: str, rules: dict, stage_runs: dict | None = Non
         final=verdict['final'], final_ru=rules['final_words'][verdict['final']], notes=verdict['notes'], blocking=verdict['blocking'],
         stages=[{k: s[k] for k in ('stage', 'status', 'reason', 'hard_failed', 'soft_failed', 'metrics', 'run')} for s in stages],
         coverage={k: cov.get(k) for k in ('status', 'verdict', 'reason', 'metrics', 'glb', 'seconds')},
-        palette={k: pal.get(k) for k in ('status', 'reason', 'metrics', 'rgb')})
+        palette={k: pal.get(k) for k in ('status', 'reason', 'metrics', 'rgb')},
+        surface={k: surf.get(k) for k in ('status', 'reason', 'metrics')}, decisions=dec)
     return doc
 
 

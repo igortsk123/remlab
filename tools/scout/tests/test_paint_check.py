@@ -19,6 +19,7 @@ R = PC.load_rules()
 # сторож палитры (paint_palette, numpy/trimesh) в этом файле подменён «чисто»: его настоящую работу на GLB проверяет test_paint_palette.py
 PAL_CLEAN = {'share': 0.0, 'photo_share': 0.0, 'rgb': None}
 PC.run_palette = lambda glb, photo, guard: dict(PAL_CLEAN)
+PC.run_surface = lambda glb, run, sku, out_dir, sr=None: {'stage': 'surface', 'status': 'ok', 'reason': '', 'hard_failed': [], 'soft_failed': [], 'metrics': {}, 'glb': glb}   # мерки поверхности (numpy/trimesh) здесь не гоним: их тест — test_paint_surface_checks.py
 STAGES = R['required_stages']
 FAIL = 0
 
