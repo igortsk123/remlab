@@ -28,6 +28,7 @@ import hashlib
 import io
 import json
 import os
+import re
 import struct
 import subprocess
 import sys
@@ -136,6 +137,7 @@ def resolve_parts(parts: list[dict], cls: dict, recipes: dict, parts_known: bool
                  "de_main": round(float(_de76(lab, main_lab)), 1) if lab is not None and main_lab is not None else None}
         r = _compound_part(p, r, cls, recipes)
         _painted_metal(p, r, recipes)
+        _gloss_finish(r, cls, recipes)
         _carry_tone(r, cls, cat)
         r["confident"] = bool(r["confidence"] >= cl["confident_from"])
         out[int(p["id"])] = r
@@ -205,6 +207,34 @@ def _painted_metal(p: dict, r: dict, recipes: dict) -> None:
         r["painted_from"] = r["class"]
         r["class"] = pm["class"]
         r["reason"] += f"; крашеный металл: {why}"
+
+
+def gloss_of(product: dict, recipes: dict) -> dict | None:
+    """Товар назван глянцевым/лакированным? (`gloss_finish`: слова в названии или значениях характеристик, без слов матовости). → {word, where} или None."""
+    gf = recipes.get("gloss_finish")
+    if not gf:
+        return None
+    mc, _ = _siblings()
+    fields = [("название", product.get("name"))] + [(f"«{k}»", v) for k, v in (product.get("params") or {}).items()]
+    for where, val in fields:
+        t = mc.norm(val)
+        if not t or any(re.search(rx, t) for rx in gf["not_words"]):
+            continue
+        for rx in gf["words"]:
+            m = re.search(rx, t)
+            if m:
+                return {"word": m.group(0), "where": where}
+    return None
+
+
+def _gloss_finish(r: dict, cls: dict, recipes: dict) -> None:
+    """Глянцевый товар (`cls['gloss']`): часть щита/дерева (`class_map`) берёт рецепт глянца; без слова глянца щит и дерево остаются матовыми по своему рецепту."""
+    gf, g = recipes.get("gloss_finish"), cls.get("gloss")
+    if not gf or not g or r["class"] not in gf["class_map"]:
+        return
+    r["gloss_from"] = r["class"]
+    r["class"] = gf["class_map"][r["class"]]
+    r["reason"] += f"; глянец/лак: «{g['word']}» в {g['where']}"
 
 
 def _carry_tone(r: dict, cls: dict, cat: dict) -> None:
@@ -909,6 +939,7 @@ def run_stage(glb: str, run: str, sku: str, product: dict, parts_dir: str | None
     rules = mc.load_rules()
     cls = mc.classify(rules, {"role": product.get("role") or "", "name": product.get("name") or "", "params": product.get("params") or {}})
     cls["group"] = rules["_roleGroup"].get(product.get("role") or "")          # группа каталога (seating/bed/…): от неё зависит политика для частей без метки
+    cls["gloss"] = gloss_of(product, recipes)                                    # глянец/лак по словам названия и характеристик (`gloss_finish`)
     cls["compound"] = compound_of(rules, cls, recipes)                          # составное поле материала («Металл, Хрусталь») — список классов, части берут по одному из него
     pdir = parts_dir or os.path.join(run, ps.safe_name(sku), "03-parts")
     npz = os.path.join(pdir, "parts.npz")
@@ -1047,6 +1078,7 @@ def run_stage(glb: str, run: str, sku: str, product: dict, parts_dir: str | None
         faces=nf, parts_source=parts_source, shape=shape_rep, catalog_parts_not_located=not_located, unsure_parts=unsure_rep, product_class={"class": cls["class"], "stage": cls["stage"], "confidence": cls["confidence"], "reason": cls["reason"], "parts": cls.get("parts")},
         parts=parts_rep, classes=table, compound=cls.get("compound") or [], untouched_share=round(float(np.isin(part, [pid for pid, r in res.items() if r["class"] == "unknown"]).sum()) / nf, 4),
         painted_metal_share=round(float(np.isin(part, [pid for pid, r in res.items() if r.get("painted_from")]).sum()) / nf, 4),
+        gloss_finish_share=round(float(np.isin(part, [pid for pid, r in res.items() if r.get("gloss_from")]).sum()) / nf, 4), gloss_finish=cls.get("gloss"),
         flat_top_parts=sorted(pid for pid, sh in horiz.items() if ftop and sh >= ftop["horizontal_min_share"]), glass_tone=tone_rep, part_photo=pp_rep, sheen=maps["hasSheen"], transmission=maps["hasTransmission"], recipes_sha=recipes_sha(), glb=pinfo)
     return doc
 
@@ -1093,6 +1125,22 @@ def check() -> int:
             v = (recipes.get(sec) or {}).get(k)
             if not isinstance(v, (int, float)) or v < 0:
                 bad.append(f"{sec}.{k}: {v!r}")
+    gf = recipes.get("gloss_finish")
+    if gf is not None:
+        for k in ("words", "not_words"):
+            if not isinstance(gf.get(k), list) or (k == "words" and not gf[k]):
+                bad.append(f"gloss_finish.{k}: {gf.get(k)!r} (нужен список регулярок, words непустой)")
+            for rx in gf.get(k) or []:
+                try:
+                    re.compile(rx)
+                except re.error as e:
+                    bad.append(f"gloss_finish.{k}: регулярка {rx!r}: {e}")
+        for a, b in (gf.get("class_map") or {}).items():
+            for cid in (a, b):
+                if cid not in recipes["recipes"]:
+                    bad.append(f"gloss_finish.class_map: класс {cid} без рецепта")
+        if not gf.get("class_map"):
+            bad.append("gloss_finish.class_map пуст")
     for sec in ("compound", "painted_metal"):
         for cid in (recipes.get(sec) or {}).get("from", []) + [(recipes.get(sec) or {}).get("class")] * (sec == "painted_metal"):
             if cid and cid not in recipes["recipes"]:

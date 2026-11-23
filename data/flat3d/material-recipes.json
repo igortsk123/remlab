@@ -59,14 +59,14 @@
    "transmission": 0.0
   },
   "wood_solid": {
-   "roughness": 0.55,
+   "roughness": 0.7,
    "metallic": 0.0,
    "sheen": 0.0,
    "sheenRoughness": 0.5,
    "transmission": 0.0
   },
   "wood_veneer": {
-   "roughness": 0.45,
+   "roughness": 0.7,
    "metallic": 0.0,
    "sheen": 0.0,
    "sheenRoughness": 0.5,
@@ -80,14 +80,14 @@
    "transmission": 0.0
   },
   "ldsp": {
-   "roughness": 0.5,
+   "roughness": 0.75,
    "metallic": 0.0,
    "sheen": 0.0,
    "sheenRoughness": 0.5,
    "transmission": 0.0
   },
   "mdf_film": {
-   "roughness": 0.38,
+   "roughness": 0.75,
    "metallic": 0.0,
    "sheen": 0.0,
    "sheenRoughness": 0.5,
@@ -149,6 +149,20 @@
    "sheenRoughness": 0.5,
    "transmission": 0.0
   },
+  "panel_gloss": {
+   "roughness": 0.38,
+   "metallic": 0.0,
+   "sheen": 0.0,
+   "sheenRoughness": 0.5,
+   "transmission": 0.0
+  },
+  "wood_lacquer": {
+   "roughness": 0.45,
+   "metallic": 0.0,
+   "sheen": 0.0,
+   "sheenRoughness": 0.5,
+   "transmission": 0.0
+  },
   "metal_painted": {
    "roughness": 0.45,
    "metallic": 0.2,
@@ -166,8 +180,8 @@
  },
  "fallback_class": "neutral",
  "stage_classes": {
-  "_about": "Классы, которых нет в material-classes.json (каталог их не называет): их назначает только этап 08 по цвету и форме части. metal_painted — крашеный металл; unknown — часть, которую отнести уверенно нельзя: 08 её не трогает (рецепт = то, что и так в 07: шероховатость 1, металла и блеска нет).",
-  "ids": ["metal_painted", "unknown"]
+  "_about": "Классы, которых нет в material-classes.json (каталог их не называет): их назначает только этап 08 по цвету и форме части. metal_painted — крашеный металл; panel_gloss / wood_lacquer — глянцевый (лакированный) щит или дерево по словам названия/характеристик (`gloss_finish`); unknown — часть, которую отнести уверенно нельзя: 08 её не трогает (рецепт = то, что и так в 07: шероховатость 1, металла и блеска нет).",
+  "ids": ["metal_painted", "panel_gloss", "wood_lacquer", "unknown"]
  },
  "compound": {
   "_about": "Составное поле материала («Металл, Хрусталь», «Дерево, металл», T-20261123-14): поле разбираем списком классов, часть главного класса получает ОДИН из списка по форме и цвету. Включается, если в списке ≥ 2 семейств и среди них есть из `families`. Тонкая часть (роль из `thin_roles`) → металл списка. Не тонкая, светлая и почти бесцветная (L ≥ glass_L_min, цветность C ≤ glass_C_max) → стекло списка. Не тонкая, и в списке ровно один не металл и не стекло → он. Иначе класс `unknown`: 08 эту часть не трогает (лучше без материала, чем чужой). Уверенность unknown = confidence.unknown (≥ classify.confident_from — это решение, а не догадка); доля таких граней — в check.json `untouched_share`.",
@@ -184,6 +198,12 @@
   "chroma_min": 14,
   "light_L_min": 65,
   "light_spread_max": 12
+ },
+ "gloss_finish": {
+  "_about": "Блик по виду отделки (T-20261123-33; шкаф 10887 «заплатками»: шероховатость 0,38 на всех МДФ дала белые рваные блики на фасках стыков, владелец TG 2240). Корпусные щиты и дерево по умолчанию МАТОВЫЕ (рецепты ldsp/mdf_film ≥ 0,7, дерево ≥ 0,7). Глянцевыми они становятся только если в названии товара или значениях характеристик есть слово из `words` (лак, глянец) и нет слова из `not_words` (матовый, полуматовый): часть класса из `class_map` получает рецепт-значение этого отображения (shape «как было» до матового): panel_gloss 0,38, wood_lacquer 0,45. Остальные классы (ткань, кожа, металл, хром, стекло, пластик) не трогаем: у них свои рецепты. Слова — регулярки по норме `material_class.norm` (нижний регистр, ё→е). Доля граней — check.json `gloss_finish_share`.",
+  "words": ["глян(ец|ц\\w*)", "\\bлак(ом|овы\\w*)?\\b", "лакирован\\w*"],
+  "not_words": ["матов\\w*", "полуматов\\w*"],
+  "class_map": { "ldsp": "panel_gloss", "mdf_film": "panel_gloss", "wood_solid": "wood_lacquer", "wood_veneer": "wood_lacquer" }
  },
  "flat_top": {
   "_about": "Широкая плоскость (столешница, T-20261123-14): часть, у которой доля ПЛОЩАДИ горизонтальных граней (|нормаль·вверх| ≥ min_cos, вверх — ось Y) ≥ horizontal_min_share (столешница, полка; вертикальные плоскости — дверцы — не трогаем: форма «плоская» по part_shapes у столешницы не срабатывает, она — «верх»), не бликует как зеркало — шероховатость не ниже roughness_min. Металл (metallic > skip_metallic) и прозрачное (transmission > skip_transmission) не трогаем. Порог подобран по кадрам при освещении страницы (разница L верха 08 и 07 ≤ 6).",

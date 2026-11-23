@@ -465,6 +465,27 @@ def test_painted_metal():
     ok(pr["metallic"] <= 0.3 and R["recipes"]["metal"]["metallic"] > 0.8, "рецепт крашеного металла: metallic ≤ 0,3")
 
 
+def test_gloss_finish():
+    """T-20261123-33: щит и дерево по умолчанию матовые (≥ 0,7); глянцевыми — только по слову лак/глянец в названии или характеристиках; ткань, кожа, металл, стекло не трогаем."""
+    rc = R["recipes"]
+    ok(all(rc[c]["roughness"] >= 0.7 for c in ("ldsp", "mdf_film", "wood_solid", "wood_veneer")), "рецепты матовых щита и дерева: шероховатость ≥ 0,7")
+    ok(rc["panel_gloss"]["roughness"] < 0.5 and rc["wood_lacquer"]["roughness"] < 0.5 and rc["metal"]["roughness"] < 0.5, "глянцевые рецепты (щит, лакированное дерево) и металл остаются блестящими")
+    g = lambda name, **params: MS.gloss_of({"name": name, "params": params}, R)  # noqa: E731
+    ok(g("Тумба Венда Оранжевый Глянец") is not None, "«Глянец» в названии — глянцевый")
+    ok(g("Шкаф Монблан", **{"Материал фасада": "МДФ в пленке ПВХ"}) is None, "МДФ в плёнке без слов глянца — матовый")
+    ok(g("Шкаф", **{"Покрытие": "лакированный МДФ"}) is not None and g("Шкаф", **{"Покрытие": "матовый лак"}) is None, "лакированный — глянец; «матовый лак» — нет")
+    ok(g("Стол Лаконика") is None and g("Шкаф Белый") is None, "«лакон…» (часть слова) и просто цвет — не глянец")
+    ok(g("Тумба «Глянец» полуматовая") is None, "слово матовости перекрывает слово глянца")
+    one = lambda cls_, name: MS.resolve_parts([{"id": 0, "face_share": 1.0, "role": "main"}], dict(_cls(cls_, 0.9), gloss=g(name)), R)[0]  # noqa: E731
+    ok(one("mdf_film", "Тумба Глянец")["class"] == "panel_gloss" and one("mdf_film", "Тумба Глянец").get("gloss_from") == "mdf_film", "МДФ с «Глянец» → panel_gloss (глянец как был)")
+    ok(one("ldsp", "Шкаф Белый")["class"] == "ldsp", "ЛДСП без глянца → ldsp (матовый)")
+    ok(one("wood_solid", "Комод лакированный")["class"] == "wood_lacquer", "дерево с лаком → wood_lacquer")
+    ok(one("rogozhka", "Диван Глянец")["class"] == "rogozhka" and one("metal", "Стол Глянец")["class"] == "metal" and one("leather", "Кресло глянец")["class"] == "leather", "ткань, металл, кожа слово глянца не трогает")
+    t = MS.class_table(R, ["ldsp", "panel_gloss"])
+    m = MS.bake_maps(np.array([[1, 2]], dtype=np.int64), t, R)["mr"]
+    ok(m[0, 0, 1] >= 178 and m[0, 1, 1] < 128, "карта MR: матовый щит ≥ 0,7 (G ≥ 178), глянцевый < 0,5")
+
+
 def test_glass_keeps_colour_map():
     """T-20261123-14: у стекла с тоном карта цвета 07 с рисунком сохраняется (σL ≥ 50 %), медиана = тон; ровная карта красится целиком."""
     with tempfile.TemporaryDirectory() as d:
@@ -539,7 +560,7 @@ def test_flat_top_roughness():
 
 
 if __name__ == "__main__":
-    for t in (test_rules_complete, test_no_ids_in_code, test_resolve, test_legs_and_colour, test_bake, test_patch_glb, test_stage_end_to_end, test_shapes_without_stage3, test_top_zone_shade, test_stand_junction_is_metal, test_unsure_parts_report, test_soft_body_inherits_upholstery, test_stage3_roles, test_merge_roles_file, test_top_zone_bigger_than_body, test_inherit_unseen, test_stage_geometry_and_inherited, test_compound_field, test_painted_metal, test_glass_keeps_colour_map, test_frame_gate, test_flat_top_roughness):
+    for t in (test_rules_complete, test_no_ids_in_code, test_resolve, test_legs_and_colour, test_bake, test_patch_glb, test_stage_end_to_end, test_shapes_without_stage3, test_top_zone_shade, test_stand_junction_is_metal, test_unsure_parts_report, test_soft_body_inherits_upholstery, test_stage3_roles, test_merge_roles_file, test_top_zone_bigger_than_body, test_inherit_unseen, test_stage_geometry_and_inherited, test_compound_field, test_painted_metal, test_gloss_finish, test_glass_keeps_colour_map, test_frame_gate, test_flat_top_roughness):
         print(t.__name__)
         t()
     print(f"material_stage tests: ошибок {FAIL}")
