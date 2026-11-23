@@ -856,6 +856,9 @@ def test_unobserved_relief():
     o2 = TF.fill([g], known, parts, cfg=cfgS, mirror=False, unobs_draft_fn=lambda: dt)
     lab2 = lab_of(o2["tex"][0], mD)
     ok(float(lab2[:, 0].std()) > 0.05 and o2["report"]["relief"][0]["fallback"] is None, f"боевой путь (stat + UltraTex): σL залитого > 0 (σL {float(lab2[:, 0].std()):.2f})", str(o2["report"].get("relief"))[:200])
+    d0 = TF.draft_relief.__code__.co_varnames
+    ok('pb_donor' in d0, 'draft_relief принимает донора σ фото (для «не наблюдаем» с мизерным известным)')
+    ok(TF._pb_donors([0, 1, 2], {0: (0, 0, 10, False), 1: (0, 0, 500, False), 2: (0, 0, 40, False)}, {0, 2}) == {0: 1, 2: 1}, 'донор σ — часть с наибольшим известным (не сама)')
     o3 = TF.fill([g], known, parts, cfg=cfgS, mirror=False)
     ok(float(lab_of(o3["tex"][0], mD)[:, 0].std()) < 0.01 and "relief" not in o3["report"], "контроль: без UltraTex-черновика «не наблюдаем» — голый тон (σL 0)")
     o4 = TF.fill([g], known, parts, cfg=dict(cfgS, pattern_min_blocks=0.0, pattern_chroma=1e9), mirror=False, unobs_draft_fn=lambda: dt)

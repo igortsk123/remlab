@@ -804,7 +804,12 @@ def _band(lab_l: np.ndarray, mask: np.ndarray, s_lo: float, s_hi: float) -> tupl
     return b1 - b2[..., 0], w2
 
 
-def draft_relief(txs: list, draft: dict, labs: list, kn: list, part_ids: list, pat_parts: set, c: dict, R: dict, calib: dict | None = None, no_homog: set | frozenset = frozenset()) -> tuple:
+def _pb_donors(part_ids: list, stat: dict, qunobs: set) -> dict:
+    """Донор «чистой полосы фото» для «не наблюдаем»: часть с наибольшим известным (не сама)."""
+    return {p: max((q for q in part_ids if q != p), key=lambda q: stat[q][2]) for p in qunobs if len(part_ids) > 1}
+
+
+def draft_relief(txs: list, draft: dict, labs: list, kn: list, part_ids: list, pat_parts: set, c: dict, R: dict, calib: dict | None = None, no_homog: set | frozenset = frozenset(), pb_donor: dict | None = None) -> tuple:
     """Вариант C-gated (T-164, Codex+директор 21.11): цвет — как stat, фактура невидимого — рельеф яркости черновика TRELLIS (DoG-полоса в МАСШТАБЕ ПОВЕРХНОСТИ, без цвета и пятен), только там, где это безопасно.
     Ворота по части: узорная (pat_parts) → stat; класс материала части (`c['part_class']`: {часть: семья}) вне `allowed_families` (дерево, металл, стекло…) → без рельефа; класса нет → только «однотонная» (σ низкочастотной L известного ≤ homog_max_std).
     Полоса: σ_lo/σ_hi = band_lo/band_hi (доли размера предмета) ÷ шаг текселя части (texel_spacing, поправка плотности UV). Амплитуда: gain = min(gain_max, σ_фото / σ_черновика) — оба σ робастные (MAD), фото — только уверенно известное
@@ -849,14 +854,30 @@ def draft_relief(txs: list, draft: dict, labs: list, kn: list, part_ids: list, p
         if len(Lk) < c['min_known']:
             rp[p] = {'fallback': f'мало известного ({len(Lk)} текселей) — stat'}
             continue
-        shade = float(np.quantile(Lk, c['tone_shadow_q'])) if c['tone_shadow_q'] > 0 else -1e9
+        def _pb_of(selk_, Lk_, slo_, shi_):
+            shade_ = float(np.quantile(Lk_, c['tone_shadow_q'])) if c['tone_shadow_q'] > 0 and len(Lk_) else -1e9
+            out_ = []
+            for gi_, tx_ in enumerate(txs):
+                Lm_ = labs[gi_][..., 0]
+                band_, w2_ = _band(Lm_, kn[gi_] & (Lm_ >= shade_), slo_, shi_)
+                out_.append(band_.reshape(-1)[tx_.ti[selk_[gi_] & (w2_.reshape(-1)[tx_.ti] >= R['far_w']) & (Lm_.reshape(-1)[tx_.ti] >= shade_)]])
+            return np.concatenate(out_) if out_ else np.zeros(0)
+        PB = _pb_of(selk, Lk, s_lo_k, s_hi_k)
+        pb_from = None
+        if len(PB) < c['min_known'] and pb_donor and p in pb_donor:                      # «не наблюдаем» с мизерным известным: чистая полоса фото — у части с наибольшим известным (в её масштабе), как calib
+            q_ = int(pb_donor[p])
+            selq = [kn[gi].reshape(-1)[tx.ti] & (tx.part == q_) for gi, tx in enumerate(txs)]
+            Lq = np.concatenate([labs[gi].reshape(-1, 3)[tx.ti[selq[gi]], 0] for gi, tx in enumerate(txs)])
+            spq_ = float(np.median(np.concatenate([spacing[gi][tx.part == q_] for gi, tx in enumerate(txs)] or [np.zeros(0)]))) if any((tx.part == q_).any() for tx in txs) else 0.0
+            if spq_ > 0 and len(Lq) >= c['min_known']:
+                slo_q = float(np.clip(R['band_lo'] / spq_, R['sigma_lo_min'], R['sigma_lo_max']))
+                shi_q = float(np.clip(R['band_hi'] / spq_, 2.0 * slo_q, R['sigma_hi_max']))
+                PB_q = _pb_of(selq, Lq, slo_q, shi_q)
+                if len(PB_q) >= c['min_known']:
+                    PB, pb_from = PB_q, q_
         pb, dbd, dlow = [], [], []
         for gi, tx in enumerate(txs):
             T = tx.T
-            Lm = labs[gi][..., 0]
-            m_vis = kn[gi] & (Lm >= shade)
-            band, w2 = _band(Lm, m_vis, s_lo_k, s_hi_k)
-            pb.append(band.reshape(-1)[tx.ti[selk[gi] & (w2.reshape(-1)[tx.ti] >= R['far_w']) & (Lm.reshape(-1)[tx.ti] >= shade)]])
             dl = draft['lab'][gi][..., 0]
             band_d, wd = _band(dl, dok[gi], s_lo, s_hi)
             band_d = np.where(dok[gi], band_d, 0.0)
@@ -864,7 +885,6 @@ def draft_relief(txs: list, draft: dict, labs: list, kn: list, part_ids: list, p
             lowL = _blur_norm(np.repeat(dl[..., None], 3, axis=2), dok[gi], max(R['patch_frac'] / sp, 3.0 * s_hi))[0][..., 0]
             hp = np.where(dok[gi], dl - _blur_norm(np.repeat(dl[..., None], 3, axis=2), dok[gi], 1.0)[0][..., 0], 0.0)      # пиксельная высокая частота — для поиска крошки (в полосе она размазана на σ_hi)
             dbd.append((band_d, loc, lowL, wd, hp))
-        PB = np.concatenate(pb)
         if len(PB) < c['min_known']:
             rp[p] = {'fallback': f'мало уверенного фото в полосе ({len(PB)}) — stat', 'spacing': round(sp, 5)}
             continue
@@ -876,7 +896,7 @@ def draft_relief(txs: list, draft: dict, labs: list, kn: list, part_ids: list, p
             continue
         sd = _mad_sigma(DD)
         homog = float(np.concatenate([_blur_norm(np.repeat(labs[gi][..., 0][..., None], 3, axis=2), kn[gi], s_hi_k)[0][..., 0].reshape(-1)[tx.ti[selk[gi]]] for gi, tx in enumerate(txs)]).std())
-        info = {'family': fam, 'spacing': round(sp, 5), 'sigma_lo_px': round(s_lo, 2), 'sigma_hi_px': round(s_hi, 2), 'sigma_photo': round(sv, 3), 'sigma_draft': round(sd, 3), 'p95_photo': round(p95, 3), 'homog_std': round(homog, 2), 'calib_donor': calib_q, 'fallback': None}
+        info = {'family': fam, 'spacing': round(sp, 5), 'sigma_lo_px': round(s_lo, 2), 'sigma_hi_px': round(s_hi, 2), 'sigma_photo': round(sv, 3), 'sigma_draft': round(sd, 3), 'p95_photo': round(p95, 3), 'homog_std': round(homog, 2), 'calib_donor': calib_q if pb_from is None else pb_from, 'fallback': None}
         if fam is None and p not in no_homog and homog > R['homog_max_std']:
             info['fallback'] = f'класса нет, часть неоднотонная (σ низких частот {homog:.1f} > {R["homog_max_std"]}) — stat'
             rp[p] = info
@@ -1538,9 +1558,9 @@ def fill(geoms: list, known: list, parts: list | None = None, cfg: dict | None =
         calib_ = {int(p_): int(v_['donor']) for p_, v_ in rep.get('tone_from_neighbour', {}).items()} if c.get('relief_calib_donor') else None
         if unobs_only:
             draft = unobs_draft_fn()
-            relief, rep["relief"] = draft_relief(txs, draft, labs, kn, sorted(qunobs), set(), c, RULES["trellis_relief"], calib=calib_, no_homog=frozenset(qunobs))
+            relief, rep["relief"] = draft_relief(txs, draft, labs, kn, sorted(qunobs), set(), c, RULES["trellis_relief"], calib=calib_, no_homog=frozenset(qunobs), pb_donor=_pb_donors(part_ids, stat, qunobs))
         else:
-            relief, rep["relief"] = draft_relief(txs, draft, labs, kn, part_ids, (set(raw_mean) | set(pat_parts)) - qunobs, c, RULES["trellis_relief"], calib=calib_, no_homog=frozenset(qunobs))          # «рисунок не наблюдаем» — как обычная часть: рельеф UltraTex (T-187/6, 23.11)
+            relief, rep["relief"] = draft_relief(txs, draft, labs, kn, part_ids, (set(raw_mean) | set(pat_parts)) - qunobs, c, RULES["trellis_relief"], calib=calib_, no_homog=frozenset(qunobs), pb_donor=_pb_donors(part_ids, stat, qunobs))          # «рисунок не наблюдаем» — как обычная часть: рельеф UltraTex (T-187/6, 23.11)
         Rr = RULES['trellis_relief']
         spac = [texel_spacing(tx) for tx in txs]
         fade = []
