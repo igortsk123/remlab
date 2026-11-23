@@ -122,7 +122,7 @@ m = P.measure(p('bleed.glb'), p('k_none2.png'), p('parts.npz'), R)
 gb = m['group_bleed']
 ok(gb['status'] == 'ok' and gb['groups_source'] == 'parts' and gb['value_pct'] > R['group_bleed']['threshold'][1], f"затёк в залитых текселях: {gb.get('value_pct')} % > порога")
 ok(gb['pairs'] and gb['pairs'][0]['B'] == 0 and gb['pairs'][0]['A'] == 1, 'найдено, кто в кого затёк: ножка ← верх')
-ok(P.judge(m, R)['status'] == 'soft', 'мягкая мерка: готов с пометкой')
+ok('group_bleed' in P.judge(m, R)['soft_failed'] and 'group_bleed' not in P.judge(m, R)['hard_failed'], 'мягкая мерка затёка: пометка, не отказ (зад с пятном при этом ещё и не одним тоном — это жёсткая мерка тона)')
 known_png(p('k_leg.png'), [(330, 20, 500, 280)])            # ножка с пятном — известна с фото: пятно настоящее
 m = P.measure(p('bleed.glb'), p('k_leg.png'), p('parts.npz'), R)
 ok(m['group_bleed']['value_pct'] == 0, f"то же пятно в известных с фото — не затёк ({m['group_bleed']['value_pct']})")
@@ -141,7 +141,7 @@ bad = P.classify(p('clean.glb'), None, None, fn=lambda *a: 1 / 0)
 ok(bad['status'] == 'missing' and 'упали' in bad['reason'], 'сбой мерки → missing')
 ok(P.classify(None, None, None)['status'] == 'missing', 'нет GLB → missing')
 c = P.classify(p('good.glb'), p('k_top.png'), None, out_dir=p('out'))
-ok(c['status'] == 'ok' and os.path.exists(p('out/surface.json')), 'classify пишет surface.json')
+ok(c['status'] == 'missing' and os.path.exists(p('out/surface.json')), 'classify пишет surface.json; без фото палитры нет → не измерено (missing)')
 
 # 7б. «светлее фото»: нет фото / нет растра камеры → na (не «ок»); судья берёт долю и порог из paint-fill.json
 ok(P.lighter_than_photo(p('good.glb'), None, None, R)['status'] == 'na', 'нет фото → na')
@@ -179,6 +179,36 @@ m = P.measure(p('good.glb'), p('k_top.png'), None, R, None, None, 'кресло'
 ok(m['role_mismatch']['flag'] is True and 'не из списка' in m['role_mismatch']['why'], 'верх есть, класс «кресло» → флаг role_mismatch')
 ok(P.judge(m, R)['status'] == 'ok' and 'role_mismatch' not in P.judge(m, R)['hard_failed'], 'флаг role_mismatch в гейт не идёт')
 ok(P.measure(p('good.glb'), p('k_top.png'), None, R)['role_mismatch']['flag'] is False, 'класс не передан — флага нет')
+
+# 7д. «один материал — один тон» верха и зада (T-20261123-32): мерится ВСЕГДА, против палитры фото; нет данных — «не измерено», а не «ок»
+parts_npz(p('parts_tone.npz'))
+mt = P.measure(p('good.glb'), p('k_top.png'), p('parts_tone.npz'), R, p('photo.png'), None)
+ok(mt['top_tone']['status'] == 'ok' and mt['top_tone']['dev_share_pct'] <= R['tone']['top']['one_tone_max_pct'] and mt['top_tone']['off_palette_pct'] == 0, f"ровный верх цвета фото: один тон {mt['top_tone'].get('dev_share_pct')} %, мимо палитры {mt['top_tone'].get('off_palette_pct')} %")
+ok(mt['back_tone']['status'] == 'ok', f"зад (лист ножки) измерен: {mt['back_tone'].get('status')}")
+jt = P.judge(mt, R)
+ok(jt['status'] == 'ok' and not jt['unmeasured'] and jt['metrics']['top_one_tone_pct']['ok'] is True, 'судья: ровный верх и зад проходят, всё измерено')
+alb = make_table(p('patch.glb'), WOOD, WHITE)                    # лоскуты: половина верха — чужой тон (лоскуты/градиент: зерно усредняется, это нет)
+alb[20:300, 160:301] = (90, 70, 50)
+sc_ = list(trimesh.load(p('patch.glb'), force='scene', process=False).geometry.values())[0]
+sc_.visual.material.baseColorTexture = Image.fromarray(alb)
+sc_.export(p('patch.glb'))
+mp = P.measure(p('patch.glb'), p('k_top.png'), p('parts_tone.npz'), R, p('photo.png'), None)
+jp = P.judge(mp, R)
+ok(mp['top_tone']['dev_share_pct'] > 30 and 'top_one_tone_pct' in jp['hard_failed'], f"лоскуты на верхе: {mp['top_tone'].get('dev_share_pct')} % не одним тоном → отказ {jp['hard_failed']}")
+make_table(p('black.glb'), (25, 25, 25), WHITE)                  # чёрный верх при светлом дереве на фото: «чёрный металл» вместо материала товара
+mb = P.measure(p('black.glb'), p('k_top.png'), p('parts_tone.npz'), R, p('photo.png'), None)
+jb = P.judge(mb, R)
+ok(mb['top_tone']['off_palette_pct'] > 90 and 'top_off_palette_pct' in jb['hard_failed'] and 'top_one_tone_pct' not in jb['hard_failed'], f"ровный чёрный верх мимо палитры фото: {mb['top_tone'].get('off_palette_pct')} % → отказ только по палитре")
+mn = P.measure(p('good.glb'), p('k_top.png'), p('parts_tone.npz'), R, None, None)
+jn = P.judge(mn, R)
+ok(mn['top_tone']['off_palette_pct'] is None and 'top_off_palette_pct' in jn['unmeasured'] and jn['metrics']['top_off_palette_pct']['ok'] is None and 'error' in jn['metrics']['top_off_palette_pct'], 'нет фото → «не измерено» (error), не 0')
+cn = P.classify(p('good.glb'), p('k_top.png'), p('parts_tone.npz'), photo=None)
+ok(cn['status'] == 'missing' and 'не измерено' in cn['reason'], f"этап 9: не измерено → missing, не ready ({cn['status']})")
+cg = P.classify(p('good.glb'), p('k_top.png'), p('parts_tone.npz'), photo=p('photo.png'))
+ok(cg['status'] == 'ok', f"этап 9: всё измерено и в норме → ok ({cg['status']}: {cg['reason']})")
+ok(P.judge({'top_vs_photo': {'status': 'na'}, 'empty_flat': {'status': 'na'}, 'group_bleed': {'status': 'na'}, 'top_tone': {'status': 'na', 'why': 'нет плоского верха по геометрии'}, 'back_tone': {'status': 'small', 'why': 'мало'}}, R)['unmeasured'] == [], 'нет верха по геометрии / сторона ничтожна → не блок')
+ok(P.judge({'top_vs_photo': {'status': 'na'}, 'empty_flat': {'status': 'na'}, 'group_bleed': {'status': 'na'}, 'top_tone': {'status': 'unmeasured', 'why': 'x'}, 'back_tone': {'status': 'ok', 'dev_share_pct': 0.0, 'off_palette_pct': 0.0}}, R)['unmeasured'] == ['top_one_tone_pct', 'top_off_palette_pct'], 'большая сторона без измерения → не измерено')
+ok(all(k in R['tone'][s] for s in ('top', 'back') for k in ('one_tone_max_pct', 'off_palette_max_pct', 'min_texels')) and R['tone']['dev_dE00'] > 0, 'пороги тона — в rules (paint-surface-checks.json → tone)')
 
 # 8. настоящие правила: пороги в данных, у каждой мерки есть порог и операция, ID товаров в правилах нет
 ok(all(len(R[k]['threshold']) == 2 for k in ('top_vs_photo', 'group_bleed', 'empty_flat')), 'у трёх мерок есть (op, порог)')

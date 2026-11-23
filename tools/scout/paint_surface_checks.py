@@ -496,6 +496,128 @@ def frames(glb: str, known_png: str | None, parts_path: str | None, out_dir: str
     return out
 
 
+# ------------------------------------------------------------------------- мерка 4: «один тон» верха и зада
+def palette_cells(photo: str | None, R: dict) -> np.ndarray | None:
+    """Центры ячеек Lab переднего плана фото (как в `photo_palette_dist`): эталон «какие цвета у материала товара»; нет фото/мало переднего плана → None (не измерено)."""
+    if not photo or not os.path.exists(photo):
+        return None
+    from PIL import Image
+    c = R['top_vs_photo']
+    im = Image.open(photo).convert('RGBA')
+    im.thumbnail((256, 256))
+    a = np.asarray(im)
+    fg = a[..., 3] > 200
+    if int(fg.sum()) < 500:
+        return None
+    lab = lab_of(a[..., :3][fg])
+    key = np.floor(lab / np.array([4.0, 3.0, 3.0])).astype(int)
+    uniq, inv = np.unique(key, axis=0, return_inverse=True)
+    cnt = np.bincount(inv.ravel())
+    keep = np.where(cnt / len(lab) >= c['palette_min_share'])[0]
+    if not len(keep):
+        return None
+    return np.array([np.median(lab[inv.ravel() == k], axis=0) for k in keep])
+
+
+def side_faces_back(glb: str, M: dict, known: np.ndarray | None, R: dict) -> dict:
+    """Грани ЗАДА: наружная нормаль смотрит к камере заднего вида (азимут «зад» = противоположный фото-стороне по known, `tex_fill.side_azimuths`) в пределах cos ≥ back.cos_min."""
+    sys.path.insert(0, os.path.join(HERE, 'salad', 'trellis'))
+    import tex_fill as TF  # noqa: E402
+    import tex_coverage as TC  # noqa: E402
+    geoms = TC.load_geoms(glb)
+    az = {'back': 180.0, 'photo': 0.0, 'fallback': True}
+    if known is not None:
+        az = TF.side_azimuths(geoms, [known])
+    V, F = M['V'], M['F']
+    n, _ = face_normals_areas(V, F)
+    cen = V[F].mean(axis=1)
+    n = n * np.where(((cen - V.mean(axis=0)) * n).sum(axis=1) >= 0, 1.0, -1.0)[:, None]          # наружу
+    cam = TF.photo_views([az['back']], 0.0)[0][0]
+    faces = np.where((n @ cam) >= float(R['tone']['back']['cos_min']))[0]
+    return {'faces': faces, 'azimuth_back': az.get('back'), 'azimuth_fallback': bool(az.get('fallback'))}
+
+
+def side_tone(M: dict, faces: np.ndarray, cells: np.ndarray | None, R: dict, key: str, part: np.ndarray | None = None) -> dict:
+    """Один ли тон на стороне (`key` = top | back): «один материал — один тон» (правило владельца TG 1922/1934). Тексели граней стороны (без шва с другими гранями), по ГРУППАМ материала
+    (`part` — parts08.npz; нет — вся сторона одна группа): у группы — медиана Lab и НИЗКОЧАСТОТНОЕ отклонение (среднее в окне `lf_px` от медианы группы: зерно/ткань усредняются, лоскуты,
+    градиент, чужой тон — нет). dev_share_pct — доля текселей групп с ΔE2000 отклонения > dev_dE00; off_palette_pct — доля текселей дальше palette_dE00 от ближайшего цвета фото товара
+    (чёрное на белом шкафу). Статусы: ok | small (сторона ничтожна — нечего мерить, не блок) | na (граней нет) | unmeasured (сторона большая, а измерить не вышло — НЕ «ок»).
+    Фото нет → off_palette_pct None (+причина): судья считает это «не измерено», а не «0»."""
+    import mesh_grey_top as G
+    from scipy import ndimage
+    c = R['tone']
+    t = R['top']
+    ck = c[key]
+    F, UV, alb = M['F'], M['UV'], M['albedo']
+    if not len(faces):
+        return {'status': 'na', 'why': 'нет граней стороны'}
+    alb_w, sc = _scale(alb, t['work_px'])
+    h, w = alb_w.shape[:2]
+    other = np.setdiff1d(np.arange(len(F)), faces)
+    mo = G._raster(UV, F[other], w, h) if len(other) else np.zeros((h, w), bool)
+    side_m = G._raster(UV, F[faces], w, h)
+    min_g = ck['min_texels'] * (sc * sc)
+    if int(side_m.sum()) < min_g:
+        return {'status': 'small', 'why': 'сторона занимает слишком мало текселей', 'texels': int(side_m.sum())}
+    groups = sorted({int(g) for g in part[faces]}) if part is not None else [None]
+    gmask = {g: (G._raster(UV, F[faces[part[faces] == g]], w, h) if g is not None else side_m) for g in groups}
+    rng = np.random.default_rng(0)
+    lf = max(3, int(c['lf_px']))
+    rows, tot_n, dev_n, off_n, off_tot = [], 0, 0.0, 0.0, 0
+    for exclusive in (True, False):                                   # второй проход — когда шов съел всю сторону (развёртка делит острова с чужими гранями)
+        for g in groups:
+            m_g = gmask[g].copy()
+            if exclusive:
+                m_g &= ~mo
+                for j in groups:
+                    if j != g:
+                        m_g &= ~gmask[j]
+            inner = G._erode(m_g, t['erode_px'])
+            n = int(inner.sum())
+            if n < min_g:
+                continue
+            ys, xs = np.nonzero(inner)
+            lab_all = lab_of(alb_w[ys, xs])
+            lab_img = np.zeros((h, w, 3), np.float32)
+            lab_img[ys, xs] = lab_all
+            med = np.median(lab_all, axis=0)
+            wgt = inner.astype(np.float32)
+            den = ndimage.uniform_filter(wgt, size=lf)
+            mean = np.stack([ndimage.uniform_filter(lab_img[..., k] * wgt, size=lf) for k in range(3)], -1) / np.maximum(den[..., None], 1e-6)
+            sel = den[ys, xs] >= c['lf_cover_min']
+            if int(sel.sum()) < min_g:
+                continue
+            lf_lab = mean[ys, xs][sel]
+            if len(lf_lab) > c['sample']:
+                lf_lab = lf_lab[rng.choice(len(lf_lab), c['sample'], replace=False)]
+            d = _tc().de2000_v(lf_lab, np.repeat(med[None], len(lf_lab), 0))
+            share = float((d > c['dev_dE00']).mean())
+            row = {'group': g, 'texels': n, 'rgb': [int(v) for v in lab_to_rgb(med)], 'dev_share_pct': round(100.0 * share, 2), 'p95_dE00': round(float(np.percentile(d, 95)), 2)}
+            tot_n += n
+            dev_n += share * n
+            if cells is not None:
+                px_lab = lab_all if len(lab_all) <= c['sample'] else lab_all[rng.choice(len(lab_all), c['sample'], replace=False)]
+                dmin = np.full(len(px_lab), 1e9)
+                for ce in cells:
+                    dmin = np.minimum(dmin, _tc().de2000_v(px_lab, np.repeat(ce[None], len(px_lab), 0)))
+                osh = float((dmin > c['palette_dE00']).mean())
+                row['off_palette_pct'] = round(100.0 * osh, 2)
+                off_n += osh * n
+                off_tot += n
+            rows.append(row)
+        if rows:
+            break
+    if not rows:
+        return {'status': 'unmeasured', 'why': 'сторона большая, но ни одна группа не дала достаточно текселей без шва', 'texels': int(side_m.sum())}
+    out = {'status': 'ok', 'texels': tot_n, 'groups': rows, 'dev_share_pct': round(100.0 * dev_n / tot_n, 2), 'worst_group_dev_pct': max(r['dev_share_pct'] for r in rows), 'overlap_pass': not exclusive}
+    if cells is None:
+        out['off_palette_pct'] = None
+        out['off_palette_why'] = 'нет фото товара — палитры нет'
+    else:
+        out['off_palette_pct'] = round(100.0 * off_n / max(off_tot, 1), 2)
+    return out
+
+
 def role_mismatch(top_res: dict, role: str | None, R: dict) -> dict:
     """Геометрия против класса каталога (директор 23.11): класс — ПОДСКАЗКА, решает геометрия; расхождение — флаг в surface.json, в гейт НЕ идёт.
     has_top — найден плоский верх по геометрии; hint — класс из списка «у таких типов верх важен» (rules `applies_to_hint.top_vs_photo`)."""
@@ -541,6 +663,20 @@ def measure(glb: str, known_png: str | None = None, parts_path: str | None = Non
     else:
         tp.setdefault('ref', 'known')
     tm['top_vs_photo'] = round(time.time() - t1, 2)
+    t1 = time.time()
+    cells = None
+    try:
+        cells = palette_cells(photo, R)
+    except Exception as e:  # noqa: BLE001
+        res['palette_cells_error'] = f'{type(e).__name__}: {str(e)[:100]}'
+    res['top_tone'] = side_tone(M, vt['top_faces'], cells, R, 'top', part) if vt.get('top_faces') is not None and len(vt['top_faces']) else {'status': 'na', 'why': 'нет плоского верха по геометрии'}
+    try:
+        bf = side_faces_back(glb, M, known, R)
+        res['back_tone'] = side_tone(M, bf['faces'], cells, R, 'back', part)
+        res['back_tone'].update(azimuth_back=bf['azimuth_back'], azimuth_fallback=bf['azimuth_fallback'])
+    except Exception as e:  # noqa: BLE001 — зад не измерен: так и пишем
+        res['back_tone'] = {'status': 'error', 'why': f'{type(e).__name__}: {str(e)[:120]}'}
+    tm['tone'] = round(time.time() - t1, 2)
     t1 = time.time()
     res['empty_flat'] = empty_flat(M, known, R, res['top_vs_photo'])
     tm['empty_flat'] = round(time.time() - t1, 2)
@@ -595,8 +731,32 @@ def judge(m: dict, R: dict) -> dict:
         r = m.get(key) or {}
         if mk not in ms:                                     # не измерено — пишем ПОЧЕМУ: этап 9 различает «не применимо» (na) и «не посчитано» (error/нет данных)
             ms[mk] = {'value': None, 'ok': None, ('na' if r.get('status') == 'na' else 'error'): r.get('why') or 'нет результата мерки'}
+    unmeasured = []
+    tc = R.get('tone') or {}
+    for side in ('top', 'back'):                                       # «один материал — один тон» на верхе и заде (T-20261123-32): мерится ВСЕГДА, нет данных = «не измерено»
+        r = m.get(f'{side}_tone') or {'status': 'unmeasured', 'why': 'мерка стороны не запускалась'}
+        k1, k2 = f'{side}_one_tone_pct', f'{side}_off_palette_pct'
+        if r.get('status') == 'ok':
+            lim = tc[side]
+            for k, val, thr in ((k1, r['dev_share_pct'], lim['one_tone_max_pct']), (k2, r.get('off_palette_pct'), lim['off_palette_max_pct'])):
+                if val is None:
+                    ms[k] = {'value': None, 'ok': None, 'error': r.get('off_palette_why') or 'нет данных'}
+                    unmeasured.append(k)
+                    continue
+                ok = val <= thr
+                ms[k] = {'value': val, 'threshold': thr, 'op': '<=', 'ok': ok}
+                if not ok:
+                    (soft if tc.get('soft') else hard).append(k)
+        else:
+            why = r.get('why') or 'нет результата мерки'
+            for k in (k1, k2):
+                if r.get('status') in ('na', 'small'):
+                    ms[k] = {'value': None, 'ok': None, 'na': why}
+                else:
+                    ms[k] = {'value': None, 'ok': None, 'error': why}
+                    unmeasured.append(k)
     status = 'refused' if hard else 'soft' if soft else 'ok'
-    return {'status': status, 'metrics': ms, 'hard_failed': hard, 'soft_failed': soft}
+    return {'status': status, 'metrics': ms, 'hard_failed': hard, 'soft_failed': soft, 'unmeasured': unmeasured}
 
 
 def classify(glb: str | None, known_png: str | None, parts_path: str | None, rules_all: dict | None = None, out_dir: str | None = None, fn=None, photo: str | None = None, pose_run: str | None = None, role: str | None = None) -> dict:
@@ -615,10 +775,13 @@ def classify(glb: str | None, known_png: str | None, parts_path: str | None, rul
         return out
     j = judge(m, R)
     out.update(status=j['status'], metrics=j['metrics'], hard_failed=j['hard_failed'], soft_failed=j['soft_failed'], detail=m)
+    if j['status'] == 'ok' and j['unmeasured']:                           # не измерено ≠ прошло: этап 9 не отдаёт «готов» без мерки верха/зада
+        out['status'] = 'missing'
     why = []
     for k in j['hard_failed'] + j['soft_failed']:
-        mm = {'top_vs_photo': 'top_vs_photo_dE00', 'empty_flat': 'empty_flat_pct', 'group_bleed': 'group_bleed_pct', 'lighter_than_photo': 'lighter_than_photo_pct'}[k]
+        mm = {'top_vs_photo': 'top_vs_photo_dE00', 'empty_flat': 'empty_flat_pct', 'group_bleed': 'group_bleed_pct', 'lighter_than_photo': 'lighter_than_photo_pct'}.get(k, k)
         why.append(f"{mm} {j['metrics'][mm]['value']} > {j['metrics'][mm]['threshold']}")
+    why += [f"не измерено {k}: {j['metrics'][k].get('error')}" for k in j['unmeasured']]
     out['reason'] = '; '.join(why)
     if out_dir:
         os.makedirs(out_dir, exist_ok=True)

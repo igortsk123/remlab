@@ -119,6 +119,11 @@ def find_photo(run: str, sku: str, rules: dict, stage_runs: dict | None = None) 
     for k in p['photo_keys']:
         if ex.get(k) and os.path.exists(ex[k]):
             return ex[k]
+    for fb in p.get('photo_fallback') or []:                                       # путь этапа 4 бывает временным (/tmp) — берём тот, что записал соседний этап
+        ex = (PS.read_check(os.path.join((stage_runs or {}).get(fb['stage'], run), PS.safe_name(sku), fb['stage'])) or {}).get('extra') or {}
+        for k in fb['keys']:
+            if ex.get(k) and os.path.exists(ex[k]):
+                return ex[k]
     return None
 
 
@@ -164,7 +169,15 @@ def run_surface(glb: str | None, run: str, sku: str, out_dir: str, stage_runs: d
     sr = stage_runs or {}
     pj = os.path.join(run, PS.safe_name(sku), 'work', 'product.json')                                  # класс каталога — только подсказка (флаг role_mismatch, в гейт не идёт)
     role = (json.load(open(pj, encoding='utf-8')).get('role') if os.path.exists(pj) else None)
-    return PSC.classify(glb, os.path.join(sr.get('06-visible', run), PS.safe_name(sku), '06-visible', 'known.png'), os.path.join(sr.get('08-material', run), PS.safe_name(sku), '08-material', 'parts08.npz'), out_dir=out_dir, role=role)
+    rules = load_rules()
+    photo = find_photo(run, sku, rules, sr)
+    sc = rules.get('surface') or {}
+    pose_run = None
+    if sc.get('pose_run_stage'):                                                    # растр камеры от формы этого товара: нет папки — мерка возьмёт палитру фото
+        pst = sc['pose_run_stage']
+        pr = ((PS.read_check(os.path.join(sr.get(pst, run), PS.safe_name(sku), pst)) or {}).get('extra') or {}).get(sc.get('pose_run_key', 'pose_run'))
+        pose_run = pr if pr and os.path.isdir(pr) else None
+    return PSC.classify(glb, os.path.join(sr.get('06-visible', run), PS.safe_name(sku), '06-visible', 'known.png'), os.path.join(sr.get('08-material', run), PS.safe_name(sku), '08-material', 'parts08.npz'), out_dir=out_dir, photo=photo, pose_run=pose_run, role=role)
 
 
 def run_frame_gate(frames_dir: str) -> dict:

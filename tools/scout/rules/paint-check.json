@@ -39,7 +39,14 @@
     "enabled": true,
     "guard_rules": "stablegen-view-guard.json",
     "photo_stage": "04-camera",
-    "photo_keys": ["photo", "source_photo"]
+    "photo_keys": ["photo", "source_photo"],
+    "photo_fallback": [{"stage": "05-delight", "keys": ["source_photo"]}]
+  },
+  "surface": {
+    "_about": "Откуда мерки поверхности берут фото и растр камеры (T-20261123-32): без них верх сравнивался сам с собой. Растр камеры — `extra.pose_run` этапа pose_run_stage; нет папки — запасной эталон по палитре фото.",
+    "enabled": true,
+    "pose_run_stage": "06-visible",
+    "pose_run_key": "pose_run"
   },
   "frame_gate": {
     "_about": "Ворота кадра страницы шага 08 (T-20261123-25/1, П1.154): средний цвет предмета «с материалом» (mat.png) против «как сейчас» (now.png) по маске (mask.png) в нейтральном свете просмотрщика страницы. Пороги dE_max/dC_min/min_mask_px — ТОЛЬКО в data/flat3d/material-recipes.json#frame_gate (код tools/assets/frame_gate.py, здесь чисел нет). Кадры лежат в папке этапа `stage` товара; нет кадров/маска мала — «не измерено» (в решениях uncertain, старый итог не блокируется), ΔE/ΔC вне порога — отказ (жёстко).",
