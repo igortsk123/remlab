@@ -854,5 +854,46 @@ class TestZBuffer(unittest.TestCase):
         self.assertEqual(TV.visible_known_share(g, empty, tr), (0.0, 0))
 
 
+class FrontCheck(unittest.TestCase):
+    """Перёд/зад после переноса (T-20261123-43): вердикт по долям известного и кромкам камеры; без правил — не применимо."""
+
+    def setUp(self):
+        self.g = box_geom()
+        self.tr = {'known': [np.ones((16, 16), bool)]}
+        self.cam = {'az': 10.0}
+
+    def run_check(self, shares, agree, flipped, ref=0.5):
+        return TV.front_check(self.g, self.tr, self.cam, '/нет', shares_fn=lambda *a, **k: shares, flipped_fn=lambda sh: flipped, agree=agree, ref=ref)
+
+    def test_flipped_and_weak_edges_refuse(self):
+        r = self.run_check({'перед': 0.25, 'зад': 0.36}, 0.39, True)
+        self.assertEqual(r['state'], 'flipped')
+        self.assertIn('кромок', r['why'])
+
+    def test_flipped_but_edges_fine_is_not_refusal(self):
+        r = self.run_check({'перед': 0.29, 'зад': 0.40}, 0.56, True)
+        self.assertEqual(r['state'], 'ok')
+        self.assertIn('перёд не определён', r['why'])
+
+    def test_not_flipped_ok(self):
+        self.assertEqual(self.run_check({'перед': 0.74, 'зад': 0.03}, 0.2, False)['state'], 'ok')
+
+    def test_edges_unknown_is_not_refusal(self):
+        self.assertEqual(self.run_check({'перед': 0.2, 'зад': 0.4}, None, True)['state'], 'ok')
+
+    def test_no_camera_or_no_witness_not_applicable(self):
+        self.assertEqual(TV.front_check(self.g, self.tr, None, '/нет')['state'], 'n/a')
+        def boom(*a, **k):
+            raise KeyError('front_guard')
+        r = TV.front_check(self.g, self.tr, self.cam, '/нет', shares_fn=boom, flipped_fn=lambda sh: False, agree=0.1, ref=0.5)
+        self.assertEqual(r['state'], 'n/a')
+        self.assertIn('front_guard', r['why'])
+
+    def test_one_edge_ref_source(self):
+        src = open(os.path.join(HERE, 'tex_visible.py'), encoding='utf-8').read()
+        self.assertIn("camera-check.json", src)
+        self.assertIsInstance(TV.edge_ref(), float)
+
+
 if __name__ == '__main__':
     unittest.main()

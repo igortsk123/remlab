@@ -35,6 +35,7 @@ sys.path[:0] = [HERE, SALAD, SCOUT]
 
 import tex_coverage as TC  # noqa: E402
 import paint_stage as PS  # noqa: E402
+import front_axis as FA  # noqa: E402       # общий свидетель «перёда» (T-21/2): доли известного по сторонам; нет модуля — ошибка импорта, не молчание
 import crease_mask as CM  # noqa: E402     # мерки полос у изломов и карта уверенности текселя (T-194/1, T-194/2); текстуру не меняет
 
 def _rules() -> dict:
@@ -936,6 +937,56 @@ def camera_gate(pose_run: str) -> tuple:
     return False, 'камера этапа 4 не прошла свой гейт: ' + ('; '.join(bad) or str(ch.get('reason') or 'passed=false'))
 
 
+# ── перёд/зад после переноса (T-20261123-43) ──────────────────────────────────────────────────────────────────────
+
+def pose_edge_agree(pose_run: str) -> float | None:
+    """Согласие кромок выбранной позы (pose.json: picked.edge.agree); нет файла/поля/кромки не измерены → None."""
+    try:
+        pj = json.load(open(os.path.join(pose_run, 'pose.json'), encoding='utf-8'))
+        e = (pj.get('picked') or {}).get('edge') or {}
+        return None if e.get('no_edges') or e.get('agree') is None else float(e['agree'])
+    except (OSError, ValueError, AttributeError, TypeError):
+        return None
+
+
+def edge_ref() -> float:
+    """Порог «камере не верим» — один, rules/camera-check.json: edge_ref (копии нет)."""
+    return float(json.load(open(os.path.join(SCOUT, 'rules', 'camera-check.json'), encoding='utf-8'))['edge_ref'])
+
+
+def front_check(geoms: list, tr: dict, cam: dict | None, pose_run: str, shares_fn=None, flipped_fn=None, agree: float | None = None, ref: float | None = None) -> dict:
+    """Вторая линия «перёд/зад» после переноса: доли известных текселей (known.png, как у листа) по сторонам (общая функция `front_axis.front_shares`, камера az этапа 4) и вердикт `front_flipped`.
+    state: 'flipped' (зад известен больше перёда на margin И кромки позы < edge_ref — отказ 06), 'ok', 'n/a' (нет правил front_guard / камеры / данных / проверка выключена — не отказ). Пороги долей — sides-eval.json: front_guard."""
+    out = {'state': 'n/a', 'why': ''}
+    if not (R.get('front_check') or {}).get('enabled', True):
+        out['why'] = 'выключено правилом front_check'
+        return out
+    if not cam or cam.get('az') is None:
+        out['why'] = 'нет азимута камеры'
+        return out
+    try:
+        sh_fn, fl_fn = shares_fn or FA.front_shares, flipped_fn or FA.front_flipped
+        gi = int(np.argmax([int(np.asarray(k).sum()) for k in tr['known']]))      # как у листа (known.png этапа 6, front_guard): по части с наибольшим известным
+        g = geoms[gi]
+        shares = sh_fn(g['V'], g['F'], g['UV'], np.asarray(tr['known'][gi]), float(cam['az']))
+        flipped = bool(fl_fn(shares))
+    except (ImportError, KeyError, OSError, ValueError, TypeError) as e:       # нет модуля/блока front_guard — проверка неприменима
+        out['why'] = f'нет свидетеля перёда: {type(e).__name__}: {str(e)[:120]}'
+        return out
+    agree = pose_edge_agree(pose_run) if agree is None else agree
+    try:
+        ref = edge_ref() if ref is None else ref
+    except (OSError, KeyError, ValueError, TypeError) as e:                  # нет правил камеры в окружении этапа — порога «камере не верим» нет, проверка неприменима
+        out.update({'why': f'нет порога edge_ref (rules/camera-check.json): {type(e).__name__}', 'shares': shares, 'front_flipped': flipped})
+        return out
+    out.update({'shares': shares, 'front_flipped': flipped, 'edge_agree': agree, 'edge_ref': ref})
+    if flipped and agree is not None and agree < ref:
+        out.update({'state': 'flipped', 'why': f"фото легло на сторону, противоположную перёду: известно у «зад» {shares.get('зад')} больше, чем у «перёд» {shares.get('перед')}, а согласие кромок камеры {agree:.2f} < {ref:g} — камере не верим (перёд/зад перепутаны)"})
+    else:
+        out.update({'state': 'ok', 'why': ('зад известен больше перёда, но кромки камеры в порядке — перёд не определён, не отказ' if flipped else '')})
+    return out
+
+
 def legs_cut(pose_run: str):
     """Ножки формы не совпали с фото (T-191/3: 04 check.json extra.legs_block (= legs_mismatch при включённом rules legs_match.block_photo, по умолчанию выкл); сверка — legs_check.legs_report): {'row': первая строка ножек в пикселях кадра камеры, 'frame_px', 'boxes': рамки ножек формы,
     прошедших сверку (фото на них переносим; пол сдвинут — пусто), 'why'}. Нет флага / нет файла → None. Камеру НЕ бракует: 04 passed остаётся как есть."""
@@ -1040,6 +1091,11 @@ def _run(glb: str, photo: str, pose_run: str, run_dir: str, sku: str, cos_min: f
                 prgb = prgb.copy(); prgb[blk] = 0
             reg['applied'] = True
     tr = transfer(geoms, st, prgb, pmask, cos_min)
+    fchk = front_check(geoms, tr, st['camera'], pose_run)
+    if fchk['state'] == 'flipped':                                   # фото на стороне, противоположной перёду, камере не верим: красить нечего (до 07)
+        PS.write_check(d, '06-visible', sku, passed=False, reason='front_flipped: ' + fchk['why'], seconds=round(time.time() - t0, 1), needs_qwen=False, camera_failed=True,
+                       camera_gate='front_flipped', camera=st['camera'], pose_run=pose_run, front_check=fchk)
+        return {'sku': sku, 'passed': False, 'reason': 'front_flipped', 'why': [fchk['why']], 'front_check': fchk}
     dst = os.path.join(d, 'visible.glb')
     write_glb(geoms, tr['tex'], dst)
     for i, k in enumerate(tr['known']):
@@ -1067,7 +1123,7 @@ def _run(glb: str, photo: str, pose_run: str, run_dir: str, sku: str, cos_min: f
     ok = not why
     PS.write_check(d, '06-visible', sku, passed=ok, metric={'name': 'silhouette_iou', **{k: main[k] for k in ('value', 'threshold', 'op')}}, metrics=mm,
                    reason='' if ok else '; '.join(why), seconds=round(time.time() - t0, 1), outputs=['visible.glb', 'known.png', 'conf.png', 'frame.png'], frame='frame.png',
-                   needs_qwen=(not ok), cos_min=cos_min, camera=st['camera'], side_views=side_views, pose_run=pose_run, crease_shadow=crease_info, stats=tr['stats'], depth_band_share=tr['depth_band_share'], body_only=(cut_row is not None), registration_fit=reg, cut_row=cut_row, legs_block=(None if lc is None else {'why': lc['why'], 'trusted_legs': len(lc['boxes']), 'row': cut_row}), legs_left_to_stage8=(cut_row is not None), z_buffer=zbuf_info, extra_metrics={k: v for k, v in m.items() if k not in GATE})
+                   needs_qwen=(not ok), cos_min=cos_min, camera=st['camera'], side_views=side_views, pose_run=pose_run, crease_shadow=crease_info, stats=tr['stats'], front_check=fchk, depth_band_share=tr['depth_band_share'], body_only=(cut_row is not None), registration_fit=reg, cut_row=cut_row, legs_block=(None if lc is None else {'why': lc['why'], 'trusted_legs': len(lc['boxes']), 'row': cut_row}), legs_left_to_stage8=(cut_row is not None), z_buffer=zbuf_info, extra_metrics={k: v for k, v in m.items() if k not in GATE})
     return {'sku': sku, 'passed': ok, 'metrics': m, 'why': why, 'dir': d}
 
 

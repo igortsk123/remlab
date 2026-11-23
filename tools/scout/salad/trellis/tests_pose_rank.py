@@ -192,5 +192,74 @@ check('итог: ничья, геометрия и DINO «за» → front_cues'
 x = PR.orientation_verdict(PR.orientation_votes(0.05, cues(2.0, 0.30), cues(2.1, 0.30), R, dino={'pick': 0.4, 'flip': 0.8}), None, R)
 check('итог: силуэт «за», но DINO «против» → ambiguous (спор)', x['verdict'] == 'ambiguous')
 
+
+# ---- разворот позы на 180° (T-20261123-43): чистое решение, триггер, рельеф, перехват в fit-цепочке на заглушках ----
+FR = R['flip_pick']
+check('правила: flip_pick — все ключи, пороги положительные, порог триггера не здесь (camera-check.json: edge_ref)', all(k in FR for k in ('enabled', 'sil_drop_max', 'sil_gain', 'edge_gain', 'need_votes', 'relief_rel', 'relief_abs')) and 'edge_ref' not in FR and FR['need_votes'] >= 2)
+check('триггер: согласие кромок ниже порога → да; не ниже / нет кромок / нет данных → нет', PR.flip_trigger({'agree': 0.3}, 0.5) and not PR.flip_trigger({'agree': 0.5}, 0.5) and not PR.flip_trigger({'agree': 0.1, 'no_edges': True}, 0.5) and not PR.flip_trigger(None, 0.5))
+
+
+def sg(score, edge, color, relief):
+    return {'score': score, 'edge': edge, 'color': color, 'relief': relief}
+
+
+pick = sg(0.89, 0.26, 6.0, 1.0)
+d = PR.flip_decision(pick, sg(0.93, 0.59, 2.0, 3.0), R)
+check('разворот: силуэт не хуже, кромки+цвет+рельеф «за» → apply', d['apply'] and d['votes']['edge'] == 'за' and d['votes']['color'] == 'за' and d['votes']['relief'] == 'за', str(d['votes']))
+d = PR.flip_decision(pick, sg(0.88, 0.40, 2.0, 1.0), R)
+check('разворот: два голоса (кромки, цвет), рельеф «—» → apply (нужно need_votes)', d['apply'] and d['votes']['relief'] == '—')
+d = PR.flip_decision(pick, sg(0.89, 0.40, 6.1, 1.0), R)
+check('без разворота: один голос (кромки) из двух нужных → оставляем', not d['apply'] and 'голосов' in d['why'])
+d = PR.flip_decision(pick, sg(0.89 - FR['sil_drop_max'] - 0.02, 0.9, 1.0, 5.0), R)
+check('без разворота: силуэт перевёрнутой сильно хуже, хоть все сигналы «за» → оставляем (голос силуэта «против»)', not d['apply'] and d['votes']['sil'] == 'против')
+d = PR.flip_decision(pick, sg(0.89, 0.45, 2.0, 0.2), R)
+check('без разворота: есть голос «против» (рельеф у выбранной сильнее) → оставляем при двух «за»', not d['apply'] and d['votes']['relief'] == 'против')
+d = PR.flip_decision(sg(0.80, 0.30, 4.0, 1.0), sg(0.90, 0.30, 4.0, 2.0), R)
+check('голос силуэта: перевёрнутая лучше на sil_gain и рельеф «за» → apply', d['apply'] and d['votes']['sil'] == 'за')
+d = PR.flip_decision(sg(0.9, None, None, None), sg(0.9, None, None, None), R)
+check('нет данных ни у одного сигнала → оставляем, голоса «нет»', not d['apply'] and set(d['votes'].values()) <= {'нет', '—'})
+sym = PR.flip_decision(sg(0.90, 0.30, 4.0, 2.0), sg(0.90, 0.31, 4.1, 2.05), R)
+check('симметричный предмет (всё почти равно): не разворачиваем', not sym['apply'])
+
+# рельеф: ровная плоскость → ~0, шум/рёбра → больше; мало пикселей → None
+flat = np.full((64, 64), 120.0)
+ribs = flat.copy()
+ribs[:, ::6] = 40.0
+mk = np.ones((64, 64), bool)
+check('рельеф: плоскость ~0, рёбра сильнее, пустая маска → None', PR.relief_strength(flat, mk) == 0.0 and PR.relief_strength(ribs, mk) > 5 and PR.relief_strength(flat, np.zeros((64, 64), bool)) is None)
+
+# flip_pick на заглушке PF: триггер не сработал → перевыбор не считается (дорогая часть не вызывается); сработал и решено «да» → поза заменена, до-поза сохранена
+class Boom:
+    def __getattr__(self, k):
+        raise AssertionError('дорогая часть вызвана: ' + k)
+
+
+pk = {'cam': {'az': 161.0, 'el': 4.0, 'd': 10.0}, 'score': 0.89, 'iou': 0.97, 'edge': {'agree': 0.7, 'no_edges': False}}
+out, info = PR.flip_pick(Boom(), {}, pk, None, None, 64, None, None, {}, None, 0.5, R=R)
+check('flip_pick: кромки ≥ edge_ref → поза не тронута, дорогая часть не вызвана', out is pk and info['triggered'] is False and info['applied'] is False)
+off = {**R, 'flip_pick': {**FR, 'enabled': False}}
+pk2 = {**pk, 'edge': {'agree': 0.1, 'no_edges': False}}
+out, info = PR.flip_pick(Boom(), {}, pk2, None, None, 64, None, None, {}, None, 0.5, R=off)
+check('flip_pick: выключено правилом → поза не тронута', out is pk2 and info['enabled'] is False and not info['triggered'])
+
+_orig = (PR.flip_hypothesis, PR.flip_signals)
+cams = {'a': {'az': 161.0, 'el': 4.0, 'd': 10.0}, 'b': {'az': 342.0, 'el': 4.5, 'd': 10.1}}
+PR.flip_hypothesis = lambda PF_, geo, cam, *a, **k: {'cam': cams['b'], 'iou': 0.98, 'iou_sil': 0.96, 'edge': {'agree': 0.59}, 'steps': 5}
+sigs = {id(cams['a']): sg(0.89, 0.26, 6.0, 1.0), id(cams['b']): sg(0.93, 0.59, 2.0, 3.0)}
+PR.flip_signals = lambda PF_, geo, cam, *a, **k: sigs[id(cam)]
+try:
+    pk3 = {'cam': cams['a'], 'score': 0.89, 'iou': 0.97, 'edge': {'agree': 0.26, 'no_edges': False}}
+    out, info = PR.flip_pick(object(), {}, pk3, None, None, 64, None, None, {}, None, 0.5, log=lambda *a: None, R=R)
+    check('flip_pick: низкие кромки, сигналы «за» → поза заменена на az+180, до-поза и метка сохранены, камера из той же pose.json-структуры', info['applied'] and out['cam'] is cams['b'] and out['flip_pick'] is True and out['cam_before_flip'] is cams['a'] and out['edge']['agree'] == 0.59 and out['score'] == 0.93)
+    sigs[id(cams['b'])] = sg(0.89, 0.27, 6.0, 1.0)
+    out, info = PR.flip_pick(object(), {}, pk3, None, None, 64, None, None, {}, None, 0.5, log=lambda *a: None, R=R)
+    check('flip_pick: сигналы без разницы → камера не тронута, но триггер и голоса записаны для pose.json', out is pk3 and info['triggered'] and not info['applied'] and 'votes' in info)
+finally:
+    PR.flip_hypothesis, PR.flip_signals = _orig
+
+src_pr = inspect.getsource(PR.flip_pick) + inspect.getsource(PR.flip_decision) + inspect.getsource(PR.flip_hypothesis)
+import re  # noqa: E402
+check('код разворота: ID товаров и числа порогов не вшиты (пороги — в rules/pose-rank.json, edge_ref — из camera-check.json)', not re.search(r'\d{8,}', src_pr) and 'edge_ref' in inspect.signature(PR.flip_pick).parameters)
+
 print('all ok' if not bad else f'FAILED: {bad}')
 sys.exit(1 if bad else 0)

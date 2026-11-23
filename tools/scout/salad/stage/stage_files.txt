@@ -4,6 +4,7 @@ tools/scout/paint_stage.py
 tools/scout/remlab_tmp.py
 tools/scout/mesh_color_check.py
 tools/scout/mesh_render.py
+tools/scout/front_axis.py
 tools/scout/salad/color_o2.py
 tools/scout/salad/color_steps.py
 tools/scout/salad/recolor_lp.py
@@ -21,10 +22,12 @@ tools/scout/salad/trellis/tex_visible.py
 tools/scout/salad/trellis/crease_mask.py
 tools/scout/salad/trellis/legs_check.py
 tools/scout/rules/tex-visible.json
+tools/scout/rules/camera-check.json
 tools/scout/rules/paint-fill.json
 tools/scout/rules/ref-zone.json
 tools/scout/rules/top-prior.json
 tools/scout/rules/mesh-color-guard.json
+data/flat3d/sides-eval.json
 tools/assets/material_parts.py
 tools/assets/material_stage.py
 tools/assets/part_shapes.py

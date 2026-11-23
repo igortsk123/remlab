@@ -487,7 +487,7 @@ def choose_pose(base: dict, surf: dict, tie: float = SURF_TIE) -> dict:
     return {'chosen': 'surf' if use_surf else 'base', 'iou_tri_base': tb, 'iou_tri_surf': ts, 'gap': round(ts - tb, 4) if tb is not None and ts is not None else None, 'tie': tie}
 
 
-def fit_pose(glb: str, photo_path: str, out_run: str, yaw: float = 0.0, px: int = 1536, n_fit: int = 256, topk: int = 4, ortho: bool = False, multistart: str = 'auto', log=print, surf_pick: bool = False, rank: bool = False, rank_pick: bool = False) -> dict:
+def fit_pose(glb: str, photo_path: str, out_run: str, yaw: float = 0.0, px: int = 1536, n_fit: int = 256, topk: int = 4, ortho: bool = False, multistart: str = 'auto', log=print, surf_pick: bool = False, rank: bool = False, rank_pick: bool = False, flip_pick: bool | None = None) -> dict:
     """ТОЧКА ВХОДА (код): камера фото на форме `glb` → файлы в `out_run` (см. шапку) и словарь
     {camera: {az, el, d, f, cx, cy}, canvas, yaw, px, iou_frame, edge_agree, textured, stages_dir, pose_json, candidates, iou_frontal_ortho_bbox, surf_pick}.
     Форма без текстуры (нет `images`) — кромки сверяются по затенению нормалей (`shade_view`). `ortho=True` — сравнение: d прибита к D_MAX.
@@ -562,6 +562,13 @@ def fit_pose(glb: str, photo_path: str, out_run: str, yaw: float = 0.0, px: int 
             log(f"surf_pick: боевая iou_tri {surf_info['iou_tri_base']} / surf {surf_info['iou_tri_surf']} (разрыв surf−боевая {surf_info['gap']:+.4f}) → выбрана {surf_info['chosen']}")
             if surf_info['chosen'] == 'surf':
                 pick, cands, ms_info = pick2, cands2, ms2
+        flip_info = None
+        import pose_rank as PR0
+        import camera_check as CC0
+        if (PR0.rules()['flip_pick']['enabled'] if flip_pick is None else flip_pick):         # перёд/зад (T-20261123-43): силуэт их не различает; при низком согласии кромок — гипотеза az+180°
+            R0 = PR0.rules()
+            R0['flip_pick'] = {**R0['flip_pick'], 'enabled': True}
+            pick, flip_info = PR0.flip_pick(sys.modules[__name__], geo, pick, geo['V'][:: max(1, len(geo['V']) // 150000)], Mp, n, photo, alpha, cv, tex, float(CC0.load_rules()['edge_ref']), log=log, R=R0)
         rank_info = None
         if rank:                                                       # вхолостую: блок `rank` (семейства, yaw+180°, контуры, пол, слабая перспектива) — поза не меняется
             import pose_rank as PR
@@ -579,7 +586,7 @@ def fit_pose(glb: str, photo_path: str, out_run: str, yaw: float = 0.0, px: int 
         extra = {'pose': {'picked': pick, 'candidates': cands, 'multistart': ms_info, 'iou_frontal_ortho_bbox': round(iou_front, 4), 'fov_deg_canvas': round(float(np.degrees(2 * np.arctan(0.5 / cam['f']))), 2)}}
         reg = write_stages(r, out_run, cam, cv, photo_path, yaw, px, glb, extra)
         pj = os.path.join(out_run, 'pose.json')
-        json.dump({'camera': cam, 'canvas': cv, 'picked': pick, 'candidates': cands, 'multistart': ms_info, 'iou_frontal_ortho_bbox': round(iou_front, 4), 'iou_frame': reg['iou'], 'px': px, 'yaw': yaw, 'textured': tex is not None, 'surf_pick': surf_info, 'rank': rank_info},
+        json.dump({'camera': cam, 'canvas': cv, 'picked': pick, 'candidates': cands, 'multistart': ms_info, 'iou_frontal_ortho_bbox': round(iou_front, 4), 'iou_frame': reg['iou'], 'px': px, 'yaw': yaw, 'textured': tex is not None, 'surf_pick': surf_info, 'rank': rank_info, 'flip_pick': flip_info},
                   open(pj, 'w', encoding='utf-8'), ensure_ascii=False, indent=1)
         A_fr = SL.warp_inv(alpha.astype(np.float32), canvas_P(cv, px), (px, px)) > 0.5
         ov = np.zeros((px, px, 3), np.uint8)
@@ -587,7 +594,7 @@ def fit_pose(glb: str, photo_path: str, out_run: str, yaw: float = 0.0, px: int 
         ov[..., 1] = (r['mask'] * 255).astype(np.uint8)
         Image.fromarray(cv2.resize(ov, (768, 768), interpolation=cv2.INTER_AREA)).save(os.path.join(out_run, 'pose_overlay.png'))
         return {'camera': cam, 'canvas': cv, 'yaw': yaw, 'px': px, 'iou_frame': reg['iou'], 'edge_agree': pick['edge']['agree'], 'textured': tex is not None,
-                'stages_dir': os.path.join(out_run, 'stages'), 'pose_json': pj, 'candidates': cands, 'iou_frontal_ortho_bbox': round(iou_front, 4), 'surf_pick': surf_info, 'rank': rank_info}
+                'stages_dir': os.path.join(out_run, 'stages'), 'pose_json': pj, 'candidates': cands, 'iou_frontal_ortho_bbox': round(iou_front, 4), 'surf_pick': surf_info, 'rank': rank_info, 'flip_pick': flip_info}
     finally:
         globals()['GRID_D'], globals()['D_MIN'] = saved
 
@@ -605,9 +612,10 @@ def main() -> int:
     ap.add_argument('--multistart', choices=('auto', 'on', 'off'), default='auto', help='много стартов по азимуту (0/90/180/270 ±15°) и подъёму для симметричных предметов: auto — если IoU обычного подбора < MS_TRIGGER')
     ap.add_argument('--surf-pick', action='store_true', help='второй поиск по точкам с поверхности граней; из двух поз — с большим IoU по треугольникам (ничья ≤0,005 → боевая); ×2 времени подбора, по умолчанию выкл.')
     ap.add_argument('--rank', action='store_true', help='вхолостую: блок `rank` в pose.json — семейства поз, гипотеза yaw+180°, Chamfer и Boundary-F, камера над полом, слабая перспектива (pose_rank.py); поза не меняется')
+    ap.add_argument('--no-flip-pick', action='store_true', help='не проверять «перёд/зад» (гипотеза az+180° при кромках ниже camera-check.json: edge_ref; правила — pose-rank.json: flip_pick)')
     ap.add_argument('--rank-pick', action='store_true', help='применить выбор `rank.choose` (включает --rank): боевой становится выбранное семейство — не зеркальное боевой и не под полом; по умолчанию выкл.')
     a = ap.parse_args()
-    res = fit_pose(a.glb, a.photo, a.out_run, a.yaw, a.px, a.n_fit, a.topk, a.ortho, a.multistart, surf_pick=a.surf_pick, rank=a.rank or a.rank_pick, rank_pick=a.rank_pick)
+    res = fit_pose(a.glb, a.photo, a.out_run, a.yaw, a.px, a.n_fit, a.topk, a.ortho, a.multistart, surf_pick=a.surf_pick, rank=a.rank or a.rank_pick, rank_pick=a.rank_pick, flip_pick=False if a.no_flip_pick else None)
     print(json.dumps({'camera': res['camera'], 'iou_frame': res['iou_frame'], 'edge_agree_before_ecc': res['edge_agree']}, ensure_ascii=False))
     return 0
 

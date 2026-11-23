@@ -252,6 +252,99 @@ def orientation_verdict(votes: dict, pair: dict | None, R: dict) -> dict:
             'gap': votes['gap'], 'pair': pair, 'shadow': True}
 
 
+# ---------- разворот позы на 180° (T-20261123-43) ----------
+
+def flip_trigger(edge: dict | None, edge_ref: float) -> bool:
+    """Гипотезу «перед и зад перепутаны» считаем, только когда кромки выбранной позы измеримы и согласие ниже порога этапа камеры (`camera-check.json: edge_ref`)."""
+    return bool(edge) and not edge.get('no_edges') and float(edge['agree']) < float(edge_ref)
+
+
+def relief_strength(shade: np.ndarray, cm: np.ndarray) -> float | None:
+    """Сила рельефа стороны, смотрящей в камеру: средний модуль градиента затенения по нормалям (0–255 на пиксель) внутри маски cm (формы без края). Пусто → None."""
+    cm = np.asarray(cm, bool)
+    if int(cm.sum()) < 64:
+        return None
+    g = shade.astype(np.float32)
+    gy, gx = np.gradient(g)
+    return round(float(np.hypot(gx, gy)[cm].mean()), 3)
+
+
+def flip_signals(PF, geo: dict, cam: dict, photo: np.ndarray, alpha: np.ndarray, cv: dict, tex, Pc: np.ndarray, Mp: np.ndarray, n_fit: int, n: int = 768, blur_frac: float = 1 / 128) -> dict:
+    """Сигналы одной позы для решения о развороте: силуэт (`pose_score`), кромки с текстурой формы, цвет родной краски формы против фото (сглаженная ΔE), рельеф стороны к камере."""
+    r = PF.render_persp(geo, cam, n)
+    cm = _erode(r['mask'], 3)
+    e = PF.edge_score(geo, cam, photo, alpha, cv, tex, n)
+    c = photo_color_diff(PF, geo, cam, photo, alpha, cv, tex, n, blur_frac=blur_frac)
+    return {'score': PF.pose_score(PF.splat_mask(Pc, cam, n_fit), Mp)['score'], 'edge': None if e['no_edges'] else e['agree'], 'color': (c or {}).get('de_blur_med'),
+            'relief': relief_strength(PF.shade_view(r)[..., 0], cm)}
+
+
+def flip_decision(sp: dict, sf: dict, R: dict) -> dict:
+    """Решение: развернуть выбранную позу на 180°? sp — сигналы выбранной, sf — перевёрнутой (`flip_signals`). Развернуть, если силуэт перевёрнутой не хуже чем на `sil_drop_max`,
+    голосов «за разворот» не меньше `need_votes` и нет голосов «против». Голоса: кромки (выигрыш ≥ edge_gain), цвет (родная краска ближе к фото на max(color_rel·ΔE выбранной, color_abs)),
+    рельеф (у перевёрнутой сильнее на relief_rel в долях и relief_abs). Нет данных у сигнала → «нет» (на счёт не влияет)."""
+    F, O = R['flip_pick'], R['orientation']
+    votes = {'sil': 'нет', 'edge': 'нет', 'color': 'нет', 'relief': 'нет'}
+    gap = {'edge': None, 'color': None, 'relief': None}
+    if sp.get('edge') is not None and sf.get('edge') is not None:
+        gap['edge'] = round(sf['edge'] - sp['edge'], 4)
+        votes['edge'] = 'за' if gap['edge'] >= F['edge_gain'] else ('против' if gap['edge'] <= -F['edge_gain'] else '—')
+    if sp.get('color') is not None and sf.get('color') is not None:
+        gap['color'] = round(sp['color'] - sf['color'], 3)
+        thr = max(O['color_rel'] * sp['color'], O['color_abs'])
+        votes['color'] = 'за' if gap['color'] >= thr else ('против' if gap['color'] <= -thr else '—')
+    if sp.get('relief') is not None and sf.get('relief') is not None:
+        gap['relief'] = round(sf['relief'] - sp['relief'], 3)
+        hi, lo = sf['relief'] >= sp['relief'] * (1 + F['relief_rel']), sp['relief'] >= sf['relief'] * (1 + F['relief_rel'])
+        votes['relief'] = 'за' if (hi and gap['relief'] >= F['relief_abs']) else ('против' if (lo and -gap['relief'] >= F['relief_abs']) else '—')
+    sil_gap = round(sp['score'] - sf['score'], 4)
+    sil_ok = sil_gap <= F['sil_drop_max']
+    votes['sil'] = 'за' if sil_gap <= -F['sil_gain'] else ('против' if not sil_ok else '—')
+    pro, con = list(votes.values()).count('за'), list(votes.values()).count('против')
+    apply = bool(sil_ok and pro >= int(F['need_votes']) and con == 0)
+    why = (f"силуэт перевёрнутой хуже на {sil_gap:+.3f} (> {F['sil_drop_max']}) — не разворачиваем" if not sil_ok else
+           (f"голосов за разворот {pro} из {int(F['need_votes'])} нужных, против {con}" if not apply else f"разворот: голосов за {pro}, против {con}"))
+    return {'apply': apply, 'votes': votes, 'gap': gap, 'sil_gap': sil_gap, 'why': why}
+
+
+def flip_hypothesis(PF, geo: dict, cam: dict, Pc: np.ndarray, Mp: np.ndarray, n: int, photo: np.ndarray, alpha: np.ndarray, cv: dict, tex, log=print) -> dict:
+    """Перевёрнутая поза: подбор по силуэту от ТОЧНОГО az+180° (то же ядро, что мультистарт), затем уточнение по кромкам (отклоняется, если роняет IoU силуэта, как у обычных кандидатов).
+    Не берём «семейство рядом»: у комода от +180° ближайшее семейство отстояло на 20° и было заведомо не той позой. → {cam, iou, edge (словарь edge_score), steps}."""
+    cam0 = dict(cam)
+    cam0['az'] = (cam0['az'] + 180.0) % 360.0
+    c, nit = PF.nm_two_stage(Pc, Mp, PF._blur(Mp, n), n, cam0)
+    iou_sil = PF.iou(PF.splat_mask(Pc, c, n), Mp)
+    e0 = PF.edge_score(geo, c, photo, alpha, cv, tex)
+    c2, e2 = PF.refine_by_edges(geo, c, photo, alpha, cv, tex, log=log)
+    iou2 = PF.iou(PF.splat_mask(Pc, c2, n), Mp)
+    if not PF.refine_ok(iou_sil, iou2):
+        c2, e2, iou2 = dict(c), e0, iou_sil
+    return {'cam': {k: round(float(v), 5) for k, v in c2.items()}, 'iou': round(float(iou2), 4), 'iou_sil': round(float(iou_sil), 4), 'edge': e2, 'steps': nit}
+
+
+def flip_pick(PF, geo: dict, pick: dict, Pc: np.ndarray, Mp: np.ndarray, n: int, photo: np.ndarray, alpha: np.ndarray, cv: dict, tex, edge_ref: float, log=print, R: dict | None = None) -> tuple:
+    """Весь шаг: триггер по кромкам → гипотеза az+180° → сигналы → решение. → (pick, info): pick заменён перевёрнутой позой (поле `flip_pick` у неё), если решено развернуть; info — для pose.json."""
+    R = R or rules()
+    F = R['flip_pick']
+    info: dict = {'enabled': bool(F['enabled']), 'edge_ref': edge_ref, 'triggered': False, 'applied': False}
+    if not F['enabled']:
+        return pick, info
+    if not flip_trigger(pick.get('edge'), edge_ref):
+        info['why'] = 'кромки выбранной позы не ниже порога или не измеримы — перед/зад не проверяем'
+        return pick, info
+    info['triggered'] = True
+    fh = flip_hypothesis(PF, geo, pick['cam'], Pc, Mp, n, photo, alpha, cv, tex, log=log)
+    sp = flip_signals(PF, geo, pick['cam'], photo, alpha, cv, tex, Pc, Mp, n, blur_frac=R['orientation']['blur_frac'])
+    sf = flip_signals(PF, geo, fh['cam'], photo, alpha, cv, tex, Pc, Mp, n, blur_frac=R['orientation']['blur_frac'])
+    dec = flip_decision(sp, sf, R)
+    info.update({'pick': {'cam': pick['cam'], **sp}, 'flip': {'cam': fh['cam'], 'iou': fh['iou'], 'edge_agree': fh['edge']['agree'], **sf}, **dec, 'applied': dec['apply']})
+    log(f"  перёд/зад: выбрана az={pick['cam']['az']:.1f} (кромки {sp['edge']}, ΔE {sp['color']}, рельеф {sp['relief']}) против az+180 → {fh['cam']['az']:.1f} (кромки {sf['edge']}, ΔE {sf['color']}, рельеф {sf['relief']}); "
+        f"голоса {dec['votes']} · {dec['why']}")
+    if dec['apply']:
+        pick = {**pick, 'cam': fh['cam'], 'iou': fh['iou'], 'score': sf['score'], 'edge': fh['edge'], 'flip_pick': True, 'cam_before_flip': info['pick']['cam']}
+    return pick, info
+
+
 def rank_poses(PF, geo: dict, pick: dict, cands: list, ms_info: dict, photo: np.ndarray, alpha: np.ndarray, cv: dict, tex, Mp: np.ndarray, n: int, log=print, R: dict | None = None) -> dict:
     """Блок `rank` для pose.json (см. шапку). PF — модуль pose_fit (передаётся, чтобы не импортировать его циклом)."""
     import time
@@ -293,15 +386,12 @@ def rank_poses(PF, geo: dict, pick: dict, cands: list, ms_info: dict, photo: np.
             f"высота над полом {e['cam_height_rel']} {'' if e['floor_ok'] else 'ПОД ПОЛОМ'} кромки {e['edge']}")
 
     # 2) гипотеза yaw+180°: если среди семейств есть перевёрнутая — берём её, иначе локальный подбор из позы +180°
-    flip_rec = next((f for f in families[1:] if is_flip_of(families[0]['cam'], f['cam'])), None)
-    flip_src = 'family'
-    if flip_rec is None:
-        cam0 = dict(pick['cam'])
-        cam0['az'] = (cam0['az'] + 180.0) % 360.0
-        c, nit = PF.nm_two_stage(Pc, Mp, Mp_blur, n, cam0)
-        flip_rec = evaluate(c)
-        flip_rec.update({'id': 'flip', 'src': 'local+180', 'steps': nit, 'is_pick': False})
-        flip_src = 'local+180'
+    cam0 = dict(pick['cam'])                                                   # гипотеза yaw+180° — подбор от ТОЧНОГО +180° (не «ближайшее семейство»: оно может отстоять на десятки градусов)
+    cam0['az'] = (cam0['az'] + 180.0) % 360.0
+    c, nit = PF.nm_two_stage(Pc, Mp, Mp_blur, n, cam0)
+    flip_rec = evaluate(c)
+    flip_rec.update({'id': 'flip', 'src': 'local+180', 'steps': nit, 'is_pick': False})
+    flip_src = 'local+180'
     pk = families[0]
     flip = {'source': flip_src, **{k: flip_rec[k] for k in ('cam', 'score', 'iou_tri', 'chamfer_px', 'bf', 'edge', 'cam_height_rel', 'floor_ok')},
             'gap_score': round(pk['score'] - flip_rec['score'], 4), 'gap_bf2': round(pk['bf']['2'] - flip_rec['bf']['2'], 4), 'gap_edge': round(pk['edge'] - flip_rec['edge'], 4)}
