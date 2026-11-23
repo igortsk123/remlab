@@ -162,6 +162,13 @@ class T(unittest.TestCase):
             self.assertIn('sh0r1', res[SK[1]])
             self.assertTrue(money['stop_verified'])
 
+    def test_all_skus_from_shards(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            for i, ks in enumerate((['112923_9', '112923_1'], ['112923_5'])):
+                json.dump({k: {} for k in ks}, open(os.path.join(tmp, f'sh{i}.json'), 'w'))
+            r = {**L.load_rules(), 'shard_inputs_glob': os.path.join(tmp, 'sh*.json')}
+            self.assertEqual(L.all_skus(r), ['112923_1', '112923_5', '112923_9'])      # все товары пакета, по порядку, без дублей
+
     def test_salad_ceiling_live_count(self):
         r = {**L.load_rules(), 'machines': 6, 'salad_ceiling': 10}
         run = lambda name, st, n=None: {'name': name, 'current_state': {'status': st, 'instance_status_counts': {'running_count': n or 0}}}   # noqa: E731

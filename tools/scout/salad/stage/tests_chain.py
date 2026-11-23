@@ -125,6 +125,22 @@ with tempfile.TemporaryDirectory() as tmp:
     starts = [e for e in sim.log if e[1] == 'start' and e[3] == '07']
     check(len({e[2] for e in starts}) == len(starts), 'две ноды: каждый товар начат на 07 один раз')
 
+    # 5б. наполнение очереди одновременно многими нодами (старт круга: 6 процессов кладут одни и те же товары): ни падения, ни дублей
+    import threading as _th
+    q = CQ.Queue(os.path.join(tmp, 'q7'))
+    rows = {f'S{i}': {'a': i} for i in range(40)}
+    errs, added = [], []
+
+    def _fill():
+        try:
+            added.append(q.fill(rows))
+        except Exception as exc:  # noqa: BLE001
+            errs.append(repr(exc))
+    ths = [_th.Thread(target=_fill) for _ in range(8)]
+    [x.start() for x in ths]
+    [x.join() for x in ths]
+    check(not errs and sum(added) == 40 and len(q.todo()) == 40 and q.counts()['todo'] == 40, f'8 нод наполняют очередь одновременно: без ошибок и дублей (добавлено {sum(added)}, ошибок {len(errs)})')
+
     # 6. stage_trial --queue: Spec — одно «задание-цепочка», submit/poll ведут товары очереди через submit_stage/poll_stage (подставные), состояние очереди обновляется
     try:
         import argparse

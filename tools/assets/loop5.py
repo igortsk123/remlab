@@ -131,6 +131,15 @@ def shard_inputs(rules: dict, skus: list[str], start: str, base: dict[str, str],
     return sel
 
 
+def all_skus(rules: dict) -> list[str]:
+    """Все товары пакета 29 (строки входа из shard_inputs_glob) — для круга на всём пакете (`--all`), а не на золотых 5."""
+    allv: dict[str, dict] = {}
+    for f in sorted(glob.glob(ex(rules['shard_inputs_glob']))):
+        with open(f, encoding='utf-8') as fh:
+            allv.update(json.load(fh))
+    return sorted(allv)
+
+
 def warm_on(rules: dict) -> bool:
     return bool((rules.get('warm') or {}).get('enabled'))
 
@@ -507,6 +516,7 @@ def main(argv=None) -> int:
     ap.add_argument('--code-ref', default='', help='SHA/ветка: чей код этапов считает Salad (в итог пишется SHA)')
     ap.add_argument('--from', dest='start', default='', choices=['', '06', '07', '08'], help='с какого шага пересчитывать (этот и следующие)')
     ap.add_argument('--skus', default='', help='подмножество золотых через запятую (по умолчанию все)')
+    ap.add_argument('--all', action='store_true', help='круг на ВСЁМ пакете 29 (все товары из shard_inputs_glob), а не на золотых 5; --skus сужает')
     ap.add_argument('--run-id', default=time.strftime('%H%M', time.gmtime()))
     ap.add_argument('--dry', action='store_true', help='только разбор: проверки и команды, Salad не создаётся, листов нет')
     ap.add_argument('--machines', type=int, default=0, help='сколько нод одновременно (по умолчанию rules.machines; меньше — если рядом уже идёт другой прогон)')
@@ -530,7 +540,8 @@ def main(argv=None) -> int:
         return 1 if bad else 0
     if not a.warm_stop and (not a.code_ref or not a.start):
         raise SystemExit('нужны --code-ref и --from 06|07|08 (или --warm-stop)')
-    skus = [s for s in rules['golden'] if not a.skus or s in a.skus.split(',')]
+    pool = all_skus(rules) if a.all else rules['golden']
+    skus = [s for s in pool if not a.skus or s in a.skus.split(',')]
     if not skus:
         raise SystemExit('нет товаров: --skus не совпал с золотыми')
     sha = resolve_sha(a.code_ref)

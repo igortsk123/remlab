@@ -12,8 +12,10 @@
 """
 from __future__ import annotations
 
+import fcntl
 import json
 import os
+import threading
 import time
 from typing import Callable
 
@@ -25,7 +27,7 @@ def _read(p: str) -> dict:
 
 def _write(p: str, d: dict) -> None:
     os.makedirs(os.path.dirname(p), exist_ok=True)
-    tmp = p + '.tmp'
+    tmp = f'{p}.{os.getpid()}.{threading.get_ident()}.tmp'                              # свой временный файл: несколько нод пишут одну строку одновременно (23.11: FileNotFoundError на общем .tmp)
     with open(tmp, 'w', encoding='utf-8') as f:
         json.dump(d, f, ensure_ascii=False, indent=1)
     os.replace(tmp, p)
@@ -41,11 +43,14 @@ class Queue:
     def fill(self, rows: dict[str, dict]) -> int:
         """Положить товары в очередь (уже лежащие в todo/claimed/done/failed — не трогаем). → сколько добавлено."""
         n = 0
-        for sku, row in rows.items():
-            if self.state_of(sku):
-                continue
-            _write(self.p('todo', f'{sku}.json'), {**row, '_tries': 0, '_tried': []})
-            n += 1
+        os.makedirs(self.root, exist_ok=True)
+        with open(self.p('.fill.lock'), 'a') as lk:                                    # все ноды наполняют одну очередь на старте — по одной, иначе дубль товара (взят, а в todo записан снова)
+            fcntl.flock(lk, fcntl.LOCK_EX)
+            for sku, row in rows.items():
+                if self.state_of(sku) or self.state_of(sku):                          # второй просмотр: товар мог переехать claimed→todo между проверками
+                    continue
+                _write(self.p('todo', f'{sku}.json'), {**row, '_tries': 0, '_tried': []})
+                n += 1
         return n
 
     def state_of(self, sku: str) -> str:
