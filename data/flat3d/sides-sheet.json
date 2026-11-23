@@ -1,0 +1,34 @@
+{
+ "_about": "Лист «со всех сторон» на товар (T-20261123-27/1, `tools/assets/sides_sheet.py`): фото слева + 6 видов, белый фон, одна PNG. Вид «лицо» = азимут камеры фото (06-visible/check.json: extra.camera.az, без округления); остальные — от него на dtheta градусов; elev — высота камеры над горизонтом (polar = 90 − elev). Подписи рисуются шрифтом `font`. Просмотрщик — model-viewer с нейтральным светом, как на странице; один Chromium на весь список, модель грузится один раз на товар (numpy-рендер `sides.py` — ≈5 мин на товар, здесь ≈10 с). Числа видов и съёмки — только здесь, в коде их нет.",
+ "radius": "105%",
+ "size": 420,
+ "header_px": 24,
+ "settle_ms": 600,
+ "load_timeout_s": 200,
+ "font": "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf",
+ "font_px": 14,
+ "photo_bg": [245, 245, 245],
+ "light": {
+  "environment_image": "neutral",
+  "exposure": 1,
+  "shadow_intensity": 0
+ },
+ "libs": {
+  "model_viewer": "https://unpkg.com/@google/model-viewer@3.5.0/dist/model-viewer.min.js",
+  "meshopt_decoder": "https://cdn.jsdelivr.net/npm/meshoptimizer@0.20.0/meshopt_decoder.js"
+ },
+ "chromium_args": [
+  "--use-gl=angle",
+  "--use-angle=swiftshader",
+  "--enable-unsafe-swiftshader",
+  "--ignore-gpu-blocklist"
+ ],
+ "views": [
+  { "name": "перед", "dtheta": 0, "elev": 12 },
+  { "name": "3/4", "dtheta": 40, "elev": 20 },
+  { "name": "бок", "dtheta": 90, "elev": 12 },
+  { "name": "зад", "dtheta": 180, "elev": 12 },
+  { "name": "др. бок", "dtheta": 270, "elev": 12 },
+  { "name": "верх", "dtheta": 0, "elev": 80 }
+ ]
+}

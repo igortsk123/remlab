@@ -124,6 +124,8 @@ jobs:
         with:
           python-version: "3.12"
       - run: pip install numpy && python tools/assets/opening_golden.py --check
+      # лист «со всех сторон» браузером (T-20261123-27/1, sides_sheet.py): тот же Playwright/Chromium; виды из data/flat3d/sides-sheet.json, подмена съёмки, настоящий ящик (≈10 с на товар вместо ≈5 мин numpy-рендера)
+      - run: pip install pillow && REMLAB_SHEET_E2E=1 python tools/assets/tests/test_sides_sheet.py
 
   db-init:
     # ГАРДА ПРОД-СХЕМЫ (05.09, ADR-0179). `db/init/*.sql` — схема БОЕВОЙ базы, деплой применяет их
