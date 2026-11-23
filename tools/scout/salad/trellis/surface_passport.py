@@ -701,7 +701,7 @@ def apply_groups(geoms: list, tex_after: list, known_keep: list, pas: dict, ctx:
                 cfg.update((syn.get('by_class') or {}).get(grp['class'], {}))
                 sres, sinfo = TS.synth_group(lab, (gm == gid) & k0, m, uvm, cfg, _blur_norm, keep_detail=grp['class'] in R['dark_keep_classes'], seed=int(syn.get('seed_step', 1009)) * (gi + 1) + int(gid))
                 info['synth'] = sinfo
-                if sinfo['mode'] == 'quilt' or syn.get('smooth_fallback', True):
+                if sinfo['mode'] == 'quilt' or (sinfo['mode'] == 'smooth' and syn.get('smooth_fallback', True)):   # 'skip' (рисунка нет) — прежнее зерно, без синтеза
                     res = sres[m].astype(np.float64)                          # остаток фактуры из куска фото своей группы (нет донора — 0: гладко, не шум)
             tgt = tone + res
             dm = wseam[m][:, None]

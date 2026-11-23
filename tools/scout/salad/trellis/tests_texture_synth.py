@@ -151,6 +151,17 @@ rg2, ig2 = TS.synth_group(lab_of(stripes(0.0)), known, target, None, dict(CFG, e
 ok(ig2['energy_gain'] <= 1.5, f"усиление ограничено потолком: {ig2['energy_gain']} ≤ 1,5")
 ok('energy_gain' not in TS.synth_group(lab_of(stripes(0.0)), known, target, None, CFG, blur_norm, seed=3)[1], 'без пола усиления нет')
 
+print('4г. тон: средний остаток накрытой зоны = 0 (усиление не темнит и не серит); нет рисунка → пропуск')
+labs = lab_of(stripes(0.0) - 6.0 * (np.random.RandomState(2).rand(T, T) > 0.9))              # донор со смещённым средним (тёмные крапины)
+rt, it = TS.synth_group(labs, known, target, None, dict(CFG, energy_floor=1.2, energy_max_gain=2.5), blur_norm, seed=4)
+dn = rt[..., 0] != 0
+ok(abs(float(rt[dn].mean(0)[0])) <= 0.05 and all(abs(float(v)) <= 0.05 for v in rt[dn].mean(0)), f"средний остаток накрытой зоны L/a/b = {rt[dn].mean(0).round(3)} (|ΔL| ≤ 3 и ΔE ≤ 3 к тону группы — с запасом)")
+ok('tone_shift_removed' in it, 'сдвиг тона записан в info')
+rs, iss = TS.synth_group(lab_of(0.2 * stripes(0.0)), known, target, None, dict(CFG, min_sigma_L=2.5), blur_norm, seed=4)
+ok(iss['mode'] == 'skip' and not np.any(rs) and 'рисунка нет' in iss['why'], f"σL донора {iss['sigma_donor_L']} < 2,5 → mode skip (прежнее зерно)")
+rk, ik = TS.synth_group(lab_of(stripes(0.0)), known, target, None, dict(CFG, min_sigma_L=2.5), blur_norm, seed=4)
+ok(ik['mode'] == 'quilt', f"σL донора {ik['sigma_donor_L']} ≥ 2,5 → синтез идёт")
+
 print('5. выбросы-детали (контур ручки) не в доноре; у узора — остаются')
 lab = lab_of(stripes(0.0))
 lab[60:70, 40:50, 0] -= 40.0                                       # тёмная деталь на известном
@@ -188,7 +199,7 @@ ok(np.isnan(mph['angle'][20:40, 20:28]).all(), 'горизонтальная г�
 print('8. пороги — в данных, ID товаров нет')
 RULES = os.path.normpath(os.path.join(HERE, '..', '..', 'rules', 'paint-fill.json'))
 sg = json.load(open(RULES, encoding='utf-8'))['surface_groups']['synth']
-need = ('low_px', 'patch_px', 'overlap_px', 'min_donor_px', 'donor_erode_px', 'clip_k', 'chroma_max', 'n_cand', 'tol', 'min_cover')
+need = ('min_sigma_L', 'low_px', 'patch_px', 'overlap_px', 'min_donor_px', 'donor_erode_px', 'clip_k', 'chroma_max', 'n_cand', 'tol', 'min_cover')
 ok(sg['enabled'] is True and all(k in sg['common'] for k in need) and 'узор' in sg['by_class'], 'surface_groups.synth: common + by_class[узор], включено')
 ok(sg['by_class']['узор']['patch_px'] > sg['common']['patch_px'], 'у узора кусок крупнее (рисунок крупнее зерна)')
 src = open(os.path.join(HERE, 'texture_synth.py'), encoding='utf-8').read()

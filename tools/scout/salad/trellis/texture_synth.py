@@ -196,6 +196,10 @@ def synth_group(lab: np.ndarray, known: np.ndarray, target: np.ndarray, maps: di
     n_clean = int(clean.sum())
     info = {'donor_px': n_clean, 'target_px': int(target.sum()), 'sigma_donor_L': round(sig_d, 3), 'patch_px': int(cfg['patch_px'])}
     P, ov = int(cfg['patch_px']), int(cfg['overlap_px'])
+    if target.any() and n_clean >= int(cfg['min_donor_px']) and sig_d < float(cfg.get('min_sigma_L', 0.0)):   # у группы нет рисунка (энергия фото ниже порога): синтез не нужен — остаётся прежнее зерно, квилтинг не гоняем
+        info['mode'] = 'skip'
+        info['why'] = f"энергия фото σL {sig_d:.2f} < {float(cfg['min_sigma_L']):.2f}: рисунка нет, синтез не нужен"
+        return np.zeros((T, T, 3), np.float32), info
     if n_clean < int(cfg['min_donor_px']) or not target.any():
         info['mode'] = 'smooth'
         info['why'] = f"чистых текселей донора {n_clean} < {int(cfg['min_donor_px'])}" if target.any() else 'нет невидимого'
@@ -224,6 +228,10 @@ def synth_group(lab: np.ndarray, known: np.ndarray, target: np.ndarray, maps: di
         out[done] *= gain
         sig_s *= gain
         info['energy_gain'] = round(float(gain), 3)
+    if done.any():                                                   # средний остаток накрытой зоны = 0 → средний L/a/b зоны = тон группы (после усиления сдвиг растёт ×gain и темнит/серит)
+        mu = out[done].mean(axis=0)
+        info['tone_shift_removed'] = [round(float(v), 3) for v in mu]
+        out[done] -= mu.astype(np.float32)
     info.update({'mode': 'quilt', 'covered': round(cov, 4), 'sigma_synth_L': round(sig_s, 3), 'energy_ratio': round(sig_s / max(sig_d, 1e-6), 3)})
     if cov < float(cfg['min_cover']):                                 # кусочки не накрыли цель — недокрытое остаётся гладким (0), это видно в info
         info['why'] = f"накрыто {cov:.0%} < {float(cfg['min_cover']):.0%}: остальное гладко"
