@@ -33,7 +33,7 @@ def _cls(cls="velour", conf=0.9, **parts):
 
 def test_rules_complete():
     ok(MS.check() == 0, "рецепты: каждому классу каталога — рецепт, значения 0..1, метки Qwen ведут в известные классы")
-    ok(R["recipes"]["glass"]["transmission"] == 1.0 and R["recipes"]["metal"]["metallic"] >= 0.85, "стекло прозрачно, металл — металл")
+    ok(0.5 <= R["recipes"]["glass"]["transmission"] < 1.0 and R["recipes"]["metal"]["metallic"] >= 0.85, "стекло прозрачно мягко (не 100 %, чтобы на белом фоне не было «дыры»), металл — металл")
     ok(all(R["recipes"][c]["sheen"] > 0 for c in ("velour", "velvet", "fabric")) and R["recipes"]["wood_solid"]["sheen"] == 0, "ткань с ворсом, дерево без")
 
 
@@ -91,7 +91,7 @@ def test_bake():
     m = MS.bake_maps(lab, table, R)
     g, b = m["mr"][32, 8, 1], m["mr"][32, 8, 2]
     ok(abs(g / 255 - R["recipes"]["wood_solid"]["roughness"]) < 0.01 and b == 0, "карта: шероховатость дерева в G, металла нет")
-    ok(m["trans"][32, 56, 0] == 255 and m["trans"][32, 8, 0] == 0 and m["hasTransmission"] and not m["hasSheen"], "стекло прозрачно, дерево нет; sheen нет")
+    ok(abs(m["trans"][32, 56, 0] - round(R["recipes"]["glass"]["transmission"] * 255)) <= 1 and m["trans"][32, 8, 0] == 0 and m["hasTransmission"] and not m["hasSheen"], "стекло прозрачно, дерево нет; sheen нет")
     tf = MS.class_table(R, ["velour"])
     mf = MS.bake_maps(np.ones((8, 8), np.uint8), tf, R)
     ok(mf["hasSheen"] and 0 < mf["sheenRoughness"] <= 1 and not mf["hasTransmission"], "ткань: sheen есть, прозрачности нет")
@@ -418,8 +418,127 @@ def test_stage_geometry_and_inherited():
         ok(isinstance(doc["extra"].get("shape"), dict) and "share" in doc["extra"]["shape"], "check.json хранит разбивку формы")
 
 
+def _lamp_cls(value, role="лампа", key="Материал корпуса"):
+    mc, _mp = MS._siblings()
+    rules = mc.load_rules()
+    cls = mc.classify(rules, {"role": role, "name": "", "params": {key: value}})
+    cls["group"] = rules["_roleGroup"].get(role)
+    cls["compound"] = MS.compound_of(rules, cls, R)
+    return cls
+
+
+def test_compound_field():
+    """T-20261123-14: «Металл, Хрусталь» — список, часть берёт один материал по форме и цвету; не отнести — unknown (08 её не трогает)."""
+    cls = _lamp_cls("Металл, Хрусталь")
+    ok([c["class"] for c in cls["compound"]] == ["metal", "glass"], "поле «Металл, Хрусталь» — составное: металл и стекло")
+    ok(_lamp_cls("Металл")["compound"] == [] and _lamp_cls("Рогожка, велюр", "диван", "Материал обивки")["compound"] == [], "одиночное поле и один вид ткани — не составное")
+    ok(not _lamp_cls("Дерево, пластик", "лампа")["compound"], "список без металла и стекла — прежнее поведение")
+    parts = [{"id": 0, "face_share": 0.4, "role": "shape:linear", "colour": {"lab_median": [40, 2, 2], "L_spread": 20}},
+             {"id": 1, "face_share": 0.4, "role": "shape:blob", "colour": {"lab_median": [95, 1, 2], "L_spread": 4}},
+             {"id": 2, "face_share": 0.2, "role": "shape:blob", "colour": {"lab_median": [45, 30, 20], "L_spread": 8}}]
+    res = MS.resolve_parts(parts, cls, R)
+    ok(res[0]["class"] == "metal" and res[0]["source"] == "compound:shape", "тонкая часть — металл из списка")
+    ok(res[1]["class"] == "glass" and res[1]["source"] == "compound:colour", "светлая бесцветная не тонкая часть — стекло из списка")
+    ok(res[2]["class"] == "unknown" and res[2]["source"] == "compound:unknown" and res[2]["confident"], "цветная не тонкая часть — unknown: решено не трогать, это не «не уверен»")
+    ok(R["recipes"]["unknown"]["roughness"] == 1.0 and R["recipes"]["unknown"]["metallic"] == 0.0 and R["recipes"]["unknown"]["sheen"] == 0.0, "рецепт unknown = то, что и так в 07 (шероховатость 1, без металла и блеска)")
+    nolab = MS.resolve_parts([{"id": 0, "face_share": 1.0, "role": "shape:blob"}], cls, R)
+    ok(nolab[0]["class"] == "unknown", "нет цвета части — стекло не назначаем")
+    wood = _lamp_cls("Дерево, металл", MS._siblings()[0].load_rules()["groups"]["table"]["roles"][0], "Материал столешницы")
+    ok([c["family"] for c in wood["compound"]] == ["wood", "metal"] or [c["family"] for c in wood["compound"]] == ["metal", "wood"], "«Дерево, металл» — составное")
+    rw = MS.resolve_parts([{"id": 0, "face_share": 0.8, "role": "shape:planar", "colour": {"lab_median": [60, 10, 20], "L_spread": 10}},
+                           {"id": 1, "face_share": 0.2, "role": "legs", "colour": {"lab_median": [30, 1, 1], "L_spread": 10}}], wood, R)
+    ok(rw[0]["class"] in ("wood_solid", "wood_veneer", "rattan") and rw[1]["class"] == "metal", "стол «Дерево, металл»: столешница — дерево, ножки — металл")
+    plain = MS.resolve_parts(parts, _cls("metal", 0.9), R)
+    ok(all(r["class"] == "metal" for r in plain.values()) or all("compound" not in r for r in plain.values()), "без составного поля части разбираются прежним путём")
+
+
+def test_painted_metal():
+    """T-20261123-14: металл с цветом 07 не «хромовым» — крашеный (metallic ≤0,3); хром и серый с бликами остаются металлом."""
+    mk = lambda lab, spread, cls_="metal": MS.resolve_parts([{"id": 0, "face_share": 1.0, "role": "legs", "colour": {"lab_median": lab, "L_spread": spread}}], _cls(cls_, 0.9, legs="metal" if cls_ != "chrome" else "chrome"), R)[0]  # noqa: E731
+    ok(mk([75, 20, 25], 20)["class"] == "metal_painted", "бежевый насыщенный металл — крашеный")
+    ok(mk([82, 2, 4], 6)["class"] == "metal_painted", "светлый матовый (малый разброс) — крашеный")
+    ok(mk([70, 1, 1], 35)["class"] == "metal", "серый с большим разбросом (блики хрома на листе) — остаётся металлом")
+    ok(mk([30, 1, 1], 8)["class"] == "metal", "тёмный серый без насыщенности — остаётся металлом")
+    ok(MS.resolve_parts([{"id": 0, "face_share": 1.0, "role": "legs"}], _cls("wood_solid", 0.9, legs="metal"), R)[0]["class"] == "metal", "нет цвета части — остаётся металлом")
+    ok(mk([75, 20, 25], 20, "chrome")["class"] == "chrome", "класс «хром» каталога не трогаем")
+    pr = R["recipes"]["metal_painted"]
+    ok(pr["metallic"] <= 0.3 and R["recipes"]["metal"]["metallic"] > 0.8, "рецепт крашеного металла: metallic ≤ 0,3")
+
+
+def test_glass_keeps_colour_map():
+    """T-20261123-14: у стекла с тоном карта цвета 07 с рисунком сохраняется (σL ≥ 50 %), медиана = тон; ровная карта красится целиком."""
+    with tempfile.TemporaryDirectory() as d:
+        src = os.path.join(d, "g.glb")
+        _tiny_glb(src)
+        mesh = MS._load_mesh(src)
+        uv, faces = np.asarray(mesh.visual.uv, dtype=np.float64), np.asarray(mesh.faces)
+        tone = np.array([105, 85, 78])
+        ft = np.tile(tone.astype(float), (len(faces), 1))
+        png, mask, info = MS.tint_base_color(src, uv, faces, ft, R["glass_tone"])
+        base = MS._base_image(*MS.read_glb(src))
+        from PIL import Image
+        import io
+        out = np.asarray(Image.open(io.BytesIO(png)).convert("RGB"))
+        occ = np.asarray(MS._raster_faces(uv, faces, np.arange(len(faces)), base.size)) > 0
+        l0 = MS.rgb_to_lab(np.asarray(base)[..., :3][occ].astype(np.float64))[:, 0]
+        l1 = MS.rgb_to_lab(out[occ].astype(np.float64))
+        s0, s1 = np.percentile(l0, 90) - np.percentile(l0, 10), np.percentile(l1[:, 0], 90) - np.percentile(l1[:, 0], 10)
+        ok(any(i.get("source") == "keep-map" for i in info) and s1 >= 0.5 * s0, f"карта с рисунком: σL 08 ≥ 50 % от 07 (было {s0:.1f}, стало {s1:.1f})")
+        ok(R["glass_tone"]["keep_map"]["shift"] is False and bool((out[occ] == np.asarray(base)[..., :3][occ]).all()), "карта с рисунком: тексели острова байт в байт как в 07 (shift false, цвет шаг 08 не меняет)")
+        flat = os.path.join(d, "f.glb")
+        import trimesh
+        from PIL import Image as _I
+        box = trimesh.load(src, force="mesh", process=False)
+        box.visual = trimesh.visual.TextureVisuals(uv=uv, material=trimesh.visual.material.PBRMaterial(baseColorTexture=_I.fromarray(np.full((32, 32, 4), 10, dtype=np.uint8))))
+        box.export(flat)
+        png2, _m, info2 = MS.tint_base_color(flat, uv, faces, ft, R["glass_tone"])
+        o2 = np.asarray(_I.open(io.BytesIO(png2)).convert("RGB"))[occ]
+        ok(any(i.get("source") == "flat-fill" for i in info2) and (np.abs(o2.astype(int) - tone) <= 1).all(), "ровная карта — красится тоном целиком, как раньше")
+        grey = os.path.join(d, "g2.glb")                                       # карта TRELLIS: серая с рисунком (разброс есть, цвета нет) — тон законно её заменяет
+        gv = np.random.default_rng(5).integers(20, 120, (32, 32, 1), dtype=np.uint8)
+        box.visual = trimesh.visual.TextureVisuals(uv=uv, material=trimesh.visual.material.PBRMaterial(baseColorTexture=_I.fromarray(np.concatenate([gv, gv, gv, np.full((32, 32, 1), 255, np.uint8)], axis=2))))
+        box.export(grey)
+        png3, _m3, info3 = MS.tint_base_color(grey, uv, faces, ft, R["glass_tone"])
+        o3 = np.asarray(_I.open(io.BytesIO(png3)).convert("RGB"))[occ]
+        ok(any(i.get("source") == "flat-fill" and i.get("median_C_07", 99) <= R["glass_tone"]["keep_map"]["neutral_C_max"] for i in info3) and (np.abs(o3.astype(int) - tone) <= 1).all(), "серая карта с рисунком (TRELLIS без цвета) — красится тоном целиком")
+
+
+def test_frame_gate():
+    """T-20261123-14: ворота кадра страницы: тот же цвет — проходит; бледнее (ΔC ниже порога) или сдвиг (ΔE выше) — блок; пороги из рецептов."""
+    import frame_gate as FG
+    fg = R["frame_gate"]
+    mask = np.zeros((40, 40), dtype=bool)
+    mask[5:35, 5:35] = True
+    a = np.zeros((40, 40, 3), dtype=np.uint8)
+    a[...] = (190, 140, 60)
+    ok(FG.gate(a, a.copy(), mask, fg)["ok"], "тот же кадр: проходит")
+    pale = a.copy()
+    pale[...] = (190, 175, 150)
+    r = FG.gate(a, pale, mask, fg)
+    ok(not r["ok"] and r["dC"] < fg["dC_min"], f"бледнее: блок ({r['why']})")
+    shifted = a.copy()
+    shifted[...] = (230, 140, 60)
+    ok(not FG.gate(a, shifted, mask, fg)["ok"], "сдвиг цвета: блок по ΔE")
+    ok(not FG.gate(a, a, np.zeros((40, 40), dtype=bool), fg)["ok"], "пустая маска: блок, не молчаливый проход")
+
+
+def test_flat_top_roughness():
+    """T-20261123-14: на широкой плоскости пластик не бликует (шероховатость ≥ порога), металл и стекло не трогаем."""
+    table = MS.class_table(R, ["plastic", "metal", "glass"])
+    lab = np.ones((12, 12), np.uint8)
+    lab[:, 4:8] = 2
+    lab[:, 8:] = 3
+    flat = np.ones((12, 12), bool)
+    m0 = MS.bake_maps(lab, table, R)
+    m1 = MS.bake_maps(lab, table, R, flat=flat)
+    rmin = R["flat_top"]["roughness_min"]
+    ok(m0["mr"][6, 1, 1] / 255 < rmin <= m1["mr"][6, 1, 1] / 255 + 0.01, "пластик на плоскости: шероховатость поднята до порога")
+    ok(m1["mr"][6, 5, 1] == m0["mr"][6, 5, 1] and m1["mr"][6, 10, 1] == m0["mr"][6, 10, 1], "металл и стекло — шероховатость прежняя")
+    ok((MS.bake_maps(lab, table, R, flat=np.zeros((12, 12), bool))["mr"] == m0["mr"]).all(), "нет плоскости — карта как была")
+
+
 if __name__ == "__main__":
-    for t in (test_rules_complete, test_no_ids_in_code, test_resolve, test_legs_and_colour, test_bake, test_patch_glb, test_stage_end_to_end, test_shapes_without_stage3, test_top_zone_shade, test_stand_junction_is_metal, test_unsure_parts_report, test_soft_body_inherits_upholstery, test_stage3_roles, test_merge_roles_file, test_top_zone_bigger_than_body, test_inherit_unseen, test_stage_geometry_and_inherited):
+    for t in (test_rules_complete, test_no_ids_in_code, test_resolve, test_legs_and_colour, test_bake, test_patch_glb, test_stage_end_to_end, test_shapes_without_stage3, test_top_zone_shade, test_stand_junction_is_metal, test_unsure_parts_report, test_soft_body_inherits_upholstery, test_stage3_roles, test_merge_roles_file, test_top_zone_bigger_than_body, test_inherit_unseen, test_stage_geometry_and_inherited, test_compound_field, test_painted_metal, test_glass_keeps_colour_map, test_frame_gate, test_flat_top_roughness):
         print(t.__name__)
         t()
     print(f"material_stage tests: ошибок {FAIL}")

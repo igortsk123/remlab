@@ -134,10 +134,77 @@ def resolve_parts(parts: list[dict], cls: dict, recipes: dict, parts_known: bool
             why = "нет цвета части" if lab is None else f"цвет отличается от главной части (ΔE {_de76(lab, main_lab):.1f})" if main_lab is not None else "нет цвета главной части"
             r = {"class": fb, "source": "unsure", "confidence": conf["unsure"], "reason": f"нет метки, {why}", "main_id": int(main["id"]),
                  "de_main": round(float(_de76(lab, main_lab)), 1) if lab is not None and main_lab is not None else None}
+        r = _compound_part(p, r, cls, recipes)
+        _painted_metal(p, r, recipes)
         _carry_tone(r, cls, cat)
         r["confident"] = bool(r["confidence"] >= cl["confident_from"])
         out[int(p["id"])] = r
     return out
+
+
+def compound_of(rules: dict, cls: dict, recipes: dict) -> list[dict]:
+    """Составное поле материала («Металл, Хрусталь»): список классов поля [{class, family}], если он из характеристик, в нём ≥ 2 семейств и среди них есть из `compound.families`.
+    Иначе пусто. Список берётся из класса товара и его запасных классов (`alt`) — те же слова поля, что нашёл `material_class`."""
+    cd = recipes.get("compound")
+    if not cd or not str(cls.get("stage", "")).startswith("params"):
+        return []
+    ids = list(dict.fromkeys([cls["class"]] + list(cls.get("alt") or [])))
+    ids = [c for c in ids if c in rules["_byId"] and not rules["_byId"][c].get("generic")]
+    fams = {rules["_byId"][c]["family"] for c in ids}
+    if len(fams) < 2 or not (fams & set(cd["families"])):
+        return []
+    return [{"class": c, "family": rules["_byId"][c]["family"]} for c in ids]
+
+
+def _lab_chroma(lab) -> float:
+    return float(np.hypot(lab[1], lab[2]))
+
+
+def _compound_part(p: dict, r: dict, cls: dict, recipes: dict) -> dict:
+    """Часть, чей класс — класс всего товара по составному полю («Металл, Хрусталь»), получает один материал из списка по форме и цвету (`compound`); не отнести уверенно — `unknown`.
+    Ножки каталога, роли этапа 3 с каналом и метки Qwen не трогаем: у них свой источник класса."""
+    cand = cls.get("compound") or []
+    cd = recipes.get("compound")
+    src = str(r.get("source", ""))
+    if not cand or not cd or (r["class"] != cls["class"] and src != "unsure") or src == "vl" or (src.startswith(("catalog:legs", "role:")) and src != "role:main"):
+        return r
+    lab = (p.get("colour") or {}).get("lab_median")
+    thin = p.get("role") in cd["thin_roles"]
+    metals = [c["class"] for c in cand if c["family"] == "metal"]
+    glasses = [c["class"] for c in cand if c["family"] == "glass"]
+    rest = [c["class"] for c in cand if c["family"] not in ("metal", "glass")]
+    cc = cd["confidence"]
+    new = None
+    if thin and metals:
+        new = (metals[0], "compound:shape", cc["shape"], "тонкая часть по форме — металл из списка")
+    elif not thin and glasses and lab is not None and lab[0] >= cd["glass_L_min"] and _lab_chroma(lab) <= cd["glass_C_max"]:
+        new = (glasses[0], "compound:colour", cc["colour"], f"светлая бесцветная часть (L {lab[0]:.0f}, C {_lab_chroma(lab):.0f}) — стекло из списка")
+    elif not thin and len(rest) == 1:
+        new = (rest[0], "compound:single", cc["single"], "не тонкая; в списке единственный не металл и не стекло")
+    if new is None:
+        why = "нет цвета части" if lab is None else f"форма и цвет не решают (L {lab[0]:.0f}, C {_lab_chroma(lab):.0f}{', тонкая' if thin else ''})"
+        new = ("unknown", "compound:unknown", cc["unknown"], f"в поле несколько материалов, {why} — часть не трогаем")
+    return {**r, "class": new[0], "source": new[1], "confidence": new[2], "reason": f"{r['reason']}; поле составное ({', '.join(c['class'] for c in cand)}): {new[3]}", "compound": [c["class"] for c in cand]}
+
+
+def _painted_metal(p: dict, r: dict, recipes: dict) -> None:
+    """Металл с цветом по листу 07 не «хромовым» — крашеный (`painted_metal`): рецепт без зеркального блеска, цвет 07 тот же. Нет цвета части — остаётся металл."""
+    pm = recipes.get("painted_metal")
+    if not pm or r["class"] not in pm["from"]:
+        return
+    col = p.get("colour") or {}
+    lab = col.get("lab_median")
+    if not lab:
+        return
+    chroma = _lab_chroma(lab)
+    spread = col.get("L_spread")
+    saturated = chroma >= pm["chroma_min"]
+    light_matte = lab[0] >= pm["light_L_min"] and spread is not None and spread <= pm["light_spread_max"]
+    if saturated or light_matte:
+        why = f"насыщенный тон (C {chroma:.0f} ≥ {pm['chroma_min']})" if saturated else f"светлый матовый (L {lab[0]:.0f}, разброс {spread} ≤ {pm['light_spread_max']})"
+        r["painted_from"] = r["class"]
+        r["class"] = pm["class"]
+        r["reason"] += f"; крашеный металл: {why}"
 
 
 def _carry_tone(r: dict, cls: dict, cat: dict) -> None:
@@ -300,6 +367,16 @@ def geometry_shape_parts(mesh, mp, cat_parts: dict, recipes: dict) -> tuple[np.n
     return part, parts, rep
 
 
+def horizontal_shares(mesh, part: np.ndarray, ids: list[int], recipes: dict) -> dict[int, float]:
+    """Доля ПЛОЩАДИ горизонтальных граней у каждой части (|нормаль·вверх| ≥ `flat_top.min_cos`, вверх — Y): у столешницы высокая, у шара, стойки, дверцы низкая. Для `flat_top` (шероховатость широкой плоскости)."""
+    v = np.asarray(mesh.vertices, dtype=np.float64)
+    tri = v[np.asarray(mesh.faces)]
+    cr = np.cross(tri[:, 1] - tri[:, 0], tri[:, 2] - tri[:, 0])
+    area = np.linalg.norm(cr, axis=1)
+    horiz = np.abs(cr[:, 1]) >= recipes["flat_top"]["min_cos"] * np.maximum(area, 1e-18)
+    return {int(pid): round(float(area[(part == pid) & horiz].sum() / max(area[part == pid].sum(), 1e-18)), 3) for pid in ids if (part == pid).any()}
+
+
 def legs_by_geometry(mesh, mp, cat_parts: dict) -> np.ndarray:
     """Маска граней ножек по геометрии `material_parts` (split и уверенность ≥ порога); нет ножек — все False."""
     mpr = mp.load_rules()
@@ -377,7 +454,8 @@ def part_colours(mesh, part: np.ndarray, min_faces: int = 30) -> dict[int, dict]
     for p in np.unique(part[part >= 0]):
         sel = part == p
         if int(sel.sum()) >= min_faces:
-            out[int(p)] = {"lab_median": [round(float(v), 1) for v in np.median(lab[sel], axis=0)], "faces_sampled": int(sel.sum())}
+            out[int(p)] = {"lab_median": [round(float(v), 1) for v in np.median(lab[sel], axis=0)], "faces_sampled": int(sel.sum()),
+                           "L_spread": round(float(np.percentile(lab[sel, 0], 90) - np.percentile(lab[sel, 0], 10)), 1)}      # разброс L: у хрома на листе блики — он большой
     return out
 
 
@@ -429,8 +507,9 @@ def tint_sheen(sheen: np.ndarray, albedo, st: dict) -> np.ndarray:
     return np.clip(sheen[..., None] * tint, 0.0, 1.0)
 
 
-def bake_maps(lab: np.ndarray, table: list[str], recipes: dict, albedo=None) -> dict:
-    """Растр классов → карты: metallicRoughness (G rough, B metal), sheenColor (сила sheen × цвет ткани, sRGB; серый — если `sheen_tint.on`=false или нет альбедо), transmission (R); скаляр sheenRoughness."""
+def bake_maps(lab: np.ndarray, table: list[str], recipes: dict, albedo=None, flat: np.ndarray | None = None) -> dict:
+    """Растр классов → карты: metallicRoughness (G rough, B metal), sheenColor (сила sheen × цвет ткани, sRGB; серый — если `sheen_tint.on`=false или нет альбедо), transmission (R); скаляр sheenRoughness.
+    `flat` (bool, как растр) — тексели широкой плоскости: шероховатость не ниже `flat_top.roughness_min`, кроме металла и прозрачного (T-20261123-14, блик на столешнице)."""
     lut = {p: np.zeros(256, dtype=np.float64) for p in PROPS}
     lut_sr = np.zeros(256, dtype=np.float64)
     for i, cid in enumerate(table, start=1):
@@ -440,6 +519,9 @@ def bake_maps(lab: np.ndarray, table: list[str], recipes: dict, albedo=None) -> 
         lut_sr[i] = r["sheenRoughness"]
     lut["roughness"][0] = recipes["recipes"][recipes["fallback_class"]]["roughness"]
     rough, metal, sheen, trans = (lut[p][lab] for p in PROPS)
+    ft = recipes.get("flat_top")
+    if flat is not None and ft:
+        rough = np.where(flat & (metal <= ft["skip_metallic"]) & (trans <= ft["skip_transmission"]), np.maximum(rough, ft["roughness_min"]), rough)
     to8 = lambda a: np.clip(np.round(a * 255.0), 0, 255).astype(np.uint8)  # noqa: E731
     mr = np.stack([np.full(lab.shape, 255, np.uint8), to8(rough), to8(metal)], axis=-1)
     sheen_rgb = to8(np.power(tint_sheen(np.clip(sheen, 0, 1), albedo, recipes.get("sheen_tint") or {}), 1 / 2.2))
@@ -605,6 +687,29 @@ def tint_base_color(glb: str, uv: np.ndarray, faces: np.ndarray, face_tone: np.n
     if not sel.any():
         return None, None, info                                  # перекрашивать нечего — карта байт в байт, но отчёт про нейтральную базу остаётся
     ta = np.asarray(_raster_faces(uv, faces, np.flatnonzero(sel), size, fill=np.nan_to_num(ft, nan=0).astype(int), mode="RGB"))
+    km = gt.get("keep_map") or {}
+    if km.get("on"):                                      # рисунок карты 07 (градиент, блики) остаётся: остров сдвигается в Lab так, чтобы медиана стала тоном; ровная карта — заливка
+        ta = ta.copy()
+        base_rgb = np.asarray(base)[..., :3]
+        ftk = np.nan_to_num(ft, nan=-1).astype(int)
+        for tone in sorted({tuple(int(v) for v in t) for t in ft[sel]}):
+            tg = np.flatnonzero(sel & np.all(ftk == np.array(tone), axis=1))
+            occ_t = np.asarray(_raster_faces(uv, faces, tg, size)) > 0
+            if not occ_t.any():
+                continue
+            lab_t = rgb_to_lab(base_rgb[occ_t].astype(np.float64))
+            sigma = float(np.percentile(lab_t[:, 0], 90) - np.percentile(lab_t[:, 0], 10))
+            chroma = float(np.median(np.hypot(lab_t[:, 1], lab_t[:, 2])))
+            kept = sigma > km["flat_sigma_max"] and chroma > km["neutral_C_max"]        # рисунок И цвет: серая/чёрная карта TRELLIS (хрома ≤ neutral_C_max) — тон стекла законно её заменяет
+            info.append({"source": "keep-map" if kept else "flat-fill", "tone": list(tone), "sigma_L_07": round(sigma, 1), "median_L_07": round(float(np.median(lab_t[:, 0])), 1), "median_C_07": round(chroma, 1)})
+            if not kept:
+                continue
+            if not km.get("shift"):                       # рисунок остаётся как есть: тексели острова — прежние (иначе ta стёр бы их тоном)
+                ta[occ_t] = base_rgb[occ_t]
+                continue
+            shifted =lab_t + (rgb_to_lab(np.array([tone], dtype=np.float64))[0] - np.median(lab_t, axis=0))
+            shifted[:, 0] = np.clip(shifted[:, 0], 0.0, 100.0)
+            ta[occ_t] = lab_to_rgb(shifted)
     occupied = np.asarray(_raster_faces(uv, faces, np.flatnonzero(sel), size)) > 0
     other = np.asarray(_raster_faces(uv, faces, np.flatnonzero(~sel), size)) > 0       # тексели граней без тона: неприкосновенны
     dist, idx = ndimage.distance_transform_edt(~occupied, return_indices=True)
@@ -804,6 +909,7 @@ def run_stage(glb: str, run: str, sku: str, product: dict, parts_dir: str | None
     rules = mc.load_rules()
     cls = mc.classify(rules, {"role": product.get("role") or "", "name": product.get("name") or "", "params": product.get("params") or {}})
     cls["group"] = rules["_roleGroup"].get(product.get("role") or "")          # группа каталога (seating/bed/…): от неё зависит политика для частей без метки
+    cls["compound"] = compound_of(rules, cls, recipes)                          # составное поле материала («Металл, Хрусталь») — список классов, части берут по одному из него
     pdir = parts_dir or os.path.join(run, ps.safe_name(sku), "03-parts")
     npz = os.path.join(pdir, "parts.npz")
     shape_rep = None
@@ -825,8 +931,14 @@ def run_stage(glb: str, run: str, sku: str, product: dict, parts_dir: str | None
     for p in parts:
         if not p.get("colour") or not p["colour"].get("lab_median"):
             p["colour"] = cols.get(p["id"])
+        elif p["colour"].get("L_spread") is None and cols.get(p["id"]):
+            p["colour"]["L_spread"] = cols[p["id"]]["L_spread"]
     res = resolve_parts(parts, cls, recipes, parts_known=True)   # части по этапу 3 или по форме — материалы по ним разведены; «где плафон» не гадаем
     part, inherited = inherit_unseen(mesh, part, list(res))
+    np.savez_compressed(os.path.join(sdir, "parts08.npz"), part=part.astype(np.int16))        # часть на каждую грань (номера — как в check.json parts): нужна замерам и ревью кадров
+    horiz = horizontal_shares(mesh, part, list(res), recipes) if recipes.get("flat_top") else {}
+    for pid, sh in horiz.items():
+        res[pid]["horizontal_share"] = sh
     fb = recipes["fallback_class"]
     cls_of_face = np.full(nf, fb, dtype=object)
     for pid, r in res.items():
@@ -835,7 +947,14 @@ def run_stage(glb: str, run: str, sku: str, product: dict, parts_dir: str | None
     label_of = {c: i for i, c in enumerate(table, start=1)}
     face_label = np.array([label_of[c] for c in cls_of_face], dtype=np.int64)
     lab = rasterize_labels(np.asarray(uv, dtype=np.float64), np.asarray(mesh.faces), face_label, recipes["bake"]["mapSize"])
-    maps = bake_maps(lab, table, recipes, _base_image(*read_glb(glb)))
+    flat_mask = None
+    ftop = recipes.get("flat_top")
+    if ftop:
+        flat_ids = {pid for pid, sh in horiz.items() if sh >= ftop["horizontal_min_share"]}
+        if flat_ids:
+            fl = np.where(np.isin(part, list(flat_ids)), 2, 1).astype(np.int64)
+            flat_mask = rasterize_labels(np.asarray(uv, dtype=np.float64), np.asarray(mesh.faces), fl, recipes["bake"]["mapSize"]) == 2
+    maps = bake_maps(lab, table, recipes, _base_image(*read_glb(glb)), flat_mask)
     out_glb = os.path.join(sdir, "material.glb")
     gt = recipes["glass_tone"]
     glass_cls = {c for c, d in rules["_byId"].items() if d["family"] == "glass"}
@@ -926,7 +1045,9 @@ def run_stage(glb: str, run: str, sku: str, product: dict, parts_dir: str | None
                  "seconds": {"value": round(time.time() - t0, 1), "threshold": c["max_seconds"], "op": "<="}},
         reason=reason, seconds=time.time() - t0, outputs=["material.glb"], frame=frame_name,
         faces=nf, parts_source=parts_source, shape=shape_rep, catalog_parts_not_located=not_located, unsure_parts=unsure_rep, product_class={"class": cls["class"], "stage": cls["stage"], "confidence": cls["confidence"], "reason": cls["reason"], "parts": cls.get("parts")},
-        parts=parts_rep, classes=table, glass_tone=tone_rep, part_photo=pp_rep, sheen=maps["hasSheen"], transmission=maps["hasTransmission"], recipes_sha=recipes_sha(), glb=pinfo)
+        parts=parts_rep, classes=table, compound=cls.get("compound") or [], untouched_share=round(float(np.isin(part, [pid for pid, r in res.items() if r["class"] == "unknown"]).sum()) / nf, 4),
+        painted_metal_share=round(float(np.isin(part, [pid for pid, r in res.items() if r.get("painted_from")]).sum()) / nf, 4),
+        flat_top_parts=sorted(pid for pid, sh in horiz.items() if ftop and sh >= ftop["horizontal_min_share"]), glass_tone=tone_rep, part_photo=pp_rep, sheen=maps["hasSheen"], transmission=maps["hasTransmission"], recipes_sha=recipes_sha(), glb=pinfo)
     return doc
 
 
@@ -957,9 +1078,31 @@ def check() -> int:
             v = r.get(p)
             if not isinstance(v, (int, float)) or not 0.0 <= v <= 1.0:
                 bad.append(f"{cid}.{p}: {v!r} вне 0..1")
+    stage_only = set((recipes.get("stage_classes") or {}).get("ids", []))
     for cid in recipes["recipes"]:
-        if cid not in rules["_byId"]:
-            bad.append(f"рецепт {cid}: такого класса нет в material-classes.json")
+        if cid not in rules["_byId"] and cid not in stage_only:
+            bad.append(f"рецепт {cid}: такого класса нет в material-classes.json (и он не в stage_classes)")
+    for cid in stage_only:
+        if cid in rules["_byId"]:
+            bad.append(f"stage_classes: {cid} уже есть в material-classes.json")
+        if cid not in recipes["recipes"]:
+            bad.append(f"stage_classes: {cid} без рецепта")
+    for sec, keys in (("compound", ("glass_L_min", "glass_C_max")), ("painted_metal", ("chroma_min", "light_L_min", "light_spread_max")),
+                      ("flat_top", ("horizontal_min_share", "min_cos", "roughness_min", "skip_metallic", "skip_transmission"))):
+        for k in keys:
+            v = (recipes.get(sec) or {}).get(k)
+            if not isinstance(v, (int, float)) or v < 0:
+                bad.append(f"{sec}.{k}: {v!r}")
+    for sec in ("compound", "painted_metal"):
+        for cid in (recipes.get(sec) or {}).get("from", []) + [(recipes.get(sec) or {}).get("class")] * (sec == "painted_metal"):
+            if cid and cid not in recipes["recipes"]:
+                bad.append(f"{sec}: класс {cid} без рецепта")
+    km = (recipes.get("glass_tone") or {}).get("keep_map") or {}
+    if not isinstance(km.get("on"), bool) or not isinstance(km.get("shift"), bool) or not all(isinstance(km.get(k), (int, float)) for k in ("flat_sigma_max", "neutral_C_max")):
+        bad.append(f"glass_tone.keep_map: {km!r} (нужно on bool, shift bool, flat_sigma_max и neutral_C_max числа)")
+    fg = recipes.get("frame_gate") or {}
+    if not isinstance(fg.get("dE_max"), (int, float)) or not isinstance(fg.get("dC_min"), (int, float)) or fg["dE_max"] <= 0 or fg["dC_min"] >= 0:
+        bad.append(f"frame_gate: {fg!r} (нужно dE_max > 0 и dC_min < 0)")
     if recipes["fallback_class"] not in recipes["recipes"]:
         bad.append("fallback_class без рецепта")
     gt = recipes.get("glass_tone") or {}
