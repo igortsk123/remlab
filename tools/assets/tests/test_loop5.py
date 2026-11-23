@@ -9,6 +9,9 @@ import unittest
 HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, os.path.join(HERE, '..'))
 import loop5 as L  # noqa: E402
+sys.path.append(os.path.join(HERE, "..", "..", "scout"))  # tools/scout — помощник временного
+import remlab_tmp  # noqa: E402
+remlab_tmp.use("test_loop5")
 
 SK = ['112923_1', '112923_2', '112923_3', '112923_4', '112923_5']
 
