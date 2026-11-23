@@ -30,6 +30,7 @@ STAGE = '07-seam'
 def run_seam(run: str, sku: str, fill_dir: str, visible: str, cfg: dict | None = None) -> dict:
     from PIL import Image
     t0 = time.time()
+    cpu0 = time.process_time()
     d = PS.stage_dir(run, sku, STAGE)
     glb = os.path.join(fill_dir, 'filled.glb')
     geoms = TC.load_geoms(glb)
@@ -99,6 +100,9 @@ def run_seam(run: str, sku: str, fill_dir: str, visible: str, cfg: dict | None =
     p95b, p95a = _agg('before', 'dE00_p95'), _agg('after', 'dE00_p95')
     medb, meda = _agg('before', 'dE00_median'), _agg('after', 'dE00_median')
     stb, sta = _agg('before', 'step_ratio'), _agg('after', 'step_ratio')
+    cpu_s = round(time.process_time() - cpu0, 1)
+    n_var = max([len(x.get('variants') or {}) for x in g0] or [1])
+    cpu_lim = round(float(seam_c.get('cpu_s_per_variant_geom', 40.0)) * len(g0) * n_var, 1)
     def _dev(key):                                   # худшее отклонение texture_ratio от 1 по геометриям
         v = [abs(x[key]['texture_ratio'] - 1.0) for x in g0 if x.get(key) and x[key].get('texture_ratio') is not None]
         return round(float(max(v)), 3) if v else None
@@ -109,11 +113,11 @@ def run_seam(run: str, sku: str, fill_dir: str, visible: str, cfg: dict | None =
         'seam_step_ratio': {'value': sta, 'threshold': (None if stb is None else max(stb, 1.5)), 'op': '<=', 'note': 'скачок яркости поперёк шва / такой же внутри фото (цель ≈ 1); после ≤ max(до; 1,5)'},
         'seam_texture_dev': {'value': txa, 'threshold': (None if txb is None else max(txb, 0.3)), 'op': '<=', 'note': '|σ мелкого рельефа заливка/фото в полосе шва − 1| (цель ≈ 0); после ≤ max(до; 0,3)'},
         'photo_middle_changed_texels': {'value': mid_bad, 'threshold': 0, 'op': '<='},
-        'time_s': {'value': round(secs, 1), 'threshold': float(seam_c.get('time_limit_s', 300.0)), 'op': '<=', 'note': 'шов на Salad cpu_stage: 5 вариантов на геометрию, ≈2 мин на товар'},
+        'cpu_s': {'value': cpu_s, 'threshold': cpu_lim, 'op': '<=', 'note': f'время процессора (не стена): cpu_s_per_variant_geom={seam_c.get("cpu_s_per_variant_geom")} × геометрий {len(g0)} × вариантов {n_var}'},
     }
     for m in metrics.values():
         m['ok'] = None if m['value'] is None or m['threshold'] is None else PS.judge(m['value'], m['op'], m['threshold'])
-    srep['summary'] = {'dE00_median': [medb, meda], 'dE00_p95': [p95b, p95a], 'rough_rms_mm': [rb, ra], 'step_ratio': [stb, sta], 'texture_dev': [txb, txa], 'changed_texels': changed, 'photo_middle_texels': mid_all, 'photo_middle_changed': mid_bad,
+    srep['summary'] = {'dE00_median': [medb, meda], 'dE00_p95': [p95b, p95a], 'rough_rms_mm': [rb, ra], 'cpu_s': cpu_s, 'wall_s': round(secs, 1), 'step_ratio': [stb, sta], 'texture_dev': [txb, txa], 'changed_texels': changed, 'photo_middle_texels': mid_all, 'photo_middle_changed': mid_bad,
                        'parts_note': parts_note}
     with open(os.path.join(d, 'report.json'), 'w', encoding='utf-8') as f:
         json.dump({'seam': srep}, f, ensure_ascii=False, indent=1, default=lambda o: o.item() if hasattr(o, 'item') else str(o))

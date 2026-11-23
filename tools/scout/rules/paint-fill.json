@@ -103,6 +103,7 @@
     "step_floor": 1.5,
     "texdev_floor": 0.3,
     "rough_tol": 1.1,
+    "cpu_s_per_variant_geom": 40.0,
     "patch_texture": true,
     "patch_reach_mm": 70.0,
     "patch_decay_mm": 45.0,
