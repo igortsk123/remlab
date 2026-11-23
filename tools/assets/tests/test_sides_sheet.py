@@ -87,6 +87,8 @@ with tempfile.TemporaryDirectory() as t:
     ok(tm['good']['ok'] is False, 'лист: не все виды нарисованы → ok=False (код возврата 1)')
     tm2 = SS.batch([items[0]], out, render_fn=fake_render)
     ok('noaz' in tm2 and 'good' in tm2 and tm2['_total']['items'] == 1, 'лист: повторный запуск на части списка дополняет times.json, не стирает')
+    fp = SS.batch([dict(items[0], id='fp', photo=os.path.join(t, 'x', '07-fill', 'frame-photo.png'))], os.path.join(t, 'sheets-fp'), render_fn=fake_render)
+    ok(fp['fp']['ok'] is False and 'frame-photo' in fp['fp']['notes'][0], 'лист: в колонке ФОТО frame-photo.png (кадр-рендер 07, не фото товара) → отказ с причиной (T-21)')
 
 # 2б. свет листа = свет сайта: числа в sides-sheet.json — зеркало window-light.ts:LIGHT и позиций света в viewer.ts (разошлись — красный)
 ROOT = os.path.join(ASSETS, '..', '..')

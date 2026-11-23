@@ -108,6 +108,9 @@ def batch(items: list, out: str, node: str = 'node', rules: dict | None = None, 
         if az is None or not os.path.exists(it['glb']):
             times[it['id']] = {'ok': False, 'seconds': 0, 'notes': ['нет азимута камеры фото' if az is None else f"нет файла {it['glb']}"]}
             continue
+        if os.path.basename(str(it.get('photo') or '')).startswith('frame-photo'):
+            times[it['id']] = {'ok': False, 'seconds': 0, 'notes': ["в колонке ФОТО стоит frame-photo.png (кадр-рендер 07, у корпусных боковой), а не фото товара: возьми фото входа 06 (photo.png из inputs)"]}
+            continue
         todo.append(dict(it, _az=az))
     spec = build_spec(sh, work, todo, clay)
     os.makedirs(work, exist_ok=True)
