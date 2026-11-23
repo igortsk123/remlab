@@ -404,7 +404,7 @@ def test_hidden_pattern_by_type():
     g = q.geom(tex)
     parts = [np.array(q.part, np.int32)]
     got = {}
-    for role in ('ваза', 'шкаф', 'кресло', 'стул', 'картина', 'пуф', 'неведомая вещь'):
+    for role in ('ваза', 'шкаф', 'кресло', 'стул', 'картина', 'пуф', 'неведомая вещь', 'комод', 'витрина', 'стеллаж', 'кровать', 'диван'):
         pas, ctx, out, rep, k0 = run(g, tex, known, parts, product_role=role)
         sy = [r.get('synth') for r in rep.values() if r.get('synth')]
         got[role] = sy[0] if sy else None
@@ -412,6 +412,8 @@ def test_hidden_pattern_by_type():
     ok(got['кресло'] and got['кресло']['hidden_pattern'] == 'same_fabric' and got['кресло']['mode'] != 'skip', f'кресло (same_fabric): ткань без деталей лица, синтез идёт: {got["кресло"]}')
     for role, hp in (('шкаф', 'body'), ('стул', 'plain'), ('картина', 'not_applicable')):
         ok(got[role] and got[role]['mode'] == 'skip' and got[role]['hidden_pattern'] == hp, f'{role} ({hp}): узор лица не переносится, прежнее зерно: {got[role]}')
+    ok(all(got[r] and got[r]['mode'] == 'skip' and got[r]['hidden_pattern'] == 'body' for r in ('комод', 'витрина', 'стеллаж')), 'комод/витрина/стеллаж (body): узорный фасад на зад не переносится')
+    ok(all(got[r] and got[r]['hidden_pattern'] == 'same_fabric' and got[r]['mode'] != 'skip' for r in ('кровать', 'диван')), 'кровать/диван (same_fabric): ткань, синтез идёт')
     ok(got['пуф'] and got['пуф']['mode'] == 'skip' and 'observe' in got['пуф']['why'], f'пуф: политика в режиме observe — записана, не применяется: {got["пуф"]}')
     ok(got['неведомая вещь'] and got['неведомая вещь']['mode'] == 'skip' and got['неведомая вещь']['hidden_pattern'] == 'unknown' and 'no_type' in got['неведомая вещь']['why'], f'неизвестный тип → воздержание с кодом no_type (не «обычная мебель»): {got["неведомая вещь"]}')
     pas, ctx, out, rep, k0 = run(g, tex, known, parts)

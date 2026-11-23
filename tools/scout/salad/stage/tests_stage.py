@@ -812,6 +812,12 @@ def _top_equality():
         d = os.path.join(out, 's1', '07-fill')
         rep = json.load(open(os.path.join(d, 'report.json'), encoding='utf-8'))['report']
         res[nm] = (TC.load_geoms(os.path.join(d, 'filled.glb')), rep.get('top_prior', {}))
+        _chk = json.load(open(os.path.join(d, 'check.json'), encoding='utf-8'))
+        _pp = (_chk.get('extra') or {}).get('paint_policy') or {}
+        sys.path.insert(0, os.path.join(ROOT, 'tools/scout'))
+        import mesh_type_passports as _MTP
+        ok(_pp.get('type') == 'стол обеденный' and _pp.get('hidden_pattern') == 'continue' and _pp.get('digest') == _MTP.digest('стол обеденный') and _pp.get('applied') in ('synth', 'no_synth'),
+           f'политика покраски в check.json 07 из «{nm}»: тип, значение, digest паспорта, применено ({ {k: _pp.get(k) for k in ("type", "hidden_pattern", "mode", "applied", "reason")} })')
     (ga, ra), (gb, rb) = res['local'], res['code_tar']
     ok(ra.get('applied') is True and ra.get('pattern') == 'library' and ra.get('top_source') == 'same_part_inference', f'верх Ш3в: применён с узором библиотеки ({ra.get("top_source")}, pattern={ra.get("pattern")}, {ra.get("library")})')
     ok(all(np.array_equal(np.asarray(x['tex']), np.asarray(y['tex'])) for x, y in zip(ga, gb)), 'верх Ш3в: текстуры filled.glb одинаковы у нас и из code.tar (побайтно)')
