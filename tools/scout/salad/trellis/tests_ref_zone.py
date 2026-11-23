@@ -615,6 +615,27 @@ def test_sub_tone():
     ok(rep['texels_changed'] > 0 and 0 < rep['subtone_share_pct'] < 50, f'в отчёте доля подчасти: {rep["subtone_share_pct"]} %')
 
 
+def test_norm_blocks():
+    print('куски донора для квилта (диван 114667_8381, 23.11): L блоков выровнена к медиане, блоки со швами отброшены, a,b и зерно целы:')
+    import cv2
+    rng = np.random.RandomState(3)
+    blocks = []
+    for i in range(40):
+        l = 60 + (-15 if i % 5 == 0 else 0) + rng.randn(16, 16) * 1.5               # каждый пятый блок — тёмный (тень донора)
+        if i % 10 == 7:
+            l[:, 6:9] -= 25                                                         # шов внутри блока
+        lab = np.stack([l, np.full((16, 16), 8.0), np.full((16, 16), 10.0)], 2).astype(np.float32)
+        blocks.append(np.clip(cv2.cvtColor(lab, cv2.COLOR_Lab2RGB) * 255 + 0.5, 0, 255).astype(np.uint8))
+    out, nb = RZ.norm_blocks(blocks, 15.0, 8)
+    mu = [float(cv2.cvtColor(b.astype(np.float32) / 255.0, cv2.COLOR_RGB2Lab)[..., 0].mean()) for b in out]
+    ok(max(mu) - min(mu) < 2.0, f'средние L блоков в пределах 2: {min(mu):.1f}…{max(mu):.1f}; {nb}')
+    ok(nb['dropped'] == 6 and len(out) == 34, f'отброшено 15 % (6 из 40): {nb}')
+    lab0 = cv2.cvtColor(out[0].astype(np.float32) / 255.0, cv2.COLOR_RGB2Lab)
+    ok(abs(float(np.median(lab0[..., 1])) - 8) < 1.5 and abs(float(np.median(lab0[..., 2])) - 10) < 1.5, 'a,b не изменились')
+    small, nb2 = RZ.norm_blocks(blocks[:5], 15.0, 8)
+    ok(nb2['dropped'] == 0 and len(small) == 5, 'мало блоков → не отбрасываем')
+
+
 def test_sibling_tone():
     print('части-близнецы (стул 7733, 23.11): тон из мизерного известного подтягивается к парной части с тем же цветом 06; известные тексели не трогаем:')
     sys.path[:0] = [os.path.join(HERE, '..'), os.path.join(HERE, '..', '..')]
@@ -680,7 +701,7 @@ def test_align_tied():
 
 
 def main():
-    for f in (test_sibling_tone, test_own_panel_fabric_photo_quilt, test_sub_tone, test_own_panel_neutral_donor_needs_L, test_own_panel_keeps_our_L, test_align_tied, test_own_panel_smooth_no_quilt, test_align_ut, test_own_panel_clean_detail, test_own_panel_tone, test_same_mesh, test_decide, test_gate_per_property, test_propagate, test_object_basis, test_inconsistent_winding, test_outer_only, test_panel_with_bottom, test_panels, test_apply_to_fill, test_relief_source, test_ultratex_full):
+    for f in (test_norm_blocks, test_sibling_tone, test_own_panel_fabric_photo_quilt, test_sub_tone, test_own_panel_neutral_donor_needs_L, test_own_panel_keeps_our_L, test_align_tied, test_own_panel_smooth_no_quilt, test_align_ut, test_own_panel_clean_detail, test_own_panel_tone, test_same_mesh, test_decide, test_gate_per_property, test_propagate, test_object_basis, test_inconsistent_winding, test_outer_only, test_panel_with_bottom, test_panels, test_apply_to_fill, test_relief_source, test_ultratex_full):
         f()
     print(f'tests_ref_zone: ошибок {len(FAILS)}')
     return 1 if FAILS else 0

@@ -1037,6 +1037,28 @@ def sub_tone(geoms: list, tex_before: list, tex_after: list, known: list, parts:
     return outs, rep
 
 
+def norm_blocks(pool: list, drop_pct: float = 15.0, min_pool: int = 8) -> tuple:
+    """Куски донора для квилта (T-187/6, диван 114667_8381): (1) отбросить `drop_pct` % блоков с наибольшей σ L внутри (швы, пуговицы, кромки), если останется ≥ `min_pool`;
+    (2) L каждого блока сдвинуть к медиане L оставшихся (тени донора не должны стать сеткой плиток), a,b и зерно не трогаем. → (блоки uint8, {'dropped','shifted'})."""
+    import cv2
+    if len(pool) < 4:
+        return pool, {'dropped': 0, 'shifted': 0}
+    labs = [cv2.cvtColor(np.asarray(b, np.uint8).astype(np.float32) / 255.0, cv2.COLOR_RGB2Lab) for b in pool]
+    sig = np.array([float(l[..., 0].std()) for l in labs])
+    keep = np.arange(len(pool))
+    k_drop = int(len(pool) * drop_pct / 100.0)
+    if k_drop > 0 and len(pool) - k_drop >= min_pool:
+        keep = np.sort(np.argsort(sig)[:len(pool) - k_drop])
+    mu = np.array([float(labs[i][..., 0].mean()) for i in keep])
+    ref = float(np.median(mu))
+    out = []
+    for i, m in zip(keep, mu):
+        l = labs[i].copy()
+        l[..., 0] = np.clip(l[..., 0] + (ref - m), 0.0, 100.0)
+        out.append(np.clip(cv2.cvtColor(l, cv2.COLOR_Lab2RGB) * 255.0 + 0.5, 0, 255).astype(np.uint8))
+    return out, {'dropped': int(len(pool) - len(keep)), 'shifted': int(np.sum(np.abs(mu - ref) > 1.0))}
+
+
 def own_panel_tone(geoms: list, tex_after: list, known: list, ut_geoms: list | None, parts: list | None) -> tuple:
     """Невидимые панели (T-187/6, владелец 22.11 TG 1737/1741/1744): зеркала и чужого квилта нет. Панель, у которой фото закрывает меньше `min_known` текселей, — «невидимая».
     Для неё среди ВИДИМЫХ панелей ищется донор по UltraTex (тот же меш, та же поза): тот же ОТТЕНОК (ΔE по a,b медиан UltraTex ≤ `donor_hue_de`) И та же ФАКТУРА (σ детали L−низкий пас σ `full.sigma`,
@@ -1047,7 +1069,7 @@ def own_panel_tone(geoms: list, tex_after: list, known: list, ut_geoms: list | N
     import cv2
     import tex_coverage as TC
     import tex_fill as TF
-    O = dict({'enabled': True, 'min_known': 0.05, 'min_visible_texels': 200, 'min_hidden_texels': 300, 'donor_hue_de': 6.0, 'donor_tex_ratio': 1.6, 'quilt_block': 16, 'quilt_cells': 6,
+    O = dict({'enabled': True, 'min_known': 0.05, 'min_visible_texels': 200, 'min_hidden_texels': 300, 'donor_hue_de': 6.0, 'donor_tex_ratio': 1.6, 'quilt_block': 16, 'quilt_cells': 16, 'quilt_lattice_max': 0.3, 'quilt_norm': True, 'quilt_drop_pct': 15.0, 'quilt_min_pool': 8,
               'quilt_overlap': 4, 'quilt_pool': 300, 'quilt_tries': 40, 'ut_detail': True, 'max_panels': 80, 'seed': 7, 'edge_px': 4, 'wins_k': 2.5, 'quilt_min_sigma': 1.5, 'flat_photo_sigma': 1.0, 'grooves_sigma': 4.0, 'neutral_chroma': 8.0, 'neutral_dL': 25.0}, **R.get('own_panel', {}))
     FU = dict({'sigma': 12.0, 'clip': 35.0, 'photo_floor': 0.8}, **R.get('full', {}))
     out, rep = [], {'panels': {}, 'texels_changed': 0, 'hidden': 0, 'with_donor': 0, 'flat_texels': 0, 'flat_rough_texels': 0}
@@ -1173,10 +1195,28 @@ def own_panel_tone(geoms: list, tex_after: list, known: list, ut_geoms: list | N
                 sph = detail(lab[:, 0], kv_, T, clean=True)[1] if len(kv_) >= 50 else 0.0           # σ L фото донора (устойчивая деталь): ровное фото → плоский тон допустим
                 info['photo_sigma_L'] = round(float(sph), 2)
                 rough_photo = O['flat_photo_sigma'] <= sph < O['grooves_sigma']       # полоса «фактура ткани/стёжки» (диван 114667_8381: 1,46–2,46); выше — борозды/линии фасада (не копируем, решение 22.11), ниже — ровное
+                q = None
                 if len(pool) >= 4 and (best[3] or rough_photo):                  # куски фасада — если у обеих панелей по UltraTex есть фактура ИЛИ фото донора фактурное (σ L ≥ flat_photo_sigma): ровным тоном фактурное фото не заливаем (23.11); обе гладкие и фото ровное → плоский тон (22.11)
                     if len(pool) > O['quilt_pool']:
                         pool = [pool[i] for i in rng.choice(len(pool), int(O['quilt_pool']), replace=False)]
-                    q = TF.wrap_soften(TF.quilt_image(np.stack(pool).astype(np.float64), int(O['quilt_cells']), int(O['quilt_overlap']), rng, int(O['quilt_tries'])))
+                    if O['quilt_norm']:
+                        pool, nb = norm_blocks(pool, float(O['quilt_drop_pct']), int(O['quilt_min_pool']))
+                        info['quilt_norm'] = nb
+                    q, lat_q = None, None
+                    for mul_ in (1.0, 1.25, 1.5):                                # решётка плитки (р.1, T-187/7): лучшая из сборок, плитка крупнее; не вышло — плоский тон
+                        c_ = TF.wrap_soften(TF.quilt_image(np.stack(pool).astype(np.float64), int(round(O['quilt_cells'] * mul_)), int(O['quilt_overlap']), rng, int(O['quilt_tries'])))
+                        l_ = TF.quilt_lattice(c_, int(O['quilt_block']) - int(O['quilt_overlap']))
+                        if lat_q is None or l_['excess'] < lat_q['excess']:
+                            q, lat_q = c_, l_
+                        if lat_q['excess'] <= O['quilt_lattice_max']:
+                            break
+                    info['quilt_lattice'] = round(float(lat_q['excess']), 3)
+                    rep['quilt_lattice_max'] = max(float(rep.get('quilt_lattice_max', 0.0)), float(lat_q['excess']) if lat_q['excess'] <= O['quilt_lattice_max'] else 0.0)
+                    if lat_q['excess'] > O['quilt_lattice_max']:
+                        info['quilt_lattice_fallback'] = 'плоский тон: решётка плитки не ушла'
+                        rep['quilt_lattice_flat'] = rep.get('quilt_lattice_flat', 0) + 1
+                        q = None
+                if q is not None:
                     S = q.shape[0]
                     px = np.clip(q[(sel // T) % S, (sel % T) % S] + 0.5, 0, 255).astype(np.uint8)
                     oL = own_L(sel)

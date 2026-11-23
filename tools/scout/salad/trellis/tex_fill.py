@@ -1708,7 +1708,7 @@ def load_rules(path: str | None = None) -> dict:
     for k in ('quilt_extreme', 'mirror_extreme'):
         if 'black_rel' not in r[k]:
             raise KeyError(f'rules/paint-fill.json: {k}.black_rel не задан')
-    for k in ('pool_rejected_pct', 'empty_pct', 'dE00_front_back', 'dL_front_back', 'filled_faces_step_pct', 'far_excess_pct', 'known_changed_share_pct', 'cpu_s', 'front_on_back_corr'):
+    for k in ('pool_rejected_pct', 'empty_pct', 'dE00_front_back', 'dL_front_back', 'filled_faces_step_pct', 'far_excess_pct', 'known_changed_share_pct', 'cpu_s', 'front_on_back_corr', 'quilt_lattice_max'):
         if k not in r['thresholds']:
             raise KeyError(f'rules/paint-fill.json: threshold {k!r} не задан')
     return r
@@ -2172,6 +2172,18 @@ def _center_by_part(v: np.ndarray, lab: np.ndarray, min_n: int) -> np.ndarray:
     return out
 
 
+def _lattice_value(rep: dict) -> float:
+    """Максимум решётки квилта по ИТОГОВЫМ сборкам всех путей (T-187/6, 23.11): fill-квилт (after, если пересобирали, иначе before), patch, own_panel (после пересборки/фоллбэка плоским)."""
+    vals = []
+    for v in (rep.get('quilt_lattice') or {}).values():
+        vals.append(float(v.get('after', v.get('before', 0.0))))
+    for v in (rep.get('patch_lattice') or {}).values():
+        if isinstance(v, dict) and v.get('quilt_lattice') is not None:
+            vals.append(float(v['quilt_lattice']))
+    vals.append(float((rep.get('own_panel') or {}).get('quilt_lattice_max', 0.0)))
+    return round(max(vals), 3) if vals else 0.0
+
+
 def front_on_back_corr(geoms: list, tex_list: list, front: tuple | None, eps_frac: float = 0.02, min_pairs: int = 200, min_std: float = 2.0, parts: list | None = None, min_part_pairs: int = 30) -> dict:
     """Автопроверка «перёд скопирован на зад» (T-187/6): пары граней ЗАДА и их зеркальных двойников на ПЕРЕДЕ (отражение через центр по оси «перёд»); корреляция яркости текстуры в центрах граней.
     Нормаль берётся без знака (обмотка мешей TRELLIS не согласована), сторона — по положению центра грани. Гладкие (σ < `min_std`) или мало пар — corr None (не измерено).
@@ -2487,6 +2499,7 @@ def run_stage_once(run: str, sku: str, glb: str, known: list | None = None, part
         'known_changed_share_pct': {'value': kchg['share_pct'], 'threshold': th['known_changed_share_pct'][1], 'op': th['known_changed_share_pct'][0]},
         'pool_rejected_pct': {'value': round(100.0 * max(rep.get('quilt_rejected_share', {}).values(), default=0.0), 1), 'threshold': th['pool_rejected_pct'][1], 'op': th['pool_rejected_pct'][0]},     # мягкий провал: больше половины пула блоков отбраковано правилом — образец беден, запасной режим (плитка) вместо квилта
         'cpu_s': {'value': round(cpu_s, 1), 'threshold': th['cpu_s'][1], 'op': th['cpu_s'][0]},
+        'quilt_lattice_max': {'value': _lattice_value(rep), 'threshold': th['quilt_lattice_max'][1], 'op': th['quilt_lattice_max'][0]},        # решётка плитки на каждой залитой зоне (T-187/6, 23.11): fill-квилт, patch, own_panel; провал — гуще/плоско
         'front_on_back_corr': {'value': rep['front_on_back']['corr'], 'threshold': th['front_on_back_corr'][1], 'op': th['front_on_back_corr'][0]},      # перёд на заду (T-187/6): не измерено (None) — не провал
     }
     for k_, m in metrics.items():
