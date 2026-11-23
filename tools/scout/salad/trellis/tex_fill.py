@@ -2072,16 +2072,32 @@ def front_axis_of_check(chk) -> tuple | None:
     return (0, 1 if sx >= 0 else -1) if abs(sx) > abs(cz) else (2, 1 if cz >= 0 else -1)
 
 
-def front_on_back_corr(geoms: list, tex_list: list, front: tuple | None, eps_frac: float = 0.02, min_pairs: int = 200, min_std: float = 2.0) -> dict:
+def _center_by_part(v: np.ndarray, lab: np.ndarray, min_n: int) -> np.ndarray:
+    """Вычесть среднее по части (T-198/1): остаётся фактура ВНУТРИ части; части с парами < min_n — одной общей группой."""
+    out, lab = np.asarray(v, np.float64).copy(), np.asarray(lab).copy()
+    u, cnt = np.unique(lab, return_counts=True)
+    if (cnt < min_n).any():
+        lab[np.isin(lab, u[cnt < min_n])] = -1
+    for p in np.unique(lab):
+        m = lab == p
+        out[m] -= out[m].mean()
+    return out
+
+
+def front_on_back_corr(geoms: list, tex_list: list, front: tuple | None, eps_frac: float = 0.02, min_pairs: int = 200, min_std: float = 2.0, parts: list | None = None, min_part_pairs: int = 30) -> dict:
     """Автопроверка «перёд скопирован на зад» (T-187/6): пары граней ЗАДА и их зеркальных двойников на ПЕРЕДЕ (отражение через центр по оси «перёд»); корреляция яркости текстуры в центрах граней.
     Нормаль берётся без знака (обмотка мешей TRELLIS не согласована), сторона — по положению центра грани. Гладкие (σ < `min_std`) или мало пар — corr None (не измерено).
-    → {'corr', 'pairs', 'axis'}."""
+    `parts` (части граней по геометриям, как в 07) заданы — `corr` считается по ОСТАТКУ после вычитания среднего тона по ключу «пара частей» (часть зад-грани, часть её перёд-двойника), одинаково для обеих сторон: общий порядок
+    ровных тонов частей, одинаковых спереди и сзади (подлокотники/сиденье), копией фактуры не считается (T-198/1: диван 16411, по частям PartLLM 0,688 при остатке 0,117), а копия остаётся видна и при разных частях зада и перёда
+    (ключ по паре, не по стороне: иначе у зада в одной части идеальная копия давала 0,43); внутри пар гладко (σ остатка < min_std) — не измерено. `raw` — корреляция по яркости целиком.
+    `imprint` — справочно: доля разброса яркости зад-граней внутри их части, объяснённая частью перёд-двойника (тон перёда лёг рисунком частей на заднюю часть; при гладком перёде corr None, а это брак) — в гейт не входит.
+    → {'corr', 'raw', 'imprint', 'pairs', 'axis', 'mode': 'within_parts'|'raw'}."""
     from scipy.spatial import cKDTree
     if front is None:
         return {'corr': None, 'pairs': 0, 'axis': None, 'why': 'нет позы камеры'}
     axis, sign = front
-    Lf, Lb = [], []
-    for g, tex in zip(geoms, tex_list):
+    Lf, Lb, Pf, Pb = [], [], [], []
+    for gi_, (g, tex) in enumerate(zip(geoms, tex_list)):
         V, F, UV = np.asarray(g['V'], np.float64), np.asarray(g['F'], np.int64), np.asarray(g['UV'], np.float64)
         tri = V[F]
         n = np.cross(tri[:, 1] - tri[:, 0], tri[:, 2] - tri[:, 0])
@@ -2107,12 +2123,28 @@ def front_on_back_corr(geoms: list, tex_list: list, front: tuple | None, eps_fra
         okp = np.isfinite(d)
         Lb.append(lum[bi][okp])
         Lf.append(lum[fi[j[okp]]])
+        if parts is not None:
+            pa_ = np.asarray(parts[gi_])
+            Pb.append(pa_[bi][okp])
+            Pf.append(pa_[fi[j[okp]]])
     if not Lb:
         return {'corr': None, 'pairs': 0, 'axis': axis, 'why': 'нет пар зад↔перёд'}
     lb, lf = np.concatenate(Lb), np.concatenate(Lf)
     if len(lb) < min_pairs or lb.std() < min_std or lf.std() < min_std:
         return {'corr': None, 'pairs': int(len(lb)), 'axis': axis, 'why': 'мало пар или гладко'}
-    return {'corr': round(float(np.corrcoef(lb, lf)[0, 1]), 3), 'pairs': int(len(lb)), 'axis': axis}
+    raw = round(float(np.corrcoef(lb, lf)[0, 1]), 3)
+    if parts is None:
+        return {'corr': raw, 'raw': raw, 'pairs': int(len(lb)), 'axis': axis, 'mode': 'raw'}
+    pb_, pf_ = np.concatenate(Pb).astype(np.int64), np.concatenate(Pf).astype(np.int64)
+    key = pb_ * (int(max(pb_.max(), pf_.max())) + 2) + pf_                              # пара (часть зада, часть перёда) — общая для обеих сторон
+    rb, rf = _center_by_part(lb, key, min_part_pairs), _center_by_part(lf, key, min_part_pairs)
+    rb_own = _center_by_part(lb, pb_, min_part_pairs)                                  # зад внутри своей части
+    imprint = None
+    if rb_own.std() >= min_std:
+        imprint = round(float(1.0 - _center_by_part(rb_own, pf_, min_part_pairs).var() / max(rb_own.var(), 1e-12)), 3)
+    if rb.std() < min_std or rf.std() < min_std:
+        return {'corr': None, 'raw': raw, 'imprint': imprint, 'pairs': int(len(lb)), 'axis': axis, 'mode': 'within_parts', 'why': 'внутри пар частей гладко'}
+    return {'corr': round(float(np.corrcoef(rb, rf)[0, 1]), 3), 'raw': raw, 'imprint': imprint, 'pairs': int(len(lb)), 'axis': axis, 'mode': 'within_parts'}
 
 
 def stage6_gate(prev_dir: str):
@@ -2188,7 +2220,7 @@ def own_panel_tone_hook(geoms: list, tex_after: list, known: list, ut_g: list | 
             for y in cand:
                 ut_y, _ = RZ.align_ut(g_t, ta_t, kn_t, ug_t, yaw=y)
                 o_y, r_y = RZ.own_panel_tone(g_t, ta_t, kn_t, ut_y, parts)
-                c_y = front_on_back_corr(g_t, o_y, front).get('corr')
+                c_y = front_on_back_corr(g_t, o_y, front, parts=parts).get('corr')
                 fb_by[str(y)] = c_y
                 if c_y is not None and c_y <= thr and (best is None or c_y < best[0]):
                     best = (c_y, y, o_y, r_y)
@@ -2329,7 +2361,8 @@ def run_stage_once(run: str, sku: str, glb: str, known: list | None = None, part
     pick['finish'](tex_after)                                          # мерки — по ИТОГОВОЙ текстуре (после ref_zone_map, own_panel, top_prior), не по текстуре до хуков
     de, big, de_worst, _dlw = _front_back_vals(geoms, parts, known, kback, tex_before, tex_after, rep)
     pick['vals'] = dict(pick['vals'], empty_pct=rep['unpainted_after_pct'], dE00_front_back=de_worst, dL_front_back=_dlw, filled_faces_step_pct=rep['steps']['after']['filled_faces_step_pct'], far_excess_pct=rep['far_pct']['excess'])
-    rep['front_on_back'] = front_on_back_corr(geoms, tex_after, front_axis_of_check(_chk6))
+    rep['front_on_back'] = front_on_back_corr(geoms, tex_after, front_axis_of_check(_chk6), parts=parts)
+    rep['front_on_back_raw'] = rep['front_on_back'].get('raw')                      # старая мера (по яркости целиком) — для сравнения (T-198/1)
     kchg = known_changed_share(known, tex_before, tex_after, RULES['known_change_de'])
     rep['known_changed'] = kchg
     try:                                                          # мерка узора — только отчёт (порог по трудным — позже), сбой её не роняет этап

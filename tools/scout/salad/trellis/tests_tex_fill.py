@@ -349,6 +349,83 @@ def test_front_on_back():
     ok(TF.front_axis_of_check({'extra': {'camera': {'az': 160.0}}}) == (2, -1) and TF.front_axis_of_check({'extra': {'camera': {'az': 55.0}}}) == (0, 1) and TF.front_axis_of_check({}) is None, 'ось «перёд» по азимуту: az160 → (z, −), az55 → (x, +), нет позы → None')
 
 
+def test_front_on_back_within_parts():
+    print('«перёд на заду» по остатку внутри частей (T-198/1): тоны частей зеркальны — не копия; копия фактуры внутри части — копия:')
+    rng = np.random.default_rng(7)
+    q = Quads()
+    q.quad([[-1, 0, 1], [1, 0, 1], [1, 1, 1], [-1, 1, 1]], (0, 0, .5, .5), sub=24)       # перёд z=+1
+    q.quad([[-1, 0, -1], [1, 0, -1], [1, 1, -1], [-1, 1, -1]], (.5, 0, 1, .5), sub=24)     # зад z=−1, те же (x, y)
+    mf, mb = tile_mask((0, 0, .5, .5)), tile_mask((.5, 0, 1, .5))
+    g0 = q.geom(np.zeros((T, T, 3), np.uint8))
+    cx = np.asarray(g0['V'])[np.asarray(g0['F'])][:, :, 0].mean(1)
+    parts = [(cx > 0).astype(np.int32)]                                                   # часть 0 — левая половина, часть 1 — правая
+    half = (np.arange(T)[None, :] % (T // 2)) >= (T // 4)                                  # столбцы тайла: правая половина = часть 1
+
+    def tex_of(front_sigma, back_sigma, copy):
+        base = np.where(half, 200.0, 70.0)                                                  # у каждой части свой ровный тон
+        f = base + rng.normal(0, front_sigma, (T, T))
+        b = np.roll(f, T // 2, axis=1) if copy else base + rng.normal(0, back_sigma, (T, T))
+        t = np.full((T, T, 3), 100, np.uint8)
+        t[mf] = np.repeat(np.clip(f, 0, 255)[..., None], 3, 2).astype(np.uint8)[mf]
+        t[mb] = np.repeat(np.clip(b, 0, 255)[..., None], 3, 2).astype(np.uint8)[mb]
+        return t
+
+    t_tone = tex_of(6.0, 6.0, False)                                                        # тоны частей одинаковы спереди и сзади, фактура независимая
+    r1 = TF.front_on_back_corr([g0], [t_tone], (2, 1), parts=parts)
+    ok(r1['raw'] is not None and r1['raw'] > 0.9, f'порядок тонов частей: корреляция по яркости целиком высокая ({r1["raw"]})')
+    ok(r1['corr'] is not None and r1['corr'] < 0.3 and r1['mode'] == 'within_parts', f'остаток внутри частей низкий — не копия ({r1["corr"]}, режим {r1["mode"]})')
+    t_copy = tex_of(10.0, 10.0, True)                                                       # зад = копия фактуры лица внутри каждой части
+    r2 = TF.front_on_back_corr([g0], [t_copy], (2, 1), parts=parts)
+    ok(r2['corr'] is not None and r2['corr'] > 0.8 and r2['raw'] > 0.9, f'копия фактуры внутри части → остаток высокий ({r2["corr"]}, целиком {r2["raw"]})')
+    r3 = TF.front_on_back_corr([g0], [t_tone], (2, 1))
+    ok(r3['mode'] == 'raw' and r3['corr'] == r3['raw'] == r1['raw'], f'без частей — как раньше, по яркости целиком ({r3["corr"]})')
+    t_flat = tex_of(0.0, 0.0, False)                                                        # внутри частей гладко: нечего копировать
+    r4 = TF.front_on_back_corr([g0], [t_flat], (2, 1), parts=parts)
+    ok(r4['corr'] is None and r4.get('why') == 'внутри пар частей гладко', f'гладко внутри частей — не измерено, не провал ({r4.get("why")})')
+    one = [np.zeros(len(g0['F']), np.int32)]                                                # одна часть на всё: остаток = яркость минус общее среднее — копия видна
+    r5 = TF.front_on_back_corr([g0], [t_copy], (2, 1), parts=one)
+    ok(r5['corr'] is not None and r5['corr'] > 0.9, f'одна часть на всё — копия видна ({r5["corr"]})')
+
+
+def test_front_on_back_unequal_parts():
+    print('«перёд на заду»: части зада и перёда разные (замечание советника, T-198/1) — копия не теряется, отпечаток виден:')
+    rng = np.random.default_rng(11)
+    q = Quads()
+    q.quad([[-1, 0, 1], [1, 0, 1], [1, 1, 1], [-1, 1, 1]], (0, 0, .5, .5), sub=24)
+    q.quad([[-1, 0, -1], [1, 0, -1], [1, 1, -1], [-1, 1, -1]], (.5, 0, 1, .5), sub=24)
+    mf, mb = tile_mask((0, 0, .5, .5)), tile_mask((.5, 0, 1, .5))
+    g0 = q.geom(np.zeros((T, T, 3), np.uint8))
+    F, V = np.asarray(g0['F']), np.asarray(g0['V'])
+    cen = V[F].mean(1)
+    side_back = cen[:, 2] < 0
+    cx = cen[:, 0]
+    part_front = np.where(cx < -0.5, 0, np.where(cx < 0, 1, np.where(cx < 0.5, 2, 3)))     # у перёда четыре части с разными тонами
+    parts_unequal = [np.where(side_back, 9, part_front).astype(np.int32)]                   # зад — одна часть 9
+    col = (np.arange(T)[None, :] % (T // 2)) / (T // 2)
+    tone = np.select([col < .25, col < .5, col < .75], [60.0, 110.0, 160.0], 210.0)
+
+    def tex_of(front_sigma, back_mode):
+        f = tone + rng.normal(0, front_sigma, (T, T))
+        if back_mode == 'copy':
+            b = np.roll(f, T // 2, axis=1)
+        elif back_mode == 'imprint':
+            b = tone + rng.normal(0, 6.0, (T, T))
+        else:
+            b = np.full((T, T), 130.0) + rng.normal(0, 6.0, (T, T))
+        t = np.full((T, T, 3), 100, np.uint8)
+        t[mf] = np.repeat(np.clip(f, 0, 255)[..., None], 3, 2).astype(np.uint8)[mf]
+        t[mb] = np.repeat(np.clip(b, 0, 255)[..., None], 3, 2).astype(np.uint8)[mb]
+        return t
+
+    r1 = TF.front_on_back_corr([g0], [tex_of(12.0, 'copy')], (2, 1), parts=parts_unequal)
+    ok(r1['corr'] is not None and r1['corr'] > 0.6, f'зад — одна часть, перёд — четыре тона, зад = копия перёда → копия видна ({r1["corr"]}, целиком {r1["raw"]})')
+    r2 = TF.front_on_back_corr([g0], [tex_of(12.0, 'indep')], (2, 1), parts=parts_unequal)
+    ok(r2['corr'] is None or r2['corr'] < 0.3, f'тот же перёд, зад — свой ровный тон и свой шум → не копия ({r2["corr"]})')
+    r3 = TF.front_on_back_corr([g0], [tex_of(0.0, 'imprint')], (2, 1), parts=parts_unequal)
+    ok(r3['corr'] is None and r3['imprint'] is not None and r3['imprint'] > 0.8, f'отпечаток: перёд ровный по частям, зад повторяет тона частей перёда → corr None, imprint высокий ({r3["imprint"]})')
+    ok(r2['imprint'] is None or r2['imprint'] < 0.3, f'без отпечатка imprint низкий ({r2["imprint"]})')
+
+
 def test_mirror():
     print('зеркало симметричного предмета (механизм жив при mirror_enabled=true; по умолчанию выкл.):')
     _was = TF.RULES.get('mirror_enabled')
@@ -1562,7 +1639,7 @@ def test_top_prior_hook():
 
 
 def main() -> int:
-    for f in (test_check_on_final_texture, test_top_prior_hook, test_mirror_off_by_default, test_shrink_layout, test_tie_picks_front_on_back, test_front_on_back, test_color, test_photo, test_parts, test_lighter_than_photo, test_no_known_part, test_mirror, test_texture, test_gutter_render, test_seam_steps_concavity, test_diffuse_quilt_far, test_draft_source, test_tone_mode_pattern, test_quilt_efros, test_quilt_holes, test_known_unchanged, test_render_pattern, test_outlier_blocks, test_dark_fabric, test_trellis_relief, test_part_roles_from_stage3, test_stage7_side_tone_smooth_rules, test_tone_from_neighbour, test_nail_twins, test_borrow_donors, test_tone_only, test_part_pattern_single_truth, test_pr_camera_and_winding, test_hidden_visible, test_stage6_gate, test_cli_run_stage, test_orphan_parts, test_cli_parts_flags, test_zones_fallback, test_brightness_target_median, test_run_stage_fallback, test_render_low):
+    for f in (test_check_on_final_texture, test_top_prior_hook, test_mirror_off_by_default, test_shrink_layout, test_tie_picks_front_on_back, test_front_on_back, test_front_on_back_within_parts, test_front_on_back_unequal_parts, test_color, test_photo, test_parts, test_lighter_than_photo, test_no_known_part, test_mirror, test_texture, test_gutter_render, test_seam_steps_concavity, test_diffuse_quilt_far, test_draft_source, test_tone_mode_pattern, test_quilt_efros, test_quilt_holes, test_known_unchanged, test_render_pattern, test_outlier_blocks, test_dark_fabric, test_trellis_relief, test_part_roles_from_stage3, test_stage7_side_tone_smooth_rules, test_tone_from_neighbour, test_nail_twins, test_borrow_donors, test_tone_only, test_part_pattern_single_truth, test_pr_camera_and_winding, test_hidden_visible, test_stage6_gate, test_cli_run_stage, test_orphan_parts, test_cli_parts_flags, test_zones_fallback, test_brightness_target_median, test_run_stage_fallback, test_render_low):
         f()
     print(f'tests_tex_fill: ошибок {bad}')
     return 1 if bad else 0
