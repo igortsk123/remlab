@@ -774,6 +774,10 @@ def test_quilt_lattice():
     one = np.tile(tiny[0], (3, 3, 1))
     ok(TF.quilt_lattice(one, B)['excess'] > thr, f'один блок плиткой — период по построению, мерка ловит ({TF.quilt_lattice(one, B)["excess"]:.2f})')
     ok(TF.quilt_lattice(np.zeros((40, 40, 3)), 10)['excess'] == 0.0 and TF.quilt_lattice(q_wide[:20, :20], 18)['lag'] is None, 'плоская плитка и плитка меньше двух шагов — 0, не падение')
+    rep_ = {'quilt_lattice': {1: {'before': 0.55, 'rebuilt': 8, 'flip': 1, 'after': 0.0, 'after_best': 0.38, 'flat': True}, 2: {'before': 0.2, 'rebuilt': 0}},
+            'patch_lattice': {3: {'single_lattice': 1.1, 'lattice': 0.29, 'quilt_lattice': 0.29, 'used': 'quilt'}, 4: {'single_lattice': 0.9, 'lattice': 0.0, 'lattice_best': 0.9, 'used': 'flat'}}, 'own_panel': {}}
+    ok(TF._lattice_value(rep_) == 0.29, f'итоговая мерка: гладко (flat) = 0, у образца берётся решётка ИТОГОВОГО образца ({TF._lattice_value(rep_)})')
+    ok(TF._lattice_value({'patch_lattice': {3: {'single_lattice': 1.1, 'lattice': 1.1, 'used': 'single'}}}) == 1.1, 'одиночный блок с решёткой — мерка красная, не прячется')
     ok(TF.FILL['quilt_lattice_max'] == 0.3 and TF.FILL['quilt_stride_div'] == 2 and TF.FILL['quilt_stride_div_max'] >= 4, 'правила по умолчанию: порог 0,3, шаг выборки полблока, потолок густоты')
     q_d = TF.render_pool  # шаг выборки пула — параметр: гуще → не меньше блоков
     yy, xx = np.mgrid[0:200, 0:200]

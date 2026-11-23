@@ -1177,6 +1177,7 @@ def fill(geoms: list, known: list, parts: list | None = None, cfg: dict | None =
     # --- шаг 3: фактура (остаток высоких частот известного участка той же части), только на залитое не зеркалом
     rng = np.random.RandomState(5)
     patches, patch_gain = {}, {}
+    qflat = set()                                          # части, где решётка квилта/образца не ушла после всех пересборок: фактура гладко (тон части), в отчёте flat (T-187/7, 23.11)
     blk = {}                                                  # по геометрии: остаток, номер части и островка (пиксель карты)
     for gi, tx in enumerate(txs):
         T = tx.T
@@ -1195,9 +1196,9 @@ def fill(geoms: list, known: list, parts: list | None = None, cfg: dict | None =
     if c['patch_mode'] == 'quilt' and (dshift is None or c['draft_texture']):
         qrng = np.random.RandomState(7)
         pr_S = pr_lab = pr_kn = pr_pm = None
-        qwork = [(p, int(c['quilt_stride_div'])) for p in part_ids]      # часть может вернуться в конец списка с более плотным пулом (мерка решётки квилта); список растёт на ходу
+        qwork = [(p, int(c['quilt_stride_div']), 0) for p in part_ids]      # часть может вернуться в конец списка с более плотным пулом (мерка решётки квилта); список растёт на ходу
         qlat = {}
-        for p, qdiv in qwork:
+        for p, qdiv, qaug in qwork:
             resg, okg = [], []
             for gi, tx in enumerate(txs):
                 res_, pm, _im = blk[gi]
@@ -1285,8 +1286,10 @@ def fill(geoms: list, known: list, parts: list | None = None, cfg: dict | None =
             sd = P.reshape(len(P), -1).std(axis=1)
             glo, ghi = c['quilt_gain'] if p in pat_parts else (0.6, 1.6)
             P = P * np.clip(float(np.median(sd)) / np.maximum(sd, 1e-6), glo, ghi)[:, None, None, None]
+            if qaug:                                              # пул мал даже при самом густом шаге: ×4 отражениями (по x, по y, оба) — блоки для сетки есть, повтор по сетке реже
+                P = np.concatenate([P, P[:, ::-1], P[:, :, ::-1], P[:, ::-1, ::-1]])
             nq = int(max(c['quilt_cells'], np.ceil((c['quilt_side'] - oq) / (Bq - oq))))
-            q = wrap_soften(quilt_image(P, nq, oq, qrng, int(c['quilt_tries']) * max(1, qdiv // int(c['quilt_stride_div']))))
+            q = wrap_soften(quilt_image(P, nq, oq, qrng, int(c['quilt_tries']) * max(1, qdiv // int(c['quilt_stride_div'])) * (2 if qaug else 1)))
             lat = quilt_lattice(q, Bq - oq)
             first = int(p) not in qlat
             if first or lat['excess'] < qlat[int(p)]:             # лучшая из сборок (первая, либо с меньшей решёткой)
@@ -1295,7 +1298,7 @@ def fill(geoms: list, known: list, parts: list | None = None, cfg: dict | None =
                 patch_gain[p] = 1.0
                 if first:
                     rep['quilt'] = rep.get('quilt', 0) + 1
-                rep.setdefault('quilt_info', {})[int(p)] = {'block': Bq, 'overlap': oq, 'cells': nq, 'pool': len(pool), 'jump_L': round(quilt_jump(q, Bq - oq), 3), 'stride_div': qdiv,
+                rep.setdefault('quilt_info', {})[int(p)] = {'block': Bq, 'overlap': oq, 'cells': nq, 'pool': len(pool), 'jump_L': round(quilt_jump(q, Bq - oq), 3), 'stride_div': qdiv, 'flip': qaug,
                                                            'lattice': round(lat['excess'], 3), 'lattice_r': round(lat['r'], 3), 'lattice_lag': lat['lag']}
                 if p in pat_parts:
                     raw_mean[p] = q.mean(axis=(0, 1))             # узорная: плитка без вычитания среднего и без смешения (фон = тон, цветы поверх)
@@ -1303,9 +1306,16 @@ def fill(geoms: list, known: list, parts: list | None = None, cfg: dict | None =
                 rep.setdefault('quilt_lattice', {})[int(p)] = {'before': round(lat['excess'], 3), 'rebuilt': 0}
             else:
                 rep['quilt_lattice'][int(p)]['rebuilt'] = qdiv
+                rep['quilt_lattice'][int(p)]['flip'] = qaug
                 rep['quilt_lattice'][int(p)]['after'] = round(qlat[int(p)], 3)
-            if lat['excess'] > c['quilt_lattice_max'] and qdiv * 2 <= int(c['quilt_stride_div_max']):
-                qwork.append((p, qdiv * 2))                       # решётка: блоки повторяются по сетке (пул мал) — пул гуще (шаг выборки вдвое мельче) и сборка заново
+            if lat['excess'] > c['quilt_lattice_max']:            # решётка: блоки повторяются по сетке (пул мал) — лестница: пул гуще (шаг вдвое мельче) → отражения ×4 → гладко
+                if qdiv * 2 <= int(c['quilt_stride_div_max']):
+                    qwork.append((p, qdiv * 2, qaug))
+                elif not qaug:
+                    qwork.append((p, qdiv, 1))
+                elif qlat[int(p)] > c['quilt_lattice_max'] and p not in pat_parts:        # узорная часть: период самого рисунка (обои, цветы) — не брак квилта, гладко не делаем
+                    qflat.add(int(p))
+                    rep['quilt_lattice'][int(p)].update({'after_best': round(qlat[int(p)], 3), 'after': 0.0, 'flat': True})
     for p in (part_ids if (dshift is None or c['draft_texture']) else []):
         if p in patches:
             continue
@@ -1336,8 +1346,9 @@ def fill(geoms: list, known: list, parts: list | None = None, cfg: dict | None =
                 patches[p] = pick[1]
                 patch_gain[p] = med / max(pick[0], 1e-6)       # типичный блок по контрастности; амплитуда подгоняется к медиане разброса известного
                 lat0 = quilt_lattice(np.tile(pick[1], (3, 3, 1)), B)             # один блок плиткой — период B по построению: решётка (T-187/7, 23.11: дерево №20, блок 16, r 0,6 на лагах 16/32/64/96)
-                info_ = {'block': B, 'cands': len(cands), 'single_lattice': round(lat0['excess'], 3), 'used': 'single'}
-                if len(cands) >= int(c['patch_quilt_min_pool']) and B - max(2, int(round(B * c['quilt_overlap']))) >= 2:
+                info_ = {'block': B, 'cands': len(cands), 'single_lattice': round(lat0['excess'], 3), 'used': 'single', 'lattice': round(lat0['excess'], 3)}
+                oq_ = max(2, int(round(B * c['quilt_overlap'])))
+                if len(cands) >= 3 and B - oq_ >= 2:
                     prng = np.random.RandomState(11 + int(p))                    # свой генератор: общий rng (смещения плиток ниже) не сдвигается
                     Pq = np.stack([x[1] for x in cands]).astype(np.float64)
                     if len(Pq) > int(c['quilt_pool']):
@@ -1345,15 +1356,26 @@ def fill(geoms: list, known: list, parts: list | None = None, cfg: dict | None =
                     Pq = Pq - Pq.mean(axis=(1, 2), keepdims=True)
                     sdq = Pq.reshape(len(Pq), -1).std(axis=1)
                     Pq = Pq * np.clip(med / np.maximum(sdq, 1e-6), c['quilt_gain'][0], c['quilt_gain'][1])[:, None, None, None]
-                    oq_ = max(2, int(round(B * c['quilt_overlap'])))
                     nq_ = int(max(c['quilt_cells'], np.ceil((c['quilt_side'] - oq_) / (B - oq_))))
-                    q_ = wrap_soften(quilt_image(Pq, nq_, oq_, prng, int(c['quilt_tries'])))
-                    lat1 = quilt_lattice(q_, B - oq_)
-                    info_.update({'quilt_lattice': round(lat1['excess'], 3), 'quilt_tile': int(q_.shape[0])})
+                    best_ = None
+                    for flip_ in ((0, 1) if len(cands) >= int(c['patch_quilt_min_pool']) else (1,)):          # лестница: пул как есть → отражения ×4 (у малого пула — сразу ×4)
+                        Pf = np.concatenate([Pq, Pq[:, ::-1], Pq[:, :, ::-1], Pq[:, ::-1, ::-1]]) if flip_ else Pq
+                        q_ = wrap_soften(quilt_image(Pf, nq_, oq_, prng, int(c['quilt_tries']) * (2 if flip_ else 1)))
+                        l_ = quilt_lattice(q_, B - oq_)
+                        if best_ is None or l_['excess'] < best_[1]['excess']:
+                            best_ = (q_, l_, flip_)
+                        if l_['excess'] <= c['quilt_lattice_max']:
+                            break
+                    q_, lat1, flip_ = best_
+                    info_.update({'quilt_lattice': round(lat1['excess'], 3), 'quilt_tile': int(q_.shape[0]), 'flip': flip_})
                     if lat1['excess'] < lat0['excess']:
                         patches[p] = q_
                         patch_gain[p] = med / max(float(q_.std()), 1e-6)
                         info_['used'] = 'quilt'
+                        info_['lattice'] = round(lat1['excess'], 3)
+                if info_['lattice'] > c['quilt_lattice_max']:                     # решётка осталась — гладко (тон части), мерка по итогу 0
+                    qflat.add(int(p))
+                    info_.update({'used': 'flat', 'lattice_best': info_['lattice'], 'lattice': 0.0})
                 rep.setdefault('patch_lattice', {})[int(p)] = info_
                 break
         else:
@@ -1455,7 +1477,7 @@ def fill(geoms: list, known: list, parts: list | None = None, cfg: dict | None =
                 add[sel & ~side_ok] = 0.0
             rv_ = (c.get('ref_verdict') or {})
             smooth_p = smooth_part_rule(roles_.get(p, roles_.get(str(p))), rep.get('quilt_info', {}).get(p, {}).get('jump_L'), p in raw_mean, c, rv_.get(p, rv_.get(str(p))))
-            if smooth_p:                                                                              # дерево/каркас и плитка с заметными швами — гладко, без «ёлочки»
+            if smooth_p or int(p) in qflat:                                                                              # дерево/каркас и плитка с заметными швами — гладко, без «ёлочки»
                 add[sel] = 0.0
                 rep.setdefault('quilt_smooth_parts', [])
                 if int(p) not in rep['quilt_smooth_parts']:
@@ -2178,8 +2200,8 @@ def _lattice_value(rep: dict) -> float:
     for v in (rep.get('quilt_lattice') or {}).values():
         vals.append(float(v.get('after', v.get('before', 0.0))))
     for v in (rep.get('patch_lattice') or {}).values():
-        if isinstance(v, dict) and v.get('quilt_lattice') is not None:
-            vals.append(float(v['quilt_lattice']))
+        if isinstance(v, dict) and v.get('lattice', v.get('quilt_lattice')) is not None:
+            vals.append(float(v.get('lattice', v.get('quilt_lattice'))))      # `lattice` = решётка ИТОГОВОГО образца (одиночный/квилт/гладко = 0)
     vals.append(float((rep.get('own_panel') or {}).get('quilt_lattice_max', 0.0)))
     return round(max(vals), 3) if vals else 0.0
 
