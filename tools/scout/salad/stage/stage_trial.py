@@ -547,12 +547,20 @@ def main() -> int:
     ap.add_argument('--nodes', type=int, default=0, help='с --queue: сколько нод делят очередь; потолок товаров на ноду = ceil(товаров/нод) (0 — без потолка, только --slots)')
     ap.add_argument('--requeue-max', type=int, default=1, help='с --queue: сколько раз упавший товар возвращается в очередь (другая нода) до окончательного отказа')
     ap.add_argument('--stop-only', action='store_true')
+    ap.add_argument('--sweep-warm', action='store_true', help='T-34: погасить тёплые ноды, которым пора (предел жизни вышел или простой > idle_min по записи ~/remlab-logs/warm-nodes); занятые прогоном не трогает')
     a = ap.parse_args()
     import bench_run as BR
     import migrate_groups as MG
     if a.stop_only:
         MG.env_from_file()
         return 0 if KD.stop_and_verify(BR, f'{PREFIX}-{a.suffix}') else 1
+    if a.sweep_warm:                                                               # T-34: воркер при простое выходит, но Salad его поднимает заново — гасим тёплые ноды сами
+        MG.env_from_file()
+        res = KD.warm_sweep(KD.WARM_DIR, time.time(), lambda n: KD.stop_and_verify(BR, n))
+        for name, why, ok in res:
+            say(f'тёплая нода {name}: {why} → {"погашена" if ok else "❗ ОСТАНОВКА НЕ ПОДТВЕРЖДЕНА"}')
+        say(f'sweep-warm: погашено {sum(1 for r in res if r[2])} из {len(res)}')
+        return 0 if all(r[2] for r in res) else 1
     st_ = stages_of(a)
     only07 = st_ in (['07'], ['07', 'seam'], ['07', 'seam', '08'])                 # 07 по готовому 06 (и шов, и 08 сразу за ним: вход — выход предыдущего из --out, одним пакетом)
     from_fill = st_ in (['seam'], ['08'], ['seam', '08'])                          # по готовым 06 и 07: товары — папки `<fill-root>/<товар>/07-fill/filled.glb` + `<vis-root>/<товар>/06-visible/known.png`

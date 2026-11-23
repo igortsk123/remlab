@@ -184,7 +184,9 @@ class T(unittest.TestCase):
             r, _ = make_base(tmp, with_fill=True)
             rp = os.path.join(tmp, 'rules.json')
             json.dump({**r, 'salad_ceiling': 2}, open(rp, 'w'))
-            orig = L._salad_items
+            orig, orig_sw = L._salad_items, L.sweep_warm
+            swept = []
+            L.sweep_warm = lambda: swept.append(1) or True                                   # настоящий sweep ходит в Salad — в тесте заглушка
             try:
                 L._salad_items = lambda: [{'name': f'x{i}', 'current_state': {'status': 'running', 'instance_status_counts': {'running_count': 1}}} for i in range(3)]
                 with self.assertRaises(SystemExit) as e:
@@ -198,8 +200,9 @@ class T(unittest.TestCase):
                 with self.assertRaises(SystemExit) as e2:
                     L.main(['--code-ref', 'HEAD', '--from', '08', '--rules', rp])                  # боевой: счёт не прочитан — не стартуем
                 self.assertIn('не смог прочитать живой счёт', str(e2.exception))
+                self.assertEqual(len(swept), 1)                                           # боевой старт сперва гасит просроченные тёплые; разбор (--dry) — нет
             finally:
-                L._salad_items = orig
+                L._salad_items, L.sweep_warm = orig, orig_sw
 
     def test_queue_cmd_nodes_and_variant(self):
         r = L.load_rules()

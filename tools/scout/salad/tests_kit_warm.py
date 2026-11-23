@@ -192,6 +192,26 @@ with tempfile.TemporaryDirectory() as tmp:
     rc, sm, out = drive(tmp, w, clock)
     check(rc == 0 and not sm.get('adopted_warm') and w.stops == 1 and w.starts == 2 and 'живого экземпляра нет' in out, f'running без экземпляра: перезапуск, не подхват (stops={w.stops}, starts={w.starts})')
 
+# 7б. warm_sweep (T-34, замер 23.11): воркер при простое выходит, Salad поднимает его заново — гасим мы; занятых прогоном не трогаем
+with tempfile.TemporaryDirectory() as wd:
+    def rec(name, **kw):
+        json.dump({'name': name, 'image': 'i', 'started_at': 1000.0, 'idle_min': 20.0, **kw}, open(os.path.join(wd, name + '.json'), 'w'))
+    rec('trial-stage-a', expires_at=1000.0 + 7200, last_used=2000.0)        # простой 25 мин > 20 + 2 → гасим
+    rec('trial-stage-b', expires_at=1000.0 + 7200, last_used=3000.0)        # простой 4 мин → живёт
+    rec('trial-stage-c', expires_at=2500.0)                                 # предел жизни вышел (last_used нет) → гасим
+    rec('trial-stage-d', expires_at=1000.0 + 7200)                          # запись старого кода: ни last_used, ни предела → не трогаем (р.5 на старых нодах)
+    rec('trial-stage-e', expires_at=1000.0 + 7200, last_used=1500.0)        # просрочена, но занята прогоном (замок) → пропуск
+    stopped = []
+    res = KD.warm_sweep(wd, 3500.0, lambda n: stopped.append(n) or True, locked=lambda p: p.endswith('trial-stage-e.lock'))
+    check(sorted(stopped) == ['trial-stage-a', 'trial-stage-c'] and all(r[2] for r in res), f'warm_sweep: гасит просроченных ({sorted(stopped)})')
+    left = sorted(f for f in os.listdir(wd) if f.endswith('.json'))
+    check(left == ['trial-stage-b.json', 'trial-stage-d.json', 'trial-stage-e.json'], f'warm_sweep: записи погашенных убраны, живые/занятые/старые остались ({left})')
+    check('простой' in [r[1] for r in res if r[0] == 'trial-stage-a'][0] and 'предел' in [r[1] for r in res if r[0] == 'trial-stage-c'][0], 'warm_sweep: причина названа')
+    res2 = KD.warm_sweep(wd, 3500.0, lambda n: False, grace_s=0, locked=lambda p: False)
+    check(any(r[0] == 'trial-stage-e' and not r[2] for r in res2) and os.path.isfile(os.path.join(wd, 'trial-stage-e.json')), 'warm_sweep: остановка не подтверждена → запись остаётся, в итоге ❗')
+    KD.warm_mark_used(os.path.join(wd, 'trial-stage-b.json'), 4242.0)
+    check(json.load(open(os.path.join(wd, 'trial-stage-b.json')))['last_used'] == 4242.0, 'warm_mark_used: last_used записан')
+
 # 8. warm_decide — таблица решений
 D = KD.warm_decide
 check(D(None, {}, 'i', 0, 1500)[0] == 'create' and D('stopped', {}, 'i', 0, 1500)[0] == 'restart' and D('stopping', {}, 'i', 0, 1500)[0] == 'refuse', 'warm_decide: нет → create, stopped → restart, stopping → refuse')

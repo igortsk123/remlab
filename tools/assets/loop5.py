@@ -161,6 +161,14 @@ def stop_group(rules: dict, run_id: str, idx: int, rnd: int = 0) -> bool:
     return p.returncode == 0
 
 
+def sweep_warm() -> bool:
+    """Погасить тёплые ноды, которым пора (T-34: воркер при простое выходит, а Salad поднимает его заново — сам он не гаснет). Занятые прогоном не трогает. → всё ли погашено."""
+    p = subprocess.run([ex('~/venvs/scout/bin/python'), '-I', STAGE_TRIAL, '--sweep-warm'], capture_output=True, text=True, timeout=600)
+    for line in (p.stdout or '').strip().splitlines()[-12:]:
+        say('sweep-warm: ' + line.strip()[:200])
+    return p.returncode == 0
+
+
 def photos(rules: dict, keep_dir: str | None = None) -> dict[str, str]:
     """Настоящее фото товара для листа (вырезка из входов пакета 29: `photo`); frame-photo.png 07 у шкафа — боковой кадр (р.2, 23.11)."""
     out = {}
@@ -504,6 +512,7 @@ def main(argv=None) -> int:
     ap.add_argument('--machines', type=int, default=0, help='сколько нод одновременно (по умолчанию rules.machines; меньше — если рядом уже идёт другой прогон)')
     ap.add_argument('--no-warm', action='store_true', help='не греть ноды между прогонами (как до T-34): группа на прогон, гасится в конце')
     ap.add_argument('--warm-stop', action='store_true', help='погасить тёплые ноды сейчас (с проверкой «0 нод») и выйти')
+    ap.add_argument('--warm-sweep', action='store_true', help='погасить тёплые ноды, которым пора (предел жизни/простой по записи); безопасно запускать часто — занятые не трогает')
     ap.add_argument('--rules', default=RULES)
     a = ap.parse_args(argv)
     t0 = time.time()
@@ -512,6 +521,8 @@ def main(argv=None) -> int:
         rules['machines'] = min(a.machines, int(rules['machines']))
     if a.no_warm:
         rules.setdefault('warm', {})['enabled'] = False
+    if a.warm_sweep:
+        return 0 if sweep_warm() else 1
     if a.warm_stop:
         rules.setdefault('warm', {})['enabled'] = True
         bad = [i for i in range(int(rules['machines'])) if not stop_group(rules, a.run_id, i)]
@@ -528,7 +539,9 @@ def main(argv=None) -> int:
     if bad:
         raise SystemExit('нет входов «до» для шага: ' + '; '.join(bad[:6]))
     want = node_count(rules, len(skus))
-    try:                                                                           # потолок живых машин Salad на всех: перед стартом смотрим живой счёт, нод = min(запрошено, 10 − чужие живые)
+    if not a.dry and warm_on(rules):
+        sweep_warm()                                                               # сперва убрать просроченные тёплые: они занимают потолок живых машин
+    try:                                                                         # потолок живых машин Salad на всех: перед стартом смотрим живой счёт, нод = min(запрошено, 10 − чужие живые)
         can, other, mine_live = cap_machines(rules, want, a.run_id)
     except (RuntimeError, OSError, ValueError, subprocess.SubprocessError) as exc:
         if not a.dry:

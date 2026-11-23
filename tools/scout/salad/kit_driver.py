@@ -1196,6 +1196,64 @@ def warm_lock(path: str):
     return fh
 
 
+def warm_mark_used(path: str, now: float) -> None:
+    """Конец прогона на тёплой ноде: записать `last_used` — от него считает простой `warm_sweep`."""
+    try:
+        with open(path, encoding='utf-8') as f:
+            st = json.load(f)
+        st['last_used'] = now
+        with open(path, 'w', encoding='utf-8') as f:
+            json.dump(st, f)
+    except (OSError, ValueError):
+        pass
+
+
+def warm_sweep(warm_dir: str, now: float, stop: Callable[[str], bool], grace_s: float = 120.0, locked: Callable[[str], bool] | None = None) -> list[tuple[str, str, bool]]:
+    """Погасить тёплые ноды, которым пора: предел жизни (`expires_at`) вышел или простой > idle_min + запас (от `last_used`; нет `last_used` — по простою не трогаем).
+    ЗАЧЕМ (T-34, замер 23.11): воркер при простое/пределе жизни ВЫХОДИТ, но Salad поднимает контейнер заново (restart_policy never этого не удержал: обе ноды w0b/w1b перезапустились
+    ровно через ≈20 мин простоя, uptime обнулился) — нода живёт и платит бесконечно и занимает потолок 10. Гасить надо с нашей стороны, через API.
+    Занятые прогоном (flock на .lock) пропускаются. → [(группа, причина, остановлена и запись убрана)]."""
+    out: list[tuple[str, str, bool]] = []
+    d = os.path.expanduser(warm_dir)
+    if not os.path.isdir(d):
+        return out
+    for fn in sorted(os.listdir(d)):
+        if not fn.endswith('.json'):
+            continue
+        p = os.path.join(d, fn)
+        try:
+            with open(p, encoding='utf-8') as f:
+                st = json.load(f)
+        except (OSError, ValueError):
+            continue
+        name = st.get('name') or fn[:-5]
+        lp = os.path.join(d, fn[:-5] + '.lock')
+        if locked is not None:
+            busy = locked(lp)
+        else:
+            fh = warm_lock(lp)
+            busy = fh is None
+            if fh is not None:
+                fh.close()
+        if busy:
+            continue
+        why = ''
+        if st.get('expires_at') and now >= float(st['expires_at']):
+            why = 'предел жизни воркера вышел'
+        elif st.get('last_used') and st.get('idle_min') and now >= float(st['last_used']) + float(st['idle_min']) * 60 + grace_s:
+            why = f'простой {(now - float(st["last_used"])) / 60:.0f} мин > {float(st["idle_min"]):.0f} мин'
+        if not why:
+            continue
+        ok = bool(stop(name))
+        if ok:
+            try:
+                os.remove(p)
+            except OSError:
+                pass
+        out.append((name, why, ok))
+    return out
+
+
 def warm_decide(status: str | None, state: dict, image: str, now: float, min_left_s: float) -> tuple[str, str]:
     """Что делать с тёплой группой по её состоянию в Salad и записи: create | adopt | restart | restart_stop | refuse (+ причина).
     adopt — нода жива, тот же образ, до предела жизни воркера (MAX_LIFETIME_S) ≥ min_left; restart — группа остановлена (воркер ушёл по простою): старт заново, образ в кэше;
@@ -1580,8 +1638,11 @@ def _run_probe_once(a, MG, BR, spec: Spec, gw_factory=Gateway, sleep=time.sleep,
     finally:
         if keep_warm and finished_ok:
             summary['stop_verified'] = False
-            summary['kept_warm'] = {'idle_min': keep_warm, 'worker_stops_itself_after_idle': True}
-            say(f'тёплая нода {name} ОСТАВЛЕНА: сама остановится через {keep_warm:.0f} мин простоя (воркер IDLE_S) или по пределу жизни; погасить сразу: stage_trial.py --stop-only --suffix {a.suffix}')
+            summary['kept_warm'] = {'idle_min': keep_warm, 'worker_stops_itself_after_idle': False, 'needs_sweep': True}
+            if warm_state_path:
+                warm_mark_used(warm_state_path, clock())
+            say(f'тёплая нода {name} ОСТАВЛЕНА на {keep_warm:.0f} мин простоя: воркер при простое только выходит, а Salad поднимает его снова — гасит `stage_trial.py --sweep-warm` '
+                f'(loop5.sh --warm-sweep, он же в начале каждого круга); погасить сразу: stage_trial.py --stop-only --suffix {a.suffix}')
         else:
             summary['stop_verified'] = stop_and_verify(BR, name)
             if keep_warm and warm_state_path:
