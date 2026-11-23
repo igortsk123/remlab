@@ -746,5 +746,51 @@ except Exception as exc:  # noqa: BLE001
     ok(False, f'ленивые импорты 07: проверка не выполнена: {type(exc).__name__}: {exc}')
 
 
+def _inputs07():
+    """T-187/7 (23.11): вход 07 боевого пути несёт card.json + photo.png + args; без карточки — не молча (no_card, top_skip в отчёте, счётчик в итоге, отказ при нуле карточек)."""
+    import make_inputs_07 as MI
+    td = tmpdir('inputs07')
+    ph = os.path.join(td, 'ph')
+    os.makedirs(ph)
+    rows = [['sku', 'ultratex_glb']]
+    vis_of = {}
+    for s in ('p1', 'p2', 'p3'):
+        for nm in ('ut', 'vis'):
+            os.makedirs(os.path.join(td, nm, s), exist_ok=True)
+        ut, vd = os.path.join(td, 'ut', s, 'x.glb'), os.path.join(td, 'vis', s)
+        open(ut, 'wb').write(b'g')
+        open(os.path.join(vd, 'visible.glb'), 'wb').write(b'v')
+        rows.append([s, ut])
+        vis_of[s] = vd
+    for s in ('p1', 'p2'):
+        open(os.path.join(ph, f'{s}.hd.rgba.png'), 'wb').write(b'png')
+    cards = {'p1': {'role': 'стол обеденный', 'name': 'Стол'}, 'p2': {'role': 'тумба', 'name': 'ТВ-тумба', 'Материал': 'МДФ'}}
+    out, miss, top = MI.build(rows, 'ultratex_glb', vis_of, cards, [ph], os.path.join(td, 'cards'))
+    ok(not miss and set(out) == {'p1', 'p2', 'p3'}, f'make_inputs_07: все три товара в пакете, пропусков нет ({miss})')
+    for s in ('p1', 'p2'):
+        v = out[s]
+        ok(v['args'] == ['--card-json', '@in/card.json', '--photo', '@in/photo.png', '--ut-glb', '@in/ut.glb'], f'make_inputs_07 {s}: args карточка + фото + UltraTex ({v["args"]})')
+        ok(set(v['extra_in']) == {'card.json', 'photo.png', 'ut.glb'} and all(os.path.isfile(p) for p in v['extra_in'].values()), f'make_inputs_07 {s}: card.json, photo.png, ut.glb — файлы на месте')
+    ok(json.load(open(out['p2']['extra_in']['card.json'], encoding='utf-8')) == cards['p2'], 'make_inputs_07: card.json = карточка товара (role, name, характеристики)')
+    ok(out['p3']['args'] == ['--ut-glb', '@in/ut.glb'] and top['no_card'] == ['p3'] and top['no_photo'] == ['p3'], f'make_inputs_07: товар без карточки/фото — в no_card/no_photo, не молча ({top})')
+    nc, nph = ST.top_input_problems(out)
+    ok(nc == ['p3'] and nph == ['p3'], f'stage_trial.top_input_problems: без карточки {nc}, без фото {nph}')
+    ok(ST.top_input_problems({s: {'args': ['--ut-glb', '@in/ut.glb'], 'extra_in': {'ut.glb': 'x'}} for s in ('a', 'b')})[0] == ['a', 'b'], 'вход как в f1 (только --ut-glb): все без карточки → stage_trial откажет до создания группы')
+    for nm, rep, want in (('a', {'top_prior': {'applied': True, 'top_source': 'same_part_inference'}}, 'applied'), ('b', {'top_prior': {'applied': False, 'top_source': 'as_before', 'top_skip': 'no_card'}}, 'no_card'),
+                          ('c', {'top_prior': {'applied': False, 'top_source': 'photo_top'}}, 'photo_top')):
+        d = os.path.join(td, 'o' + nm)
+        os.makedirs(d)
+        json.dump({'report': rep}, open(os.path.join(d, 'report.json'), 'w'))
+        ok(ST.top_state(d) == want, f'stage_trial.top_state: {rep["top_prior"]} → {want}')
+    ok(ST.top_state(os.path.join(td, 'нет')) == 'нет отчёта', 'stage_trial.top_state: нет report.json → «нет отчёта»')
+    ok(ST.top_counts({'a': {'status': 'done', 'top': 'no_card'}, 'b': {'status': 'done', 'top': 'no_card'}, 'c': {'status': 'done', 'top': 'applied'}, 'd': {'status': 'failed'}}) == {'no_card': 2, 'applied': 1}, 'stage_trial.top_counts: счётчик причин по готовым товарам')
+
+
+try:
+    _inputs07()
+except Exception as exc:  # noqa: BLE001
+    ok(False, f'вход 07 (карточка+фото): проверка не выполнена: {type(exc).__name__}: {exc}')
+
+
 print('ПРОВАЛЕНО: ' + str(len(FAILS)) if FAILS else 'ВСЕ ТЕСТЫ ЗЕЛЁНЫЕ')
 sys.exit(1 if FAILS else 0)

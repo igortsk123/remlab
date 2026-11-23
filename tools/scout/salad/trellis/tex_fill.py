@@ -2209,11 +2209,13 @@ def top_prior_hook(geoms: list, tex_after: list, known: list, parts, cfg: dict |
     (rules/top-prior.json → stage07.min_confidence), иначе верх остаётся как сделал 07 (донор / тон своей зоны). Идёт ПОСЛЕ own_panel_tone_hook и ДО front_on_back; known не меняется.
     cfg: `top_card` (карточка: класс материала верха, размеры), `top_photo` (фото: контраст узора). Узор — из rules `library_pat` (в репо и в срезе кода Salad). Сбой не роняет этап. → (текстуры, отчёт с `top_source`)."""
     import top_prior as TP                                        # ВНЕ try: нет модуля в срезе кода = отказ этапа, не тихое «как было» (Salad ≠ локально, T-193/4)
+    c = cfg or {}
+    if not c.get('top_card'):                                     # без карточки класс материала верха неизвестен: не молчаливый as_before, а причина в report.json (счётчик — в итоге пакета stage_trial)
+        return tex_after, {'top_source': 'as_before', 'applied': False, 'top_skip': 'no_card', 'gate': 'нет карточки (--card-json): класс материала верха неизвестен'}
     try:
         rules = TP.load_rules()
         if not rules.get('stage07', {}).get('enabled', False):
-            return tex_after, {'top_source': 'as_before', 'applied': False, 'gate': 'stage07.enabled = false'}
-        c = cfg or {}
+            return tex_after, {'top_source': 'as_before', 'applied': False, 'top_skip': 'disabled', 'gate': 'stage07.enabled = false'}
         draft = draft_texels(geoms, TC.load_geoms(draft_glb), None) if draft_glb and os.path.isfile(draft_glb) else None
         return TP.stage07(geoms, tex_after, known, parts, c.get('part_role'), draft, c.get('top_card'), c.get('top_photo'), rules)
     except Exception as e:  # noqa: BLE001

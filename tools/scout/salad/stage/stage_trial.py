@@ -204,6 +204,8 @@ def poll_stage(gw, a, cur: dict, t: float) -> tuple[str, dict]:
             cur['got'][sku] = items[sku] = {'status': 'failed', 'error': f'результат не распаковался: {exc}', **rec}
             continue
         cur['got'][sku] = items[sku] = {'status': 'done', 'unpacked': len(names), **rec}
+        if stage == '07':
+            items[sku]['top'] = top_state(out)
     if running:
         return 'running', {}
     for sku, why in cur.get('skipped', {}).items():
@@ -211,9 +213,39 @@ def poll_stage(gw, a, cur: dict, t: float) -> tuple[str, dict]:
     fails = {k: v for k, v in items.items() if v['status'] == 'failed'}
     ok = sum(1 for v in items.values() if v['status'] == 'done')
     info = {'items': items, 'ok': ok, 'total': len(items), 'metrics': {'ok': ok, 'total': len(items), 'failed': {k: v.get('error') for k, v in fails.items()}}}
+    if stage == '07':
+        info['metrics']['top'] = top_counts(items)
+        say(f'верх Ш3в по товарам 07 (счётчик причин): {info["metrics"]["top"]}')
     os.makedirs(a.out, exist_ok=True)
     json.dump(items, open(os.path.join(a.out, f'items-{stage}.json'), 'w', encoding='utf-8'), ensure_ascii=False, indent=1)
     return ('failed', {'status': 'failed', 'error': f'отказов {len(fails)} из {len(items)}: {list(fails)}', **info}) if fails else ('done', info)
+
+
+def top_state(out_dir: str) -> str:
+    """Что сделал хук верха Ш3в в 07 (из report.json распакованного выхода): `applied` | причина пропуска `top_skip` (no_card…) | `top_source` хука (as_before/photo_top/…) | `нет отчёта`."""
+    try:
+        rep = json.load(open(os.path.join(out_dir, 'report.json'), encoding='utf-8')).get('report', {}).get('top_prior') or {}
+    except (OSError, ValueError):
+        return 'нет отчёта'
+    if rep.get('applied'):
+        return 'applied'
+    return str(rep.get('top_skip') or rep.get('top_source') or 'нет отчёта')
+
+
+def top_counts(items: dict) -> dict:
+    """{состояние верха: сколько товаров} по items пакета 07 — в итог пакета: «no_card: 28» сразу видно, а не «тихо as_before»."""
+    c: dict = {}
+    for v in items.values():
+        if v.get('status') == 'done':
+            c[v.get('top', 'нет отчёта')] = c.get(v.get('top', 'нет отчёта'), 0) + 1
+    return c
+
+
+def top_input_problems(inputs: dict) -> tuple[list[str], list[str]]:
+    """Вход 07 боевого пути обязан нести карточку и фото для верха Ш3в (`--card-json @in/card.json`, `--photo @in/photo.png`). → (товары без карточки, товары без фото); проверка бесплатная, до создания группы."""
+    no_card = [s for s, v in inputs.items() if '--card-json' not in (v.get('args') or []) or not os.path.isfile((v.get('extra_in') or {}).get('card.json') or '')]
+    no_photo = [s for s, v in inputs.items() if '--photo' not in (v.get('args') or []) or not os.path.isfile((v.get('extra_in') or {}).get('photo.png') or '')]
+    return no_card, no_photo
 
 
 def stages_of(a) -> list[str]:
@@ -291,6 +323,7 @@ def main() -> int:
     ap.add_argument('--no-code-check', action='store_true', help='не проверять импорт точек входа из чистой распаковки (только если нет библиотек этапов)')
     ap.add_argument('--skus', default='', help='при --vis-root: только эти товары (по умолчанию все с готовым 06)')
     ap.add_argument('--parts-root', default='', help='корень частей PartLLM `<товар>/03-parts/parts.npz` (parts_to_npz.py convert): едет в задание 07; источник зон — флаг zones_from')
+    ap.add_argument('--allow-no-card', action='store_true', help='07 без карточек ни у одного товара (верх Ш3в не красится); по умолчанию — отказ до создания группы')
     ap.add_argument('--zones-from', default='', choices=['', 'parts', 'panels'], help='перебить rules/paint-fill.json zones_from (пусто — как в правилах)')
     ap.add_argument('--out', default=os.path.expanduser('~/remlab-logs/t189-1122/salad-out'))
     ap.add_argument('--card', default=CARD_NAME, help='класс Salad из профиля cpu_stage (запасные — в профиле)')
@@ -328,6 +361,11 @@ def main() -> int:
     inputs = load_inputs(a.inputs) if a.inputs else vis_inputs(a.vis_root, a.skus)
     if not inputs:
         sys.exit('нет товаров для пакета')
+    if '07' in stages_of(a):
+        no_card, no_photo = top_input_problems(inputs)
+        say(f'вход 07 для верха Ш3в: карточка у {len(inputs) - len(no_card)} из {len(inputs)}, фото у {len(inputs) - len(no_photo)}; без карточки: {no_card[:10]}{"…" if len(no_card) > 10 else ""}')
+        if len(no_card) == len(inputs) and not a.allow_no_card:
+            sys.exit('ни у одного товара нет карточки (card.json): Ш3в-верх не сработает нигде (тихий as_before). Собери вход через make_inputs_07.py или передай --allow-no-card')
     if a.parts_root:
         mode = a.zones_from or PN.zones_mode()
         zl = attach_parts(inputs, os.path.expanduser(a.parts_root), a.vis_root or a.out, mode)
