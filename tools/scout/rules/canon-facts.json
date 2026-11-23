@@ -149,7 +149,7 @@
   },
   {
    "id": "paint-no-interim-before-5-signs",
-   "mode": "warn",
+   "mode": "block",
    "claim": "Промежуточный результат этапа — владельцу после КАЖДОГО этапа конвейера, КРОМЕ покраски: её не присылать, пока не «в целом хорошо» по 5 признакам (P-065, ADR-0468)",
    "canon": [
     {
@@ -180,7 +180,7 @@
   },
   {
    "id": "merged-is-not-pass",
-   "mode": "warn",
+   "mode": "block",
    "claim": "влито (READY TO MERGE) ≠ PASS: PASS — после зелёного CI этого SHA, правильной живой версии и своей живой проверки (review-checklist п.13–14)",
    "canon": [
     {

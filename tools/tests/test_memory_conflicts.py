@@ -118,7 +118,7 @@ class T(unittest.TestCase):
             self._real_subset(['paint-no-interim-before-5-signs']))
         res = MC.check(d, MC.load(rp))
         self.assertEqual([c['line'] for c in res['conflicts']], [1])
-        self.assertEqual(res['conflicts'][0]['mode'], 'warn')                                       # новый факт заводится в warn
+        self.assertIn(res['conflicts'][0]['mode'], ('warn', 'block'))                               # режим — из реестра (warn при заведении, block после правки доков)
 
     def test_merged_is_not_pass_fact(self):
         d, rp = make({'.memory_bank/p.md': '90 PASS/влито\nвлито = PASS\nPASS (влито)\nвлито ≠ PASS\nREADY TO MERGE ≠ PASS\nPASS — после зелёного CI\n'},
