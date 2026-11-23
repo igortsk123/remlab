@@ -10,7 +10,8 @@
 Qwen-правка — ТОЛЬКО если прямой перенос не лёг: гейт не прошёл → `check.json`: passed=false, `extra.needs_qwen=true`, причина по меркам (запасной путь — отдельным шагом, после камеры).
 Гейт (все пороги — `GATE`; ПРОВИЗОРНЫЕ до замера на 12 трудных, в план — только после замера):
   silhouette_iou   — совпадение силуэта фото и формы в кадре камеры (`iou_frame` этапа 4; план: ≥ 0,85, иначе камере не верим → дальше не идёт);
-  known_share      — доля занятых текселей, взятых с фото (честный охват; ниже порога — нечего переносить);
+  known_visible_share — доля пикселей силуэта растра с z-буфером (то, что камера видит истинно), чей тексель взят с фото (T-215: ниже порога — нечего переносить);
+                   прежняя `known_share` (доля занятых ТЕКСЕЛЕЙ всей развёртки, включая зад и невидимое) остаётся справочной мерой без порога — зад в знаменателе делал порог ложным;
   edge_corr / lab_dE — перенос не потерян при записи: края и медиана Lab «фото ↔ кадр по новой текстуре» (по частям — часть = геометрия GLB, пока нет масок р.1).
 Справочно (без порога): `edge_agree` этапа 4 — совпадение внутренних кромок формы и фото.
 ID товаров в код не попадают.
@@ -99,7 +100,7 @@ FRONT_COS = 0.80       # мерка света «перёд↔бок»: перё
 SIDE_COS = 0.65
 GATE = {                # (порог, op) — провизорно, см. шапку
     'silhouette_iou': (0.85, '>='),
-    'known_share': (0.15, '>='),
+    'known_visible_share': (float(R.get('gate', {}).get('known_visible_share_min', 0.30)), '>='),   # rules/tex-visible.json § gate (_gate_doc): число и обоснование там
     'edge_corr': (0.90, '>='),
     'lab_dE': (3.0, '<='),
     'edge_bg_share': (EDGE_BG_MAX, '<='),      # светлая кайма/ореол вырезки среди взятых у края (нет достаточно краевых пикселей — мерки нет, это не отказ)
@@ -287,6 +288,14 @@ def known_px(geoms: list, st: dict, tr: dict) -> np.ndarray:
         ty = np.clip(np.floor(uv[ys, xs, 1] * T).astype(np.int64), 0, T - 1)
         kn[ys, xs] = k[ty, tx]
     return kn
+
+
+def visible_known_share(geoms: list, st: dict, tr: dict) -> tuple[float, int]:
+    """T-215: мерка гейта «есть ли что переносить» — доля пикселей силуэта растра (после `zbuffer_fix` это истинно видимое: ближайшая грань в каждом пикселе), чей тексель взят с фото
+    (`known_photo`, тон synth не входит). Знаменатель — пиксели силуэта, а не занятые тексели всей развёртки: у прежней `known_share` зад и невидимое сидели в знаменателе, а ложное фото
+    зада в числителе (до T-201), поэтому её порог 0,15 не значил «видимое покрыто». → (доля, число пикселей силуэта)."""
+    vis = int(st['mask'].sum())
+    return round(int(known_px(geoms, st, tr).sum()) / max(vis, 1), 4), vis
 
 
 def frayed_share(kn: np.ndarray, mask: np.ndarray, px: int = FRAYED_PX) -> dict:
@@ -796,6 +805,7 @@ def metrics(geoms, st, prgb, pmask, tr, after: np.ndarray, cos_min: float) -> di
     if iou is None:
         iou = float((A & S).sum() / max((A | S).sum(), 1))
     out = {'silhouette_iou': round(float(iou), 4), 'known_share': round(kn / max(occ, 1), 4)}                  # kn — только с фото (stats['known'] без synth)
+    out['known_visible_share'], out['visible_px'] = visible_known_share(geoms, st, tr)                           # мерка гейта (T-215): знаменатель — истинно видимое, не все тексели
     if any(s.get('known_synth') for s in tr['stats']):
         out['known_synth_share'] = round(sum(s.get('known_synth', 0) for s in tr['stats']) / max(occ, 1), 4)   # справочно: тон с острого угла (Ш3б), порога нет
     both = binary_erosion(S, iterations=3) & binary_erosion(A, iterations=3) & (st['cos'] >= cos_min)

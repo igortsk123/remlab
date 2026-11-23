@@ -68,6 +68,12 @@ with tempfile.TemporaryDirectory() as run:
     ok(d['passed'] and d['extra']['final'] == 'ready_with_notes' and d['extra']['stages'][5]['status'] == 'soft', 'мягкий провал (мерки из списка мягких) → готов с пометкой')
     ok(len(d['extra']['notes']) == 1 and '06-visible' in d['extra']['notes'][0], 'пометка называет этап и причину')
 
+    full(run, 'c2')
+    put(run, 'c2', '06-visible', passed=False, metric={'name': 'silhouette_iou', 'value': 0.92, 'threshold': 0.85, 'op': '>=', 'ok': True},
+        metrics={'known_visible_share': {'value': 0.1, 'threshold': 0.3, 'op': '>=', 'ok': False}})
+    d = PC.check_product(run, 'c2', R, cov_fn=cov('keep'))
+    ok(d['passed'] and d['extra']['final'] == 'ready_with_notes' and d['extra']['stages'][5]['status'] == 'soft', 'T-215: known_visible_share (мерка гейта 06) — мягкая: готов с пометкой, не отказ')
+
     full(run, 'd')
     put(run, 'd', '06-visible', passed=False, metric={'name': 'silhouette_iou', 'value': 0.7, 'threshold': 0.85, 'op': '>=', 'ok': False},
         metrics={'known_share': {'value': 0.13, 'threshold': 0.15, 'op': '>=', 'ok': False}})

@@ -33,7 +33,7 @@
         "camera_gate": "failed"
       }
     },
-    "soft_examples": ["known_share < порога", "edge_corr < порога", "needs_qwen: true", "lab_dE > порога"]
+    "soft_examples": ["known_visible_share < порога", "edge_corr < порога", "needs_qwen: true", "lab_dE > порога"]
   },
   "mirror_extreme": {
     "_note": "Зеркало (шаг 1 заливки): известный тексель-двойник с L* ниже black_abs (абсолютно чёрный: тень, дыра, край фото) на пару НЕ копируется — тексель красит геодезия. Дефект: тёмный скол на ножке (ab12: с зеркалом есть, без — нет).",
