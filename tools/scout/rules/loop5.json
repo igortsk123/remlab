@@ -42,16 +42,20 @@
   "min_gb_salad": 0.3,
   "cores_sheets": 4,
   "min_gb_sheets": 3,
-  "prio": 2
+  "prio": 2,
+  "cores_sheets_batch": 2,
+  "min_gb_sheets_batch": 2
  },
  "sheets": {
+  "mode": "batch",
   "cmd": [
    "{python}",
    "-I",
-   "{root}/tools/assets/loop5_sides.py"
+   "{root}/tools/assets/sides_sheet.py",
+   "batch"
   ],
   "parallel": 4,
-  "_about": "команда листа «со всех сторон»: к ней добавляются <material.glb> <фото> <png>. Когда появится tools/assets/sides_sheet.py batch (р.2, T-26) — заменить cmd здесь."
+  "_about": "листы «со всех сторон» браузером (T-27, sides_sheet.py batch, ≈10 с/товар, один Chromium). mode≠batch — старый путь: cmd + <glb> <фото> <png> (loop5_sides.py, numpy ≈5 мин/товар). Ядра/память под heavy-slot — heavy_slot.*_sheets_batch."
  },
  "warm": {
   "enabled": true,

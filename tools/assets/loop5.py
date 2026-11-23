@@ -172,24 +172,55 @@ def stage_cmd(rules: dict, sha: str, start: str, idx: int, skus: list[str], run_
 
 
 def sheet_job(rules: dict, glb: str, photo: str, png: str) -> list[str]:
+    """Старый путь (mode != batch): один процесс на товар, numpy-рендер `loop5_sides.py` (≈5 мин на товар)."""
     c = [a.format(python=ex(rules['python']), root=ROOT) for a in rules['sheets']['cmd']]
     return c + [glb, photo, png]
 
 
-def run_sheets(rules: dict, jobs: list[tuple[str, str, str]], log: str) -> int:
-    """Листы «со всех сторон» на наших ядрах под heavy-slot (параллельно `parallel`); готовые png пропускаются."""
+def sheet_items(jobs: list[tuple]) -> list[dict]:
+    """items.json для `sides_sheet.py batch`: id = имя png без расширения; «перед» = камера фото (az из 06-visible/check.json товара)."""
+    items = []
+    for j in jobs:
+        g, p, o = j[:3]
+        it = {'id': os.path.splitext(os.path.basename(o))[0], 'glb': g, 'photo': p}
+        if len(j) > 3 and j[3]:
+            it['check06'] = j[3]
+        items.append(it)
+    return items
+
+
+def batch_cmd(rules: dict, items_path: str, out: str) -> list[str]:
+    """Команда листов браузером (T-27, tools/assets/sides_sheet.py batch): один Chromium, товары по очереди; под heavy-slot (ядра/память — rules.heavy_slot.*_batch)."""
+    hs = rules['heavy_slot']
+    c = [a.format(python=ex(rules['python']), root=ROOT) for a in rules['sheets']['cmd']]
+    return [HEAVY, 'loop5-sheets', '--min-gb', str(hs['min_gb_sheets_batch']), '--cores', str(hs['cores_sheets_batch']), '--prio', str(hs['prio']), '--timeout', '1500', '--',
+            *c, '--items', items_path, '--out', out]
+
+
+def run_sheets(rules: dict, jobs: list[tuple], log: str) -> int:
+    """Листы «со всех сторон» на наших ядрах под heavy-slot; готовые png (непустые) пропускаются. mode=batch — браузером одним вызовом (все jobs в одной папке), иначе — по процессу на товар."""
     todo = [j for j in jobs if not (os.path.isfile(j[2]) and os.path.getsize(j[2]) > 0)]               # пустой png (диск был полон) — не «готово»
     if not todo:
         return 0
-    lst = log + '.list'
-    with open(lst, 'w', encoding='utf-8') as f:
-        for g, p, o in todo:
-            os.makedirs(os.path.dirname(o), exist_ok=True)
-            f.write(' '.join(shlex.quote(x) for x in sheet_job(rules, g, p, o)) + '\n')
-    hs = rules['heavy_slot']
-    par = int(rules['sheets']['parallel'])
-    cmd = [HEAVY, 'loop5-sheets', '--min-gb', str(hs['min_gb_sheets']), '--cores', str(hs['cores_sheets']), '--prio', str(hs['prio']), '--timeout', '1500', '--',
-           'bash', '-c', f'xargs -P{par} -I{{}} bash -c {{}} < {shlex.quote(lst)}']
+    for j in todo:
+        os.makedirs(os.path.dirname(j[2]), exist_ok=True)
+    if rules['sheets'].get('mode') == 'batch':
+        outs = {os.path.dirname(j[2]) for j in todo}
+        if len(outs) != 1:
+            raise ValueError(f'листы batch: все png в одной папке, получено {sorted(outs)}')
+        items_path = log + '.items.json'
+        with open(items_path, 'w', encoding='utf-8') as f:
+            json.dump(sheet_items(todo), f, ensure_ascii=False, indent=1)
+        cmd = batch_cmd(rules, items_path, outs.pop())
+    else:
+        lst = log + '.list'
+        with open(lst, 'w', encoding='utf-8') as f:
+            for j in todo:
+                f.write(' '.join(shlex.quote(x) for x in sheet_job(rules, *j[:3])) + '\n')
+        hs = rules['heavy_slot']
+        par = int(rules['sheets']['parallel'])
+        cmd = [HEAVY, 'loop5-sheets', '--min-gb', str(hs['min_gb_sheets']), '--cores', str(hs['cores_sheets']), '--prio', str(hs['prio']), '--timeout', '1500', '--',
+               'bash', '-c', f'xargs -P{par} -I{{}} bash -c {{}} < {shlex.quote(lst)}']
     with open(log, 'w', encoding='utf-8') as lf:
         return subprocess.run(cmd, stdout=lf, stderr=subprocess.STDOUT).returncode
 
@@ -321,8 +352,9 @@ def main(argv=None) -> int:
     photo = photos(rules)
     rcs, rnd_log = [], []
     t_salad = 0.0
-    sheets_before = {s: os.path.join(ex(rules['out_root']), 'base-sheets-photo', f'{s}.png') for s in skus}
+    sheets_before = {s: os.path.join(ex(rules['out_root']), 'base-sheets-b', f'{s}.png') for s in skus}
     rc_b = 0
+    sheets_s = [0.0, 0.0]                                                  # секунды на листы «до» и «после»
     todo = list(skus)
     for rnd in range(int(rules.get('retry_rounds', 1)) + 1):
         if not todo:
@@ -330,9 +362,11 @@ def main(argv=None) -> int:
         procs, groups = run_round(rules, sha, a.start, todo, run_dir, a.run_id, base, base_tree, not a.dry, rnd)
         if rnd == 0 and not a.dry:
             # «до»: листы на наших ядрах параллельно с Salad (кэш на все прогоны)
-            jobs = [(before_glb(rules, s, base[s]), photo.get(s) or os.path.join(base[s], '07-fill', 'frame-photo.png'), sheets_before[s]) for s in skus]
-            os.makedirs(os.path.join(ex(rules['out_root']), 'base-sheets-photo'), exist_ok=True)
+            jobs = [(before_glb(rules, s, base[s]), photo.get(s) or os.path.join(base[s], '07-fill', 'frame-photo.png'), sheets_before[s], os.path.join(base[s], '06-visible', 'check.json')) for s in skus]
+            os.makedirs(os.path.join(ex(rules['out_root']), 'base-sheets-b'), exist_ok=True)
+            t_sb = time.time()
             rc_b = run_sheets(rules, jobs, os.path.join(run_dir, 'sheets-before.log'))
+            sheets_s[0] = round(time.time() - t_sb, 1)
             say(f'листы «до»: rc={rc_b}, готово {sum(os.path.isfile(p) and os.path.getsize(p) > 0 for p in sheets_before.values())} из {len(skus)}')
         codes = []
         for p, lf in procs:
@@ -355,15 +389,18 @@ def main(argv=None) -> int:
             say(f'повтор только упавших ({len(todo)}): {todo}')
     res, money = collect(run_dir, skus)
     sheets_after = {s: os.path.join(run_dir, 'sheets', f'{s}.png') for s in skus}
-    jobs = [(os.path.join(res[s], '08-material', 'material.glb'), photo.get(s) or os.path.join(base[s], '07-fill', 'frame-photo.png'), sheets_after[s]) for s in skus if s in res]
+    jobs = [(os.path.join(res[s], '08-material', 'material.glb'), photo.get(s) or os.path.join(base[s], '07-fill', 'frame-photo.png'), sheets_after[s],
+             next((c for c in (os.path.join(res[s], '06-visible', 'check.json'), os.path.join(base[s], '06-visible', 'check.json')) if os.path.isfile(c)), '')) for s in skus if s in res]
+    t_sa = time.time()
     rc_a = run_sheets(rules, jobs, os.path.join(run_dir, 'sheets-after.log'))
+    sheets_s[1] = round(time.time() - t_sa, 1)
     rows = []
     for s in skus:
         ok = s in res
         rows.append({'sku': s, 'status': 'пересчитан' if ok else 'ОТКАЗ (нет 08-material/material.glb — см. log-sh*.log)', 'before_png': sheets_before[s], 'after_png': sheets_after[s]})
     page = compose(rules, run_dir, sha, a.start, rows)
     t_all = time.time() - t0
-    summ = {'code_ref': a.code_ref, 'sha': sha, 'from': a.start, 'run_dir': run_dir, 'page': page, 'seconds_salad': round(t_salad), 'seconds_total': round(t_all), 'codes': rcs, 'sheets_rc': [rc_b, rc_a],
+    summ = {'code_ref': a.code_ref, 'sha': sha, 'from': a.start, 'run_dir': run_dir, 'page': page, 'seconds_salad': round(t_salad), 'seconds_total': round(t_all), 'codes': rcs, 'sheets_rc': [rc_b, rc_a], 'sheets_s': sheets_s,
             'money': money, 'skus': {r['sku']: r['status'] for r in rows}}
     with open(os.path.join(run_dir, 'summary.json'), 'w', encoding='utf-8') as fh:
         json.dump(summ, fh, ensure_ascii=False, indent=1)

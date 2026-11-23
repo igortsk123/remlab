@@ -158,6 +158,30 @@ class T(unittest.TestCase):
             _, money = L.collect(tmp, SK)
             self.assertEqual((money['kept_warm'], money['adopted_warm'], money['stop_verified']), (1, 1, True))     # тёплая нода — не «остановка не подтверждена»
 
+    def test_sheet_items_and_batch_cmd(self):
+        items = L.sheet_items([('/g/a/material.glb', '/p/a.png', '/o/sheets/112923_1.png', '/v/a/check.json'), ('/g/b/material.glb', '/p/b.png', '/o/sheets/112923_2.png')])
+        self.assertEqual(items[0], {'id': '112923_1', 'glb': '/g/a/material.glb', 'photo': '/p/a.png', 'check06': '/v/a/check.json'})
+        self.assertNotIn('check06', items[1])                                    # нет камеры — поля нет (sides_sheet сам отметит «нет az»)
+        r = L.load_rules()
+        self.assertEqual(r['sheets']['mode'], 'batch')
+        c = L.batch_cmd(r, '/o/items.json', '/o/sheets')
+        j = ' '.join(c)
+        self.assertTrue(c[0].endswith('heavy-slot.sh'))
+        self.assertIn('sides_sheet.py batch --items /o/items.json --out /o/sheets', j)
+        self.assertIn(f'--cores {r["heavy_slot"]["cores_sheets_batch"]}', j)
+
+    def test_run_sheets_one_dir_and_skip_done(self):
+        r = L.load_rules()
+        with tempfile.TemporaryDirectory() as tmp:
+            self.assertEqual(L.run_sheets(r, [], os.path.join(tmp, 'l.log')), 0)
+            done = os.path.join(tmp, 'a', '1.png')
+            os.makedirs(os.path.dirname(done))
+            with open(done, 'wb') as f:
+                f.write(b'x')
+            self.assertEqual(L.run_sheets(r, [('/g', '/p', done)], os.path.join(tmp, 'l.log')), 0)      # готовый непустой — не пересчитывается
+            with self.assertRaises(ValueError):
+                L.run_sheets(r, [('/g', '/p', os.path.join(tmp, 'a', '2.png')), ('/g', '/p', os.path.join(tmp, 'b', '3.png'))], os.path.join(tmp, 'l.log'))
+
     def test_cli_dry_checks_before_money(self):
         with tempfile.TemporaryDirectory() as tmp:
             r, _ = make_base(tmp, with_fill=False)
