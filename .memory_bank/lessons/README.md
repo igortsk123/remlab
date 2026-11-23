@@ -614,3 +614,14 @@ _Скрипты переноса и проверки (parse/split/verify) — в
 - 809 — тест с временным git под хуком наследует GIT_* → `lessons/dev-ops.md`
 - 810 — база веток покраски: merge/paint-1121 vs main → `lessons/dev-ops.md`
 - 811 — Telegram: длинная подпись к фото → IMAGE_PROCESS_FAILED → `lessons/dev-ops.md`
+- 875 — старый билет головой heavy-slot держал 8 ждущих, снять свой нельзя → `lessons/dev-ops.md`
+- 876 — vercel-sol через r без ключа шлюза — только codex-sol → `lessons/dev-ops.md`
+- 877 — % конвейера с утра по старому списку шагов → `lessons/memory-process.md`
+- 878 — глобальные правила на машинах разошлись → pravila-sverka → `lessons/memory-process.md`
+- 879 — копипаст-хвост `rm -rf` в команде r → `lessons/dev-ops.md`
+- 880 — ● строка tmux рабочего — старая, ожидание машины по salad_live → `lessons/memory-process.md`
+- 881 — новый тест влит без test_tmp_hygiene → CI красный 41 мин → `lessons/dev-ops.md`
+- 882 — merge-worktree на старом main, push до конца cherry-pick → `lessons/dev-ops.md`
+- 883 — `python -I` ломает wave_guard/paint_stage → `lessons/dev-ops.md`
+- 884 — ✅ рабочего по виду без своего кадра; страница на старом 08 → `lessons/viz-render.md`
+- 885 — страница 12 владельцу после 2 из 12 с одной стороны (повтор 851) → `lessons/memory-process.md`
