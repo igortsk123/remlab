@@ -16,7 +16,10 @@
  "image": "ghcr.io/igortsk123/mesh-stage-trial@sha256:0b7c855d4f98e277a1709e830accfefee198d4275c92813c5c21c37a958203e5",
  "catalog": "~/remlab-logs/t169-4/catalog_all.json",
  "parts_root": "~/remlab-logs/t198-1122/parts-root",
- "pose_root": "~/remlab-logs/t173-4-1122",
+ "pose_root": [
+  "~/remlab-logs/t173-4-1122",
+  "~/remlab-logs/t184-1122/pose-out-rest"
+ ],
  "_pose_root_about": "камера этапа 4 для 08 при --from 08 (в остальных режимах pose_run — в строке входа).",
  "stages": {
   "06": "06,07,seam,08",

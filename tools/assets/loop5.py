@@ -162,7 +162,8 @@ def stage_cmd(rules: dict, sha: str, start: str, idx: int, skus: list[str], run_
     if start == '08':
         cmd += ['--fill-root', base_tree, '--vis-root', base_tree, '--skus', ','.join(skus)]
         if rules.get('pose_root'):
-            cmd += ['--pose-root', ex(rules['pose_root'])]
+            pr = rules['pose_root']
+            cmd += ['--pose-root', ','.join(ex(x) for x in (pr if isinstance(pr, list) else [pr]))]            # несколько корней: камера этапа 4 лежит в разных пакетах (t173-4, t184 pose-out-rest/g*)
     else:
         cmd += ['--inputs', inputs_file]
     if apply:
