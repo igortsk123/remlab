@@ -177,6 +177,41 @@ def test_parts():
     ok(TF.THRESHOLDS['empty_pct'] == ('<=', 0.5), 'порог общего «не закрашено» после заливки — 0,5 % (решение директора 20.11)')
 
 
+def test_brightness_target_median():
+    print("яркость зада (T-198/1): тёмный хвост спереди — зад к МЕДИАНЕ перёда, не к моде; ровный перёд — без изменений:")
+    q = Quads()
+    q.quad([[-0.5, 0, 0], [0.5, 0, 0], [0.5, 1, 0], [-0.5, 1, 0]], (0, 0, .5, .5), sub=8)
+    q.quad([[-0.5, 0, -0.4], [0.5, 0, -0.4], [0.5, 1, -0.4], [-0.5, 1, -0.4]], (.5, .5, 1, 1), sub=8)
+    mA = tile_mask((0, 0, .5, .5))
+    mB = tile_mask((.5, .5, 1, 1))
+    ys, xs = np.nonzero(mA)
+    x0, x1 = xs.min(), xs.max() + 1
+    col = (xs - x0) / float(x1 - x0)
+    cfg0 = {"gutter": 0, "erode_known": 0, "src_dev_pattern": 0}
+
+    def run(grey, target):
+        tex = np.zeros((T, T, 3), np.uint8)
+        tex[ys, xs] = np.clip(grey, 0, 255).astype(np.uint8)[:, None]
+        g = q.geom(tex)
+        out = TF.fill([g], [mA], [np.asarray(q.part, np.int32)], cfg=dict(cfg0, brightness_target=target), mirror=False)
+        return tex, out['tex'][0], out['report']
+
+    grey = np.where(col < 0.42, 215.0, 205.0 - (col - 0.42) / 0.58 * 95.0)            # 42 % светлого фона (мода) + 58 % плавно темнее (хвост): медиана заметно ниже моды
+    tex, t_tone, r_tone = run(grey, 'tone')
+    _, t_med, r_med = run(grey, 'median')
+    med_f = float(np.median(lab_of(tex, mA)[:, 0]))
+    b_tone, b_med = float(np.median(lab_of(t_tone, mB)[:, 0])), float(np.median(lab_of(t_med, mB)[:, 0]))
+    br = r_med['brightness'][0]
+    ok(br['target_from'] == 'median' and br['mode_minus_median'] > 3, f"мода выше медианы больше чем на 3 L* — цель = медиана ({br})")
+    ok(abs(b_med - med_f) <= 1.5, f"цель median: медиана зада {b_med:.1f} ≈ медиане перёда {med_f:.1f} (±1,5)", f"{b_med:.1f} против {med_f:.1f}")
+    ok(b_tone - med_f > 5.0, f"цель tone (как было): зад светлее перёда на {b_tone - med_f:.1f} L* — дефект воспроизведён", f"{b_tone:.1f} против {med_f:.1f}")
+    ok(r_tone['brightness'][0]['target_from'] == 'tone', "brightness_target=tone — цель мода, как прежде")
+    flat = 150.0 + 2.0 * np.sin(np.arange(len(xs)) * 0.7)                              # ровный перёд: мода ≈ медиана
+    _, f_tone, rf_tone = run(flat, 'tone')
+    _, f_med, rf_med = run(flat, 'median')
+    ok(rf_med['brightness'][0]['target_from'] == 'tone' and np.array_equal(f_tone, f_med), f"ровный перёд (мода−медиана {rf_med['brightness'][0]['mode_minus_median']}): результат тот же, цель — мода")
+
+
 def test_lighter_than_photo():
     print("светлее фото (T-187/1): тёмная пластина с щелью — серая заготовка в щели видна, тон соседа — нет:")
     n = 200
@@ -1527,7 +1562,7 @@ def test_top_prior_hook():
 
 
 def main() -> int:
-    for f in (test_check_on_final_texture, test_top_prior_hook, test_mirror_off_by_default, test_shrink_layout, test_tie_picks_front_on_back, test_front_on_back, test_color, test_photo, test_parts, test_lighter_than_photo, test_no_known_part, test_mirror, test_texture, test_gutter_render, test_seam_steps_concavity, test_diffuse_quilt_far, test_draft_source, test_tone_mode_pattern, test_quilt_efros, test_quilt_holes, test_known_unchanged, test_render_pattern, test_outlier_blocks, test_dark_fabric, test_trellis_relief, test_part_roles_from_stage3, test_stage7_side_tone_smooth_rules, test_tone_from_neighbour, test_nail_twins, test_borrow_donors, test_tone_only, test_part_pattern_single_truth, test_pr_camera_and_winding, test_hidden_visible, test_stage6_gate, test_cli_run_stage, test_orphan_parts, test_cli_parts_flags, test_zones_fallback, test_run_stage_fallback, test_render_low):
+    for f in (test_check_on_final_texture, test_top_prior_hook, test_mirror_off_by_default, test_shrink_layout, test_tie_picks_front_on_back, test_front_on_back, test_color, test_photo, test_parts, test_lighter_than_photo, test_no_known_part, test_mirror, test_texture, test_gutter_render, test_seam_steps_concavity, test_diffuse_quilt_far, test_draft_source, test_tone_mode_pattern, test_quilt_efros, test_quilt_holes, test_known_unchanged, test_render_pattern, test_outlier_blocks, test_dark_fabric, test_trellis_relief, test_part_roles_from_stage3, test_stage7_side_tone_smooth_rules, test_tone_from_neighbour, test_nail_twins, test_borrow_donors, test_tone_only, test_part_pattern_single_truth, test_pr_camera_and_winding, test_hidden_visible, test_stage6_gate, test_cli_run_stage, test_orphan_parts, test_cli_parts_flags, test_zones_fallback, test_brightness_target_median, test_run_stage_fallback, test_render_low):
         f()
     print(f'tests_tex_fill: ошибок {bad}')
     return 1 if bad else 0

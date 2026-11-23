@@ -1115,8 +1115,16 @@ def fill(geoms: list, known: list, parts: list | None = None, cfg: dict | None =
         vals = np.concatenate(vals)
         if len(vals) < 50:
             continue
-        shift = float(np.clip(stat[p][0][0] - np.median(vals), -c['dL_max'], c['dL_max']))
-        rep['brightness'][p] = {'dL_before': round(float(np.median(vals) - stat[p][0][0]), 2), 'applied': 0.0}
+        tgt, tgt_from, gap = float(stat[p][0][0]), 'tone', None
+        if c.get('brightness_target', RULES.get('brightness_target', 'tone')) == 'median' and not stat[p][3]:          # T-198/1: цель — медиана L известного части (как мерит check), мода — только для a,b; статистика «глобальная» — своей медианы нет
+            Lk = np.concatenate([labs[gi].reshape(-1, 3)[tx.ti[kn[gi].reshape(-1)[tx.ti] & (tx.part == p)]][:, 0] for gi, tx in enumerate(txs)])
+            if len(Lk) >= c['min_known']:
+                med_k = float(np.median(Lk))
+                gap = round(tgt - med_k, 2)
+                if gap > float(c.get('brightness_gap', RULES.get('brightness_gap', 3.0))):
+                    tgt, tgt_from = med_k, 'median'
+        shift = float(np.clip(tgt - np.median(vals), -c['dL_max'], c['dL_max']))
+        rep['brightness'][p] = {'dL_before': round(float(np.median(vals) - tgt), 2), 'applied': 0.0, 'target': round(tgt, 2), 'target_from': tgt_from, 'mode_minus_median': gap}
         if abs(shift) < 0.5:
             continue
         for gi, tx in enumerate(txs):
