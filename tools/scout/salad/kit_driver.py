@@ -342,6 +342,7 @@ def create_and_start(MG, BR, name: str, body: dict, say_fn=say, sleep=time.sleep
     t_wait = clock()
     seen = False
     last_note = t_wait
+    failed_polls = 0                                               # `failed` — терминальное состояние (Salad сам завалил группу, w3 круга 2: «Service Unavailable» через 0 с, 0 экземпляров); ждать образ незачем
     while clock() - t_wait < wait_s:
         c, g = MG.api(f'/{name}')
         st = None
@@ -350,6 +351,11 @@ def create_and_start(MG, BR, name: str, body: dict, say_fn=say, sleep=time.sleep
             _, st, _c = BR.group_state(name)
             if st == 'stopped':
                 break
+            failed_polls = failed_polls + 1 if st == 'failed' else 0
+            if failed_polls >= 3:
+                desc = str(((g or {}).get('current_state') or {}).get('description') or 'без описания')[:120]
+                say_fn(f'группа {name} в состоянии failed ({failed_polls} опроса подряд): {desc} — ждать нечего, отказ (экземпляров нет, денег не потрачено)')
+                return False, 0.0, f'group_failed: {desc}'
         if clock() - last_note >= 60:                              # b2k 21.11: 8 мин тишины, пока Salad готовит образ в кэше (группа pending, $0) — строка раз в минуту, лог живой (п.12 рецепта)
             last_note = clock()
             say_fn(f'ждём образ в кэше Salad (бесплатно): группа {st or "не видна"}, {clock() - t_wait:.0f} с от создания, предел {wait_s:.0f} с')
@@ -1496,7 +1502,7 @@ def _run_probe_once(a, MG, BR, spec: Spec, gw_factory=Gateway, sleep=time.sleep,
         if warm_fh is not None:
             warm_fh.close()
         summary['stopped_by'] = refuse
-        ok_stop = stop_and_verify(BR, name) if refuse.startswith(('start_http', 'create_wait')) else summary.get('orphan_stop_verified', True)   # create отказал, но группа была видна (504) — её уже погасили в create_and_start
+        ok_stop = True if refuse.startswith('group_failed') else (stop_and_verify(BR, name) if refuse.startswith(('start_http', 'create_wait')) else summary.get('orphan_stop_verified', True))   # create отказал, но группа была видна (504) — её уже погасили в create_and_start
         summary['stop_verified'] = ok_stop
         json.dump(summary, open(os.path.join(a.out, f'summary-{name}.json'), 'w'), ensure_ascii=False, indent=1, default=str)
         say('ИТОГ', json.dumps({k: summary.get(k) for k in ('group', 'stopped_by', 'stop_verified', *API_COUNTERS)}, ensure_ascii=False))

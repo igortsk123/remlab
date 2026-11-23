@@ -316,6 +316,24 @@ rc_good, out_good = dry(lambda: (True, 'входы на месте: 29 това�
 rc_none, _o = dry(None)
 check(rc_bad == 3 and 'входы не готовы' in out_bad and 'НЕ создаю' in out_bad, f'dry: проверка входов провалена → код 3, причина названа (rc={rc_bad})')
 check(rc_good == 0 and 'входы на месте' in out_good and rc_none == 0, f'dry: входы на месте → 0; Spec без preflight → 0 как раньше ({rc_good}, {rc_none})')
+# 7ж. группа сразу `failed` (Salad сам завалил при создании: w3 круга 2, «Service Unavailable», 0 экземпляров): отказ за секунды, а не 40 мин ожидания «образа в кэше»
+class FailedWorld(World):
+    def api(self, path, method='GET', body=None):
+        if method == 'GET' and path != '' and self.exists:
+            return 200, {'networking': {'dns': 'g.example'}, 'current_state': {'status': 'failed', 'description': 'Service Unavailable'}}
+        return super().api(path, method, body)
+
+    def group_state(self, name):
+        return 200, ('failed' if self.exists else None), {'running_count': 0}
+
+
+with tempfile.TemporaryDirectory() as tmp:
+    clock = Clock()
+    t0 = clock()
+    w = FailedWorld(clock)
+    rc, sm, out = drive(tmp, w, clock, keep_warm=0.0)
+    check(rc != 0 and str(sm.get('stopped_by', '')).startswith('group_failed') and 'Service Unavailable' in str(sm.get('stopped_by')), f'группа failed: отказ с причиной из API ({sm.get("stopped_by")}, rc={rc})')
+    check(clock() - t0 < 60 and w.starts == 0 and sm.get('stop_verified') is True, f'failed: отказ за секунды ({clock() - t0:.0f} с), /start не слали, нод не было → stop_verified ({w.starts}, {sm.get("stop_verified")})')
 
 # 8. warm_decide — таблица решений
 D = KD.warm_decide
