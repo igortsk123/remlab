@@ -157,7 +157,7 @@ def submit_stage(gw, a, inputs: dict, stage: str, t: float) -> tuple[dict | None
             c, r, _tinfo = KD.post_job(gw, '/jobs', body, f'/jobs/{jid}', say_fn=say)
         say(f'этап {stage} товар {sku}: POST /jobs → {c} (тело ≈{len(json.dumps(body)) / 2 ** 20:.1f} МБ)', str(r)[:120] if c != 202 else '')
         if c != 202:
-            return None, {'http': c, 'detail': r, 'sku': sku, 'accepted': list(ids)}
+            return None, {'http': c, 'detail': r, 'sku': sku, 'accepted': list(ids), 'post': _tinfo, 'reason': (_tinfo or {}).get('reason')}
         ids[sku] = jid
     if not ids:
         return None, {'detail': 'нечего отправлять: ' + json.dumps(skipped, ensure_ascii=False)}

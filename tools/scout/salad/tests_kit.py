@@ -692,12 +692,84 @@ ok(c_ == 202 and i_['worker_saw_job'] is True and [x[0] for x in g_.calls] == ['
 g_ = _GW([-1], False)
 c_, r_, i_ = KD.post_job(g_, '/generate', {'job_id': 'j', 'image_b64': 'x'}, '/job/j', say_fn=lambda *a: None)
 ok(c_ == -1 and i_['worker_saw_job'] is False and i_['timeout_s'] == 90, 'post_job: воркер задание не видит → -1 остаётся (повтор решает драйвер), в сведениях таймаут')
-g_ = _GW([503], False)
-c_, r_, i_ = KD.post_job(g_, '/generate', {'job_id': 'j', 'image_b64': 'x'}, '/job/j', say_fn=lambda *a: None)
-ok(c_ == 503 and i_ and i_['code'] == 503 and i_['worker_saw_job'] is False and [x[0] for x in g_.calls] == ['POST', 'GET'], 'post_job: 503 (HTML шлюза) → как нет ответа: спросили воркера, не видит — код 503 остаётся в сведениях, повтор решает драйвер')
+g_ = _GW([504], False)
+c_, r_, i_ = KD.post_job(g_, '/generate', {'job_id': 'j', 'image_b64': 'x'}, '/job/j', say_fn=lambda *a: None, sleep=lambda s: (_ for _ in ()).throw(AssertionError('504: пауз нет')))
+ok(c_ == 504 and i_ and i_['code'] == 504 and i_['worker_saw_job'] is False and [x[0] for x in g_.calls] == ['POST', 'GET'], 'post_job: 504 (шлюз мог принять) → прежний путь: спросили воркера, не видит — код в сведениях, повтор решает драйвер, без пауз и повторов POST')
 g_ = _GW([503], True)
 c_, r_, i_ = KD.post_job(g_, '/generate', {'job_id': 'j', 'image_b64': 'x'}, '/job/j', say_fn=lambda *a: None)
-ok(c_ == 202 and i_['worker_saw_job'] is True, 'post_job: 503, но воркер задание видит → принято')
+ok(c_ == 202 and i_['worker_saw_job'] is True and len(g_.calls) == 2, 'post_job: 503, но воркер задание видит → принято (без пауз)')
+
+
+# T-20261123-04/1: 502/503 шлюза сразу после «нода готова» — не отказ задания: пауза → /health → повтор POST (правила: gateway_post.gateway_wait)
+class _GW2:
+    """Шлюз: ответы на POST по порядку; /health — по списку (последний повторяется); вопрос воркеру `/job/..` — 200, если `saw_after` POST уже было."""
+    def __init__(self, posts, health=(200,), saw_after=None):
+        self.posts, self.health, self.saw_after, self.calls, self.counters = list(posts), list(health), saw_after, [], {}
+        self.n_post = 0
+
+    def call(self, method, path, body=None, timeout=60, raw=False):
+        self.calls.append((method, path))
+        if method == 'POST':
+            self.n_post += 1
+            return (self.posts.pop(0) if self.posts else 503), {}
+        if path == '/health':
+            return (self.health.pop(0) if len(self.health) > 1 else self.health[0]), {}
+        return (200 if self.saw_after is not None and self.n_post >= self.saw_after else 404), {}
+
+
+def post503(gw, **kw):
+    slept, said = [], []
+    c, r, i = KD.post_job(gw, '/generate', {'job_id': 'j', 'image_b64': 'x'}, '/job/j', say_fn=lambda *a: said.append(' '.join(str(x) for x in a)), sleep=slept.append, **kw)
+    return c, i, slept, said
+
+
+WAIT = KD.gateway_post_rules()['gateway_wait']
+ok(sum(WAIT['pauses_s']) <= 180 and set(WAIT['codes']) == {502, 503} and WAIT['health_path'] == '/health', f'rules/salad-groups.json: gateway_post.gateway_wait — паузы в сумме ≤ 3 мин ({sum(WAIT["pauses_s"])} с), коды 502/503')
+g_ = _GW2([503, 503, 202])
+c_, i_, sl_, sd_ = post503(g_)
+ok(c_ == 202 and i_['worker_saw_job'] is True and i_['retries_post'] == 2 and g_.counters.get('retries_post') == 2 and sl_ == [float(x) for x in WAIT['pauses_s'][:2]] and g_.n_post == 3,
+   '503→503→202: два повтора с паузами из правил, принято; retries_post=2 в счётчике итога')
+ok(sum('[retries_post]' in s for s in sd_) == 2, 'каждый повтор POST — строка в журнал')
+g_ = _GW2([503] * 20)
+c_, i_, sl_, sd_ = post503(g_)
+ok(c_ == 503 and i_['reason'] == 'gateway_503' and i_['worker_saw_job'] is False and g_.n_post == 1 + len(WAIT['pauses_s']) and sum(sl_) == sum(WAIT['pauses_s']) and g_.counters['retries_post'] == len(WAIT['pauses_s']),
+   '503 до исчерпания при /health 200 → отказ этого задания: код 503, reason=gateway_503, повторов столько, сколько пауз, ждали ≤ 3 мин')
+g_ = _GW2([503] * 20, health=(503,))
+c_, i_, sl_, sd_ = post503(g_)
+ok(c_ == 503 and 'reason' not in i_ and g_.n_post == 1 and g_.counters == {}, '/health ноды не 200 всё время → POST не шлём вслепую, причины gateway_503 нет (нода мертва — другой путь)')
+g_ = _GW2([503, 202], health=(503, 503, 200))
+c_, i_, sl_, sd_ = post503(g_)
+ok(c_ == 202 and g_.n_post == 2 and len(sl_) == 3, '/health сначала 503 — ждём следующую паузу без POST; как только 200 — повтор POST → 202')
+g_ = _GW2([503])
+orig_call = g_.call
+
+
+def saw_second(method, path, body=None, timeout=60, raw=False):
+    r_ = orig_call(method, path, body, timeout, raw)
+    if method == 'GET' and path == '/job/j' and len([x for x in g_.calls if x == ('GET', '/job/j')]) >= 2:
+        return 200, {}                                             # через паузу воркер уже держит задание (первый POST дошёл)
+    return r_
+
+
+g_.call = saw_second
+c_, i_, sl_, sd_ = post503(g_)
+ok(c_ == 202 and g_.n_post == 1 and i_['worker_saw_job'] is True, '503, после паузы воркер задание держит (первый POST дошёл) → принято, второго POST нет')
+g_ = _GW2([503, 409])
+c_, i_, sl_, sd_ = post503(g_)
+ok(c_ == 202 and i_['worker_saw_job'] is True, 'повтор вернул 409 (воркер уже держит job_id) → принято')
+g_ = _GW2([503, 400])
+c_, i_, sl_, sd_ = post503(g_)
+ok(c_ == 400 and 'reason' not in i_ and g_.n_post == 2, '503, а повтор — настоящий 400 воркера: отдаём 400, дальше не повторяем')
+g_ = _GW2([502, 202])
+c_, i_, sl_, sd_ = post503(g_)
+ok(c_ == 202 and g_.counters.get('retries_post') == 1, '502 шлюза — так же, как 503')
+g_ = _GW2([400])
+c_, i_, sl_, sd_ = post503(g_)
+ok(c_ == 400 and i_ is None and sl_ == [] and g_.n_post == 1, '400 с первого раза — без повторов и пауз')
+g_ = _GW2([-1])
+c_, i_, sl_, sd_ = post503(g_)
+ok(c_ == -1 and i_['worker_saw_job'] is False and sl_ == [] and g_.n_post == 1 and not g_.counters, 'таймаут ответа (−1): прежний путь — вопрос воркеру, без пауз и повторов POST')
+ok('retries_post' in KD.API_COUNTERS, 'retries_post заведён в счётчики итога (summary + строка ИТОГ)')
 g_ = _GW([400], False)
 c_, r_, i_ = KD.post_job(g_, '/generate', {'job_id': 'j', 'image_b64': 'x'}, '/job/j', say_fn=lambda *a: None)
 ok(c_ == 400 and i_ is None and len(g_.calls) == 1, 'post_job: 400 и прочие ответы воркера — как есть, без повтора')

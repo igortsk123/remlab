@@ -313,10 +313,12 @@ rc, mg, br, s = go(d3, suffix='p3', skus=['a:1'], plan='1024:1', script={'post_t
 ok('повтор тоже без ответа → тогда failed с причиной «POST -1» (повтор один, не бесконечный), стоп с проверкой',
    s['failed'] == 1 and 'POST -1' in str(s['jobs'][0]['error']) and s['jobs'][0].get('retried') is True and len(s['post_timeouts']) == 2 and br.stops == ['trial-trellis2-p3'])
 rc, mg, br, s = go(d3, suffix='p4', skus=['a:1', 'b:2'], plan='1024:1', script={'post_timeouts': 1, 'post_code': 503})
-ok('POST → 503 (HTML шлюза): воркер задание не видит → один повтор в конец очереди, оба готовы, failed=0, код 503 в post_timeouts',
-   s['failed'] == 0 and len(s['jobs']) == 2 and s['jobs'][-1].get('retried') is True and s['post_timeouts'][0]['code'] == 503)
-rc, mg, br, s = go(d3, suffix='p5', skus=['a:1'], plan='1024:1', script={'post_timeouts': 9, 'post_code': 503})
-ok('503 два раза подряд → failed с кодом «POST 503» в причине (повтор один)', s['failed'] == 1 and 'POST 503' in str(s['jobs'][0]['error']) and len(s['post_timeouts']) == 2)
+ok('POST → 503 (шлюз ещё не принял ноду, T-20261123-04/1): пауза → /health → повтор POST внутри post_job, оба готовы, failed=0, retries_post=1 в итоге, без повтора в конец очереди',
+   s['failed'] == 0 and len(s['jobs']) == 2 and not any(j.get('retried') for j in s['jobs']) and s.get('retries_post') == 1 and s['post_timeouts'][0]['worker_saw_job'] is True)
+rc, mg, br, s = go(d3, suffix='p5', skus=['a:1'], plan='1024:1', script={'post_timeouts': 99, 'post_code': 503})
+ok('503 на всех повторах при живом /health → failed этого задания с причиной «gateway_503», один повтор в конец очереди, retries_post в итоге, стоп с проверкой',
+   s['failed'] == 1 and 'gateway_503 503' in str(s['jobs'][0]['error']) and s['jobs'][0].get('retried') is True and len(s['post_timeouts']) == 2
+   and s.get('retries_post') == 2 * len(T.KD.gateway_post_rules()["gateway_wait"]["pauses_s"]) and br.stops == ['trial-trellis2-p5'])
 # T-178/2 (22.11): сторож докачки образа до running — общий, из kit_driver; медленная докачка → пересадка экземпляра, не ждать 60 мин
 _rl, _sl = [], []
 brs = FakeBR(running_after=10 ** 6, pull=lambda n: 0.01 + n * 10 / 60.0 * 0.001)                # 1 % → ≈2 % за 15 мин (≈0,1 %/мин), как 22.11

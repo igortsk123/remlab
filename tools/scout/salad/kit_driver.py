@@ -32,7 +32,7 @@ MAX_IMAGE_GIB = 35.0                    # сжатый размер образа
 DIGEST_RE = re.compile(r'^[A-Za-z0-9._\-/:]+@sha256:[0-9a-f]{64}$')
 DEFAULT_API_RULES = {'retries': 1, 'status_codes': [502, 503], 'pauses_s': [20], 'timeout_codes': [504, 599], 'lookup_pauses_s': [5, 15, 30], 'timeout_retries': 1,
                      'conflict_codes': [400, 409], 'conflict_type': 'name_conflict'}     # запасные числа; живые — rules/salad-groups.json → api_retry
-API_COUNTERS = {'retries_create': 0, 'retries_start': 0, 'adopted_after_504': 0, 'adopted_after_503': 0, 'orphans_stopped': 0}   # счётчики итога прогона: каждый повтор/подхват — не молча
+API_COUNTERS = {'retries_create': 0, 'retries_start': 0, 'adopted_after_504': 0, 'adopted_after_503': 0, 'orphans_stopped': 0, 'retries_post': 0}   # счётчики итога прогона: каждый повтор/подхват — не молча
 NO_ANSWER = 599                        # псевдокод «ответа нет» (обрыв, таймаут сокета): MG.api в этих случаях бросает исключение, а код ≥ 300 нужен всем вызывающим
 SLOT_PRIO = 2                           # платные пробы — heavy-slot --prio 2 (P-038)
 SAFE_PREFIXES = ('mesh-', 'render-', 'trial-')       # чужие боевые группы не трогаем и не считаем «посторонними»
@@ -513,23 +513,62 @@ def post_timeout_s(body_chars: int, override: int = 0, rules: dict | None = None
     return int(min(top, base + per_mb * body_chars / 2 ** 20))
 
 
-def post_job(gw, path: str, body: dict, check_path: str, override: int = 0, say_fn=say, rules: dict | None = None) -> tuple[int, dict, dict | None]:
+GATEWAY_WAIT_DEFAULT = {'codes': [502, 503], 'pauses_s': [10, 20, 30, 60, 60], 'health_path': '/health'}      # запасные; живые — rules/salad-groups.json → gateway_post.gateway_wait
+
+
+def post_job(gw, path: str, body: dict, check_path: str, override: int = 0, say_fn=say, rules: dict | None = None, sleep=time.sleep, counters: dict | None = None) -> tuple[int, dict, dict | None]:
     """ОДИН общий вход «отправить задание» для обоих драйверов (trellis_trial, salad_trial): POST с таймаутом по размеру тела. Нет ответа (код -1) или ошибка ШЛЮЗА
     (код из `gateway_post.retry_http`, по умолчанию 502/503/504 — HTML-страница шлюза, T-178 22.11) — это НЕ отказ воркера: спросить его `GET check_path` (его запись о задании).
     200 → задание принято (вернём 202); иначе вернём исходный код, а повтор — решает вызывающий (один раз, в конец очереди той же ноды; второй раз → «не принято» с кодом в причине).
-    Возвращает (код, ответ, сведения или None); сведения (`job_id`, `code`, `timeout_s`, `worker_saw_job`) — для сводки; `worker_saw_job` False = повторять можно."""
+    502/503 шлюза («шлюз ещё не принял ноду», T-20261123-04/1; `gateway_post.gateway_wait`): НЕ отказ задания — пауза → /health ноды → повтор POST (job_id идемпотентен), всего в пределах `pauses_s`;
+    принял воркер (`check_path` 200 или повтор → 202/409) — задание принято. Исчерпали и /health 200 → в сведениях `reason='gateway_503'` (отказ ЭТОГО задания, не пробы). 504 и −1 сюда не входят (шлюз мог принять) — только вопрос воркеру.
+    Возвращает (код, ответ, сведения или None); сведения (`job_id`, `code`, `timeout_s`, `worker_saw_job`, `retries_post`, `reason`) — для сводки; `worker_saw_job` False = повторять можно.
+    Повторы POST — счётчик `retries_post` в `counters` (или в `gw.counters`, куда драйвер кладёт словарь итога)."""
     g = gateway_post_rules() if rules is None else rules
     retry_http = {int(x) for x in g.get('retry_http', [502, 503, 504])} | {-1}
+    wait = {**GATEWAY_WAIT_DEFAULT, **(g.get('gateway_wait') or {})}
+    counters = counters if counters is not None else getattr(gw, 'counters', None)
     to = post_timeout_s(sum(len(v) for v in body.values() if isinstance(v, str)), override, g)
     c, r = gw.call('POST', path, body, timeout=to)
     if c not in retry_http:
         return c, r, None
+    jid = body.get('job_id')
     cj, _ = gw.call('GET', check_path, timeout=30)
-    info = {'job_id': body.get('job_id'), 'code': c, 'timeout_s': to, 'worker_saw_job': cj == 200}
+    info = {'job_id': jid, 'code': c, 'timeout_s': to, 'worker_saw_job': cj == 200, 'retries_post': 0}
     if cj == 200:
-        say_fn('задание', body.get('job_id'), f'→ POST: нет ответа/код {c} (таймаут {to} с), но воркер задание принял ({check_path} 200) — продолжаю')
+        say_fn('задание', jid, f'→ POST: нет ответа/код {c} (таймаут {to} с), но воркер задание принял ({check_path} 200) — продолжаю')
         return 202, {}, info
-    say_fn('задание', body.get('job_id'), f'→ POST: нет ответа/код {c} (таймаут {to} с), воркер задание не видит')
+    if c in {int(x) for x in wait['codes']}:
+        c1 = c
+        for i, pause in enumerate(wait['pauses_s']):
+            sleep(float(pause))
+            ch, _ = gw.call('GET', wait['health_path'], timeout=20)
+            if ch != 200:
+                say_fn('задание', jid, f'→ шлюз {c1}: пауза {pause} с, /health ноды {ch} — жду ({i + 1}/{len(wait["pauses_s"])})')
+                continue
+            cj, _ = gw.call('GET', check_path, timeout=30)
+            if cj == 200:
+                info['worker_saw_job'] = True
+                say_fn('задание', jid, f'→ шлюз {c1}, но воркер задание принял ({check_path} 200) — продолжаю')
+                return 202, {}, info
+            info['retries_post'] += 1
+            bump(counters, 'retries_post')
+            say_fn('задание', jid, f'→ шлюз {c1}: /health 200, повтор POST {info["retries_post"]} после паузы {pause} с [retries_post]')
+            c, r = gw.call('POST', path, body, timeout=to)
+            info['code'] = c
+            if c in (202, 409):                                                  # 409 — воркер уже держит этот job_id (первый POST дошёл): принято
+                info['worker_saw_job'] = True
+                return 202, r, info
+            if c not in {int(x) for x in wait['codes']}:
+                break
+        else:
+            ch, _ = gw.call('GET', wait['health_path'], timeout=20)
+            info['gateway_health'] = ch
+            if ch == 200:
+                info['reason'] = 'gateway_503'
+                say_fn('задание', jid, f'→ шлюз {c}: {len(wait["pauses_s"])} пауз исчерпано, /health 200 — отказ задания (gateway_503), проба идёт дальше')
+                return c, r, info
+    say_fn('задание', jid, f'→ POST: нет ответа/код {c} (таймаут {to} с), воркер задание не видит')
     return c, r, info
 
 
@@ -1269,6 +1308,7 @@ def _run_probe_once(a, MG, BR, spec: Spec, gw_factory=Gateway, sleep=time.sleep,
                 dns = ((MG.api(f'/{name}')[1].get('networking') or {}).get('dns') or '')
                 if dns:
                     gw = gw_factory(f'https://{dns}', os.environ['SALAD_API_KEY'])
+                    gw.counters = summary                                          # post_job кладёт сюда retries_post
                     summary['gateway'] = dns
                     say('шлюз группы получен')
             if gw is not None and w.ready_at is None:
@@ -1366,7 +1406,8 @@ def _run_probe_once(a, MG, BR, spec: Spec, gw_factory=Gateway, sleep=time.sleep,
                     say(f'!! {max_streak} задания подряд не удались — гашу (чинить в коде)')
                     break
                 if cur is None and not pending:
-                    summary['stopped_by'] = 'done' if w.first_done and summary['failed'] == 0 else ('first_failed' if not w.first_done else 'done_with_failures')
+                    gw503 = any(v.get('reason') == 'gateway_503' for v in summary['jobs'].values())        # шлюз не принял ноду за все паузы при живом /health (T-20261123-04/1) — причина названа, не «первое упало»
+                    summary['stopped_by'] = 'done' if w.first_done and summary['failed'] == 0 else (('gateway_503' if gw503 else 'first_failed') if not w.first_done else 'done_with_failures')
                     break
             sleep(10)
     finally:

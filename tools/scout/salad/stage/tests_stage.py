@@ -367,6 +367,33 @@ ok(sorted(ST.vis_inputs(vr, 'skuB,skuZ')) == ['skuB'], 'vis_inputs: --skus су�
 cur07, why07 = ST.submit_stage(FakeGW({}), type('A', (), {'out': tmpdir('o7'), 'vis_root': vr, 'threads': 1})(), {'skuC': {}}, '07', 0.0)
 ok(cur07 is None and 'нечего отправлять' in why07['detail'], 'submit 07: у товара нет visible.glb — не отправляется, причина в ответе')
 
+
+# T-20261123-04/1: шлюз 503 на POST /jobs при живой ноде — повтор с паузами внутри post_job, затем отказ с причиной gateway_503 (проба не падает целиком)
+class Gw503:
+    def __init__(self, posts):
+        self.posts, self.n_post, self.counters = list(posts), 0, {}
+
+    def call(self, method, path, body=None, timeout=30, raw=False):
+        if method == 'POST':
+            self.n_post += 1
+            return (self.posts.pop(0) if self.posts else 503), {}
+        return (200, {}) if path == '/health' else (404, {})
+
+
+_orig_post_job = ST.KD.post_job
+ST.KD.post_job = lambda *a, **k: _orig_post_job(*a, **k, sleep=lambda s: None)              # паузы — без реального ожидания
+try:
+    A07 = type('A', (), {'out': tmpdir('o7b'), 'vis_root': vr, 'threads': 1})()
+    g503 = Gw503([503, 503, 202])
+    cur_, info_ = ST.submit_stage(g503, A07, {'skuA': {}}, '07', 0.0)
+    ok(cur_ is not None and g503.n_post == 3 and g503.counters.get('retries_post') == 2, 'submit 07: 503→503→202 — задание принято после двух повторов, retries_post=2')
+    g503 = Gw503([])
+    cur_, info_ = ST.submit_stage(g503, A07, {'skuA': {}}, '07', 0.0)
+    ok(cur_ is None and info_.get('http') == 503 and info_.get('reason') == 'gateway_503' and (info_.get('post') or {}).get('worker_saw_job') is False and g503.counters.get('retries_post', 0) >= 1,
+       'submit 07: 503 на всех повторах при живом /health → отказ задания с причиной gateway_503 и сведениями post (драйвер ставит повтор в конец очереди)')
+finally:
+    ST.KD.post_job = _orig_post_job
+
 # ================================================================= T-193/1/1: КОД ЭТАПА ЕДЕТ В ЗАДАНИИ
 def run(cwd: str, *cmd: str) -> str:
     env = dict(os.environ, GIT_AUTHOR_NAME='t', GIT_AUTHOR_EMAIL='t@t', GIT_COMMITTER_NAME='t', GIT_COMMITTER_EMAIL='t@t', GIT_AUTHOR_DATE='2026-01-01T00:00:00', GIT_COMMITTER_DATE='2026-01-01T00:00:00')
