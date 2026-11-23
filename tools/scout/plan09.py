@@ -3,6 +3,7 @@
   Без --build — только таблица покрытия (что где найдено). С --build — создаёт симлинки (существующие не трогает). Ничего не удаляет.
 Источник раннего этапа (01/02/03/05, 04 из pose_run) — ПО ПРОИСХОЖДЕНИЮ ПАКЕТА: `inputs[sku].stage_src[<этап>]` (явно) → прогоны, из которых взяты форма/фото/поза пакета
 (предки путей `glb`, `photo`, `pose_run`, `extra_in`: `<предок>/<sku>/<этап>`, `<предок>/*/<sku>/<этап>`; ближний предок первым) → приоритетные корни `OLD` (список проверенных прогонов) →
+Этап, чей check.json называет исходное фото (05), берётся только при том же фото, что у пакета (sha256, `photo_matches`; T-20261123-46); иначе «нет этапа».
 ТОЛЬКО если происхождения нет — запасной поиск по `<logs>/*/<sku>/<этап>`, `<logs>/*/*/<sku>/<этап>` (прошедший, самый свежий). Запасной поиск может взять этап от другой формы/камеры, поэтому каждый
 такой этап помечен `how=search` в `<out>/<sku>/sources.json`, а этап 09 пишет в пометки «источник по поиску: …» (товар не «готов» без пометки). Этапы 06/07/seam/08 — ТОЛЬКО из перечисленных `--new` корней пакета.
 Ничего не удаляет. ID товаров в коде нет."""
@@ -15,7 +16,7 @@ LOGS = '/home/pakar/remlab-logs'
 OLD = {
     '01-trellis': [f'{LOGS}/t178-1121/prep', f'{LOGS}/t174-1121/after-run', f'{LOGS}/t183-1121/runs04', f'{LOGS}/e2eHD-batch-1121'],
     '02-prep': [f'{LOGS}/t178-1121/prep', f'{LOGS}/t174-1121/after-run', f'{LOGS}/t183-1121/runs04', f'{LOGS}/e2eHD-batch-1121'],
-    '05-delight': [f'{LOGS}/t178-1121/prep', f'{LOGS}/t174-1121/after-run', f'{LOGS}/e2eHD-batch-1121'],
+    '05-delight': [f'{LOGS}/t46-delight-1123', f'{LOGS}/t178-1121/prep', f'{LOGS}/t174-1121/after-run', f'{LOGS}/e2eHD-batch-1121'],
     '03-parts': [f'{LOGS}/t198-1122/parts-root', f'{LOGS}/t198-1122/parts-root-coarse', f'{LOGS}/e2eHD-batch-1121'],
 }
 NEW_STAGES = ('06-visible', '07-fill', '07-seam', '08-material')
@@ -25,6 +26,42 @@ NEED = ['01-trellis', '02-prep', '03-parts', '04-camera', '05-delight', '06-visi
 
 def has_check(d):
     return os.path.isfile(os.path.join(d, 'check.json'))
+
+
+_SHA = {}
+
+
+def _sha(path):
+    """sha256 файла (кэш по пути+mtime); нет файла → None."""
+    import hashlib
+    try:
+        k = (path, os.path.getmtime(path))
+    except OSError:
+        return None
+    if k not in _SHA:
+        h = hashlib.sha256()
+        with open(path, 'rb') as f:
+            for blk in iter(lambda: f.read(1 << 20), b''):
+                h.update(blk)
+        _SHA[k] = h.hexdigest()
+    return _SHA[k]
+
+
+def photo_matches(d, v):
+    """Этап, чей check.json называет исходное фото (`extra.source_photo`, сейчас — 05-delight), берётся, только если это фото = фото пакета (`v['photo']`) по sha256 (T-20261123-46: свет снимали с
+    другого фото, чем то, по которому красим). У пакета нет фото или check.json фото не называет — этап от фото не зависит, берётся; фото check.json стёрто — сверить нечем, не берётся."""
+    pkg = v.get('photo')
+    if not pkg:
+        return True
+    try:
+        ex = (json.load(open(os.path.join(d, 'check.json'), encoding='utf-8')).get('extra') or {})
+    except (OSError, ValueError):
+        return True
+    sp = ex.get('source_photo')
+    if not sp:
+        return True
+    a, b = _sha(pkg), _sha(sp)
+    return bool(a) and a == b
 
 
 def is_collection(d):
@@ -68,17 +105,17 @@ def find_old(sku, stage, roots, logs, skip=(), v=None):
     skp = [os.path.realpath(x) for x in skip if x]
     for p in origin_dirs(sku, stage, v, logs):
         rp = os.path.realpath(p)
-        if has_check(p) and not is_collection(p) and not any(rp == x or rp.startswith(x + os.sep) for x in skp):
+        if has_check(p) and not is_collection(p) and photo_matches(p, v) and not any(rp == x or rp.startswith(x + os.sep) for x in skp):
             return p, 'origin'
     for r in roots:
         p = os.path.join(r, sku, stage)
-        if has_check(p):
+        if has_check(p) and photo_matches(p, v):
             return p, 'list'
     cands = []
     for pat in (os.path.join(logs, '*', sku, stage), os.path.join(logs, '*', '*', sku, stage)):
         for p in glob.glob(pat):
             rp = os.path.realpath(p)
-            if os.path.isdir(p) and has_check(p) and not is_collection(p) and not any(rp == x or rp.startswith(x + os.sep) for x in skp):
+            if os.path.isdir(p) and has_check(p) and not is_collection(p) and photo_matches(p, v) and not any(rp == x or rp.startswith(x + os.sep) for x in skp):
                 cands.append(p)
     if not cands:
         return None, None

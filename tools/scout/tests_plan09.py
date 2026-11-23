@@ -80,6 +80,40 @@ with tempfile.TemporaryDirectory() as t:
     json.dump({'sources': {}}, open(os.path.join(only, 's8', P.SOURCES), 'w'))
     r = {s: (f, h) for s, f, h in P.collect({'s8': {}}, [], logs, old)}
     ok('03-parts' not in r['s8'][0], 'есть только прежняя сборка → «нет этапа», а не выдача сборки за прогон')
+    # этап с исходным фото (05): берётся, только если фото check.json = фото пакета по sha256 (T-20261123-46)
+    ph_pkg = touch(os.path.join(logs, 'pk', 'p.png'))
+    open(ph_pkg, 'w').write('PHOTO-A')
+    ph_old = touch(os.path.join(logs, 'oldin', 'p.png'))
+    open(ph_old, 'w').write('PHOTO-B')
+    ph_same = touch(os.path.join(logs, 'copy', 'p.png'))
+    open(ph_same, 'w').write('PHOTO-A')
+
+    def mk5(root, sku, src, mtime=1000):
+        d = os.path.join(root, sku, '05-delight')
+        os.makedirs(d, exist_ok=True)
+        json.dump({'passed': True, 'extra': ({'source_photo': src} if src else {})}, open(os.path.join(d, 'check.json'), 'w'))
+        os.utime(os.path.join(d, 'check.json'), (mtime, mtime))
+        return d
+    old5 = {'05-delight': [prio]}
+    d_bad = mk5(prio, 'q1', ph_old)
+    r = {s: (f, h) for s, f, h in P.collect({'q1': {'photo': ph_pkg}}, [], logs, old5)}
+    ok('05-delight' not in r['q1'][0], '05 с другим фото (sha256) из приоритетного корня не берётся → «нет этапа»')
+    d_ok = mk5(prio, 'q2', ph_same)
+    r = {s: (f, h) for s, f, h in P.collect({'q2': {'photo': ph_pkg}}, [], logs, old5)}
+    ok(r['q2'][0].get('05-delight') == d_ok, '05 с копией того же фото (другой путь, тот же sha256) берётся')
+    r = {s: (f, h) for s, f, h in P.collect({'q1': {}}, [], logs, old5)}
+    ok(r['q1'][0].get('05-delight') == d_bad, 'у пакета нет фото — сверять не с чем, этап берётся как раньше')
+    mk5(prio, 'q3', None)
+    r = {s: (f, h) for s, f, h in P.collect({'q3': {'photo': ph_pkg}}, [], logs, old5)}
+    ok('05-delight' in r['q3'][0], 'check.json фото не называет — этап от фото не зависит, берётся')
+    mk5(prio, 'q4', os.path.join(logs, 'стёрто.png'))
+    r = {s: (f, h) for s, f, h in P.collect({'q4': {'photo': ph_pkg}}, [], logs, old5)}
+    ok('05-delight' not in r['q4'][0], 'фото check.json стёрто — сверить нечем, этап не берётся')
+    # запасной поиск: из двух прогонов берётся тот, что на фото пакета, а не самый свежий
+    mk5(os.path.join(logs, 'sa'), 'q5', ph_old, 9000)
+    good5 = mk5(os.path.join(logs, 'sb'), 'q5', ph_same, 10)
+    r = {s: (f, h) for s, f, h in P.collect({'q5': {'photo': ph_pkg}}, [], logs, {'05-delight': []})}
+    ok(r['q5'][0].get('05-delight') == good5 and r['q5'][1]['05-delight'] == 'search', 'запасной поиск: берётся прогон на фото пакета, не самый свежий')
     # сборка старого вида (без sources.json): симлинк этапа рядом с 09-check — тоже не источник
     olds = os.path.join(logs, 'run09older')
     os.makedirs(os.path.join(olds, 's9', '09-check'))

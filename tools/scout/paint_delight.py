@@ -236,38 +236,62 @@ class PhotoRefused(Exception):
     """Фото для этапа 05 нельзя взять от камеры (нет пути, камера не прошла, фото не то)."""
 
 
-def camera_photo(run, sku, declared=None):
-    """Путь фото — ТОЛЬКО из check.json этапа 04 в этом же прогоне (`extra.photo`). Нет пути / камера не прошла / `declared` не совпал → PhotoRefused с причиной."""
+def file_sha256(path):
+    import hashlib
+    h = hashlib.sha256()
+    with open(path, 'rb') as f:
+        for blk in iter(lambda: f.read(1 << 20), b''):
+            h.update(blk)
+    return h.hexdigest()
+
+
+def camera_photo(run, sku, declared=None, package_photo=None):
+    """Путь фото — из check.json этапа 04 в этом же прогоне (`extra.photo`). Нет пути / камера не прошла / `declared` не совпал → PhotoRefused с причиной.
+    `package_photo` (T-20261123-46) — фото пакета: файл фото камеры есть → он должен быть тем же (sha256), иначе отказ; файла нет (камера считала по временной копии воркера, её уже стёрли) →
+    берётся фото пакета, камера при этом passed — основание пишется в check.json (`source_photo_basis`). Само по себе фото этап 05 не выбирает: без check.json камеры отказ всегда."""
+    return resolve_photo(run, sku, declared, package_photo)[0]
+
+
+def resolve_photo(run, sku, declared=None, package_photo=None):
+    """→ (путь фото, основание: 'camera' | 'camera=package' | 'package (файл камеры не сохранился)')."""
     cam = PS.read_check(os.path.join(run, PS.safe_name(sku), CAMERA_STAGE))
     if cam is None:
         raise PhotoRefused(f'нет {CAMERA_STAGE}/check.json в {run} — камера не посчитана, фото брать неоткуда')
     path = (cam.get('extra') or {}).get('photo')
     if not path:
         raise PhotoRefused(f'этап {CAMERA_STAGE} не записал путь к фото (extra.photo) — своё фото этап 05 не выбирает')
-    if not os.path.isfile(path):
-        raise PhotoRefused(f'фото камеры не найдено: {path}')
     if cam.get('passed') is False:
         raise PhotoRefused(f'камера не прошла ({cam.get("reason") or "passed=false"}) — снимать свет не на чем')
+    if not os.path.isfile(path):
+        if package_photo and os.path.isfile(package_photo):
+            return package_photo, 'package (файл фото камеры не сохранился)'
+        raise PhotoRefused(f'фото камеры не найдено: {path}')
+    if package_photo:
+        if not os.path.isfile(package_photo):
+            raise PhotoRefused(f'фото пакета не найдено: {package_photo}')
+        if file_sha256(package_photo) != file_sha256(path):
+            raise PhotoRefused(f'фото камеры ({path}) не то, что фото пакета ({package_photo}) — по sha256')
+        return package_photo, 'camera=package'
     if declared and os.path.realpath(declared) != os.path.realpath(path):
         raise PhotoRefused(f'фото не то, что у камеры: в манифесте {declared}, у камеры {path}')
-    return path
+    return path, 'camera'
 
 
-def run_one(sku, run, rules, declared=None, sigma=None, force=False, model_fn=None):
+def run_one(sku, run, rules, declared=None, sigma=None, force=False, model_fn=None, package_photo=None):
     """Один товар → (check.json-словарь, пропущен_как_готовый). Фото — от камеры (`camera_photo`); отказ пишется в check.json 05 (passed=false, причина), исключения нет."""
     d = PS.stage_dir(run, sku, STAGE)
     try:
-        path = camera_photo(run, sku, declared)
+        path, basis = resolve_photo(run, sku, declared, package_photo)
     except PhotoRefused as e:
         return PS.write_check(d, STAGE, sku, False, None, str(e), outputs=[], refused=True, independent_check='pending'), False
     old = PS.read_check(d)
     if old is not None and not force and not old['extra'].get('refused') and old['extra'].get('source_photo') == path and (old.get('metric') or {}).get('name') == METRIC \
             and os.path.exists(os.path.join(d, 'delight.rgba.png')):
         return old, True
-    return _delight_file(sku, path, run, rules, sigma, model_fn)
+    return _delight_file(sku, path, run, rules, sigma, model_fn, basis)
 
 
-def _delight_file(sku, path, run, rules, sigma=None, model_fn=None):
+def _delight_file(sku, path, run, rules, sigma=None, model_fn=None, basis='camera'):
     """Снять свет с файла `path` (его даёт только `run_one` — от камеры)."""
     sigma = rules['sigma'] if sigma is None else sigma
     d = PS.stage_dir(run, sku, STAGE)
@@ -301,7 +325,7 @@ def _delight_file(sku, path, run, rules, sigma=None, model_fn=None):
         metrics={'hf_corr': {'value': fmt(mm['hf_corr']), 'threshold': rules['hf_corr_min'], 'op': '>='},
                  'hf_energy_ratio': {'value': fmt(mm['hf_energy_ratio']), 'threshold': rules['hf_energy_min'], 'op': '>='}},
         seconds=time.time() - t0, outputs=['delight.rgba.png', 'albedo-iid-v11.png'], frame=PS.FRAME,
-        independent_check='pending', source_photo=path, size=list(im.size), sigma=sigma, sec_iid=round(sec_iid, 1), L_median=fmt(mm['L_median']),
+        independent_check='pending', source_photo=path, source_photo_sha256=file_sha256(path), source_photo_basis=basis, size=list(im.size), sigma=sigma, sec_iid=round(sec_iid, 1), L_median=fmt(mm['L_median']),
         light_spread_photo=fmt(mm['light_spread_photo']), light_spread_result=fmt(mm['light_spread_result']), light_amp_iid=fmt(mm['light_amp_iid']), light_resid=fmt(mm['light_resid']),
         photo_spread_ratio=fmt(mm['photo_spread_ratio']), light_clusters=mm['light_clusters'], light_na=bool(na), na_why=mm['na_why'],
         rules=os.path.relpath(RULES_PATH, HERE) if rules is not None else None,
@@ -344,7 +368,7 @@ def cmd_run(run, manifest, force=False):
     fails, refused, t0, ok = [], [], time.time(), 0
     for n, it in enumerate(man, 1):
         try:
-            doc, cached = run_one(it['sku'], run, rules, it.get('path'), sigma, force)
+            doc, cached = run_one(it['sku'], run, rules, it.get('path'), sigma, force, package_photo=it.get('package_photo'))
             if doc['extra'].get('refused'):
                 refused.append((it['sku'], doc['reason']))
                 print(f'[{n}/{len(man)}] {it["sku"]} ОТКАЗ: {doc["reason"]}', flush=True)
@@ -427,6 +451,19 @@ def selftest() -> int:
             ok(False, 'пустая маска должна падать')
         except ValueError:
             pass
+        # фото пакета (T-20261123-46): камера считала по временной копии, которой уже нет → фото пакета, основание записано; копия того же → camera=package; другое → отказ
+        pk = os.path.join(tmp, 'pkg.png')
+        shutil.copyfile(os.path.join(tmp, 'lit.png'), pk)
+        PS.write_check(PS.stage_dir(run, 'gone', CAMERA_STAGE), CAMERA_STAGE, 'gone', True, None, '', photo=os.path.join(tmp, 'уже-стёрто.png'))
+        alb_fake = (lambda small, r, alb=alb: Image.fromarray(alb).resize(small.size))
+        dg, _ = run_one('gone', run, rules, None, model_fn=alb_fake, package_photo=pk)
+        ok(dg['extra']['source_photo'] == pk and dg['extra']['source_photo_basis'].startswith('package') and dg['extra']['source_photo_sha256'] == file_sha256(pk), 'фото камеры стёрто → фото пакета, основание и sha256 записаны')
+        ok(resolve_photo(run, 'lit', None, pk)[1] == 'camera=package', 'файл камеры = копия фото пакета → camera=package')
+        nm = lambda *a: (_ for _ in ()).throw(AssertionError('модель не нужна при отказе'))  # noqa: E731
+        dd, _ = run_one('lit', run, rules, None, force=True, model_fn=nm, package_photo=os.path.join(tmp, 'flat.png'))
+        ok(dd['passed'] is False and 'не то, что фото пакета' in dd['reason'], 'фото камеры ≠ фото пакета по sha256 → отказ')
+        dn, _ = run_one('nocam', run, rules, None, force=True, model_fn=nm, package_photo=pk)
+        ok(dn['passed'] is False and dn['extra'].get('refused'), 'нет check.json камеры — фото пакета не выручает, отказ')
         # фото — только от камеры: другой путь в манифесте / нет пути / нет камеры / камера не прошла → отказ с причиной, без картинки
         other = os.path.join(tmp, 'flat.png')
         PS.write_check(PS.stage_dir(run, 'nopath', CAMERA_STAGE), CAMERA_STAGE, 'nopath', True, None, '')                                  # камера не записала путь
