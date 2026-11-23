@@ -596,6 +596,35 @@ def camera_gate(pose_run: str) -> tuple:
     return False, 'камера этапа 4 не прошла свой гейт: ' + ('; '.join(bad) or str(ch.get('reason') or 'passed=false'))
 
 
+def legs_cut(pose_run: str):
+    """Ножки формы не совпали с фото (T-191/3: 04 check.json extra.legs_block (= legs_mismatch при включённом rules legs_match.block_photo, по умолчанию выкл); сверка — legs_check.legs_report): {'row': первая строка ножек в пикселях кадра камеры, 'frame_px', 'boxes': рамки ножек формы,
+    прошедших сверку (фото на них переносим; пол сдвинут — пусто), 'why'}. Нет флага / нет файла → None. Камеру НЕ бракует: 04 passed остаётся как есть."""
+    try:
+        ch = json.load(open(os.path.join(pose_run, '04-camera', 'check.json'), encoding='utf-8'))
+    except (OSError, ValueError):
+        return None
+    ex = ch.get('extra') or {}
+    if not ex.get('legs_block') or ex.get('legs_cut_row') is None:
+        return None
+    lm = ex.get('legs_match') or {}
+    try:
+        fpx = int(json.load(open(os.path.join(pose_run, 'stage_loss.json'), encoding='utf-8')).get('frame_px') or 0)
+    except (OSError, ValueError):
+        fpx = 0
+    boxes = [] if lm.get('floor_ok') is False else [list(map(int, b)) for b in (ex.get('legs_trusted_boxes') or [])]
+    return {'row': int(ex['legs_cut_row']), 'frame_px': fpx, 'boxes': boxes, 'why': str(lm.get('why') or '')}
+
+
+def leg_block_mask(shape: tuple, row: int, boxes: list, scale: float = 1.0, margin: int = 3):
+    """Маска кадра «фото не переносим»: строки ≥ row, кроме рамок ножек, прошедших сверку (с запасом margin px). row/boxes — в пикселях кадра камеры, scale — к кадру этапа."""
+    blk = np.zeros(shape, bool)
+    r = max(1, min(shape[0], int(round(row * scale)) - 4))                 # запас 4 px над ножками, как у body_cut
+    blk[r:] = True
+    for x0, y0, x1, y1 in boxes:
+        blk[max(int(y0 * scale) - margin, r):int(round(y1 * scale)) + margin + 1, max(int(x0 * scale) - margin, 0):int(round(x1 * scale)) + margin + 1] = False
+    return blk, r
+
+
 def body_cut(pose_run: str):
     """«Корпус годен» (р.2): камера не прошла гейт ТОЛЬКО из-за нижней полосы (ножки формы не совпадают с фото), верх лёг (iou_top ≥ порога). Возвращает {'row': первая строка нижней полосы в пикселях кадра камеры, 'frame_px'} или None."""
     p = os.path.join(pose_run, '04-camera', 'check.json')
@@ -625,6 +654,7 @@ def _run(glb: str, photo: str, pose_run: str, run_dir: str, sku: str, cos_min: f
     d = PS.stage_dir(run_dir, sku, '06-visible')
     cg, cg_why = camera_gate(pose_run)
     bc = body_cut(pose_run) if (cg is False and body_only) else None
+    lc = legs_cut(pose_run) if (body_only and bc is None) else None      # ножки не совпали (T-191/3): фото на них не переносим, кроме прошедших сверку; камера при этом прошла
     if cg is False and bc is None:                                   # вход не прошёл прежний гейт — этап его не берёт
         PS.write_check(d, '06-visible', sku, passed=False, reason=cg_why + ' — этап 6 вход не берёт, перенос не делался', seconds=round(time.time() - t0, 1),
                        needs_qwen=False, camera_failed=True, camera_gate='failed', pose_run=pose_run)
@@ -634,14 +664,19 @@ def _run(glb: str, photo: str, pose_run: str, run_dir: str, sku: str, cos_min: f
     P = np.asarray(Image.open(photo).convert('RGBA'))
     prgb, pmask = photo_to_frame(P, st['P'], st['px'])
     cut_row = None
+    blk = None
     if bc is not None:                                               # переносим только выше нижней полосы; ножки — этапу 8
         cut_row = int(round(bc['row'] * st['px'] / bc['frame_px'])) if bc['frame_px'] else int(bc['row'])
         cut_row = max(1, min(st['px'], cut_row - 4))                 # запас 4 px над полосой
-        st['ids'] = st['ids'].copy(); st['ids'][cut_row:] = -1
-        st['cos'] = st['cos'].copy(); st['cos'][cut_row:] = 0.0
-        st['mask'] = st['mask'].copy(); st['mask'][cut_row:] = False
-        pmask = pmask.copy(); pmask[cut_row:] = False
-        prgb = prgb.copy(); prgb[cut_row:] = 0
+        blk = np.zeros(st['mask'].shape, bool); blk[cut_row:] = True
+    elif lc is not None:                                             # ножки: ниже границы корпуса — кроме рамок ножек, прошедших сверку
+        blk, cut_row = leg_block_mask(st['mask'].shape, lc['row'], lc['boxes'], (st['px'] / lc['frame_px']) if lc['frame_px'] else 1.0)
+    if blk is not None:
+        st['ids'] = st['ids'].copy(); st['ids'][blk] = -1
+        st['cos'] = st['cos'].copy(); st['cos'][blk] = 0.0
+        st['mask'] = st['mask'].copy(); st['mask'][blk] = False
+        pmask = pmask.copy(); pmask[blk] = False
+        prgb = prgb.copy(); prgb[blk] = 0
     iou_here = float((pmask & st['mask']).sum() / max((pmask | st['mask']).sum(), 1))
     if st.get('iou_frame') is not None and cut_row is None and abs(iou_here - st['iou_frame']) > 0.02:
         raise ValueError(f'фото не то или матрица не та: IoU силуэта здесь {iou_here:.3f}, в прогоне камеры {st["iou_frame"]:.3f}')
@@ -659,9 +694,9 @@ def _run(glb: str, photo: str, pose_run: str, run_dir: str, sku: str, cos_min: f
         if fr_['gain'] >= REG_MIN_GAIN and (fr_['dx'] or fr_['dy']):
             st['P'] = fr_['P']
             prgb, pmask = photo_to_frame(P, st['P'], st['px'])
-            if cut_row is not None:
-                pmask = pmask.copy(); pmask[cut_row:] = False
-                prgb = prgb.copy(); prgb[cut_row:] = 0
+            if blk is not None:
+                pmask = pmask.copy(); pmask[blk] = False
+                prgb = prgb.copy(); prgb[blk] = 0
             reg['applied'] = True
     tr = transfer(geoms, st, prgb, pmask, cos_min)
     dst = os.path.join(d, 'visible.glb')
@@ -689,7 +724,7 @@ def _run(glb: str, photo: str, pose_run: str, run_dir: str, sku: str, cos_min: f
     ok = not why
     PS.write_check(d, '06-visible', sku, passed=ok, metric={'name': 'silhouette_iou', **{k: main[k] for k in ('value', 'threshold', 'op')}}, metrics=mm,
                    reason='' if ok else '; '.join(why), seconds=round(time.time() - t0, 1), outputs=['visible.glb', 'known.png', 'conf.png', 'frame.png'], frame='frame.png',
-                   needs_qwen=(not ok), cos_min=cos_min, camera=st['camera'], side_views=side_views, pose_run=pose_run, crease_shadow=crease_info, stats=tr['stats'], depth_band_share=tr['depth_band_share'], body_only=(cut_row is not None), registration_fit=reg, cut_row=cut_row, legs_left_to_stage8=(cut_row is not None), extra_metrics={k: v for k, v in m.items() if k not in GATE})
+                   needs_qwen=(not ok), cos_min=cos_min, camera=st['camera'], side_views=side_views, pose_run=pose_run, crease_shadow=crease_info, stats=tr['stats'], depth_band_share=tr['depth_band_share'], body_only=(cut_row is not None), registration_fit=reg, cut_row=cut_row, legs_block=(None if lc is None else {'why': lc['why'], 'trusted_legs': len(lc['boxes']), 'row': cut_row}), legs_left_to_stage8=(cut_row is not None), extra_metrics={k: v for k, v in m.items() if k not in GATE})
     return {'sku': sku, 'passed': ok, 'metrics': m, 'why': why, 'dir': d}
 
 

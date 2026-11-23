@@ -42,9 +42,6 @@
       "буфет",
       "витрин"
     ],
-    "leg_match_band": 0.18,
-    "leg_match_area": 25,
-    "legs_match": 0.2,
     "body_skew_deg": 3.0,
     "body_skew_points": 300000,
     "body_skew_leg_cut": 0.45
