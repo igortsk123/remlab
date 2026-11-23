@@ -103,6 +103,7 @@ def cfg() -> dict:
             'python': os.environ.get('STAGE_PYTHON', sys.executable),
             'procs': max(1, int(os.environ.get('STAGE_PROCS', '4'))),
             'fill_procs': max(1, int(os.environ.get('STAGE_FILL_PROCS', '2'))),
+            'm08_procs': max(1, int(os.environ.get('STAGE_M08_PROCS', '1'))),
             'threads': max(1, int(os.environ.get('STAGE_THREADS', '1'))),
             'timeout': float(os.environ.get('STAGE_TIMEOUT_S', '900')),
             'allow_baked': os.environ.get('STAGE_ALLOW_BAKED', '0') == '1'}
@@ -277,6 +278,7 @@ class Pool:
         self.lock = threading.Lock()
         self.sem = threading.Semaphore(c['procs'])
         self.sem_fill = threading.Semaphore(c['fill_procs'])
+        self.sem_08 = threading.Semaphore(max(1, int(c.get('m08_procs', 1))))   # 08: пик памяти 4,5 ГБ (проба 23.11) — по умолчанию одно задание за раз (+ ещё одно место fill ≤ 2,3 ГБ — вместе < 8 ГБ ноды)
         self.opened = False
         self.peak: dict[str, float] = {}
 
@@ -365,6 +367,8 @@ class Pool:
 
     def _run(self, j: dict) -> None:
         stage = j['stage']
+        if stage == '08':
+            self.sem_08.acquire()                             # первым: два 08 по 4,5 ГБ не лягут в 8 ГБ ноды
         if stage in FILL_STAGES:
             self.sem_fill.acquire()                           # сначала «место для 07», потом общий слот: иначе 07 в ожидании держал бы слот
         self.sem.acquire()
@@ -414,6 +418,8 @@ class Pool:
             self.sem.release()
             if stage in FILL_STAGES:
                 self.sem_fill.release()
+            if stage == '08':
+                self.sem_08.release()
             self._refresh()
 
 

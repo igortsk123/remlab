@@ -662,6 +662,8 @@ os.remove(os.path.join(d08, 'roles.json'))
 inp08b = {'sku1': {'extra_in': {'parts.npz': os.path.join(d08, 'p.npz')}}}
 rep08b = ST.attach_08(inp08b, cat08, d08)
 ok(not rep08b['sku1']['parts'] and 'нет роли' in rep08b['sku1']['parts_why'] and '03-parts/parts.npz' not in inp08b['sku1']['extra_in_08'], 'attach_08: части без ролей (PartLLM до моста) не отправляются — 08 по форме, причина в отчёте')
+pool08 = WS.Pool(KW.State(), dict(C, work=tmpdir('work08')))
+ok(pool08.sem_08._value == 1,'08: по умолчанию одно задание за раз (пик памяти 4,5 ГБ, проба 23.11)')
 va = {'args': ['--card-json', '@in/card.json']}
 ok(ST.job_args('07', va) == va['args'] and ST.job_args('06', va) == va['args'] and ST.job_args('seam', va) == [] and ST.job_args('08', va) == [], 'job_args: args из inputs — только 06/07; шов и 08 — пусто (иначе шов падает на --card-json)')
 os.makedirs(os.path.join(d08, 'pr', 'sku1', '07-fill'), exist_ok=True)

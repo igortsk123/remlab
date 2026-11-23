@@ -454,8 +454,8 @@ def make_spec(a, inputs: dict) -> KD.Spec:
             bad += [f'{s}: нет 04-camera/check.json (--pose-root / pose_run)' for s, v in inputs.items() if not os.path.isfile(seam_model_08(a, s, v)[3])]
         if stages_of(a) in (['seam'], ['08'], ['seam', '08']):
             bad += [f'{s}: нет 07-fill/filled.glb или 06-visible/known.png' for s, v in inputs.items()
-                    if not os.path.isfile(os.path.join(v.get('fill') or os.path.join(getattr(a, 'fill_root', ''), s, '07-fill'), 'filled.glb'))
-                    or not os.path.isfile(os.path.join(v.get('vis') or os.path.join(getattr(a, 'vis_root', ''), s, '06-visible'), 'known.png'))]
+                    if not os.path.isfile(os.path.join(v.get('fill') or os.path.join(getattr(a, 'fill_root', '') or a.out, s, '07-fill'), 'filled.glb'))
+                    or not os.path.isfile(os.path.join(v.get('vis') or os.path.join(getattr(a, 'vis_root', '') or a.out, s, '06-visible'), 'known.png'))]
         elif '06' not in stages_of(a):
             root = getattr(a, 'vis_root', '')
             bad += [f'{s}: нет {(v.get("vis") or os.path.join(root, s, "06-visible"))}/visible.glb' for s, v in inputs.items()
