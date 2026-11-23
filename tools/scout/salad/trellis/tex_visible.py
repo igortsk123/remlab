@@ -583,14 +583,14 @@ def camera_gate(pose_run: str) -> tuple:
 
 
 def legs_cut(pose_run: str):
-    """Ножки формы не совпали с фото (T-191/3: 04 check.json extra.legs_mismatch; сверка — legs_check.legs_report): {'row': первая строка ножек в пикселях кадра камеры, 'frame_px', 'boxes': рамки ножек формы,
+    """Ножки формы не совпали с фото (T-191/3: 04 check.json extra.legs_block (= legs_mismatch при включённом rules legs_match.block_photo, по умолчанию выкл); сверка — legs_check.legs_report): {'row': первая строка ножек в пикселях кадра камеры, 'frame_px', 'boxes': рамки ножек формы,
     прошедших сверку (фото на них переносим; пол сдвинут — пусто), 'why'}. Нет флага / нет файла → None. Камеру НЕ бракует: 04 passed остаётся как есть."""
     try:
         ch = json.load(open(os.path.join(pose_run, '04-camera', 'check.json'), encoding='utf-8'))
     except (OSError, ValueError):
         return None
     ex = ch.get('extra') or {}
-    if not ex.get('legs_mismatch') or ex.get('legs_cut_row') is None:
+    if not ex.get('legs_block') or ex.get('legs_cut_row') is None:
         return None
     lm = ex.get('legs_match') or {}
     try:

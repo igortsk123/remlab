@@ -19,7 +19,7 @@ import numpy as np
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 RULES_PATH = os.path.normpath(os.path.join(HERE, '..', '..', 'rules', 'camera-check.json'))
-DEFAULTS = {'trust_w_max': 3.0, 'open_rel': 0.0, 'band': 0.18, 'min_area': 100, 'min_rel': 0.0, 'err_over_w_max': 0.6, 'floor_dy_pct_max': 2.5, 'body_cover_min': 0.6, 'edge_rows': [0.045, 0.008]}
+DEFAULTS = {'block_photo': False, 'trust_w_max': 3.0, 'open_rel': 0.0, 'band': 0.18, 'min_area': 100, 'min_rel': 0.0, 'err_over_w_max': 0.6, 'floor_dy_pct_max': 2.5, 'body_cover_min': 0.6, 'edge_rows': [0.045, 0.008]}
 
 
 def load_rules(path: str = RULES_PATH) -> dict:
@@ -130,6 +130,14 @@ def legs_report(S: np.ndarray, pa: np.ndarray, rules: dict | None = None) -> dic
             why.append(f'ножек не годных {len(bad)} из {len(rep["legs"])} (ошибка/толщина до {max(l["err_over_w"] for l in bad):.2f} > {R["err_over_w_max"]})')
         rep['why'] = '; '.join(why)
     return rep
+
+
+def extra_fields(rep: dict, rules: dict | None = None) -> dict:
+    """Поля extra для check.json этапа 04. legs_mismatch — только запись (observe); legs_block — «не переносить фото на ножки в 06» и `--body-only`: истинно лишь при включённом `block_photo`
+    (по умолчанию ВЫКЛ, T-191/3: пересчёт 06+07 на 13 формах выигрыша не дал — у Теджонса тёмное на ножках выросло 3,0 → 5,0 %). Выключен — путь 06/07 бит-в-бит как без мерки."""
+    R = load_rules() if rules is None else rules
+    return {'legs_match': compact(rep), 'legs_mismatch': bool(rep['mismatch']), 'legs_block': bool(rep['mismatch'] and R.get('block_photo')),
+            'legs_cut_row': rep['cut_row'], 'legs_trusted_boxes': rep['trusted_boxes']}
 
 
 def compact(rep: dict) -> dict:

@@ -366,9 +366,13 @@ class TestTexVisible(unittest.TestCase):
             ck = os.path.join(d, '04-camera', 'check.json')
             json.dump({'passed': True, 'extra': {}}, open(ck, 'w', encoding='utf-8'))
             self.assertIsNone(TV.legs_cut(d))
-            ex = {'legs_mismatch': True, 'legs_cut_row': 100, 'legs_trusted_boxes': [[10, 110, 20, 150]], 'legs_match': {'floor_ok': True, 'why': 'ножек не годных 1 из 2'}}
+            ex = {'legs_mismatch': True, 'legs_block': True, 'legs_cut_row': 100, 'legs_trusted_boxes': [[10, 110, 20, 150]], 'legs_match': {'floor_ok': True, 'why': 'ножек не годных 1 из 2'}}
             json.dump({'passed': True, 'extra': ex}, open(ck, 'w', encoding='utf-8'))
             json.dump({'frame_px': 200}, open(os.path.join(d, 'stage_loss.json'), 'w', encoding='utf-8'))
+            ex0 = dict(ex, legs_block=False)
+            json.dump({'passed': True, 'extra': ex0}, open(ck, 'w', encoding='utf-8'))
+            self.assertIsNone(TV.legs_cut(d))                                    # observe: legs_mismatch есть, legs_block нет — 06 фото не блокирует
+            json.dump({'passed': True, 'extra': ex}, open(ck, 'w', encoding='utf-8'))
             lc = TV.legs_cut(d)
             self.assertEqual((lc['row'], lc['frame_px'], lc['boxes']), (100, 200, [[10, 110, 20, 150]]))
             blk, r = TV.leg_block_mask((200, 200), lc['row'], lc['boxes'])
@@ -380,6 +384,36 @@ class TestTexVisible(unittest.TestCase):
             ex['legs_match']['floor_ok'] = False
             json.dump({'passed': True, 'extra': ex}, open(ck, 'w', encoding='utf-8'))
             self.assertEqual(TV.legs_cut(d)['boxes'], [])                        # пол сдвинут — доверенных ножек нет
+
+    def test_legs_observe_default_is_bit_identical_to_no_legs_flags(self):
+        """T-191/3: по умолчанию (legs_block нет, только запись legs_mismatch) этап 06 даёт тот же результат, что и без полей ножек в 04 — и обычный, и --body-only."""
+        import trimesh
+        from trimesh.visual import TextureVisuals
+        with tempfile.TemporaryDirectory() as d:
+            g = self.geoms[0]
+            m = trimesh.Trimesh(vertices=g['V'], faces=g['F'], process=False)
+            m.visual = TextureVisuals(uv=g['UV'])
+            glb = os.path.join(d, 'shape.glb')
+            m.export(glb)
+            photo = os.path.join(d, 'p.png')
+            Image.fromarray(photo_red_blue()).save(photo)
+            pose = self._write_pose_run(d)
+            os.makedirs(os.path.join(pose, '04-camera'), exist_ok=True)
+            ck = os.path.join(pose, '04-camera', 'check.json')
+            obs = {'legs_mismatch': True, 'legs_cut_row': 20, 'legs_trusted_boxes': [], 'legs_match': {'floor_ok': False, 'why': 'тест'}}
+            for bo in (False, True):
+                outs = []
+                for ex in ({}, obs):
+                    json.dump({'passed': True, 'extra': ex}, open(ck, 'w', encoding='utf-8'))
+                    run_dir = os.path.join(d, f'run_{int(bo)}_{len(ex)}')
+                    TV.run(glb, photo, pose, run_dir, 'sku:1', body_only=bo)
+                    sd = os.path.join(run_dir, 'sku_1', '06-visible')
+                    gg = TV.load_shape(os.path.join(sd, 'visible.glb'))
+                    ch = json.load(open(os.path.join(sd, 'check.json'), encoding='utf-8'))
+                    outs.append(([np.asarray(x['tex']).tobytes() for x in gg], open(os.path.join(sd, 'known.png'), 'rb').read(), ch['extra'].get('legs_block')))
+                self.assertEqual(outs[0][0], outs[1][0])                         # текстуры бит-в-бит
+                self.assertEqual(outs[0][1], outs[1][1])                         # карта «взято с фото» бит-в-бит
+                self.assertIsNone(outs[1][2])                                    # блокировки в отчёте нет
 
 if __name__ == '__main__':
     unittest.main()

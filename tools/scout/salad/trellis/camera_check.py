@@ -263,7 +263,7 @@ def main() -> int:
                                   'edge_agree': {'value': None if edge is None else round(edge, 4), **({'no_edges': True} if no_edges else {})}},
                          reason=reason if not ok else '', seconds=round(time.time() - t0, 1), outputs=['frame.png'], frame='frame.png',
                          edge_ref_min=rules['edge_ref'], edge_below_ref=bool(edge is not None and edge < rules['edge_ref']), no_edges=no_edges, note=reason if ok else '', strip_rows=shares['strip_rows'], strip_frac=rules['strip_frac'],
-                         bottom_mask_coarse=coarse, bottom_mask=bq, bottom_shape_mismatch=bsm, legs_match=LC.compact(legs), legs_mismatch=bool(legs['mismatch']), legs_cut_row=legs['cut_row'], legs_trusted_boxes=legs['trusted_boxes'], shape_mismatch=shm, shape_corridor=shm_info, regen_form=bool(shm), iou_top=None if shares['iou_top'] is None else round(shares['iou_top'], 4),
+                         bottom_mask_coarse=coarse, bottom_mask=bq, bottom_shape_mismatch=bsm, **LC.extra_fields(legs), shape_mismatch=shm, shape_corridor=shm_info, regen_form=bool(shm), iou_top=None if shares['iou_top'] is None else round(shares['iou_top'], 4),
                          bottom_top_iou_min=rules.get('bottom_top_iou_min', rules['iou_min']), thin=tm, thin_rescue=thin_rescue, unreliable=bool(unrel), unreliable_reason=unrel_why, rules_file='tools/scout/rules/camera-check.json',
                          camera=pose['camera'], yaw=a.yaw if a.yaw is not None else pose.get('yaw'), pairs=None, photo=a.photo, method=reg.get('method'),
                          textured=pose.get('textured'), frame_note='фото 50 % + рендер 50 %; красный контур — рендер формы, зелёный — фото')
