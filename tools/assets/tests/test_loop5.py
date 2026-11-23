@@ -558,5 +558,37 @@ class T(unittest.TestCase):
                 self.assertEqual(json.load(f)['112923_1']['passport_digest'], v['passport_digest'])   # digest в eval.json
 
 
+    def test_stop_timeout_does_not_crash_run(self):
+        """Стоп/освобождение/sweep, повисшие дольше потолка (failed-группа w3b, р.2 23.11), → False и ❗ в журнал, а не TimeoutExpired: итоговая страница круга строится."""
+        orig = L.subprocess.run
+        seen = {}
+
+        def hang(cmd, **kw):
+            seen['timeout'] = kw.get('timeout')
+            raise subprocess.TimeoutExpired(cmd, kw.get('timeout'))
+        L.subprocess.run = hang
+        try:
+            r = {'run_prefix': 'x', 'stop_timeout_s': 45}
+            self.assertFalse(L.stop_group(r, 'rid', 3, 0))
+            self.assertEqual(seen['timeout'], 45)                                   # потолок — из правил, не 300 с
+            self.assertFalse(L.release_warm('rid', 20))
+            self.assertEqual(seen['timeout'], 20)
+            self.assertFalse(L.sweep_warm(15))
+            self.assertEqual(seen['timeout'], 15)
+
+            def nostart(cmd, **kw):
+                raise OSError('нет интерпретатора')
+            L.subprocess.run = nostart
+            self.assertFalse(L.stop_group(r, 'rid', 0, 0))                          # не запустилось — тоже не падаем
+        finally:
+            L.subprocess.run = orig
+
+    def test_stop_timeout_default_and_floor(self):
+        self.assertEqual(L.stop_timeout({}), 120)
+        self.assertEqual(L.stop_timeout({'stop_timeout_s': 1}), 10)                 # нижний предел: не 0 с
+        self.assertEqual(L.stop_timeout({'stop_timeout_s': 'x'}), 120)
+        self.assertEqual(L.stop_timeout({'release_timeout_s': 200}, 'release_timeout_s', 300), 200)
+
+
 if __name__ == '__main__':
     unittest.main()

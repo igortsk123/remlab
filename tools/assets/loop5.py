@@ -164,10 +164,29 @@ def node_count(rules: dict, n_skus: int) -> int:
     return min(n_skus, int(rules['machines'])) if queue_on(rules) else len(split(['x'] * n_skus, rules['machines']))
 
 
+def run_stage_trial(args: list[str], timeout: int, what: str):
+    """stage_trial с потолком времени: зависший стоп/освобождение (failed-группа Salad не уходит в «stopped», /stop даёт 400) НЕ валит итог круга (р.2 23.11: --stop-only висел >300 с →
+    TimeoutExpired, страницы-итога не было). → CompletedProcess или None (таймаут/не запустилось — причина строкой в журнал, ❗ с командой для ручного гашения)."""
+    try:
+        return subprocess.run([ex('~/venvs/scout/bin/python'), '-I', STAGE_TRIAL, *args], capture_output=True, text=True, timeout=timeout)
+    except (subprocess.TimeoutExpired, OSError) as e:
+        say(f'❗ {what}: {type(e).__name__} за {timeout} с — не жду, итог круга продолжается (вручную: stage_trial {" ".join(args)})')
+        return None
+
+
+def stop_timeout(rules: dict, key: str = 'stop_timeout_s', default: int = 120) -> int:
+    """Потолок ожидания стопа/освобождения, с (`rules.<key>`; число — в правилах, не в коде)."""
+    try:
+        return max(10, int(rules.get(key, default)))
+    except (TypeError, ValueError):
+        return default
+
+
 def stop_group(rules: dict, run_id: str, idx: int, rnd: int = 0) -> bool:
-    """Погасить группу ноды и проверить «0 нод» (страховка при падении драйвера; для тёплой — команда `--warm-stop`)."""
-    p = subprocess.run([ex('~/venvs/scout/bin/python'), '-I', STAGE_TRIAL, '--stop-only', '--suffix', suffix_of(rules, run_id, idx, rnd)], capture_output=True, text=True, timeout=300)
-    return p.returncode == 0
+    """Погасить группу ноды и проверить «0 нод» (страховка при падении драйвера; для тёплой — команда `--warm-stop`). Потолок — `rules.stop_timeout_s` (120 с): таймаут → False, итог не падает."""
+    sfx = suffix_of(rules, run_id, idx, rnd)
+    p = run_stage_trial(['--stop-only', '--suffix', sfx], stop_timeout(rules), f'стоп группы {sfx}')
+    return p is not None and p.returncode == 0
 
 
 def release_on_done(rules: dict, keep: bool = False) -> bool:
@@ -175,18 +194,22 @@ def release_on_done(rules: dict, keep: bool = False) -> bool:
     return warm_on(rules) and not keep and bool((rules.get('warm') or {}).get('release_on_done', True))
 
 
-def release_warm(run_id: str) -> bool:
+def release_warm(run_id: str, timeout: int = 300) -> bool:
     """Конец Salad-части (T-34/16: ноды круга 2 простояли тёплыми без дела ≈8 мин): погасить ТОЛЬКО ноды с меткой владельца run_id. Ноду, которую успел подхватить другой прогон,
     не трогаем (метка/замок) — гашение атомарно с подхватом (инцидент 23.11 19:43). → всё ли свои погашены."""
-    p = subprocess.run([ex('~/venvs/scout/bin/python'), '-I', STAGE_TRIAL, '--warm-release', '--warm-owner', run_id], capture_output=True, text=True, timeout=600)
+    p = run_stage_trial(['--warm-release', '--warm-owner', run_id], timeout, f'освобождение тёплых нод {run_id}')
+    if p is None:
+        return False
     for line in (p.stdout or '').strip().splitlines()[-12:]:
         say('warm-release: ' + line.strip()[:200])
     return p.returncode == 0
 
 
-def sweep_warm() -> bool:
+def sweep_warm(timeout: int = 300) -> bool:
     """Погасить тёплые ноды, которым пора (T-34: воркер при простое выходит, а Salad поднимает его заново — сам он не гаснет). Занятые прогоном не трогает. → всё ли погашено."""
-    p = subprocess.run([ex('~/venvs/scout/bin/python'), '-I', STAGE_TRIAL, '--sweep-warm'], capture_output=True, text=True, timeout=600)
+    p = run_stage_trial(['--sweep-warm'], timeout, 'sweep тёплых нод')
+    if p is None:
+        return False
     for line in (p.stdout or '').strip().splitlines()[-12:]:
         say('sweep-warm: ' + line.strip()[:200])
     return p.returncode == 0
@@ -767,7 +790,7 @@ def main(argv=None) -> int:
             say(f'повтор только упавших ({len(todo)}): {todo}')
     res, money = collect(run_dir, skus)
     if not a.dry and release_on_done(rules, a.keep_warm_nodes):
-        money['warm_released'] = release_warm(a.run_id)
+        money['warm_released'] = release_warm(a.run_id, stop_timeout(rules, 'release_timeout_s', 300))
         if not money['warm_released']:
             say('❗ тёплые ноды: освобождение не подтверждено — смотри warm-release выше (погасит sweep по сроку; вручную: stage_trial --warm-release --warm-owner ' + a.run_id + ')')
     sheets_after = {s: os.path.join(run_dir, 'sheets', f'{s}.png') for s in skus}

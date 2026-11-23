@@ -368,5 +368,36 @@ try:
 except ImportError as exc:
     print('SKIP stage_trial (нет зависимостей):', exc)
 
+# --- stop_and_verify: failed-группа (терминальное состояние, /stop = HTTP 400) гасится «сразу», без /stop и без ожидания (р.2 23.11, w3b: --stop-only висел >300 с)
+class BRFake:
+    def __init__(self, st, cnt):
+        self.st, self.cnt, self.stops = st, cnt, 0
+
+    def group_state(self, name):
+        return 200, self.st, self.cnt
+
+    def stop_and_verify(self, name):
+        self.stops += 1
+        return True
+
+
+b_failed0 = BRFake('failed', {'running_count': 0, 'allocating_count': 0})
+check(KD.stop_and_verify(b_failed0, 'g') is True and b_failed0.stops == 0, f'failed-группа без нод: стоп подтверждён сразу, /stop не зовём (вызовов {b_failed0.stops})')
+b_failed1 = BRFake('failed', {'running_count': 1})
+check(KD.stop_and_verify(b_failed1, 'g') is True and b_failed1.stops == 1, f'failed, но нода жива: прежний путь (стоп + проверка), вызовов {b_failed1.stops}')
+b_run = BRFake('running', {'running_count': 1})
+check(KD.stop_and_verify(b_run, 'g') is True and b_run.stops == 1, 'running: обычный стоп с проверкой')
+b_odd = BRFake('failed', 1)                                                             # счётчик не словарь — не угадываем, идём прежним путём
+check(KD.stop_and_verify(b_odd, 'g') is True and b_odd.stops == 1, 'failed, счётчик нод нечитаем: прежний путь')
+
+
+class BRRaises(BRFake):
+    def group_state(self, name):
+        raise RuntimeError('нет сети')
+
+
+b_raise = BRRaises('x', {})
+check(KD.stop_and_verify(b_raise, 'g') is True and b_raise.stops == 1, 'состояние не прочитали (исключение): прежний путь, не падаем')
+
 print('\nИТОГ:', 'ВСЁ ЗЕЛЁНОЕ' if not FAILS else f'ПАДЕНИЙ {len(FAILS)}')
 sys.exit(1 if FAILS else 0)

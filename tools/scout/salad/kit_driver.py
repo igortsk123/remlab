@@ -377,7 +377,18 @@ def create_and_start(MG, BR, name: str, body: dict, say_fn=say, sleep=time.sleep
 
 
 def stop_and_verify(BR, name: str) -> bool:
-    """Остановить группу и убедиться, что нод 0 (урок 578: pending = кэш образа, /stop не нужен, но 0 нод проверяем всегда)."""
+    """Остановить группу и убедиться, что нод 0 (урок 578: pending = кэш образа, /stop не нужен, но 0 нод проверяем всегда).
+    Группа в `failed` (терминальное состояние Salad: /stop даёт HTTP 400, в «stopped» она не придёт — цикл ждал бы весь потолок, р.2 23.11 w3b) и нод в ней 0 → уже «остановлена»:
+    возвращаем True сразу, без /stop и ожидания. Есть живые ноды или состояние не прочитано — прежний путь."""
+    gs = getattr(BR, 'group_state', None)
+    if gs is not None:
+        try:
+            _code, st, cnt = gs(name)
+        except Exception:  # noqa: BLE001 — не прочитали: идём прежним путём (стоп + проверка)
+            st, cnt = None, None
+        if st == 'failed' and isinstance(cnt, dict) and not sum(int(cnt.get(k, 0) or 0) for k in ('allocating_count', 'creating_count', 'running_count', 'stopping_count')):
+            say(f'группа {name}: failed (терминальное), нод 0 — стоп не нужен')
+            return True
     return bool(BR.stop_and_verify(name))
 
 
