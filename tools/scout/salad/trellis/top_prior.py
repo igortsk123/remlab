@@ -691,11 +691,15 @@ def stage07(geoms: list, tex_after: list, known: list, parts, roles: dict | None
     if SC.get('enabled', False) and synth is not None:                       # T-28/1: тон-кандидат 06-synth против Ш3в (светлое не темнеет)
         _dg = {}
         sy = synth_top_lab(an, synth, int(SC.get('min_texels', 500)), _dg)
+        src = 'synth'
+        if sy is None and rep.get('photo_top_lab') and int(rep.get('photo_top_n') or 0) >= int(SC.get('photo_min_texels', 10)):
+            sy = (np.asarray(rep['photo_top_lab'], float), int(rep['photo_top_n']))                # synth нет: кандидат — немногие фото-тексели верха (светлое не темнеет)
+            src = 'photo'
         if sy is None:
-            rep['synth_candidate'] = dict(_dg, skipped=f'synth-текселей верха без фото < {SC.get("min_texels", 500)} или нет')
+            rep['synth_candidate'] = dict(_dg, skipped=f'synth-текселей верха без фото < {SC.get("min_texels", 500)} или нет; фото-текселей верха < {SC.get("photo_min_texels", 10)}')
         if sy is not None:
             ch = choose_top_tone(sy[0], res['tone_lab'], SC)
-            rep['synth_candidate'] = {'synth_lab': [round(float(x), 1) for x in sy[0]], 'n': sy[1], 'top_lab': [round(float(x), 1) for x in res['tone_lab']], 'use': ch['use'], 'why': ch['why'], 'dL': ch['dL']}
+            rep['synth_candidate'] = {'source': src, 'synth_lab': [round(float(x), 1) for x in sy[0]], 'n': sy[1], 'top_lab': [round(float(x), 1) for x in res['tone_lab']], 'use': ch['use'], 'why': ch['why'], 'dL': ch['dL']}
             if ch['use'] == 'synth':
                 res['tone_lab'] = [round(float(x), 1) for x in ch['lab']]
                 rep['tone_lab'] = res['tone_lab']
