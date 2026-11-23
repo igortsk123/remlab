@@ -854,7 +854,9 @@ def seam_pass(txs: list, out_lab: list, labs: list, kn_keep: list, conf: list | 
         # (мерка шва — ΔE00 p95 пар через границу; шов, который уже не виден, не трогаем: на 112923/114082 полный вариант портил шов, p95 6,7→8,2 и 3,0→5,5)
         variants = [('full', seam_c), ('soft', dict(seam_c, contrast_gmax=min(1.3, seam_c['contrast_gmax']), patch_strength=0.5 * seam_c.get('patch_strength', 1.0))),
                     ('no_patch', dict(seam_c, patch_texture=False)), ('no_contrast', dict(seam_c, patch_texture=False, contrast_gmin=1.0, contrast_gmax=1.0)),
-                    ('feather_only', dict(seam_c, patch_texture=False, contrast_gmin=1.0, contrast_gmax=1.0, tone_max=[0.0, 0.0, 0.0]))]
+                    ('feather_only', dict(seam_c, patch_texture=False, contrast_gmin=1.0, contrast_gmax=1.0, tone_max=[0.0, 0.0, 0.0])),
+                    # только тон заливки у границы: фото не вытягивается в заливку (feather 0) и слабое фото не переводится в заливку (conf_min/full < 0) — для узких ободков, где вытяжка вредит (стул 114082_7733, ободок сиденья)
+                    ('tone_only', dict(seam_c, feather_mm=0.0, conf_min=-1.0, conf_full=-0.5, patch_texture=False, contrast_gmin=1.0, contrast_gmax=1.0))]
 
         def _dev(mx):
             return None if mx.get('texture_ratio') is None else abs(mx['texture_ratio'] - 1.0)
