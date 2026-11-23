@@ -596,12 +596,15 @@ def choose_top_tone(synth_lab, top_lab, S: dict) -> dict:
     return {'use': 'top', 'lab': [float(x) for x in top_lab], 'why': f'ΔL {dl:+.1f}: расхождение, не светлый случай — Ш3в', 'dL': round(dl, 1)}
 
 
-def synth_top_lab(an: dict, synth, min_texels: int):
+def synth_top_lab(an: dict, synth, min_texels: int, diag: dict | None = None):
     """Медиана Lab 06-цвета у текселей верха без фото, которые 06 закрасил по тону с острого угла (synth-маска). synth = (маски по геометриям, текстуры 06). → (lab, n) | None."""
     import tex_coverage as TC
     if not synth:
         return None
     masks, tex06 = synth
+    if diag is not None:
+        diag['n_masks'] = len(masks)
+        diag['n_synth_all'] = int(sum(int(np.asarray(m).sum()) for m in masks))
     labs = []
     for t in an['top_all']:
         gi = t['gi']
@@ -611,6 +614,8 @@ def synth_top_lab(an: dict, synth, min_texels: int):
         if sel.any():
             flat = np.asarray(tex06[gi]).reshape(-1, np.asarray(tex06[gi]).shape[-1])[:, :3]
             labs.append(TC.rgb2lab(flat[t['tx'].ti][sel].astype(np.uint8)))
+    if diag is not None:
+        diag['n_synth_top_hidden'] = int(sum(len(x) for x in labs))
     if not labs:
         return None
     lab = np.concatenate(labs)
@@ -681,8 +686,13 @@ def stage07(geoms: list, tex_after: list, known: list, parts, roles: dict | None
     if not ok:
         return [np.asarray(t) for t in tex_after], rep
     SC = rules.get('stage07', {}).get('synth_candidate') or {}
+    if not SC.get('enabled', False) or synth is None:
+        rep['synth_candidate'] = {'skipped': 'правило выключено' if not SC.get('enabled', False) else 'маски synth не переданы (cfg.synth_dir)'}
     if SC.get('enabled', False) and synth is not None:                       # T-28/1: тон-кандидат 06-synth против Ш3в (светлое не темнеет)
-        sy = synth_top_lab(an, synth, int(SC.get('min_texels', 500)))
+        _dg = {}
+        sy = synth_top_lab(an, synth, int(SC.get('min_texels', 500)), _dg)
+        if sy is None:
+            rep['synth_candidate'] = dict(_dg, skipped=f'synth-текселей верха без фото < {SC.get("min_texels", 500)} или нет')
         if sy is not None:
             ch = choose_top_tone(sy[0], res['tone_lab'], SC)
             rep['synth_candidate'] = {'synth_lab': [round(float(x), 1) for x in sy[0]], 'n': sy[1], 'top_lab': [round(float(x), 1) for x in res['tone_lab']], 'use': ch['use'], 'why': ch['why'], 'dL': ch['dL']}
