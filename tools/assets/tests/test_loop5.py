@@ -481,5 +481,72 @@ class T(unittest.TestCase):
             self.assertIn('из 1 (100.0 %)', page)
 
 
+    def test_type_policy_from_passport_into_eval(self):
+        import copy
+        import numpy as np
+        from PIL import Image
+        sys.path.insert(0, HERE)
+        sys.path.insert(0, os.path.join(HERE, '..', '..', 'scout'))
+        import mesh_type_passports as MTP
+        import sides_eval as SE
+        reg = copy.deepcopy(MTP.load())
+        reg['types']['комод']['paint'] = {**reg['types']['комод'].get('paint', {}), 'hidden_pattern': 'body'}
+        self.assertEqual(MTP.paint_policy('комод', reg)['hidden_pattern'], 'body')
+        types = {'112923_1': {'role': 'комод', 'type': 'комод'}, '112923_2': {'role': None, 'type': None}, '112923_3': {'role': 'стул', 'type': 'стул'}}
+        orig = MTP.load
+        MTP.load = lambda *a, **k: reg
+        try:
+            pol = L.type_policies(L.load_rules(), list(types), types)
+        finally:
+            MTP.load = orig
+        self.assertEqual(pol['112923_1']['hidden_pattern'], 'body')                          # политика из паспорта (paint_policy р.6)
+        self.assertEqual(pol['112923_1']['passport_digest'], MTP.digest_of(reg['types']['комод']))
+        self.assertEqual(pol['112923_2'], {'hidden_pattern': 'unknown', 'passport_digest': None, 'policy_reason': 'no_type', 'type_hidden_pattern': 'unknown'})   # нет типа — «не оценено», не «обычная мебель»
+        self.assertIn(pol['112923_3']['hidden_pattern'], ('continue', 'body', 'same_fabric', 'plain', 'not_applicable'))            # у всех типов политика явная (А1)
+        self.assertIsNotNone(pol['112923_3']['passport_digest'])
+        reg2 = copy.deepcopy(reg)
+        reg2['types']['стул']['paint'] = {**reg2['types']['стул'].get('paint', {}), 'hidden_pattern': 'plain', 'mode': 'observe'}
+        MTP.load = lambda *a, **k: reg2
+        try:
+            pol2 = L.type_policies(L.load_rules(), ['112923_3'], types)
+        finally:
+            MTP.load = orig
+        self.assertEqual((pol2['112923_3']['hidden_pattern'], pol2['112923_3']['policy_reason']), ('unknown', 'mode_observe'))   # observe → «не оценено», не ok
+        SR = SE.load_sheet_rules()
+        S, HP = int(SR['size']), int(SR['header_px'])
+        yy, xx = np.mgrid[0:S, 0:S]
+        m = (np.abs(xx - S / 2) < 95) & (np.abs(yy - S / 2) < 105)
+        stripes = np.where((xx % 6) == 0, 140, 190)
+
+        def sheet(back_flat):
+            cells = []
+            for i in range(7):
+                c = np.full((S, S, 3), 245 if i == 0 else 255, np.uint8)
+                pat = (i == 0) or (i in (1, 2)) or (i != 4 or not back_flat)
+                c[m] = np.stack([stripes if pat else np.full((S, S), 190)] * 3, axis=-1).astype(np.uint8)[m]
+                cells.append(c)
+            out = np.full((S + HP, S * 7, 3), 255, np.uint8)
+            out[HP:] = np.concatenate(cells, axis=1)
+            return out
+        with tempfile.TemporaryDirectory() as tmp:
+            sh = os.path.join(tmp, 'sheets')
+            os.makedirs(sh)
+            Image.fromarray(sheet(True)).save(os.path.join(sh, '112923_1.png'))             # комод: узор на фасаде, ровный зад — НЕ брак при body
+            rl = L.load_rules()
+            rl['eval'] = {'inproc': True}
+            jobs = [('/g/a.glb', '/p/a.png', os.path.join(sh, '112923_1.png'), '', 12.0)]
+            MTP.load = lambda *a, **k: reg
+            try:
+                ev, page = L.eval_after(rl, tmp, jobs, {}, {'112923_1': types['112923_1']})
+            finally:
+                MTP.load = orig
+            v = ev['per_sku']['112923_1']
+            self.assertEqual(v['hidden_pattern'], 'body')
+            self.assertEqual(v['passport_digest'], MTP.digest_of(reg['types']['комод']))
+            self.assertTrue(v['views']['зад']['pattern']['ok'] is not False)                 # ровный зад при узорном фото — для body не брак
+            with open(os.path.join(tmp, 'eval', 'eval.json'), encoding='utf-8') as f:
+                self.assertEqual(json.load(f)['112923_1']['passport_digest'], v['passport_digest'])   # digest в eval.json
+
+
 if __name__ == '__main__':
     unittest.main()

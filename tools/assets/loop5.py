@@ -428,7 +428,7 @@ def run_eval(rules: dict, sheets_dir: str, out_dir: str, items: list[dict]) -> d
             for f, d in fs.items():
                 if f != 'na' and d.get('r') is not None and d['r'] > 1:
                     fails.append({'view': view, 'feature': f, 'r': d['r']})
-        out[sku] = {'score': v['score'], 'ok': v['ok'], 'fails': sorted(fails, key=lambda x: -x['r']), 'views': v['views'], **({'uncertain': v['uncertain']} if v.get('uncertain') else {})}
+        out[sku] = {'score': v['score'], 'ok': v['ok'], 'fails': sorted(fails, key=lambda x: -x['r']), 'views': v['views'], **({'uncertain': v['uncertain']} if v.get('uncertain') else {}), **({'hidden_pattern': v['hidden_pattern'], 'passport_digest': v.get('passport_digest'), 'policy_reason': v.get('policy_reason')} if v.get('hidden_pattern') else {})}
     return {'per_sku': out, 'summary': r['summary']}
 
 
@@ -509,12 +509,37 @@ def by_type(types: dict[str, dict], per_sku: dict | None) -> dict[str, dict]:
     return out
 
 
-def eval_after(rules: dict, run_dir: str, jobs: list[tuple], fronts: dict) -> tuple[dict | None, str]:
+def type_policies(rules: dict, skus: list[str], types: dict[str, dict]) -> dict[str, dict]:
+    """Политика «рисунок невидимых сторон» по типу товара: {товар: {hidden_pattern, passport_digest, policy_reason}}. Роль — та же, что в summary.types (`product_types`, роль каталога);
+    политика — `mesh_type_passports.paint_policy(role)` (А1, р.6): continue | body | same_fabric | plain | not_applicable | unknown (нет типа/политики → «не оценено», не «обычная мебель»;
+    policy_reason: no_type | no_policy | registry_error:…). passport_digest — тот же digest, что 07 пишет в check.json."""
+    out = {s: {'hidden_pattern': 'unknown', 'passport_digest': None, 'policy_reason': 'no_type'} for s in skus}
+    try:
+        scout = os.path.join(ROOT, 'tools', 'scout')
+        if scout not in sys.path:
+            sys.path.insert(0, scout)
+        import mesh_type_passports as MTP  # noqa: PLC0415
+        for s in skus:
+            pol = MTP.paint_policy((types.get(s) or {}).get('role'))
+            observe = pol['reason'] is None and pol.get('mode') == 'observe'          # paint.mode=observe (пуф, кашпо…): по типу не оцениваем — «не оценено», не ok
+            out[s] = {'hidden_pattern': 'unknown' if observe else pol['hidden_pattern'], 'passport_digest': pol['digest'],
+                      'policy_reason': 'mode_observe' if observe else pol['reason'], 'type_hidden_pattern': pol['hidden_pattern']}
+    except Exception as exc:  # noqa: BLE001
+        say(f'⚠ политика рисунка по типу не определена ({type(exc).__name__}: {str(exc)[:120]}) — unknown')
+        out = {s: {'hidden_pattern': 'unknown', 'passport_digest': None, 'policy_reason': f'error:{type(exc).__name__}'} for s in skus}
+    return out
+
+
+def eval_after(rules: dict, run_dir: str, jobs: list[tuple], fronts: dict, types: dict | None = None) -> tuple[dict | None, str]:
     """Оценка листов «после» сама, без ручного шага: (ev, html таблицы). Нет ни одного листа — (None, ''); сбой оценки не роняет круг (❗ в странице и в журнале)."""
     sheets = os.path.join(run_dir, 'sheets')
     items = [it for it in sheet_items(jobs) if os.path.isfile(os.path.join(sheets, it['id'] + '.png')) and os.path.getsize(os.path.join(sheets, it['id'] + '.png')) > 0]
     if not items:
         return None, '<p>❗ автооценка: нет ни одного листа «после»</p>'
+    if types is not None:                                                  # оценка по типу: политика из паспорта кладётся в item (без ключа — прежняя общая мерка)
+        pol = type_policies(rules, [it['id'] for it in items], types)
+        for it in items:
+            it.update(pol[it['id']])
     try:
         ev = run_eval(rules, sheets, os.path.join(run_dir, 'eval'), items)
     except Exception as e:  # noqa: BLE001
@@ -741,9 +766,9 @@ def main(argv=None) -> int:
     rc_a = run_sheets(rules, jobs, os.path.join(run_dir, 'sheets-after.log'))
     sheets_s[1] = round(time.time() - t_sa, 1)
     t_ev = time.time()
-    ev, ev_html = eval_after(rules, run_dir, jobs, fronts)
-    sheets_s.append(round(time.time() - t_ev, 1))                          # секунды на листы «до», «после», оценку
     types = product_types(rules, skus)
+    ev, ev_html = eval_after(rules, run_dir, jobs, fronts, types)
+    sheets_s.append(round(time.time() - t_ev, 1))                          # секунды на листы «до», «после», оценку
     rows = []
     for s in skus:
         ok = s in res
@@ -754,7 +779,7 @@ def main(argv=None) -> int:
             'money': money, 'skus': {r['sku']: r['status'] for r in rows},
             'types': types, 'by_type': by_type(types, None if ev is None else ev.get('per_sku')),
             'eval': None if ev is None else {'passed_all': ev['summary']['passed_all'], 'items': ev['summary']['items'], 'passed_all_pct': ev['summary']['passed_all_pct'], 'measured': ev['summary'].get('measured'), 'uncertain': ev['summary'].get('uncertain'), 'worst_first': ev['summary']['worst_first'],
-                                              'per_sku': {k: {'score': v['score'], 'ok': v['ok'], 'fails': v['fails'], 'type': (types.get(k) or {}).get('type'), 'front': {x: (fronts.get(k) or {}).get(x) for x in ('theta', 'source', 'flags')}} for k, v in ev['per_sku'].items()}}}
+                                              'per_sku': {k: {'score': v['score'], 'ok': v['ok'], 'fails': v['fails'], 'type': (types.get(k) or {}).get('type'), 'hidden_pattern': v.get('hidden_pattern'), 'passport_digest': v.get('passport_digest'), 'policy_reason': v.get('policy_reason'), 'front': {x: (fronts.get(k) or {}).get(x) for x in ('theta', 'source', 'flags')}} for k, v in ev['per_sku'].items()}}}
     with open(os.path.join(run_dir, 'summary.json'), 'w', encoding='utf-8') as fh:
         json.dump(summ, fh, ensure_ascii=False, indent=1)
     say(f'ГОТОВО за {t_all / 60:.1f} мин (Salad {t_salad / 60:.1f}); нод {money["groups"]}, ≈${money["cost_usd_est"]:.3f}, остановка подтверждена: {money["stop_verified"]}; страница {page}')

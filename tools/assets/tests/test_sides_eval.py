@@ -202,5 +202,56 @@ nf = SE.eval_sheet(badback, R, SR)
 yf = SE.eval_sheet(badback, R, SR, flip=True)
 ok(not nf['views']['зад']['patches']['ok'] and not yf['views']['перед']['patches']['ok'] and yf['views']['зад']['patches']['ok'] and yf['flipped'] and 'na' in yf['views']['3/4'], 'пересчёт с поворотом: заплатка с «зад» переехала на «перед»')
 
+# 12. рисунок по ТИПУ (T-47/3, paint.hidden_pattern паспорта): continue / body / same_fabric / plain / unknown / not_applicable
+def stripes_p(period, amp=35):
+    def f(c):
+        c = c.copy()
+        c[:, ::period, :] -= amp
+        return c
+    return f
+
+
+def pr(res, view):
+    return feats(res, view)['pattern']
+
+
+E = lambda sh, hp: SE.eval_sheet(sh, R, SR, hidden_pattern=hp)
+st6 = stripes_p(6)
+# continue: рисунок продолжается — «ровный зад при узорном фото = брак» только здесь; масштаб рисунка обязателен
+c_same = E(sheet(photo_fn=st6, view_fns={'зад': st6, 'бок': st6}), 'continue')
+c_flat = E(sheet(photo_fn=st6, view_fns={'зад': None, 'бок': st6}), 'continue')
+c_big = E(sheet(photo_fn=st6, view_fns={'зад': stripes_p(12), 'бок': st6}), 'continue')           # клетка/полоса крупнее (или мельче) в 2 раза — масштаб не тот
+ok(pr(c_same, 'зад')['ok'] is True, 'continue: тот же рисунок и масштаб на заду — проходит')
+ok(pr(c_flat, 'зад')['ok'] is False and pr(c_flat, 'бок')['ok'] is True, 'continue: ровный зад при узорном фото — брак (бок с рисунком цел)')
+ok(pr(c_big, 'зад')['ok'] is False and pr(c_big, 'бок')['ok'] is True and pr(c_big, 'зад')['r'] > 1, f"continue: энергия есть, но размер рисунка вдвое другой — брак по масштабу (r {pr(c_big, 'зад')['r']})")
+# body: рисунок фасада — на перёд/3/4; зад/бока/верх ровные; рисунок на заду = брак (front_on_back)
+b_ok = E(sheet(photo_fn=st6, view_fns={'перед': st6, '3/4': st6, 'зад': None, 'бок': None, 'др. бок': None, 'верх': None}), 'body')
+b_bad = E(sheet(photo_fn=st6, view_fns={'перед': st6, '3/4': st6, 'зад': st6, 'бок': None, 'др. бок': None, 'верх': None}), 'body')
+ok(all(pr(b_ok, v)['ok'] for v in ('перед', '3/4', 'зад', 'бок', 'др. бок', 'верх')), 'body: рисунок на фасаде, ровные зад/бока/верх — проходит (ровный зад — НЕ брак)')
+ok(pr(b_bad, 'зад')['ok'] is False and pr(b_bad, 'бок')['ok'] is True and pr(b_bad, 'перед')['ok'] is True, 'body: рисунок фасада на заду (front_on_back) — брак, остальное цело')
+ok(E(sheet(photo_fn=st6, view_fns={'зад': None}), None)['views']['зад']['pattern']['ok'] is False, 'без типа (старая общая мерка): ровный зад при узорном фото — брак, как раньше')
+# same_fabric: фактура ткани как на фото; ровно или крупные пятна — отклонение
+fab = noise(30)
+sf_ok = E(sheet(photo_fn=fab, view_fns={'зад': fab, 'бок': fab}), 'same_fabric')
+sf_flat = E(sheet(photo_fn=fab, view_fns={'зад': None, 'бок': fab}), 'same_fabric')
+sf_big = E(sheet(photo_fn=fab, view_fns={'зад': lambda c: fab(noise(40, 30)(c)), 'бок': fab}), 'same_fabric')
+ok(pr(sf_ok, 'зад')['ok'] is True and pr(sf_ok, 'бок')['ok'] is True, 'same_fabric: та же фактура ткани сзади и сбоку — проходит')
+ok(pr(sf_flat, 'зад')['ok'] is False, 'same_fabric: зад гладкий при фактурной ткани на фото — не та ткань')
+ok(pr(sf_big, 'зад')['ok'] is False, 'same_fabric: на заду крупные детали/пятна поверх ткани — брак')
+# plain: ровно везде; рисунок на стороне = брак
+pl_ok = E(sheet(photo_fn=None, view_fns={}), 'plain')
+pl_bad = E(sheet(photo_fn=None, view_fns={'зад': st6}), 'plain')
+ok(all(pr(pl_ok, v)['ok'] for v in NAMES if 'r' in pr(pl_ok, v) and pr(pl_ok, v)['r'] is not None) and pr(pl_ok, 'зад')['ok'] is True, 'plain: ровная вещь — проходит')
+ok(pr(pl_bad, 'зад')['ok'] is False and pr(pl_bad, 'бок')['ok'] is True, 'plain: рисунок на стороне ровной вещи — брак')
+# unknown / not_applicable: «не оценено» — ни брак, ни проход
+for hp in ('unknown', 'not_applicable'):
+    u = E(sheet(photo_fn=st6, view_fns={'зад': None}), hp)
+    ok(pr(u, 'зад')['r'] is None and pr(u, 'зад')['ok'] is None and 'не оценено' in pr(u, 'зад')['why'], f'{hp}: признак «рисунок перенесён» — не оценено (не брак и не проход)')
+# eval_one: тип и digest попадают в eval.json
+with tempfile.TemporaryDirectory() as t2:
+    Image.fromarray(sheet(photo_fn=st6, view_fns={'зад': st6})).save(os.path.join(t2, 'x.png'))
+    r2 = SE.batch(t2, os.path.join(t2, 'o'), items={'x': {'id': 'x', 'hidden_pattern': 'continue', 'passport_digest': 'abc123'}})
+    ok(r2['eval']['x']['hidden_pattern'] == 'continue' and r2['eval']['x']['passport_digest'] == 'abc123', 'eval.json: тип рисунка и digest паспорта записаны')
+
 print('FAIL' if FAIL else 'OK', FAIL)
 sys.exit(1 if FAIL else 0)

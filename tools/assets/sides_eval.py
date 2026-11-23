@@ -262,8 +262,103 @@ def group_pattern(lab, gm, p):
     return float(hp[m].std()), float(max(L[m].mean(), p.get('mean_L_floor', 20.0)))
 
 
+def pattern_scale(lab, gm, p):
+    """Размер элемента рисунка (px): длина волны ПИКА радиального спектра яркости (рисунок минус крупный свет `scale_sigma`, лёгкое сглаживание `sigma_lo` гасит гармоники тонких линий)
+    в полосе `band_px`; None — мало пикселей/нет энергии. Сравнивается сторона с фото после подгонки фото по площади (один масштаб)."""
+    m = ndi.binary_erosion(gm, iterations=int(p['sigma_hi']))
+    if m.sum() < int(p.get('scale_min_px', 400)):
+        return None
+    L = ndi.gaussian_filter(lab[..., 0], p['sigma_lo'])
+    hp = np.where(m, L - ndi.gaussian_filter(lab[..., 0], p['scale_sigma']), 0.0)
+    ys, xs = np.where(m)
+    sl = (slice(ys.min(), ys.max() + 1), slice(xs.min(), xs.max() + 1))
+    hp, mm = hp[sl], m[sl]
+    hp = np.where(mm, hp - hp[mm].mean(), 0.0)
+    n = 256
+    P = np.abs(np.fft.fft2(hp, s=(n, n))) ** 2
+    f = np.hypot(np.fft.fftfreq(n)[:, None], np.fft.fftfreq(n)[None, :])
+    lo, hi = p['band_px']
+    sel = (f >= 1.0 / hi) & (f <= 1.0 / lo)
+    if not sel.any() or P[sel].sum() <= 1e-9:
+        return None
+    edges = np.linspace(1.0 / hi, 1.0 / lo, 49)
+    idx = np.digitize(f[sel], edges)
+    prof = np.array([P[sel][idx == k].mean() if (idx == k).any() else 0.0 for k in range(1, len(edges))])
+    k = int(prof.argmax())
+    return float(2.0 / (edges[k] + edges[k + 1]))
+
+
+def group_large(lab, gm, p):
+    """Крупные детали (пятна, фасад, рисунок крупнее зерна): размах яркости между крупным размытием `large_sigma` и `scale_sigma`, относительно яркости группы."""
+    m = ndi.binary_erosion(gm, iterations=int(p['large_sigma']))
+    if m.sum() < 50:
+        return None
+    L = lab[..., 0]
+    d = ndi.gaussian_filter(L, p['scale_sigma']) - ndi.gaussian_filter(L, p['large_sigma'])
+    return float(d[m].std() / max(L[m].mean(), p.get('mean_L_floor', 20.0)))
+
+
+def f_pattern_typed(lab_s, m_s, lab_p, m_p, R, ctx) -> tuple:
+    """Рисунок по ТИПУ товара (paint.hidden_pattern паспорта типа; T-47/3): continue — рисунок и его РАЗМЕР как на фото; body — на заду/боках/верху рисунка фасада нет (front_on_back = брак);
+    same_fabric — фактура ткани как на фото (энергия в [ratio_min, ratio_max]) без крупных деталей; plain — ровно (контраст ≤ rel_max). Пороги — `pattern_by_type`."""
+    p, T = R['pattern'], R['pattern_by_type']
+    ps = {**p, **T['scale']}
+    mode, view = ctx['hp'], ctx['view']
+    _, _, gs = ctx['s']
+    _, _, gp = ctx['p']
+    rs, det = [], {}
+    if mode == 'same_fabric':                                                    # крупные детали (пятна, фасад) — по всему предмету, а не по тонам: тон рвётся на куски и не переживает размытие
+        sc = T['same_fabric']
+        lg, lgp = group_large(lab_s, m_s, ps), group_large(lab_p, m_p, ps)
+        if lg is not None and lgp is not None:
+            rs.append((lg - sc['large_floor'] * lgp) / max(sc['large_max'] * lgp, 1e-6))
+            det['large'] = [round(lg, 4), round(lgp, 4)]
+    for g in gs:
+        gss = group_pattern(lab_s, gs[g], p)
+        if gss is None:
+            continue
+        rel_s = gss[0] / gss[1]
+        gps = group_pattern(lab_p, gp[g], p) if g in gp else None
+        rel_p = None if gps is None else gps[0] / gps[1]
+        if mode == 'plain':
+            lim = max(T['plain']['rel_max'], 0 if rel_p is None else T['plain']['photo_k'] * rel_p)   # «ровно» = не рябее, чем сама вещь на фото (ткань стула имеет свой тканый рисунок)
+            rs.append(rel_s / lim)
+            det[f'g{g}'] = [round(rel_s, 4), None if rel_p is None else round(rel_p, 4)]
+        elif mode == 'body':
+            if view in T['body']['face_views']:                                  # фасад: рисунок должен быть (как «continue»)
+                if gps is None or gps[0] < p['photo_energy_min']:
+                    continue
+                rs.append(p['ratio_min'] / max(rel_s / rel_p, 1e-6))
+                det[f'g{g}'] = [round(rel_s, 4), round(rel_p, 4)]
+            elif rel_p is not None and gps[0] >= p['photo_energy_min']:          # зад/бок/верх: рисунка фасада нет
+                rs.append((rel_s / rel_p) / T['body']['side_max_ratio'])
+                det[f'g{g}'] = [round(rel_s, 4), round(rel_p, 4)]
+        elif mode == 'same_fabric':
+            if rel_p is None or gps[0] < p['photo_energy_min']:
+                continue
+            q = rel_s / rel_p
+            sc = T['same_fabric']
+            rs.append(max(sc['ratio_min'] / max(q, 1e-6), q / sc['ratio_max']))
+            det[f'g{g}'] = [round(q, 3)]
+        else:                                                                    # continue: энергия рисунка И его размер
+            if gps is None or gps[0] < p['photo_energy_min']:
+                continue
+            r_e = p['ratio_min'] / max(rel_s / rel_p, 1e-6)
+            ss, sp = pattern_scale(lab_s, gs[g], ps), pattern_scale(lab_p, gp[g], ps)
+            r_s = 0.0 if ss is None or sp is None else max(ss / sp, sp / ss) / T['continue']['scale_k']
+            rs.append(max(r_e, r_s))
+            det[f'g{g}'] = [round(rel_s / rel_p, 3), None if ss is None or sp is None else round(ss / sp, 3)]
+    if not rs:
+        return None, {'why': 'нет измеряемой группы', 'mode': mode}
+    return max(rs), {**det, 'mode': mode}
+
+
 def f_pattern(lab_s, m_s, lab_p, m_p, R, ctx) -> tuple:
-    """Рисунок перенесён: в каждой группе, где на фото рисунок есть (энергия ≥ photo_energy_min), на стороне ≥ ratio_min × фото. r — худшая группа."""
+    """Рисунок перенесён: в каждой группе, где на фото рисунок есть (энергия ≥ photo_energy_min), на стороне ≥ ratio_min × фото. r — худшая группа. Если у товара задан тип рисунка (`hidden_pattern`) — по типу."""
+    if ctx.get('hp') in ('continue', 'body', 'same_fabric', 'plain'):
+        return f_pattern_typed(lab_s, m_s, lab_p, m_p, R, ctx)
+    if ctx.get('hp') in ('unknown', 'not_applicable'):                      # нет типа/политики или рисунок типу не нужен — признак «не оценено», не проход и не брак
+        return None, {'why': 'не оценено: ' + ctx['hp'], 'mode': ctx['hp']}
     p = R['pattern']
     _, _, gs = ctx['s']
     _, _, gp = ctx['p']
@@ -327,7 +422,7 @@ def score_of(r: float | None) -> float | None:
     return None if r is None else round(float(min(1.0, max(0.0, 1.0 - r / 2.0))), 3)
 
 
-def eval_view(view_rgb: np.ndarray, photo_rgb: np.ndarray, photo_mask: np.ndarray, name: str, R: dict, tone_rgb: np.ndarray | None = None, memo: dict | None = None) -> dict:
+def eval_view(view_rgb: np.ndarray, photo_rgb: np.ndarray, photo_mask: np.ndarray, name: str, R: dict, tone_rgb: np.ndarray | None = None, memo: dict | None = None, hp: str | None = None) -> dict:
     """tone_rgb — вид без формы (albedo_of, уже нормированный по фото); без него тон берётся прямо с вида (тень формы тогда считается тоном)."""
     g = R['geometry']
     m = view_mask(view_rgb, g)
@@ -348,7 +443,7 @@ def eval_view(view_rgb: np.ndarray, photo_rgb: np.ndarray, photo_mask: np.ndarra
             memo[pk] = (lab_p, cs, gp)
     if len(cs) == 0:
         return {'na': 'на фото не нашли предмет'}
-    ctx = {'s': groups_of(lab_s, m, cs, P, wl), 'p': gp, 'lab_r': lab_r}
+    ctx = {'s': groups_of(lab_s, m, cs, P, wl), 'p': gp, 'lab_r': lab_r, 'hp': hp, 'view': name}
     out = {}
     for feat in FEATURES:
         if feat == 'sharpness' and name not in R['sharpness']['views']:
@@ -377,7 +472,7 @@ def flip_sheet(sheet: np.ndarray, S: int, hp: int) -> np.ndarray:
     return out
 
 
-def eval_sheet(sheet_rgb: np.ndarray, R: dict, sheet_rules: dict | None = None, clay_rgb: np.ndarray | None = None, flip: bool = False) -> dict:
+def eval_sheet(sheet_rgb: np.ndarray, R: dict, sheet_rules: dict | None = None, clay_rgb: np.ndarray | None = None, flip: bool = False, hidden_pattern: str | None = None) -> dict:
     """Лист → {views: {имя: {признак: {...}}}, ok, score, worst}. ok = все признаки всех сторон r ≤ 1 (n/a и None не считаются).
     clay_rgb — лист «глина» (sides_sheet --clay): тогда тон считается без формы (albedo), иначе — прямо с видов."""
     sr = sheet_rules or load_sheet_rules()
@@ -401,7 +496,7 @@ def eval_sheet(sheet_rgb: np.ndarray, R: dict, sheet_rules: dict | None = None, 
         scale = p0 / a0 if a0 > 1e-6 and p0 > 1e-6 else 1.0          # один общий множитель на все виды: тон лица = тон фото (общий сдвиг тона — дело ворот кадра, не этой мерки)
         tone = [lin_srgb(a * scale) for a in alb]
     memo: dict = {}
-    views = {n: eval_view(cells[i + 1], p_rgb, p_m, n, R, tone[i], memo) for i, n in enumerate(names)}
+    views = {n: eval_view(cells[i + 1], p_rgb, p_m, n, R, tone[i], memo, hidden_pattern) for i, n in enumerate(names)}
     worst, scores, ok = None, [], True
     for n, fs in views.items():
         for f, d in fs.items():
@@ -478,8 +573,13 @@ def eval_one(sheets: str, i: str, R: dict, clay_dir: str, item: dict | None, cac
     clay = np.asarray(Image.open(cp).convert('RGB')) if os.path.exists(cp) else None
     fs = known_shares_of(item, R) if item else None
     flip = front_flipped(fs, R) if fs else False
-    r = eval_sheet(np.asarray(Image.open(os.path.join(sheets, i + '.png')).convert('RGB')), R, clay_rgb=clay, flip=flip)
+    hp = (item or {}).get('hidden_pattern')
+    r = eval_sheet(np.asarray(Image.open(os.path.join(sheets, i + '.png')).convert('RGB')), R, clay_rgb=clay, flip=flip, hidden_pattern=hp)
     r['front_shares'] = fs
+    if hp:
+        r['hidden_pattern'] = hp
+        r['passport_digest'] = (item or {}).get('passport_digest')
+        r['policy_reason'] = (item or {}).get('policy_reason')            # одна политика и один digest в 07, check.json и оценке
     if flip:
         r['note'] = 'ракурс развёрнут'
     if kp:
