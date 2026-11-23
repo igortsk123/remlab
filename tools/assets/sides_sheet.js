@@ -13,6 +13,71 @@ function chromiumOf() {
   throw new Error('нет пакета playwright (pnpm install)');
 }
 
+
+// Режим «свет сайта» (spec.site): тот же three.js и те же числа света, что у просмотрщика сайта (lib/viewer3d/viewer.ts + window-light.ts:LIGHT):
+// RoomEnvironment + полусфера + солнце + подсветка, Neutral tone mapping. Лист показывает то, что видит покупатель (T-20261123-37, директор).
+async function renderSite(browser, it, spec, rep) {
+  const { viewer, site } = spec;
+  const ctx = await browser.newContext({ viewport: { width: viewer.width, height: viewer.height } });
+  try {
+    const page = await ctx.newPage();
+    let html = '';
+    page.on('console', (m) => { if (m.type() === 'error') rep.notes.push('console.error: ' + m.text().slice(0, 120)); });
+    await page.route('https://models.local/**', (route) => {
+      const pn = new URL(route.request().url()).pathname.slice(1);
+      if (pn === 'index.html') return route.fulfill({ status: 200, contentType: 'text/html', body: html });
+      if (pn !== 'm.glb') return route.abort();
+      return route.fulfill({ path: it.glb, headers: { 'access-control-allow-origin': '*', 'content-type': 'model/gltf-binary' } });
+    });
+    html = `<html><head><script type="importmap">{"imports":{"three":"${site.libs.three}","three/addons/":"${site.libs.three_addons}"}}</script></head><body style="margin:0;background:#fff"><canvas id="c" width="${viewer.width}" height="${viewer.height}" style="width:${viewer.width}px;height:${viewer.height}px;display:block"></canvas>
+<script type="module">
+import * as THREE from 'three';
+import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
+import { MeshoptDecoder } from 'three/addons/libs/meshopt_decoder.module.js';
+import { RoomEnvironment } from 'three/addons/environments/RoomEnvironment.js';
+const L = ${JSON.stringify(site.light)}, FOV = ${JSON.stringify(site.fov)};
+const r = new THREE.WebGLRenderer({ canvas: document.getElementById('c'), antialias: true, preserveDrawingBuffer: true });
+r.setSize(${viewer.width}, ${viewer.height}, false); r.outputColorSpace = THREE.SRGBColorSpace; r.toneMapping = THREE.NeutralToneMapping; r.toneMappingExposure = L.exposure;
+const sc = new THREE.Scene(); sc.background = new THREE.Color(0xffffff);
+const pm = new THREE.PMREMGenerator(r); sc.environment = pm.fromScene(new RoomEnvironment(), 0.04).texture; sc.environmentIntensity = L.env;
+sc.add(new THREE.HemisphereLight(L.hemiSky, L.hemiGround, L.hemi));
+const sun = new THREE.DirectionalLight(L.sunColor, L.sun); sun.position.set(...L.sunPos); sc.add(sun);
+const fill = new THREE.DirectionalLight(L.fillColor, L.fill); fill.position.set(...L.fillPos); sc.add(fill);
+const loader = new GLTFLoader(); loader.setMeshoptDecoder(MeshoptDecoder);
+loader.load('https://models.local/m.glb', (g) => {
+  sc.add(g.scene);
+  const box = new THREE.Box3().setFromObject(g.scene); const c = box.getCenter(new THREE.Vector3()); const rad = box.getBoundingSphere(new THREE.Sphere()).radius;
+  const cam = new THREE.PerspectiveCamera(FOV, 1, 0.01, 100);
+  window.__shot = (th, polar, k) => {
+    const d = rad / Math.sin(THREE.MathUtils.degToRad(FOV / 2)) * k, t = THREE.MathUtils.degToRad(th), p = THREE.MathUtils.degToRad(polar);
+    cam.position.set(c.x + d * Math.sin(p) * Math.sin(t), c.y + d * Math.cos(p), c.z + d * Math.sin(p) * Math.cos(t)); cam.lookAt(c); r.render(sc, cam);
+  };
+  window.__clay = (cl) => g.scene.traverse((o) => { if (o.isMesh) { o.material = new THREE.MeshStandardMaterial({ color: 0xffffff, metalness: cl.metallic, roughness: cl.roughness }); } });
+  window.__ready = true;
+}, undefined, (e) => { window.__err = String(e); });
+</script></body></html>`;
+    await page.goto('https://models.local/index.html', { waitUntil: 'domcontentloaded' });
+    await page.waitForFunction(() => window.__ready || window.__err, null, { timeout: viewer.load_timeout_s * 1000 });
+    const err = await page.evaluate(() => window.__err);
+    if (err) throw new Error('загрузка модели: ' + err);
+    fs.mkdirSync(`${spec.out}/${it.id}`, { recursive: true });
+    const shoot = async (suffix) => {
+      for (const o of it.orbits) {
+        const [th, polar, rad] = o.orbit.split(' ').map((x) => parseFloat(x));
+        await page.evaluate(([a, b, k]) => window.__shot(a, b, k), [th, polar, (rad / 100) * site.distance_k]);
+        await page.waitForTimeout(viewer.settle_ms);
+        await page.locator('#c').screenshot({ path: `${spec.out}/${it.id}/${o.tag}${suffix}.png` });
+        if (!suffix) rep.tags.push(o.tag);
+      }
+    };
+    await shoot('');
+    rep.ok = rep.tags.length === it.orbits.length;
+    if (spec.clay && rep.ok) { await page.evaluate((cl) => window.__clay(cl), spec.clay); await shoot('.clay'); }
+  } finally {
+    await ctx.close();
+  }
+}
+
 async function renderItems(chromium, spec) {
   const { viewer, light, libs } = spec;
   const report = {};
@@ -24,6 +89,7 @@ async function renderItems(chromium, spec) {
       report[it.id] = rep;
       let ctx = null;
       try {
+        if (spec.site) { await renderSite(browser, it, spec, rep); continue; }
         ctx = await browser.newContext({ viewport: { width: viewer.width, height: viewer.height } });
         const page = await ctx.newPage();
         let html = '';

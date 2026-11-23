@@ -87,6 +87,33 @@ with tempfile.TemporaryDirectory() as t:
     tm2 = SS.batch([items[0]], out, render_fn=fake_render)
     ok('noaz' in tm2 and 'good' in tm2 and tm2['_total']['items'] == 1, 'лист: повторный запуск на части списка дополняет times.json, не стирает')
 
+# 2б. свет листа = свет сайта: числа в sides-sheet.json — зеркало window-light.ts:LIGHT и позиций света в viewer.ts (разошлись — красный)
+ROOT = os.path.join(ASSETS, '..', '..')
+wl = open(os.path.join(ROOT, 'lib', 'viewer3d', 'window-light.ts'), encoding='utf-8').read()
+vw = open(os.path.join(ROOT, 'lib', 'viewer3d', 'viewer.ts'), encoding='utf-8').read()
+body = wl[wl.index('export const LIGHT'):]
+body = body[:body.index('};')]
+
+
+def ts_num(key):
+    m = re.search(r'\b' + key + r':\s*(0x[0-9a-fA-F]+|[0-9.]+)', body)
+    return None if not m else (int(m.group(1), 16) if m.group(1).startswith('0x') else float(m.group(1)))
+
+
+site = SH.get('site', {})
+Lj = site.get('light', {})
+keys = ['exposure', 'env', 'hemi', 'hemiSky', 'hemiGround', 'sun', 'sunColor', 'fill']
+ok(site.get('enabled') is True and all(ts_num(k) is not None and ts_num(k) == Lj.get(k) for k in keys), 'свет листа: числа sides-sheet.json site.light = window-light.ts:LIGHT (' + ', '.join(f'{k} {Lj.get(k)} / {ts_num(k)}' for k in keys if ts_num(k) != Lj.get(k)) + ')')
+ms = re.search(r'sun\.position\.set\((-?[0-9.]+),\s*(-?[0-9.]+),\s*(-?[0-9.]+)\)', vw)
+mf = re.search(r'fill\.position\.set\((-?[0-9.]+),\s*(-?[0-9.]+),\s*(-?[0-9.]+)\)', vw)
+mfc = re.search(r'new THREE\.DirectionalLight\((0x[0-9a-fA-F]+),\s*LIGHT\.fill\)', vw)
+ok(ms and mf and mfc and [float(x) for x in ms.groups()] == Lj.get('sunPos') and [float(x) for x in mf.groups()] == Lj.get('fillPos') and int(mfc.group(1), 16) == Lj.get('fillColor'), 'свет листа: позиции солнца/подсветки и цвет подсветки = viewer.ts')
+ok('three@' in site.get('libs', {}).get('three', '') and re.search(r'"three": "0\.', open(os.path.join(ROOT, 'package.json'), encoding='utf-8').read()) is not None, 'свет листа: three в правилах (версия из CDN-адреса) и в package.json есть')
+sp = SS.build_spec(SH, 'x', [], False)
+sp_off = SS.build_spec(dict(SH, site=dict(site, enabled=False)), 'x', [], False)
+ok(sp['site'] is not None and sp['site']['light'] == Lj and sp_off['site'] is None, 'свет листа: spec несёт site.light; enabled=false → прежний model-viewer')
+ok('RoomEnvironment' in src_js and 'toneMapping = THREE.NeutralToneMapping' in src_js and not re.search(r'\b0\.(9|42|8)\b|1\.05', src_js), 'свет листа: JS собирает сцену как сайт (RoomEnvironment + Neutral), чисел света в нём нет')
+
 # 3. настоящая съёмка (Chromium + model-viewer), в CI включена
 if os.environ.get('REMLAB_SHEET_E2E') == '1':
     with tempfile.TemporaryDirectory() as t:
@@ -98,6 +125,11 @@ if os.environ.get('REMLAB_SHEET_E2E') == '1':
         cells = [im[hp:, (i + 1) * S:(i + 2) * S] for i in range(len(SH['views']))]
         dark = [int(((c.sum(axis=2)) < 700).sum()) for c in cells]
         ok(tm['box']['ok'] is True and all(d > 500 for d in dark), f"настоящая съёмка ящика: все {len(SH['views'])} видов с предметом на белом (пикселей предмета {dark})")
+        tc = SS.batch([{'id': 'boxc', 'glb': glb, 'photo': ph, 'az': 20.0}], os.path.join(t, 'oc'), clay=True)
+        cl = np.asarray(Image.open(os.path.join(t, 'oc', 'boxc.clay.png')).convert('RGB')).astype(int)
+        ccells = [cl[hp:, (i + 1) * S:(i + 2) * S] for i in range(len(SH['views']))]
+        gr = [float(np.abs(c[..., 0] - c[..., 2]).mean()) for c in ccells]
+        ok(tc['boxc']['ok'] is True and all(g_ < 8 for g_ in gr), f'лист «глина»: белый материал без цвета ящика (разброс R−B {[round(g_, 1) for g_ in gr]})')
 else:
     print('  · настоящая съёмка пропущена: REMLAB_SHEET_E2E=1 (нужны node, Playwright с Chromium, сеть) — в CI включена')
 

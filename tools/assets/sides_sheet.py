@@ -49,7 +49,7 @@ def orbits_for(sh: dict, az: float, radius: str | None = None) -> list:
 
 
 def build_spec(sh: dict, out: str, items: list, clay: bool = False) -> dict:
-    return {'out': out, 'clay': dict(sh['clay']) if clay else None, 'light': sh['light'], 'viewer': {'width': sh['size'], 'height': sh['size'], 'settle_ms': sh['settle_ms'], 'load_timeout_s': sh['load_timeout_s']},
+    return {'out': out, 'clay': dict(sh['clay']) if clay else None, 'site': dict(sh['site']) if sh.get('site', {}).get('enabled') else None, 'light': sh['light'], 'viewer': {'width': sh['size'], 'height': sh['size'], 'settle_ms': sh['settle_ms'], 'load_timeout_s': sh['load_timeout_s']},
             'libs': dict(sh['libs']), 'chromium_args': sh['chromium_args'],
             'items': [{'id': it['id'], 'glb': it['glb'], 'orbits': orbits_for(sh, it['_az'])} for it in items]}
 

@@ -63,5 +63,36 @@
   "_about": "режим --clay (sides_eval): те же виды с белым материалом без текстур; metallic/roughness — как у матовой глины.",
   "metallic": 0,
   "roughness": 0.85
+ },
+ "site": {
+  "_about": "Свет листа = свет сайта (директор 23.11, T-20261123-37): лист снимается тем же three.js и теми же числами, что просмотрщик сайта (`lib/viewer3d/viewer.ts` + `window-light.ts:LIGHT`: RoomEnvironment, полусфера, солнце, подсветка, Neutral tone mapping). Числа света — ЗЕРКАЛО `window-light.ts:LIGHT` и позиций света в `viewer.ts`; тест `test_sides_sheet.py` сверяет их с исходниками, разошлись — красный. enabled=false — прежний model-viewer (нейтральный свет `light`). distance_k — множитель расстояния камеры (радиус орбиты листа × радиус описывающей сферы при fov).",
+  "enabled": true,
+  "fov": 45,
+  "distance_k": 1.0,
+  "libs": {
+   "three": "https://cdn.jsdelivr.net/npm/three@0.186.1/build/three.module.js",
+   "three_addons": "https://cdn.jsdelivr.net/npm/three@0.186.1/examples/jsm/"
+  },
+  "light": {
+   "exposure": 0.9,
+   "env": 0.42,
+   "hemi": 0.8,
+   "hemiSky": 16777215,
+   "hemiGround": 15130840,
+   "sun": 1.05,
+   "sunColor": 16775922,
+   "fill": 0.12,
+   "fillColor": 15987180,
+   "sunPos": [
+    -6,
+    9,
+    -4
+   ],
+   "fillPos": [
+    5,
+    3,
+    6
+   ]
+  }
  }
 }
