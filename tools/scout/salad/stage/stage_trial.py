@@ -42,6 +42,7 @@ import kit_worker as KW  # noqa: E402
 import worker_stage as WS  # noqa: E402
 import code_tar as CT  # noqa: E402
 import parts_to_npz as PN  # noqa: E402
+import chain_queue as CQ  # noqa: E402
 from kit_driver import Gateway, say  # noqa: E402
 
 CARD_NAME = 'GTX 1650 (4 GB)'                                  # из профиля cpu_stage: самая дешёвая карта (видеокарта этапам не нужна, у Salad нет класса без неё)
@@ -343,7 +344,12 @@ def poll_stage(gw, a, cur: dict, t: float) -> tuple[str, dict]:
         info['metrics']['top'] = top_counts(items)
         say(f'верх Ш3в по товарам 07 (счётчик причин): {info["metrics"]["top"]}')
     os.makedirs(a.out, exist_ok=True)
-    json.dump(items, open(os.path.join(a.out, f'items-{stage}.json'), 'w', encoding='utf-8'), ensure_ascii=False, indent=1)
+    if getattr(a, 'queue', ''):                                                       # очередь: ноды пишут в общий out — запись по товару, а не общая на этап (иначе перезатрут друг друга)
+        for sku_, rec_ in items.items():
+            os.makedirs(os.path.join(a.out, sku_), exist_ok=True)
+            json.dump({sku_: rec_}, open(os.path.join(a.out, sku_, f'items-{stage}.json'), 'w', encoding='utf-8'), ensure_ascii=False, indent=1)
+    else:
+        json.dump(items, open(os.path.join(a.out, f'items-{stage}.json'), 'w', encoding='utf-8'), ensure_ascii=False, indent=1)
     return ('failed', {'status': 'failed', 'error': f'отказов {len(fails)} из {len(items)}: {list(fails)}', **info}) if fails else ('done', info)
 
 
@@ -472,9 +478,20 @@ def make_spec(a, inputs: dict) -> KD.Spec:
             return False, f'входы не готовы: {bad[:4]}'
         return True, f'входы на месте: {len(inputs)} товаров'
 
-    return KD.Spec(prefix=PREFIX, card=a.card, model='cpu-stage', jobs=stages_of(a), build_body=build, submit=lambda gw, k, t: submit_stage(gw, a, inputs, k, t),
-                   poll=lambda gw, cur, t: poll_stage(gw, a, cur, t), preflight=preflight, ready_keys=('version', 'libs', 'procs', 'fill_procs'), z_keys=('KIT_WORKER_Z',),
-                   worker_file=WORKER, work_type=WORK_TYPE, variant=getattr(a, 'variant', '') or '', ordered=True)             # этапы идут по порядку: повтор после сбоя шлюза — в начало очереди (T-220/1)
+    submit, poll, jobs, ordered = (lambda gw, k, t: submit_stage(gw, a, inputs, k, t)), (lambda gw, cur, t: poll_stage(gw, a, cur, t)), stages_of(a), True
+    if getattr(a, 'queue', ''):                                                       # общая очередь (T-34): один «задание-цепочка», товары идут 07→шов→08 по одному, без барьера этапов
+        q = CQ.Queue(os.path.expanduser(a.queue))
+        node = a.suffix
+        q.release_stale(node)                                                         # товары, оставшиеся за этой нодой от убитого процесса, — обратно в очередь
+        chain = CQ.Chain(q, node, stages_of(a), int(getattr(a, 'slots', 0) or a.fill_procs),
+                         lambda gw, sku, row, stage, t: submit_stage(gw, a, {sku: row}, stage, t), lambda gw, cur, t: poll_stage(gw, a, cur, t),
+                         requeue_max=int(getattr(a, 'requeue_max', 1)), say=say)
+        submit = lambda gw, k, t: ({'key': k, 'id': f'chain-{node}-{int(t)}', 't0': t}, {})            # noqa: E731
+        poll = lambda gw, cur, t: chain.step(gw, t)                                    # noqa: E731
+        jobs, ordered = ['chain'], False
+    return KD.Spec(prefix=PREFIX, card=a.card, model='cpu-stage', jobs=jobs, build_body=build, submit=submit,
+                   poll=poll, preflight=preflight, ready_keys=('version', 'libs', 'procs', 'fill_procs'), z_keys=('KIT_WORKER_Z',),
+                   worker_file=WORKER, work_type=WORK_TYPE, variant=getattr(a, 'variant', '') or '', ordered=ordered)             # этапы идут по порядку: повтор после сбоя шлюза — в начало очереди (T-220/1)
 
 
 def main() -> int:
@@ -520,6 +537,10 @@ def main() -> int:
     ap.add_argument('--worker-from-image', action='store_true')
     ap.add_argument('--suffix', default=time.strftime('%m%d%H%M', time.gmtime()))
     ap.add_argument('--apply', action='store_true')
+    ap.add_argument('--queue', default='', help='T-34: общая очередь товаров (папка): все ноды-процессы берут из неё товар, как освободился слот, и ведут его по всем --stages без барьера; '
+                                                'очередь наполняется из --inputs (повторно — не дублирует); с --suffix каждой ноды разный')
+    ap.add_argument('--slots', type=int, default=0, help='с --queue: товаров в работе на ноде одновременно (0 = --fill-procs)')
+    ap.add_argument('--requeue-max', type=int, default=1, help='с --queue: сколько раз упавший товар возвращается в очередь (другая нода) до окончательного отказа')
     ap.add_argument('--stop-only', action='store_true')
     a = ap.parse_args()
     import bench_run as BR
@@ -555,6 +576,13 @@ def main() -> int:
         os.makedirs(a.out, exist_ok=True)
         json.dump(rep08, open(os.path.join(a.out, 'inputs-08.json'), 'w', encoding='utf-8'), ensure_ascii=False, indent=1)
         say(f'вход 08: product.json у {sum(1 for r in rep08.values() if r["product"])} из {len(rep08)}, части (parts.npz) у {sum(1 for r in rep08.values() if r["parts"])}, фото у {sum(1 for r in rep08.values() if r["photo"])}')
+    if a.queue:
+        q = CQ.Queue(os.path.expanduser(a.queue))
+        added = q.fill(inputs)                                                        # строки с уже готовыми extra_in (части, product.json): все ноды кладут одно и то же, дубля нет
+        say(f'очередь {a.queue}: добавлено {added}, состояние {q.counts()}')
+        if not q.todo():
+            say('очередь пуста — нечего считать, группу не создаю')
+            return 0
     return KD.run_probe(a, MG, BR, make_spec(a, inputs))
 
 
