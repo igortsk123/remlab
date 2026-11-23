@@ -315,12 +315,13 @@ def test_rebuild_body_gates():
 
 def test_type_allows_body():
     print('роль панели — только по типу: paint.hidden_pattern == body (T-28/1, владелец TG 2306: всё по типам):')
-    reg = {'types': {'шкаф': {'aliases': [], 'paint': {'hidden_pattern': 'body'}}, 'диван': {'aliases': [], 'paint': {'hidden_pattern': 'same_fabric'}}, 'стул': {'aliases': [], 'paint': {}}}}
+    import mesh_type_passports as MTP
+    reg = MTP.load()                                                           # реальный реестр (А1 р.6): шкаф/комод — body, диван — same_fabric, стул — plain
     R = {'body_override': {'edge_body': {'require_hidden_pattern': 'body'}}}
     ok(SP.type_allows_body(dict(R, _card_role='шкаф'), reg)[0], 'шкаф (body) — правило действует')
     ok(not SP.type_allows_body(dict(R, _card_role='диван'), reg)[0], 'диван (same_fabric) — не действует')
-    ok(not SP.type_allows_body(dict(R, _card_role='стул'), reg)[0], 'тип без поля — не действует')
-    ok(not SP.type_allows_body(dict(R, _card_role='неведомое'), reg)[0], 'типа нет в паспортах — не действует')
+    ok(not SP.type_allows_body(dict(R, _card_role='стул'), reg)[0], 'стул (plain) — не действует')
+    ok(not SP.type_allows_body(dict(R, _card_role='неведомое'), reg)[0], 'типа нет в паспортах (unknown) — воздерживаемся')
     ok(not SP.type_allows_body(R, reg)[0], 'нет роли товара — не действует')
     ok(SP.type_allows_body({'body_override': {'edge_body': {}}}, reg)[0], 'require_hidden_pattern не задан — без ограничения по типу')
 

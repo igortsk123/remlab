@@ -556,14 +556,12 @@ def type_allows_body(R: dict, reg: dict | None = None) -> tuple:
         return False, 'нет роли товара (card.json role) — тип неизвестен'
     try:
         import mesh_type_passports as MTP
-        pp = MTP.get(role, reg)
+        pol = MTP.paint_policy(role, reg) if reg is not None else MTP.paint_policy(role)
     except Exception as e:  # noqa: BLE001
         return False, f'реестр паспортов типов не прочитан: {type(e).__name__}: {e}'
-    if pp is None:
-        return False, f'типа «{role}» нет в паспортах'
-    v = (pp.get('paint') or {}).get('hidden_pattern')
-    if v is None:
-        return False, f'у типа «{role}» не задан paint.hidden_pattern'
+    v = pol.get('hidden_pattern')
+    if v in (None, 'unknown'):
+        return False, f'тип «{role}»: paint.hidden_pattern не определён ({pol.get("reason")}) — воздерживаемся'
     return (v == need), f'тип «{role}»: paint.hidden_pattern = {v!r}' + ('' if v == need else f' ≠ {need!r}')
 
 
