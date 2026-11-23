@@ -11,7 +11,7 @@
      completed_plans, _secrets) и `scan.history_paths` — журналы по самой природе (тома ADR, уроки с датой инцидента).
   3. Запрещённое (`forbidden[].pattern`, regex без учёта регистра) пропускается, если: строка несёт метку истории (`history_markers`: «устарело», «заменено»,
      «было», «до 23.11», «~~»…); или строка/блок под заголовком истории (`history_headings`: «История», «Ход …», «Было», «Журнал»…); или рядом явное
-     `<!-- canon-ok: <id факта> причина -->` в той же или предыдущей строке; или факт у файла в `allow_files`.
+     `<!-- canon-ok: <id факта> причина -->` в той же или предыдущей строке; или факт у файла в `allow_files`; факт с `only_files` смотрит только перечисленные файлы.
      Режим: `mode` реестра (block по умолчанию) и необязательный `mode` у факта (новый факт заводят в warn — печатает, не блокирует CI, — и
      переводят в block, когда доки чисты); `--strict` блокирует независимо от режимов.
   4. Вывод: `файл:строка [id] текст — почему нельзя; канон: файл`. Код 1 — есть конфликт/потерян канон, 2 — битый реестр.
@@ -153,6 +153,8 @@ def check(root: str, reg: dict) -> dict:
         hist = _history_lines(lines, heads)
         for f in reg['facts']:
             if any(fnmatch.fnmatch(rel, a) for a in f.get('allow_files') or []):
+                continue
+            if f.get('only_files') and not any(fnmatch.fnmatch(rel, a) for a in f['only_files']):
                 continue
             fmarks = marks + [re.compile(p, re.I) for p in f.get('exempt_markers') or []]
             for i, ln in enumerate(lines):

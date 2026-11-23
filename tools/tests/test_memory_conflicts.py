@@ -125,6 +125,38 @@ class T(unittest.TestCase):
                      self._real_subset(['merged-is-not-pass']))
         self.assertEqual([c['line'] for c in MC.check(d, MC.load(rp))['conflicts']], [1, 2, 3])
 
+    def _stub(self, ids, canon_file):
+        r = self._real_subset(ids)
+        return r
+
+    def test_stage_composition_fact(self):
+        d, rp = make({'.memory_bank/p.md': (
+            'форма → Ш0 → части → камера 04 → 06 фото → суть UltraTex → 07 заливка → мерки\n'      # цепочка со стрелками — конфликт
+            'форма, Ш0, части, камера, 06, 07, Ш8 UltraTex, мерки\n'                              # перечисление через запятую — конфликт
+            '6. **Ш8 UltraTex** — выключен по умолчанию (ADR-0466)\n'                              # с оговоркой — нет
+            'шаги: форма, Ш0, части, камера, 06, 07, 08, мерки (UltraTex выкл)\n'                  # без UltraTex — нет
+            'Ш8 UltraTex как этап\n')},                                                            # Ш8 UltraTex без оговорки — конфликт
+            self._real_subset(['paint-stages-ultratex-off']))
+        self.assertEqual([c['line'] for c in MC.check(d, MC.load(rp))['conflicts']], [1, 2, 5])
+
+    def test_paint_percent_fact_only_in_plan_and_state(self):
+        files = {'.memory_bank/plan-zadach.md': ('**Конвейер покраски — 59 %** · пн\nКонвейер покраски — 59 % (среднее по этапам), прошло 5 из 29\nпокраска 5/29 (17 %)\nфото по кнопке 80 %\n'),
+                 '.memory_bank/core/x.md': 'покраска 59 %\n'}
+        d, rp = make(files, self._real_subset(['paint-percent-is-not-share-passed']))
+        res = MC.check(d, MC.load(rp))
+        self.assertEqual([(c['file'].split('/')[-1], c['line']) for c in res['conflicts']], [('plan-zadach.md', 1)])   # core/x.md — не в only_files
+
+    def test_thirty_variants_fact(self):
+        d, rp = make({'.memory_bank/p.md': '30 вариантов есть не везде\nпо 30 вариантов на роль в каждом сегменте\nв каждом стиле по 30 вариантов\n30 вариантов на комнату × стиль\n'},
+                     self._real_subset(['thirty-variants-name-denominator']))
+        self.assertEqual([c['line'] for c in MC.check(d, MC.load(rp))['conflicts']], [1])
+
+    def test_site_model_5mb_fact(self):
+        d, rp = make({'.memory_bank/p.md': ('Модель на сайте ≤5 МБ — только лёгкая\nМодель на сайте ≤8 МБ\nмодель на сайте не тяжелее 10 МБ\n'
+                                            'Модель на сайте 5,5 МБ\nмодель на сайте ≤15 МБ\n12 МБ — модель на сайте\nрабочий blend 40 МБ, модель на сайте легче\n')},
+                     self._real_subset(['site-model-5mb-only']))
+        self.assertEqual([c['line'] for c in MC.check(d, MC.load(rp))['conflicts']], [2, 3, 4, 5, 6])
+
     def test_fact_mode_warn_does_not_block_block_does(self):
         reg = {**REG, 'facts': [{**REG['facts'][0], 'mode': 'warn'}, {**REG['facts'][1]}]}
         d, rp = make({'.memory_bank/core/a.md': 'UltraTex красит\n'}, reg)
@@ -164,7 +196,7 @@ class T(unittest.TestCase):
         reg = MC.load()                                   # схема реального реестра
         res = MC.check(ROOT, reg)
         self.assertEqual(res['canon_lost'], [], 'канон-файл или ключевая фраза из реестра пропали — обнови реестр вместе с каноном')
-        self.assertTrue({'ultratex-off', 'director-by-header', 'sh0-not-auto-before-calibration', 'paint-no-interim-before-5-signs', 'merged-is-not-pass'} <= {f['id'] for f in reg['facts']})
+        self.assertTrue({'ultratex-off', 'director-by-header', 'sh0-not-auto-before-calibration', 'paint-no-interim-before-5-signs', 'merged-is-not-pass', 'paint-stages-ultratex-off', 'paint-percent-is-not-share-passed', 'thirty-variants-name-denominator', 'site-model-5mb-only'} <= {f['id'] for f in reg['facts']})
         for f in reg['facts']:
             self.assertNotRegex(json.dumps(f, ensure_ascii=False), r'\d{5,}', 'в реестре не должно быть идентификаторов товаров')
 
