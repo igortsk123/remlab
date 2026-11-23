@@ -1,0 +1,36 @@
+{
+  "_about": "Что считается «правило типа применено» в 07 (T-20261123-51/1). Область правила (типы/семейства) — ЕДИНЫЙ источник rule-registry.json (applies); здесь — только какой `hidden_pattern` паспорта типа это правило исполняет и когда его эффект нужно подтверждать построенным рисунком. patterns — hidden_pattern, которые правило исполняет; needs_synth_for — из них те, где «применено» = квилтинг рисунка невидимого реально построен (`groups_synth` содержит `quilt`); иначе воздержание с причиной (рисунок не построен: smooth/skip). Остальные (body — тон/зерно корпуса, plain — гладко) применены самим выбором политики типа: синтез по типу не нужен.",
+  "rules": {
+    "R-TYPE-FACADE-BACK": {
+      "patterns": [
+        "body"
+      ],
+      "needs_synth_for": []
+    },
+    "R-TYPE-SOFT-BACK": {
+      "patterns": [
+        "same_fabric"
+      ],
+      "needs_synth_for": [
+        "same_fabric"
+      ]
+    },
+    "R-TYPE-TABLE-CHAIR": {
+      "patterns": [
+        "plain",
+        "continue"
+      ],
+      "needs_synth_for": [
+        "continue"
+      ]
+    },
+    "R-TYPE-ROUND-PATTERN": {
+      "patterns": [
+        "continue"
+      ],
+      "needs_synth_for": [
+        "continue"
+      ]
+    }
+  }
+}

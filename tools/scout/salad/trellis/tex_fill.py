@@ -2887,6 +2887,8 @@ def run_stage_once(run: str, sku: str, glb: str, known: list | None = None, part
     rep['pr_camera'] = cam_note
     import detail_zones as DZ
     _dz_rules = DZ.entries_for(pp_pol.get('role'), _dz_res, _dz_doc)                       # R-DETAIL-EXCLUSIONS-07 и R-OPENINGS-ZONES-07: применено или воздержание с причиной
+    import rule_record as _RR
+    _tp_rules = _RR.type_policy_entries(pp_pol, rep['paint_policy'].get('groups_synth'))                  # К1/К3/К4/К5–К7: политика типа применена или воздержание с причиной (T-20261123-51/1)
     with open(os.path.join(d, 'zones.json'), 'w', encoding='utf-8') as f_:
         json.dump(_dz_doc, f_, ensure_ascii=False, indent=1, default=lambda o: o.item() if hasattr(o, 'item') else str(o))
     _m = _hmark()
@@ -2938,7 +2940,7 @@ def run_stage_once(run: str, sku: str, glb: str, known: list | None = None, part
     with open(os.path.join(d, 'report.json'), 'w', encoding='utf-8') as f:
         json.dump(report, f, ensure_ascii=False, indent=1, default=lambda o: o.item() if hasattr(o, 'item') else str(o))
     check = PS.write_check(d, out_name or STAGE, sku, None, dict(metrics['empty_pct'], name='empty_pct'), '', metrics={k: v for k, v in metrics.items() if k != 'empty_pct'}, seconds=secs,
-                           outputs=['filled.glb', 'report.json'], frame=PS.FRAME, known_pct=rep['known_pct'], mirrored_pct=rep['mirrored_pct'], empty_before_pct=rep['unpainted_before_pct'], empty_by_view=rep['unpainted_by_view'], steps=rep['steps'], parts=parts_note, source_used=used, source_tried=tried, pattern_metric=rep['pattern_metric'], pattern_src=rep.get('pattern_src'), paint_policy=rep.get('paint_policy'), stage6=s6, quilt_rejected=rep.get('quilt_rejected'), rules=_dz_rules)
+                           outputs=['filled.glb', 'report.json'], frame=PS.FRAME, known_pct=rep['known_pct'], mirrored_pct=rep['mirrored_pct'], empty_before_pct=rep['unpainted_before_pct'], empty_by_view=rep['unpainted_by_view'], steps=rep['steps'], parts=parts_note, source_used=used, source_tried=tried, pattern_metric=rep['pattern_metric'], pattern_src=rep.get('pattern_src'), paint_policy=rep.get('paint_policy'), stage6=s6, quilt_rejected=rep.get('quilt_rejected'), rules=_dz_rules + _tp_rules)
     return {'check': check, 'report': rep, 'geoms': geoms, 'tex_before': tex_before, 'tex_after': tex_after, 'known': known, 'parts': parts, 'dir': d, 'deltaE': de, 'kback': kback}
 
 

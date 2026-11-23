@@ -103,6 +103,52 @@ def test_audit_run_accepts_records_made_by_helper():
     assert any('digest' in x[2] and x[3] for x in problems), problems
 
 
+TYPE_RULES = ('R-TYPE-FACADE-BACK', 'R-TYPE-SOFT-BACK', 'R-TYPE-TABLE-CHAIR', 'R-TYPE-ROUND-PATTERN')
+
+
+def _tp(role, modes):
+    """Записи четырёх правил типа так, как их пишет 07: политика — из паспорта (как `tex_fill.paint_policy_for`), modes — `paint_policy.groups_synth`."""
+    pol = MP.paint_policy(role)
+    pol['role'] = role
+    out = {e['rule_id']: e for e in RR.type_policy_entries(pol, modes)}
+    assert set(out) == set(TYPE_RULES), out                                        # всегда по записи на каждое правило, ни одного молчаливого пропуска
+    for e in out.values():
+        assert e.get('applied') is True or e.get('abstain'), e                     # применено либо воздержание с причиной
+    return out
+
+
+def test_type_policy_positive():
+    """Политика типа применена — запись «применено» у своего правила, у остальных воздержание «вне области»/«другой hidden_pattern»: шкаф (body), диван с построенным рисунком (same_fabric+quilt), стул (plain)."""
+    a = _tp('шкаф', ['нет'])
+    assert a['R-TYPE-FACADE-BACK'].get('applied') is True and a['R-TYPE-SOFT-BACK'].get('abstain') and a['R-TYPE-ROUND-PATTERN'].get('abstain')
+    b = _tp('диван', ['quilt'])
+    assert b['R-TYPE-SOFT-BACK'].get('applied') is True and 'quilt' in b['R-TYPE-SOFT-BACK']['note'], b['R-TYPE-SOFT-BACK']
+    assert b['R-TYPE-FACADE-BACK'].get('abstain') and b['R-TYPE-TABLE-CHAIR'].get('abstain')
+    c = _tp('стул', ['smooth'])
+    assert c['R-TYPE-TABLE-CHAIR'].get('applied') is True                          # plain: гладко — синтез по типу не нужен
+    d = _tp('диван', ['quilt'])
+    assert all(e['type'] == 'диван' and e['digest'] for e in d.values())
+
+
+def test_type_policy_negative():
+    """Рисунок не построен / нет типа / политика не active / тип вне области — только воздержание с причиной, «применено» не пишем."""
+    a = _tp('диван', ['smooth', 'skip'])                                           # квилтинга нет: same_fabric не подтверждён
+    assert a['R-TYPE-SOFT-BACK'].get('applied') is None and 'не построен' in a['R-TYPE-SOFT-BACK']['abstain'], a['R-TYPE-SOFT-BACK']
+    v = _tp('ваза', ['skip'])                                                      # continue без рисунка вокруг
+    assert v['R-TYPE-ROUND-PATTERN'].get('applied') is None and 'не построен' in v['R-TYPE-ROUND-PATTERN']['abstain']
+    off = _tp('диван', None)                                                       # паспорт поверхностей выключен
+    assert off['R-TYPE-SOFT-BACK'].get('applied') is None and 'выключен' in off['R-TYPE-SOFT-BACK']['abstain']
+    pl = _tp('шкаф', ['нет'])                                                      # шкаф — не мягкая мебель
+    assert pl['R-TYPE-SOFT-BACK'].get('applied') is None and 'вне области' in pl['R-TYPE-SOFT-BACK']['abstain']
+    nr = {e['rule_id']: e for e in RR.type_policy_entries({'type': None, 'role': None, 'hidden_pattern': 'unknown', 'mode': 'observe', 'reason': 'no_role'}, None)}
+    assert len(nr) == 4 and all(e.get('applied') is None and e['abstain'] for e in nr.values()), nr
+    obs = MP.paint_policy('пуф')                                                   # пуф — политика в observe: не применяем
+    obs['role'] = 'пуф'
+    ob = {e['rule_id']: e for e in RR.type_policy_entries(obs, ['quilt'])}
+    if obs.get('mode') != 'active':
+        assert all(e.get('applied') is None for e in ob.values()), ob
+
+
 if __name__ == '__main__':
     n = 0
     for k, v in sorted(globals().items()):

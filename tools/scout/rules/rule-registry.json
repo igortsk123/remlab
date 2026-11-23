@@ -142,7 +142,7 @@
     {
       "rule_id": "R-TYPE-FACADE-BACK",
       "title": "К1: фасад не переносить на зад; зад корпусной мебели — материал боков/корпуса (политика ТИПА в синтезе 07 и оценке сторон)",
-      "state": "proposed",
+      "state": "trial",
       "source": [
         "plans/mesh-type-rules-01.md § Черновик К1",
         "plans/paint-photo-fill-01.md (Ш-строки, мерка «один материал — один тон»)",
@@ -155,16 +155,16 @@
         ]
       },
       "executor": "р.6 (синтез) + р.4 (оценка)",
-      "consumer": null,
-      "runtime": "none",
-      "test": null,
-      "test_positive": null,
-      "test_negative": null,
+      "consumer": "tools/scout/salad/trellis/tex_fill.py:paint_policy_for",
+      "runtime": "enforce",
+      "test": "tools/scout/tests/test_rule_record.py",
+      "test_positive": "tools/scout/tests/test_rule_record.py::test_type_policy_positive",
+      "test_negative": "tools/scout/tests/test_rule_record.py::test_type_policy_negative",
       "run_id": null,
       "flag": null,
-      "check_field": null,
+      "check_field": "07-fill.extra.rules",
       "enabled": null,
-      "note": "общие surface_groups/body_override (rules/paint-fill.json) есть, но политику ТИПА не выбирают; план А1–А2 type-rules-code-01"
+      "note": "T-20261123-51/1 (23.11): политика типа (paint.hidden_pattern=body, hidden_exclusions) ЧИТАЕТСЯ 07 до паспорта поверхностей и применяется (tex_fill.paint_policy_for → surface_passport by_hidden_pattern); запись extra.rules[] — rule_record.type_policy_entries, что считать «применено» — rules/type-policy-effect.json. Круг 2 r2all-from06-cd911aed: политика прочитана 29/29, записей не было (код записи добавлен после прогона) — подтверждение на следующем прогоне. Зад — back_panel_stage (R-BACKPANEL-06). Не active: run_id нет."
     },
     {
       "rule_id": "R-TYPE-OPENINGS",
@@ -196,7 +196,7 @@
     {
       "rule_id": "R-TYPE-SOFT-BACK",
       "title": "К3: зад и бока мягкой мебели — та же ткань, но без подушек, пуговиц и деталей лица; верх кровати — бельё",
-      "state": "proposed",
+      "state": "trial",
       "source": [
         "plans/mesh-type-rules-01.md § Черновик К3",
         "plans/paint-cycles-1123.md п.17",
@@ -211,21 +211,21 @@
         ]
       },
       "executor": "р.6 (hidden_pattern=same_fabric, hidden_exclusions)",
-      "consumer": null,
-      "runtime": "none",
-      "test": null,
-      "test_positive": null,
-      "test_negative": null,
+      "consumer": "tools/scout/salad/trellis/tex_fill.py:paint_policy_for",
+      "runtime": "enforce",
+      "test": "tools/scout/tests/test_rule_record.py",
+      "test_positive": "tools/scout/tests/test_rule_record.py::test_type_policy_positive",
+      "test_negative": "tools/scout/tests/test_rule_record.py::test_type_policy_negative",
       "run_id": null,
       "flag": null,
-      "check_field": null,
+      "check_field": "07-fill.extra.rules",
       "enabled": null,
-      "note": "surface_passport группирует по измеренному материалу, но политики «та же ткань без деталей фасада» не знает; кровать и кресло получают один family, верх кровати требует иной зоны"
+      "note": "T-20261123-51/1 (23.11): same_fabric читается и применяется (диван/кресло, круг 2: 8 из 29), запись — type_policy_entries; «применено» только если квилтинг рисунка невидимого построен (в круге 2 не было нигде: no_synth 29/29, smooth у 5) — иначе воздержание с причиной. Подушки выключены (detail-zones.json pillows.enabled=false, нужен признак по объёму частей 03); «верх кровати — бельё» не сделано (кроватей в 29 нет). Не active: run_id нет."
     },
     {
       "rule_id": "R-TYPE-TABLE-CHAIR",
       "title": "К4: у стола зад может повторять перед; у стула обратная сторона спинки гладкая; тонкие ножки и просветы сохранить",
-      "state": "proposed",
+      "state": "trial",
       "source": [
         "plans/mesh-type-rules-01.md § Черновик К4",
         "plans/paint-cycles-1123.md п.17",
@@ -239,21 +239,21 @@
         ]
       },
       "executor": "р.6 + р.4",
-      "consumer": null,
-      "runtime": "none",
-      "test": null,
-      "test_positive": null,
-      "test_negative": null,
+      "consumer": "tools/scout/salad/trellis/tex_fill.py:paint_policy_for",
+      "runtime": "enforce",
+      "test": "tools/scout/tests/test_rule_record.py",
+      "test_positive": "tools/scout/tests/test_rule_record.py::test_type_policy_positive",
+      "test_negative": "tools/scout/tests/test_rule_record.py::test_type_policy_negative",
       "run_id": null,
       "flag": null,
-      "check_field": null,
+      "check_field": "07-fill.extra.rules",
       "enabled": null,
-      "note": "общие проверки ножек и контура в form_checks есть; различия стол↔стул в 07 нет; у стула paint пуст"
+      "note": "T-20261123-51/1 (23.11): стол/столик continue, стул plain — читаются и применяются (круг 2: стол 3, столик 1, стул 3); запись — type_policy_entries; continue без построенного рисунка — воздержание с причиной. «Тонкие ножки и просветы сохранить» в 07 не реализовано (только общие form_checks) — добавить, когда появится дефект на прогоне. Не active: run_id нет."
     },
     {
       "rule_id": "R-TYPE-ROUND-PATTERN",
       "title": "К5–К7: абажур, ваза, кашпо продолжают рисунок вокруг; подушка — с двух сторон; полупрозрачные шторы — не глухая ткань",
-      "state": "proposed",
+      "state": "trial",
       "source": [
         "plans/mesh-type-rules-01.md § Черновик К5–К7",
         "a-types-1123.md § 1 К5–К7"
@@ -271,16 +271,16 @@
         ]
       },
       "executor": "р.6 (hidden_pattern=continue)",
-      "consumer": null,
-      "runtime": "none",
-      "test": null,
-      "test_positive": null,
-      "test_negative": null,
+      "consumer": "tools/scout/salad/trellis/tex_fill.py:paint_policy_for",
+      "runtime": "enforce",
+      "test": "tools/scout/tests/test_rule_record.py",
+      "test_positive": "tools/scout/tests/test_rule_record.py::test_type_policy_positive",
+      "test_negative": "tools/scout/tests/test_rule_record.py::test_type_policy_negative",
       "run_id": null,
       "flag": null,
-      "check_field": null,
+      "check_field": "07-fill.extra.rules",
       "enabled": null,
-      "note": "общий отсев узора по направлению к фото (tex_fill) для вазы может давать результат противоположный требуемому"
+      "note": "T-20261123-51/1 (23.11): continue читается и применяется (круг 2: ваза 2, лампа 1), запись — type_policy_entries; в круге 2 рисунок вокруг не строился (no_synth 29/29) → воздержание с причиной, «применено» не пишем. Риск прежний: общий отсев узора по направлению к фото (tex_fill) для вазы может дать обратное — проверить на первой партии ваз. Подушки выключены, шторы без детектора. Не active: run_id нет."
     },
     {
       "rule_id": "R-TYPE-FLAT-ROUTE",
@@ -332,7 +332,7 @@
       "flag": null,
       "check_field": null,
       "enabled": null,
-      "note": "код подписей видов — только в старом StableGen; новый путь проецирует фото камерой 04 и paint.photo_views не читает"
+      "note": "ЗАМОРОЖЕНО (T-20261123-51/1, директор 23.11): кроватей и подушек в круге 2 нет, зад кровати закрыт политикой same_fabric; поле paint.photo_views (grain_only) в паспорте есть, читателя нет. Код (≈7 ч) — только вместе с первой партией кроватей. код подписей видов — только в старом StableGen; новый путь проецирует фото камерой 04 и paint.photo_views не читает"
     },
     {
       "rule_id": "R-GUARD-HEADBOARD",
@@ -389,7 +389,7 @@
     {
       "rule_id": "R-CUT-LEGS-GAP",
       "title": "Фон между ножками кровати/кресла — вырезать, не превращать в плиту; не подклеивать провод у края",
-      "state": "proposed",
+      "state": "retired",
       "source": [
         "plans/mesh-type-rules-01.md строки «предл./вопрос»",
         "a-types-1123.md § 1"
@@ -400,7 +400,7 @@
           "кресло"
         ]
       },
-      "executor": "не назначен",
+      "executor": null,
       "consumer": null,
       "runtime": "none",
       "test": null,
@@ -410,7 +410,7 @@
       "flag": null,
       "check_field": null,
       "enabled": null,
-      "note": "гипотезы, не принятый гейт; у типов нет таких guards"
+      "note": "СНЯТО (T-20261123-51/1, директор 23.11): гипотеза без принятого гейта и без исполнителя; вырезка — старый поток каталога, не конвейер 3D. Вернуть правилом, когда дефект «плита/провод у ножек» появится на прогоне."
     },
     {
       "rule_id": "R-FORM-HARD",
@@ -468,7 +468,7 @@
     {
       "rule_id": "R-FORM-GLASS",
       "title": "Прозрачное стекло не принимать только по силуэту; цвет и прозрачность — по стеклянной части",
-      "state": "proposed",
+      "state": "retired",
       "source": [
         "plans/mesh-type-rules-01.md строки Ш0 «кандидат/проба»",
         "a-types-1123.md § 1"
@@ -483,7 +483,7 @@
           "зеркало"
         ]
       },
-      "executor": "не назначен",
+      "executor": null,
       "consumer": null,
       "runtime": "none",
       "test": null,
@@ -493,7 +493,8 @@
       "flag": null,
       "check_field": null,
       "enabled": null,
-      "note": "обязательного сквозного типового гейта нет"
+      "note": "СЛИТО (T-20261123-51/1, директор 23.11): цвет и прозрачность по стеклянной части — R-OPENINGS-ZONES-07 (зона стекла 07, glass_tone 08); «форму стекла по силуэту не принимать» — отдельной строкой в R-FORM-GATE (observe), своего исполнителя нет.",
+      "merged_into": "R-OPENINGS-ZONES-07"
     },
     {
       "rule_id": "R-SOFT-STITCH",
@@ -508,7 +509,7 @@
           "мягкое"
         ]
       },
-      "executor": "не назначен",
+      "executor": "sg_prep_shape.py (форма, после упрощения) — не назначен",
       "consumer": null,
       "runtime": "none",
       "test": null,
@@ -518,7 +519,7 @@
       "flag": null,
       "check_field": null,
       "enabled": null,
-      "note": "две величины в строках журнала — нельзя внедрять обе как независимые правила; нужен вердикт, какая из них действует"
+      "note": "Вердикт директора 23.11 (T-20261123-51/1): действует величина Б — plans/mesh-type-rules-01.md строка 91 (замер T-156/1 на 17 образцах): p95 глубины борозд сиденья (закрытие 1,8 см) > 0,4 см или доля > 0,5 см > 2 % → «заливка борозд» (мёртвая зона 0,3 см + сглаживание 1,2 см только в зоне сиденья), цель p95 ≤ 0,3 см, сдвиг вне зоны = 0; «сгладить до 1–1,5 см» (строка 88) — заменена. Остаётся proposed: кода «заливка борозд» нет, спинка и пуфы не проверены, пороги — гипотеза на 17 образцах."
     },
     {
       "rule_id": "R-TOP-PRIOR",
