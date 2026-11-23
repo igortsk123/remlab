@@ -20,6 +20,7 @@
   python3 tools/ops/logs_archive.py                  # сухо: список и размеры
   python3 tools/ops/logs_archive.py --apply [--digest] [--limit N]
   python3 tools/ops/logs_archive.py --json           # сухо, машинно
+  python3 tools/ops/logs_archive.py --worktrees      # СУХО: рабочие копии git, которые можно снять + крупные выходы внутри (T-20261123-38)
   python3 tools/ops/logs_archive.py --days 2         # разовый порог суток (прикинуть, сколько освободит)
   python3 tools/ops/logs_archive.py --worktrees-ok   # (или archive.worktrees_block=false в rules) переносить и папки с рабочими копиями git: путь в
                                                      # .git/worktrees/*/gitdir остаётся прежним и через ссылку работает; по умолчанию такие папки остаются
@@ -40,6 +41,9 @@ GB = 1024 ** 3
 DEFAULTS = {'src': '~/remlab-logs', 'dst': '/mnt/hdd/remlab-logs-arhiv', 'days': 5, 'min_hdd_free_gb': 50, 'never': [], 'worktrees_block': True, 'refs_exclude': []}
 
 
+WT_DEFAULTS = {'idle_h': 12, 'big_mb': 200, 'base': 'origin/main', 'jobs': 4}
+
+
 def rules() -> dict:
     p = os.environ.get('LOGS_ARCHIVE_RULES') or RULES_PATH
     try:
@@ -48,6 +52,7 @@ def rules() -> dict:
     except (OSError, ValueError):
         r = {}
     out = {k: r.get(k, v) for k, v in DEFAULTS.items()}
+    out['wt'] = dict(WT_DEFAULTS, **(r.get('worktrees') or {}))
     out['src'] = os.path.expanduser(out['src'])
     out['dst'] = os.path.expanduser(out['dst'])
     return out
@@ -245,6 +250,160 @@ def move_one(c: dict, r: dict, now: float | None = None, busy=None, rsync=None) 
     return True, f'{n}: перенесено → {target} ({c["total"] / GB:.2f} ГБ, освободило {c["freed"] / GB:.2f} ГБ)'
 
 
+# ───────────── --worktrees: СУХОЙ список рабочих копий git под src, которые можно снять (T-20261123-38) ─────────────
+# Решает директор (`git worktree remove` — его шаг); здесь ничего не удаляется и не переносится. «Можно снять» = ВСЕ условия:
+#   • HEAD — предок `base` (origin/main: влито) ИЛИ ветка удалена (нет ни локальной, ни origin/<ветка>) — тогда пометка «не влито»: коммиты живут только здесь;
+#   • `git status --porcelain --ignored` пусто, кроме ссылки/папки node_modules; (отдельный раздел can_ign — мешает только игнорируемое: кэши, .next);
+#   • нет процесса с cwd/открытым файлом/именем в командной строке внутри; последняя правка старше `idle_h` часов; не locked; каталог на месте.
+# Каталога нет (prunable) — отдельная строка «сирота» (чинится `git worktree prune`, места не освобождает).
+# Размер — по файлам с одной жёсткой ссылкой (st_nlink==1; ссылка node_modules не считается). Крупные выходы внутри рабочих копий (не в git: `??`/`!!`
+# записи status размером ≥ big_mb МБ, кроме node_modules) выводятся отдельным списком — для ВСЕХ копий, в том числе занятых, с отметкой «ссылка в репо».
+
+def _git(repo: str, *args, timeout: int = 120):
+    try:
+        p = subprocess.run(['git', '-C', repo, *args], capture_output=True, text=True, timeout=timeout)
+        return p.returncode, p.stdout
+    except (OSError, subprocess.SubprocessError):
+        return 99, ''
+
+
+def list_worktrees(repo: str, src: str) -> list:
+    """Рабочие копии из `git worktree list --porcelain`, лежащие под src (главная копия и чужие места не берутся)."""
+    rc, out = _git(repo, 'worktree', 'list', '--porcelain')
+    items, cur = [], {}
+    for ln in out.splitlines() + ['']:
+        if not ln.strip():
+            if cur:
+                items.append(cur)
+            cur = {}
+            continue
+        k, _, v = ln.partition(' ')
+        cur[k] = v or True
+    base = os.path.abspath(src).rstrip('/') + '/'
+    res = []
+    for it in items[1:]:                                       # первая — главная копия
+        p = it.get('worktree', '')
+        if os.path.abspath(p).startswith(base):
+            res.append({'path': p, 'head': it.get('HEAD', ''), 'branch': (it['branch'].replace('refs/heads/', '') if it.get('branch') else None),
+                        'locked': 'locked' in it, 'prunable': 'prunable' in it})
+    return res
+
+
+def status_entries(path: str) -> tuple[list, bool]:
+    """([(код, путь)], ok) из `git status --porcelain --ignored` в рабочей копии."""
+    rc, out = _git(path, 'status', '--porcelain', '--ignored', timeout=300)
+    if rc != 0:
+        return [], False
+    ents = []
+    for ln in out.splitlines():
+        if len(ln) > 3:
+            ents.append((ln[:2], ln[3:].strip('"')))
+    return ents, True
+
+
+def wt_info(w: dict, repo: str, r: dict, now: float, busy=None) -> dict:
+    """Всё про одну рабочую копию + вердикт: can / maybe (ветки нет, не влито) / hold / orphan. Только чтение."""
+    cfg = r['wt']
+    p, base = w['path'], cfg['base']
+    inf = dict(w, size=0, freed=0, merged=False, merged_local=False, branch_gone=False, dirty=[], big=[], why=[], verdict='hold', idle_h=None)
+    if not os.path.isdir(p):
+        inf.update(verdict='orphan', why=['каталога нет — `git worktree prune`'])
+        return inf
+    head = w['head'] or 'HEAD'
+    inf['merged'] = _git(repo, 'merge-base', '--is-ancestor', head, base)[0] == 0
+    inf['merged_local'] = _git(repo, 'merge-base', '--is-ancestor', head, 'main')[0] == 0
+    if w['branch']:
+        local = _git(repo, 'rev-parse', '--verify', '-q', f'refs/heads/{w["branch"]}')[0] == 0
+        remote = _git(repo, 'rev-parse', '--verify', '-q', f'refs/remotes/origin/{w["branch"]}')[0] == 0
+        inf['branch_gone'] = not (local or remote)
+    ents, ok = status_entries(p)
+    inf['dirty'] = [f'{c} {n}' for c, n in ents if not (c == '!!' and n.rstrip('/') == 'node_modules')]
+    inf['entries'] = [(c, n) for c, n in ents if n.rstrip('/') != 'node_modules']
+    why = []
+    if not ok:
+        why.append('git status не отработал')
+    if inf['dirty']:
+        why.append(f'не чисто: {len(inf["dirty"])} (напр. {inf["dirty"][0][:60]})')
+    if w['locked']:
+        why.append('locked')
+    who = (busy or busy_by)(p)
+    if who:
+        why.append(f'занята: {who}')
+    floor = now - cfg['idle_h'] * 3600
+    newest = newest_mtime(p, floor=floor)
+    inf['idle_h'] = round((now - newest) / 3600, 1)
+    if newest >= floor:
+        why.append(f'правили {inf["idle_h"]} ч назад (< {cfg["idle_h"]})')
+    if not inf['merged'] and not inf['branch_gone']:
+        why.append('не влито в ' + base + (' (влито в локальный main)' if inf['merged_local'] else ''))
+    inf['size'], inf['freed'] = sizes(p)
+    inf['why'] = why
+    real_dirty = [d for d in inf['dirty'] if not d.startswith('!!')]
+    if inf['dirty'] and not real_dirty and why and all(x.startswith('не чисто') for x in why) and inf['merged']:
+        inf['verdict'] = 'can_ign'                              # единственная помеха — игнорируемое (`!!`: __pycache__, .pytest_cache, .next, tsbuildinfo…); трекаемого и нетрекаемого нет
+        inf['why'] = [f'только игнорируемое ({len(inf["dirty"])}): ' + ', '.join(sorted({d[3:].rstrip("/") for d in inf["dirty"]})[:3])[:90]]
+    if not why:
+        inf['verdict'] = 'can' if inf['merged'] else 'maybe'
+        if not inf['merged']:
+            inf['why'] = ['⚠ ветки нет, HEAD НЕ влит — коммиты живут только здесь']
+    return inf
+
+
+def big_outputs(infos: list, repo: str, r: dict) -> list:
+    """Крупные записи вне git внутри рабочих копий (`??`/`!!` ≥ big_mb МБ, кроме node_modules); флаг «ссылка в репозитории» — по имени записи."""
+    thr = r['wt']['big_mb'] * 1024 * 1024
+    rows = []
+    for inf in infos:
+        if inf['verdict'] == 'orphan':
+            continue
+        for c, n in inf.get('entries', []):
+            full = os.path.join(inf['path'], n.rstrip('/'))
+            if os.path.islink(full) or not os.path.exists(full):
+                continue
+            total, freed = sizes(full) if os.path.isdir(full) else (os.lstat(full).st_size, os.lstat(full).st_size if os.lstat(full).st_nlink == 1 else 0)
+            if total >= thr:
+                rows.append({'wt': inf['path'], 'entry': n, 'kind': 'не отслеживается' if c == '??' else 'в .gitignore', 'total': total, 'freed': freed})
+    refd = repo_refs(sorted({os.path.basename(x['entry'].rstrip('/')) for x in rows}), repo, r.get('refs_exclude') or []) if rows else set()
+    for x in rows:
+        x['ref'] = os.path.basename(x['entry'].rstrip('/')) in refd
+    rows.sort(key=lambda x: -x['freed'])
+    return rows
+
+
+def worktrees_report(r: dict, repo: str, now: float | None = None, busy=None, as_json: bool = False) -> int:
+    now = time.time() if now is None else now
+    from concurrent.futures import ThreadPoolExecutor
+    wts = list_worktrees(repo, r['src'])
+    with ThreadPoolExecutor(max_workers=int(r['wt']['jobs'])) as ex:
+        infos = list(ex.map(lambda w: wt_info(w, repo, r, now, busy), wts))
+    big = big_outputs(infos, repo, r)
+    rev = _git(repo, 'rev-parse', '--short', r['wt']['base'])[1].strip()
+    if as_json:
+        print(json.dumps({'base': r['wt']['base'], 'base_sha': rev, 'worktrees': [{k: v for k, v in i.items() if k != 'entries'} for i in infos], 'big': big}, ensure_ascii=False, indent=1))
+        return 0
+    home = os.path.expanduser('~')
+
+    def sh(p):
+        return '~' + p[len(home):] if p.startswith(home) else p
+
+    def row(i):
+        ref = i['branch'] or f'detached {i["head"][:8]}'
+        m = 'да' if i['merged'] else ('в main, не в origin' if i['merged_local'] else 'нет')
+        return f'{sh(i["path"])}\t{ref}\t{m}\t{i["freed"] / GB:.2f} ГБ\t' + ('; '.join(i['why']) or 'ВСЁ ЧИСТО')
+    print(f'рабочие копии git под {r["src"]}: {len(infos)}; база сравнения {r["wt"]["base"]} = {rev}; сухо, ничего не удалено')
+    for title, v in (('МОЖНО СНЯТЬ (`git worktree remove`)', 'can'), ('МОЖНО СНЯТЬ, ЕСЛИ КЭШ ИЗ .gitignore НЕ СЧИТАТЬ (влито; трекаемого и нетрекаемого нет, мешают только `!!`)', 'can_ign'), ('РЕШАЕТ ДИРЕКТОР (ветки нет, коммиты не влиты)', 'maybe'), ('ДЕРЖИМ', 'hold'), ('СИРОТЫ (`git worktree prune`)', 'orphan')):
+        part = sorted((i for i in infos if i['verdict'] == v), key=lambda i: -i['freed'])
+        tot = sum(i['freed'] for i in part)
+        print(f'\n== {title}: {len(part)} шт, освободит {tot / GB:.1f} ГБ\nпуть\tветка/SHA\tвлито\tразмер\tпочему')
+        for i in part:
+            print(row(i))
+    held_gb = sum(x['freed'] for x in big if True)
+    print(f'\n== КРУПНЫЕ ВЫХОДЫ ВНУТРИ РАБОЧИХ КОПИЙ (вне git, ≥ {r["wt"]["big_mb"]} МБ): {len(big)} шт, {held_gb / GB:.1f} ГБ\nкопия\tзапись\tчто\tразмер\tссылка в репо')
+    for x in big:
+        print(f'{sh(x["wt"])}\t{x["entry"]}\t{x["kind"]}\t{x["freed"] / GB:.2f} ГБ\t{"есть" if x["ref"] else "нет"}')
+    return 0
+
+
 def alert(text: str) -> None:
     try:
         sys.path.insert(0, HERE)
@@ -263,6 +422,11 @@ def main(argv: list) -> int:
     if '--worktrees-ok' in argv:                              # перенос и рабочих копий git: ссылка на месте сохраняет путь, записанный в .git/worktrees/*/gitdir
         r['worktrees_block'] = False
     repo = os.environ.get('LOGS_ARCHIVE_REPO') or ROOT
+    if '--worktrees' in argv:
+        if apply_:
+            print('--worktrees — только сухой список: рабочие копии снимает владелец/директор (`git worktree remove`)', file=sys.stderr)
+            return 2
+        return worktrees_report(r, repo, as_json='--json' in argv)
     todo, skipped = candidates(r, repo)
     todo.sort(key=lambda c: -c['freed'])
     limit = int(argv[argv.index('--limit') + 1]) if '--limit' in argv and argv.index('--limit') + 1 < len(argv) else 0

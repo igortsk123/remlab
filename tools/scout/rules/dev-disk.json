@@ -11,6 +11,8 @@
   "min_hdd_free_gb": 50,
   "_why": "T-20261123-35 (владелец TG 2227/2230): ночной перенос папок ~/remlab-logs/* на HDD, где самый свежий файл старше days суток И на папку нет ссылок из репозитория (git grep по имени: код, rules, планы, память) И это не рабочая копия git и её не держит процесс. На месте остаётся ссылка (пути работают). Работает tools/ops/logs_archive.py (по умолчанию сухо — список и размеры; --apply переносит rsync -aH --remove-source-files); таймер — infra/server/dev-disk/*.timer, включает ТОЛЬКО владелец. Освобождённое место считается по файлам с одной жёсткой ссылкой (st_nlink==1): остальное не освободит диск. Идёт РАНЬШЕ disk-keeper (dir_days 7): перенесённое становится ссылкой, а ссылки сторож не трогает",
   "never": [],
+  "worktrees": {"idle_h": 12, "big_mb": 200, "base": "origin/main", "jobs": 4},
+  "_worktrees_why": "T-20261123-38: `logs_archive.py --worktrees` (только сухо) — рабочие копии git под src, которые можно снять: HEAD влит в base или ветка удалена, git status чист (кроме node_modules), нет процессов, правок старше idle_h часов; big_mb — порог крупных выходов вне git внутри копий",
   "worktrees_block": true,
   "refs_exclude": [".memory_bank/changelog", ".memory_bank/archive", ".memory_bank/completed_plans"],
   "_refs_why": "ссылки из журналов (changelog), архива и закрытых планов — история «что делали», а не вход чужого скрипта: папку не держат. worktrees_block=true — папки с рабочими копиями git остаются (false: уезжают, путь в .git/worktrees/*/gitdir сохраняет ссылка на месте)"
