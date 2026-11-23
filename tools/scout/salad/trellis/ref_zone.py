@@ -981,7 +981,7 @@ def own_panel_tone(geoms: list, tex_after: list, known: list, ut_geoms: list | N
     import tex_coverage as TC
     import tex_fill as TF
     O = dict({'enabled': True, 'min_known': 0.05, 'min_visible_texels': 200, 'min_hidden_texels': 300, 'donor_hue_de': 6.0, 'donor_tex_ratio': 1.6, 'quilt_block': 16, 'quilt_cells': 6,
-              'quilt_overlap': 4, 'quilt_pool': 300, 'quilt_tries': 40, 'ut_detail': True, 'max_panels': 80, 'seed': 7, 'edge_px': 4, 'wins_k': 2.5, 'quilt_min_sigma': 1.5, 'flat_photo_sigma': 2.0, 'neutral_chroma': 8.0, 'neutral_dL': 25.0}, **R.get('own_panel', {}))
+              'quilt_overlap': 4, 'quilt_pool': 300, 'quilt_tries': 40, 'ut_detail': True, 'max_panels': 80, 'seed': 7, 'edge_px': 4, 'wins_k': 2.5, 'quilt_min_sigma': 1.5, 'flat_photo_sigma': 1.0, 'grooves_sigma': 4.0, 'neutral_chroma': 8.0, 'neutral_dL': 25.0}, **R.get('own_panel', {}))
     FU = dict({'sigma': 12.0, 'clip': 35.0, 'photo_floor': 0.8}, **R.get('full', {}))
     out, rep = [], {'panels': {}, 'texels_changed': 0, 'hidden': 0, 'with_donor': 0, 'flat_texels': 0, 'flat_rough_texels': 0}
     if not O['enabled']:
@@ -1102,7 +1102,11 @@ def own_panel_tone(geoms: list, tex_after: list, known: list, ut_geoms: list | N
                 pool = [tex[y * (B // 2):y * (B // 2) + B, x * (B // 2):x * (B // 2) + B] for y, x in zip(ys, xs)]
                 info.update({'tone_from': 'donor', 'donor_panel': int(v), 'hue_dE_ab': round(best[1], 2), 'tex_ratio': round(best[2], 2), 'donor_blocks': len(pool), 'ut_sigma': [round(float(ustat[k][1]), 2), round(float(ustat[v][1]), 2)]})
                 rep['with_donor'] += 1
-                if len(pool) >= 4 and best[3]:                                   # куски фасада — только если у обеих панелей по UltraTex есть фактура; две гладкие → плоский тон донора (22.11)
+                kv_ = grp[v][kn[grp[v]]]
+                sph = detail(lab[:, 0], kv_, T, clean=True)[1] if len(kv_) >= 50 else 0.0           # σ L фото донора (устойчивая деталь): ровное фото → плоский тон допустим
+                info['photo_sigma_L'] = round(float(sph), 2)
+                rough_photo = O['flat_photo_sigma'] <= sph < O['grooves_sigma']       # полоса «фактура ткани/стёжки» (диван 114667_8381: 1,46–2,46); выше — борозды/линии фасада (не копируем, решение 22.11), ниже — ровное
+                if len(pool) >= 4 and (best[3] or rough_photo):                  # куски фасада — если у обеих панелей по UltraTex есть фактура ИЛИ фото донора фактурное (σ L ≥ flat_photo_sigma): ровным тоном фактурное фото не заливаем (23.11); обе гладкие и фото ровное → плоский тон (22.11)
                     if len(pool) > O['quilt_pool']:
                         pool = [pool[i] for i in rng.choice(len(pool), int(O['quilt_pool']), replace=False)]
                     q = TF.wrap_soften(TF.quilt_image(np.stack(pool).astype(np.float64), int(O['quilt_cells']), int(O['quilt_overlap']), rng, int(O['quilt_tries'])))
@@ -1124,12 +1128,9 @@ def own_panel_tone(geoms: list, tex_after: list, known: list, ut_geoms: list | N
                     newlab[sel] = tone
                     info['L_policy'] = 'наша' if oL is not None else 'донора (своей нет)'
                     info['texture'] = 'плоский тон донора (мало блоков)' if len(pool) < 4 else 'плоский тон донора (обе гладкие по UltraTex)'
-                    kv = grp[v][kn[grp[v]]]
-                    sph = detail(lab[:, 0], kv, T, clean=True)[1] if len(kv) >= 50 else 0.0     # σ L фото донора: ровно при фактурном фото — в отчёт (flat_share_pct)
-                    info['photo_sigma_L'] = round(float(sph), 2)
                     rep['flat_texels'] += int(len(sel))
                     if sph >= O['flat_photo_sigma']:
-                        rep['flat_rough_texels'] += int(len(sel))
+                        rep['flat_rough_texels'] += int(len(sel))                # ровно при фактурном фото донора — в отчёт (flat_share_pct)
             else:
                 tone = np.median(lab[sel], axis=0)
                 newlab[sel] = tone

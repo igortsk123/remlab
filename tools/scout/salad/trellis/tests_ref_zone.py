@@ -492,6 +492,38 @@ def test_own_panel_smooth_no_quilt():
     ok(txt and all('квилт' not in str(x) for x in txt), f'в отчёте нет квилта: {txt}')
 
 
+def test_own_panel_fabric_photo_quilt():
+    print('фактурное фото донора (ткань, σ L ~1,5–2,5; диван 114667_8381) при гладком UltraTex — куски донора со своей L; ровное фото (σ L <1, ТВ-тумба) — плоский тон (23.11):')
+    sys.path[:0] = [os.path.join(HERE, '..'), os.path.join(HERE, '..', '..')]
+    import cv2
+    T = 192
+    g, side, mk = box_uv_geom(T)
+
+    def run(sd_photo, seed):
+        rng = np.random.default_rng(seed)
+
+        def tile(l, a, b, sd):
+            lab = np.stack([np.clip(l + rng.normal(0, sd, (T, T)), 0, 100), np.full((T, T), a), np.full((T, T), b)], -1).astype(np.float32)
+            return np.clip(cv2.cvtColor(lab, cv2.COLOR_Lab2RGB) * 255 + 0.5, 0, 255).astype(np.uint8)
+
+        photo = tile(50, 0, 0, 0)
+        photo[mk['front']] = tile(56, 8, 6, sd_photo)[mk['front']]
+        ut = tile(50, 0, 0, 0)
+        ut[mk['front']] = tile(60, 8, 6, 0)[mk['front']]
+        ut[mk['right']] = tile(40, 8, 6, 0)[mk['right']]
+        return RZ.own_panel_tone([dict(g, tex=photo)], [photo], [mk['front']], [dict(g, tex=ut)], None)
+
+    _o, rep = run(2.2, 5)
+    sg = [x.get('photo_sigma_L') for x in rep['panels'].values() if x.get('tone_from') == 'donor']
+    txt = [x.get('texture') for x in rep['panels'].values() if x.get('tone_from') == 'donor']
+    ok(sg and 1.0 <= max(sg) < 4.0, f'σ L фото донора в полосе фактуры ткани: {sg}')
+    ok(txt and all('квилт' in str(x) for x in txt), f'фактурное фото → куски донора: {txt}')
+    ok(all(x.get('L_policy') == 'наша' for x in rep['panels'].values() if x.get('tone_from') == 'donor'), 'светлота своя')
+    _o, rep = run(0.3, 6)
+    txt = [x.get('texture') for x in rep['panels'].values() if x.get('tone_from') == 'donor']
+    ok(txt and all('плоский' in str(x) for x in txt), f'ровное фото → плоский тон: {txt}')
+
+
 def test_own_panel_keeps_our_L():
     print('донор плоско: светлота L НАША (медиана своей заливки панели), от донора только оттенок a,b; ровное при фактурном фото донора видно в отчёте (flat_share_pct, р.7 23.11):')
     sys.path[:0] = [os.path.join(HERE, '..'), os.path.join(HERE, '..', '..')]
@@ -607,7 +639,7 @@ def test_align_tied():
 
 
 def main():
-    for f in (test_sub_tone, test_own_panel_neutral_donor_needs_L, test_own_panel_keeps_our_L, test_align_tied, test_own_panel_smooth_no_quilt, test_align_ut, test_own_panel_clean_detail, test_own_panel_tone, test_same_mesh, test_decide, test_gate_per_property, test_propagate, test_object_basis, test_inconsistent_winding, test_outer_only, test_panel_with_bottom, test_panels, test_apply_to_fill, test_relief_source, test_ultratex_full):
+    for f in (test_own_panel_fabric_photo_quilt, test_sub_tone, test_own_panel_neutral_donor_needs_L, test_own_panel_keeps_our_L, test_align_tied, test_own_panel_smooth_no_quilt, test_align_ut, test_own_panel_clean_detail, test_own_panel_tone, test_same_mesh, test_decide, test_gate_per_property, test_propagate, test_object_basis, test_inconsistent_winding, test_outer_only, test_panel_with_bottom, test_panels, test_apply_to_fill, test_relief_source, test_ultratex_full):
         f()
     print(f'tests_ref_zone: ошибок {len(FAILS)}')
     return 1 if FAILS else 0
