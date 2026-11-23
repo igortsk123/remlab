@@ -155,12 +155,14 @@ def flat_panels(V: np.ndarray, F: np.ndarray, ang_deg: float, min_frac: float) -
 
 
 # --------------------------------------------------------------------------------------- мерка 1: верх ↔ фото
-def top_vs_photo(M: dict, known: np.ndarray | None, R: dict) -> dict:
+def top_vs_photo(M: dict, known: np.ndarray | None, R: dict, viz: dict | None = None) -> dict:
     import mesh_grey_top as G
     c = R['top_vs_photo']
     t = R['top']
     V, F, UV, alb = M['V'], M['F'], M['UV'], M['albedo']
     top, side, ta, foot = G.top_faces(V, F, top_rules(R))
+    if viz is not None:
+        viz['top_faces'] = top
     if not len(top) or foot <= 0 or ta < t['min_top_frac'] * foot:
         return {'status': 'na', 'why': 'нет плоского верха по геометрии'}
     alb_w, sc = _scale(alb, t['work_px'])
@@ -173,11 +175,16 @@ def top_vs_photo(M: dict, known: np.ndarray | None, R: dict) -> dict:
     if n_top < t['min_texels']:
         return {'status': 'na', 'why': 'верх занимает слишком мало текселей', 'texels': n_top}
     mesh_rgb = median_rgb(alb_w[inner])
+    if viz is not None:
+        viz.update(alb_w=alb_w, top=inner)
+    out_top_faces = top
     out = {'status': 'ok', 'texels': n_top, 'rgb_mesh': mesh_rgb, 'top_area_share_of_foot': round(ta / foot, 3)}
     if known is None:
         return {**out, 'status': 'na', 'why': 'нет known.png этапа 6 — нечем взять цвет верха с фото'}
     kn = _fit_mask(known, (h, w))
     kt = inner & kn
+    if viz is not None:
+        viz['top_known'] = kt
     n_kn = int(kt.sum())
     out.update(known_texels=n_kn, known_share=round(n_kn / n_top, 3))
     if n_kn < c['min_known_texels'] * (sc * sc) or n_kn < c['min_known_share'] * n_top:
@@ -255,7 +262,7 @@ def _geometry_groups(M: dict, R: dict) -> np.ndarray:
     return out
 
 
-def group_bleed(M: dict, known: np.ndarray | None, part: np.ndarray | None, R: dict) -> dict:
+def group_bleed(M: dict, known: np.ndarray | None, part: np.ndarray | None, R: dict, viz: dict | None = None) -> dict:
     import mesh_grey_top as G
     from scipy import ndimage
     c = R['group_bleed']
@@ -321,6 +328,9 @@ def group_bleed(M: dict, known: np.ndarray | None, part: np.ndarray | None, R: d
                    'share_filled_pct': round(100.0 * leak_f / nf, 4) if nf >= c['min_blob'] else None, 'share_known_pct': round(100.0 * leak_k / nk, 4) if nk >= c['min_blob'] else None,
                    'near_border_share': round(float((mask & near).sum() / max(n_leak, 1)), 3), 'rgb_A': [int(v) for v in lab_to_rgb(info[a]['med'])], 'rgb_B': [int(v) for v in lab_to_rgb(info[b]['med'])]}
             rows.append(row)
+            if viz is not None:
+                viz.setdefault('alb_w', alb_w)
+                viz.setdefault('bleed_rows', []).append((row['share_filled_pct'] or 0.0, mask & filled_a, mask & known_a))
             if row['share_filled_pct'] is not None:
                 best = max(best, row['share_filled_pct'])
     rows.sort(key=lambda r: -(r['share_filled_pct'] or 0))
@@ -340,6 +350,85 @@ def lab_to_rgb(lab) -> np.ndarray:
 
 
 # ------------------------------------------------------------------- мерка 4: пятна «светлее фото» (T-187/1)
+def top_ref_from_frame(glb: str, photo: str | None, pose_run: str | None, top_faces: np.ndarray, R: dict) -> dict:
+    """Запасной эталон верха, когда этап 6 не взял с него тексели (верх виден вскользь): цвет верха прямо на фото — пиксели кадра камеры 04, где виден верх (грани верха по растру), медиана цвета фото.
+    Работает только если растр камеры ОТ ЭТОЙ формы (`raster_matches`). → {status ok|na, rgb, n_px, why}."""
+    if not photo or not pose_run or not os.path.exists(os.path.join(pose_run, 'stage_loss.json')):
+        return {'status': 'na', 'why': 'нет фото или растра камеры этапа 4'}
+    from PIL import Image
+    from scipy import ndimage
+    sys.path.insert(0, os.path.join(HERE, 'salad', 'trellis'))
+    import tex_visible as TV  # noqa: E402
+    st = TV.load_stage(pose_run)
+    geoms = TV.load_shape(glb)
+    same, frac = raster_matches(st, geoms)
+    if not same:
+        return {'status': 'na', 'why': f'растр камеры от другой формы (развёртка совпала у {frac:.0%} пикселей)'}
+    prgb, pmask = TV.photo_to_frame(np.asarray(Image.open(photo).convert('RGBA')), st['P'], st['px'])
+    c = R['top_vs_photo']
+    m = np.isin(st['ids'], top_faces) & st['mask'] & pmask
+    m = ndimage.binary_erosion(m, iterations=int(c['frame_erode_px']))
+    n = int(m.sum())
+    if n < c['frame_min_px']:
+        return {'status': 'na', 'why': f'верх на кадре камеры занимает {n} пикселей — мало', 'n_px': n}
+    return {'status': 'ok', 'rgb': median_rgb(np.asarray(prgb)[..., :3][m]), 'n_px': n}
+
+
+def photo_palette_dist(photo: str, rgb_mesh, R: dict) -> dict:
+    """Запасной эталон №2, когда верх на фото не виден совсем (камера смотрит спереди, верх — ребро): входит ли цвет верха меша в ПАЛИТРУ фото товара.
+    Палитра = центры ячеек Lab (L 4, a 3, b 3) переднего плана фото с долей ≥ palette_min_share; d = min ΔE2000 от цвета верха до центра. Серый «пустой» ≈128 на деревянном столе далеко от палитры."""
+    from PIL import Image
+    c = R['top_vs_photo']
+    im = Image.open(photo).convert('RGBA')
+    im.thumbnail((256, 256))
+    a = np.asarray(im)
+    fg = a[..., 3] > 200
+    if int(fg.sum()) < 500:
+        return {'status': 'na', 'why': 'на фото слишком мало переднего плана для палитры'}
+    lab = lab_of(a[..., :3][fg])
+    key = np.floor(lab / np.array([4.0, 3.0, 3.0])).astype(int)
+    uniq, inv = np.unique(key, axis=0, return_inverse=True)
+    cnt = np.bincount(inv.ravel())
+    keep = np.where(cnt / len(lab) >= c['palette_min_share'])[0]
+    if not len(keep):
+        return {'status': 'na', 'why': 'палитра фото не набралась'}
+    cent = np.array([np.median(lab[inv.ravel() == k], axis=0) for k in keep])
+    t = lab_of(rgb_mesh)[0]
+    d = _tc().de2000_v(np.repeat(t[None], len(cent), 0), cent)
+    return {'status': 'ok', 'dE00': round(float(d.min()), 2), 'colors': int(len(keep)), 'nearest_rgb': [int(v) for v in lab_to_rgb(cent[int(d.argmin())])]}
+
+
+def raster_matches(st: dict, geoms: list, n: int = 20000, tol: float = 0.01, need: float = 0.98) -> tuple[bool, float]:
+    """Растр камеры этапа 4 относится к ЭТОЙ форме? Для случайных пикселей кадра: UV из растра должен лежать внутри UV-треугольника грани с тем же номером в нашем GLB (допуск tol).
+    Доля ≥ need → та же форма и развёртка; иначе кадр «по чужому растру» врёт (проверено глазами: пятна и разрывы текстуры)."""
+    ids, uv, mask = st['ids'], st['uv'], st['mask']
+    ys, xs = np.nonzero((ids >= 0) & mask)
+    if len(ys) == 0:
+        return False, 0.0
+    rng = np.random.default_rng(0)
+    sel = rng.choice(len(ys), min(n, len(ys)), replace=False)
+    ys, xs = ys[sel], xs[sel]
+    F = np.concatenate([g['F'] + 0 for g in geoms]) if len(geoms) == 1 else None
+    if F is None:
+        return False, 0.0
+    UV = np.asarray(geoms[0]['UV'], float)
+    fid = ids[ys, xs].astype(np.int64)
+    if int(fid.max()) >= len(F):
+        return False, 0.0
+    tri = UV[F[fid]]                                            # (n,3,2), V вверх
+    tri = np.stack([tri[..., 0], 1.0 - tri[..., 1]], -1)        # как в растре камеры: v сверху
+    pt = uv[ys, xs].astype(float)
+    a, b, c = tri[:, 0], tri[:, 1], tri[:, 2]
+    v0, v1, v2 = b - a, c - a, pt - a
+    den = v0[:, 0] * v1[:, 1] - v1[:, 0] * v0[:, 1]
+    den = np.where(np.abs(den) < 1e-12, 1e-12, den)
+    u = (v2[:, 0] * v1[:, 1] - v1[:, 0] * v2[:, 1]) / den
+    w = (v0[:, 0] * v2[:, 1] - v2[:, 0] * v0[:, 1]) / den
+    inside = (u >= -tol) & (w >= -tol) & (u + w <= 1 + tol)
+    frac = float(inside.mean())
+    return frac >= need, frac
+
+
 def lighter_than_photo(glb: str, photo: str | None, pose_run: str | None, R: dict) -> dict:
     """`tex_fill.lighter_than_photo_share` по ИТОГОВОЙ текстуре и фото в кадре камеры 04 (в check 07 её никто не звал — аудит 23.11, п.3). Пороги «пятна» — paint-fill.json `lighter_than_photo`,
     допустимая доля — paint-fill.json `thresholds.lighter_than_photo_pct`: здесь своих чисел нет. Нет растра камеры (pose_run) или фото → na, не «ок»."""
@@ -353,8 +442,9 @@ def lighter_than_photo(glb: str, photo: str | None, pose_run: str | None, R: dic
     import tex_visible as TV  # noqa: E402
     st = TV.load_stage(pose_run)
     geoms = TV.load_shape(glb)
-    if sum(len(g['F']) for g in geoms) <= int(st['ids'].max()):
-        return {'status': 'na', 'why': 'грани итога не совпадают с растром камеры (другая форма)'}
+    same, frac = raster_matches(st, geoms)
+    if not same:
+        return {'status': 'na', 'why': f'растр камеры от другой формы (развёртка совпала у {frac:.0%} пикселей)', 'uv_match': round(frac, 3)}
     prgb, pmask = TV.photo_to_frame(np.asarray(Image.open(photo).convert('RGBA')), st['P'], st['px'])
     after = TV.frame_from_tex(st, geoms, [g['tex'] for g in geoms])
     r = TF.lighter_than_photo_share(after, prgb, st['mask'] & pmask)
@@ -363,6 +453,50 @@ def lighter_than_photo(glb: str, photo: str | None, pose_run: str | None, R: dic
 
 
 # ---------------------------------------------------------------------------------------------- всё вместе ---
+def frames(glb: str, known_png: str | None, parts_path: str | None, out_dir: str, R: dict | None = None, size: int | None = None) -> dict:
+    """Кадры срабатываний (атлас итоговой текстуры с подсветкой): `surface-top.jpg` — верх (красная заливка), взятое с фото (зелёная кромка); `surface-bleed.jpg` — затёк (пурпур — в залитых
+    текселях, жёлтый — в известных с фото) поверх атласа. ≤ `frames.max_kb`; пишет только нужные (верх найден / затёк есть). Возвращает {имя: путь}."""
+    from PIL import Image
+    R = R or rules()
+    M = load_model(glb)
+    known = load_known(known_png, R['top_vs_photo']['known_thr'])
+    part, _ = load_parts(parts_path, len(M['F']))
+    vt, vb = {}, {}
+    top_vs_photo(M, known, R, vt)
+    group_bleed(M, known, part, R, vb)
+    size = size or R['frames']['size']
+    out = {}
+
+    def save(name, alb, layers):
+        im = alb.astype(np.float32).copy()
+        for mask, col, a in layers:
+            if mask is not None:
+                im[mask] = (1 - a) * im[mask] + a * np.array(col, np.float32)
+        img = Image.fromarray(np.clip(im, 0, 255).astype(np.uint8))
+        img = img.resize((size, size), Image.LANCZOS) if img.size != (size, size) else img
+        path = os.path.join(out_dir, name)
+        os.makedirs(out_dir, exist_ok=True)
+        for q in (85, 70, 55, 40):
+            img.save(path.replace('.png', '.jpg'), quality=q)
+            if os.path.getsize(path.replace('.png', '.jpg')) <= R['frames']['max_kb'] * 1024:
+                break
+        out[name.replace('.png', '.jpg')] = path.replace('.png', '.jpg')
+
+    if 'top' in vt:
+        from scipy import ndimage
+        edge = vt.get('top_known') is not None and (vt['top_known'] & ~ndimage.binary_erosion(vt['top_known'], iterations=2))
+        save('surface-top.png', vt['alb_w'], [(vt['top'], (255, 0, 0), 0.35), (edge if edge is not False else None, (0, 255, 0), 1.0)])
+    rows = sorted((r for r in vb.get('bleed_rows', []) if r[0] > R['group_bleed']['threshold'][1]), key=lambda r: -r[0])[:3]       # кадр — только где мерка сработала
+    if rows:
+        lf = np.zeros_like(rows[0][1])
+        lk = np.zeros_like(rows[0][2])
+        for _, f, k in rows:
+            lf |= f
+            lk |= k
+        save('surface-bleed.png', vb['alb_w'], [(lf, (255, 0, 255), 0.85), (lk, (255, 220, 0), 0.85)])
+    return out
+
+
 def role_mismatch(top_res: dict, role: str | None, R: dict) -> dict:
     """Геометрия против класса каталога (директор 23.11): класс — ПОДСКАЗКА, решает геометрия; расхождение — флаг в surface.json, в гейт НЕ идёт.
     has_top — найден плоский верх по геометрии; hint — класс из списка «у таких типов верх важен» (rules `applies_to_hint.top_vs_photo`)."""
@@ -385,7 +519,28 @@ def measure(glb: str, known_png: str | None = None, parts_path: str | None = Non
     tm['load'] = round(time.time() - t0, 2)
     res = {'version': R['version'], 'glb': os.path.basename(glb), 'faces': int(len(M['F']))}
     t1 = time.time()
-    res['top_vs_photo'] = top_vs_photo(M, known, R)
+    vt = {}
+    res['top_vs_photo'] = top_vs_photo(M, known, R, vt)
+    tp = res['top_vs_photo']
+    if tp.get('status') == 'na' and 'rgb_mesh' in tp and vt.get('top_faces') is not None and len(vt['top_faces']):
+        try:                                                  # этап 6 верх не взял (вскользь) → цвет верха берём с фото через растр камеры
+            ref = top_ref_from_frame(glb, photo, pose_run, vt['top_faces'], R)
+        except Exception as e:  # noqa: BLE001
+            ref = {'status': 'na', 'why': f'{type(e).__name__}: {str(e)[:100]}'}
+        if ref['status'] == 'ok':
+            la, lb = lab_of(tp['rgb_mesh'])[0], lab_of(ref['rgb'])[0]
+            tp.update(status='ok', ref='photo_frame', rgb_photo=ref['rgb'], dE00=round(de00(la, lb), 2), dL=round(float(la[0] - lb[0]), 2),
+                      dab=round(float(np.hypot(la[1] - lb[1], la[2] - lb[2])), 2), frame_px=ref['n_px'], why_known_na=tp.pop('why', ''))
+        else:
+            tp['frame_ref_na'] = ref['why']
+        if tp['status'] == 'na' and photo and os.path.exists(photo):
+            pp = photo_palette_dist(photo, tp['rgb_mesh'], R)                 # верх на фото не виден совсем → входит ли его цвет в палитру фото
+            if pp['status'] == 'ok':
+                tp.update(status='ok', ref='photo_palette', dE00=pp['dE00'], palette_colors=pp['colors'], rgb_photo=pp['nearest_rgb'], why_known_na=tp.pop('why', ''))
+            else:
+                tp['palette_na'] = pp['why']
+    else:
+        tp.setdefault('ref', 'known')
     tm['top_vs_photo'] = round(time.time() - t1, 2)
     t1 = time.time()
     res['empty_flat'] = empty_flat(M, known, R, res['top_vs_photo'])
@@ -505,6 +660,10 @@ def main(argv: list) -> int:
         if opt.get('--out'):
             open(opt['--out'], 'w', encoding='utf-8').write(txt)
         print(json.dumps(judge(m, rules()), ensure_ascii=False))
+        return 0
+    if len(argv) >= 2 and argv[0] == 'frames':             # frames <glb> --known K --parts P --out ПАПКА → кадры срабатываний (для проверки глазами)
+        opt = {argv[i]: argv[i + 1] for i in range(2, len(argv) - 1, 2)}
+        print(json.dumps(frames(argv[1], opt.get('--known'), opt.get('--parts'), opt.get('--out') or '.'), ensure_ascii=False))
         return 0
     print(__doc__)
     return 2

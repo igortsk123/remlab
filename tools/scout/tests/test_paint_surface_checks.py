@@ -153,6 +153,25 @@ for share, want in ((0.05, 'ok'), (3.5, 'refused')):
     ok(P.judge(mm2, R)['status'] == want, f'доля пятен {share} % → {want}')
 ok('timing_s' in mm and {'load', 'top_vs_photo', 'group_bleed'} <= set(mm['timing_s']), 'время по меркам записано (для расчёта на 50k)')
 
+# 7а. кадры срабатываний: верх и затёк подсвечены, файлы ≤ max_kb
+fr = P.frames(p('bleed.glb'), p('k_none2.png'), p('parts.npz'), p('fr'))
+ok('surface-top.jpg' in fr and 'surface-bleed.jpg' in fr, f'кадры верха и затёка записаны ({sorted(fr)})')
+ok(all(os.path.getsize(v) <= R['frames']['max_kb'] * 1024 for v in fr.values()), 'кадры ≤ max_kb')
+fr0 = P.frames(p('clean.glb'), p('k_none2.png'), p('parts.npz'), p('fr0'))
+ok('surface-bleed.jpg' not in fr0, 'нет затёка — кадра затёка нет')
+
+# 7г. верх не виден на фото совсем → цвет верха против ПАЛИТРЫ фото: серый на «деревянном» фото — далеко, дерево — рядом
+photo_wood = np.full((64, 64, 4), 255, np.uint8)
+photo_wood[8:56, 8:56, :3] = WOOD
+photo_wood[8:56, 8:30, :3] = WHITE
+Image.fromarray(photo_wood).save(p('photo.png'))
+known_png(p('k_leg_only.png'), [(330, 20, 500, 280)])             # на верхе известных текселей нет
+mg = P.measure(p('grey.glb'), p('k_leg_only.png'), None, R, p('photo.png'), None)
+mw = P.measure(p('good.glb'), p('k_leg_only.png'), None, R, p('photo.png'), None)
+ok(mg['top_vs_photo'].get('ref') == 'photo_palette' and mg['top_vs_photo']['dE00'] > R['top_vs_photo']['threshold'][1], f"серый верх vs палитра фото-дерево: dE00 {mg['top_vs_photo'].get('dE00')} > порога")
+ok(mw['top_vs_photo'].get('ref') == 'photo_palette' and mw['top_vs_photo']['dE00'] < 3, f"деревянный верх входит в палитру: dE00 {mw['top_vs_photo'].get('dE00')}")
+ok(P.judge(mg, R)['status'] == 'refused' and 'top_vs_photo' in P.judge(mg, R)['hard_failed'], 'серый верх вне палитры фото → отказ (мерка жёсткая)')
+
 # 7в. класс каталога — подсказка: расхождение с геометрией → флаг role_mismatch (в гейт не идёт)
 m = P.measure(p('good.glb'), p('k_top.png'), None, R, None, None, 'стол обеденный')
 ok(m['role_mismatch']['flag'] is False and m['role_mismatch']['has_top'], 'стол с плоским верхом: класс и геометрия сходятся')
