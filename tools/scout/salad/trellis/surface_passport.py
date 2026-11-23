@@ -623,6 +623,16 @@ def _gmap(maps: Maps, gi: int, gid_of: dict) -> np.ndarray:
     return np.where(pm >= 0, lut[np.maximum(pm, 0)], -1)
 
 
+def _hidden_pattern(role, syn: dict) -> tuple:
+    """Рисунок на невидимое по ТИПУ товара (паспорт типов, paint.hidden_pattern): continue / body / same_fabric / plain. Типа нет → plain + флаг (по умолчанию syn.hidden_pattern_default)."""
+    default = syn.get('hidden_pattern_default', 'plain')
+    try:
+        import mesh_type_passports as MTP
+        return MTP.hidden_pattern(role, None, default)
+    except Exception as e:  # noqa: BLE001 — нет реестра в срезе: гладко и видно в отчёте, не молча
+        return default, f'реестр типов недоступен: {type(e).__name__}'
+
+
 def apply_groups(geoms: list, tex_after: list, known_keep: list, pas: dict, ctx: dict, R: dict, tf) -> tuple:
     """Невидимое (не known_keep) каждой применимой группы: низкие частоты → тон группы, зерно — как дала заливка (клип выбросов; мало — гауссово зерно). Известное не меняется. → (текстуры, отчёт)."""
     from scipy.ndimage import distance_transform_edt, gaussian_filter
@@ -697,9 +707,22 @@ def apply_groups(geoms: list, tex_after: list, known_keep: list, pas: dict, ctx:
                     res[:, 0] += add * noise[m]
                     info['grain_added_sigma'] = round(add, 3)
             if syn.get('enabled') and grp['class'] not in (syn.get('skip_classes') or []):
+                hp, hflag = _hidden_pattern(ctx.get('product_role'), syn)
+                if hp in ('body', 'plain'):                               # зад и бока — материал корпуса / гладко: узор фасада НЕ переносим, остаётся прежнее зерно группы
+                    info['synth'] = {'mode': 'skip', 'hidden_pattern': hp, 'why': f'по типу: hidden_pattern={hp}' + (f' ({hflag})' if hflag else '')}
+                    syn_off = True
+                else:
+                    syn_off = False
+            else:
+                syn_off = True
+            if not syn_off:
                 cfg = dict(syn['common'])
                 cfg.update((syn.get('by_class') or {}).get(grp['class'], {}))
-                sres, sinfo = TS.synth_group(lab, (gm == gid) & k0, m, uvm, cfg, _blur_norm, keep_detail=grp['class'] in R['dark_keep_classes'], seed=int(syn.get('seed_step', 1009)) * (gi + 1) + int(gid))
+                cfg.update((syn.get('by_hidden_pattern') or {}).get(hp, {}))     # same_fabric: только фактура ткани (без деталей фасада)
+                sres, sinfo = TS.synth_group(lab, (gm == gid) & k0, m, uvm, cfg, _blur_norm, keep_detail=(grp['class'] in R['dark_keep_classes'] and hp != 'same_fabric'), seed=int(syn.get('seed_step', 1009)) * (gi + 1) + int(gid))
+                sinfo['hidden_pattern'] = hp
+                if hflag:
+                    sinfo['hidden_pattern_flag'] = hflag
                 info['synth'] = sinfo
                 if sinfo['mode'] == 'quilt' or (sinfo['mode'] == 'smooth' and syn.get('smooth_fallback', True)):   # 'skip' (рисунка нет) — прежнее зерно, без синтеза
                     res = sres[m].astype(np.float64)                          # остаток фактуры из куска фото своей группы (нет донора — 0: гладко, не шум)

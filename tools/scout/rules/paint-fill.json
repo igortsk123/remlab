@@ -102,7 +102,7 @@
     "synth": {
       "_note": "Синтез фактуры невидимого из чистого куска фото своей группы (T-20261123-39, texture_synth.py): квилтинг кусков остатка (Lab − низкие частоты σ=low_px) с поворотом/масштабом по «вверх мира» и плотности атласа, швы по минимуму ошибки. Вместо случайного поля. Донора мало (< min_donor_px чистых текселей) → невидимое гладко (smooth_fallback), не шум. ВСЕ числа — гипотезы пилота; цель проверки: энергия фактуры невидимого / фото 0,5–1,5.",
       "enabled": true,
-      "smooth_fallback": true,
+      "smooth_fallback": true, "hidden_pattern_default": "plain", "by_hidden_pattern": {"continue": {}, "same_fabric": {"clip_k": 3.0, "low_px": 6.0, "patch_px": 48, "overlap_px": 12, "min_donor_px": 6000, "patch_min_px": 16}},
       "skip_classes": [],
       "up_min": 0.5,
       "seed_step": 1009,

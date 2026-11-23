@@ -108,11 +108,12 @@ def scene_plane_two_parts(part_split=True):
     return g, tex, known, parts, base
 
 
-def run(g, tex, known, parts, roles=None, hook_keep=None):
+def run(g, tex, known, parts, roles=None, hook_keep=None, product_role=None):
     R = TF.RULES['surface_groups']
     pas, ctx = SP.build([g], [tex], [known], parts, roles, R, TF.FILL, TF)
     if hook_keep is not None:
         ctx['hook_keep'] = hook_keep
+    ctx['product_role'] = product_role
     k0 = [known & ~TF.unpainted_mask(tex)]
     out, rep = SP.apply_groups([g], [tex], k0, pas, ctx, R, TF)
     return pas, ctx, out, rep, k0
@@ -386,8 +387,41 @@ def test_ultratex_switch_off():
     ok(r['check']['metrics']['known_changed_share_pct']['value'] == 0.0, 'известное этапу 6 не изменилось (known_changed_share_pct = 0)')
 
 
+def test_hidden_pattern_by_type():
+    print('рисунок на невидимое — по ТИПУ товара (паспорт типов, paint.hidden_pattern): continue / body / same_fabric / plain (без ID, через mesh_type_passports):')
+    import mesh_type_passports as MTP
+    reg = MTP.load()
+    ok(MTP.validate(reg) == [], 'реестр типов проходит схему (hidden_pattern ∈ continue/body/same_fabric/plain)')
+    ok(all((p.get('paint') or {}).get('hidden_pattern') in MTP.HIDDEN_PATTERNS for p in reg['types'].values()), 'у КАЖДОГО типа реестра задан paint.hidden_pattern')
+    want = {'ваза': 'continue', 'шкаф': 'body', 'кресло': 'same_fabric', 'стул': 'plain'}
+    for role, val in want.items():
+        ok(MTP.hidden_pattern(role, reg) == (val, None), f'{role} → {val}: {MTP.hidden_pattern(role, reg)}')
+    hv, hf = MTP.hidden_pattern('неведомая вещь', reg)
+    ok(hv == 'plain' and hf, f'нет типа → plain + флаг: {(hv, hf)}')
+    q = Quads()
+    q.quad([[-1, 0, 0], [1, 0, 0], [1, 1, 0], [-1, 1, 0]], (0, 0, 1, 1), part=0, sub=4)
+    ys, xs = np.mgrid[0:T, 0:T]
+    L = np.where((((xs // 10) + (ys // 10)) % 2).astype(bool), 70.0, 40.0) + grain((T, T), 0.5, 4)
+    tex = TF.lab2rgb(np.stack([L, np.zeros((T, T)), np.zeros((T, T))], -1).reshape(-1, 3)).reshape(T, T, 3)
+    known = xs < 128
+    g = q.geom(tex)
+    parts = [np.array(q.part, np.int32)]
+    got = {}
+    for role in ('ваза', 'шкаф', 'кресло', 'стул', None):
+        pas, ctx, out, rep, k0 = run(g, tex, known, parts, product_role=role)
+        sy = [r.get('synth') for r in rep.values() if r.get('synth')]
+        got[role] = sy[0] if sy else None
+    ok(got['ваза'] and got['ваза']['hidden_pattern'] == 'continue' and got['ваза']['mode'] != 'skip', f'ваза: рисунок продолжается (синтез идёт): {got["ваза"]}')
+    ok(got['кресло'] and got['кресло']['hidden_pattern'] == 'same_fabric' and got['кресло']['mode'] != 'skip', f'кресло: та же ткань (синтез без деталей фасада): {got["кресло"]}')
+    ok(got['шкаф'] and got['шкаф']['mode'] == 'skip' and got['шкаф']['hidden_pattern'] == 'body', f'шкаф: узор фасада не переносится (материал корпуса): {got["шкаф"]}')
+    ok(got['стул'] and got['стул']['mode'] == 'skip' and got['стул']['hidden_pattern'] == 'plain', f'стул: спинка сзади гладкая: {got["стул"]}')
+    ok(got[None] and got[None]['mode'] == 'skip' and got[None].get('why') and 'нет типа' in got[None]['why'], f'нет типа → plain + флаг в отчёте: {got[None]}')
+    sg = TF.RULES['surface_groups']['synth']
+    ok(sg['by_hidden_pattern']['same_fabric']['clip_k'] <= 3.0 and sg['hidden_pattern_default'] == 'plain', 'same_fabric режет выбросы-детали (clip_k ≤ 3), умолчание — plain (пороги в rules)')
+
+
 def main() -> int:
-    for f in (test_split_plane_one_tone, test_contrast_door_own_group, test_gray_pattern_not_flattened, test_back_is_body_not_facade, test_grain_no_dark_seams, test_gradient_continues, test_outlier_replaced, test_orphan_attached, test_orphan_guards, test_orphan_keeps_hook_tone, test_hook_keep_top, test_ultratex_switch_off):
+    for f in (test_split_plane_one_tone, test_contrast_door_own_group, test_gray_pattern_not_flattened, test_back_is_body_not_facade, test_grain_no_dark_seams, test_gradient_continues, test_outlier_replaced, test_orphan_attached, test_orphan_guards, test_orphan_keeps_hook_tone, test_hook_keep_top, test_ultratex_switch_off, test_hidden_pattern_by_type):
         f()
     print(f'tests_surface_passport: ошибок {bad}')
     return 1 if bad else 0

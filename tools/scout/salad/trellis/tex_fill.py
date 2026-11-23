@@ -2785,6 +2785,7 @@ def run_stage_once(run: str, sku: str, glb: str, known: list | None = None, part
     if sg_pas is not None:                                              # группы материала: тон группы + зерно на невидимом, ПОСЛЕ всех хуков (они тон не определяют); известное не меняется
         _t_ap = time.process_time()
         try:
+            sg_ctx['product_role'] = ((cfg or {}).get('top_card') or {}).get('role')          # тип товара — для «рисунок на невидимое по типу» (paint.hidden_pattern паспорта типа)
             m_b = SP.measure(geoms, tex_after, k_keep, sg_pas, sg_ctx, sg_cfg, sys.modules[__name__])
             tex_after, ap_ = SP.apply_groups(geoms, tex_after, k_keep, sg_pas, sg_ctx, sg_cfg, sys.modules[__name__])
             m_a = SP.measure(geoms, tex_after, k_keep, sg_pas, sg_ctx, sg_cfg, sys.modules[__name__])
