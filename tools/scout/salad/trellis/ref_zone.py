@@ -960,19 +960,30 @@ def panel_sibling_tone(geoms: list, tex_before: list, tex_after: list, known: li
         lb, la = lab_of(bef).reshape(-1, 3), lab_of(tex).reshape(-1, 3)
         res = tex.reshape(-1, 3).copy()
         lab_new = la.copy()
-        for p in np.unique(pp[occ]).tolist():
-            sel = occ & (pp == p) & ~kn & ~unp
-            ids = np.unique(pn[sel])
-            if len(ids) < 2:
+        pn_occ = pn[occ]                                                       # доля известного по панели — один проход (было: полный кадр на каждую панель, T-157/Б)
+        cnt_pn = np.bincount(pn_occ)
+        ksum_pn = np.bincount(pn_occ, weights=kn[occ].astype(np.float64))
+        ci = np.flatnonzero(occ & ~kn & ~unp)                                  # невидимые тексели всех частей; части и панели берутся срезами одной сортировки, не масками по всему кадру (T-157/Б: частей и панелей — тысячи)
+        pp_c, pn_c = pp[ci], pn[ci]
+        o1 = np.argsort(pp_c.astype(np.int64) * (int(pn_c.max()) + 2 if len(pn_c) else 2) + pn_c, kind='stable')      # по (часть, панель); устойчиво — внутри группы индексы по возрастанию
+        ci, pp_c, pn_c = ci[o1], pp_c[o1], pn_c[o1]
+        bnd = np.flatnonzero(np.diff(pp_c)) + 1
+        for a_, b_ in zip(np.concatenate([[0], bnd]).tolist(), np.concatenate([bnd, [len(ci)]]).tolist()):
+            if a_ >= b_:
                 continue
-            for pid in ids.tolist():
-                mine = np.flatnonzero(sel & (pn == pid))
+            p = int(pp_c[a_])
+            pb = np.flatnonzero(np.diff(pn_c[a_:b_])) + 1
+            if len(pb) < 1:                                                    # панель одна — сравнивать не с чем
+                continue
+            for s_, e_ in zip(np.concatenate([[0], pb]).tolist(), np.concatenate([pb, [b_ - a_]]).tolist()):
+                pid = int(pn_c[a_ + s_])
+                mine = ci[a_ + s_:a_ + e_]
                 if len(mine) < O['min_texels']:
                     continue
-                ks = float(kn[(pn == pid) & occ].mean())
+                ks = float(ksum_pn[pid] / cnt_pn[pid])
                 if ks >= O['max_known']:
                     continue
-                oth = np.flatnonzero(sel & (pn != pid))
+                oth = np.concatenate([ci[a_:a_ + s_], ci[a_ + e_:b_]])         # порядок не важен: дальше только число и медиана
                 if len(oth) < O['min_others']:
                     continue
                 if float(np.linalg.norm(np.median(lb[mine], axis=0) - np.median(lb[oth], axis=0))) > O['same06_de']:

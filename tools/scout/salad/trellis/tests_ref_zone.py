@@ -700,8 +700,61 @@ def test_align_tied():
     ok(al2 is not None and r2['status'] == 'forced' and r2["yaw_deg"] == 180, 'yaw=180 задан — UltraTex перенесён без оценки')
 
 
+def _psibling_world(n=8, T=128):
+    """Плоскость n×n клеток на одной части; левый столбец клеток (1/8 ширины) — панель 1, остальное — панель 0 (панели подменой panel_ids). До: ровный серый, после: панель 0 темнее (L≈42), панель 1 светлее (L≈58)."""
+    V, F, UV = [], [], []
+    for j in range(n + 1):
+        for i in range(n + 1):
+            V.append([i / n, j / n, 0.0])
+            UV.append([i / n, j / n])
+    for j in range(n):
+        for i in range(n):
+            a = j * (n + 1) + i
+            F += [[a, a + 1, a + n + 2], [a, a + n + 2, a + n + 1]]
+    V, F, UV = np.array(V, float), np.array(F), np.array(UV, float)
+    cx = V[F][:, :, 0].mean(axis=1)
+    pan = (cx < 0.125).astype(np.int32)                                            # 1 — левый столбец; у панели 0 «остальных» меньше min_others, поэтому сдвигается только панель 1
+    g = {'V': V, 'F': F, 'UV': UV}
+    u = (np.arange(T) + 0.5) / T
+    left = np.broadcast_to(u[None, :] < 0.125, (T, T))
+    bef = np.full((T, T, 3), 120, np.uint8)
+    aft = np.full((T, T, 3), 100, np.uint8)
+    aft[left] = 140
+    return g, pan, bef, aft, left
+
+
+def test_panel_sibling_tone():
+    print('панели одной части (T-157/Б: срезы одной сортировки вместо масок по кадру):')
+    g, pan, bef, aft, left = _psibling_world()
+    T = bef.shape[0]
+    orig = RZ.panel_ids
+    try:
+        RZ.panel_ids = lambda V_, F_, parts_: pan
+        known = [np.zeros((T, T), bool)]
+        out, rep = RZ.panel_sibling_tone([g], [bef], [aft], known, [np.zeros(len(g['F']), np.int32)])
+        ok(len(rep['panels']) == 1 and rep['panels'][0]['panel'] == 1 and rep['texels_changed'] > 1500, f'светлая панель найдена и сдвинута: {rep["panels"]}')
+        o = np.asarray(out[0])
+        inner = np.zeros((T, T), bool)
+        inner[8:-8, 2:T // 8 - 2] = True
+        ok(abs(float(o[inner].mean()) - 100.0) < 3.0, f'тон панели 1 стал как у остальных (было 140 → {o[inner].mean():.1f})')
+        ok(np.array_equal(o[~left], aft[~left]), 'остальная часть не тронута')
+        kn2 = np.zeros((T, T), bool)
+        kn2[left] = True
+        out2, rep2 = RZ.panel_sibling_tone([g], [bef], [aft], [kn2], [np.zeros(len(g['F']), np.int32)])
+        ok(rep2['texels_changed'] == 0 and np.array_equal(np.asarray(out2[0]), aft), 'известные (фото) тексели панели не меняются')
+        bef2 = bef.copy()
+        bef2[left] = 60
+        out3, rep3 = RZ.panel_sibling_tone([g], [bef2], [aft], known, [np.zeros(len(g['F']), np.int32)])
+        ok(rep3['texels_changed'] == 0, 'цвет 06 панелей разный (не близнецы) — тон не трогается')
+        RZ.panel_ids = lambda V_, F_, parts_: np.zeros(len(F_), np.int32)
+        out4, rep4 = RZ.panel_sibling_tone([g], [bef], [aft], known, [np.zeros(len(g['F']), np.int32)])
+        ok(rep4['texels_changed'] == 0, 'панель одна — сравнивать не с чем')
+    finally:
+        RZ.panel_ids = orig
+
+
 def main():
-    for f in (test_norm_blocks, test_sibling_tone, test_own_panel_fabric_photo_quilt, test_sub_tone, test_own_panel_neutral_donor_needs_L, test_own_panel_keeps_our_L, test_align_tied, test_own_panel_smooth_no_quilt, test_align_ut, test_own_panel_clean_detail, test_own_panel_tone, test_same_mesh, test_decide, test_gate_per_property, test_propagate, test_object_basis, test_inconsistent_winding, test_outer_only, test_panel_with_bottom, test_panels, test_apply_to_fill, test_relief_source, test_ultratex_full):
+    for f in (test_norm_blocks, test_sibling_tone, test_panel_sibling_tone, test_own_panel_fabric_photo_quilt, test_sub_tone, test_own_panel_neutral_donor_needs_L, test_own_panel_keeps_our_L, test_align_tied, test_own_panel_smooth_no_quilt, test_align_ut, test_own_panel_clean_detail, test_own_panel_tone, test_same_mesh, test_decide, test_gate_per_property, test_propagate, test_object_basis, test_inconsistent_winding, test_outer_only, test_panel_with_bottom, test_panels, test_apply_to_fill, test_relief_source, test_ultratex_full):
         f()
     print(f'tests_ref_zone: ошибок {len(FAILS)}')
     return 1 if FAILS else 0
