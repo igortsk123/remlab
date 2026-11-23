@@ -135,6 +135,15 @@ ok(info0['mode'] == 'smooth' and not np.any(res0) and 'донора' in info0['w
 res0, info0 = TS.synth_group(lab_of(stripes(0.0)), known, np.zeros((T, T), bool), None, CFG, blur_norm)
 ok(info0['mode'] == 'smooth' and 'нет невидимого' in info0['why'], 'нечего синтезировать → smooth')
 
+print('4б. рваный донор (дырки от выбросов): куски нужного размера не находятся — недокрытое добирается мельче')
+from scipy.ndimage import gaussian_filter  # noqa: E402
+holes = gaussian_filter(np.random.RandomState(1).randn(T, T), 4) > 0.45
+known_h = known & ~holes
+cfg_big = dict(CFG, patch_px=96, overlap_px=24, min_donor_px=2000)
+resh, infoh = TS.synth_group(lab_of(stripes(0.0)), known_h, target, None, cfg_big, blur_norm, seed=5)
+ok(infoh['mode'] == 'quilt' and infoh['covered'] >= 0.9 and len(infoh['patch_levels_px']) >= 2, f"рваный донор: накрыто {infoh.get('covered')} кусками {infoh.get('patch_levels_px')}")
+ok(0.5 <= infoh['energy_ratio'] <= 1.5, f"энергия при рваном доноре {infoh['energy_ratio']} (цель 0,5–1,5)")
+
 print('5. выбросы-детали (контур ручки) не в доноре; у узора — остаются')
 lab = lab_of(stripes(0.0))
 lab[60:70, 40:50, 0] -= 40.0                                       # тёмная деталь на известном

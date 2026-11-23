@@ -106,8 +106,8 @@
       "skip_classes": [],
       "up_min": 0.5,
       "seed_step": 1009,
-      "common": {"low_px": 6.0, "patch_px": 32, "overlap_px": 8, "min_donor_px": 6000, "donor_erode_px": 3, "clip_k": 3.0, "chroma_max": 8.0, "n_cand": 24, "tol": 0.1, "min_cover": 0.9},
-      "by_class": {"узор": {"low_px": 24.0, "patch_px": 96, "overlap_px": 24, "min_donor_px": 20000, "clip_k": 99.0}}
+      "common": {"low_px": 6.0, "patch_px": 48, "overlap_px": 12, "min_donor_px": 6000, "donor_erode_px": 3, "clip_k": 3.0, "chroma_max": 8.0, "n_cand": 8, "tol": 0.1, "min_cover": 0.9, "min_valid": 0.9, "patch_levels": [1.0, 0.5, 0.25], "patch_min_px": 16},
+      "by_class": {"узор": {"low_px": 24.0, "patch_px": 96, "overlap_px": 24, "min_donor_px": 20000, "clip_k": 99.0, "patch_min_px": 24}}
     },
     "grain_fine_px": 1.5,
     "slow_px": 12.0,

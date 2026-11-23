@@ -87,9 +87,9 @@ def _seam_cut(err: np.ndarray) -> np.ndarray:
 
 def quilt(donor: np.ndarray, donor_valid: np.ndarray, target: np.ndarray, orient_t: np.ndarray | None, orient_d: np.ndarray | None,
           dens_t: np.ndarray | None, dens_d: np.ndarray | None, P: int, ov: int, n_cand: int = 24, tol: float = 0.1, seed: int = 0,
-          scale_clip: tuple = (0.5, 2.0)) -> tuple:
+          scale_clip: tuple = (0.5, 2.0), min_valid: float = 0.9) -> tuple:
     """Квилтинг остатка по маске `target` (T,T) из `donor` (T,T,C) в местах `donor_valid`. Патч донора выбирается среди n_cand случайных по минимуму ошибки на уже готовом перекрытии (в пределах tol от минимума),
-    шов — по минимуму ошибки (левая/верхняя полоса перекрытия). → (res (T,T,C) нулевой вне target, done (T,T) bool — где синтезировано)."""
+    шов — по минимуму ошибки (левая/верхняя полоса перекрытия). Патч донора допускается, если чистых текселей в нём ≥ min_valid (нечистые — остаток 0, гладко). → (res (T,T,C) нулевой вне target, done (T,T) bool)."""
     T = target.shape[0]
     C = donor.shape[-1]
     rng = np.random.RandomState(seed)
@@ -138,8 +138,9 @@ def quilt(donor: np.ndarray, donor_valid: np.ndarray, target: np.ndarray, orient
                 if kt is not None and dens_d is not None and dens_d[int(cy), int(cx)] > 0:
                     k = float(np.clip(kt / float(dens_d[int(cy), int(cx)]), scale_clip[0], scale_clip[1]))
                 patch, vv = _warp(donor, donor_valid, cy, cx, P, delta, k)
-                if patch is None or vv.min() < 0.999:
+                if patch is None or float(vv.mean()) < min_valid:
                     continue
+                patch = patch * (vv > 0.5)[..., None]
                 pc = patch[:ph, :pw]
                 e = float(((pc[dn] - out[ya:yb, xa:xb][dn]) ** 2).mean()) if dn.any() else 0.0
                 best.append((e, pc))
@@ -196,7 +197,21 @@ def synth_group(lab: np.ndarray, known: np.ndarray, target: np.ndarray, maps: di
         info['why'] = f"чистых текселей донора {n_clean} < {int(cfg['min_donor_px'])}" if target.any() else 'нет невидимого'
         return np.zeros((T, T, 3), np.float32), info
     mm = maps or {}
-    out, done = quilt(res_d, clean, target, mm.get('angle'), mm.get('angle'), mm.get('dens'), mm.get('dens'), P, ov, int(cfg['n_cand']), float(cfg['tol']), seed)
+    out = np.zeros((T, T, 3), np.float32)
+    done = np.zeros((T, T), bool)
+    lv = []
+    for f in cfg.get('patch_levels', [1.0, 0.5, 0.25]):                # крупный кусок несёт рисунок; недокрытое (донор рваный) добираем мельче
+        Pl = max(int(round(P * f)), int(cfg.get('patch_min_px', 16)))
+        if Pl not in [x[0] for x in lv]:
+            lv.append((Pl, max(int(round(ov * f)), 4)))
+    for li, (Pl, ovl) in enumerate(lv):
+        rest = target & ~done
+        if not rest.any():
+            break
+        o2, d2 = quilt(res_d, clean, rest, mm.get('angle'), mm.get('angle'), mm.get('dens'), mm.get('dens'), Pl, ovl, int(cfg['n_cand']), float(cfg['tol']), seed + 17 * li, min_valid=float(cfg.get('min_valid', 0.9)))
+        out[d2] = o2[d2]
+        done |= d2
+    info['patch_levels_px'] = [x[0] for x in lv]
     cov = float(done.sum()) / max(int(target.sum()), 1)
     sig_s = robust_sigma(out[done][:, 0]) if done.any() else 0.0
     info.update({'mode': 'quilt', 'covered': round(cov, 4), 'sigma_synth_L': round(sig_s, 3), 'energy_ratio': round(sig_s / max(sig_d, 1e-6), 3)})
