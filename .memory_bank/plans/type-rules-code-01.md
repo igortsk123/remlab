@@ -2,7 +2,7 @@
 tier: 2
 topic: type-rules-code
 scope: правила по типам товара → код → тест → прогон; реестр правил и автосверка
-status: active
+status: in_progress
 updated: 2026-11-23
 owner_ref: TG 2306/2308 (23.11), TG 2503/2504, TG 2615 (20.11)
 ---
