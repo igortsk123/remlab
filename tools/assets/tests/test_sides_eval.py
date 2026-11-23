@@ -12,6 +12,9 @@ ASSETS = os.path.join(HERE, '..')
 sys.path.insert(0, ASSETS)
 import numpy as np  # noqa: E402
 import sides_eval as SE  # noqa: E402
+sys.path.append(os.path.join(HERE, "..", "..", "scout"))  # tools/scout — помощник временного
+import remlab_tmp  # noqa: E402
+remlab_tmp.use("test_sides_eval")
 
 R = SE.load_rules()
 SR = SE.load_sheet_rules()
