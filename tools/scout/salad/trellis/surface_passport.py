@@ -518,6 +518,14 @@ def _tone_arr(grp: dict, ctx: dict, gi: int, m: np.ndarray) -> np.ndarray:
     return np.stack([gr['coef'][c][0] + gr['coef'][c][1] * s for c in range(3)], 1)
 
 
+def light_floor(tgt_L, tone_L, cls: str, F: dict):
+    """«Светлое не темнеет» (T-28/1, директор): у группы класса «свет» с L тона ≥ `min_L` невидимое не темнее тона группы больше чем на `max_darker_dL`. Чистая функция по L (массив/число)."""
+    if not F.get('enabled', False) or cls != 'свет':
+        return tgt_L
+    tl = np.asarray(tone_L, float)
+    return np.where(tl >= float(F['min_L']), np.maximum(tgt_L, tl - float(F['max_darker_dL'])), tgt_L)
+
+
 def edge_body_tone(lab_obs: np.ndarray, grp_tone, E: dict, min_de: float, de_fn=None) -> dict:
     """Тон «корпуса» по ФОТО-текселям не-фасадных граней группы (кромки, верх, видимая боковина; роль панели — по геометрии: не на плоскости фасада). Чистая функция.
     lab_obs — Lab фото-текселей этих граней; берётся, если их ≥ `min_texels`, и их медиана — другой материал: ΔE00 от тона группы > `min_de`. → {'ok', 'tone', 'n', 'de00', 'why'}"""
@@ -836,6 +844,7 @@ def apply_groups(geoms: list, tex_after: list, known_keep: list, pas: dict, ctx:
                 if sinfo['mode'] == 'quilt' or (sinfo['mode'] == 'smooth' and syn.get('smooth_fallback', True)):   # 'skip' (рисунка нет) — прежнее зерно, без синтеза
                     res = sres[m].astype(np.float64)                          # остаток фактуры из куска фото своей группы (нет донора — 0: гладко, не шум)
             tgt = tone + res
+            tgt[:, 0] = light_floor(tgt[:, 0], np.broadcast_to(np.asarray(tone, float)[..., 0], tgt[:, 0].shape), grp['class'], R.get('light_floor') or {})
             dm = wseam[m][:, None]
             new_all[m] = cur + dm * (tgt - cur)
             touched |= m

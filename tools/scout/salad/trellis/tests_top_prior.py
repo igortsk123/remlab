@@ -424,5 +424,31 @@ class Gutter(unittest.TestCase):
         self.assertEqual(TP.gutter_into(img.copy(), np.flatnonzero(occ.reshape(-1)), np.array([], int), 2), 0)
 
 
+class TestChooseTopTone(unittest.TestCase):
+    """T-28/1: тон верха без фото — кандидат 06-synth против Ш3в; светлое не темнеет."""
+    S = {'enabled': True, 'min_texels': 500, 'max_dL': 10.0, 'light_min_L': 90.0, 'light_max_darker': 4.0}
+
+    def test_close_takes_synth(self):
+        r = TP.choose_top_tone([70.0, 1.0, 5.0], [76.0, 0.0, 6.0], self.S)
+        self.assertEqual(r['use'], 'synth')
+
+    def test_white_stays_white(self):                                            # стол 18286: synth L100, Ш3в L88 (по кромке в тени) — белая столешница не серая
+        r = TP.choose_top_tone([100.0, 0.0, 0.0], [88.1, 0.0, 0.0], self.S)
+        self.assertEqual(r['use'], 'synth')
+        self.assertGreaterEqual(r['lab'][0], 99.0)
+
+    def test_dark_synth_far_takes_top(self):                                     # synth темнее Ш3в на 30: расхождение, не светлый случай — Ш3в
+        r = TP.choose_top_tone([40.0, 0.0, 0.0], [70.0, 3.0, 20.0], self.S)
+        self.assertEqual(r['use'], 'top')
+
+    def test_light_synth_but_top_not_darker(self):                               # synth светлее Ш3в не-светлого: 92 против 78 → светлое не темнеет → synth; а Ш3в светлее synth — Ш3в
+        self.assertEqual(TP.choose_top_tone([92.0, 0, 0], [78.0, 0, 0], self.S)['use'], 'synth')
+        self.assertEqual(TP.choose_top_tone([60.0, 0, 0], [95.0, 0, 0], self.S)['use'], 'top')
+
+    def test_disabled_or_missing(self):
+        self.assertEqual(TP.choose_top_tone([100.0, 0, 0], [88.0, 0, 0], dict(self.S, enabled=False))['use'], 'top')
+        self.assertEqual(TP.choose_top_tone(None, [88.0, 0, 0], self.S)['use'], 'top')
+
+
 if __name__ == '__main__':
     unittest.main(verbosity=1)

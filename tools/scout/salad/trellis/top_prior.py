@@ -581,6 +581,44 @@ def hypothesis_textures(an: dict, rules: dict, base_texs: list, length_cm: float
 CONF_RANK = {'none': 0, 'low': 1, 'medium': 2, 'high': 3}
 
 
+def choose_top_tone(synth_lab, top_lab, S: dict) -> dict:
+    """Тон верха без фото (T-28/1): кандидат 06-synth (тон с острого угла) против Ш3в (по кромке/голосам). Берём synth, если |ΔL| к Ш3в ≤ `max_dL` (одно мнение — не спорим) ИЛИ synth светлый
+    (L ≥ `light_min_L`) и Ш3в темнее него больше чем на `light_max_darker` (светлое не темнеет: белая столешница 18286 L100 → Ш3в 88); иначе Ш3в. Чистая функция.
+    → {'use': 'synth'|'top', 'lab': [...], 'why': str, 'dL': float}"""
+    if not S.get('enabled', False) or synth_lab is None or top_lab is None:
+        return {'use': 'top', 'lab': None if top_lab is None else [float(x) for x in top_lab], 'why': 'кандидата synth нет или правило выключено', 'dL': None}
+    sl, tl = float(synth_lab[0]), float(top_lab[0])
+    dl = sl - tl
+    if abs(dl) <= float(S['max_dL']):
+        return {'use': 'synth', 'lab': [float(x) for x in synth_lab], 'why': f'|ΔL| {abs(dl):.1f} ≤ {S["max_dL"]}: synth и Ш3в близки — берём synth', 'dL': round(dl, 1)}
+    if sl >= float(S['light_min_L']) and dl > float(S['light_max_darker']):
+        return {'use': 'synth', 'lab': [float(x) for x in synth_lab], 'why': f'synth светлый (L {sl:.0f} ≥ {S["light_min_L"]}), Ш3в темнее на {dl:.1f} > {S["light_max_darker"]} — светлое не темнеет', 'dL': round(dl, 1)}
+    return {'use': 'top', 'lab': [float(x) for x in top_lab], 'why': f'ΔL {dl:+.1f}: расхождение, не светлый случай — Ш3в', 'dL': round(dl, 1)}
+
+
+def synth_top_lab(an: dict, synth, min_texels: int):
+    """Медиана Lab 06-цвета у текселей верха без фото, которые 06 закрасил по тону с острого угла (synth-маска). synth = (маски по геометриям, текстуры 06). → (lab, n) | None."""
+    import tex_coverage as TC
+    if not synth:
+        return None
+    masks, tex06 = synth
+    labs = []
+    for t in an['top_all']:
+        gi = t['gi']
+        if gi >= len(masks):
+            continue
+        sel = np.asarray(masks[gi], bool).reshape(-1)[t['tx'].ti] & t['top'] & ~t['kn']
+        if sel.any():
+            flat = np.asarray(tex06[gi]).reshape(-1, np.asarray(tex06[gi]).shape[-1])[:, :3]
+            labs.append(TC.rgb2lab(flat[t['tx'].ti][sel].astype(np.uint8)))
+    if not labs:
+        return None
+    lab = np.concatenate(labs)
+    if len(lab) < int(min_texels):
+        return None
+    return np.median(lab, axis=0), int(len(lab))
+
+
 def stage07_gate(res: dict, rules: dict) -> tuple:
     """Правило на ВСЕ товары (T-187/7): верх красим тоном Ш3в, если решение дало тон и его уверенность ≥ `stage07.min_confidence` (rules/top-prior.json); иначе верх остаётся как есть
     (донор / тон своей зоны этапа 07). → (применять, причина). Чистая функция."""
@@ -619,7 +657,7 @@ def _top_tones(an: dict, texs: list, tag: str) -> dict:
 
 
 def stage07(geoms: list, tex_after: list, known: list, parts, roles: dict | None, draft, card: dict | None = None, photo: str | None = None, rules: dict | None = None,
-            library_dir: str | None = None) -> tuple:
+            library_dir: str | None = None, synth=None) -> tuple:
     """Хук этапа 07 (T-187/7; канон paint-photo-fill-01, строка 7: «верх — Ш3в»). Верх (горизонтальная плита, нормаль вверх) — только тексели, которых нет на фото (`top & ~known`; known не меняется).
     → (текстуры, отчёт). Отчёт: `top_source` — photo_top (весь верх с фото) | no_top (верха нет) | same_part_inference | trellis_prior | as_before (уверенности нет — как делал 07) и поля решения."""
     import tex_coverage as TC  # noqa: F401
@@ -642,6 +680,15 @@ def stage07(geoms: list, tex_after: list, known: list, parts, roles: dict | None
     rep['gate'] = why
     if not ok:
         return [np.asarray(t) for t in tex_after], rep
+    SC = rules.get('stage07', {}).get('synth_candidate') or {}
+    if SC.get('enabled', False) and synth is not None:                       # T-28/1: тон-кандидат 06-synth против Ш3в (светлое не темнеет)
+        sy = synth_top_lab(an, synth, int(SC.get('min_texels', 500)))
+        if sy is not None:
+            ch = choose_top_tone(sy[0], res['tone_lab'], SC)
+            rep['synth_candidate'] = {'synth_lab': [round(float(x), 1) for x in sy[0]], 'n': sy[1], 'top_lab': [round(float(x), 1) for x in res['tone_lab']], 'use': ch['use'], 'why': ch['why'], 'dL': ch['dL']}
+            if ch['use'] == 'synth':
+                res['tone_lab'] = [round(float(x), 1) for x in ch['lab']]
+                rep['tone_lab'] = res['tone_lab']
     r2 = dict(rules, retint_native=bool(rules.get('stage07', {}).get('retint_native', False)), unknown_policy='keep')
     lib = library_dir if library_dir is not None else os.path.join(ROOT, rules['library_pat'])
     out = hypothesis_textures(an, r2, [np.asarray(t) for t in tex_after], rules['fallback_length_cm'], lib if os.path.isdir(lib) else None)

@@ -2637,7 +2637,7 @@ def own_panel_tone_hook(geoms: list, tex_after: list, known: list, ut_g: list | 
         return tex_after, {'error': f'{type(e).__name__}: {e}'}
 
 
-def top_prior_hook(geoms: list, tex_after: list, known: list, parts, cfg: dict | None, draft_glb: str | None) -> tuple:
+def top_prior_hook(geoms: list, tex_after: list, known: list, parts, cfg: dict | None, draft_glb: str | None, synth=None) -> tuple:
     """Хук 07 (T-187/7; канон paint-photo-fill-01 строка 7: «верх — Ш3в»): невидимые тексели ВЕРХА (нормаль вверх, верхний уровень; `top & ~known`) красятся тоном `top_prior`, если его уверенность ≥ порога
     (rules/top-prior.json → stage07.min_confidence), иначе верх остаётся как сделал 07 (донор / тон своей зоны). Идёт ПОСЛЕ own_panel_tone_hook и ДО front_on_back; known не меняется.
     cfg: `top_card` (карточка: класс материала верха, размеры), `top_photo` (фото: контраст узора). Узор — из rules `library_pat` (в репо и в срезе кода Salad). Сбой не роняет этап. → (текстуры, отчёт с `top_source`)."""
@@ -2650,7 +2650,7 @@ def top_prior_hook(geoms: list, tex_after: list, known: list, parts, cfg: dict |
         if not rules.get('stage07', {}).get('enabled', False):
             return tex_after, {'top_source': 'as_before', 'applied': False, 'top_skip': 'disabled', 'gate': 'stage07.enabled = false'}
         draft = draft_texels(geoms, TC.load_geoms(draft_glb), None) if draft_glb and os.path.isfile(draft_glb) else None
-        return TP.stage07(geoms, tex_after, known, parts, c.get('part_role'), draft, c.get('top_card'), c.get('top_photo'), rules)
+        return TP.stage07(geoms, tex_after, known, parts, c.get('part_role'), draft, c.get('top_card'), c.get('top_photo'), rules, synth=synth)
     except Exception as e:  # noqa: BLE001
         return tex_after, {'top_source': 'as_before', 'applied': False, 'error': f'{type(e).__name__}: {e}'}
 
@@ -2864,7 +2864,9 @@ def run_stage_once(run: str, sku: str, glb: str, known: list | None = None, part
         rep['sub_tone'] = {'error': f'{type(e).__name__}: {e}'}
     _tex_pre_top = tex_after
     _m = _hmark()
-    tex_after, rep['top_prior'] = top_prior_hook(geoms, tex_after, known, parts, cfg, None if relief_src == 'ultratex' else draft_glb)
+    _sy_dir = (cfg or {}).get('synth_dir')                                  # T-28/1: маска «synth» этапа 6 (prov=4) + цвета 06 — кандидат тона верха без фото
+    _synth_arg = (load_synth_png(_sy_dir), tex_before) if _sy_dir else None
+    tex_after, rep['top_prior'] = top_prior_hook(geoms, tex_after, known, parts, cfg, None if relief_src == 'ultratex' else draft_glb, synth=_synth_arg)
     _hdone(hooks, 'top_prior', _m)
     if sg_pas is not None and rep['top_prior'].get('applied'):                  # T-28/1: верх без фото с тоном, далёким от однотонной группы, следует группе (хук откатывается, красит паспорт)
         _tf = SP.top_follows_group(rep['top_prior'], sg_pas, sg_cfg)
@@ -3130,6 +3132,21 @@ def paint_policy_for(cfg: dict | None) -> dict:
     return pol
 
 
+def load_synth_png(visible: str) -> list:
+    """Маски «тон с острого угла» этапа 6 (prov.png значение 4) по геометриям: тексели, которые 06 закрасил по Ш3б (не прямое фото). Нет prov-карты — пустые маски."""
+    from PIL import Image
+    out = []
+    for i in range(64):
+        fp = os.path.join(visible, "known.png" if i == 0 else f"known{i}.png")
+        if not os.path.exists(fp):
+            break
+        k = np.asarray(Image.open(fp).convert("L")) > 127
+        pp = os.path.join(visible, "prov.png" if i == 0 else f"prov{i}.png")
+        pv = np.asarray(Image.open(pp)) if os.path.exists(pp) else None
+        out.append(k & (pv == 4) if pv is not None and pv.ndim == 2 and pv.shape == k.shape else np.zeros(k.shape, bool))
+    return out
+
+
 def main(argv: list | None = None) -> int:
     """CLI этапа 07 в формате paint_stage (обвязка сквозного прогона 01→09):
       python3 tools/scout/salad/trellis/tex_fill.py run_stage <run> <sku> [--visible <папка 06-visible>] [--parts-npz <parts.npz> | --no-parts-npz] [--cfg <json>] [--no-mirror]
@@ -3170,6 +3187,7 @@ def main(argv: list | None = None) -> int:
         cfg["top_card"] = json.load(open(a.card_json, encoding="utf-8")) if os.path.isfile(a.card_json) else json.loads(a.card_json)      # путь к файлу (на Salad — @in/card.json) или сам JSON
     if a.photo:
         cfg["top_photo"] = a.photo
+    cfg["synth_dir"] = visible
     try:
         r = run_stage(a.run, a.sku, os.path.join(visible, "visible.glb"), known=load_known_png(visible) or None, cfg=cfg, mirror=not a.no_mirror, ut_glb=a.ut_glb, parts_npz=parts_npz, prev_dir=visible)
     except Exception as e:                                                       # noqa: BLE001 — сбой запуска: в check.json, не молча

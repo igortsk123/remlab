@@ -288,6 +288,17 @@ def test_edge_body_tone():
     ok(not SP.edge_body_tone(same, [70.7, -3.3, -0.6], E, 12.0)['ok'], 'не-фасад того же тона (тот же материал) — не срабатывает')
 
 
+def test_light_floor():
+    print('светлое не темнеет: группа «свет» L≥90 — невидимое не темнее тона больше чем на 4 (T-28/1):')
+    F = {'enabled': True, 'min_L': 90.0, 'max_darker_dL': 4.0}
+    tgt = np.array([99.0, 92.0, 80.0, 70.0])
+    out = SP.light_floor(tgt, np.full(4, 99.5), 'свет', F)
+    ok(float(out.min()) >= 95.5 - 1e-9 and out[0] == 99.0, f'белая группа: min {out.min():.1f} ≥ 95.5, светлое не тронуто')
+    ok(np.array_equal(SP.light_floor(tgt, np.full(4, 80.0), 'свет', F), tgt), 'тон группы L80 < 90 — не трогаем')
+    ok(np.array_equal(SP.light_floor(tgt, np.full(4, 99.5), 'узор', F), tgt), 'класс «узор» не трогаем')
+    ok(np.array_equal(SP.light_floor(tgt, np.full(4, 99.5), 'свет', dict(F, enabled=False)), tgt), 'enabled=false — прежнее поведение')
+
+
 def test_grain_no_dark_seams():
     print('зерно группы — без тёмных швов пула блоков:')
     g, tex, known, parts, base = scene_plane_two_parts()
@@ -515,7 +526,7 @@ def test_blur_caches():
 
 
 def main() -> int:
-    for f in (test_blur_caches, test_split_plane_one_tone, test_contrast_door_own_group, test_gray_pattern_not_flattened, test_back_is_body_not_facade, test_back_not_tiny_contrast, test_top_follows_group, test_edge_body_tone, test_grain_no_dark_seams, test_gradient_continues, test_outlier_replaced, test_orphan_attached, test_orphan_guards, test_orphan_keeps_hook_tone, test_hook_keep_top, test_ultratex_switch_off, test_hidden_pattern_by_type):
+    for f in (test_blur_caches, test_split_plane_one_tone, test_contrast_door_own_group, test_gray_pattern_not_flattened, test_back_is_body_not_facade, test_back_not_tiny_contrast, test_top_follows_group, test_edge_body_tone, test_light_floor, test_grain_no_dark_seams, test_gradient_continues, test_outlier_replaced, test_orphan_attached, test_orphan_guards, test_orphan_keeps_hook_tone, test_hook_keep_top, test_ultratex_switch_off, test_hidden_pattern_by_type):
         f()
     print(f'tests_surface_passport: ошибок {bad}')
     return 1 if bad else 0
