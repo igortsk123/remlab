@@ -198,6 +198,7 @@ FAIL_WORDS = {
     'known_changed_share_pct': 'заливка тронула то, что уже взято с фото: {value:g} % (допуск {op} {threshold:g})',
     'pool_rejected_pct': 'часть кусков для заливки отбракована: {value:g} % (допуск {op} {threshold:g})',
     'time_s': 'заливка шла дольше допуска: {value:g} с (допуск {op} {threshold:g})',
+    'cpu_s': 'заливка считала дольше допуска: {value:g} процессорных с (допуск {op} {threshold:g})',
 }
 
 

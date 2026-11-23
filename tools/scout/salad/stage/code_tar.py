@@ -26,11 +26,14 @@ ROOT = os.path.abspath(os.path.join(HERE, '..', '..', '..', '..'))
 sys.path.insert(0, HERE)
 import worker_stage as WS  # noqa: E402  (whitelist команд — единственный источник: что можно запускать из кода задания)
 
-SLICES = ('tools/scout/salad/trellis', 'tools/scout/rules')              # берутся целиком
+SLICES = ('tools/scout/salad/trellis', 'tools/scout/rules',          # берутся целиком (первые два обязательны, остальные — если есть в коммите)
+          'data/flat3d/top-library', 'data/flat3d/material-classes.json', 'tools/assets/material_class.py',
+          # данные модулей частей, которые они читают по ROOT/data/flat3d (молчаливый откат при отсутствии: material_parts._catalog_dims → размер по роли, parts_refine.shape_cfg) — T-193/4
+          'data/flat3d/material-recipes.json', 'data/flat3d/furniture.json')    # данные Ш3в в 07: узоры верха (pat512) + библиотека, правила класса материала и его код (T-187/7)
 ASSETS = 'tools/assets'                                                   # части граней (материал/ножки): tex_fill ленивo импортирует их из tools/assets (sys.path.insert внутри функции) — T-193/3
 DIRS = tuple(WS.CODE_DIRS) + (ASSETS,)                                    # где искать наши модули по имени (как sys.path этапа + tools/assets)
 FULL_EXTRA = ('tools/scout/paint_stage.py', 'tools/scout/salad/recolor_lp.py',
-              'tools/assets/material_parts.py', 'tools/assets/parts_refine.py', 'tools/assets/parts_vote.py')   # кроме точек входа и trellis/**: учитываем и отложенные импорты (parts_refine: `from parts_vote import` внутри функции)
+              'tools/assets/material_parts.py', 'tools/assets/parts_refine.py', 'tools/assets/parts_vote.py', 'tools/assets/part_shapes.py')   # кроме точек входа и trellis/**: учитываем и отложенные импорты (parts_refine: `from parts_vote import` внутри функции)
 DATA_FILES = ('data/flat3d/material-part-rules.json', 'data/flat3d/parts-sam-rules.json')   # правила модулей tools/assets (их RULES_PATH = ROOT/data/flat3d/…); едут в срезе вместе с модулями
 MUST = ('06', '07')                                                       # точки входа, без которых срез не годится (ref_zone/render_unlit — если есть в коммите)
 SHA_RE = re.compile(r'^[0-9a-f]{40}$')
@@ -139,7 +142,8 @@ def build(repo: str, ref: str) -> dict:
         absent = [d for d in data if d not in files]
         if absent:
             raise CodeTarError(f'в коммите {sha[:8]} нет правил модулей частей: {absent}')
-    paths = list(SLICES) + outside
+    opt = [x for x in SLICES[2:] if git(repo, 'ls-tree', '--name-only', sha, '--', x).strip()]      # данные Ш3в (T-187/7): в старых коммитах и учебных репо их может не быть
+    paths = list(SLICES[:2]) + opt + outside
     tar = git(repo, 'archive', '--format=tar', sha, '--', *paths, text=False)
     if data:
         tar = add_data(tar, [(packed_name(d), git(repo, 'show', f'{sha}:{d}', text=False)) for d in data])

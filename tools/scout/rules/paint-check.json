@@ -15,10 +15,10 @@
   },
   "soft": {
     "_about": "Мерка из списка не прошла, остальные прошли → этап «мягко»: товар можно показывать с пометкой. Любая иная непрошедшая мерка, непрошедший этап без названной мерки или отсутствие check.json → «отказ»/«нет» (жёстко). \"*\" — весь этап мягкий. `everywhere` — мерки любого этапа (стоимость, не качество).",
-    "everywhere": ["seconds", "time_s"],
+    "everywhere": ["seconds", "time_s", "cpu_s"],
     "05-delight": "*",
     "06-visible": ["known_share", "edge_corr"],
-    "07-fill": ["dE00_front_back", "filled_faces_step_pct"]
+    "07-fill": ["dE00_front_back", "dL_front_back", "filled_faces_step_pct"]
   },
   "final_glb": {
     "stages": ["08-material", "07-fill"],

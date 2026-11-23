@@ -133,8 +133,11 @@ def expand_args(args: list[str], jdir: str, out: str) -> list[str]:
     return res
 
 
+CODE_TAR_PREFIXES = ('tools/', 'data/flat3d/')                                  # куда code.tar может писать (код и его данные); остальное — отказ
+
+
 def safe_untar(data: bytes, dest: str, limit: int = MAX_CODE_UNPACK) -> list[str]:
-    """Распаковка code.tar только внутрь `dest`: обычные файлы и папки, пути только `tools/…`, без абсолютных, `..`, ссылок, устройств, бомб (сумма ≤ limit). Возвращает имена файлов."""
+    """Распаковка code.tar только внутрь `dest`: обычные файлы и папки, пути только `tools/…` и `data/flat3d/…` (данные Ш3в: узоры верха, правила класса материала; T-187/7), без абсолютных, `..`, ссылок, устройств, бомб (сумма ≤ limit). Возвращает имена файлов."""
     root = os.path.realpath(dest)
     total, names = 0, []
     try:
@@ -148,7 +151,7 @@ def safe_untar(data: bytes, dest: str, limit: int = MAX_CODE_UNPACK) -> list[str
                 continue
             if not m.isreg():
                 raise ValueError(f'code.tar: не обычный файл (ссылка/устройство): {n[:80]}')
-            if n.startswith('/') or '..' in n.split('/') or '\\' in n or not n.startswith('tools/'):
+            if n.startswith('/') or '..' in n.split('/') or '\\' in n or not n.startswith(CODE_TAR_PREFIXES):
                 raise ValueError(f'code.tar: недопустимый путь: {n[:80]}')
             total += m.size
             if total > limit:

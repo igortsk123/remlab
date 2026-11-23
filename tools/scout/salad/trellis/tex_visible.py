@@ -506,13 +506,16 @@ def metrics(geoms, st, prgb, pmask, tr, after: np.ndarray, cos_min: float) -> di
     return out
 
 
-def gate(m: dict) -> tuple[dict, list]:
-    """Мерки с порогами (формат paint_stage) и список причин отказа. Нет измерения — не «ок»."""
+def gate(m: dict, thin_pass: bool = False) -> tuple[dict, list]:
+    """Мерки с порогами (формат paint_stage) и список причин отказа. Нет измерения — не «ок». thin_pass — тонкий предмет, камера легла по контуру: IoU площади не мерка."""
     mm, why = {}, []
     for k, (thr, op) in GATE.items():
         if k == 'edge_bg_share' and k not in m:
             continue
         mm[k] = {'value': m.get(k), 'threshold': thr, 'op': op}
+        if k == 'silhouette_iou' and thin_pass and k in m:
+            mm[k]['thin_not_a_measure'] = True
+            continue
         if k not in m or not PS.judge(m[k], op, thr):
             why.append(f'{k} {m.get(k, "нет измерения")} (нужно {op} {thr})')
     return mm, why
@@ -562,6 +565,17 @@ def run(glb: str, photo: str, pose_run: str, run_dir: str, sku: str, cos_min: fl
         PS.write_check(d, '06-visible', sku, passed=False, metric={'name': 'silhouette_iou', 'value': 0.0, 'threshold': GATE['silhouette_iou'][0], 'op': '>='},
                        reason=f'этап 6 не выполнен: {why}', seconds=round(time.time() - t0, 1), needs_qwen=False, stage_error=why, pose_run=pose_run)
         return {'sku': sku, 'passed': False, 'reason': 'error', 'why': [why], 'dir': d}
+
+
+def thin_ok(pose_run: str) -> bool:
+    """Камера 04 прошла гейт по контуру тонкого предмета (extra.thin_rescue и thin.passed): IoU площади для такого — не мерка (rules/camera-check.json), этап 6 его не требует."""
+    try:
+        ch = json.load(open(os.path.join(pose_run, '04-camera', 'check.json'), encoding='utf-8'))
+    except (OSError, ValueError, TypeError):
+        return False
+    ex = ch.get('extra') or {}
+    th = ex.get('thin') or {}
+    return bool(ch.get('passed') is True and ex.get('thin_rescue') and th.get('eligible') and th.get('passed'))
 
 
 def camera_gate(pose_run: str) -> tuple:
@@ -632,7 +646,8 @@ def _run(glb: str, photo: str, pose_run: str, run_dir: str, sku: str, cos_min: f
     if st.get('iou_frame') is not None and cut_row is None and abs(iou_here - st['iou_frame']) > 0.02:
         raise ValueError(f'фото не то или матрица не та: IoU силуэта здесь {iou_here:.3f}, в прогоне камеры {st["iou_frame"]:.3f}')
     st['iou_frame'] = iou_here
-    if iou_here < GATE['silhouette_iou'][0]:                         # камере не верим: перенос не делаем (fail-closed)
+    thin_pass = thin_ok(pose_run)                                     # тонкий предмет: камера легла по контуру, IoU площади не мерка (06 и 04 не расходятся)
+    if iou_here < GATE['silhouette_iou'][0] and not thin_pass:        # камере не верим: перенос не делаем (fail-closed)
         PS.write_check(d, '06-visible', sku, passed=False, metric={'name': 'silhouette_iou', 'value': round(iou_here, 4), 'threshold': GATE['silhouette_iou'][0], 'op': '>='},
                        reason=f'камера фото не легла по силуэту (IoU {iou_here:.3f}) — перенос не делался', seconds=round(time.time() - t0, 1), needs_qwen=False, camera_failed=True,
                        camera=st['camera'], pose_run=pose_run)
@@ -669,7 +684,7 @@ def _run(glb: str, photo: str, pose_run: str, run_dir: str, sku: str, cos_min: f
     after_vis = frame_from_tex(st, geoms, [hatch(t, k) for t, k in zip(tr['tex'], tr['known'])])
     side_views = frame(os.path.join(d, 'frame.png'), prgb, pmask, after_vis, dst, view_glb=view, cam=st['camera'])
     os.remove(view)
-    mm, why = gate(m)
+    mm, why = gate(m, thin_pass)
     main = mm.pop('silhouette_iou')
     ok = not why
     PS.write_check(d, '06-visible', sku, passed=ok, metric={'name': 'silhouette_iou', **{k: main[k] for k in ('value', 'threshold', 'op')}}, metrics=mm,

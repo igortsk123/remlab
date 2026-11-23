@@ -356,5 +356,73 @@ class RimCut(unittest.TestCase):
         self.assertNotRegex(src, r'\d{9,}')
 
 
+class Seamless(unittest.TestCase):
+    """Правило 22.11: узор верха кладётся без видимых стыков плитки — скачок L на стыке / рядом ≤ 1,3 (настоящие узоры библиотеки pat512, обе оси)."""
+    LIMIT = 1.3
+
+    def _pats(self):
+        import json
+        from PIL import Image
+        import tex_coverage as TC
+        root = os.path.abspath(os.path.join(HERE, '..', '..', '..', '..'))
+        d = os.path.join(root, RULES['library_pat'])
+        out = {}
+        for k in sorted(json.load(open(os.path.join(root, RULES['library']), encoding='utf-8'))['items']):
+            im = np.asarray(Image.open(os.path.join(d, k + '.jpg')).convert('RGB').resize((512, 512)), np.uint8)
+            L = TC.rgb2lab(im.reshape(-1, 3)).reshape(512, 512, 3)
+            out[k] = L - L.reshape(-1, 3).mean(0)
+        return out
+
+    def test_real_patterns_have_no_seam_jump(self):
+        ov = RULES['pattern']['seam_overlap']
+        self.assertTrue(0.08 <= ov[0] <= ov[1] <= 0.16)                       # перекрытие 8–16 % плитки (правило директора 22.11)
+        self.assertEqual(RULES['pattern']['seam_max_jump'], self.LIMIT)
+        pats = self._pats()
+        self.assertGreaterEqual(len(pats), 28)
+        before = {k: TP.seam_jump(p) for k, p in pats.items()}
+        after = {k: TP.seam_jump(TP.seamless_pattern(p, ov)) for k, p in pats.items()}
+        bad = {k: round(v, 2) for k, v in after.items() if v > self.LIMIT}
+        self.assertEqual(bad, {}, f'стык виден: {bad} (до правки максимум {max(before.values()):.2f})')
+        self.assertGreater(max(before.values()), self.LIMIT)                  # мерка ловит прежний шов: без неё тест ничего не доказывал бы
+
+    def test_seam_is_continuous_and_not_a_mirror(self):
+        rng = np.random.default_rng(1)
+        p = rng.normal(size=(100, 100, 3))
+        q = TP.seamless_pattern(p, [0.12, 0.12])
+        self.assertEqual(q.shape, (88, 88, 3))                                   # перекрытие 12 из 100: плитка короче на 12 по каждой оси
+        self.assertTrue(np.allclose(q[12:, 12:], p[12:88, 12:88]))                # середина плитки — без изменений
+        q2 = TP.seamless_pattern(p, [0.08, 0.16])
+        self.assertTrue(80 <= q2.shape[0] <= 92)
+        self.assertLessEqual(TP.seam_jump(q2), TP.seam_jump(q) + 1e-9)             # из диапазона берётся лучшее (не хуже одного значения)
+        self.assertTrue(np.array_equal(TP.seamless_pattern(p, [0.08, 0.16]), q2))  # детерминированно
+        self.assertFalse(np.allclose(q[:, 0], q[:, -1][::-1]))                    # не зеркало
+        self.assertLess(abs(float(q.std()) / float(p.std()) - 1.0), 0.15)         # контраст не просел и не вырос заметно
+        self.assertTrue(np.array_equal(TP.seamless_pattern(p, 0.0), p))           # правило выключено — узор как был
+        self.assertTrue(np.array_equal(TP.seamless_pattern(p, [0.5, 0.5]), p))     # перекрытие больше трети — не применяется
+
+
+class Gutter(unittest.TestCase):
+    """Желоб вокруг перекрашенного верха (линия на шве островков UV): непокрытые текселы рядом с перекрашенными дублируют их цвет, остальные — нет."""
+
+    def test_gutter_follows_painted_only(self):
+        t = 16
+        img = np.zeros((t, t, 4), np.uint8)
+        img[..., 3] = 255
+        occ = np.zeros((t, t), bool)
+        occ[4:8, 2:14] = True                     # островок A (перекрашен)
+        occ[10:14, 2:14] = True                   # островок B (не трогали)
+        img[occ, :3] = (200, 100, 50)
+        painted = np.zeros((t, t), bool)
+        painted[4:8, 2:14] = True
+        img[painted, :3] = (10, 220, 30)
+        n = TP.gutter_into(img, np.flatnonzero(occ.reshape(-1)), np.flatnonzero(painted.reshape(-1)), 2)
+        self.assertGreater(n, 0)
+        self.assertTrue((img[8, 5, :3] == (10, 220, 30)).all())                  # строка сразу под A — цвет A
+        self.assertTrue((img[3, 5, :3] == (10, 220, 30)).all())                  # и над A
+        self.assertTrue((img[9, 5, :3] == (0, 0, 0)).all() or (img[9, 5, :3] == (10, 220, 30)).all())  # третий пиксель до B: у B нет перекрашенного соседа
+        self.assertTrue((img[10:14, 2:14, :3] == (200, 100, 50)).all())            # B не тронут
+        self.assertEqual(TP.gutter_into(img.copy(), np.flatnonzero(occ.reshape(-1)), np.array([], int), 2), 0)
+
+
 if __name__ == '__main__':
     unittest.main(verbosity=1)
