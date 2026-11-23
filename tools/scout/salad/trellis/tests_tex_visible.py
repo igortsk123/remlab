@@ -182,7 +182,7 @@ class TestTexVisible(unittest.TestCase):
             self._transfer(st)
 
     def test_gate_and_check_json(self):
-        m = {'silhouette_iou': 0.93, 'known_share': 0.3, 'edge_corr': 0.97, 'lab_dE': 1.2}
+        m = {'silhouette_iou': 0.93, 'known_visible_share': 0.8, 'edge_corr': 0.97, 'lab_dE': 1.2}
         mm, why = TV.gate(m)
         self.assertEqual(why, [])
         mm, why = TV.gate({**m, 'silhouette_iou': 0.5, 'edge_corr': 0.1})
@@ -192,7 +192,23 @@ class TestTexVisible(unittest.TestCase):
         mm, why = TV.gate({**m, 'silhouette_iou': 0.758})
         self.assertTrue(any('silhouette_iou' in w for w in why), 'без тонкого IoU 0,758 — отказ как прежде')
         mm, why = TV.gate({'silhouette_iou': 0.9})                 # нет измерений ≠ «ок»
-        self.assertTrue(any('known_share' in w for w in why))
+        self.assertTrue(any('known_visible_share' in w for w in why))
+
+    def test_gate_reads_visible_share_not_texel_share(self):
+        """T-215: порог — по доле истинно видимого (known_visible_share); прежняя known_share (доля всех текселей) гейта не решает ни в плюс, ни в минус."""
+        m = {'silhouette_iou': 0.93, 'known_visible_share': 0.8, 'edge_corr': 0.97, 'lab_dE': 1.2}
+        self.assertNotIn('known_share', TV.GATE)
+        mm, why = TV.gate({**m, 'known_share': 0.03})              # мало текселей всей развёртки (зад, невидимое), но видимое покрыто → проход
+        self.assertEqual(why, [], f'малая доля текселей при покрытом видимом не должна валить гейт ({why})')
+        thr = TV.GATE['known_visible_share'][0]
+        mm, why = TV.gate({**m, 'known_visible_share': thr / 2, 'known_share': 0.9})   # видимое не покрыто — отказ, как бы ни было с текселями
+        self.assertEqual(len(why), 1)
+        self.assertIn('known_visible_share', why[0])
+
+    def test_gate_threshold_comes_from_rules(self):
+        rules = json.load(open(os.path.join(TV.HERE, '..', '..', 'rules', 'tex-visible.json'), encoding='utf-8'))
+        self.assertEqual(TV.GATE['known_visible_share'], (float(rules['gate']['known_visible_share_min']), '>='))
+        self.assertTrue(rules['_gate_doc'].strip(), 'у числа порога должна быть строка обоснования')
 
     def _write_pose_run(self, d, iou_claim=1.0):
         st = fake_stage()
@@ -230,6 +246,10 @@ class TestTexVisible(unittest.TestCase):
             self.assertGreater(ch['metric']['value'], 0.85)
             self.assertGreater(r['metrics']['edge_corr'], 0.5)         # перенос не потерян при записи GLB (резкая синтетическая кромка + жёсткая эрозия 2 px по краю: мера на 200-пиксельном кадре низкая по построению)
             self.assertGreater(r['metrics']['known_share'], 0.15)
+            self.assertGreater(r['metrics']['known_visible_share'], TV.GATE['known_visible_share'][0])   # мерка гейта (T-215) в check
+            self.assertIn('known_visible_share', ch['metrics'])
+            self.assertNotIn('known_share', ch['metrics'])                # прежняя — справочно, в extra_metrics
+            self.assertIn('known_share', ch['extra']['extra_metrics'])
             self.assertLess(r['metrics']['lab_dE'], 1.0)
             self.assertIn('frayed_share', r['metrics'])                  # мерка рваности попадает в check
             self.assertIn('frayed_share', ch['extra']['extra_metrics'])
@@ -796,6 +816,42 @@ class TestZBuffer(unittest.TestCase):
         out3, info3 = TV.zbuffer_fix(g, st)
         self.assertIs(out3, st)
         self.assertEqual(info3['zbuf'], 'выключено')
+
+    def test_visible_known_share_denominator_is_silhouette_not_texels(self):
+        """T-215: закрытая форма — перед виден и покрыт фото, зад скрыт и фото не получает. Доля текселей (прежняя known_share) ≈ половина (зад в знаменателе), доля видимого ≈ 1:
+        гейт по ней не режет форму, у которой видимое покрыто целиком."""
+        g = z_scene('closed')
+        st, _ = TV.zbuffer_fix(g, z_stage(g))
+        pr, pm = z_photo()
+        tr = TV.transfer(g, st, pr, pm, tone=False)
+        share, vis = TV.visible_known_share(g, st, tr)
+        self.assertEqual(vis, int(st['mask'].sum()))
+        texel = sum(s['known'] for s in tr['stats']) / max(sum(s['occupied'] for s in tr['stats']), 1)
+        self.assertLess(texel, 0.6, 'контроль: прежняя мера занижена задом в знаменателе')
+        self.assertGreater(share, 0.85, f'видимое покрыто почти целиком, а доля {share}')
+        self.assertGreater(share, 1.5 * texel)
+
+    def test_visible_known_share_tracks_photo_coverage_of_silhouette(self):
+        """Фото закрывает лишь левую половину силуэта → доля видимого ≈ 0,5 (знаменатель — весь силуэт), а не доля занятых текселей."""
+        g = z_scene('closed')
+        st, _ = TV.zbuffer_fix(g, z_stage(g))
+        pr, pm = z_photo()
+        pm = pm.copy()
+        pm[:, PX // 2:] = False
+        pr = np.where(pm[..., None], pr, 0).astype(np.uint8)
+        tr = TV.transfer(g, st, pr, pm, tone=False)
+        share, _ = TV.visible_known_share(g, st, tr)
+        full, _ = TV.visible_known_share(g, st, TV.transfer(g, st, *z_photo(), tone=False))
+        self.assertLess(share, 0.6 * full, f'половина фото — заметно меньше полной ({share} против {full})')
+        self.assertGreater(share, 0.3 * full)
+
+    def test_no_known_gives_zero_share_and_empty_mask_does_not_divide(self):
+        g = z_scene('closed')
+        st, _ = TV.zbuffer_fix(g, z_stage(g))
+        tr = TV.transfer(g, st, np.zeros((PX, PX, 3), np.uint8), np.zeros((PX, PX), bool), tone=False)
+        self.assertEqual(TV.visible_known_share(g, st, tr)[0], 0.0)
+        empty = dict(st, mask=np.zeros_like(st['mask']))
+        self.assertEqual(TV.visible_known_share(g, empty, tr), (0.0, 0))
 
 
 if __name__ == '__main__':
