@@ -501,7 +501,7 @@ class T(unittest.TestCase):
             MTP.load = orig
         self.assertEqual(pol['112923_1']['hidden_pattern'], 'body')                          # политика из паспорта (paint_policy р.6)
         self.assertEqual(pol['112923_1']['passport_digest'], MTP.digest_of(reg['types']['комод']))
-        self.assertEqual(pol['112923_2'], {'hidden_pattern': 'unknown', 'passport_digest': None, 'policy_reason': 'no_type', 'type_hidden_pattern': 'unknown'})   # нет типа — «не оценено», не «обычная мебель»
+        self.assertEqual(pol['112923_2'], {'hidden_pattern': 'unknown', 'passport_digest': None, 'policy_reason': 'no_type', 'type_hidden_pattern': 'unknown', 'role': None})   # нет типа — «не оценено», не «обычная мебель»
         self.assertIn(pol['112923_3']['hidden_pattern'], ('continue', 'body', 'same_fabric', 'plain', 'not_applicable'))            # у всех типов политика явная (А1)
         self.assertIsNotNone(pol['112923_3']['passport_digest'])
         reg2 = copy.deepcopy(reg)

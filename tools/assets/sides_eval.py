@@ -557,6 +557,21 @@ def cache_key(sheets: str, i: str, R: dict, clay_dir: str, item: dict | None) ->
                 json.dumps(it, sort_keys=True, ensure_ascii=False).encode(), _file_bytes(os.path.abspath(__file__)), _file_bytes(FA.__file__), *extra)
 
 
+RULE_ID = 'R-SIDES-EVAL-TYPE'
+
+
+def rule_entry(item: dict, hp: str) -> dict:
+    """Запись правила для аудита прогона (extra.rules[]) — ОДНИМ форматом на все этапы: `rule_record.entry` (тип и digest из `paint_policy(роль)`). Применено по типу (continue/body/same_fabric/plain)
+    или воздержание с причиной (unknown, not_applicable, observe, нет политики); роли/типа нет — воздержание «тип не определён (no_type)»."""
+    scout = os.path.join(os.path.dirname(os.path.abspath(__file__)), '..', 'scout')
+    if scout not in sys.path:
+        sys.path.insert(0, scout)
+    import rule_record as RR  # noqa: PLC0415
+    if hp in ('continue', 'body', 'same_fabric', 'plain'):
+        return RR.entry(RULE_ID, item.get('role'), True)
+    return RR.entry(RULE_ID, item.get('role'), False, item.get('policy_reason') or f'hidden_pattern={hp}')
+
+
 def eval_one(sheets: str, i: str, R: dict, clay_dir: str, item: dict | None, cache_dir: str | None = None) -> dict:
     """Оценка одного листа (общая для последовательного и параллельного прогона); при cache_dir — из кэша, если входы те же."""
     from PIL import Image
@@ -580,6 +595,7 @@ def eval_one(sheets: str, i: str, R: dict, clay_dir: str, item: dict | None, cac
         r['hidden_pattern'] = hp
         r['passport_digest'] = (item or {}).get('passport_digest')
         r['policy_reason'] = (item or {}).get('policy_reason')            # одна политика и один digest в 07, check.json и оценке
+        r['extra'] = {'rules': [rule_entry(item or {}, hp)]}                                 # формат tools/ops/rule_registry_audit.py: rule_id, type, digest, applied | abstain+причина
     if flip:
         r['note'] = 'ракурс развёрнут'
     if kp:

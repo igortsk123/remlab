@@ -441,7 +441,7 @@ def eval_html(ev: dict, fronts: dict | None = None) -> str:
     unc = s.get('uncertain') or []
     out = [f'<h2>Автооценка: все 5 признаков на всех сторонах — {s["passed_all"]} из {s.get("measured", s["items"])}' + (f' ({pct} %)' if pct is not None else '')
            + (f' · не измерено (тонкая вещь, маска фото мала): {len(unc)}' if unc else '') + '</h2>'
-           '<p>Худшие сверху. Число — «насколько плохо к допуску» (r ≤ 1 — прошло, красным — не прошло); «—» — признак к стороне не применяется.</p>']
+           '<p>Худшие сверху. Число — «насколько плохо к допуску» (r ≤ 1 — прошло, красным — не прошло); «—» — признак к стороне не применяется. <b>Признак «рисунок» по типу — ориентир, не ворота</b>: пороги ждут калибровки на следующей партии.</p>']
     for sku in s['worst_first']:
         v = ev['per_sku'][sku]
         fr = (fronts or {}).get(sku) or {}
@@ -523,7 +523,7 @@ def type_policies(rules: dict, skus: list[str], types: dict[str, dict]) -> dict[
             pol = MTP.paint_policy((types.get(s) or {}).get('role'))
             observe = pol['reason'] is None and pol.get('mode') == 'observe'          # paint.mode=observe (пуф, кашпо…): по типу не оцениваем — «не оценено», не ok
             out[s] = {'hidden_pattern': 'unknown' if observe else pol['hidden_pattern'], 'passport_digest': pol['digest'],
-                      'policy_reason': 'mode_observe' if observe else pol['reason'], 'type_hidden_pattern': pol['hidden_pattern']}
+                      'policy_reason': 'mode_observe' if observe else pol['reason'], 'type_hidden_pattern': pol['hidden_pattern'], 'role': (types.get(s) or {}).get('role')}
     except Exception as exc:  # noqa: BLE001
         say(f'⚠ политика рисунка по типу не определена ({type(exc).__name__}: {str(exc)[:120]}) — unknown')
         out = {s: {'hidden_pattern': 'unknown', 'passport_digest': None, 'policy_reason': f'error:{type(exc).__name__}'} for s in skus}

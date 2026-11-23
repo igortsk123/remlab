@@ -253,5 +253,40 @@ with tempfile.TemporaryDirectory() as t2:
     r2 = SE.batch(t2, os.path.join(t2, 'o'), items={'x': {'id': 'x', 'hidden_pattern': 'continue', 'passport_digest': 'abc123'}})
     ok(r2['eval']['x']['hidden_pattern'] == 'continue' and r2['eval']['x']['passport_digest'] == 'abc123', 'eval.json: тип рисунка и digest паспорта записаны')
 
+# 13. парные тесты правила R-SIDES-EVAL-TYPE (rule-registry.json: test_positive / test_negative) и запись extra.rules[]
+import mesh_type_passports as MTP  # noqa: E402
+import shutil  # noqa: E402
+
+
+def test_sides_eval_type_positive():
+    """Комод (тип с hidden_pattern=body из паспорта): на фото узор фасада, зад ровный — НЕ брак; рисунок фасада на заду — брак (front_on_back)."""
+    pol = MTP.paint_policy('комод')
+    flat_back = SE.eval_sheet(sheet(photo_fn=st6, view_fns={'перед': st6, '3/4': st6, 'зад': None, 'бок': None, 'др. бок': None, 'верх': None}), R, SR, hidden_pattern=pol['hidden_pattern'])
+    ok(pol['hidden_pattern'] == 'body' and flat_back['views']['зад']['pattern']['ok'] is True, 'комод (body): ровный зад при узорном фото — не брак')
+
+
+def test_sides_eval_type_negative():
+    """Ваза (hidden_pattern=continue из паспорта): на фото клетка/полоса, зад ровный — брак; рисунок вдвое крупнее — тоже брак (масштаб)."""
+    pol = MTP.paint_policy('ваза')
+    flat_back = SE.eval_sheet(sheet(photo_fn=st6, view_fns={'зад': None, 'бок': st6}), R, SR, hidden_pattern=pol['hidden_pattern'])
+    ok(pol['hidden_pattern'] == 'continue' and flat_back['views']['зад']['pattern']['ok'] is False and flat_back['views']['бок']['pattern']['ok'] is True, 'ваза (continue): ровный зад при узорном фото — брак')
+
+
+test_sides_eval_type_positive()
+test_sides_eval_type_negative()
+with tempfile.TemporaryDirectory() as t3:
+    Image.fromarray(sheet(photo_fn=st6, view_fns={'зад': st6})).save(os.path.join(t3, 'a.png'))
+    shutil.copy(os.path.join(t3, 'a.png'), os.path.join(t3, 'a2.png'))
+    shutil.copy(os.path.join(t3, 'a.png'), os.path.join(t3, 'a3.png'))
+    its = {'a': {'id': 'a', 'hidden_pattern': 'continue', 'role': 'ваза'},
+           'a2': {'id': 'a2', 'hidden_pattern': 'unknown', 'role': 'пуф', 'policy_reason': 'mode_observe'},
+           'a3': {'id': 'a3', 'hidden_pattern': 'unknown', 'policy_reason': 'no_type'}}
+    r3 = SE.batch(t3, os.path.join(t3, 'o'), items=its)['eval']
+    e1, e2, e3 = (r3[k]['extra']['rules'][0] for k in ('a', 'a2', 'a3'))
+    want = MTP.paint_policy('ваза')
+    ok(e1 == {'rule_id': 'R-SIDES-EVAL-TYPE', 'type': 'ваза', 'digest': want['digest'], 'applied': True}, 'extra.rules[]: применено — запись rule_record.entry (тип, digest паспорта, applied)')
+    ok(e2['abstain'] == 'mode_observe' and 'applied' not in e2 and e2['digest'] == MTP.paint_policy('пуф')['digest'], 'extra.rules[]: observe — abstain с причиной, не applied')
+    ok(e3['type'] is None and e3['digest'] is None and 'no_type' in e3['abstain'], 'extra.rules[]: нет типа — запись abstain «no_type», не пустой охват')
+
 print('FAIL' if FAIL else 'OK', FAIL)
 sys.exit(1 if FAIL else 0)
