@@ -233,6 +233,15 @@ def judge_product(stages: list, cov: dict, rules: dict, pal: dict | None = None,
     return {'final': 'ready_with_notes' if notes else 'ready', 'reason': '', 'notes': notes, 'blocking': []}
 
 
+def _sources_by_search(run: str, sku: str) -> list:
+    """Этапы, чей источник plan09 записал как `search` (`<run>/<sku>/sources.json`); файла нет — пусто (прямой запуск 09 без сбора)."""
+    try:
+        d = json.load(open(os.path.join(run, PS.safe_name(sku), 'sources.json'), encoding='utf-8'))
+        return sorted(st for st, v in (d.get('sources') or {}).items() if (v or {}).get('how') == 'search')
+    except (OSError, ValueError):
+        return []
+
+
 def check_product(run: str, sku: str, rules: dict, stage_runs: dict | None = None, cov_fn=None, ribbon: bool = True, with_coverage: bool = True, pal_fn=None, surf_fn=None, fg_fn=None) -> dict:
     t0 = time.time()
     sr = stage_runs or {}
@@ -254,6 +263,11 @@ def check_product(run: str, sku: str, rules: dict, stage_runs: dict | None = Non
         {'stage': 'surface', 'status': 'ok', 'reason': '', 'hard_failed': [], 'soft_failed': [], 'metrics': {}, 'glb': glb}
     fgate = classify_frame_gate(run, sku, rules, sr, fg_fn)
     verdict = judge_product(stages, cov, rules, pal, surf, fgate)
+    by_search = _sources_by_search(run, sku)                                       # plan09: этап взят запасным поиском, а не из прогона входа пакета — форма/камера могли быть другими
+    if by_search:
+        verdict['notes'] = verdict['notes'] + ['источник по поиску (не по происхождению пакета): ' + ', '.join(by_search)]
+        if verdict['final'] == 'ready':
+            verdict['final'] = 'ready_with_notes'
     dec = PD.decide_product(stages, {'coverage': cov, 'palette': pal, 'surface': surf, 'frame_gate': fgate})     # рядом со старым флагом, итог (`passed`) не меняет — решения в тени
     frame = None
     if ribbon:
@@ -267,7 +281,7 @@ def check_product(run: str, sku: str, rules: dict, stage_runs: dict | None = Non
         metrics={'stages_missing': {'value': len(missing), 'threshold': 0, 'op': '<='}, 'hard_refusals': {'value': len(hard), 'threshold': 0, 'op': '<='},
                  'soft_notes': {'value': len(verdict['notes'])}},
         reason=verdict['reason'], seconds=time.time() - t0, outputs=['check.json'] + ([PS.FRAME] if frame else []), frame=frame,
-        final=verdict['final'], final_ru=rules['final_words'][verdict['final']], notes=verdict['notes'], blocking=verdict['blocking'],
+        final=verdict['final'], final_ru=rules['final_words'][verdict['final']], notes=verdict['notes'], blocking=verdict['blocking'], sources_by_search=by_search,
         stages=[{k: s[k] for k in ('stage', 'status', 'reason', 'hard_failed', 'soft_failed', 'metrics', 'run')} for s in stages],
         coverage={k: cov.get(k) for k in ('status', 'verdict', 'reason', 'metrics', 'glb', 'seconds')},
         palette={k: pal.get(k) for k in ('status', 'reason', 'metrics', 'rgb')},
