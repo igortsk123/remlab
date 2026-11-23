@@ -1,5 +1,8 @@
 {
- "_about": "«Перёд» товара для 07 (T-20261123-21/2; директор 23.11 по листам 5 товаров): камера 04 перёд НЕ решает — фото часто сбоку, с торца, 3/4. Расхождение θ«перёда» и азимута камеры: от camera_conflict_deg (~180°) — флаг front_camera_opposite (возможно фото сзади); от photo_side_deg до conflict — «фото сбоку» (photo_side), не ошибка. Порядок источников — в tools/scout/front_axis.py: orient решённый → геометрия корпусного → доли известного (только если фото фронтальное) → unknown; симметричные по роли — всегда unknown. Порог доли (margin) — sides-eval.json: front_guard.",
+ "_about": "«Перёд» товара для 07 (T-20261123-21/2; директор 23.11): фото товара фронтальное/3-4 спереди — камера 04 = сторона фото = законный источник перёда, пока она смотрит на ДЛИННУЮ грань габарита (угол к нормали длинной стороны ≤ frontal_max_deg); на торец — unknown; квадратные/круглые в плане (длинная/короткая < square_ratio) — по долям известного. Перёд↔зад у фронтального фото решают доли фото-текселей 06 (sides-eval.json: front_guard.margin). Порядок источников — tools/scout/front_axis.py: orient решённый (+ сиденье confident при seat_conflict) → камера 04 → доли → unknown; симметричные по роли — всегда unknown. Расхождение θ с камерой: ≥ camera_conflict_deg — front_camera_opposite, от photo_side_deg — photo_side (пометки). canon_front_yaw — фронт канона orient (orient_worker.FRONT_CANON_YAW).",
  "camera_conflict_deg": 135,
- "photo_side_deg": 45
+ "photo_side_deg": 45,
+ "frontal_max_deg": 45,
+ "square_ratio": 1.25,
+ "canon_front_yaw": 180
 }
