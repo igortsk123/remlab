@@ -94,6 +94,45 @@ class T(unittest.TestCase):
         d, rp = make({'.memory_bank/core/a.md': 'Ш0 — только автоматическая приёмка\nШ0 — только автоматическая приёмка после калибровки\n'})
         self.assertEqual([c['line'] for c in MC.check(d, MC.load(rp))['conflicts']], [1])
 
+    def test_sh0_pattern_works_across_table_cells(self):
+        d, rp = make({'.memory_bank/plans/p.md': '| 2 | Ш0 приёмка формы | **только автоматическими правилами** (TG 1638) | код |\n| 2 | Ш0 приёмка формы | цель — автоматическими правилами; до калибровки глаз | код |\n'},
+                     self._real_subset(['sh0-not-auto-before-calibration']))
+        self.assertEqual([c['line'] for c in MC.check(d, MC.load(rp))['conflicts']], [1])
+
+    def _real_subset(self, ids):
+        # реальные факты, но канон-файл — заглушка: подставляем канон-фразы заглушки
+        real = MC.load()
+        facts = []
+        for f in real['facts']:
+            if f['id'] in ids:
+                facts.append({**f, 'canon': [{'file': '.memory_bank/canon.md', 'phrase': 'каноническая фраза'}]})
+        return {**real, 'facts': facts, 'scan': {'roots': ['.memory_bank'], 'exclude_dirs': [], 'history_paths': []}}
+
+    def test_paint_exception_fact(self):
+        d, rp = make({'.memory_bank/rules/x.md': (
+            'Промежуточный результат — владельцу после КАЖДОГО этапа конвейера\n'              # без оговорки — конфликт
+            'Промежуточный результат — после КАЖДОГО этапа, кроме покраски\n'                   # с оговоркой
+            'Гостиная parity = 0 после каждого этапа\n'                                           # не про показ владельцу
+            'approval_ref: владелец: «после каждого этапа конвейера — результат»\n'              # цитата источника
+            'Владелец в боте router TG 1545 (голос): «результаты — после каждого этапа конвейера»\n')},
+            self._real_subset(['paint-no-interim-before-5-signs']))
+        res = MC.check(d, MC.load(rp))
+        self.assertEqual([c['line'] for c in res['conflicts']], [1])
+        self.assertEqual(res['conflicts'][0]['mode'], 'warn')                                       # новый факт заводится в warn
+
+    def test_merged_is_not_pass_fact(self):
+        d, rp = make({'.memory_bank/p.md': '90 PASS/влито\nвлито = PASS\nPASS (влито)\nвлито ≠ PASS\nREADY TO MERGE ≠ PASS\nPASS — после зелёного CI\n'},
+                     self._real_subset(['merged-is-not-pass']))
+        self.assertEqual([c['line'] for c in MC.check(d, MC.load(rp))['conflicts']], [1, 2, 3])
+
+    def test_fact_mode_warn_does_not_block_block_does(self):
+        reg = {**REG, 'facts': [{**REG['facts'][0], 'mode': 'warn'}, {**REG['facts'][1]}]}
+        d, rp = make({'.memory_bank/core/a.md': 'UltraTex красит\n'}, reg)
+        self.assertEqual(run(['--root', d, '--facts-file', rp, '--check'])[0], 0)                  # только warn-факт
+        d2, rp2 = make({'.memory_bank/core/a.md': 'UltraTex красит\nШ0 — только автоматическая приёмка\n'}, reg)
+        self.assertEqual(run(['--root', d2, '--facts-file', rp2, '--check'])[0], 1)                # block-факт тоже сработал
+        self.assertEqual(run(['--root', d, '--facts-file', rp, '--strict'])[0], 1)
+
     def test_canon_lost_fails(self):
         d, rp = make({'.memory_bank/canon.md': 'канон переписали\n'})
         res = MC.check(d, MC.load(rp))
@@ -125,7 +164,7 @@ class T(unittest.TestCase):
         reg = MC.load()                                   # схема реального реестра
         res = MC.check(ROOT, reg)
         self.assertEqual(res['canon_lost'], [], 'канон-файл или ключевая фраза из реестра пропали — обнови реестр вместе с каноном')
-        self.assertTrue({'ultratex-off', 'director-by-header', 'sh0-not-auto-before-calibration'} <= {f['id'] for f in reg['facts']})
+        self.assertTrue({'ultratex-off', 'director-by-header', 'sh0-not-auto-before-calibration', 'paint-no-interim-before-5-signs', 'merged-is-not-pass'} <= {f['id'] for f in reg['facts']})
         for f in reg['facts']:
             self.assertNotRegex(json.dumps(f, ensure_ascii=False), r'\d{5,}', 'в реестре не должно быть идентификаторов товаров')
 

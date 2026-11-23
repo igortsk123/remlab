@@ -12,6 +12,8 @@
   3. Запрещённое (`forbidden[].pattern`, regex без учёта регистра) пропускается, если: строка несёт метку истории (`history_markers`: «устарело», «заменено»,
      «было», «до 23.11», «~~»…); или строка/блок под заголовком истории (`history_headings`: «История», «Ход …», «Было», «Журнал»…); или рядом явное
      `<!-- canon-ok: <id факта> причина -->` в той же или предыдущей строке; или факт у файла в `allow_files`.
+     Режим: `mode` реестра (block по умолчанию) и необязательный `mode` у факта (новый факт заводят в warn — печатает, не блокирует CI, — и
+     переводят в block, когда доки чисты); `--strict` блокирует независимо от режимов.
   4. Вывод: `файл:строка [id] текст — почему нельзя; канон: файл`. Код 1 — есть конфликт/потерян канон, 2 — битый реестр.
 
   python tools/memory-conflicts.py --check          # CI: код 1 при конфликте (если mode реестра = block; warn — только печать)
@@ -63,6 +65,8 @@ def validate(reg) -> list:
         if not fid or not isinstance(fid, str):
             errs.append(f'facts[{i}]: нет id')
             continue
+        if f.get('mode', 'block') not in ('warn', 'block'):
+            errs.append(f'{fid}: mode — warn или block')
         if fid in seen:
             errs.append(f'{fid}: дубль id')
         seen.add(fid)
@@ -160,7 +164,7 @@ def check(root: str, reg: dict) -> dict:
                     near = ' '.join(lines[max(0, i - 1):i + 1])
                     if any(fnmatch.fnmatch(f['id'], m.group(1)) for m in _OK_RE.finditer(near)):
                         break
-                    conflicts.append({'file': rel, 'line': i + 1, 'fact': f['id'], 'text': ln.strip()[:200], 'why': x['why'], 'canon': canon_of[f['id']]})
+                    conflicts.append({'file': rel, 'line': i + 1, 'fact': f['id'], 'text': ln.strip()[:200], 'why': x['why'], 'canon': canon_of[f['id']], 'mode': f.get('mode', reg.get('mode', 'block'))})
                     break
     return {'conflicts': conflicts, 'canon_lost': lost}
 
@@ -170,7 +174,7 @@ def render(res: dict) -> str:
     for c in res['canon_lost']:
         out.append(f'КАНОН ПОТЕРЯН [{c["fact"]}] {c["file"]} — {c["why"]}')
     for c in res['conflicts']:
-        out.append(f'{c["file"]}:{c["line"]} [{c["fact"]}] {c["text"]} — {c["why"]}; канон: {c["canon"]}')
+        out.append(f'{c["file"]}:{c["line"]} [{c["fact"]}]{" (warn)" if c.get("mode") == "warn" else ""} {c["text"]} — {c["why"]}; канон: {c["canon"]}')
     out.append(f'итог: конфликтов {len(res["conflicts"])}, потерян канон {len(res["canon_lost"])}')
     return '\n'.join(out)
 
@@ -198,8 +202,9 @@ def main(argv=None) -> int:
     bad = bool(res['conflicts'] or res['canon_lost'])
     if not bad:
         return 0
-    if a.check and not a.strict and reg.get('mode', 'block') == 'warn':
-        print('⚠ режим реестра warn: конфликты не блокируют (после правки доков — mode: block)', file=sys.stderr)
+    blocking = bool(res['canon_lost']) or any(c['mode'] == 'block' for c in res['conflicts'])
+    if a.check and not a.strict and not blocking:
+        print('⚠ все найденные конфликты — у фактов/реестра в режиме warn: не блокируют (после правки доков — mode: block)', file=sys.stderr)
         return 0
     return 1
 
