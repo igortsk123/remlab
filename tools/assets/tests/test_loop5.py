@@ -1,4 +1,5 @@
 """Тесты круга «на 5» (loop5.py, T-20261123-29/1): без сети и платного — разбор входов, команды нод, деление, страница. Запуск: python3 tools/assets/tests/test_loop5.py (нужен Pillow)."""
+import glob
 import json
 import os
 import subprocess
@@ -80,6 +81,29 @@ class T(unittest.TestCase):
             self.assertEqual(i6[SK[0]]['pose_run'], f'/pose/{SK[0]}')
             with self.assertRaises(SystemExit):
                 L.shard_inputs(r, ['112923_nope'], '06', b)
+
+    def test_keep_photo_copies_into_run(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            r, _ = make_base(tmp)
+            b = L.base_dirs(r, SK)
+            src = os.path.join(tmp, 'src-photo.png')                    # «исходник во /tmp»
+            with open(src, 'wb') as f:
+                f.write(b'PNGDATA')
+            for f in glob.glob(L.ex(r['shard_inputs_glob'])):           # подставляем реальный файл как фото товара
+                d = json.load(open(f, encoding='utf-8'))
+                for v in d.values():
+                    v['photo'] = src
+                json.dump(d, open(f, 'w', encoding='utf-8'))
+            keep = os.path.join(tmp, 'run', 'photos')
+            inp = L.shard_inputs(r, SK[:2], '06', b, keep)
+            self.assertEqual(inp[SK[0]]['photo'], os.path.join(keep, SK[0] + '.png'))
+            self.assertEqual(open(inp[SK[0]]['photo'], 'rb').read(), b'PNGDATA')
+            os.remove(src)                                              # исходник пропал (как /tmp) — второй заход берёт копию
+            inp2 = L.shard_inputs(r, SK[:2], '06', b, keep)
+            self.assertEqual(inp2[SK[1]]['photo'], os.path.join(keep, SK[1] + '.png'))
+            self.assertEqual(L.photos(r, keep)[SK[0]], os.path.join(keep, SK[0] + '.png'))
+            with self.assertRaises(SystemExit):                          # ни исходника, ни копии
+                L.shard_inputs(r, SK[2:3], '06', b, keep)
 
     def test_stage_cmd(self):
         r = L.load_rules()

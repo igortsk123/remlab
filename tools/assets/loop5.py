@@ -22,6 +22,7 @@ import json
 import os
 import re
 import shlex
+import shutil
 import subprocess
 import sys
 import time
@@ -91,8 +92,26 @@ def split(skus: list[str], machines: int) -> list[list[str]]:
     return [p for p in parts if p]
 
 
-def shard_inputs(rules: dict, skus: list[str], start: str, base: dict[str, str]) -> dict[str, dict]:
-    """Строки входа stage_trial для товаров (06 и 07 — из пакета 29; для 07 добавляется vis = 06-visible «до»)."""
+def keep_photo(src: str, keep_dir: str, sku: str) -> str:
+    """Копия фото товара в папку прогона (T-34, директор 23.11): этапы пишут в свои json путь фото из входа (04-camera.photo, 05-delight.source_photo), а исходник бывает во /tmp и пропадает — 09 не сверит с палитрой.
+    Путь в входе и в json этапов — на копию в `<прогон>/photos/<товар>.<расширение>`. Нет исходника, но копия с прошлого захода есть — берём её; нет ни того ни другого — ошибка."""
+    ext = os.path.splitext(src)[1] or '.png'
+    dst = os.path.join(keep_dir, sku + ext)
+    if src and os.path.isfile(src) and os.path.getsize(src) > 0:
+        os.makedirs(keep_dir, exist_ok=True)
+        if not (os.path.isfile(dst) and os.path.getsize(dst) == os.path.getsize(src)):
+            tmp = dst + '.tmp'
+            shutil.copyfile(src, tmp)
+            os.replace(tmp, dst)
+        return dst
+    if os.path.isfile(dst) and os.path.getsize(dst) > 0:
+        return dst
+    raise SystemExit(f'нет фото товара {sku}: {src or "(пусто)"} — исходник пропал, копии в прогоне нет')
+
+
+def shard_inputs(rules: dict, skus: list[str], start: str, base: dict[str, str], keep_dir: str | None = None) -> dict[str, dict]:
+    """Строки входа stage_trial для товаров (06 и 07 — из пакета 29; для 07 добавляется vis = 06-visible «до»).
+    keep_dir — фото копируются туда и в входе стоит путь копии (см. keep_photo)."""
     allv: dict[str, dict] = {}
     for f in sorted(glob.glob(ex(rules['shard_inputs_glob']))):
         allv.update(json.load(open(f, encoding='utf-8')))
@@ -100,6 +119,10 @@ def shard_inputs(rules: dict, skus: list[str], start: str, base: dict[str, str])
     if miss:
         raise SystemExit(f'нет строки входа в {rules["shard_inputs_glob"]}: {miss}')
     sel = {s: json.loads(json.dumps(allv[s])) for s in skus}
+    if keep_dir:
+        for s in skus:
+            if sel[s].get('photo'):
+                sel[s]['photo'] = keep_photo(sel[s]['photo'], keep_dir, s)
     if start == '07':
         for s in skus:
             sel[s]['vis'] = os.path.join(base[s], '06-visible')
@@ -125,12 +148,17 @@ def stop_group(rules: dict, run_id: str, idx: int, rnd: int = 0) -> bool:
     return p.returncode == 0
 
 
-def photos(rules: dict) -> dict[str, str]:
+def photos(rules: dict, keep_dir: str | None = None) -> dict[str, str]:
     """Настоящее фото товара для листа (вырезка из входов пакета 29: `photo`); frame-photo.png 07 у шкафа — боковой кадр (р.2, 23.11)."""
     out = {}
     for f in sorted(glob.glob(ex(rules['shard_inputs_glob']))):
         with open(f, encoding='utf-8') as fh:
             out.update({s: v.get('photo') or '' for s, v in json.load(fh).items()})
+    if keep_dir:                                           # копия в прогоне надёжнее исходника
+        for s in list(out):
+            c = glob.glob(os.path.join(keep_dir, s + '.*'))
+            if c and not c[0].endswith('.tmp'):
+                out[s] = c[0]
     return out
 
 
@@ -289,7 +317,7 @@ def run_round(rules: dict, sha: str, start: str, skus: list[str], run_dir: str, 
         if start != '08':
             inp = os.path.join(run_dir, f'inputs-{tag_of(i, rnd)}.json')
             with open(inp, 'w', encoding='utf-8') as fh:
-                json.dump(shard_inputs(rules, g, start, base), fh, ensure_ascii=False, indent=1)
+                json.dump(shard_inputs(rules, g, start, base, os.path.join(run_dir, 'photos')), fh, ensure_ascii=False, indent=1)
         cmds.append(stage_cmd(rules, sha, start, i, g, run_dir, run_id, base_tree, inp, apply, rnd))
     with open(os.path.join(run_dir, f'plan-r{rnd}.json'), 'w', encoding='utf-8') as fh:
         json.dump({'sha': sha, 'from': start, 'groups': groups, 'cmds': cmds, 'apply': apply}, fh, ensure_ascii=False, indent=1)
@@ -349,7 +377,7 @@ def main(argv=None) -> int:
     min_gb = float(rules.get('min_free_gb', 2))
     if not a.dry and free_gb(run_dir) < min_gb:
         raise SystemExit(f'мало места на диске: свободно {free_gb(run_dir):.1f} ГБ < {min_gb} ГБ (rules.min_free_gb) — платный прогон не стартую')
-    photo = photos(rules)
+    photo = photos(rules, os.path.join(run_dir, 'photos'))
     rcs, rnd_log = [], []
     t_salad = 0.0
     sheets_before = {s: os.path.join(ex(rules['out_root']), 'base-sheets-b', f'{s}.png') for s in skus}
