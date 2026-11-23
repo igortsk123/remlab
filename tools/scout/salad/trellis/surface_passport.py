@@ -492,7 +492,7 @@ def rebuild_body_from_top(pas: dict, ctx: dict, geoms: list, R: dict, tf, top_re
     pas['groups'].extend(virt)
     pas['body_override'] = orep
     ctx['over'] = over
-    return {'rebuilt': True, 'tone': virt[0]['tone_lab'], 'virtual_groups': [v['id'] for v in virt], 'texels': sum(v['texels_total'] for v in virt)}
+    return {'rebuilt': True, 'tone': virt[0]['tone_lab'], 'virtual_groups': [v['id'] for v in virt], 'texels': sum(v['texels_total'] for v in virt), 'rules': orep.get('rules')}
 
 
 def _cen(maps: Maps, gi: int) -> np.ndarray:
@@ -737,7 +737,7 @@ def body_override(geoms: list, parts: list, maps: Maps, kn_clean: list, groups: 
             T = maps.T[gi]
             over[gi].reshape(-1)[tx] = vid
             n_over += int(tx.sum())
-            rec.update({'fired': True, 'relief_faces': int(relief.sum()), 'foreign_faces': int(foreign.sum()), 'foreign_area_pct': round(100 * float(ar[foreign].sum() / max(ar.sum(), 1e-12)), 1), 'texels': int(tx.sum()), 'support_axis': [round(float(x), 2) for x in ax]})
+            rec.update({'fired': True, 'faces_total': int(nF), 'relief_area_pct': round(100 * float(ar[relief].sum() / max(ar.sum(), 1e-12)), 1), 'relief_faces': int(relief.sum()), 'foreign_faces': int(foreign.sum()), 'foreign_area_pct': round(100 * float(ar[foreign].sum() / max(ar.sum(), 1e-12)), 1), 'texels': int(tx.sum()), 'support_axis': [round(float(x), 2) for x in ax]})
             rep['rules'].append(rec)
         if n_over:
             vg['texels_total'] = n_over
