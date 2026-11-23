@@ -84,6 +84,68 @@ function memoryMdBytes(cfg, root) {
   return null;
 }
 
+// Директор по шапке плана: первая строка «Директор: <машина> …» в .memory_bank/plan-zadach.md (имя машины — первое слово).
+export function planDirector(root) {
+  const f = join(root, ".memory_bank", "plan-zadach.md");
+  if (!existsSync(f)) return null;
+  const m = read(f).match(/^Директор:\s*([\p{L}\p{N}_-]+)/mu);
+  return m ? m[1].toLowerCase() : null;
+}
+
+// Строки с упоминанием «директор» + имя машины — не то, что в шапке плана. Исторические/оговорённые строки пропускаются.
+const STALE_MARK = /устарел|снят[оа]?\b|было\b|раньше|прежн|истори|до \d{1,2}\.\d{2}|если\b|подхват|вместо/i;
+export function staleDirectorLines(text, machines, director) {
+  const out = [];
+  const names = machines.map((x) => x.toLowerCase());
+  const alt = names.map((x) => x.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")).join("|");
+  if (!alt) return out;
+  const a = new RegExp(`директор[^.;\\n]{0,30}?(?:—|–|-|:|=|на|у)\\s*\`?(${alt})\\b`, "i");
+  const b = new RegExp(`\\b(${alt})\\b\`?\\s*(?:—|–|-|=)\\s*(?:новый\\s+)?директор`, "i");
+  text.split("\n").forEach((line, i) => {
+    const m = line.match(a) || line.match(b);
+    if (!m || m[1].toLowerCase() === director) return;
+    // оговорка («устарело», «было», «до 23.11»…) — только рядом с упоминанием: длинная строка правила её чужим словом не гасится
+    const near = line.slice(Math.max(0, m.index - 50), m.index + m[0].length + 40);
+    if (STALE_MARK.test(near)) return;
+    out.push({ line: i + 1, said: m[1].toLowerCase(), text: line.trim().slice(0, 110) });
+  });
+  return out;
+}
+
+const minSet = (s, withDay) => {
+  const set = new Set([...s.matchAll(/(\d+)\s*мин/g)].map((m) => Number(m[1])));
+  if (withDay) for (const m of s.matchAll(/(?:днём|днем|ночью)\s*(\d+)/g)) set.add(Number(m[1]));
+  return set;
+};
+
+function staleWarnings(root, rules, cfg) {
+  const out = [];
+  const machines = cfg.stale?.machines || [];
+  const director = planDirector(root);
+  const gone = (r) => ["superseded", "retired"].includes(r.fm.rule_status || "");
+  if (machines.length && director) {
+    const files = rules.filter((r) => !gone(r)).map((r) => ({ rel: `rules/${r.file}`, full: join(root, ".memory_bank", "rules", r.file) }));
+    files.push({ rel: "CLAUDE.md", full: join(root, "CLAUDE.md") });
+    const rd = join(root, ".claude", "rules");
+    if (existsSync(rd)) for (const n of readdirSync(rd).filter((x) => x.endsWith(".md")).sort()) files.push({ rel: `.claude/rules/${n}`, full: join(rd, n) });
+    for (const f of files) {
+      if (!existsSync(f.full)) continue;
+      for (const x of staleDirectorLines(read(f.full), machines, director))
+        out.push(`RULES-STALE ${f.rel}:${x.line} — директор «${x.said}», а в шапке plan-zadach.md «Директор: ${director}»: «${x.text}»`);
+    }
+  }
+  for (const r of rules) {
+    if (gone(r)) continue;
+    const trig = r.fm.trigger || "";
+    const title = (read(join(root, ".memory_bank", "rules", r.file)).match(/^# .*$/m) || [""])[0];
+    const tm = minSet(title, false);
+    const gm = minSet(trig, true);
+    if (tm.size && gm.size && [...gm].some((n) => !tm.has(n)))
+      out.push(`RULES-STALE rules/${r.file} — trigger «${trig}» называет минуты {${[...gm].join(",")}}, в заголовке {${[...tm].join(",")}}`);
+  }
+  return out;
+}
+
 // opts: { today, memoryMd: bytes|null|undefined (undefined — искать по конфигу) }
 export function lintRules(root, opts = {}) {
   root = resolve(root);
@@ -216,6 +278,10 @@ export function lintRules(root, opts = {}) {
     const r = byId.get(id);
     if (r && st !== (r.fm.rule_status || "")) errors.push(`RULES-INDEX ${id} — статус в rules/INDEX.md «${st}» ≠ в файле «${r.fm.rule_status}»`);
   }
+
+  // 6б) устаревшие имена и числа (T-20261123-23, п.3; только предупреждения): машина-директор в тексте правил — как в шапке плана;
+  // минуты в trigger — те же, что в заголовке правила (P-020: «5/30» в заголовке, «15 мин» в trigger)
+  for (const w of staleWarnings(root, rules, cfg)) warnings.push(w);
 
   // 7) бюджет постоянного слоя
   const layer = layerBytes(root);

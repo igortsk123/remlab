@@ -125,6 +125,58 @@ test("правила с paths: в слой не входят", () => {
   assert.ok(lint(root).errors.some((e) => e.startsWith("RULES-BUDGET")));
 });
 
+// ---- RULES-STALE (T-20261123-23 п.3): директор-машина как в шапке плана; минуты trigger = заголовок
+const STALE_CFG = { stale: { machines: ["pakardev", "algor", "router", "common"] } };
+function withPlan(root, director) {
+  writeFileSync(join(root, ".memory_bank/plan-zadach.md"), `<!--\nДиректор: ${director} с 23.11 06:37 (владелец TG 1811)\n-->\n# План\n`);
+}
+function withBody(root, id, title, body, trigger = "обход", extra = {}) {
+  const f = join(root, `.memory_bank/rules/${id}.md`);
+  const t = pfile(id, { trigger, ...extra }).replace(`# ${id}\n`, `# ${id} · ${title}\n\n${body}\n`);
+  writeFileSync(f, t);
+}
+const stale = (r) => r.warnings.filter((w) => w.startsWith("RULES-STALE"));
+
+test("RULES-STALE: директор названа не та машина → предупреждение; нужная и оговорённые строки — нет", () => {
+  const root = mk({ "P-001": {} }, { config: STALE_CFG });
+  withPlan(root, "algor");
+  withBody(root, "P-001", "роли", "Директор — ведущий на pakardev, остальные работают.");
+  const r = lint(root);
+  assert.deepEqual(r.errors, []);
+  assert.equal(stale(r).length, 1);
+  assert.match(stale(r)[0], /P-001\.md:\d+ — директор «pakardev», а в шапке plan-zadach\.md «Директор: algor»/);
+  withBody(root, "P-001", "роли", "Директор — ведущий на algor.\npakardev — директор (устарело с 23.11).\nДо 23.11 директор — pakardev, подхват — router.");
+  assert.deepEqual(stale(lint(root)), []);
+  withBody(root, "P-001", "роли", "pakardev — директор.");
+  assert.equal(stale(lint(root)).length, 1, "форма «машина — директор» тоже ловится");
+});
+
+test("RULES-STALE: снятые правила, нет шапки плана или списка машин — тишина", () => {
+  const root = mk({ "P-001": { rule_status: "superseded", superseded_by: "P-002" }, "P-002": { supersedes: "P-001" } }, { config: STALE_CFG });
+  withPlan(root, "algor");
+  withBody(root, "P-001", "роли", "Директор — ведущий на pakardev.", "обход", { rule_status: "superseded", superseded_by: "P-002" });
+  assert.deepEqual(stale(lint(root)), []);
+  const r2 = mk({ "P-001": {} });
+  withPlan(r2, "algor");
+  withBody(r2, "P-001", "роли", "Директор — ведущий на pakardev.");
+  assert.deepEqual(stale(lint(r2)), [], "без stale.machines в конфиге — нет списка машин, проверка молчит");
+  const r3 = mk({ "P-001": {} }, { config: STALE_CFG });
+  withBody(r3, "P-001", "роли", "Директор — ведущий на pakardev.");
+  assert.deepEqual(stale(lint(r3)), [], "нет plan-zadach.md — нечего сверять");
+});
+
+test("RULES-STALE: минуты в trigger не совпали с заголовком (тип P-020)", () => {
+  const root = mk({ "P-001": {} });
+  withBody(root, "P-001", "Обход: днём каждые 5 мин, ночью каждые 30 мин", "текст", "обход директора (днём 15 мин, ночью 30)");
+  const s = stale(lint(root));
+  assert.equal(s.length, 1);
+  assert.match(s[0], /минуты \{15,30\}, в заголовке \{5,30\}/);
+  withBody(root, "P-001", "Обход: днём каждые 5 мин, ночью каждые 30 мин", "текст", "обход директора (днём 5 мин, ночью 30)");
+  assert.deepEqual(stale(lint(root)), []);
+  withBody(root, "P-001", "Обход директора", "текст", "обход (днём 5 мин, ночью 30)");
+  assert.deepEqual(stale(lint(root)), [], "в заголовке минут нет — сверять не с чем");
+});
+
 test("реальный реестр репо: ни одной ошибки (кроме ожидаемого бюджета в режиме warn)", () => {
   const r = lintRules(REPO, { today: TODAY, memoryMd: null });
   assert.deepEqual(r.errors, []);

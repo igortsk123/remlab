@@ -53,6 +53,9 @@ if (!process.stdin.isTTY) {
   }
 }
 if (hookInput.stop_hook_active) process.exit(0);
+// Рабочий (вкладка «рабочие:рабочий N») /memory-check не запускает — свод делает директор (P-037, T-20261123-23 п.4):
+// гейт и напоминание ему не нужны, иначе Stop-хук требует то, что правило запрещает. Переменную ставит запуск вкладки рабочего.
+if (process.env.REMLAB_ROLE === "рабочий") process.exit(0);
 
 let changed = [];
 try {

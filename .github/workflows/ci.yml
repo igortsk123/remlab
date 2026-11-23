@@ -39,6 +39,7 @@ jobs:
         shell: bash
         run: |
           node --test tests/memory-project-audit.test.mjs
+          node --test tests/session-reminder-role.test.mjs   # Stop-хук: у рабочего (REMLAB_ROLE=рабочий) не требует /memory-check (P-037, T-20261123-23)
           node --test tests/rules-lint.test.mjs   # линтер реестра правил P-NNN: дубль id, active без approval_ref, цикл замен, истёкший trial, P вне индекса, бюджет слоя (T-20261120-148/3)
           node tools/rules-lint.mjs --check .   # реестр правил: ошибка блокирует всегда (не зависит от gate-mode); бюджет слоя — по режиму в rules/lint-config.json
           python3 tools/tests/test_memory_conflicts.py   # сторож конфликтов канона: тест на заглушках + реальный реестр сверяется с реальным каноном (T-20261123-34/8)
@@ -208,6 +209,9 @@ jobs:
       # (здесь, не в scout-orient: «образ как есть» импортирует planner — нужны shapely/pydantic из requirements выше)
       - run: python tools/scout/tests/test_draft_image_rules.py   # образ запасного рендера несёт все rules/*, которые читает его код (improve-rooms.json 07.11), COPY ↔ белый список (T-20261107-03); в раскладке образа код находит приоры практики, planner не ищет файлы вне пакета (T-20261107-07)
       - run: python -m pytest tools/ops/tests/test_disk_guard.py tools/ops/tests/test_logs_archive.py -q -p no:cacheprovider   # сторож места перед платным/тяжёлым (<15 ГБ — отказ, ❗) и ночной перенос ~/remlab-logs на HDD: на заглушках во временной папке (T-20261123-35)
+      - run: python -m pytest tools/ops/tests/test_plan_lint.py tools/ops/tests/test_brief_lint.py tools/ops/tests/test_obhod_puls.py -q -p no:cacheprovider   # автопроверки правил работы: линт плана, линт брифов, пульс обходов директора (T-20261123-23)
+      - run: python tools/ops/plan_lint.py .memory_bank/plan-zadach.md --block PLAN-DIRECTOR,PLAN-DUP,PLAN-CHECK   # план: «Директор:» ровно одна, один T-ID у одного исполнителя, ✅ только у 100 %; остальное — предупреждения (на 23.11: 0 находок этих трёх категорий)
+      - run: python tools/ops/brief_lint.py --root . || echo "::warning::brief_lint нашёл пропуски в брифах (warn, не блок)"   # брифы с 23.11: метка, Salad/ядра, что чистит шаг, 4 строки конвейера, границы, memory-check — директор
       - run: python -m pytest tools/ops/tests/test_disk_clean.py -q -p no:cacheprovider   # уборка диска DEV второго круга: только влитое/чистое/старое, без одобрения не удаляет, запретные пути (T-20261110-30)
       - run: python -m pytest tools/ops/tests/test_trial_e2e.py -q -p no:cacheprovider   # замерщик пробы агента: стадии, p50/p95, 429/503, без --live на прод не грузит (T-20261109-14)
       - run: python -m pytest tools/ops/tests/test_forms_accept.py -q -p no:cacheprovider   # кадры приёмки формы: файлов = товары × виды × света, виды из одной таблицы (T-20261122-180/7)
