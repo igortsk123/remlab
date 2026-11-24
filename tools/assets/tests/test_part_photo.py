@@ -136,8 +136,14 @@ with tempfile.TemporaryDirectory() as d:
     med = np.median(A1[isl0][:, :3], axis=0)
     ok(np.linalg.norm(MS.rgb_to_lab(np.array([med], dtype=float))[0] - MS.rgb_to_lab(np.array([BRASS], dtype=float))[0]) < 6.0, f"остров части 0 сдвинут к цвету фото (медиана {med.astype(int).tolist()})")
     ok((A1[isl1] == A0[isl1]).all(), "утечка в соседнюю часть = 0: остров части 1 байт в байт (у неё нет данных)")
-    outside = ~isl0
-    ok((A1[outside] == A0[outside]).all(), "вне острова части 0 карта байт в байт (поля, зазор, чужие тексели не тронуты)")
+    import texel_pad as TP                      # путь к tools/scout добавил material_stage (pad_base_color)
+    cov = TP.coverage_from_uv(uv, faces, A0.shape[0])
+    outside = ~isl0 & cov
+    ok((A1[outside] == A0[outside]).all(), "вне острова части 0 покрытые тексели байт в байт (поля, чужие тексели не тронуты)")
+    mt2 = doc2["metrics"]
+    ok(mt2["texel_band_unfilled"]["ok"] is True and mt2["texel_band_unfilled"]["value"] == 0 and doc2["extra"]["texel_fill"]["uncovered_pct"] > 0, "check.json 08: мерка texel_band_unfilled = 0 (зелёная), отчёт texel_fill с долей непокрытых")
+    gap = ~cov
+    ok(gap.any() and (A1[gap] != A0[gap]).any(), "непокрытые тексели (зазор) залиты цветом соседей — это единственное, что вне острова меняется (T-20261125-70)")
     ok(doc2["metrics"]["color_unchanged"]["value"] is True and doc2["metrics"]["geometry_unchanged"]["ok"], "метрики этапа: цвет вне маски не тронут, форма не тронута")
     ok((A0[..., 3] == A1[..., 3]).all(), "альфа карты не тронута")
     doc3 = None

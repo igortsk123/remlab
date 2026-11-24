@@ -787,6 +787,30 @@ def tint_base_color(glb: str, uv: np.ndarray, faces: np.ndarray, face_tone: np.n
     return _png(out), mask, info
 
 
+def pad_base_color(glb: str, uv: np.ndarray, faces: np.ndarray, base_png: bytes | None, mask: np.ndarray | None) -> tuple[bytes | None, np.ndarray | None, dict | None]:
+    """Заливка непокрытых текселей карты цвета ПОСЛЕ последней покраски 08 (тон стекла, сдвиг части), перед записью (T-20261125-70; правило paint-fill.json → texel_fill, модуль tools/scout/texel_pad.py).
+    → (PNG или прежний base_png, маска изменённых текселей = прежняя ∪ залитые, отчёт для check.json). Покрытое (центр внутри грани) не меняется; нет карты цвета/квадратной карты — отчёт None."""
+    from PIL import Image
+    sd = os.path.join(ROOT, "tools", "scout")
+    if sd not in sys.path:
+        sys.path.insert(0, sd)
+    import texel_pad as TP
+
+    base = _base_image(*read_glb(glb))
+    if base is None:
+        return base_png, mask, None
+    cur = Image.open(io.BytesIO(base_png)).convert("RGBA") if base_png is not None else base
+    arr = np.asarray(cur)
+    if arr.shape[0] != arr.shape[1]:
+        return base_png, mask, None
+    cov = TP.coverage_from_uv(np.asarray(uv, dtype=np.float64), np.asarray(faces), arr.shape[0])
+    out, rep = TP.pad_texture(arr, cov, TP.rules())
+    changed = np.any(out != arr, axis=-1)
+    if not changed.any():
+        return base_png, mask, rep
+    return _png(out), (changed if mask is None else (mask | changed)), rep
+
+
 def lab_to_rgb(lab: np.ndarray) -> np.ndarray:
     """CIE Lab (D65, N×3) → sRGB 0..255 (uint8, с обрезкой)."""
     fy = (lab[:, 0] + 16) / 116
@@ -907,8 +931,16 @@ def shift_part_colours(base_png: bytes | None, glb: str, targets: dict[int, dict
     return _png(arr), mask
 
 
+def _texel_metrics(rep: dict | None) -> dict:
+    """Мерки заливки непокрытых текселей для check.json 08 (texel_pad.check_metrics); нет карты цвета — пусто."""
+    if not rep:
+        return {}
+    import texel_pad as TP
+    return TP.check_metrics(rep)
+
+
 def colour_unchanged_outside(src_glb: str, dst_glb: str, mask: np.ndarray | None) -> bool:
-    """Карта цвета не тронута везде, кроме текселей под тоном стекла (mask). Нет маски — байт в байт."""
+    """Карта цвета не тронута везде, кроме текселей под тоном стекла и залитых непокрытых (mask). Нет маски — байт в байт."""
     if mask is None:
         return image_sha(src_glb, "baseColor") == image_sha(dst_glb, "baseColor")
     a, b = _base_image(*read_glb(src_glb)), _base_image(*read_glb(dst_glb))
@@ -1114,6 +1146,7 @@ def run_stage(glb: str, run: str, sku: str, product: dict, parts_dir: str | None
         if pp["apply"] and targets:
             base_png, m2 = shift_part_colours(base_png, glb, targets)
             mask_all = m2 if mask_all is None else (mask_all | m2)
+    base_png, mask_all, texel_rep = pad_base_color(glb, np.asarray(uv, dtype=np.float64), np.asarray(mesh.faces), base_png, mask_all)       # непокрытые тексели — цветом соседей (после всей покраски 08)
     pinfo = patch_glb(glb, out_glb, maps, base_png, stage_mark=False)
     covered = part >= 0
     known = np.isin(part, [pid for pid in res])
@@ -1153,9 +1186,10 @@ def run_stage(glb: str, run: str, sku: str, product: dict, parts_dir: str | None
                  "inherited_share": {"value": round(inherited_share, 4), "threshold": c["inherited_share_max"], "op": "<="},
                  "fill_present": {"value": bool(fill_ok), "threshold": True, "op": "=="},
                  "color_unchanged": {"value": bool(color_same), "threshold": True, "op": "=="},
+                 **(_texel_metrics(texel_rep)),
                  "geometry_unchanged": {"value": bool(geom_same), "threshold": True, "op": "=="},
                  "seconds": {"value": round(time.time() - t0, 1), "threshold": c["max_seconds"], "op": "<="}, **plate_mt},
-        reason=reason, seconds=time.time() - t0, outputs=["material.glb"], frame=frame_name, plate=plate_rep, fill_stage=fill_note,
+        reason=reason, seconds=time.time() - t0, outputs=["material.glb"], frame=frame_name, plate=plate_rep, fill_stage=fill_note, texel_fill=texel_rep,
         faces=nf, parts_source=parts_source, shape=shape_rep, catalog_parts_not_located=not_located, unsure_parts=unsure_rep, product_class={"class": cls["class"], "stage": cls["stage"], "confidence": cls["confidence"], "reason": cls["reason"], "parts": cls.get("parts")},
         parts=parts_rep, classes=table, compound=cls.get("compound") or [], untouched_share=round(float(np.isin(part, [pid for pid, r in res.items() if r["class"] == "unknown"]).sum()) / nf, 4),
         painted_metal_share=round(float(np.isin(part, [pid for pid, r in res.items() if r.get("painted_from")]).sum()) / nf, 4),
