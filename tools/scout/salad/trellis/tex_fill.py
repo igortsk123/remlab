@@ -3098,7 +3098,8 @@ def run_stage_once(run: str, sku: str, glb: str, known: list | None = None, part
                 sg_rep['carcass_library_released'] = int(sum(int(np.asarray(m_).sum()) for m_ in sg_ctx['carcass_release']))
             _lp = pick.get('legs_protect')
             if _lp is not None:                                                                         # ножки (legs_common_tone): тон — пин группы, паспорт их не перекрашивает (иначе общий тон «части 0» затирает пин)
-                k_ap = [np.asarray(a, bool) | np.asarray(m_, bool) for a, m_ in zip(k_ap, _lp)]
+                _hk0 = sg_ctx.get('hook_keep')                                                         # «не перекрашивать» (как верх top_prior) — известное и его статистика тела не трогаются
+                sg_ctx['hook_keep'] = [np.asarray(m_, bool) | (np.asarray(_hk0[i_], bool) if _hk0 is not None else False) for i_, m_ in enumerate(_lp)]
                 sg_rep['legs_protected_texels'] = int(sum(int(np.asarray(m_).sum()) for m_ in _lp))
             _m = _hmark()
             m_b = SP.measure(geoms, tex_after, k_ap, sg_pas, sg_ctx, sg_cfg, sys.modules[__name__])
