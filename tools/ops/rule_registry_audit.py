@@ -15,6 +15,9 @@
     Иначе — ОШИБКА (rc=1, CI красный): правило с такими пробелами должно быть trial;
   • trial/proposed с объявленными, но НЕ существующими путями/символами — ошибка (битая ссылка);
   • типы паспорта без политики покраски (`paint.hidden_pattern`) — «тип без политики» (ошибка при `--strict-types`; в CI включено, А1 влит);
+  • реестр версии ≥ 3 (T-20261124-54/2, решение директора 24.11): у каждого `trial` — `group` из `groups`; у группы (или у самого правила) — `decide_by` (ГГГГ-ММ-ДД, не позже
+    `decide_by_max` реестра) и `enable_if` (условие включения ЧИСЛОМ — в тексте есть цифра); групп вида «держать» не больше `groups_max`; у `retired` — `retired_reason`.
+    Срок вышел, а правило всё ещё trial — класс «срок/условие решения» (не ошибка, в отчёт обхода): по правилу реестра группа без решения снимается целиком;
   • `--run <папка прогона>` — СТРУКТУРНО: у active в `*/<этап>/check.json` (этап — до точки в `check_field`) в `extra.rules[]` есть записи правила: rule_id, type,
     digest паспорта типа (= `mesh_type_passports.digest_of`) и `applied: true` либо `abstain` с причиной. Пустой охват (нет check.json / нет записей правила) = ошибка;
     применимые типы, встреченные в прогоне, но без записи правила = ошибка.
@@ -31,6 +34,7 @@ from __future__ import annotations
 import argparse
 import ast
 import collections
+import datetime
 import glob
 import hashlib
 import json
@@ -62,7 +66,8 @@ C_NOTEST = 'нет теста / тест не в CI'
 C_NOPAIR = 'нет парных тестов/прогона'
 C_NOTREACHED = 'включено, в прогоне не достигнуто'
 C_NOPOLICY = 'тип без политики'
-CLASSES = (C_BROKEN, C_NOCODE, C_NOCALL, C_OBSERVE, C_PARTIAL, C_NOTEST, C_NOPAIR, C_NOTREACHED, C_NOPOLICY)
+C_DEADLINE = 'срок/условие решения'
+CLASSES = (C_BROKEN, C_NOCODE, C_NOCALL, C_OBSERVE, C_PARTIAL, C_NOTEST, C_NOPAIR, C_NOTREACHED, C_NOPOLICY, C_DEADLINE)
 
 
 def _read(path: str) -> str:
@@ -261,8 +266,31 @@ def check_run(rule: dict, run_dir: str, passports: dict, root: str, add) -> None
         add(rid, C_NOTREACHED, 'применимые типы из прогона без записи правила: %s' % ', '.join(missing), True)
 
 
-def audit(registry_path: str = REGISTRY, passports_path: str = PASSPORTS, ci_path: str = CI, root: str = ROOT, run_dir: str = '') -> dict:
-    """→ {'rules': n, 'problems': [{rule_id, cls, why, error}], 'by_state': {...}}. error=True — валит CI."""
+def _date(s) -> 'datetime.date | None':
+    try:
+        return datetime.date.fromisoformat(s) if isinstance(s, str) else None
+    except ValueError:
+        return None
+
+
+def check_deadline(what: str, decide_by, enable_if, dmax, today, add, rid: str, trial: bool = True) -> None:
+    """Срок решения и условие числом у группы/правила (реестр v3). Нет срока/условия или срок позже `decide_by_max` — ошибка; срок вышел у живого trial — класс без ошибки."""
+    d = _date(decide_by)
+    if d is None:
+        add(rid, C_DEADLINE, '%s: нет decide_by (ГГГГ-ММ-ДД)' % what, True)
+    else:
+        if dmax and _date(dmax) and d > _date(dmax):
+            add(rid, C_DEADLINE, '%s: decide_by %s позже decide_by_max %s' % (what, decide_by, dmax), True)
+        if trial and d < today:
+            add(rid, C_DEADLINE, '%s: срок решения %s вышел — решения нет, по правилу реестра снять всю группу' % (what, decide_by), False)
+    if not (isinstance(enable_if, str) and re.search(r'\d', enable_if)):
+        add(rid, C_DEADLINE, '%s: enable_if должно быть условием числом (в тексте нет цифры)' % what, True)
+
+
+def audit(registry_path: str = REGISTRY, passports_path: str = PASSPORTS, ci_path: str = CI, root: str = ROOT, run_dir: str = '',
+          today: 'datetime.date | None' = None) -> dict:
+    """→ {'rules': n, 'problems': [{rule_id, cls, why, error}], 'by_state': {...}}. error=True — валит CI. today — для проверки сроков (по умолчанию сегодня)."""
+    today = today or datetime.date.today()
     out = {'problems': [], 'by_state': {}, 'rules': 0}
     try:
         reg = json.loads(_read(registry_path))
@@ -281,6 +309,19 @@ def audit(registry_path: str = REGISTRY, passports_path: str = PASSPORTS, ci_pat
 
     def add(rid, cls, why, error=False):
         out['problems'].append({'rule_id': rid, 'cls': cls, 'why': why, 'error': bool(error)})
+
+    v3 = isinstance(reg.get('version'), int) and reg['version'] >= 3        # сроки групп и причины снятия — с версии 3 (T-20261124-54/2)
+    groups = reg.get('groups') if isinstance(reg.get('groups'), dict) else {}
+    dmax = reg.get('decide_by_max')
+    if v3:
+        if not _date(dmax):
+            add('реестр', C_DEADLINE, 'нет decide_by_max (ГГГГ-ММ-ДД) — предельный срок решений по группам', True)
+        used_groups = {r.get('group') for r in rules if r.get('state') == 'trial'}
+        for gid, g in groups.items():
+            check_deadline('группа %s' % gid, (g or {}).get('decide_by'), (g or {}).get('enable_if'), dmax, today, add, 'группа %s' % gid, gid in used_groups)
+        hold = [gid for gid in used_groups if gid in groups and (groups[gid] or {}).get('kind') != 'enable']
+        if isinstance(reg.get('groups_max'), int) and len(hold) > reg['groups_max']:
+            add('реестр', C_DEADLINE, 'групп «держать» с trial-правилами %d > groups_max %d: %s' % (len(hold), reg['groups_max'], ', '.join(sorted(hold))), True)
 
     for r in rules:
         rid = str(r.get('rule_id') or '?')
@@ -311,6 +352,15 @@ def audit(registry_path: str = REGISTRY, passports_path: str = PASSPORTS, ci_pat
         for fam in ap.get('families') or []:
             if families and fam not in families:
                 add(rid, C_BROKEN, 'семейство «%s» не из паспорта типов' % fam, True)
+        if v3 and st == 'retired' and not (isinstance(r.get('retired_reason'), str) and r['retired_reason'].strip()):
+            add(rid, C_BROKEN, 'retired без retired_reason (почему снято и где основание)', True)
+        if v3 and st == 'trial':
+            gid = r.get('group')
+            g = groups.get(gid) if isinstance(gid, str) else None
+            if not isinstance(g, dict):
+                add(rid, C_DEADLINE, 'trial без группы из groups (group=%r) — у каждого пробного правила есть срок решения и условие' % (gid,), True)
+            elif 'decide_by' in r or 'enable_if' in r:                  # свой срок/условие правила — поверх группы; иначе всё сказано в группе (проверена выше)
+                check_deadline('правило (группа %s)' % gid, r.get('decide_by', g.get('decide_by')), r.get('enable_if', g.get('enable_if')), dmax, today, add, rid)
         if st == 'retired':
             continue
         active = st == 'active'
