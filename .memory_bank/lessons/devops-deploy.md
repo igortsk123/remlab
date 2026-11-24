@@ -537,3 +537,5 @@ Claude на common, DNS на pakardev (`money_guard` «слепой тик» 26 
 - **772 (20.11, CI 99c8f40c)** — новый `cutout_redo --selftest` добавили в общий цикл job `scout-selftest`, а job ставил только
   pillow: CI красный; соседний коммит f3fa8010 ставил numpy строкой выше и маскировал дыру. Правило: новый `--selftest` в общем
   цикле — проверить зависимости ИМЕННО этого job и прописать явно (`pip install pillow numpy scipy`).
+- **940 (24.11, директор, CI 19:09–19:30)** — влил ветку с новым `tests_holder_registry.py` (tempfile без `remlab_tmp.use`), не прогнав `test_tmp_hygiene`: CI красный 21 мин. **Правило:** при вливании любых новых `tests_*.py` — `python3 tools/scout/tests/test_tmp_hygiene.py` в merge-worktree ДО push (пункт 7 приёмки); то же — в приёмку менеджера common.
+- **941 (24.11, директор, 5c7cd9bed)** — пачку из 6 веток запушил с prepush «не успел 47» (бюджет 120 с), досчитал после push (54/0/0). **Правило:** пачка ≥3 веток — `python3 tools/ops/prepush_check.py --budget 1500 --files $(git diff --name-only <base> HEAD) < /dev/null` ДО push; «не успел N» — не зелёный.
