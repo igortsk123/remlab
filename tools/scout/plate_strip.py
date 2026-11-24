@@ -22,6 +22,12 @@
     python3 tools/scout/plate_strip.py strip --glb in.glb --out out.glb [--run RUN --sku SKU --stage 02-plate]
     python3 tools/scout/plate_strip.py survey --glb a.glb b.glb … [--json отчёт.json]   # только счёт, без записи моделей
     python3 tools/scout/plate_strip.py check                                              # правила целы (CI)
+    python3 tools/scout/plate_strip.py left --glb a.glb b.glb …                            # сторож «плита осталась» на готовых моделях (без записи)
+
+СТОРОЖ `plate_left(vertices, faces)` (T-20261124-07). Срез выше работает по плоским кускам у сырого 01 и после упрощения до 150 тыс. граней плиту часто не находит (6 из 17 у черновиков 20.11:
+лист уже не плоский кусок). А плита, дошедшая до 08 и сайта, — это серый/чёрный лист шире товара (на карте глянца — чёрное зеркало). Поэтому на ГОТОВОЙ модели плиту ищет другой счёт — по следу:
+нижний слой горизонтальных граней (самый большой по площади в нижних `zone_frac`·L) покрывает ≥ `min_cover` сетки следа, над слоем занято ≤ `max_above_share` покрытых клеток, а след товара над слоем ≤ `max_above_footprint` следа (кашпо-ящик с дном во весь след — не плита). Только счёт и отчёт, модель не меняет;
+этап 08 (material_stage) кладёт его мерку `plate_left` в check.json (≠ 0 → этап красный). Пороги — блок `left_check` в rules/plate-strip.json.
 """
 from __future__ import annotations
 
@@ -213,6 +219,95 @@ def plate_metrics(rep: dict, rules: dict | None = None) -> dict:
     return m
 
 
+def _fragments(tri: np.ndarray, area: np.ndarray, max_area: float, passes: int = 8) -> tuple[np.ndarray, np.ndarray]:
+    """Крупные грани делим на 4 (по серединам рёбер), пока площадь куска > max_area → (центры кусков, площади). Нужно, чтобы большой лист из пары треугольников
+    засчитывался во всех клетках сетки, а не в одной (у плотных сеток 150 тыс. граней делить нечего)."""
+    cs, as_ = [], []
+    cur_t, cur_a = tri, area
+    for _ in range(passes):
+        big = cur_a > max_area
+        cs.append(cur_t[~big].mean(axis=1))
+        as_.append(cur_a[~big])
+        if not big.any():
+            cur_t = cur_t[:0]
+            break
+        t = cur_t[big]
+        a, b, c = t[:, 0], t[:, 1], t[:, 2]
+        ab, bc, ca = (a + b) / 2, (b + c) / 2, (c + a) / 2
+        cur_t = np.concatenate([np.stack([a, ab, ca], 1), np.stack([ab, b, bc], 1), np.stack([ca, bc, c], 1), np.stack([ab, bc, ca], 1)])
+        cur_a = np.tile(cur_a[big] / 4.0, 4)
+    if len(cur_t):
+        cs.append(cur_t.mean(axis=1))
+        as_.append(cur_a)
+    return np.concatenate(cs), np.concatenate(as_)
+
+
+def plate_left(vertices: np.ndarray, faces: np.ndarray, rules: dict | None = None) -> dict:
+    """Сторож «плита осталась» на готовой модели → отчёт {plate_left, cover, above_share, level_rel, layer_faces, L}. Только счёт; модель не меняется."""
+    lc = (rules or load_rules())["left_check"]
+    V = np.asarray(vertices, dtype=np.float64)
+    F = np.asarray(faces)
+    rep: dict = {"plate_left": False, "cover": 0.0, "above_share": 1.0}
+    if len(F) == 0:
+        rep["refused"] = "в модели нет граней"
+        return rep
+    lo, hi = V.min(axis=0), V.max(axis=0)
+    L = float((hi - lo).max())
+    up = int(lc["up_axis"])
+    h = [a for a in range(3) if a != up]
+    if L <= 0 or (hi - lo)[h[0]] <= 0 or (hi - lo)[h[1]] <= 0:
+        rep["refused"] = "модель без объёма"
+        return rep
+    tri = V[F]
+    c = tri.mean(axis=1)
+    cr = np.cross(tri[:, 1] - tri[:, 0], tri[:, 2] - tri[:, 0])
+    ar = 0.5 * np.linalg.norm(cr, axis=1)
+    ny = np.abs(cr[:, up]) / np.maximum(2.0 * ar, 1e-15)
+    y = c[:, up] - lo[up]
+    hor = ny >= lc["normal_min"]
+    zb = max(int(lc["zone_frac"] / lc["bin_frac"]), 1)
+    bi = np.clip((y / (lc["bin_frac"] * L)).astype(np.int64), 0, 10 ** 9)
+    sel = hor & (bi < zb)
+    hist = np.zeros(zb)
+    np.add.at(hist, bi[sel], ar[sel])
+    ystar = (int(np.argmax(hist)) + 0.5) * lc["bin_frac"] * L
+    tol = lc["level_tol_frac"] * L
+    layer = hor & (np.abs(y - ystar) <= tol)
+    above = y > ystar + tol
+    n = int(lc["grid"])
+    ex, ez = (hi - lo)[h[0]], (hi - lo)[h[1]]
+    cell = (ex / n) * (ez / n)
+
+    def occupancy(mask):
+        fc, fa = _fragments(tri[mask], ar[mask], 0.25 * cell)
+        ix = np.clip(((fc[:, h[0]] - lo[h[0]]) / ex * n).astype(np.int64), 0, n - 1)
+        iz = np.clip(((fc[:, h[1]] - lo[h[1]]) / ez * n).astype(np.int64), 0, n - 1)
+        a = np.zeros((n, n))
+        np.add.at(a, (ix, iz), fa)
+        return a
+
+    low_c = occupancy(layer) >= lc["cell_fill"] * cell
+    ab_c = occupancy(above) >= lc["above_cell_fill"] * cell
+    n_low = int(low_c.sum())
+    cover = n_low / float(n * n)
+    above_share = float((ab_c & low_c).sum()) / max(n_low, 1)
+    if ab_c.any():                                          # габарит занятых клеток над слоем, доля следа (крошка мельче клетки не в счёте)
+        ix, iz = np.nonzero(ab_c)
+        footprint = float((ix.max() - ix.min() + 1) * (iz.max() - iz.min() + 1)) / float(n * n)
+    else:
+        footprint = None                                    # над слоем пусто: плоская вещь (ковёр), не плита
+    plate = bool(cover >= lc["min_cover"] and above_share <= lc["max_above_share"] and footprint is not None and footprint <= lc["max_above_footprint"])
+    rep.update({"plate_left": plate, "cover": round(cover, 4), "above_share": round(above_share, 4), "above_footprint": None if footprint is None else round(footprint, 4),
+                "level_rel": round(ystar / L, 4), "layer_faces": int(layer.sum()), "L": round(L, 5)})
+    return rep
+
+
+def left_metrics(rep: dict) -> dict:
+    """Мерки для check.json этапа: `plate_left` = 0 (порог ≤ 0); справочно — покрытие и занятость над слоем."""
+    return {"plate_left": {"value": int(bool(rep.get("plate_left"))), "threshold": 0, "op": "<="},
+            "plate_cover": {"value": rep.get("cover")}, "plate_above_share": {"value": rep.get("above_share")}, "plate_above_footprint": {"value": rep.get("above_footprint")}}
+
+
 def _paint_stage():
     cands = [HERE, os.environ.get("PAINT_STAGE_DIR", ""),
              os.path.join(os.path.expanduser("~"), "igor", "remlab", ".claude", "worktrees", "paint-fill-1120", "tools", "scout")]
@@ -254,6 +349,15 @@ def check() -> int:
             bad.append(f"{k}={v!r} вне ({lo_}; {hi_}]")
     if r.get("up_axis") not in ("auto", 0, 1, 2):
         bad.append(f"up_axis={r.get('up_axis')!r}")
+    lc = r.get("left_check") or {}
+    for k, lo_, hi_ in (("zone_frac", 0, 0.5), ("bin_frac", 0, 0.05), ("level_tol_frac", 0, 0.1), ("normal_min", 0.5, 1.0), ("cell_fill", 0, 1.0), ("above_cell_fill", 0, 1.0), ("min_cover", 0.5, 1.0), ("max_above_share", 0, 1.0), ("max_above_footprint", 0, 1.0)):
+        v = lc.get(k)
+        if not isinstance(v, (int, float)) or not lo_ < v <= hi_:
+            bad.append(f"left_check.{k}={v!r} вне ({lo_}; {hi_}]")
+    if lc.get("up_axis") not in (0, 1, 2):
+        bad.append(f"left_check.up_axis={lc.get('up_axis')!r}")
+    if not isinstance(lc.get("grid"), int) or not 4 <= lc["grid"] <= 200:
+        bad.append(f"left_check.grid={lc.get('grid')!r}")
     for b in bad:
         print("ОШИБКА:", b)
     print("plate_strip check:", "ок" if not bad else f"{len(bad)} замечаний")
@@ -273,9 +377,31 @@ def main(argv: list[str]) -> int:
     v.add_argument("--glb", nargs="+", required=True)
     v.add_argument("--json")
     sub.add_parser("check")
+    lf = sub.add_parser("left")
+    lf.add_argument("--glb", nargs="+", required=True)
+    lf.add_argument("--json")
     a = ap.parse_args(argv)
     if a.cmd == "check":
         return check()
+    if a.cmd == "left":
+        import trimesh
+        rules = load_rules()
+        rows = []
+        for p in a.glb:
+            try:
+                m = trimesh.load(p, force="mesh", process=False, skip_materials=True)
+                rep = plate_left(m.vertices, m.faces, rules)
+                del m
+            except Exception as e:  # noqa: BLE001 — счётчик отказов: файл не роняет обход
+                rep = {"error": f"{type(e).__name__}: {str(e)[:150]}"}
+            rep["file"] = p
+            rows.append(rep)
+            print(json.dumps(rep, ensure_ascii=False), flush=True)
+        print(f"ИТОГО: файлов {len(rows)}, с плитой {sum(1 for r in rows if r.get('plate_left'))}, ошибок чтения {sum(1 for r in rows if 'error' in r)}")
+        if a.json:
+            with open(a.json, "w", encoding="utf-8") as f:
+                json.dump(rows, f, ensure_ascii=False, indent=1)
+        return 0
     if a.cmd == "strip":
         rep = run_strip(a.glb, a.out, a.run, a.sku, a.stage)
         print(json.dumps(rep, ensure_ascii=False))

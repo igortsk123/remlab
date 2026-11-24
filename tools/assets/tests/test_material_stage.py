@@ -114,6 +114,44 @@ def _tiny_glb(path):
     return box
 
 
+def _plated_glb(path):
+    """Синтетика: куб-товар 0,4 м на листе 1×1 м (плита TRELLIS) — этап 08 должен покраснеть мерой plate_left, а без листа — нет."""
+    import trimesh
+    from PIL import Image
+    prod = trimesh.creation.box(extents=(0.4, 0.4, 0.4))
+    prod.apply_translation((0, 0.2, 0))
+    plate = trimesh.creation.box(extents=(1.0, 0.002, 1.0))
+    plate.apply_translation((0, -0.001, 0))
+    sub = []
+    for part in (prod, plate):
+        v, f = trimesh.remesh.subdivide_to_size(part.vertices, part.faces, max_edge=0.05)
+        sub.append(trimesh.Trimesh(v, f, process=False))
+    m = trimesh.util.concatenate(sub)
+    tex = Image.fromarray(np.random.default_rng(2).integers(0, 255, (32, 32, 4), dtype=np.uint8))
+    uv = np.column_stack([m.vertices[:, 0] + 0.5, m.vertices[:, 2] + 0.5]).clip(0, 1)
+    m.visual = trimesh.visual.TextureVisuals(uv=uv, material=trimesh.visual.material.PBRMaterial(baseColorTexture=tex))
+    m.export(path)
+
+
+def test_plate_left_gate():
+    try:
+        MS._paint_stage()
+    except SystemExit:
+        print("  – paint_stage.py не найден: сквозная проверка пропущена")
+        return
+    product = {"sid": "x", "name": "Кресло Тест Велюр", "role": "кресло", "params": {"Материал обивки": "велюр"}}
+    with tempfile.TemporaryDirectory() as d:
+        src = os.path.join(d, "p.glb")
+        _plated_glb(src)
+        doc = MS.run_stage(src, os.path.join(d, "run"), "sku-p", product, frame=False)
+        ok(doc["metrics"]["plate_left"]["value"] == 1 and doc["metrics"]["plate_left"]["ok"] is False and doc["passed"] is False, "модель с плитой: мерка plate_left = 1, этап 08 не прошёл")
+        ok("plate_left" in doc["reason"] and doc["extra"]["plate"]["plate_left"] is True, "причина названа в check.json, отчёт сторожа лежит в extra.plate")
+        clean = os.path.join(d, "c.glb")
+        _tiny_glb(clean)
+        doc2 = MS.run_stage(clean, os.path.join(d, "run"), "sku-c", product, frame=False)
+        ok(doc2["metrics"]["plate_left"]["value"] == 0 and doc2["metrics"]["plate_left"]["ok"] is True, "товар без плиты: plate_left = 0, мерка зелёная")
+
+
 def test_patch_glb():
     with tempfile.TemporaryDirectory() as d:
         src, dst = os.path.join(d, "a.glb"), os.path.join(d, "b.glb")
@@ -604,7 +642,7 @@ def test_gloss_rule_record():
 
 
 if __name__ == "__main__":
-    for t in (test_rules_complete, test_no_ids_in_code, test_resolve, test_legs_and_colour, test_bake, test_patch_glb, test_stage_end_to_end, test_shapes_without_stage3, test_top_zone_shade, test_stand_junction_is_metal, test_unsure_parts_report, test_soft_body_inherits_upholstery, test_stage3_roles, test_merge_roles_file, test_top_zone_bigger_than_body, test_inherit_unseen, test_stage_geometry_and_inherited, test_compound_field, test_painted_metal, test_gloss_finish, test_gloss_rule_record, test_glass_keeps_colour_map, test_frame_gate, test_flat_top_roughness):
+    for t in (test_rules_complete, test_no_ids_in_code, test_resolve, test_legs_and_colour, test_bake, test_patch_glb, test_stage_end_to_end, test_plate_left_gate, test_shapes_without_stage3, test_top_zone_shade, test_stand_junction_is_metal, test_unsure_parts_report, test_soft_body_inherits_upholstery, test_stage3_roles, test_merge_roles_file, test_top_zone_bigger_than_body, test_inherit_unseen, test_stage_geometry_and_inherited, test_compound_field, test_painted_metal, test_gloss_finish, test_gloss_rule_record, test_glass_keeps_colour_map, test_frame_gate, test_flat_top_roughness):
         print(t.__name__)
         t()
     print(f"material_stage tests: ошибок {FAIL}")

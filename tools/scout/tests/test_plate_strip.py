@@ -152,6 +152,31 @@ def test_texture_kept():
     ok(len(keep) == len(out.vertices), "нет вершин без граней")
 
 
+def test_plate_left_guard():
+    """Сторож «плита осталась» (T-20261124-07): ловит плиту на готовой модели, в т.ч. там, где срез по плоским кускам её не находит; ящик, кашпо, ковёр, стол — не трогает."""
+    m = _with_plate()
+    rep = PS.plate_left(m.vertices, m.faces, R)
+    ok(rep["plate_left"] and rep["cover"] >= R["left_check"]["min_cover"] and rep["above_share"] <= R["left_check"]["max_above_share"], "плита под товаром найдена сторожем")
+    ok(not PS.plate_left(_product().vertices, _product().faces, R)["plate_left"], "товар без плиты: сторож молчит")
+    thick = trimesh.util.concatenate([_product(), _box(1.0, 0.015, 1.0, 0, -0.0075, 0)])      # «упитанный» лист 1,5 % L: уже не плоский кусок для среза (thin_frac 1 %)
+    _o, rep_strip = PS.strip_mesh(thick, R)
+    ok(not rep_strip["plate_found"] and PS.plate_left(thick.vertices, thick.faces, R)["plate_left"], "лист, который срез не берёт (не плоский), сторож находит по следу")
+    pole = _box(0.02, 0.5, 0.02, 0, 0.25, 0)
+    lamp = trimesh.util.concatenate([pole, _box(1.0, 0.002, 1.0, 0, 0.08, 0), _box(0.15, 0.05, 0.15, 0, 0.5, 0)])      # лист чуть ВЫШЕ дна (цоколь торчит под ним)
+    rep_l = PS.plate_left(lamp.vertices, lamp.faces, R)
+    ok(rep_l["plate_left"] and 0.05 < rep_l["level_rel"] < 0.1, "лампа: лист выше самой низкой точки найден (слой — по максимуму площади, не по дну)")
+    walls = [_box(1.0, 0.5, 0.02, 0, 0.25, z) for z in (-0.49, 0.49)] + [_box(0.02, 0.5, 0.96, x, 0.25, 0) for x in (-0.49, 0.49)]
+    planter = trimesh.util.concatenate(walls + [_box(1.0, 0.02, 1.0, 0, 0.01, 0)])
+    rep_p = PS.plate_left(planter.vertices, planter.faces, R)
+    ok(not rep_p["plate_left"] and rep_p["above_footprint"] > R["left_check"]["max_above_footprint"], "открытый ящик/кашпо: дно во весь след, но товар занимает весь след — не плита")
+    rug = _box(1.0, 0.02, 1.0, 0, 0.01, 0)
+    rep_r = PS.plate_left(rug.vertices, rug.faces, R)
+    ok(not rep_r["plate_left"] and rep_r["above_footprint"] is None, "ковёр (над слоем пусто) — плоская вещь, не плита")
+    ok(PS.plate_left(np.zeros((0, 3)), np.zeros((0, 3), int), R).get("refused"), "пустая модель: отказ с причиной, не падение")
+    mt = PS.left_metrics(rep)
+    ok(mt["plate_left"] == {"value": 1, "threshold": 0, "op": "<="} and PS.left_metrics(PS.plate_left(_product().vertices, _product().faces, R))["plate_left"]["value"] == 0, "мерка check.json: плита осталась → 1 при пороге ≤ 0")
+
+
 def test_rules_and_no_ids():
     ok(PS.check() == 0, "правила целы")
     src = open(os.path.join(HERE, "..", "plate_strip.py"), encoding="utf-8").read() + open(PS.RULES_PATH, encoding="utf-8").read()
@@ -159,7 +184,7 @@ def test_rules_and_no_ids():
 
 
 if __name__ == "__main__":
-    for t in (test_strip, test_no_plate_untouched, test_rug_is_not_plate, test_product_through_plate_and_canopy, test_pedestal_base_is_not_plate, test_numpy_components_equal_scipy, test_axis_auto, test_texture_kept, test_rules_and_no_ids):
+    for t in (test_strip, test_no_plate_untouched, test_rug_is_not_plate, test_product_through_plate_and_canopy, test_pedestal_base_is_not_plate, test_numpy_components_equal_scipy, test_axis_auto, test_texture_kept, test_plate_left_guard, test_rules_and_no_ids):
         print(t.__name__)
         t()
     print(f"plate_strip tests: ошибок {FAIL}")

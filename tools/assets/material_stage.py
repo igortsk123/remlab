@@ -53,6 +53,17 @@ def _siblings():
     return mc, mp
 
 
+def _plate_guard(mesh) -> tuple[dict, dict]:
+    """Сторож «плита осталась» (T-20261124-07; plate_strip.plate_left, пороги tools/scout/rules/plate-strip.json:left_check) → (отчёт, мерки check.json).
+    Лист-подложка TRELLIS, дошедший до 08, на карте глянца — чёрное зеркало шире товара: этап не проходит (мерка plate_left ≤ 0), чинится срезом на 01/02 (plate_strip.py strip)."""
+    sd = os.path.join(ROOT, "tools", "scout")
+    if sd not in sys.path:
+        sys.path.insert(0, sd)
+    import plate_strip as P
+    rep = P.plate_left(np.asarray(mesh.vertices), np.asarray(mesh.faces))
+    return rep, P.left_metrics(rep)
+
+
 def _paint_stage():
     """Общий модуль check.json этапов: в main (tools/scout) или рядом по пути worktree/окружению (пока ветка paint-fill не влита)."""
     cands = [os.path.join(ROOT, "tools", "scout"), os.environ.get("PAINT_STAGE_DIR", ""),
@@ -965,6 +976,7 @@ def run_stage(glb: str, run: str, sku: str, product: dict, parts_dir: str | None
     uv = getattr(mesh.visual, "uv", None)
     if uv is None:
         return fail("в модели нет развёртки UV — рецепт некуда запекать", faces=nf)
+    plate_rep, plate_mt = _plate_guard(mesh)
     rules = mc.load_rules()
     cls = mc.classify(rules, {"role": product.get("role") or "", "name": product.get("name") or "", "params": product.get("params") or {}})
     cls["group"] = rules["_roleGroup"].get(product.get("role") or "")          # группа каталога (seating/bed/…): от неё зависит политика для частей без метки
@@ -1102,8 +1114,8 @@ def run_stage(glb: str, run: str, sku: str, product: dict, parts_dir: str | None
                  "inherited_share": {"value": round(inherited_share, 4), "threshold": c["inherited_share_max"], "op": "<="},
                  "color_unchanged": {"value": bool(color_same), "threshold": True, "op": "=="},
                  "geometry_unchanged": {"value": bool(geom_same), "threshold": True, "op": "=="},
-                 "seconds": {"value": round(time.time() - t0, 1), "threshold": c["max_seconds"], "op": "<="}},
-        reason=reason, seconds=time.time() - t0, outputs=["material.glb"], frame=frame_name,
+                 "seconds": {"value": round(time.time() - t0, 1), "threshold": c["max_seconds"], "op": "<="}, **plate_mt},
+        reason=reason, seconds=time.time() - t0, outputs=["material.glb"], frame=frame_name, plate=plate_rep,
         faces=nf, parts_source=parts_source, shape=shape_rep, catalog_parts_not_located=not_located, unsure_parts=unsure_rep, product_class={"class": cls["class"], "stage": cls["stage"], "confidence": cls["confidence"], "reason": cls["reason"], "parts": cls.get("parts")},
         parts=parts_rep, classes=table, compound=cls.get("compound") or [], untouched_share=round(float(np.isin(part, [pid for pid, r in res.items() if r["class"] == "unknown"]).sum()) / nf, 4),
         painted_metal_share=round(float(np.isin(part, [pid for pid, r in res.items() if r.get("painted_from")]).sum()) / nf, 4),
