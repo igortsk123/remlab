@@ -411,6 +411,70 @@ with tempfile.TemporaryDirectory() as t6:
     s6 = SE.batch(t6, os.path.join(t6, 'o'))['summary']
     ok(s6['na_features'] > 0 and s6['na_views'] == 0 and sum(s6['na_by_reason'].values()) == s6['na_features'] and all(k for k in s6['na_by_reason']), f"сводка: «неприменимо» отдельным числом и по причинам: {s6['na_features']} {s6['na_by_reason']}")
 
+# T-20261124-51: «рисунок потерян целиком» (lost_r). Фото двух цветов: рисунок на одном (левая часть), второй ровный. Плоский тон ровной части (как у настоящего плоского вида) раньше давал «не измерено» —
+# группа стороны не имеет пары-узора на фото; теперь рисунок на фото есть, а на стороне ни одна группа с рисунком пары не нашла → ✗ (r = pattern_by_type.<класс>.lost_r, число — в sides-eval.json)
+import copy  # noqa: E402
+B2 = (60, 90, 150)
+
+
+def two_tone(pat):
+    def f(c):
+        c = pat(c)
+        c[:, S // 2:, :] = B2                                                    # правая половина — ровный второй цвет
+        return c
+    return f
+
+
+def flat_b2(c):
+    c = c.copy()
+    c[:] = B2
+    return c
+
+
+R_anyc = copy.deepcopy(R)                                                      # без сужения по цвету (lost_max_dE огромен): проверка самого условия «потерян целиком»
+for _k in ('continue', 'same_fabric'):
+    R_anyc['pattern_by_type'][_k]['lost_max_dE'] = 1e9
+R_nolost = copy.deepcopy(R)
+for _k in ('continue', 'same_fabric'):
+    R_nolost['pattern_by_type'][_k].pop('lost_r', None)
+for hp_, pat_ in (('continue', st6), ('same_fabric', fab)):
+    ph = two_tone(pat_)
+    ideal = E(sheet(photo_fn=ph, view_fns={'зад': ph, 'бок': ph}), hp_)
+    flat = SE.eval_sheet(sheet(photo_fn=ph, view_fns={'зад': flat_b2, 'бок': ph}), R_anyc, SR, hidden_pattern=hp_)
+    flat_far = E(sheet(photo_fn=ph, view_fns={'зад': flat_b2, 'бок': ph}), hp_)
+    old = SE.eval_sheet(sheet(photo_fn=ph, view_fns={'зад': flat_b2, 'бок': ph}), R_nolost, SR, hidden_pattern=hp_)
+    ok(pr(ideal, 'зад')['ok'] is True and pr(ideal, 'бок')['ok'] is True, f'{hp_}: фото двух цветов, на сторонах то же — идеал проходит')
+    ok(pr(flat, 'зад')['ok'] is False and pr(flat, 'зад').get('lost') is True and pr(flat, 'зад')['r'] >= R['pattern_by_type'][hp_]['lost_r'] and pr(flat, 'бок')['ok'] is True,
+       f"{hp_}: плоский тон при рисунке на фото — ✗ «потерян целиком» (r {pr(flat, 'зад')['r']}), бок с рисунком цел")
+    ok(pr(flat_far, 'зад').get('lost') is None and pr(flat_far, 'зад')['ok'] is not False, f"{hp_}: цвет стороны далеко от узорной части фото (dE > lost_max_dE) — другой материал, не «потерян целиком»")
+    ok(pr(old, 'зад')['ok'] is not False and pr(old, 'зад').get('lost') is None, f"{hp_}: без lost_r в правилах — как раньше, не ✗ ({'не измерено' if pr(old, 'зад')['ok'] is None else 'проходил по крупным деталям'}); число живёт только в sides-eval.json")
+# сужение условия (реальные виды 24 листов, ложные ✗): (а) рисунок только на мелкой детали фото (ножки; < lost_min_share площади) — вид, где её нет (верх), не брак;
+# (б) на стороне рисунок есть, но свет увёл её цвет в другую группу (пары по группам нет) — по предмету целиком энергия есть → не «потерян»
+def small_pat(c):
+    c = c.copy()
+    c[:, :, :] = B2
+    c[:, 115:135, :] = (170, 140, 100)
+    c[:, 115:135:2, :] -= 60
+    return c
+
+
+def other_color_stripes(c):
+    c = st6(c)
+    c[:] = np.clip(c * 0.35 + np.array([40, 60, 120]) * 0.65, 0, 255)           # те же полосы, другой цвет — группа стороны не та, что на фото
+    return c
+
+
+for hp_ in ('continue', 'same_fabric'):
+    sm = E(sheet(photo_fn=small_pat, view_fns={'зад': flat_b2}), hp_)
+    oc = E(sheet(photo_fn=two_tone(st6 if hp_ == 'continue' else fab), view_fns={'зад': other_color_stripes}), hp_)
+    ok(pr(sm, 'зад').get('lost') is None, f'{hp_}: рисунок только на мелкой детали фото — «потерян целиком» не срабатывает (доля < lost_min_share)')
+    ok(pr(oc, 'зад').get('lost') is None, f'{hp_}: рисунок на стороне есть, цвет другой группы — «потерян целиком» не срабатывает (энергия по предмету целиком)')
+pl_two = E(sheet(photo_fn=two_tone(lambda c: c), view_fns={'зад': flat_b2, 'бок': two_tone(lambda c: c)}), 'plain')
+ok(pr(pl_two, 'зад')['ok'] is True and pr(pl_two, 'зад').get('lost') is None, 'plain: ровная вещь двух цветов — lost не применяется, проходит')
+# рисунка на фото нет → «потерян» нечему: ровный тон не бракуется
+c_nop = E(sheet(photo_fn=two_tone(lambda c: c), view_fns={'зад': flat_b2}), 'continue')
+ok(pr(c_nop, 'зад').get('lost') is None and pr(c_nop, 'зад')['ok'] is not False, 'continue: на фото рисунка нет — «потерян целиком» не срабатывает')
+
 # «фронт сплошной» (T-20261124-18): отдельная строка отчёта; пять признаков и их сводка не меняются
 with tempfile.TemporaryDirectory() as t7:
     Image.fromarray(sheet()).save(os.path.join(t7, 'a.png'))
