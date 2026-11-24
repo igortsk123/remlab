@@ -89,6 +89,13 @@ TONE_PLANE_ANGLE = float(R.get('tone_plane_angle_deg', 8.0))        # грань
 TONE_PLANE_MIN_FACES = int(R.get('tone_plane_min_faces', 20))         # меньше граней с одной нормалью — не плоскость (шум сетки)
 TONE_PLANE_MIN_OBS = int(R.get('tone_plane_min_obs_px', 200))       # меньше наблюдений в плоскости — опора по-старому (ближайшее известное)
 TONE_PLANE_UNIMODAL = float(R.get('tone_plane_unimodal_share', 0.8))   # плоскость «одногорбая», если ≥ этой доли наблюдённых граней в TONE_MAX_DE от её медианы; иначе (ёлочка/мрамор/два цвета) отсев по ΔE не делаем
+TONE_GLARE = bool(int(os.environ['TEX_VISIBLE_TONE_GLARE'])) if 'TEX_VISIBLE_TONE_GLARE' in os.environ else bool(R.get('tone_glare', False))   # T-20261124-27: БЛИК глянца (светлое, почти без цвета на плоскости цветного корпуса) красится прежней опорой (Δ 0), а не запекается в текстуру; действует только вместе с tone_plane_ref
+TONE_GLARE_MIN_DL = float(R.get('tone_glare_min_dL', 8.0))              # (а) грань светлее прежней опоры не меньше чем на столько L
+TONE_GLARE_C_RATIO = float(R.get('tone_glare_c_ratio', 0.25))           # (а) цветность грани C ≤ этой доли C опоры (перед/бок/кромка согласны)
+TONE_GLARE_MIN_REF_C = float(R.get('tone_glare_min_ref_c', 30.0))       # (а) блик ищем только на цветном корпусе: C опоры ≥ этого (белое/серое не блик)
+TONE_GLARE_CORR_MAX = float(R.get('tone_glare_corr_max', -0.3))         # (б) в плоскости L растёт — C падает: взвешенная корреляция(L, C) по наблюдённым граням ≤ этого
+TONE_GLARE_MIN_FACES = int(R.get('tone_glare_min_faces_corr', 6))       # (б) считается при ≥ стольких наблюдённых гранях плоскости; меньше — голос не подан
+TONE_OWN_N0 = float(os.environ['TEX_VISIBLE_TONE_OWN_N0']) if 'TEX_VISIBLE_TONE_OWN_N0' in os.environ else float(R.get('tone_own_n0', 0.0))   # T-20261124-27 (шум Киннера): вес собственного наблюдения грани a = n/(n+N0), n — её пиксели; остальное — сглаженное Δ соседей; 0 = как было (a = 1); действует при tone_plane_ref
 TONE_PLANE_ITERS = int(R.get('tone_plane_iters', 12))               # сглаживание поля наблюдений плоскости (шагов графа граней внутри плоскости)
 TONE_MIN_OBS = int(R.get('tone_min_obs_px', 30))            # меньше наблюдений в геометрии — тона нет
 ISL = R.get('island_edge') or {}                              # T-20261124-05: тон у границы острова, тонкая щель целиком, верх по моде (rules/tex-visible.json § island_edge)
@@ -506,17 +513,51 @@ def tone_planes(V: np.ndarray, F: np.ndarray, B, angle_deg: float, min_faces: in
     return lab, Bp
 
 
-def tone_plane_ref(lo_f: np.ndarray, no: np.ndarray, ref: np.ndarray, V: np.ndarray, F: np.ndarray, B, de2000) -> tuple[np.ndarray, np.ndarray, dict]:
+def _glare_faces(lo: np.ndarray, w: np.ndarray, ref: np.ndarray, card: dict | None = None) -> tuple[np.ndarray, dict | None]:
+    """БЛИК глянца на плоскости (T-20261124-27, комод-лак: светлый верх у красного корпуса запекался в текстуру с любого угла).
+    Грань — кандидат (а): светлее прежней опоры на ≥ TONE_GLARE_MIN_DL, опора цветная (C ≥ TONE_GLARE_MIN_REF_C), а её собственная цветность C ≤ TONE_GLARE_C_RATIO·C опоры.
+    Принимается, если подан голос (б): по плоскости L растёт — C падает (корреляция ≤ TONE_GLARE_CORR_MAX при ≥ TONE_GLARE_MIN_FACES граней) ИЛИ (в) карточка товара «лак/глянец/эмаль» (card['gloss']);
+    против — card['other_material'] (стекло/камень/другой цвет). Карточки в Ш3б нет (приходит на этапе 07), поэтому по умолчанию работают (а)+(б). → (маска блика на гранях, сведения по плоскости | None)."""
+    C = np.hypot(lo[:, 1], lo[:, 2])
+    Cr = np.hypot(ref[:, 1], ref[:, 2])
+    cand = (lo[:, 0] - ref[:, 0] >= TONE_GLARE_MIN_DL) & (Cr >= TONE_GLARE_MIN_REF_C) & (C <= TONE_GLARE_C_RATIO * Cr)
+    if not cand.any():
+        return cand, None
+    corr = None
+    if len(lo) >= TONE_GLARE_MIN_FACES:
+        ww = np.maximum(w, 1e-9)
+        mL, mC = np.average(lo[:, 0], weights=ww), np.average(C, weights=ww)
+        cv = np.average((lo[:, 0] - mL) * (C - mC), weights=ww)
+        sL, sC = np.sqrt(np.average((lo[:, 0] - mL) ** 2, weights=ww)), np.sqrt(np.average((C - mC) ** 2, weights=ww))
+        if sL > 1e-6 and sC > 1e-6:
+            corr = float(cv / (sL * sC))
+    card = card or {}
+    vote_b = corr is not None and corr <= TONE_GLARE_CORR_MAX
+    vote_c = bool(card.get('gloss'))
+    against = bool(card.get('other_material'))
+    ok = (vote_b or vote_c) and not against
+    info = {'faces_cand': int(cand.sum()), 'faces_obs': int(len(lo)), 'med_L': round(float(np.median(lo[cand, 0])), 1), 'med_C': round(float(np.median(C[cand])), 1),
+            'ref_L': round(float(np.median(ref[cand, 0])), 1), 'ref_C': round(float(np.median(Cr[cand])), 1), 'corr_L_C': None if corr is None else round(corr, 2),
+            'vote_b': bool(vote_b), 'vote_card': vote_c, 'against': against, 'glare': bool(ok)}
+    return (cand if ok else np.zeros(len(lo), bool)), info
+
+
+def tone_plane_ref(lo_f: np.ndarray, no: np.ndarray, ref: np.ndarray, V: np.ndarray, F: np.ndarray, B, de2000, card: dict | None = None) -> tuple[np.ndarray, np.ndarray, np.ndarray, dict]:
     """Опора тона от САМОЙ плоскости (T-20261124-27, Крит: опора с кромки L 56 при верхе L 76 → отброшено 47 % верха).
     Для плоскости с ≥ TONE_PLANE_MIN_OBS наблюдений: опора грани = местное сглаженное поле наблюдений плоскости (вес — число пикселей; выбросы по ΔE > TONE_MAX_DE от поля вынимаются и поле считается заново);
     цвет грани по-прежнему её собственное наблюдение (тон по медиане НЕ красим — сотрёт ёлочку/мрамор). Плоскость не одногорбая (< TONE_PLANE_UNIMODAL граней в TONE_MAX_DE от медианы) — отсев не делаем:
-    опора наблюдённой грани = её наблюдение (ΔE 0, Δ 0). Мало наблюдений — опора прежняя. → (ref', force_keep: маска граней без отсева, info)."""
+    опора наблюдённой грани = её наблюдение (ΔE 0, Δ 0). Мало наблюдений — опора прежняя.
+    БЛИК (TONE_GLARE, `_glare_faces`): грани-блики плоскости из поля и отсева выводятся, опора у них ПРЕЖНЯЯ (цвет корпуса), в маске glare — красить опорой (Δ 0), не выкидывать и не запекать; у плоскости, где блик ≥ половины веса, так же и ненаблюдённые грани.
+    → (ref', force_keep: маска граней без отсева, glare: маска граней-бликов, info)."""
     nF = len(F)
     lab, Bp = tone_planes(V, F, B, TONE_PLANE_ANGLE, TONE_PLANE_MIN_FACES)
     ref2 = ref.copy()
     keep_all = np.zeros(nF, bool)
+    glare = np.zeros(nF, bool)
     obs = no > 0
     info = {'tone_planes': 0, 'tone_planes_used': 0, 'tone_planes_multimodal': 0, 'tone_plane_faces_obs': 0}
+    if TONE_GLARE:
+        info.update(tone_glare_planes=0, tone_glare_faces=0, tone_glare_info=[])
     ob = obs & (lab >= 0)                                                         # грани вне плоскостей (lab = -1) в счёт наблюдений плоскости не идут
     npx = np.bincount(lab[ob], weights=no[ob], minlength=int(lab.max()) + 1) if ob.any() else np.zeros(1)
     for pl in np.nonzero(npx >= TONE_PLANE_MIN_OBS)[0]:
@@ -525,6 +566,19 @@ def tone_plane_ref(lo_f: np.ndarray, no: np.ndarray, ref: np.ndarray, V: np.ndar
         if len(of) == 0:
             continue
         info['tone_planes'] += 1
+        if TONE_GLARE:
+            gf, gi = _glare_faces(lo_f[of], no[of], ref[of], card)
+            if gi is not None and len(info['tone_glare_info']) < 12:
+                info['tone_glare_info'].append(dict(gi, plane=int(pl)))
+            if gf.any():
+                if float(no[of][gf].sum()) >= 0.5 * float(no[of].sum()):
+                    glare[mem & ~obs] = True                                          # блик у большинства плоскости: ненаблюдённые грани тоже красим опорой
+                glare[of[gf]] = True
+                info['tone_glare_planes'] += 1
+                info['tone_glare_faces'] += int(gf.sum())
+                of = of[~gf]
+                if len(of) == 0:
+                    continue                                                          # вся плоскость — блик: опора прежняя
         med = np.median(lo_f[of], axis=0)
         d_med = de2000(lo_f[of], np.repeat(med[None], len(of), 0))
         if float((d_med <= TONE_MAX_DE).mean()) < TONE_PLANE_UNIMODAL:
@@ -533,7 +587,7 @@ def tone_plane_ref(lo_f: np.ndarray, no: np.ndarray, ref: np.ndarray, V: np.ndar
             info['tone_planes_multimodal'] += 1
             info['tone_plane_faces_obs'] += int(len(of))
             continue
-        w = np.where(mem & obs, no, 0.0)
+        w = np.where(mem & obs & ~glare, no, 0.0)
         rn, rd = _gsmooth(Bp, lo_f * w[:, None], w, TONE_PLANE_ITERS)
         fld = rn / np.maximum(rd, 1e-12)[:, None]
         d1 = de2000(lo_f[of], fld[of])
@@ -542,11 +596,11 @@ def tone_plane_ref(lo_f: np.ndarray, no: np.ndarray, ref: np.ndarray, V: np.ndar
         if float(w2.sum()) > 0:
             rn, rd = _gsmooth(Bp, lo_f * w2[:, None], w2, TONE_PLANE_ITERS)
             fld = rn / np.maximum(rd, 1e-12)[:, None]
-        has = mem & (rd > 0)
+        has = mem & (rd > 0) & ~glare
         ref2[has] = fld[has]
         info['tone_planes_used'] += 1
         info['tone_plane_faces_obs'] += int(len(of))
-    return ref2, keep_all, info
+    return ref2, keep_all, glare, info
 
 
 def tone_oblique(tex: np.ndarray, occ: np.ndarray, known: np.ndarray, fid: np.ndarray, st: dict, prgb: np.ndarray, pmask: np.ndarray, nogo: np.ndarray, edge_ok: np.ndarray,
@@ -601,19 +655,27 @@ def tone_oblique(tex: np.ndarray, occ: np.ndarray, known: np.ndarray, fid: np.nd
     rn, rd = _gsmooth(B, ref0, np.ones(nF), TONE_REF_ITERS)
     ref = rn / rd[:, None]
     keep_all = np.zeros(nF, bool)
+    glare = np.zeros(nF, bool)
     if TONE_PLANE_REF:
-        ref, keep_all, pinfo = tone_plane_ref(lo_f, no, ref, np.asarray(V, np.float64), np.asarray(F), B, LP.de2000)
+        ref, keep_all, glare, pinfo = tone_plane_ref(lo_f, no, ref, np.asarray(V, np.float64), np.asarray(F), B, LP.de2000, g.get('gloss_card'))
         info.update(pinfo)
     de = LP.de2000(lo_f[obs_faces], ref[obs_faces])
-    kept = obs_faces[(de <= TONE_MAX_DE) | keep_all[obs_faces]]
-    info['tone_dropped_de'] = int(len(obs_faces) - len(kept))
+    ok = ((de <= TONE_MAX_DE) | keep_all[obs_faces]) & ~glare[obs_faces]
+    kept = obs_faces[ok]
+    n_glare_obs = int(glare[obs_faces].sum())
+    info['tone_dropped_de'] = int(len(obs_faces) - len(kept) - n_glare_obs)
     info['tone_drop_share'] = round(info['tone_dropped_de'] / max(len(obs_faces), 1), 4)
+    if TONE_GLARE and TONE_PLANE_REF:
+        info['tone_glare_share'] = round(n_glare_obs / max(len(obs_faces), 1), 4)                       # доля наблюдённых граней-бликов (красим опорой, Δ 0)
     info['tone_faces_kept'] = int(len(kept))
-    if len(kept) == 0:
+    if len(kept) == 0 and n_glare_obs == 0:
         info['tone_skip'] = f'все наблюдения дальше {TONE_MAX_DE:g} ΔE00 от опоры'
         return zero
-    dist, _p2, src = dijkstra(A, directed=False, indices=kept, min_only=True, return_predecessors=True, limit=TONE_REACH_FRAC * ext)
-    reached = tone_same_side(V, F, src, TONE_SRC_COS)                                                    # другая сторона формы (зад/верх/бок) — другая поверхность: тон фасада на неё не переносим
+    if len(kept):
+        dist, _p2, src = dijkstra(A, directed=False, indices=kept, min_only=True, return_predecessors=True, limit=TONE_REACH_FRAC * ext)
+        reached = tone_same_side(V, F, src, TONE_SRC_COS)                                                # другая сторона формы (зад/верх/бок) — другая поверхность: тон фасада на неё не переносим
+    else:                                                                                                  # только блики: Δ ни у кого нет, красим опорой
+        dist, src, reached = np.full(nF, np.inf), np.full(nF, -1, np.int64), np.zeros(nF, bool)
     delta0 = np.zeros((nF, 3))
     delta0[reached] = (lo_f - ref)[src[reached]]
     dn, dd = _gsmooth(B, delta0 * reached[:, None], reached.astype(np.float64), TONE_SMOOTH_ITERS)
@@ -621,15 +683,22 @@ def tone_oblique(tex: np.ndarray, occ: np.ndarray, known: np.ndarray, fid: np.nd
     if TONE_SKIP_DROPPED:
         dropped = np.setdiff1d(obs_faces, kept)
         painted[dropped] = False
+    painted |= glare                                                                                       # блик: красим опорой (Δ 0), не выкидываем (иначе крапа) и не запекаем
     delta = dn / np.maximum(dd, 1e-12)[:, None]
     near = np.clip(1.0 - dist / max(TONE_NEAR_FRAC * ext, 1e-9), 0.0, 1.0)[:, None]                  # 1 на наблюдавшейся грани → 0 дальше tone_near_frac·габарит
     wgt = near + (1.0 - near) * np.array([TONE_WL, TONE_WC, TONE_WC])[None, :]
     own = np.zeros(nF, bool)
     own[kept] = True                                                                                     # у самой наблюдавшейся грани — её собственное наблюдение (сглаженное Δ соседей светлее/темнее фото на этих пикселях)
-    delta = np.where(own[:, None], lo_f - ref, delta)
+    if TONE_PLANE_REF and TONE_OWN_N0 > 0:                                                              # грань с малым числом пикселей — шумное среднее: тянем к сглаженному Δ соседей
+        a_own = (no / (no + TONE_OWN_N0))[:, None]
+        delta = np.where(own[:, None], a_own * (lo_f - ref) + (1.0 - a_own) * delta, delta)
+    else:
+        delta = np.where(own[:, None], lo_f - ref, delta)
+    delta[glare] = 0.0
     if ISL_ON and (ISL_TOP.get('enabled', True)):                                                      # верх по моде: Δ граней верха → к их медиане (гасим полосы блика), низкочастотный тон остаётся
         delta, top_info = top_mode(delta, painted, V, F, ISL_TOP)
         info.update(top_info)
+        delta[glare] = 0.0
     lab_new = ref + delta * wgt
     frgb = LP.l2s8(LP.lab_to_lin(lab_new.astype(np.float32)[None]))[0]
     fcl = np.clip(fid, 0, nF - 1)

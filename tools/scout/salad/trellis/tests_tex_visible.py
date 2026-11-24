@@ -1095,6 +1095,83 @@ class TestTonePlaneRef(unittest.TestCase):
         self.assertNotEqual(int(lab[top[0]]), int(lab[len(F) - 1]))                      # фасад — другая плоскость (или -1), не верх
 
 
+class TestToneGlare(unittest.TestCase):
+    """T-20261124-27 (комод-лак): блик глянца на плоскости цветного корпуса красится прежней опорой (Δ 0), а не запекается; светлое дерево Крита не задето. Флаг tone_glare (выкл. = как было)."""
+
+    def setUp(self):
+        self.geoms = box_geom()
+        self._sv = (TV.TONE_PLANE_REF, TV.TONE_PLANE_MIN_OBS, TV.TONE_PLANE_MIN_FACES, TV.TONE_GLARE, TV.TONE_GLARE_MIN_FACES)
+        TV.TONE_PLANE_MIN_FACES = 1
+        TV.TONE_GLARE_MIN_FACES = 2                                                  # коробка — по 2 грани на верх
+        TV.TONE_PLANE_REF = True
+
+    def tearDown(self):
+        (TV.TONE_PLANE_REF, TV.TONE_PLANE_MIN_OBS, TV.TONE_PLANE_MIN_FACES, TV.TONE_GLARE, TV.TONE_GLARE_MIN_FACES) = self._sv
+
+    def _run(self, top, glare):
+        TV.TONE_GLARE = glare
+        return TestTexVisible._top_tone(self, top)
+
+    @staticmethod
+    def _gradient(fx, fy):                                                          # блик: грань 8 светлее и бесцветнее грани 9 (L растёт — C падает)
+        return np.where((fx >= fy)[..., None], np.array([245, 240, 238]), np.array([215, 205, 200]))
+
+    def _top_cols(self, tr, cell):
+        pv, tex = tr['prov'][0], tr['tex'][0]
+        m = cell & (pv == TV.PROV['synth'])
+        return m, tex[m].astype(float)
+
+    def test_glare_on_whole_top_painted_with_old_reference_not_baked(self):
+        tr, cell = self._run(self._gradient, True)
+        st = tr['stats'][0]
+        self.assertEqual(st['tone_glare_faces'], 2)
+        self.assertEqual(st['tone_glare_planes'], 1)
+        self.assertEqual(st['tone_dropped_de'], 0)                                 # блик не «выброс»: не выкинут (иначе крапа), а покрашен
+        self.assertEqual(st['tone_glare_share'], 1.0)
+        m, col = self._top_cols(tr, cell)
+        self.assertGreater(int(m.sum()), 2500)
+        self.assertTrue((np.abs(col.mean(0) - np.array([220, 30, 30])).max() < 40), col.mean(0))   # цвет корпуса, а не светло-серый блик
+        gi = st['tone_glare_info'][0]
+        self.assertTrue(gi['glare'] and gi['vote_b'] and gi['corr_L_C'] <= -0.3, gi)
+
+    def test_glare_off_bakes_light_top_like_before(self):
+        tr, cell = self._run(self._gradient, False)
+        m, col = self._top_cols(tr, cell)
+        self.assertGreater(int(m.sum()), 2500)
+        self.assertGreater(float(col.mean(0)[1]), 150)                              # без правила блика опора-плоскость запекает светлый верх (прежнее поведение флага plane_ref)
+        self.assertNotIn('tone_glare_faces', tr['stats'][0])
+
+    def test_glare_on_half_of_top_other_half_keeps_own_observation(self):
+        half = lambda fx, fy: np.where((fx >= fy)[..., None], np.array([245, 240, 238]), np.array([200, 40, 40]))   # грань 8 — блик, грань 9 — цвет корпуса
+        tr, cell = self._run(half, True)
+        st = tr['stats'][0]
+        self.assertEqual(st['tone_glare_faces'], 1)
+        m, col = self._top_cols(tr, cell)
+        self.assertGreater(int(m.sum()), 2500)
+        self.assertLess(float(col[:, 1].mean()), 110)                               # серого блика в верхе нет: обе половины красные
+
+    def test_light_wood_top_is_not_glare(self):
+        tr, cell = self._run(TestTonePlaneRef.LIGHT, True)                         # светлое дерево Крита: C ~ 0,35 от C красной опоры > 0,25 — не блик
+        st = tr['stats'][0]
+        self.assertEqual(st.get('tone_glare_faces'), 0)
+        m, col = self._top_cols(tr, cell)
+        self.assertGreater(int(m.sum()), 2500)
+        self.assertTrue(np.abs(col.mean(0) - np.array(TestTonePlaneRef.LIGHT)).max() < 25, col.mean(0))
+
+    def test_card_other_material_vetoes_glare(self):
+        TV.TONE_GLARE = True
+        gf, gi = TV._glare_faces(np.array([[95.0, 1.0, 2.0], [85.0, 3.0, 5.0]]), np.array([100.0, 100.0]), np.array([[48.0, 70.0, 50.0]] * 2), {'other_material': True})
+        self.assertFalse(gf.any())                                                  # «другой материал» (стекло/камень) против блика
+        self.assertFalse(gi['glare'])
+        gf2, _ = TV._glare_faces(np.array([[95.0, 1.0, 2.0]]), np.array([100.0]), np.array([[48.0, 70.0, 50.0]]), {'gloss': True})
+        self.assertTrue(gf2.all())                                                  # карточка «лак/глянец» — голос (в) без корреляции (одна грань)
+
+    def test_white_body_is_not_glare(self):
+        gf, gi = TV._glare_faces(np.array([[95.0, 0.5, 1.0], [92.0, 0.3, 0.5]]), np.array([100.0, 100.0]), np.array([[85.0, 1.0, 2.0]] * 2), None)
+        self.assertFalse(gf.any())                                                  # корпус белый (C опоры < 30): светлое на светлом — не блик
+        self.assertIsNone(gi)
+
+
 class FrontCheck(unittest.TestCase):
     """Перёд/зад после переноса (T-20261123-43): вердикт по долям известного и кромкам камеры; без правил — не применимо."""
 
