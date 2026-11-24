@@ -959,5 +959,31 @@ except Exception as exc:  # noqa: BLE001
     ok(False, f'вход 07 (карточка+фото): проверка не выполнена: {type(exc).__name__}: {exc}')
 
 
+def _camera_body_only():
+    """T-20261124-02: 06 идёт с --body-only по флагам check.json камеры (rules/paint-run-all.json dynamic.body_only_args), а не по ручному полю."""
+    td = tmpdir('cam_body_only')
+
+    def cam(name, extra, write=True):
+        d = os.path.join(td, name, '04-camera')
+        os.makedirs(d, exist_ok=True)
+        if write:
+            json.dump({'passed': False, 'extra': extra}, open(os.path.join(d, 'check.json'), 'w'))
+        return os.path.join(td, name)
+
+    ok(ST.camera_body_only(cam('bsm', {'bottom_shape_mismatch': True})) is True, 'camera_body_only: bottom_shape_mismatch → body_only')
+    ok(ST.camera_body_only(cam('legs', {'legs_block': True})) is True, 'camera_body_only: legs_block → body_only')
+    ok(ST.camera_body_only(cam('clean', {'bottom_shape_mismatch': False, 'legs_block': False})) is False, 'camera_body_only: флаги ложны → обычный 06')
+    ok(ST.camera_body_only(cam('nofile', {}, write=False)) is False, 'camera_body_only: нет check.json → False (не падает)')
+    ok(ST.camera_body_only('') is False and ST.camera_body_only(None) is False, 'camera_body_only: нет pose_run → False')
+    rules = json.load(open(os.path.join(SCOUT, 'rules', 'paint-run-all.json'), encoding='utf-8'))
+    ok(['04-camera', 'bottom_shape_mismatch'] in rules['dynamic']['body_only_args']['if_extra_true_any'], 'правило одно: stage_trial читает те же флаги, что paint_run_all')
+
+
+try:
+    _camera_body_only()
+except Exception as exc:  # noqa: BLE001
+    ok(False, f'camera_body_only: проверка не выполнена: {type(exc).__name__}: {exc}')
+
+
 print('ПРОВАЛЕНО: ' + str(len(FAILS)) if FAILS else 'ВСЕ ТЕСТЫ ЗЕЛЁНЫЕ')
 sys.exit(1 if FAILS else 0)

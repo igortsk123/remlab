@@ -54,6 +54,17 @@ MAX_POSE_RUN_MB = 50
 KEEP_SUFFIX = '.pre-backpanel.glb'
 
 
+def camera_body_only(pose_run: str) -> bool:
+    """«Корпус лёг, низ формы — нет» (T-20261124-02): 06 идёт с --body-only, если в 04-camera/check.json истинен хоть один флаг из rules/paint-run-all.json (dynamic.body_only_args.if_extra_true_any) —
+    то же правило, что у paint_run_all (копии нет). Камера без check.json или без флагов — False. Явное body_only в inputs.json остаётся (вручную можно только включить)."""
+    try:
+        d = json.load(open(os.path.join(ROOT, 'tools', 'scout', 'rules', 'paint-run-all.json'), encoding='utf-8'))['dynamic']['body_only_args']
+        ex = (json.load(open(os.path.join(pose_run or '', '04-camera', 'check.json'), encoding='utf-8')).get('extra') or {})
+    except (OSError, ValueError, KeyError, TypeError):
+        return False
+    return any(bool(ex.get(k)) for st, k in d.get('if_extra_true_any', []) if st == '04-camera')
+
+
 def worker_command(path: str | None = None) -> tuple[list[str], str]:
     return KW.bundle(path or WORKER)
 
@@ -293,7 +304,7 @@ def submit_stage(gw, a, inputs: dict, stage: str, t: float) -> tuple[dict | None
                 continue
             data = input_zip_07(vis, code.get('tar'), v)
         jid = job_id(stage, sku, data, a)
-        body = {'job_id': jid, 'stage': stage, 'sku': sku, 'input_z': base64.b64encode(zlib.compress(data, 6)).decode(), 'body_only': bool(v.get('body_only')) and stage == '06',
+        body = {'job_id': jid, 'stage': stage, 'sku': sku, 'input_z': base64.b64encode(zlib.compress(data, 6)).decode(), 'body_only': (bool(v.get('body_only')) or camera_body_only(v.get('pose_run'))) and stage == '06',
                 'code_sha': code.get('sha', ''), 'code_tar_sha256': code.get('tar_sha256', '')}
         if job_args(stage, v):
             body['args'] = job_args(stage, v)
