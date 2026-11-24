@@ -85,7 +85,8 @@ TONE_REACH_FRAC = float(R.get('tone_reach_frac', 0.3))     # тон растек
 TONE_SKIP_DROPPED = bool(int(os.environ['TEX_VISIBLE_TONE_DROP'])) if 'TEX_VISIBLE_TONE_DROP' in os.environ else bool(R.get('tone_skip_dropped', True))   # грань, наблюдавшаяся, но отброшенная по ΔE (другой материал/блик), соседским тоном не красится
 TONE_MAX_DE = float(R.get('tone_max_de', 20.0))             # ΔE00(наблюдение, опора) больше — другой материал или блик: не красим
 TONE_PLANE_REF = bool(int(os.environ['TEX_VISIBLE_TONE_PLANE_REF'])) if 'TEX_VISIBLE_TONE_PLANE_REF' in os.environ else bool(R.get('tone_plane_ref', False))   # T-20261124-27: опора тона — местное поле наблюдений САМОЙ плоскости, не ближайшая известная грань (кромка); выкл. = как было
-TONE_PLANE_ANGLE = float(R.get('tone_plane_angle_deg', 8.0))        # грани одной плоскости: соседние нормали ≤ этого угла, и нормаль грани ≤ 2× от средней нормали плоскости
+TONE_PLANE_ANGLE = float(R.get('tone_plane_angle_deg', 8.0))        # грань — в плоскости, если её нормаль ≤ этого угла от нормали-якоря плоскости (не цепочкой от соседа)
+TONE_PLANE_MIN_FACES = int(R.get('tone_plane_min_faces', 20))         # меньше граней с одной нормалью — не плоскость (шум сетки)
 TONE_PLANE_MIN_OBS = int(R.get('tone_plane_min_obs_px', 200))       # меньше наблюдений в плоскости — опора по-старому (ближайшее известное)
 TONE_PLANE_UNIMODAL = float(R.get('tone_plane_unimodal_share', 0.8))   # плоскость «одногорбая», если ≥ этой доли наблюдённых граней в TONE_MAX_DE от её медианы; иначе (ёлочка/мрамор/два цвета) отсев по ΔE не делаем
 TONE_PLANE_ITERS = int(R.get('tone_plane_iters', 12))               # сглаживание поля наблюдений плоскости (шагов графа граней внутри плоскости)
@@ -465,26 +466,43 @@ def _tone_unknown(pop: tuple, known: np.ndarray, take: np.ndarray | None) -> flo
     return round(float(unk.mean()), 4)
 
 
-def tone_planes(V: np.ndarray, F: np.ndarray, B, angle_deg: float) -> tuple[np.ndarray, object]:
-    """Плоскости формы: связные компоненты графа граней по рёбрам, где нормали соседей ≤ angle_deg; грань, чья нормаль дальше 2·angle_deg от средней нормали компоненты, плоскости не принадлежит (-1: изгиб цепочкой).
-    → (метка плоскости на грань, граф B только по плоскостным рёбрам — сглаживание не переходит через излом)."""
+def tone_planes(V: np.ndarray, F: np.ndarray, B, angle_deg: float, min_faces: int = 20) -> tuple[np.ndarray, object]:
+    """Плоскости формы по НОРМАЛИ-ЯКОРЮ (без дрейфа цепочкой: скруглённый край с шагом нормали < угла склеил бы верх и фасад в одну «плоскость» со средней нормалью по диагонали — все грани вне неё, 12 032 из 12 467 у комода-лака).
+    Жадно: самое людное направление нормалей среди нераспределённых граней (ячейка 0,1) → якорь = их средняя нормаль; грани с нормалью ≤ angle_deg от якоря, связные по рёбрам графа граней, — плоскость (метка ≥ 0); повтор, пока людное направление ≥ min_faces граней.
+    Остальные — -1 (изгиб, мелочь). → (метка плоскости на грань, граф B только по рёбрам внутри плоскости — сглаживание не переходит через излом)."""
     from scipy.sparse import coo_matrix
     from scipy.sparse.csgraph import connected_components
     nF = len(F)
     nrm = np.cross(V[F[:, 1]] - V[F[:, 0]], V[F[:, 2]] - V[F[:, 0]])
     nrm = nrm / np.maximum(np.linalg.norm(nrm, axis=1, keepdims=True), 1e-12)
     ca = float(np.cos(np.radians(angle_deg)))
+    lab = np.full(nF, -1, np.int64)
+    rest = np.ones(nF, bool)
+    q = np.round(nrm * 10.0).astype(np.int64)
+    key = (q[:, 0] + 20) * 1681 + (q[:, 1] + 20) * 41 + (q[:, 2] + 20)
     Bc = B.tocoo()
-    ok = (nrm[Bc.row] * nrm[Bc.col]).sum(1) >= ca
-    Bp = coo_matrix((np.ones(int(ok.sum())), (Bc.row[ok], Bc.col[ok])), shape=(nF, nF)).tocsr()
-    _n, lab = connected_components(Bp, directed=False)
-    mean = np.zeros((lab.max() + 1, 3))
-    np.add.at(mean, lab, nrm)
-    mean /= np.maximum(np.linalg.norm(mean, axis=1, keepdims=True), 1e-12)
-    far = (nrm * mean[lab]).sum(1) < float(np.cos(np.radians(2.0 * angle_deg)))
-    lab = np.where(far, -1, lab)
-    keep = (lab[Bc.row[ok]] >= 0) & (lab[Bc.col[ok]] >= 0) & (lab[Bc.row[ok]] == lab[Bc.col[ok]])
-    Bp = coo_matrix((np.ones(int(keep.sum())), (Bc.row[ok][keep], Bc.col[ok][keep])), shape=(nF, nF)).tocsr()
+    nxt = 0
+    for _ in range(64):
+        if not rest.any():
+            break
+        ks, cnt = np.unique(key[rest], return_counts=True)
+        if int(cnt.max()) < int(min_faces):
+            break
+        anchor = nrm[rest & (key == ks[int(cnt.argmax())])].mean(0)
+        anchor /= max(float(np.linalg.norm(anchor)), 1e-12)
+        sel = rest & ((nrm @ anchor) >= ca)
+        e = sel[Bc.row] & sel[Bc.col]
+        Bs = coo_matrix((np.ones(int(e.sum())), (Bc.row[e], Bc.col[e])), shape=(nF, nF)).tocsr()
+        _n, cl = connected_components(Bs, directed=False)
+        idx = np.nonzero(sel)[0]
+        for c in np.unique(cl[idx]):
+            m = idx[cl[idx] == c]
+            if len(m) >= 1:
+                lab[m] = nxt
+                nxt += 1
+        rest &= ~sel
+    e = (lab[Bc.row] >= 0) & (lab[Bc.row] == lab[Bc.col])
+    Bp = coo_matrix((np.ones(int(e.sum())), (Bc.row[e], Bc.col[e])), shape=(nF, nF)).tocsr()
     return lab, Bp
 
 
@@ -494,12 +512,13 @@ def tone_plane_ref(lo_f: np.ndarray, no: np.ndarray, ref: np.ndarray, V: np.ndar
     цвет грани по-прежнему её собственное наблюдение (тон по медиане НЕ красим — сотрёт ёлочку/мрамор). Плоскость не одногорбая (< TONE_PLANE_UNIMODAL граней в TONE_MAX_DE от медианы) — отсев не делаем:
     опора наблюдённой грани = её наблюдение (ΔE 0, Δ 0). Мало наблюдений — опора прежняя. → (ref', force_keep: маска граней без отсева, info)."""
     nF = len(F)
-    lab, Bp = tone_planes(V, F, B, TONE_PLANE_ANGLE)
+    lab, Bp = tone_planes(V, F, B, TONE_PLANE_ANGLE, TONE_PLANE_MIN_FACES)
     ref2 = ref.copy()
     keep_all = np.zeros(nF, bool)
     obs = no > 0
     info = {'tone_planes': 0, 'tone_planes_used': 0, 'tone_planes_multimodal': 0, 'tone_plane_faces_obs': 0}
-    npx = np.bincount(np.clip(lab[obs], 0, None), weights=no[obs], minlength=int(lab.max()) + 1) if obs.any() else np.zeros(1)
+    ob = obs & (lab >= 0)                                                         # грани вне плоскостей (lab = -1) в счёт наблюдений плоскости не идут
+    npx = np.bincount(lab[ob], weights=no[ob], minlength=int(lab.max()) + 1) if ob.any() else np.zeros(1)
     for pl in np.nonzero(npx >= TONE_PLANE_MIN_OBS)[0]:
         mem = lab == pl
         of = np.nonzero(mem & obs)[0]

@@ -1010,10 +1010,11 @@ class TestTonePlaneRef(unittest.TestCase):
 
     def setUp(self):
         self.geoms = box_geom()
-        self._sv = (TV.TONE_PLANE_REF, TV.TONE_PLANE_MIN_OBS)
+        self._sv = (TV.TONE_PLANE_REF, TV.TONE_PLANE_MIN_OBS, TV.TONE_PLANE_MIN_FACES)
+        TV.TONE_PLANE_MIN_FACES = 1                                                  # коробка — по 2 грани на сторону
 
     def tearDown(self):
-        TV.TONE_PLANE_REF, TV.TONE_PLANE_MIN_OBS = self._sv
+        TV.TONE_PLANE_REF, TV.TONE_PLANE_MIN_OBS, TV.TONE_PLANE_MIN_FACES = self._sv
 
     def _run(self, top, flag):
         TV.TONE_PLANE_REF = flag
@@ -1068,10 +1069,30 @@ class TestTonePlaneRef(unittest.TestCase):
     def test_planes_split_at_crease(self):
         g = self.geoms[0]
         A, B, cen, ext = TV._face_graph(g['V'], g['F'])
-        lab, Bp = TV.tone_planes(g['V'], g['F'], B, 8.0)
+        lab, Bp = TV.tone_planes(g['V'], g['F'], B, 8.0, min_faces=1)
         self.assertEqual(int(lab[8]), int(lab[9]))                                  # две грани верха — одна плоскость
         self.assertNotEqual(int(lab[8]), int(lab[0]))                               # верх ≠ перед (излом 90°)
         self.assertEqual(Bp.nnz % 2, 0)
+
+    def test_planes_no_chain_drift_on_rounded_edge(self):
+        """Верх, плавно (шаг 3°) переходящий в фасад скруглением: цепочка не склеивает всё в одну «плоскость» со средней нормалью по диагонали — плоский верх остаётся плоскостью."""
+        import math
+        pts = [(-6.0 + 0.5 * i, 1.0) for i in range(13)]                                 # плоский верх x = -6…0 (12 отрезков)
+        pts += [(math.sin(math.radians(3 * k)), math.cos(math.radians(3 * k))) for k in range(1, 31)]   # скругление 3°…90°
+        pts += [(1.0, 1.0 - 0.5 * i - 0.0) for i in range(1, 13)]                        # фасад вниз
+        V, F = [], []
+        for (x, y) in pts:
+            V += [(x, y, 0.0), (x, y, 1.0)]
+        for i in range(len(pts) - 1):
+            a, b, c, d = 2 * i, 2 * i + 1, 2 * i + 2, 2 * i + 3
+            F += [[a, b, c], [b, d, c]]
+        V, F = np.array(V, float), np.array(F)
+        A, B, cen, ext = TV._face_graph(V, F)
+        lab, Bp = TV.tone_planes(V, F, B, 8.0, min_faces=10)
+        top = np.arange(0, 20)                                                           # 12 отрезков верха (24 грани) — первые 20 заведомо верх
+        self.assertTrue((lab[top] >= 0).all(), 'плоский верх не должен стать «вне плоскостей»')
+        self.assertEqual(len(set(lab[top].tolist())), 1)
+        self.assertNotEqual(int(lab[top[0]]), int(lab[len(F) - 1]))                      # фасад — другая плоскость (или -1), не верх
 
 
 class FrontCheck(unittest.TestCase):
