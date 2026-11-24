@@ -464,7 +464,7 @@ def run_eval(rules: dict, sheets_dir: str, out_dir: str, items: list[dict]) -> d
             for f, d in fs.items():
                 if f != 'na' and d.get('r') is not None and d['r'] > 1:
                     fails.append({'view': view, 'feature': f, 'r': d['r']})
-        out[sku] = {'score': v['score'], 'ok': v['ok'], 'fails': sorted(fails, key=lambda x: -x['r']), 'views': v['views'], **({'uncertain': v['uncertain']} if v.get('uncertain') else {}), **({'hidden_pattern': v['hidden_pattern'], 'passport_digest': v.get('passport_digest'), 'policy_reason': v.get('policy_reason')} if v.get('hidden_pattern') else {})}
+        out[sku] = {'score': v['score'], 'ok': v['ok'], 'status': v.get('status'), 'unmeasured': v.get('unmeasured') or [], 'fails': sorted(fails, key=lambda x: -x['r']), 'views': v['views'], **({'uncertain': v['uncertain']} if v.get('uncertain') else {}), **({'hidden_pattern': v['hidden_pattern'], 'passport_digest': v.get('passport_digest'), 'policy_reason': v.get('policy_reason')} if v.get('hidden_pattern') else {})}
     return {'per_sku': out, 'summary': r['summary']}
 
 
@@ -475,8 +475,9 @@ def eval_html(ev: dict, fronts: dict | None = None) -> str:
     views = ['перед', '3/4', 'бок', 'зад', 'др. бок', 'верх']
     pct = s.get('passed_all_pct')
     unc = s.get('uncertain') or []
-    out = [f'<h2>Автооценка: все 5 признаков на всех сторонах — {s["passed_all"]} из {s.get("measured", s["items"])}' + (f' ({pct} %)' if pct is not None else '')
-           + (f' · не измерено (тонкая вещь, маска фото мала): {len(unc)}' if unc else '') + '</h2>'
+    out = [f'<h2>Автооценка: прошли ВСЁ (всё применимое измерено) — {s["passed_all"]} из {s["items"]}' + (f' ({pct} %)' if pct is not None else '')
+           + f' · есть «не измерено» — {s.get("with_unmeasured", 0)} · не прошли — {s.get("failed", 0)} · неприменимо — {s.get("na_features", 0)} признаков и {s.get("na_views", 0)} видов (выпали из проверки)'
+           + (f' (из «не измерено» целиком — тонкая вещь, маска фото мала: {len(unc)})' if unc else '') + '</h2>'
            '<p>Худшие сверху. Число — «насколько плохо к допуску» (r ≤ 1 — прошло, красным — не прошло); «—» — признак к стороне не применяется. <b>Признак «рисунок» по типу — ориентир, не ворота</b>: пороги ждут калибровки на следующей партии.</p>']
     for sku in s['worst_first']:
         v = ev['per_sku'][sku]
@@ -492,13 +493,15 @@ def eval_html(ev: dict, fronts: dict | None = None) -> str:
             cells = []
             for vw in views:
                 d = (v['views'].get(vw) or {}).get(f) if 'na' not in (v['views'].get(vw) or {}) else None
-                if not d or d.get('r') is None:
+                if d and d.get('r') is None and d.get('status') == 'unmeasured':
+                    cells.append(f'<td style="background:#eee;color:#555" title="{html.escape(str(d.get("why") or ""))}">не изм.</td>')
+                elif not d or d.get('r') is None:
                     cells.append('<td>—</td>')
                 else:
                     bad = d['r'] > 1
                     cells.append(f'<td style="{"background:#fbb;font-weight:bold" if bad else ""}">{d["r"]:.2f}</td>')
             rows.append(f'<tr><th align="left">{f}</th>{"".join(cells)}</tr>')
-        out.append(f'<h4>{html.escape(sku)} — оценка {sc} {"✓ все 5" if v["ok"] else "✗"} · перёд: {html.escape(str(src))} {html.escape(fl)}</h4>'
+        out.append(f'<h4>{html.escape(sku)} — оценка {sc} {"✓ все 5" if v["ok"] else ("⚠ не всё измерено: " + str(len(v.get("unmeasured") or [])) if v["ok"] is None else "✗")} · перёд: {html.escape(str(src))} {html.escape(fl)}</h4>'
                    f'<table border="1" cellpadding="3" style="border-collapse:collapse;font-size:13px"><tr><th></th>{"".join(f"<th>{x}</th>" for x in views)}</tr>{"".join(rows)}</table>')
     return ''.join(out)
 
@@ -538,8 +541,10 @@ def by_type(types: dict[str, dict], per_sku: dict | None) -> dict[str, dict]:
         d['n'] += 1
         v = (per_sku or {}).get(sku)
         if v is not None:
-            if v.get('ok'):
+            if v.get('ok') is True:
                 d['passed'] += 1
+            elif v.get('ok') is None:                                         # «не измерено» — не прошёл и не провалил (T-20261124-22)
+                d.setdefault('unmeasured', []).append(sku)
             else:
                 d['failed'].append(sku)
     return out
@@ -582,7 +587,7 @@ def eval_after(rules: dict, run_dir: str, jobs: list[tuple], fronts: dict, types
         say(f'❗ автооценка не посчиталась: {type(e).__name__}: {e}')
         return None, f'<p>❗ автооценка не посчиталась: {html.escape(str(e))}</p>'
     s0 = ev['summary']
-    say(f'автооценка ({len(items)} товаров, не измерено {len(s0.get("uncertain") or [])}): все 5 на всех сторонах {s0["passed_all"]} из {s0.get("measured", s0["items"])} ({s0["passed_all_pct"]} %); худший: {s0["worst_first"][:3]}')
+    say(f'автооценка ({len(items)} товаров, не измерено {len(s0.get("uncertain") or [])}): все 5 на всех сторонах {s0["passed_all"]} из {s0["items"]} ({s0["passed_all_pct"]} %), есть «не измерено» {s0.get("with_unmeasured")}, не прошли {s0.get("failed")}, неприменимо {s0.get("na_features")} признаков/{s0.get("na_views")} видов; худший: {s0["worst_first"][:3]}')
     return ev, eval_html(ev, fronts)
 
 
@@ -819,8 +824,8 @@ def main(argv=None) -> int:
     summ = {'code_ref': a.code_ref, 'sha': sha, 'from': a.start, 'run_dir': run_dir, 'page': page, 'seconds_salad': round(t_salad), 'seconds_total': round(t_all), 'codes': rcs, 'sheets_rc': [rc_b, rc_a], 'sheets_s': sheets_s,
             'money': money, 'skus': {r['sku']: r['status'] for r in rows},
             'types': types, 'by_type': by_type(types, None if ev is None else ev.get('per_sku')),
-            'eval': None if ev is None else {'passed_all': ev['summary']['passed_all'], 'items': ev['summary']['items'], 'passed_all_pct': ev['summary']['passed_all_pct'], 'measured': ev['summary'].get('measured'), 'uncertain': ev['summary'].get('uncertain'), 'worst_first': ev['summary']['worst_first'],
-                                              'per_sku': {k: {'score': v['score'], 'ok': v['ok'], 'fails': v['fails'], 'type': (types.get(k) or {}).get('type'), 'hidden_pattern': v.get('hidden_pattern'), 'passport_digest': v.get('passport_digest'), 'policy_reason': v.get('policy_reason'), 'front': {x: (fronts.get(k) or {}).get(x) for x in ('theta', 'source', 'flags')}} for k, v in ev['per_sku'].items()}}}
+            'eval': None if ev is None else {'passed_all': ev['summary']['passed_all'], 'items': ev['summary']['items'], 'passed_all_pct': ev['summary']['passed_all_pct'], 'measured': ev['summary'].get('measured'), 'failed': ev['summary'].get('failed'), 'na_features': ev['summary'].get('na_features'), 'na_views': ev['summary'].get('na_views'), 'na_by_reason': ev['summary'].get('na_by_reason'), 'with_unmeasured': ev['summary'].get('with_unmeasured'), 'unmeasured_ids': ev['summary'].get('unmeasured_ids'), 'uncertain': ev['summary'].get('uncertain'), 'worst_first': ev['summary']['worst_first'],
+                                              'per_sku': {k: {'score': v['score'], 'ok': v['ok'], 'status': v.get('status'), 'unmeasured': v.get('unmeasured'), 'fails': v['fails'], 'type': (types.get(k) or {}).get('type'), 'hidden_pattern': v.get('hidden_pattern'), 'passport_digest': v.get('passport_digest'), 'policy_reason': v.get('policy_reason'), 'front': {x: (fronts.get(k) or {}).get(x) for x in ('theta', 'source', 'flags')}} for k, v in ev['per_sku'].items()}}}
     with open(os.path.join(run_dir, 'summary.json'), 'w', encoding='utf-8') as fh:
         json.dump(summ, fh, ensure_ascii=False, indent=1)
     say(f'ГОТОВО за {t_all / 60:.1f} мин (Salad {t_salad / 60:.1f}); нод {money["groups"]}, ≈${money["cost_usd_est"]:.3f}, остановка подтверждена: {money["stop_verified"]}; страница {page}')

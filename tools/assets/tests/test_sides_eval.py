@@ -351,5 +351,65 @@ ok(b_back['r'] is not None and b_back['r'] > 1 and b_back.get('would_fail') is T
 ok(b_side['r'] is not None and b_side['r'] <= 1 and b_face['r'] is None, 'back_tone: тот же тон, что на фото — r ≤ 1; лицевая сторона (перед) не оценивается')
 ok(bt['views']['зад']['back_tone'].get('observe') is True and (bt['worst'] is None or bt['worst']['feature'] != 'back_tone'), 'back_tone: не попадает в worst и в общий ok, пока enforce=false')
 
+# 15. T-20261124-22 (Р1 «честная автооценка»): «не измерено» ≠ «прошёл». ✓ измерено и прошло · ✗ не прошло · «не измерено» (с причиной); na (неприменимо) вердикт не меняет
+_orig_underpaint = SE.FUNCS['underpaint']
+
+
+def _no_group_on_back(lab_s, m_s, lab_p, m_p, R_, ctx):
+    if ctx['view'] == 'зад':
+        return None, {'why': 'нет измеряемой группы'}
+    return _orig_underpaint(lab_s, m_s, lab_p, m_p, R_, ctx)
+
+
+SE.FUNCS['underpaint'] = _no_group_on_back
+try:
+    um = SE.eval_sheet(sheet(), R, SR)
+    ok(um['views']['зад']['underpaint']['status'] == 'unmeasured' and 'нет измеряемой группы' in um['views']['зад']['underpaint']['why'], 'нет измеряемой группы → статус признака «не измерено», причина записана')
+    ok(um['ok'] is None and um['status'] == 'unmeasured', f"остальное прошло, а один признак не измерен → ok НЕ True (было True — «не измерено» засчитывалось как «прошёл»): ok={um['ok']!r}")
+    ok(um['unmeasured'] == [{'view': 'зад', 'feature': 'underpaint', 'why': 'нет измеряемой группы'}] and um['counts']['unmeasured'] == 1, 'список «не измерено» с видом, признаком и причиной')
+    bad_um = SE.eval_sheet(sheet(view_fns={'бок': split_tone((-60, 25, 40))}), R, SR)
+    ok(bad_um['ok'] is False and bad_um['status'] == 'failed' and bad_um['counts']['unmeasured'] == 1, 'не прошёл ✗ сильнее «не измерено»: заплатка на боку + нет группы на заду → ok False')
+finally:
+    SE.FUNCS['underpaint'] = _orig_underpaint
+full = SE.eval_sheet(sheet(), R, SR)
+ok(full['ok'] is True and full['status'] == 'passed' and full['counts']['unmeasured'] == 0 and full['unmeasured'] == [], 'всё применимое измерено и прошло → ok True, status passed')
+ok(all(d.get('status') in ('ok', 'na', 'observe') for fs in full['views'].values() if 'na' not in fs for d in fs.values()), 'у каждого признака есть статус (ok / na / observe), «не измерено» среди них нет')
+ok(res['ok'] is True and res['counts']['na_views'] == 1 and res['unmeasured'] == [], 'вид без предмета (na) не мешает: остальное измерено и прошло → ok True')
+ok(full['views']['перед']['pattern']['status'] == 'na' and full['views']['перед']['pattern']['r'] is None and 'ниже порога photo_energy_min' in full['views']['перед']['pattern']['why'], 'признак, неприменимый по сути (на фото нет рисунка), — na, не «не измерено» и не брак')
+ok(SE.feat_status({'r': None, 'why': 'x', 'inapplicable': True}) == 'na' and SE.feat_status({'r': None, 'why': 'x'}) == 'unmeasured' and SE.feat_status({'r': 0.5, 'ok': True}) == 'ok'
+   and SE.feat_status({'r': 1.5, 'ok': False}) == 'fail' and SE.feat_status({'r': None}, observe_only=True) == 'observe', 'feat_status: ok / fail / unmeasured / na / observe')
+ok(SE.verdict_of({'ok': 3}) == (True, 'passed') and SE.verdict_of({'ok': 3, 'unmeasured': 1}) == (None, 'unmeasured') and SE.verdict_of({'ok': 3, 'fail': 1, 'unmeasured': 2}) == (False, 'failed')
+   and SE.verdict_of({'ok': 0, 'na': 5}) == (None, 'unmeasured') and SE.verdict_of({'ok': 2, 'na': 3, 'observe': 4}) == (True, 'passed'), 'verdict_of: пусто (ничего не измерено) — не «прошёл»; na/observe не мешают')
+
+# три числа в сводке: прошли ВСЁ · есть «не измерено» · не прошли — сумма = все товары; % от всех
+SE.FUNCS['underpaint'] = _no_group_on_back
+try:
+    with tempfile.TemporaryDirectory() as t4:
+        Image.fromarray(sheet()).save(os.path.join(t4, 'u_unmeasured.png'))
+        Image.fromarray(sheet(view_fns={'бок': split_tone((-60, 25, 40))})).save(os.path.join(t4, 'f_failed.png'))
+        b4 = SE.batch(t4, os.path.join(t4, 'o'))
+        s4 = b4['summary']
+        ok((s4['passed_all'], s4['failed'], s4['with_unmeasured'], s4['items']) == (0, 1, 1, 2) and s4['unmeasured_ids'] == ['u_unmeasured'] and s4['failed_ids'] == ['f_failed'],
+           f"сводка: прошли ВСЁ 0 · «не измерено» 1 · не прошли 1 (из 2): {s4['passed_all']}/{s4['with_unmeasured']}/{s4['failed']}")
+        ok(s4['passed_all_pct'] == 0.0 and b4['eval']['u_unmeasured']['ok'] is None, '% прошедших — от всех товаров; у «не измерено» ok = None, не True')
+finally:
+    SE.FUNCS['underpaint'] = _orig_underpaint
+with tempfile.TemporaryDirectory() as t5:
+    Image.fromarray(sheet()).save(os.path.join(t5, 'p_ok.png'))
+    s5 = SE.batch(t5, os.path.join(t5, 'o'))['summary']
+    ok((s5['passed_all'], s5['failed'], s5['with_unmeasured']) == (1, 0, 0) and s5['passed_all_pct'] == 100.0, 'всё измерено и прошло: 1/0/0, 100 %')
+
+# na решает МЕРКА по фото: фото с рисунком, а на стороне группа не измерилась → не «неприменимо», а «не измерено»; не_applicable по типу — тоже «не измерено» (решение типа, не мерка)
+na_reasons = [d['why'] for fs in full['views'].values() if 'na' not in fs for d in fs.values() if d.get('status') == 'na']
+ok(na_reasons and all(w for w in na_reasons), f'у каждого na есть причина: {sorted(set(na_reasons))[:3]}')
+pat_ph = SE.eval_sheet(sheet(photo_fn=stripes, view_fns={'зад': stripes, 'бок': stripes}), R, SR)
+ok(pat_ph['views']['зад']['pattern']['status'] in ('ok', 'fail') and pat_ph['views']['перед']['pattern']['status'] != 'na', 'на фото рисунок есть → признак «рисунок» измеряется (не na)')
+na_t = SE.eval_sheet(sheet(photo_fn=stripes, view_fns={'зад': stripes}), R, SR, hidden_pattern='not_applicable')
+ok(na_t['views']['зад']['pattern']['status'] == 'unmeasured' and 'not_applicable' in na_t['views']['зад']['pattern']['why'], 'тип not_applicable: «не измерено» с причиной (решает не тип на глаз, а мерка по фото)')
+with tempfile.TemporaryDirectory() as t6:
+    Image.fromarray(sheet()).save(os.path.join(t6, 'a.png'))
+    s6 = SE.batch(t6, os.path.join(t6, 'o'))['summary']
+    ok(s6['na_features'] > 0 and s6['na_views'] == 0 and sum(s6['na_by_reason'].values()) == s6['na_features'] and all(k for k in s6['na_by_reason']), f"сводка: «неприменимо» отдельным числом и по причинам: {s6['na_features']} {s6['na_by_reason']}")
+
 print('FAIL' if FAIL else 'OK', FAIL)
 sys.exit(1 if FAIL else 0)

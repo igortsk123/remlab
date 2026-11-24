@@ -175,6 +175,8 @@ class T(unittest.TestCase):
         self.assertEqual(bt['кровать'], {'skus': ['112923_1'], 'n': 1, 'passed': 1, 'failed': []})
         self.assertEqual(bt['без паспорта']['n'], 2)
         self.assertEqual(L.by_type(t, None)['кровать']['passed'], 0)               # листов не оценивали — прошедших нет, отказов нет
+        bu = L.by_type(t, {'112923_1': {'ok': None}, '112923_2': {'ok': True}})   # T-20261124-22: ok None = «не измерено» — не прошёл и не провалил
+        self.assertEqual((bu['кровать']['passed'], bu['кровать']['failed'], bu['кровать']['unmeasured']), (0, [], ['112923_1']))
         # сбой каталога не роняет круг
         self.assertEqual(L.product_types({**r, 'catalog': '/нет/такого.json'}, ['x'])['x']['type'], None)
 
@@ -484,11 +486,13 @@ class T(unittest.TestCase):
             s = r['summary']
             self.assertEqual(r['eval']['thin']['uncertain'][:10], 'маска фото')
             self.assertIsNone(r['eval']['thin']['ok'])                                      # не провал и не проход
-            self.assertEqual((s['items'], s['measured'], s['passed_all'], s['passed_all_pct'], s['uncertain']), (2, 1, 1, 100.0, ['thin']))   # вне знаменателя
+            self.assertEqual((s['items'], s['measured'], s['passed_all'], s['passed_all_pct'], s['uncertain']), (2, 1, 1, 50.0, ['thin']))   # T-20261124-22: «не измерено» в знаменателе (раньше 100 % — прятало)
+            self.assertEqual((s['failed'], s['with_unmeasured'], s['unmeasured_ids']), (0, 1, ['thin']))                          # три числа: прошли всё 1 · не измерено 1 · не прошли 0
             self.assertEqual(s['worst_first'], ['good', 'thin'])
             page = L.eval_html(L.run_eval({**L.load_rules(), 'eval': {'inproc': True}}, sh, os.path.join(tmp, 'o2'), [{'id': 'good'}, {'id': 'thin'}]))
             self.assertIn('не измерено', page)
-            self.assertIn('из 1 (100.0 %)', page)
+            self.assertIn('1 из 2 (50.0 %)', page)                                                  # T-20261124-22: знаменатель — все товары
+            self.assertIn('есть «не измерено» — 1 · не прошли — 0', page)                            # три числа в заголовке страницы
 
 
     def test_type_policy_from_passport_into_eval(self):

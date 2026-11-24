@@ -221,7 +221,7 @@ def f_sharpness(lab_s, m_s, lab_p, m_p, R, ctx) -> tuple:
     p = R['sharpness']
     e_p = lap_energy(lab_p, m_p)
     if e_p < p['photo_energy_min']:
-        return None, {'energy_photo': round(e_p, 4), 'why': 'фото без деталей'}
+        return None, {'energy_photo': round(e_p, 4), 'why': 'фото без деталей (энергия кромок ниже порога sharpness.photo_energy_min)', 'inapplicable': True}
     e_s = lap_energy(lab_s, m_s)
     ratio = e_s / e_p
     return p['ratio_min'] / max(ratio, 1e-6), {'ratio': round(ratio, 2)}
@@ -380,6 +380,7 @@ def f_pattern(lab_s, m_s, lab_p, m_p, R, ctx) -> tuple:
     _, _, gs = ctx['s']
     _, _, gp = ctx['p']
     rs, det = [], {}
+    photo_pat = any((q := group_pattern(lab_p, gp[g], p)) is not None and q[0] >= p['photo_energy_min'] for g in gp)      # мерка по фото: есть ли рисунок хоть в одной группе (порог photo_energy_min из правил)
     for g in gs:
         if g not in gp:
             continue
@@ -390,7 +391,9 @@ def f_pattern(lab_s, m_s, lab_p, m_p, R, ctx) -> tuple:
         rs.append(p['ratio_min'] / max((gss[0] / gss[1]) / (gps[0] / gps[1]), 1e-6))
         det[f'g{g}'] = [round(gss[0], 2), round(gps[0], 2)]
     if not rs:
-        return None, {'why': 'на фото нет рисунка'}
+        if photo_pat:
+            return None, {'why': 'рисунок на фото есть, на стороне не измерен (нет группы/пары)'}
+        return None, {'why': 'на фото нет рисунка (энергия узора ниже порога photo_energy_min)', 'inapplicable': True}
     return max(rs), det
 
 
@@ -437,7 +440,7 @@ def f_back_tone(lab_s, m_s, lab_p, m_p, R, ctx) -> tuple:
     (избыток = доля тона на стороне − доля на фото, по сырым меткам, без отсева малых групп фото). Ловит тыл спинки в тоне ножек вместо ткани лица (доли тонов фото не переносятся на сторону без пары)."""
     T = R['back_tone']
     if ctx['view'] in T['face_views']:
-        return None, {'why': 'лицевая сторона'}
+        return None, {'why': 'лицевая сторона (back_tone.face_views в правилах)', 'inapplicable': True}
     lbl_s, _, gs = ctx['s']
     lbl_p, _, _ = ctx['p']
     if not m_p.sum():
@@ -456,6 +459,26 @@ def f_back_tone(lab_s, m_s, lab_p, m_p, R, ctx) -> tuple:
 
 
 FUNCS = {'patches': f_patches, 'sharpness': f_sharpness, 'uniform': f_uniform, 'pattern': f_pattern, 'underpaint': f_underpaint, 'back_tone': f_back_tone}
+
+
+def feat_status(d: dict, observe_only: bool = False) -> str:
+    """Статус признака на стороне: ok (измерено, прошло) · fail (измерено, не прошло) · unmeasured («не измерено» — измерить не вышло, причина в `why`) · na (признак неприменим по сути:
+    у лица нет «тона тыла», на фото нет рисунка/деталей) · observe (признак в режиме наблюдения enforce=false — не считается). Только ok/fail идут в вердикт; unmeasured НЕ равно «прошёл» (T-20261124-22)."""
+    if observe_only or d.get('observe'):
+        return 'observe'
+    if d.get('r') is None:
+        return 'na' if d.get('inapplicable') else 'unmeasured'
+    return 'ok' if d.get('ok') else 'fail'
+
+
+def verdict_of(cnt: dict) -> tuple:
+    """(ok, status) товара по счёту статусов: ok=False — есть не прошедший; ok=None («не измерено») — не прошедших нет, но что-то применимое не измерено или не измерено ничего; ok=True — всё применимое
+    измерено и прошло. na (неприменимо) и observe вердикт не меняют."""
+    if cnt.get('fail'):
+        return False, 'failed'
+    if cnt.get('unmeasured') or not cnt.get('ok'):
+        return None, 'unmeasured'
+    return True, 'passed'
 
 
 def score_of(r: float | None) -> float | None:
@@ -492,6 +515,9 @@ def eval_view(view_rgb: np.ndarray, photo_rgb: np.ndarray, photo_mask: np.ndarra
         out[feat] = {'r': None if r is None else round(float(r), 3), 'score': score_of(r), 'ok': None if r is None else bool(r <= 1.0), **det}
         if r is not None and R.get(feat, {}).get('enforce') is False:                 # «наблюдение» (enforce=false в правилах): r и подробности пишутся, но ни ok, ни оценка не считаются — признак ещё не откалиброван
             out[feat].update({'ok': None, 'score': None, 'observe': True, 'would_fail': bool(r > 1.0)})
+        out[feat]['status'] = feat_status(out[feat], R.get(feat, {}).get('enforce') is False)
+        if out[feat]['status'] == 'unmeasured':
+            out[feat].setdefault('why', 'признак не посчитан (нет данных)')
     return out
 
 
@@ -515,7 +541,8 @@ def flip_sheet(sheet: np.ndarray, S: int, hp: int) -> np.ndarray:
 
 
 def eval_sheet(sheet_rgb: np.ndarray, R: dict, sheet_rules: dict | None = None, clay_rgb: np.ndarray | None = None, flip: bool = False, hidden_pattern: str | None = None) -> dict:
-    """Лист → {views: {имя: {признак: {...}}}, ok, score, worst}. ok = все признаки всех сторон r ≤ 1 (n/a и None не считаются).
+    """Лист → {views: {имя: {признак: {...}}}, ok, status, counts, unmeasured, score, worst}. ok=True — всё применимое измерено и r ≤ 1; ok=False — есть не прошедший; ok=None («не измерено») — не прошедших
+    нет, но часть применимого не измерена (список `unmeasured` с причинами; раньше такое засчитывалось как «прошёл»). na/observe вердикт не меняют; score — худший из ИЗМЕРЕННЫХ.
     clay_rgb — лист «глина» (sides_sheet --clay): тогда тон считается без формы (albedo), иначе — прямо с видов."""
     sr = sheet_rules or load_sheet_rules()
     S, hp = int(sr['size']), int(sr['header_px'])
@@ -527,7 +554,8 @@ def eval_sheet(sheet_rgb: np.ndarray, R: dict, sheet_rules: dict | None = None, 
     p_rgb, p_m = photo_cell(cells[0], R['geometry'])
     pmin = R['geometry'].get('photo_min_px')
     if pmin and int(p_m.sum()) < pmin:                              # тонкая вещь: маска фото съедена краем — сравнивать не с чем; не провал и не проход (директор 23.11)
-        return {'views': {}, 'albedo_scale': None, 'ok': None, 'score': None, 'worst': None, 'photo_ok': False, 'flipped': bool(flip), 'uncertain': f'маска фото {int(p_m.sum())} px (< {pmin}): не измерено'}
+        return {'views': {}, 'albedo_scale': None, 'ok': None, 'score': None, 'worst': None, 'photo_ok': False, 'flipped': bool(flip), 'uncertain': f'маска фото {int(p_m.sum())} px (< {pmin}): не измерено',
+                'status': 'unmeasured', 'counts': None, 'unmeasured': [{'view': '*', 'feature': '*', 'why': f'маска фото {int(p_m.sum())} px (< {pmin})'}]}
     tone = [None] * len(names)
     scale = None
     if clay_rgb is not None:
@@ -539,18 +567,26 @@ def eval_sheet(sheet_rgb: np.ndarray, R: dict, sheet_rules: dict | None = None, 
         tone = [lin_srgb(a * scale) for a in alb]
     memo: dict = {}
     views = {n: eval_view(cells[i + 1], p_rgb, p_m, n, R, tone[i], memo, hidden_pattern) for i, n in enumerate(names)}
-    worst, scores, ok = None, [], True
+    worst, scores = None, []
+    cnt = {'ok': 0, 'fail': 0, 'unmeasured': 0, 'na': 0, 'observe': 0, 'na_views': 0}
+    unmeasured = []
     for n, fs in views.items():
+        if 'na' in fs:                                                # вид без предмета: неприменим, не «не измерено»
+            cnt['na_views'] += 1
+            continue
         for f, d in fs.items():
-            if f == 'na' or d.get('score') is None:
+            st = d.get('status') or feat_status(d)
+            cnt[st] += 1
+            if st == 'unmeasured':
+                unmeasured.append({'view': n, 'feature': f, 'why': d.get('why') or 'нет данных'})
+            if st not in ('ok', 'fail') or d.get('score') is None:
                 continue
             scores.append(d['score'])
-            if not d['ok']:
-                ok = False
             if worst is None or d['score'] < worst[2]:
                 worst = (n, f, d['score'])
+    ok, status = verdict_of(cnt)
     return {'views': views, 'albedo_scale': None if scale is None else round(float(scale), 3), 'ok': ok, 'score': min(scores) if scores else None, 'worst': None if worst is None else {'view': worst[0], 'feature': worst[1], 'score': worst[2]},
-            'photo_ok': bool(p_m.sum() >= R['geometry']['min_px']), 'flipped': bool(flip)}
+            'photo_ok': bool(p_m.sum() >= R['geometry']['min_px']), 'flipped': bool(flip), 'status': status, 'counts': cnt, 'unmeasured': unmeasured}
 
 
 def known_shares_of(item: dict, R: dict) -> dict | None:
@@ -671,12 +707,31 @@ def batch(sheets: str, out: str, only: list | None = None, rules: dict | None = 
     else:
         outs = [_eval_job(j) for j in jobs]
     res = dict(zip(ids, outs))
-    unc = sorted(k for k, v in res.items() if v.get('uncertain'))                  # «не измерено» — вне знаменателя общего %
+    unc = sorted(k for k, v in res.items() if v.get('uncertain'))                  # «не измерено» целиком (маска фото мала)
     meas = [k for k in res if k not in unc]
-    n_ok = sum(1 for k in meas if res[k]['ok'])
+    stat = {k: (v.get('status') or ('unmeasured' if v.get('uncertain') or v.get('ok') is None else ('passed' if v.get('ok') else 'failed'))) for k, v in res.items()}
+    passed_ids = sorted(k for k, s_ in stat.items() if s_ == 'passed')
+    failed_ids = sorted(k for k, s_ in stat.items() if s_ == 'failed')
+    unm_ids = sorted(k for k, s_ in stat.items() if s_ == 'unmeasured')        # три числа: прошли ВСЁ (всё применимое измерено) · есть «не измерено» · не прошли — сумма = items
+    n_ok = len(passed_ids)
+    na_by_reason: dict = {}
+    na_feat = na_view = 0
+    for v_ in res.values():                                                    # «неприменимо» — сколько признаков (и видов) выпало из проверки и почему
+        for fs_ in (v_.get('views') or {}).values():
+            if 'na' in fs_:
+                na_view += 1
+                na_by_reason[str(fs_['na'])[:40]] = na_by_reason.get(str(fs_['na'])[:40], 0) + 1
+                continue
+            for d_ in fs_.values():
+                if d_.get('status') == 'na':
+                    na_feat += 1
+                    k_ = str(d_.get('why') or 'без причины').split(' (')[0]
+                    na_by_reason[k_] = na_by_reason.get(k_, 0) + 1
     flipped = sorted(k for k, v in res.items() if v.get('flipped'))
     summary = {'items': len(res), 'measured': len(meas), 'uncertain': unc, 'flipped': len(flipped), 'flipped_ids': flipped, 'passed_all': n_ok,
-               'passed_all_pct': round(100.0 * n_ok / len(meas), 1) if meas else None,
+               'passed_all_pct': round(100.0 * n_ok / len(res), 1) if res else None,        # от ВСЕХ товаров: «не измерено» в знаменателе, не прячется
+               'failed': len(failed_ids), 'with_unmeasured': len(unm_ids), 'failed_ids': failed_ids, 'unmeasured_ids': unm_ids,
+               'na_features': na_feat, 'na_views': na_view, 'na_by_reason': dict(sorted(na_by_reason.items())),
                'worst_first': sorted(meas, key=lambda k: (res[k]['score'] if res[k]['score'] is not None else 2.0, k)) + unc}
     with open(os.path.join(out, 'eval.json'), 'w', encoding='utf-8') as f:
         json.dump(res, f, ensure_ascii=False, indent=1)
@@ -700,7 +755,7 @@ def main(argv: list) -> int:
     items = {x['id']: x for x in json.load(open(a.items, encoding='utf-8'))} if a.items else None
     r = batch(a.sheets, a.out, [x for x in a.only.split(',') if x] or None, clay_dir=a.clay_dir or None, items=items, workers=a.workers, cache_dir=a.cache or None)
     s = r['summary']
-    print(f"товаров {s['items']}, прошли все 5 на всех сторонах {s['passed_all']} ({s['passed_all_pct']} %), ракурс развёрнут: {s['flipped']}")
+    print(f"товаров {s['items']}: прошли ВСЁ (всё измерено) {s['passed_all']} ({s['passed_all_pct']} %) · есть «не измерено» {s['with_unmeasured']} · не прошли {s['failed']} · неприменимо {s['na_features']} признаков и {s['na_views']} видов; ракурс развёрнут: {s['flipped']}")
     return 0
 
 
