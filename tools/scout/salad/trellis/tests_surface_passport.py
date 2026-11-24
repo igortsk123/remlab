@@ -728,7 +728,7 @@ def test_carcass_library_modes():
     rt = SP.carcass_library_tone(card, dict(C0, enabled=True, entries=ent), 'tops')
     ok(rt['ok'] and abs(rt['tone'][0] - 70.0) < 1e-6, f'тон верха отделки (kind=tops): {rt}')
 
-    def case(left_known, R_over):
+    def case(left_known, R_over, front=None):
         q = Quads()
         q.quad([[-1, 0, 1], [1, 0, 1], [1, 1, 1], [-1, 1, 1]], (0, 0, .5, .5), part=0, sub=4)                 # фасад +Z, виден
         q.quad([[-1, 0, -1], [-1, 0, 1], [-1, 1, 1], [-1, 1, -1]], (.5, 0, 1, .5), part=1, sub=4)           # левый бок
@@ -744,6 +744,7 @@ def test_carcass_library_modes():
         R['carcass_library'] = dict(C0, enabled=True, entries=ent, **R_over)
         pas, ctx = SP.build([g], [tex], [known], parts, None, R, TF.FILL, TF)
         ctx['known_keep'] = [known & ~TF.unpainted_mask(tex)]                                              # как в tex_fill: k_keep
+        ctx['front_resolved'] = front                                                                       # как в tex_fill: единый свидетель «перёда» (None при флаге facade_axis_witness выкл)
         crep = SP.carcass_library_side(pas, ctx, [g], R, card)
         k0 = [known & ~TF.unpainted_mask(tex)]
         if ctx.get('carcass_release'):                                                                   # как в tex_fill: освобождённые фото-тексели красит группа
@@ -765,22 +766,85 @@ def test_carcass_library_modes():
     Ll = float(np.median(lab_L(out[0], left & known)))
     ok(crep.get('released_photo_texels', 0) > 0 and abs(Ll - 55.0) < 4.0, f'disputed_wins: видимый «бок» с чужим тоном перекрашен библиотекой (L {Ll:.1f}), освобождено {crep.get("released_photo_texels")} текселей')
     ok(np.array_equal(out[0][face], np.asarray(out[0])[face]) and abs(float(np.median(lab_L(out[0], face))) - 30.0) < 2.0, 'фасад (фото, ось фасада) не тронут')
-    # T-20261124-21: release из known_keep (флаг release_known_keep) — «кромка» известного (вне эрозии kn_clean) тоже красится; без флага — как раньше
-    ok(not C0.get('release_known_keep', False), 'в rules release_known_keep выключен по умолчанию')
+    # T-20261124-21: release_known_keep убран (на кадре красил двери, серый бок не трогал — причина была в оси фасада); kept_known_side остался диагностикой
+    ok('release_known_keep' not in C0, 'в rules нет release_known_keep (убран: не та причина)')
     c_off, out_off, (face, left, right, top, known) = case(True, {'disputed_wins': True})
-    c_on, out_on, _ = case(True, {'disputed_wins': True, 'release_known_keep': True})
-    ok(c_off['release_base'] == 'kn_clean' and c_off['kept_known_side'] > 0, f"без флага: в k_ap остаются известные тексели obs-граней (кромка): kept_known_side={c_off['kept_known_side']}")
-    ok(c_on['release_base'] == 'known_keep' and c_on['kept_known_side'] == 0 and c_on['released_photo_texels'] > c_off['released_photo_texels'], f"с флагом: kept_known_side=0, освобождено больше ({c_off['released_photo_texels']} → {c_on['released_photo_texels']})")
-    Lo = float(np.median(lab_L(out_off[0], left & known)))
-    Ln = float(np.median(lab_L(out_on[0], left & known)))
-    ok(abs(Ln - 55.0) <= abs(Lo - 55.0) + 1e-6 and abs(Ln - 55.0) < 4.0, f'с флагом бок перекрашен не хуже, чем без (L {Lo:.1f} → {Ln:.1f}, тон библиотеки 55)')
-    c_nd, out_nd, _ = case(False, {'release_known_keep': True})
-    c_nd0, out_nd0, _ = case(False, {})
-    ok(np.array_equal(np.asarray(out_nd[0]), np.asarray(out_nd0[0])) and 'release_base' not in c_nd, 'нет видимого фото-бока (нечего освобождать): вывод с флагом побитово как без флага (регресс 0)')
+    ok(c_off['kept_known_side'] >= 0 and 'release_base' not in c_off and 'kept_known_side_noobs_faces' in c_off, f"диагностика kept_known_side в отчёте ({c_off['kept_known_side']}), release_base нет")
+    # ось фасада — единый свидетель (T-20261124-21)
+    W0 = {'theta': 0.0, 'axis': (2, 1), 'source': 'camera04', 'flags': []}
+    ok(not C0.get('facade_axis_witness', False) and float(C0.get('facade_diag_deg', 0)) == 10.0, 'в rules facade_axis_witness выключен по умолчанию, facade_diag_deg = 10')
+    c_w, out_w, _ = case(True, {'disputed_wins': True, 'facade_axis_witness': True}, front=W0)
+    ok(c_w['applied'] and c_w['facade_axis_info']['by'] == 'witness' and c_w['geoms'][0]['facade_axis'] == 'z' and c_w['geoms'][0]['facade_by'] == 'witness', f"свидетель z → фасад z, в отчёте ось/источник: {c_w['facade_axis_info']['source']}")
+    ok(np.array_equal(np.asarray(out_w[0]), np.asarray(out_off[0])), 'ось свидетеля = прежняя (z) → вывод побитово как без флага (регресс 0)')
+    c_u, out_u, _ = case(True, {'disputed_wins': True, 'facade_axis_witness': True}, front=None)
+    ok(not c_u['applied'] and c_u['facade_axis_info']['by'] == 'unknown' and 'ось фасада неизвестна' in c_u['why'], f"нет свидетеля и план квадратный → правило НЕ применяется: {c_u['why']}")
+
+
+def _box(w, d, h, cx=0.0, cz=0.0, rot=0.0, parts=0):
+    """Ящик w×d×h (x × z × y) как geom {'V','F'}: 12 граней; parts — число внутренних перегородок с нормалью x (открытый стеллаж)."""
+    c, sn = np.cos(rot), np.sin(rot)
+    V = np.array([[x, y, z] for x in (-w / 2, w / 2) for y in (0, h) for z in (-d / 2, d / 2)], float)
+    V[:, [0, 2]] = V[:, [0, 2]] @ np.array([[c, sn], [-sn, c]])
+    V[:, 0] += cx
+    V[:, 2] += cz
+    idx = lambda x, y, z: x * 4 + y * 2 + z                                                       # noqa: E731
+    Q = [((0, 0, 0), (0, 1, 0), (0, 1, 1), (0, 0, 1)), ((1, 0, 0), (1, 0, 1), (1, 1, 1), (1, 1, 0)), ((0, 0, 0), (1, 0, 0), (1, 1, 0), (0, 1, 0)),
+         ((0, 0, 1), (0, 1, 1), (1, 1, 1), (1, 0, 1)), ((0, 1, 0), (1, 1, 0), (1, 1, 1), (0, 1, 1)), ((0, 0, 0), (0, 0, 1), (1, 0, 1), (1, 0, 0))]
+    F = []
+    for q in Q:
+        i = [idx(*p) for p in q]
+        F += [[i[0], i[1], i[2]], [i[0], i[2], i[3]]]
+    V, F = list(V), [list(f) for f in F]
+    for k in range(parts):                                                                        # перегородка: плоскость x = const, большая площадь граней ±x (нормаль x)
+        x = -w / 2 + (k + 1) * w / (parts + 1)
+        o = len(V)
+        V += [[x, 0, -d / 2], [x, h, -d / 2], [x, h, d / 2], [x, 0, d / 2]]
+        V = [list(v) for v in V]
+        F += [[o, o + 1, o + 2], [o, o + 2, o + 3]]
+    return {'V': np.asarray(V, float), 'F': np.asarray(F, np.int64)}
+
+
+def test_facade_axis():
+    print('ось фасада корпуса (T-20261124-21): единый свидетель front_axis_resolved → габарит → «не применять»; площадь — только сверка:')
+    w = lambda th, ax, src='camera04': {'theta': th, 'axis': ax, 'source': src, 'flags': []}      # noqa: E731
+    box = _box(2.0, 1.0, 2.0)                                                                     # широкая сторона вдоль x → лицо по z
+    i = SP.facade_axis([box], w(0.0, (2, 1)))
+    ok(i['axis'] == 'z' and i['sign'] == 1 and i['by'] == 'witness' and i['source'] == 'camera04' and not i['flags'], f'свидетель камера 04, θ=0 → ось z, знак +1: {i}')
+    i = SP.facade_axis([box], w(180.0, (2, -1)))
+    ok(i['axis'] == 'z' and i['sign'] == -1, 'θ=180 → ось z, знак −1 (знак нужен р.5: «зад красим, лицо никогда»)')
+    i = SP.facade_axis([box], w(40.0, (2, 1)))
+    ok(i['axis'] == 'z' and i['sign'] == 1 and i['by'] == 'witness_snap' and 'witness_diagonal_snapped' in i['flags'], f'снимок у диагонали, габарит уверенный (2:1) → ось длинной грани z, сторона по камере: {i["flags"]}')
+    i = SP.facade_axis([box], w(320.0, (2, 1)))
+    ok(i['axis'] == 'z' and i['sign'] == 1, 'θ=320° (ближе к +z) → знак +1')
+    i = SP.facade_axis([_box(1.4, 1.0, 2.0)], w(40.0, (2, 1)))
+    ok(i['axis'] is None and i['by'] == 'unknown' and 'диагонали' in i['reason'], f'у диагонали и габарит неуверенный (1,4:1 < 1,5) → «не знаю»: {i["reason"]}')
+    i = SP.facade_axis([box], w(30.0, (2, 1)))
+    ok(i['axis'] == 'z', 'θ=30° (до диагонали 15° ≥ 10°) → ось z по свидетелю')
+    i = SP.facade_axis([box], w(90.0, (0, 1), 'orient'))
+    ok(i['axis'] == 'x' and 'axis_gabarit_conflict' in i['flags'], f'свидетель (orient) против габарита → ось свидетеля x, флаг конфликта: {i["flags"]}')
+    i = SP.facade_axis([box], None)
+    ok(i['axis'] == 'z' and i['by'] == 'gabarit' and i['sign'] is None and 'front_witness_absent' in i['flags'], f'нет свидетеля → габарит (нормаль длинной грани z), знака нет: {i["flags"]}')
+    i = SP.facade_axis([box], {'theta': None, 'axis': None, 'source': None, 'flags': ['front_unknown:photo_side']})
+    ok(i['axis'] == 'z' and i['by'] == 'gabarit' and i['witness_flags'] == ['front_unknown:photo_side'], 'свидетель «unknown» → габарит, флаги свидетеля сохранены')
+    sq = _box(1.0, 1.0, 2.0)
+    i = SP.facade_axis([sq], None)
+    ok(i['axis'] is None and i['by'] == 'unknown' and 'квадратный' in i['reason'], f'нет свидетеля, план квадратный → ось неизвестна, правило НЕ применять: {i["reason"]}')
+    i = SP.facade_axis([sq], w(0.0, (2, 1)))
+    ok(i['axis'] == 'z', 'квадрат в плане, но свидетель есть → ось по свидетелю')
+    shelf = _box(2.0, 1.0, 2.0, parts=8)                                                          # открытый стеллаж: перегородки дают грани ±x больше, чем лицо z
+    i = SP.facade_axis([shelf], w(0.0, (2, 1)))
+    ok(i['area_axis'] == 'x' and i['area_ratio'] >= 1.3 and i['axis'] == 'z' and 'axis_area_conflict' in i['flags'], f'открытый стеллаж: площадь говорит x (отн. {i["area_ratio"]}), свидетель z решает; флаг сверки: {i["flags"]}')
+    L = [_box(2.0, 0.5, 2.0, cz=-0.25), _box(0.5, 1.5, 2.0, cx=-0.75, cz=0.5)]                    # L-образный в плане
+    i = SP.facade_axis(L, w(0.0, (2, 1)))
+    ok(i['axis'] is None and ('L-образный' in i['reason'] or 'повёрнут' in i['reason']), f'угловой (L-план) → не применять: {i["reason"]}')
+    i = SP.facade_axis([_box(2.0, 1.0, 2.0, rot=float(np.radians(35)))], w(0.0, (2, 1)))
+    ok(i['axis'] is None and 'повёрнут' in i['reason'], f'план повёрнут на 35° (скос) → не применять: {i["reason"]}')
+    i0 = SP.facade_axis([box], w(0.0, (2, 1)))
+    ok(i0 == SP.facade_axis([box], w(0.0, (2, 1))), 'чистая функция: повтор даёт тот же ответ (детерминированная выборка заполнения)')
 
 
 def main() -> int:
-    for f in (test_carcass_library, test_carcass_library_modes,test_new_rules_only_body_type, test_rule_entries_body, test_rule_entries_not_body, test_blur_caches, test_split_plane_one_tone, test_contrast_door_own_group, test_gray_pattern_not_flattened, test_back_is_body_not_facade, test_back_not_tiny_contrast, test_top_follows_group, test_edge_body_tone, test_light_floor, test_rebuild_body_gates, test_type_allows_body, test_body_override_only_for_body_type, test_facade_relief_and_release_weak, test_grain_no_dark_seams, test_gradient_continues, test_outlier_replaced, test_orphan_attached, test_orphan_guards, test_orphan_keeps_hook_tone, test_hook_keep_top, test_ultratex_switch_off, test_hidden_pattern_by_type):
+    for f in (test_carcass_library, test_carcass_library_modes,test_new_rules_only_body_type, test_rule_entries_body, test_rule_entries_not_body, test_blur_caches, test_split_plane_one_tone, test_contrast_door_own_group, test_gray_pattern_not_flattened, test_back_is_body_not_facade, test_back_not_tiny_contrast, test_top_follows_group, test_edge_body_tone, test_light_floor, test_rebuild_body_gates, test_type_allows_body, test_body_override_only_for_body_type, test_facade_relief_and_release_weak, test_grain_no_dark_seams, test_gradient_continues, test_outlier_replaced, test_orphan_attached, test_orphan_guards, test_orphan_keeps_hook_tone, test_hook_keep_top, test_ultratex_switch_off, test_hidden_pattern_by_type, test_facade_axis):
         f()
     print(f'tests_surface_passport: ошибок {bad}')
     return 1 if bad else 0
