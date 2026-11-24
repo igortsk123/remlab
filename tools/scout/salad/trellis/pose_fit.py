@@ -556,6 +556,11 @@ def vertical_axis(photo: np.ndarray, alpha: np.ndarray, cv: dict, R: dict | None
             if not er[py, px].all():
                 continue
             rows.append((0.5 * (x1 + x2), t, L))
+    return _vertical_fit(rows, cv, wobj, p, out)
+
+
+def _vertical_fit(rows: list, cv: dict, wobj: int, p: dict, out: dict) -> dict:
+    """Подгонка наклона по отрезкам rows = [(x_кадра_px, tilt_рад, длина_px)] (выделено из vertical_axis без изменения счёта; общий код с синтетикой порогов)."""
     out['n_seg'] = len(rows)
     if len(rows) < p['min_lines']:
         out['reason'] = f'мало линий внутри товара: {len(rows)} < {p["min_lines"]}'
@@ -764,6 +769,19 @@ def fit_pose(glb: str, photo_path: str, out_run: str, yaw: float = 0.0, px: int 
                 pick = {**pick, 'cam': new_cam, 'iou': ang_info['iou_after'], 'angle_refine': ang_info}
             else:
                 pick = {**pick, 'angle_refine': ang_info}
+        jn_info = None
+        import junction as JN
+        _R_jn = {**JN.DEFAULTS, **((CC0.load_rules().get('junction')) or {})}
+        _env_jn = os.environ.get('POSE_JUNCTION')                      # '1' — применить, 'probe' — вхолостую (только info), '0' — выкл.; нет — по правилу junction.enabled
+        _mode_jn = 'apply' if _env_jn == '1' else ('probe' if _env_jn == 'probe' else (None if _env_jn == '0' else ('apply' if _R_jn['enabled'] else None)))
+        form_box = {'lo': [round(float(x), 5) for x in geo['V'].min(0)], 'hi': [round(float(x), 5) for x in geo['V'].max(0)]}       # габарит формы в кубе: check 04 меряет стык по нему без GLB
+        if _mode_jn:                                                   # стык «фронт|бок» (T-20261124-18, TG 2571): спасатель только при зазоре > active_gap_px; по умолчанию выкл.
+            _box = JN.box_geometry(form_box['lo'], form_box['hi'], _R_jn)
+            pick, jn_info = JN.rescue(sys.modules[__name__], geo['V'], pick, cands, _box, JN.photo_targets(photo, _R_jn), Mp, n, cv, _R_jn, log=log, apply=(_mode_jn == 'apply'))
+            if jn_info['applied']:
+                pick = {**pick, 'edge': edge_score(geo, pick['cam'], photo, alpha, cv, tex), 'junction': jn_info}
+            else:
+                pick = {**pick, 'junction': jn_info}
         cam = pick['cam']
         front = _bbox_fit(geo['V'][:: max(1, len(geo['V']) // 150000)], 0.0, 0.0, 1000.0, (lambda ys, xs: (xs.min() / n, ys.min() / n, (xs.max() + 1) / n, (ys.max() + 1) / n))(*np.nonzero(Mp)))
         iou_front = iou(splat_mask(geo['V'][:: max(1, len(geo['V']) // 150000)], front, n), Mp)
@@ -772,7 +790,7 @@ def fit_pose(glb: str, photo_path: str, out_run: str, yaw: float = 0.0, px: int 
         extra = {'pose': {'picked': pick, 'candidates': cands, 'multistart': ms_info, 'iou_frontal_ortho_bbox': round(iou_front, 4), 'fov_deg_canvas': round(float(np.degrees(2 * np.arctan(0.5 / cam['f']))), 2)}}
         reg = write_stages(r, out_run, cam, cv, photo_path, yaw, px, glb, extra)
         pj = os.path.join(out_run, 'pose.json')
-        json.dump({'camera': cam, 'canvas': cv, 'picked': pick, 'candidates': cands, 'multistart': ms_info, 'iou_frontal_ortho_bbox': round(iou_front, 4), 'iou_frame': reg['iou'], 'px': px, 'yaw': yaw, 'textured': tex is not None, 'surf_pick': surf_info, 'rank': rank_info, 'flip_pick': flip_info},
+        json.dump({'camera': cam, 'canvas': cv, 'form_box': form_box, 'picked': pick,'candidates': cands, 'multistart': ms_info, 'iou_frontal_ortho_bbox': round(iou_front, 4), 'iou_frame': reg['iou'], 'px': px, 'yaw': yaw, 'textured': tex is not None, 'surf_pick': surf_info, 'rank': rank_info, 'flip_pick': flip_info},
                   open(pj, 'w', encoding='utf-8'), ensure_ascii=False, indent=1)
         A_fr = SL.warp_inv(alpha.astype(np.float32), canvas_P(cv, px), (px, px)) > 0.5
         ov = np.zeros((px, px, 3), np.uint8)
