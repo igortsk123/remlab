@@ -449,6 +449,62 @@ def refine_by_edges(geo: dict, cam: dict, photo: np.ndarray, alpha: np.ndarray, 
     return c, best[1][1]
 
 
+def angle_refine(PTS: np.ndarray, cam: dict, alpha: np.ndarray, cv: dict, R: dict, log=print) -> tuple[dict, dict]:
+    """Угловая цель подгонки (T-20261124-18, за флагом `camera-check.json: edge_angle.fit.enabled`, env `POSE_ANGLE_FIT=1/0`). Цель силуэта (1 − IoU) слепа к клину вдоль прямой кромки: у ТВ-тумбы 7736
+    IoU 0,934 при Δугла верха −2,8°, и этап 06 кладёт фото с наклоном. Здесь вторым этапом, от найденной камеры, Нелдер–Мид по `(1 − IoU) + w·Σ min(|Δугла|, cap)/scale` (стороны верх/лево/право, только прямые кромки;
+    `silhouette_edge_angle.compare`) в кадре n_ang (на 256 угол квантуется ~0,3°); диапазон узкий вокруг камеры. Принимается, если IoU не упал больше `max_iou_drop` и штраф снизился на ≥ `min_gain`; иначе камера та же.
+    → (камера, {applied, reason, iou_before/after, penalty_before/after, Δ до/после по сторонам, seconds, вес/пределы})."""
+    import time as _t
+    from scipy.optimize import minimize
+    import silhouette_edge_angle as SEA
+    t0 = _t.time()
+    F_ = (R.get('edge_angle') or {}).get('fit') or {}
+    n = int(F_.get('n', 768))
+    w, cap, scale = float(F_.get('w', 0.02)), float(F_.get('cap_deg', 3.0)), float(F_.get('scale_deg', 1.0))
+    max_drop, min_gain, maxiter = float(F_.get('max_iou_drop', 0.004)), float(F_.get('min_gain', 0.1)), int(F_.get('maxiter', 200))
+    Pc = PTS[:: max(1, len(PTS) // 400000)]
+    Mp = canvas_mask(alpha, cv, n)
+
+    def terms(c):
+        S = splat_mask(Pc, c, n)
+        cmp_ = SEA.compare(S, Mp, R)
+        pen = sum(min(abs(v['delta_deg']), cap) / scale for v in cmp_['sides'].values() if 'delta_deg' in v)
+        return iou(S, Mp), pen, cmp_
+
+    i0, pen0, cmp0 = terms(cam)
+    info = {'applied': False, 'iou_before': round(i0, 4), 'penalty_before': round(pen0, 3), 'delta_before': {k: v.get('delta_deg') for k, v in cmp0['sides'].items()}, 'w': w, 'cap_deg': cap, 'scale_deg': scale, 'n': n}
+    if not cmp0['measured']:
+        info.update(reason='нет прямых кромок у формы и фото — угол не меряется', seconds=round(_t.time() - t0, 1))
+        return cam, info
+    v0 = _vec(cam)
+    lim = np.array([5.0, 5.0, 0.15, 0.15, 0.03, 0.03])
+    cache = {}
+
+    def f(v):
+        if np.any(np.abs(v - v0) > lim) or not (D_MIN <= np.exp(v[2]) <= D_MAX):
+            return 5.0
+        key = tuple(np.round(v, 5))
+        if key not in cache:
+            c = _cam(v)
+            i_, p_, _ = terms(c)
+            cache[key] = (1.0 - i_) + w * p_
+        return cache[key]
+    sim = np.vstack([v0] + [v0 + np.eye(6)[i] * st for i, st in enumerate((1.0, 1.0, 0.03, 0.02, 0.005, 0.005))])
+    r = minimize(f, v0, method='Nelder-Mead', options={'initial_simplex': sim, 'maxiter': maxiter, 'xatol': 1e-4, 'fatol': 1e-6})
+    c1 = _cam(r.x)
+    i1, pen1, cmp1 = terms(c1)
+    info.update(iou_after=round(i1, 4), penalty_after=round(pen1, 3), delta_after={k: v.get('delta_deg') for k, v in cmp1.get('sides', cmp1).items()} if cmp1.get('measured') else None, seconds=round(_t.time() - t0, 1), iters=int(r.nit))
+    if (i0 - i1) > max_drop:
+        info['reason'] = f'IoU силуэта упал {i0:.4f} → {i1:.4f} (> {max_drop}) — камера прежняя'
+        return cam, info
+    if (pen0 - pen1) < min_gain:
+        info['reason'] = f'угол не стал лучше (штраф {pen0:.2f} → {pen1:.2f}, нужно ≥ {min_gain}) — камера прежняя'
+        return cam, info
+    info.update(applied=True, reason='', cam_before={k: round(v, 5) for k, v in cam.items()})
+    log(f"  угловая цель: штраф {pen0:.2f} → {pen1:.2f}, IoU {i0:.4f} → {i1:.4f}; az {cam['az']:.2f}→{c1['az']:.2f} el {cam['el']:.2f}→{c1['el']:.2f} cx {cam['cx']:.4f}→{c1['cx']:.4f} ({info['seconds']} с)")
+    return c1, info
+
+
 def write_stages(r: dict, out_run: str, cam: dict, cv: dict, photo_path: str, yaw: float, px: int, glb: str, extra: dict) -> dict:
     from PIL import Image
     import stage_loss as SL
@@ -600,6 +656,15 @@ def fit_pose(glb: str, photo_path: str, out_run: str, yaw: float = 0.0, px: int 
                 rank_info['choose']['applied'] = {'from': pick['cam'], 'to': alt['cam']}
                 log(f"rank-pick: смена позы az {pick['cam']['az']:.1f}→{alt['cam']['az']:.1f}, el {pick['cam']['el']:.1f}→{alt['cam']['el']:.1f} ({rank_info['choose']['why']})")
                 pick = {**pick, 'cam': alt['cam'], 'score': alt['score'], 'iou': alt['iou'], 'rank_pick': True}
+        ang_info = None
+        _R_ang = CC0.load_rules()
+        _env = os.environ.get('POSE_ANGLE_FIT')
+        if (_env == '1') if _env in ('0', '1') else bool((((_R_ang.get('edge_angle') or {}).get('fit')) or {}).get('enabled', False)):    # угловая цель (T-20261124-18), по умолчанию выкл.
+            new_cam, ang_info = angle_refine(geo['V'], pick['cam'], alpha, cv, _R_ang, log=log)
+            if ang_info['applied']:
+                pick = {**pick, 'cam': new_cam, 'iou': ang_info['iou_after'], 'angle_refine': ang_info}
+            else:
+                pick = {**pick, 'angle_refine': ang_info}
         cam = pick['cam']
         front = _bbox_fit(geo['V'][:: max(1, len(geo['V']) // 150000)], 0.0, 0.0, 1000.0, (lambda ys, xs: (xs.min() / n, ys.min() / n, (xs.max() + 1) / n, (ys.max() + 1) / n))(*np.nonzero(Mp)))
         iou_front = iou(splat_mask(geo['V'][:: max(1, len(geo['V']) // 150000)], front, n), Mp)
