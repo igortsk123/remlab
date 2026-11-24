@@ -789,6 +789,23 @@ def fit_pose(glb: str, photo_path: str, out_run: str, yaw: float = 0.0, px: int 
                 else:
                     va_info['applied'] = 'не параллельны (%.2f° по ширине) → прежняя модель' % va_info['conv_deg']
         pick, cands, ms_info = search(geo['V'])
+        if va_info is not None and globals()['_VK'] is not None:       # ворота шага 3 (T-20261124-18, регресс пакета 24.11): модель с наклоном оси даёт позу только если она не другой стороны, не подняла камеру и не ухудшила низ
+            import junction as JNg
+            _Rg = {**JNg.DEFAULTS, **((CCv.load_rules().get('junction')) or {}), 'miss_bottom_max': CCv.load_rules()['miss_bottom_max'], 'extra_bottom_max': CCv.load_rules()['extra_bottom_max']}
+            _Pg = geo['V'][:: max(1, len(geo['V']) // 150000)]
+            sc_vk = pose_score(splat_mask(_Pg, pick['cam'], n), Mp)
+            globals()['_VK'] = None                                    # прежняя модель: базовая поза для сравнения
+            pick0, cands0, ms0 = search(geo['V'])
+            sc_base = pose_score(splat_mask(_Pg, pick0['cam'], n), Mp)
+            gok, gwhy = JNg.pose_gate(pick0['cam'], pick['cam'], sc_base, sc_vk, _Rg)
+            va_info['gate'] = {'ok': gok, 'why': gwhy, 'base_az': round(float(pick0['cam']['az']), 2), 'base_el': round(float(pick0['cam']['el']), 2), 'vk_az': round(float(pick['cam']['az']), 2), 'vk_el': round(float(pick['cam']['el']), 2)}
+            if gok:
+                globals()['_VK'] = 0.0 if va_info['applied'].startswith('parallel') else va_info['kappa']
+                log('ворота шага 3: поза с наклоном оси принята')
+            else:
+                pick, cands, ms_info = pick0, cands0, ms0
+                va_info['applied'] = 'отказ ворот → прежняя модель: ' + '; '.join(gwhy)
+                log('ворота шага 3: ' + va_info['applied'])
         surf_info = None
         if surf_pick:                                                  # вторая поза по выборке с поверхности граней; берём ту, у которой IoU по треугольникам выше
             pick2, cands2, ms2 = search(_surf_points(geo))
@@ -825,7 +842,7 @@ def fit_pose(glb: str, photo_path: str, out_run: str, yaw: float = 0.0, px: int 
                 pick = {**pick, 'angle_refine': ang_info}
         jn_info = None
         import junction as JN
-        _R_jn = {**JN.DEFAULTS, **((CC0.load_rules().get('junction')) or {})}
+        _R_jn = {**JN.DEFAULTS, **((CC0.load_rules().get('junction')) or {}), 'miss_bottom_max': CC0.load_rules()['miss_bottom_max'], 'extra_bottom_max': CC0.load_rules()['extra_bottom_max']}
         _env_jn = os.environ.get('POSE_JUNCTION')                      # '1' — применить, 'probe' — вхолостую (только info), '0' — выкл.; нет — по правилу junction.enabled
         _mode_jn = 'apply' if _env_jn == '1' else ('probe' if _env_jn == 'probe' else (None if _env_jn == '0' else ('apply' if _R_jn['enabled'] else None)))
         form_box = {'lo': [round(float(x), 5) for x in geo['V'].min(0)], 'hi': [round(float(x), 5) for x in geo['V'].max(0)]}       # габарит формы в кубе: check 04 меряет стык по нему без GLB
