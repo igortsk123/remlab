@@ -32,6 +32,16 @@
    "catalog_channel": "основной класс (ключ «Материал фасада»); как body, пока нет отдельного канала",
    "material_channel": "main"
   },
+  "side": {
+   "titleRu": "бок корпуса (боковая стенка)",
+   "catalog_channel": "основной класс; как body, пока нет отдельного канала. Ставит ТОЛЬКО резка по областям (parts_role_regions, T-64): геометрия моста эту роль не ставит",
+   "material_channel": "main"
+  },
+  "back": {
+   "titleRu": "зад корпуса (задняя стенка)",
+   "catalog_channel": "основной класс; как body, пока нет отдельного канала. Ставит ТОЛЬКО резка по областям (parts_role_regions, T-64)",
+   "material_channel": "main"
+  },
   "shade": {
    "titleRu": "плафон / абажур",
    "catalog_channel": "parts.shade (Материал плафона)",

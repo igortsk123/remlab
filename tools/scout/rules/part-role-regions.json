@@ -1,0 +1,56 @@
+{
+ "_about": "Роли по ОБЛАСТЯМ слитой части меша (T-20261124-64, Ш1 плана paint-material-01; решение директора 24.11: источник `region` в roles.json, мост part-llm-roles.json и его выключатели to_body/unnamed не трогаем). Исполняет tools/assets/parts_role_regions.py — тонкий слой НАД готовым: панели (излом ≤15°, ref_zone.panel_ids), стороны предмета (ref_zone.object_basis/face_sides, внешняя плоскость PANEL_OUTER), ножки/плита стола — мост (R-PART-ROLES-GEOM-03). Здесь только: какие части режем, какая сторона — фасад (геометрия, камера 04 лишь подтверждает), роли верх/фасад/бок/зад/корпус и их уверенность. ID товаров здесь нет. Что не получило роль — unknown числом.",
+ "enabled": true,
+ "groups": [
+  "case"
+ ],
+ "_groups_doc": "типы (parts_roles.group_of), где режем слитую часть: корпусная. Стол — мост (плита | ножки); мягкая мебель — часть PartLLM как есть (Fable 24.11); ваза — пояса по высоте (другой модуль).",
+ "part": {
+  "unknown_reasons": [
+   "name_geometry",
+   "no_name",
+   "name_unknown"
+  ],
+  "min_area_share": 0.15,
+  "panel_min_area_share": 0.02,
+  "panel_min_plate": 0.5,
+  "refine_bridge_body": true,
+  "_doc": "что режем: (а) крупную часть без роли (доля площади меша ≥ min_area_share) — слитый корпус; (б) плоскую панель (plate_horizontal/plate_vertical ≥ panel_min_plate) от panel_min_area_share без роли — отдельная дверца/ящик/панель с названием, но без роли у моста; мелкая «Leg»/«Frame» (не плита) остаётся unknown — корпус вместо неё ставить нельзя. refine_bridge_body: часть, которой мост поставил общую роль body (панель корпуса: «Side Panel», «Back Panel» и т.п.), уточняется по стороне в side/back/facade/top (бок и зад — главный брак корпусной по Fable 24.11); роль моста остаётся в roles.json как bridge_role, сам мост не меняется. Выключатель — false."
+ },
+ "geometry": {
+  "panel_vote_min": 0.5,
+  "min_facade_share": 0.05,
+  "ambiguous_ratio": 1.25,
+  "_doc": "panel_vote_min — доля площади панели на внешних сторонах предмета, чтобы вся панель получила роль стороны; min_facade_share — площадь стороны-фасада (доля части), иначе фасада нет. Углы, порог излома, «внешняя плоскость», сглаживание — в ref_zone (rules/ref-zone.json: panel_deg, panel_side_cos, panel_outer): не дублируем."
+ },
+ "camera": {
+  "bonus": 0.15,
+  "agree_deg": 50,
+  "_doc": "камера 04 (passed): к счёту стороны + bonus·cos(угол к камере); сторона в пределах agree_deg — подтверждение. Нет камеры — решает геометрия"
+ },
+ "conf": {
+  "top": 0.7,
+  "side": 0.65,
+  "facade": 0.65,
+  "facade_camera_agree": 0.75,
+  "facade_camera_disagree": 0.5,
+  "facade_no_camera": 0.55,
+  "back": 0.6,
+  "back_camera_disagree": 0.5,
+  "ambiguous_penalty": 0.1,
+  "body": 0.5,
+  "min_known": 0.5,
+  "_doc": "role_conf кусков; min_known — порог «роль есть» для доли площади; ambiguous — две стороны почти равны по счёту и камера не подтвердила: фасад выбран неуверенно (тогда и back снижается)",
+  "facade_handles": 0.7
+ },
+ "metric": {
+  "name": "area_with_role",
+  "min": 0.9,
+  "_doc": "доля площади меша с ролью (conf ≥ conf.min_known, роль ≠ unknown); цель Ш1 — ≥ 0,90 на товар; «без роли» считается и пишется, не прячется"
+ },
+ "handles": {
+  "weight": 0.3,
+  "decisive": 0.6,
+  "_doc": "ручки (роль handles у частей моста) — признак фасада: доля площади ручек на стороне × weight прибавляется к счёту стороны; доля ≥ decisive — сторону решили ручки (камера уже не нужна, ambiguous снимается)."
+ }
+}
