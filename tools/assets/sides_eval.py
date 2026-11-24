@@ -317,6 +317,7 @@ def f_pattern_typed(lab_s, m_s, lab_p, m_p, R, ctx) -> tuple:
     rel_p_all = [gps[0] / gps[1] for gps in (group_pattern(lab_p, gp[g], p) for g in gp) if gps is not None] if mode == 'plain' else []
     rel_p_top = max(rel_p_all) if rel_p_all else None                           # plain: у группы без пары на фото опора — самая рябая группа фото, а не пол (T-34/4 В)
     na = []                                                                      # continue: группы, где размер элемента не измерен (энергия решает отдельно, но это видно в отчёте)
+    n_side = n_pair = 0                                                          # группы стороны с измеримым рисунком / из них — с парой-узором на фото (continue, same_fabric: «рисунок потерян целиком»)
     if mode == 'same_fabric':                                                    # крупные детали (пятна, фасад) — по всему предмету, а не по тонам: тон рвётся на куски и не переживает размытие
         sc = T['same_fabric']
         lg, lgp = group_large(lab_s, m_s, ps), group_large(lab_p, m_p, ps)
@@ -328,6 +329,7 @@ def f_pattern_typed(lab_s, m_s, lab_p, m_p, R, ctx) -> tuple:
         if gss is None:
             continue
         rel_s = gss[0] / gss[1]
+        n_side += 1
         gps = group_pattern(lab_p, gp[g], p) if g in gp else None
         rel_p = None if gps is None else gps[0] / gps[1]
         if mode == 'plain':
@@ -347,6 +349,7 @@ def f_pattern_typed(lab_s, m_s, lab_p, m_p, R, ctx) -> tuple:
         elif mode == 'same_fabric':
             if rel_p is None or gps[0] < p['photo_energy_min']:
                 continue
+            n_pair += 1
             q = rel_s / rel_p
             sc = T['same_fabric']
             rs.append(max(sc['ratio_min'] / max(q, 1e-6), q / sc['ratio_max']))
@@ -354,6 +357,7 @@ def f_pattern_typed(lab_s, m_s, lab_p, m_p, R, ctx) -> tuple:
         else:                                                                    # continue: энергия рисунка И его размер
             if gps is None or gps[0] < p['photo_energy_min']:
                 continue
+            n_pair += 1
             r_e = p['ratio_min'] / max(rel_s / rel_p, 1e-6)
             ss, sp = pattern_scale(lab_s, gs[g], ps), pattern_scale(lab_p, gp[g], ps)
             if ss is None or sp is None:                                         # размер не измерен — НЕ «размер сошёлся» (r_s=0), а «не измерено»: группу судит одна энергия, группа попадает в scale_na
@@ -363,6 +367,20 @@ def f_pattern_typed(lab_s, m_s, lab_p, m_p, R, ctx) -> tuple:
             else:
                 rs.append(max(r_e, max(ss / sp, sp / ss) / T['continue']['scale_k']))
                 det[f'g{g}'] = [round(rel_s / rel_p, 3), round(ss / sp, 3)]
+    lost = T.get(mode, {}).get('lost_r') if mode in ('continue', 'same_fabric') else None
+    if lost is not None and n_side and not n_pair:                               # «рисунок потерян целиком»: нет пары-узора ПО ГРУППАМ — теперь проверяем по предмету целиком (свет мог увести цвет стороны в другую группу, а деталь вроде ножек на виде сверху не видна)
+        pat_m = np.zeros(m_p.shape, bool)
+        for g in gp:
+            q = group_pattern(lab_p, gp[g], p)
+            if q is not None and q[0] >= p['photo_energy_min']:
+                pat_m |= gp[g] & m_p
+        sc_l = T[mode]
+        gp_all, gs_all = (group_pattern(lab_p, pat_m, p) if pat_m.sum() >= 50 else None), group_pattern(lab_s, m_s, p)
+        dE = float(np.sqrt(((lab_s[m_s].mean(axis=0) - lab_p[pat_m].mean(axis=0)) ** 2).sum())) if pat_m.any() else None      # цвет стороны против цвета узорной части фото: далеко — сторона показывает другой материал (белая столешница при узорных ножках), а не потерянный рисунок
+        if gp_all is not None and gs_all is not None and dE is not None and dE <= sc_l['lost_max_dE'] and pat_m.sum() >= sc_l['lost_min_share'] * m_p.sum() and (gs_all[0] / gs_all[1]) < p['ratio_min'] * (gp_all[0] / gp_all[1]):
+            rs.append(float(lost))                                               # рисунок занимает заметную долю фото, цвет стороны — цвет узорной части, а энергии рисунка по предмету целиком < ratio_min × фото — потерян целиком (плоский тон), не «не измерено»; r — `lost_r`
+            det['lost'] = True
+            det['lost_dE'] = round(dE, 1)
     if not rs:
         return None, {'why': 'нет измеряемой группы', 'mode': mode}
     if na:
