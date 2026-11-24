@@ -584,6 +584,14 @@ on conflict (shop_mid,external_id) do update set
                      else excluded.dims_evidence end,
   params=excluded.params, cat_role=excluded.cat_role,
   category_id=excluded.category_id, category_path=excluded.category_path;
+-- ЛИПКОСТЬ «комплектующее» (T-20261124-08/2, `component_guard.py`): роль из карты ночью не возвращается у строк, с которых её снял
+-- guard (cat_role = null при accepted=true — строка грузится, в архив не уходит). Проверка колонки динамическая: до миграции
+-- 019-product-kind.sql SQL не ссылается на несуществующую колонку — загрузка идёт как прежде. Возврат роли — только решением guard.
+do $$ begin
+  if exists (select 1 from information_schema.columns where table_schema = current_schema() and table_name = 'products' and column_name = 'product_kind') then
+    execute 'update products set cat_role = null where product_kind = ''component'' and cat_role is not null';
+  end if;
+end $$;
 insert into product_enrichment as e (shop_mid,external_id,commercial_hash,text_hash,geometry_hash,image_hash,
        image_hd_hash,attrs_hash,hash_version,status,enrichment_status,missing_runs,missing_since,last_seen)
 select shop_mid,external_id,commercial_hash,text_hash,geometry_hash,image_hash,image_hd_hash,attrs_hash,hash_version,

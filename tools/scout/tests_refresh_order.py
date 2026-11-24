@@ -208,6 +208,12 @@ def _selftest() -> int:
     fn = names(full)
     cmd = {x.split(' :: ', 1)[0]: x.split(' :: ', 1)[1] for x in full}
     ok('комнаты: каждый шаг ночи один раз', all(fn.count(n) == 1 for n in fn), [n for n in fn if fn.count(n) > 1])
+    ok('защита от комплектующих (T-20261124-08/2): шаг встаёт сразу после dimless и до dim_prior_cal, команда --nightly (при enabled=false сама ничего не делает)',
+       'component_guard' in fn and fn.index('component_guard') == fn.index('dimless') + 1 and fn[fn.index('component_guard') + 1] == 'dim_prior_cal'
+       and cmd.get('component_guard') == '$PY component_guard.py --nightly', fn[fn.index('dimless'):fn.index('dimless') + 4])
+    got_cg, _ = night_log(text, 0, fail='component_guard', start=HEAD)
+    ok('защита от комплектующих: упал шаг — остальная ночь та же и тем же порядком (FAIL шага в дайджесте, загрузка не откатывается)',
+       names(got_cg) == fn, (names(got_cg)[:3], fn[:3]))
     ok('комнаты: каталоги — сразу за load3 (голова ночи), живость/стиль/вырезка — сразу за такими же шагами гостиной',
        all(n in fn and fn[fn.index(n) + 1:fn.index(n) + 1 + len(v)] == v for n, v in ROOM_AFTER.items()),
        {n: fn[fn.index(n):fn.index(n) + 1 + len(v)] for n, v in ROOM_AFTER.items() if n in fn})

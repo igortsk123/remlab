@@ -325,6 +325,11 @@ step catalog_api "$PY" catalog_api_sync.py
 # но приор глубины, спрос мешей и автоподбор её не берут (`dimless.py`, правило в одном месте). Строка `WARN:` на магазин —
 # в дайджест, чтобы новый магазин без размеров не выпал из подбора молча (так было с фурнитурой mdm: 821 «шкаф»).
 step dimless "$PY" dimless.py --warn
+# ЗАЩИТА ОТ КОМПЛЕКТУЮЩИХ (T-20261124-08/2, правило Г): категория в карантине без размеров, чья роль дана предком при неподтверждённом
+# листе или чьи названия — слова-комплектующие, теряет роль мебели (`product_kind='component'`, строка не уходит в архив). Стоит после
+# dimless и ДО dim_prior/capabilities/candidates; load3 и category_map --apply роль у таких строк не возвращают (липкость). Пока
+# `rules/component-guard.json:enabled=false` (до слова директора и миграции 019) шаг ничего не читает и не пишет.
+step component_guard "$PY" component_guard.py --nightly
 step dim_prior_cal "$PY" dim_prior.py --calibrate
 step dim_prior "$PY" dim_prior.py --apply
 

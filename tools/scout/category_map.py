@@ -438,6 +438,14 @@ def review(limit: int = 25) -> None:
         print(f'  {c["offers"]:>6}  [{c["mid"]}] {c["path"][:76]}')
 
 
+# ЛИПКОСТЬ «комплектующее» (T-20261124-08/2): роль, снятую `component_guard.py` (product_kind='component'), карта не возвращает.
+# Колонка проверяется динамически — до миграции 019-product-kind.sql SQL на неё не ссылается (то же в load3.py).
+STICKY_COMPONENT_SQL = ("do $$ begin if exists (select 1 from information_schema.columns where table_schema = current_schema() "
+                        "and table_name = 'products' and column_name = 'product_kind') then "
+                        "execute 'update products set cat_role = null where product_kind = ''component'' and cat_role is not null'; "
+                        "end if; end $$;")
+
+
 def apply() -> None:
     """Записать роль из категории в БД — колонка products.cat_role."""
     out = json.load(open(OUT)) if os.path.exists(OUT) else build()
@@ -457,7 +465,7 @@ def apply() -> None:
         f"update products p set cat_role=null where cat_role is not null and not ({mixed_sql});"
         f"update products p set cat_role=v.role from (values {','.join(vals)}) "
         f"as v(mid, cid, role) where p.shop_mid=v.mid and p.category_id::text=v.cid and not ({mixed_sql});"
-        + kids_sql + "commit;"
+        + kids_sql + STICKY_COMPONENT_SQL + "commit;"
     ), capture_output=True, text=True)
     if r.returncode != 0:
         print('СТОП: --apply откатился, роли не изменены:', r.stderr[:400])

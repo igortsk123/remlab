@@ -1027,6 +1027,32 @@
       "check_field": null,
       "enabled": null,
       "note": "Только эталонные размеры карточки (ось, выведенная приором/мерой меша/правилом формы, — не эталон: `dimless.NOT_REFERENCE_RX`, один источник); диаметр вместо ширины×глубины не сверяется (`dims_dia_axes: false`: у торшеров след формы шире диаметра в 2–3 раза). dims_flag=false: флага нет, значение и `would_flag` («сработало бы») пишутся в form_checks.json — для калибровки порогов `dims_depth_over/under`, `dims_axis_dev`; в `block` не входит. Порог НЕ трогать, пока не наберётся ≥10 срабатываний и точность по глазам (паспорт #130: 2 из 4, ложные — шум размеров карточки). Замер 24.11: 24 body t229/t234-11 — 2 из 24 сработало бы (+25,5 % витрина, +20,6 % комод); контроли 49 форм прежних замеров — столы/стулья/вазы ≈ 0, Сакура +24 %. Мерка не чинит форму: масштаб по осям до камеры 04 — отдельное решение."
+    },
+    {
+      "rule_id": "R-COMPONENT-GUARD",
+      "title": "Каталог: категория без измеренных Ш×В, чья роль мебели дана предком при неподтверждённом листе или чьи названия — слова-комплектующие, теряет роль (product_kind=component), товар не уходит в архив",
+      "state": "trial",
+      "source": [
+        "T-20261124-08 (директор 24.11; разбор mdm-complect: 824 комплектующих с ролью «шкаф»/«стеллаж»)",
+        "Codex 24.11 (~/remlab-logs/t2408-1124/codex-answer.md): product_kind=component + cat_role=None, «система» не признак, решение при финализации загрузки, предохранитель по прежней доле размеров",
+        "tools/scout/dimless.py (карантин категорий без размеров — единый код и порог)"
+      ],
+      "applies": {
+        "types": [
+          "all"
+        ]
+      },
+      "executor": "р.1 (T-20261124-08/2)",
+      "consumer": "tools/scout/component_guard.py:evaluate",
+      "runtime": "off",
+      "test": "tools/scout/tests/test_component_guard.py",
+      "test_positive": "tools/scout/tests/test_component_guard.py::test_ancestor_role_hardware_is_demoted",
+      "test_negative": "tools/scout/tests/test_component_guard.py::test_real_modular_wardrobe_without_sizes_is_kept",
+      "run_id": null,
+      "flag": "tools/scout/rules/component-guard.json#enabled",
+      "check_field": null,
+      "enabled": null,
+      "note": "Шаг ночи `component_guard --nightly` стоит в refresh_daily.sh после dimless; при enabled=false ничего не читает и не пишет. Включение — только после слова директора и миграции tools/scout/019-product-kind.sql (product_kind, kind_reason, role_before); первый --apply с --allow-new N (предохранитель: 824 из 824 строк магазина — не молча). Сухой отчёт 24.11 на боевой базе: снять 824/824 в 40 категориях mdm, вне mdm 0; контрпримеры (divan.ru «Модульные гостиные» 24; «Гардеробные системы» — размеры у 88 %; барная мебель, кушетки, порталы каминов, текстиль) не тронуты. Липкость: load3 и category_map --apply гасят роль у product_kind=component (SQL с проверкой колонки). Возврат роли — решением правила (появились размеры/сбой фида)."
     }
   ],
   "_active_rule": "active = consumer определён (ast) и вызывается боевым кодом + runtime=enforce и флаг включён + тест в CI + test_positive и test_negative на пример типа + run_id прогона. Без любого — trial (rule_registry_audit: ошибка). run_id — папка прогона в ~/remlab-logs, где правило отработало; проверка прогона структурная (--run): extra.rules[] с rule_id, type, digest, applied|abstain."
