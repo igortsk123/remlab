@@ -256,6 +256,21 @@ check('edge_term: обычные кромки как есть', PF.edge_term({'a
 check('refine_ok: падение 0,03 — принимаем', PF.refine_ok(0.90, 0.87))
 check('refine_ok: падение 0,14 (12914) — отклоняем', not PF.refine_ok(0.8578, 0.7178))
 check('refine_ok: рост — принимаем', PF.refine_ok(0.85, 0.86))
+# --- camera_refine_v2 (T-20261124-44): флаг в rules/pose-rank.json; выключен — поведение как в main, включён — вес/кадр/порог из правила ---
+import inspect  # noqa: E402
+import pose_rank as PR_  # noqa: E402
+_v2 = PR_.rules().get('camera_refine_v2') or {}
+check('camera_refine_v2: в правилах есть, по умолчанию ВЫКЛ', _v2.get('enabled') is False and 'w_iou' in _v2 and 'n' in _v2 and 'tri_drop' in _v2, str(_v2))
+check('флаг выкл = старое поведение: refine_v2_rules() → None, W_IOU=2 и порог 0,05 по вершинам в коде как в main', PF.refine_v2_rules() is None and PF.W_IOU == 2.0 and PF.REFINE_IOU_DROP == 0.05)
+check('флаг выкл: refine_by_edges по умолчанию берёт W_IOU модуля (w_iou=None)', inspect.signature(PF.refine_by_edges).parameters['w_iou'].default is None)
+_rules0 = PR_.rules
+PR_.rules = lambda path=None: {**_rules0(), 'camera_refine_v2': {**_v2, 'enabled': True}}
+try:
+    _on = PF.refine_v2_rules()
+finally:
+    PR_.rules = _rules0
+check('флаг вкл: refine_v2_rules() отдаёт w_iou=12, n=512, tri_drop=0,01 из правила', _on is not None and _on['w_iou'] == 12.0 and _on['n'] == 512 and _on['tri_drop'] == 0.01, str(_on))
+check('флаг вкл: refine_ok_tri — падение IoU треугольников 0,009 принимаем, 0,0375 (13994…) отклоняем, рост принимаем', PF.refine_ok_tri(0.9579, 0.9489, 0.01) and not PF.refine_ok_tri(0.9591, 0.9216, 0.01) and PF.refine_ok_tri(0.90, 0.91, 0.01))
 ms_r = {'ran': True, 'starts': [{'score': 0.76 - i * 0.01, 'iou': 0.50, 'iou_sil': 0.85 - i * 0.005} for i in range(5)]}
 check('shape_mismatch: коридор по IoU ДО уточнения (iou_sil), а не после', CC.shape_mismatch(0.80, ms_r, RULES)[1]['iou_spread'] <= 0.03, str(CC.shape_mismatch(0.80, ms_r, RULES)[1]))
 
