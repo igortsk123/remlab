@@ -317,19 +317,28 @@ pv() { HEAVY_SLOT_PRIO="$1" python3 -c "import sys; sys.path.insert(0, '$DIR'); 
 ok "класс вне 0…2: --prio 5 → rc 2 с подсказкой; HEAVY_SLOT_PRIO=abc → 0, 9 → 2, -1 → 0" \
   "$(yes_if '[ $rc = 2 ] && grep -q "нужно 0…2" "$T/bad-prio.err" && [ "$(pv abc) $(pv 9) $(pv -1)" = "0 2 0" ]')"
 
-python3 - "$DIR" "$T/regrab" <<'EOF' &
-import sys, time
+# T-20261124-19/2: раньше ждущий приходил через `sleep 0.3` после старта цикла — под нагрузкой (питон стартует дольше) цикл успевал снова
+# встать первым: loop0|loop1|w. Теперь первый шаг цикла держит слот, пока ждущий не встал в очередь (метка) — порядок не зависит от тайминга.
+python3 - "$DIR" "$T/regrab" "$T/regrab.queued" <<'EOF' &
+import os, sys, time
 sys.path.insert(0, sys.argv[1])
 from heavy_slot import heavy_slot
 for i in range(2):                      # длинный цикл берёт слот на шаг и сразу просит снова
     with heavy_slot('loop', min_gb=1):
         open(sys.argv[2], 'a').write(f'loop{i}\n')
-        time.sleep(0.8)
+        if i == 0:
+            t = time.time()
+            while not os.path.exists(sys.argv[3]) and time.time() - t < 60:
+                time.sleep(0.05)
+        else:
+            time.sleep(0.8)
 EOF
 pl=$!
-sleep 0.3
-"$S" w-regrab --min-gb 7 -- sh -c "echo w >> $T/regrab"   # 7 + (1 − память loop) + запас 1,5 > 8 — не вторым слотом
-wait $pl
+until_f "[ -e $T/regrab ]"
+"$S" w-regrab --min-gb 7 -- sh -c "echo w >> $T/regrab" & pw=$!   # 7 + (1 − память loop) + запас 1,5 > 8 — не вторым слотом
+for _ in $(seq 1 400); do grep -q ' w-regrab pid=[0-9]* ждёт очередь' "$HEAVY_SLOT_LOG" && break; sleep 0.05; done
+touch "$T/regrab.queued"
+wait $pl $pw
 o=$(tr '\n' '|' < "$T/regrab")
 ok "отпустивший и тут же вернувшийся не обгоняет ждущего ($o)" "$(yes_if '[ "$o" = "loop0|w|loop1|" ]')"
 
@@ -1028,8 +1037,13 @@ a_early=$(grep -q '^sa$' "$T/rmf" && echo 1 || echo 0)
 touch "$T/go-rmf"
 wait $prh_rmf $prd_rmf $prb_rmf
 o=$(tr '\n' '|' < "$T/rmf")
-ok "обгон при закрытой защите головы: удалённый драйвер обгоняет голову 6 (места по заявкам нет), голова после ($o)" \
-  "$(yes_if '[ $r_up = 0 ] && [ $a_early = 0 ] && [[ "$o" =~ ^sh\|sb\|e[hb]\|e[hb]\|sa\|$ ]] && grep -q "rm-r1 .*взял ЛЁГКИЙ замок" "$HEAVY_SLOT_LOG"')"
+# T-20261124-19/2 (гонка в CI 24.11: порядок sh|sb|eh|sa|eb вместо sh|sb|e?|e?|sa): лёгкий держатель слота не занимает и в допуске
+# головы не участвует — его реальную память уже вычитает MemAvailable, заявка 1 ГБ в долях держателей не считается (так задумано T-19).
+# Поэтому голова входит, как только ушёл rm-h6 (слот 1), и НЕ ждёт конца лёгкого: после sh|sb допустимы eh|sa|eb, eh|eb|sa, eb|eh|sa.
+# Неизменно: лёгкий стартует сразу, при ещё занятом слоте 1 и ждущей голове (r_up, a_early — до команды «отпускай»); голова — только
+# после ухода rm-h6 (sa строго после eh).
+ok "лёгкий драйвер идёт мимо головы 6 (слот не занимает), голова входит только после ухода держателя слота 1 ($o)" \
+  "$(yes_if '[ $r_up = 0 ] && [ $a_early = 0 ] && [[ "$o" =~ ^sh\|sb\|(eh\|sa\|eb|eh\|eb\|sa|eb\|eh\|sa)\|$ ]] && grep -q "rm-r1 .*взял ЛЁГКИЙ замок" "$HEAVY_SLOT_LOG" && ! grep -q "rm-r1 .*обогнал" "$HEAVY_SLOT_LOG"')"
 rm_case rmg rm-r2 "--min-gb 2 --prio 2 --cores 1"
 until_f "grep -q ' rm-r2 pid=[0-9]* ждёт очередь' '$HEAVY_SLOT_LOG'"
 b_early=$([ -e "$T/up-rmg-b" ] && echo 1 || echo 0)
