@@ -47,26 +47,43 @@ MS_EL = (5.0, 20.0, 35.0)          # старты по наклону (подъ�
 MS_D = 3.0
 MS_W_BOTTOM = 0.25                 # вес долей несовпадения нижней полосы в оценке старта
 BLUR_FRAC = 0.10                   # размытие масок на этапе 1 мультистарта, доля стороны кадра
+_VK = None                         # наклон вертикалей фото κ = tan φ / f на время подгонки (fit_pose, флаг vertical_axis); None — прежняя модель
 _STRIP = None                      # strip_frac из rules/camera-check.json (читается один раз)
 
 
 # ——— камера ———
-def cam_basis(az: float, el: float, d: float) -> tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
+def cam_basis(az: float, el: float, d: float, tilt: float = 0.0) -> tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
+    """Камера на орбите (az, el, d), по умолчанию смотрит в центр. `tilt` (град, T-20261124-18) — поворот оси вверх вокруг `right` относительно «в центр»:
+    tilt = el → ось горизонтальна (вертикали фото параллельны, «сдвиг объектива»); 0 → прежняя модель."""
     a, e = np.radians(az), np.radians(el)
     C = d * np.array([np.sin(a) * np.cos(e), np.sin(e), np.cos(a) * np.cos(e)])
     fwd = -C / d
     right = np.array([np.cos(a), 0.0, -np.sin(a)])
     up = np.cross(right, fwd)
+    if tilt:
+        t = np.radians(tilt)
+        fwd, up = fwd * np.cos(t) + up * np.sin(t), up * np.cos(t) - fwd * np.sin(t)
     return C, right, up, fwd
+
+
+def cam_tilt(cam: dict) -> float:
+    """Поворот оси камеры (град) из `vk` — «наклон вертикалей» фото: κ = tan φ / f, φ — наклон оси к горизонту (вниз), измеряется по фото (`vertical_axis`).
+    Нет `vk` → 0 (прежняя модель, ось в центр предмета); vk = tan(el)/f → тоже 0; vk = 0 → ось горизонтальна (выпрямленные вертикали)."""
+    vk = cam.get('vk')
+    if vk is None:
+        return 0.0
+    return float(cam['el']) - float(np.degrees(np.arctan(cam['f'] * float(vk))))
 
 
 def project(P: np.ndarray, cam: dict) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
     """Точки куба → (x, y, Z): x, y в долях стороны кадра (0…1, y вниз), Z — глубина вдоль оси камеры."""
-    C, right, up, fwd = cam_basis(cam['az'], cam['el'], cam['d'])
+    tilt = cam_tilt(cam)
+    C, right, up, fwd = cam_basis(cam['az'], cam['el'], cam['d'], tilt)
     rel = P - C
     Z = rel @ fwd
     Zs = np.maximum(Z, 1e-6)
-    return cam['cx'] + cam['f'] * (rel @ right) / Zs, cam['cy'] - cam['f'] * (rel @ up) / Zs, Z
+    yc = cam['cy'] - (cam['f'] * np.tan(np.radians(tilt)) if tilt else 0.0)      # центр предмета остаётся в (cx, cy), как при взгляде в центр
+    return cam['cx'] + cam['f'] * (rel @ right) / Zs, yc - cam['f'] * (rel @ up) / Zs, Z
 
 
 # ——— фото ———
@@ -110,6 +127,8 @@ def iou(a: np.ndarray, b: np.ndarray) -> float:
 def _bbox_fit(P: np.ndarray, az: float, el: float, d: float, tb: tuple) -> dict:
     """Масштаб и сдвиг по габариту (сходство): проекция с f=1, потом bbox силуэта формы → bbox силуэта фото (в долях кадра)."""
     cam = {'az': az, 'el': el, 'd': d, 'f': 1.0, 'cx': 0.0, 'cy': 0.0}
+    if _VK is not None:
+        cam['vk'] = _VK
     x, y, Z = project(P, cam)
     ok = Z > 1e-3
     x0, x1 = np.percentile(x[ok], [0.3, 99.7])
@@ -127,7 +146,10 @@ def _vec(cam: dict) -> np.ndarray:
 
 
 def _cam(v: np.ndarray) -> dict:
-    return {'az': float(v[0]), 'el': float(v[1]), 'd': float(np.exp(v[2])), 'f': float(np.exp(v[3])), 'cx': float(v[4]), 'cy': float(v[5])}
+    c = {'az': float(v[0]), 'el': float(v[1]), 'd': float(np.exp(v[2])), 'f': float(np.exp(v[3])), 'cx': float(v[4]), 'cy': float(v[5])}
+    if _VK is not None:
+        c['vk'] = _VK                                                  # наклон вертикалей фото (T-20261124-18, флаг): ось камеры отделена от el
+    return c
 
 
 def fit_camera(P: np.ndarray, Mp: np.ndarray, n: int, topk: int = 4, log=print) -> list:
@@ -352,7 +374,7 @@ def pixel_attrs(V: np.ndarray, F: np.ndarray, UV: np.ndarray, N, cam: dict, n: i
     nw = la[:, None] * N[a] + lb[:, None] * N[b] + lc[:, None] * N[c]
     nw /= np.maximum(np.linalg.norm(nw, axis=1, keepdims=True), 1e-12)
     Pw = la[:, None] * V[a] + lb[:, None] * V[b] + lc[:, None] * V[c]
-    C0, right, up, fwd = cam_basis(cam['az'], cam['el'], cam['d'])
+    C0, right, up, fwd = cam_basis(cam['az'], cam['el'], cam['d'], cam_tilt(cam))
     vv = C0 - Pw
     vv /= np.maximum(np.linalg.norm(vv, axis=1, keepdims=True), 1e-12)
     cosv = np.abs((nw * vv).sum(1))                                    # |cos| — порядок обхода граней у сеток TRELLIS не всегда «наружу»
@@ -493,6 +515,85 @@ def angle_refine(PTS: np.ndarray, cam: dict, alpha: np.ndarray, cv: dict, R: dic
     return c1, info
 
 
+VERT_DEFAULTS = {'mode': 'parallel', 'parallel_deg': 0.3, 'enabled': False, 'min_lines': 6, 'min_len_frac': 0.15, 'max_tilt_deg': 10.0, 'interior_erode_px': 3, 'max_rms_deg': 0.3, 'min_span_frac': 0.25, 'kappa_max': 0.2}
+
+
+def vertical_axis(photo: np.ndarray, alpha: np.ndarray, cv: dict, R: dict | None = None) -> dict:
+    """Наклон вертикалей ФОТО без формы (T-20261124-18): длинные почти вертикальные отрезки (LSD) ТОЛЬКО внутри маски товара (фон, пол, тени и силуэт — не берутся);
+    наклон отрезка (рад) как линейная функция x в кадре камеры: b = d tilt / dx; точка схода вертикалей: κ = −b = tan φ / f (φ — наклон оси камеры к горизонту).
+    Выпрямленное фото («сдвиг объектива», вертикали параллельны) → κ ≈ 0. → {measured, kappa, n_seg, n_kept, rms_deg, span_frac, mean_tilt_deg, reason}.
+    Нет линий / разброс больше max_rms_deg / мал охват по x → measured=False: подгонка идёт прежней моделью (счётчик доли в отчёте)."""
+    import cv2
+    p = {**VERT_DEFAULTS, **(R or {})}
+    out = {'measured': False, 'kappa': None, 'n_seg': 0, 'n_kept': 0, 'rms_deg': None, 'span_frac': None, 'mean_tilt_deg': None, 'reason': ''}
+    a8 = (alpha.astype(np.uint8)) * 255
+    ys, xs = np.nonzero(alpha)
+    if len(xs) == 0:
+        out['reason'] = 'нет альфы'
+        return out
+    hobj = int(ys.max() - ys.min() + 1)
+    wobj = int(xs.max() - xs.min() + 1)
+    al = (photo[..., 3].astype(np.float32) / 255.0)[..., None]
+    gray = cv2.cvtColor((photo[..., :3].astype(np.float32) * al + 235.0 * (1.0 - al)).astype(np.uint8), cv2.COLOR_RGB2GRAY)
+    er = cv2.erode(a8, np.ones((3, 3), np.uint8), iterations=int(p['interior_erode_px'])) > 0
+    segs = cv2.createLineSegmentDetector(cv2.LSD_REFINE_ADV).detect(gray)[0]
+    rows = []
+    if segs is not None:
+        h, w = er.shape
+        for x1, y1, x2, y2 in segs.reshape(-1, 4):
+            L = float(np.hypot(x2 - x1, y2 - y1))
+            if L < p['min_len_frac'] * hobj:
+                continue
+            dx, dy = x2 - x1, y2 - y1
+            if dy < 0:
+                dx, dy = -dx, -dy
+            t = float(np.arctan2(dx, dy))
+            if abs(np.degrees(t)) > p['max_tilt_deg']:
+                continue
+            tt = np.linspace(0.0, 1.0, 9)
+            px = np.clip(np.round(x1 + (x2 - x1) * tt).astype(int), 0, w - 1)
+            py = np.clip(np.round(y1 + (y2 - y1) * tt).astype(int), 0, h - 1)
+            if not er[py, px].all():
+                continue
+            rows.append((0.5 * (x1 + x2), t, L))
+    out['n_seg'] = len(rows)
+    if len(rows) < p['min_lines']:
+        out['reason'] = f'мало линий внутри товара: {len(rows)} < {p["min_lines"]}'
+        return out
+    S = np.array(rows)
+    x = (S[:, 0] - cv['x0']) / cv['side']
+    t, wt = S[:, 1], S[:, 2]
+    keep = np.ones(len(x), bool)
+
+    def fit(m):
+        A = np.stack([np.ones(m.sum()), x[m]], 1) * np.sqrt(wt[m])[:, None]
+        return np.linalg.lstsq(A, t[m] * np.sqrt(wt[m]), rcond=None)[0]
+    for _ in range(4):
+        c = fit(keep)
+        res = t - (c[0] + c[1] * x)
+        lim = max(np.radians(0.5), 2.5 * 1.4826 * float(np.median(np.abs(res[keep]))))
+        nk = np.abs(res) < lim
+        if nk.sum() < p['min_lines']:
+            break
+        keep = nk
+    c = fit(keep)
+    res = t[keep] - (c[0] + c[1] * x[keep])
+    rms = float(np.degrees(np.sqrt(np.average(res ** 2, weights=wt[keep]))))
+    span = float((x[keep].max() - x[keep].min()) / max(wobj / cv['side'], 1e-6))
+    out['w_frame'] = round(wobj / cv['side'], 4)
+    out.update({'n_kept': int(keep.sum()), 'rms_deg': round(rms, 3), 'span_frac': round(span, 3), 'mean_tilt_deg': round(float(np.degrees(c[0] + c[1] * 0.5)), 3)})
+    if keep.sum() < p['min_lines']:
+        out['reason'] = f'после отбрасывания выбросов линий {int(keep.sum())} < {p["min_lines"]}'
+    elif rms > p['max_rms_deg']:
+        out['reason'] = f'линии не согласованы: rms {rms:.2f}° > {p["max_rms_deg"]}° (стул, круглое, рисунок)'
+    elif span < p['min_span_frac']:
+        out['reason'] = f'линии узко по x: охват {span:.2f} < {p["min_span_frac"]} ширины товара'
+    else:
+        k = float(np.clip(-c[1], -p['kappa_max'], p['kappa_max']))
+        out.update({'measured': True, 'kappa': round(k, 5), 'conv_deg': round(float(np.degrees(c[1] * wobj / cv['side'])), 3), 'parallel': bool(abs(np.degrees(c[1] * wobj / cv['side'])) <= p['parallel_deg'])})
+    return out
+
+
 def write_stages(r: dict, out_run: str, cam: dict, cv: dict, photo_path: str, yaw: float, px: int, glb: str, extra: dict) -> dict:
     from PIL import Image
     import stage_loss as SL
@@ -610,6 +711,24 @@ def fit_pose(glb: str, photo_path: str, out_run: str, yaw: float = 0.0, px: int 
                     best = std0
             return best, cands, ms_info
 
+        import camera_check as CCv
+        _R_va = {**VERT_DEFAULTS, **((CCv.load_rules().get('vertical_axis')) or {})}
+        _env_va = os.environ.get('POSE_VERT_AXIS')
+        if os.environ.get('POSE_VERT_MAX_RMS'):                                                # диагностика (синтетика с шумными линиями): потолок rms линий
+            _R_va['max_rms_deg'] = float(os.environ['POSE_VERT_MAX_RMS'])
+        va_info = None
+        if (_env_va == '1') if _env_va in ('0', '1') else bool(_R_va['enabled']):       # развязка оси камеры и el (T-20261124-18), по умолчанию выкл.
+            va_info = vertical_axis(photo, alpha, cv, _R_va)
+            log(f"вертикали фото: {'κ=%.5f (линий %d, rms %.2f°, по ширине %.2f°)' % (va_info['kappa'], va_info['n_kept'], va_info['rms_deg'], va_info['conv_deg']) if va_info['measured'] else 'не измерено — ' + va_info['reason'] + ' → прежняя модель'}")
+            if va_info['measured']:
+                if _R_va['mode'] == 'kappa':                                              # наклон оси по измеренному κ (смещение κ на 10–40 % уводит el/f — диагностика)
+                    globals()['_VK'] = va_info['kappa']
+                    va_info['applied'] = 'kappa'
+                elif va_info['parallel']:                                                 # вертикали фото параллельны → ось горизонтальна (vk=0); иначе модель прежняя, камера побитово та же
+                    globals()['_VK'] = 0.0
+                    va_info['applied'] = 'parallel→vk=0'
+                else:
+                    va_info['applied'] = 'не параллельны (%.2f° по ширине) → прежняя модель' % va_info['conv_deg']
         pick, cands, ms_info = search(geo['V'])
         surf_info = None
         if surf_pick:                                                  # вторая поза по выборке с поверхности граней; берём ту, у которой IoU по треугольникам выше
@@ -634,6 +753,8 @@ def fit_pose(glb: str, photo_path: str, out_run: str, yaw: float = 0.0, px: int 
                 rank_info['choose']['applied'] = {'from': pick['cam'], 'to': alt['cam']}
                 log(f"rank-pick: смена позы az {pick['cam']['az']:.1f}→{alt['cam']['az']:.1f}, el {pick['cam']['el']:.1f}→{alt['cam']['el']:.1f} ({rank_info['choose']['why']})")
                 pick = {**pick, 'cam': alt['cam'], 'score': alt['score'], 'iou': alt['iou'], 'rank_pick': True}
+        if va_info is not None:
+            pick = {**pick, 'vertical_axis': va_info}
         ang_info = None
         _R_ang = CC0.load_rules()
         _env = os.environ.get('POSE_ANGLE_FIT')
@@ -662,6 +783,7 @@ def fit_pose(glb: str, photo_path: str, out_run: str, yaw: float = 0.0, px: int 
                 'stages_dir': os.path.join(out_run, 'stages'), 'pose_json': pj, 'candidates': cands, 'iou_frontal_ortho_bbox': round(iou_front, 4), 'surf_pick': surf_info, 'rank': rank_info, 'flip_pick': flip_info}
     finally:
         globals()['GRID_D'], globals()['D_MIN'] = saved
+        globals()['_VK'] = None
 
 
 def main() -> int:
