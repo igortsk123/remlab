@@ -27,7 +27,10 @@
     "max_lift_L": 25.0,
     "grow_px": 1,
     "min_zone_px": 50,
-    "outside_gap_px": 3
+    "outside_gap_px": 3,
+    "grow_dark_px": 0,
+    "grow_dL_k": 0.5,
+    "ragged_min_px": 12
   },
   "cos_full": 0.6,
   "edge_erode_px": 2.0,

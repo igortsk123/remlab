@@ -24,7 +24,8 @@ import numpy as np
 
 SCOUT = os.path.normpath(os.path.join(os.path.dirname(os.path.abspath(__file__)), '..', '..'))
 DEFAULTS = {'enabled': False, 'families': ['мягкое'], 'dark_dL': 15.0, 'dark_ratio': 0.6, 'thin_px': 8, 'ref_win': 31, 'side_k': [8, 12], 'side_dL': 6.0, 'support_px': 8, 'pattern_max_share_pct': 2.5,
-            'edge_px': 25, 'lift_sigma': 4.0, 'feather_px': 1.0, 'max_lift_L': 25.0, 'grow_px': 1, 'min_zone_px': 50, 'outside_gap_px': 3}
+            'edge_px': 25, 'lift_sigma': 4.0, 'feather_px': 1.0, 'max_lift_L': 25.0, 'grow_px': 1, 'min_zone_px': 50, 'outside_gap_px': 3,
+            'grow_dark_px': 0, 'grow_dL_k': 0.5, 'ragged_min_px': 12, 'grow_free': False}
 DIRS = ((0, 1), (1, 0), (1, 1), (1, -1))                     # (dy, dx): горизонталь, вертикаль, две диагонали
 
 
@@ -148,6 +149,52 @@ def lift(prgb: np.ndarray, pmask: np.ndarray, st: dict, det: dict, r: dict) -> t
     return out, changed
 
 
+def _loose_dark(det: dict, valid: np.ndarray, r: dict) -> np.ndarray:
+    """Мягкий порог «тёмного» (grow_dL_k × dark_dL) — хвосты полосы, которые строгий порог не помечает (чёрточки шва после подъёма)."""
+    rl = dict(r, dark_dL=float(r['dark_dL']) * float(r['grow_dL_k']), dark_ratio=1.0 - (1.0 - float(r['dark_ratio'])) * float(r['grow_dL_k']))
+    return _dark(det['L8'], det['ref'], rl) & valid
+
+
+def grow_strip(det: dict, valid: np.ndarray, r: dict) -> np.ndarray:
+    """Маска утечки, дорощенная по СВЯЗАННЫМ мягко-тёмным пикселям (до grow_dark_px шагов от найденной полосы, только в опоре формы, расширенной на support_px): шов лечится целым куском, без чёрточек.
+    grow_dark_px = 0 — маска как есть (поведение T-15 без роста)."""
+    from scipy.ndimage import binary_dilation
+    k = int(r.get('grow_dark_px') or 0)
+    leak = det['leak']
+    if k <= 0 or not leak.any():
+        return leak
+    allow = _loose_dark(det, valid, r)
+    if not r.get('grow_free'):                                   # grow_free: рост по мягко-тёмному без привязки к опоре формы (шов в фото смещён от излома)
+        allow = allow & binary_dilation(det['zone'], iterations=max(int(r['support_px']), 1))
+    cur = leak.copy()
+    for _ in range(k):
+        nxt = (binary_dilation(cur) & allow) | cur
+        if nxt.sum() == cur.sum():
+            break
+        cur = nxt
+    return cur
+
+
+def ragged(det: dict, valid: np.ndarray, after_rgb: np.ndarray, seeds: np.ndarray, r: dict) -> dict:
+    """ПРЕРЫВИСТОСТЬ линии шва — метрика избытка тёмного её не видит (T-15: «−0,5 п.п.» при рваном кадре). Вокруг найденной полосы (в пределах grow_dark_px+2): число кусков мягко-тёмного до и после
+    (куски ≥ ragged_min_px) и доля оставшихся тёмных пикселей. Гейт пробы: dark_left_pct ≤ 10 % (рваный подъём T-15 без роста: 16–19 %; с ростом по связанным: 4–8 %) + кадр глазами; число кусков — справочно (шумит на слабой ряби)."""
+    from scipy.ndimage import binary_dilation, label
+    near = binary_dilation(seeds, iterations=int(r.get('grow_dark_px') or 0) + 2)
+    d0 = _loose_dark(det, valid, r) & near
+    L8n = _lum8(after_rgb)
+    rl = dict(r, dark_dL=float(r['dark_dL']) * float(r['grow_dL_k']), dark_ratio=1.0 - (1.0 - float(r['dark_ratio'])) * float(r['grow_dL_k']))
+    d1 = _dark(L8n, det['ref'], rl) & valid & near
+
+    def pieces(m):
+        lab, n = label(m, structure=np.ones((3, 3), int))
+        if n == 0:
+            return 0
+        sz = np.bincount(lab.ravel())[1:]
+        return int((sz >= int(r['ragged_min_px'])).sum())
+    n0, n1 = pieces(d0), pieces(d1)
+    return {'ragged_pieces_before': n0, 'ragged_pieces_after': n1, 'dark_left_pct': round(100.0 * float(d1.sum()) / max(int(d0.sum()), 1), 2)}
+
+
 def family_allowed(family: str | None, r: dict) -> bool:
     return bool(family) and family in (r.get('families') or [])
 
@@ -168,6 +215,8 @@ def run(prgb: np.ndarray, pmask: np.ndarray, st: dict, geoms: list, family: str 
         info['abstain'] = 'pattern'
         return {'prgb': prgb, 'info': info, 'maps': None}
     before = excess_pp(det['dark'], det['zone'], valid, r)
+    seeds = det['leak']
+    det = dict(det, leak=grow_strip(det, valid, r))
     new, changed = lift(prgb, pmask, st, det, r)
     L8n = _lum8(new)
     darkn = _dark(L8n, det['ref'], r) & valid
@@ -175,6 +224,8 @@ def run(prgb: np.ndarray, pmask: np.ndarray, st: dict, geoms: list, family: str 
     from scipy.ndimage import binary_dilation
     outside_changed = int((changed & ~binary_dilation(det['zone'] | det['leak'], iterations=max(int(r['grow_px']), 0) + 4)).sum())   # изменённое дальше feather от щели: должно быть 0
     info.update(det['stats'])
+    info.update(ragged(det, valid, new, seeds, r) if seeds.any() else {})
+    info['leak_grown_px'] = int(det['leak'].sum())
     info.update({'excess_pp_before': before['excess_pp'], 'excess_pp_if_applied': after['excess_pp'], 'dark_in_zone_pct': before['dark_in_zone_pct'], 'dark_out_pct': before['dark_out_pct'],
                  'dark_in_zone_pct_if_applied': after['dark_in_zone_pct'], 'changed_px': int(changed.sum()), 'applied': bool(on and changed.any())})
     maps = {'before': prgb, 'after': new, 'leak': det['leak'], 'zone': det['zone']} if det['stats']['leak_px'] else None

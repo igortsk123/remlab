@@ -95,6 +95,26 @@ def test_negatives():
     ok(r5['info']['leak_px'] == 0, 'у самого края силуэта (глубже edge_px) — не берём')
 
 
+def test_grow_and_ragged():
+    """Шов из сильной части (строки 60–100, уровень 105) и слабого хвоста (строки 100–160, уровень 140: мягко-тёмный, строгий порог не берёт). Без роста хвост остаётся, с ростом — поднят."""
+    p = photo()
+    p[100:160, X0 - 2:X0 + 2] = 140
+    r0 = dict(R)
+    r1 = dict(R, grow_dark_px=12, grow_free=True)
+    a = SL.run(p, PM, stage(), geoms(), 'мягкое', r0)
+    b = SL.run(p, PM, stage(), geoms(), 'мягкое', r1)
+    tail0 = a['prgb'][104:112, X0 - 1:X0 + 1].astype(float).mean()
+    tail1 = b['prgb'][104:112, X0 - 1:X0 + 1].astype(float).mean()
+    ok(tail1 > tail0 + 15, f'рост маски поднял слабый хвост шва у найденной полосы ({tail0:.0f} → {tail1:.0f})')
+    ok(b['info']['leak_grown_px'] > b['info']['leak_px'], 'маска выросла по связанным тёмным пикселям')
+    ok(b['info']['dark_left_pct'] < a['info']['dark_left_pct'], f'остаток тёмного вокруг шва меньше: {a["info"]["dark_left_pct"]} → {b["info"]["dark_left_pct"]} %')
+    far = np.ones((N, N), bool)
+    far[:, X0 - 14:X0 + 14] = False
+    ok(np.array_equal(b['prgb'][far], p[far]), 'вне щели байты те же и при росте')
+    c = SL.run(p, PM, stage(), geoms(), 'мягкое', dict(r1, enabled=False))
+    ok(c['prgb'] is p and not c['info']['applied'], 'выключено — кадр тот же объект и при росте')
+
+
 def test_rules():
     r = SL.load_rules()
     ok(r['enabled'] is False and 'мягкое' in r['families'], 'в rules/tex-visible.json правило выключено, семья — мягкое')
@@ -110,6 +130,7 @@ def main():
     test_positive()
     test_disabled_and_family()
     test_negatives()
+    test_grow_and_ragged()
     test_rules()
     test_tex_visible_glue()
     print(f'tests_shadow_leak: ошибок {bad}')
