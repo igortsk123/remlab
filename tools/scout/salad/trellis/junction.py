@@ -18,7 +18,8 @@ import numpy as np
 
 DEFAULTS = {'enabled': False, 'check_enabled': True, 'enforce': False, 'min_aspect': 1.3, 'window_frac': 0.15, 'min_edge_px': 6.0, 'min_len_frac': 0.3, 'active_gap_px': 3.0,
             'contour_extra_px': 2.0, 'iou_drop_max': 0.005, 'w_gap': 20.0, 'hinge_px': 2.0, 'az_range': 40.0, 'lnd_range': 1.8, 'max_starts': 16, 'good_iou_gap': 0.001,
-            'grid_az': [-12.0, 12.0], 'grid_d': [2.0, 3.0, 5.0], 'max_points': 150000, 'interior_px': 6, 'interior_frac': 0.85, 'max_dyaw_deg': 60.0}
+            'grid_az': [-12.0, 12.0], 'grid_d': [2.0, 3.0, 5.0], 'max_points': 150000, 'interior_px': 6, 'interior_frac': 0.85, 'max_dyaw_deg': 60.0,
+            'max_del_deg': 8.0, 'bottom_worse_max': 0.10, 'miss_bottom_max': None, 'extra_bottom_max': None}      # пороги низа — из camera-check.json (miss_bottom_max/extra_bottom_max), вносит вызывающий
 
 
 def rules(R: dict | None = None) -> dict:
@@ -133,6 +134,27 @@ def _dyaw(a: float, b: float) -> float:
     return abs((float(a) - float(b) + 180.0) % 360.0 - 180.0)
 
 
+def pose_gate(cam0: dict, cam1: dict, sc0: dict, sc1: dict, R: dict | None = None) -> tuple:
+    """Ворота замены позы (общие для спасателя стыка и шага 3; T-20261124-18, регресс пакета Salad 24.11): новая поза cam1 берётся, только если
+    (1) не другая сторона: |Δaz| ≤ max_dyaw_deg; (2) подъём не больше max_del_deg: |Δel| ≤ max_del_deg; (3) низ не хуже: miss_bottom/extra_bottom новой не выше порогов гейта 04
+    (miss_bottom_max/extra_bottom_max) И не хуже прежней больше чем на bottom_worse_max. sc — pose_score позы (miss_bottom, extra_bottom). → (ок, [причины отказа])."""
+    p = rules(R)
+    why = []
+    dy = _dyaw(cam1['az'], cam0['az'])
+    if dy > p['max_dyaw_deg']:
+        why.append('другая сторона: |Δaz| %.0f° > %.0f°' % (dy, p['max_dyaw_deg']))
+    de = abs(float(cam1['el']) - float(cam0['el']))
+    if de > p['max_del_deg']:
+        why.append('подъём камеры |Δel| %.1f° > %.1f°' % (de, p['max_del_deg']))
+    for k in ('miss_bottom', 'extra_bottom'):
+        lim = p[k + '_max']
+        if lim is not None and sc1[k] > lim:
+            why.append('низ: %s %.3f > порога %.2f' % (k, sc1[k], lim))
+        elif sc1[k] > sc0[k] + p['bottom_worse_max']:
+            why.append('низ хуже прежней: %s %.3f → %.3f (допуск +%.2f)' % (k, sc0[k], sc1[k], p['bottom_worse_max']))
+    return (not why), why
+
+
 def _starts(PF, pick_cam: dict, cands: list, p: dict) -> list:
     out, seen = [], set()
 
@@ -174,6 +196,7 @@ def rescue(PF, V: np.ndarray, pick: dict, cands: list, box: dict, tg: dict, Mp: 
         return pick, info
     Pc = V[:: max(1, len(V) // int(p['max_points']))]
     iou0 = PF.iou(PF.splat_mask(Pc, cam0, n), Mp)
+    sc0 = PF.pose_score(PF.splat_mask(Pc, cam0, n), Mp)                         # низ прежней позы — для ворот pose_gate
     steps = np.array([8.0, 3.0, 0.4, 0.2, 0.02, 0.02])
     results = []
     for k, c in enumerate(_starts(PF, cam0, cands, p)):
@@ -193,16 +216,20 @@ def rescue(PF, V: np.ndarray, pick: dict, cands: list, box: dict, tg: dict, Mp: 
         cm = PF._cam(res.x)
         fe = front_edge(PF, cm, box, cv, tg, p)
         io = PF.iou(PF.splat_mask(Pc, cm, n), Mp)
-        results.append({'cam': cm, 'iou': round(io, 4), 'gap_px': fe['gap_px'], 'fe': fe, 'start': k})
-        if fe['gap_px'] <= p['active_gap_px'] and io >= iou0 - p['good_iou_gap'] and _dyaw(cm['az'], cam0['az']) <= p['max_dyaw_deg']:
+        gok, gwhy = pose_gate(cam0, cm, sc0, PF.pose_score(PF.splat_mask(Pc, cm, n), Mp), p)
+        results.append({'cam': cm, 'iou': round(io, 4), 'gap_px': fe['gap_px'], 'fe': fe, 'start': k, 'gate_ok': gok, 'gate_why': gwhy})
+        if gok and fe['gap_px'] <= p['active_gap_px'] and io >= iou0 - p['good_iou_gap']:
             break                                                                  # не хуже прежней и стык в норме — дальше не ищем (время)
     info['tried'] = len(results)
-    ok = [r for r in results if r['gap_px'] <= p['active_gap_px'] and r['iou'] >= iou0 - p['iou_drop_max'] and _dyaw(r['cam']['az'], cam0['az']) <= p['max_dyaw_deg']]
+    ok = [r for r in results if r['gap_px'] <= p['active_gap_px'] and r['iou'] >= iou0 - p['iou_drop_max'] and r['gate_ok']]       # ворота: сторона, подъём, низ (pose_gate)
+    gate_refused = [r['gate_why'] for r in results if not r['gate_ok'] and r['gap_px'] <= p['active_gap_px']]
     best_any = min(results, key=lambda r: (r['gap_px'], -r['iou']))
     info['iou_before'] = round(iou0, 4)
     info['best_attempt'] = {'cam': best_any['cam'], 'iou': best_any['iou'], 'gap_px': best_any['gap_px']}
     if not ok:
         info['healable'] = False
+        if gate_refused:
+            info['gate_refused'] = gate_refused[0]            # стык лечился бы, но ворота не пустили: остаётся базовая поза
         info['reason'] = ('не лечится камерой: лучший стык %.1f px при IoU %.4f (прежний %.4f, допуск −%s) — форма не та (глубина/пропорции не дают боковины нужной ширины)'
                           % (best_any['gap_px'], best_any['iou'], iou0, p['iou_drop_max']))
         log('стык фронта: ' + info['reason'])

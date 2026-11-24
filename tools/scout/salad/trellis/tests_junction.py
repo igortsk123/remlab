@@ -130,6 +130,60 @@ def test_rescue_probe_does_not_change_pick():
     assert p2 is pick and not info['applied'] and info['healable'], info
 
 
+# ---- ворота замены позы pose_gate (регресс пакета Salad 24.11: разворот 168° и подъём el 16° с худшим низом) ----
+GATE_R = {**J.DEFAULTS, 'miss_bottom_max': 0.4, 'extra_bottom_max': 0.6}
+
+
+def test_pose_gate_accepts_legit_change():
+    """Законный случай пакета 7: |Δaz| 11°, |Δel| 5,7°, низ чуть хуже (+0,07) — пускаем."""
+    ok, why = J.pose_gate({'az': 160.0, 'el': 4.0}, {'az': 149.0, 'el': 9.7}, {'miss_bottom': 0.06, 'extra_bottom': 0.02}, {'miss_bottom': 0.13, 'extra_bottom': 0.03}, GATE_R)
+    assert ok and not why, why
+
+
+def test_pose_gate_refuses_flip_168():
+    """Разворот на 168° (321183910010607839: az 157,8 → 349,0) → отказ «другая сторона», даже если силуэт и низ ок."""
+    ok, why = J.pose_gate({'az': 157.8, 'el': 10.4}, {'az': 349.0, 'el': 9.8}, {'miss_bottom': 0.1, 'extra_bottom': 0.1}, {'miss_bottom': 0.1, 'extra_bottom': 0.1}, GATE_R)
+    assert not ok and any('другая сторона' in w for w in why), why
+
+
+def test_pose_gate_refuses_el_lift_with_worse_bottom():
+    """Подъём el на 16° с низом хуже (6016117887132749494: el 1,6 → 17,5, extra_bottom 0,24 → 0,81) → отказ по подъёму и по низу."""
+    ok, why = J.pose_gate({'az': 161.3, 'el': 1.6}, {'az': 157.7, 'el': 17.5}, {'miss_bottom': 0.05, 'extra_bottom': 0.24}, {'miss_bottom': 0.32, 'extra_bottom': 0.81}, GATE_R)
+    assert not ok and any('подъём' in w for w in why) and any('extra_bottom' in w for w in why), why
+
+
+def test_pose_gate_refuses_bottom_worse_only():
+    """Низ не выше порога, но хуже прежней больше допуска (+0,3) → отказ «низ хуже прежней»."""
+    ok, why = J.pose_gate({'az': 10.0, 'el': 3.0}, {'az': 12.0, 'el': 4.0}, {'miss_bottom': 0.05, 'extra_bottom': 0.05}, {'miss_bottom': 0.35, 'extra_bottom': 0.05}, GATE_R)
+    assert not ok and any('хуже прежней' in w for w in why), why
+
+
+class _BadBottomPF:
+    """PF, у которого низ любой позы, кроме прежней (первый вызов pose_score), «ножки не совпали»: extra_bottom 0,9."""
+    def __init__(self):
+        self.calls = 0
+
+    def __getattr__(self, name):
+        return getattr(PF, name)
+
+    def pose_score(self, S, Mp):
+        self.calls += 1
+        return {'miss_bottom': 0.05, 'extra_bottom': 0.1 if self.calls == 1 else 0.9}
+
+
+def test_rescue_refused_by_gate_keeps_base_pose():
+    """Стык лечится, но каждая новая поза ломает низ → спасатель отказывает, поза прежняя, причина в info['gate_refused']."""
+    photo = _photo(TRUE)
+    tg = J.photo_targets(photo)
+    Mp = cv2.resize(photo[..., 3], (N, N), interpolation=cv2.INTER_AREA) > 127
+    V = np.concatenate([_face(2, HI[2], (0, 1)), _face(2, LO[2], (0, 1)), _face(0, HI[0], (2, 1)), _face(0, LO[0], (2, 1))])
+    start = {**TRUE, 'az': 4.0, 'd': 2.0, 'f': 1.6}
+    pick = {'cam': start, 'iou': PF.iou(PF.splat_mask(V, start, N), Mp)}
+    p2, info = J.rescue(_BadBottomPF(), V, pick, [], J.box_geometry(LO, HI), tg, Mp, N, CV, {'miss_bottom_max': 0.4, 'extra_bottom_max': 0.6}, log=lambda *a: None)
+    assert p2 is pick and not info['applied'] and info['healable'] is False, info
+    assert info.get('gate_refused') and any('низ' in w for w in info['gate_refused']), info
+
+
 # ---- az_sigma (T-20261124-18, запрос р.1) ----
 AZR = {'enabled': True, 'window_deg': 15.0, 'k': 1.5, 'floor_deg': 2.0, 'calibration': 'тест'}
 
