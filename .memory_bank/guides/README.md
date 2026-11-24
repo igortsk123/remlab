@@ -14,7 +14,8 @@ source: manual
 |---|---|
 | Что делаем сейчас, кто, % (бот `/plan`) | `plan-zadach.md` (корень банка); закрытое — `changelog/plan-zadach-done-2026-11.md` |
 | Как должно быть после всех правок (книга для владельца) | `guides/product-book.md` (+ карта `product-book-map.json`, план `product-book-plan.md`) |
-| Директор/менеджеры/рабочие, токены, рукопожатие, учёт | `guides/orchestration.md` |
+| Директор/менеджеры/рабочие, токены, рукопожатие, учёт (действующее ≤ 8 КБ) | `guides/orchestration.md` |
+| Оркестрация: составы до 24.11, эксперименты, замеры, снятые правила дословно | `guides/orchestration-history.md` |
 | Обход директора — что проверить каждые 5/30 мин, принципы, самопроверка сообщения | `guides/pamyatka-obhoda.md` |
 | Приёмка работника и кода — порядок, шаблон вердикта | `guides/review-checklist.md` |
 | Как исполнитель ведёт подплан коммерческого плана | `guides/execution-playbook.md` |
