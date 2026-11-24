@@ -21,7 +21,11 @@
   python3 tools/ops/logs_archive.py --apply [--digest] [--limit N]
   python3 tools/ops/logs_archive.py --json           # сухо, машинно
   python3 tools/ops/logs_archive.py --worktrees      # СУХО: рабочие копии git, которые можно снять + крупные выходы внутри (T-20261123-38)
-  python3 tools/ops/logs_archive.py --days 2         # разовый порог суток (прикинуть, сколько освободит)
+  python3 tools/ops/logs_archive.py --days 2         # разовый порог суток (прикинуть, сколько освободит); без --days порог АДАПТИВНЫЙ (ниже)
+  python3 tools/ops/logs_archive.py --apply --digest --if-low   # ЧАСОВОЙ запуск: свободно ≥ верхней ступени — выходит сразу, иначе переносит с адаптивным порогом
+АДАПТИВНЫЙ ПОРОГ (T-20261124-20, rules archive.adaptive): свободно на диске src < 20 ГБ → days=1, < 25 → 2, иначе archive.days (5). 24.11 днём диск падал
+до 14,4 ГБ (старт тяжёлых прогонов закрыт при < 15, dev-disk.json start_min_free_gb) — ночного порога 5 суток не хватало при 5–10 ГБ прогонов в день.
+Часовой и ночной запуски не идут вместе (замок на время --apply). Перенос, как и раньше, только rsync со ссылкой на месте; рабочие копии git остаются (worktrees_block).
   python3 tools/ops/logs_archive.py --worktrees-ok   # (или archive.worktrees_block=false в rules) переносить и папки с рабочими копиями git: путь в
                                                      # .git/worktrees/*/gitdir остаётся прежним и через ссылку работает; по умолчанию такие папки остаются
 Переопределения для проверки: LOGS_ARCHIVE_RULES (файл правил), LOGS_ARCHIVE_REPO (репозиторий для поиска ссылок)."""
@@ -38,10 +42,49 @@ HERE = os.path.dirname(os.path.abspath(__file__))
 ROOT = os.path.abspath(os.path.join(HERE, '..', '..'))
 RULES_PATH = os.path.join(ROOT, 'tools', 'scout', 'rules', 'dev-disk.json')
 GB = 1024 ** 3
-DEFAULTS = {'src': '~/remlab-logs', 'dst': '/mnt/hdd/remlab-logs-arhiv', 'days': 5, 'min_hdd_free_gb': 50, 'never': [], 'worktrees_block': True, 'refs_exclude': []}
+DEFAULTS = {'src': '~/remlab-logs', 'dst': '/mnt/hdd/remlab-logs-arhiv', 'days': 5, 'min_hdd_free_gb': 50, 'never': [], 'worktrees_block': True, 'refs_exclude': [], 'adaptive': []}
 
 
 WT_DEFAULTS = {'idle_h': 12, 'big_mb': 200, 'base': 'origin/main', 'jobs': 4}
+
+
+def free_gb(path: str) -> float:
+    """Свободно на диске, где лежит path (ГБ, доступное обычному пользователю — как видит `df`)."""
+    st = os.statvfs(path)
+    return st.f_bavail * st.f_frsize / GB
+
+
+def effective_days(r: dict, free: float) -> tuple[float, str]:
+    """Адаптивный порог суток (T-20261124-20): чем меньше свободно, тем свежее папки уезжают. `archive.adaptive` = [{free_lt_gb, days}, …]:
+    берётся ступень с САМЫМ малым free_lt_gb, под которую подходит `free` (свободно < free_lt_gb); иначе — обычное `days` правила. Порог только
+    СНИЖАЕТ days (min), поднять выше обычного правила ступень не может. Возвращает (сутки, пояснение)."""
+    base = float(r['days'])
+    steps = sorted(((float(s['free_lt_gb']), float(s['days'])) for s in (r.get('adaptive') or [])), key=lambda x: x[0])
+    for lt, d in steps:
+        if free < lt:
+            return min(d, base), f'свободно {free:.1f} ГБ < {lt:g}: адаптивный порог {min(d, base):g} сут (обычный {base:g})'
+    return base, f'свободно {free:.1f} ГБ: обычный порог {base:g} сут'
+
+
+def top_free_lt(r: dict) -> float:
+    """Верхняя граница адаптивных ступеней (свободно ≥ неё — ночного порога достаточно); 0 — ступеней нет."""
+    return max((float(s['free_lt_gb']) for s in (r.get('adaptive') or [])), default=0.0)
+
+
+def lock_path() -> str:
+    return os.environ.get('LOGS_ARCHIVE_LOCK') or os.path.join(tempfile.gettempdir(), 'remlab-logs-archive.lock')
+
+
+def take_lock():
+    """Эксклюзивный замок на время переноса: часовой и ночной запуски не идут вместе (rsync одной папки из двух процессов). None — замок занят."""
+    import fcntl
+    f = open(lock_path(), 'a+')
+    try:
+        fcntl.flock(f, fcntl.LOCK_EX | fcntl.LOCK_NB)
+    except OSError:
+        f.close()
+        return None
+    return f
 
 
 def rules() -> dict:
@@ -417,8 +460,19 @@ def alert(text: str) -> None:
 def main(argv: list) -> int:
     apply_ = '--apply' in argv
     r = rules()
+    why_days = ''
     if '--days' in argv and argv.index('--days') + 1 < len(argv):   # разовый порог для сухого прикидочного прогона (в правилах — archive.days)
         r['days'] = float(argv[argv.index('--days') + 1])
+    elif '--worktrees' not in argv:
+        try:
+            free = free_gb(r['src'])
+        except OSError:
+            free = None
+        if free is not None:
+            if '--if-low' in argv and free >= top_free_lt(r):  # часовой запуск: места хватает — ночного порога достаточно, ничего не сканируем
+                print(f'свободно {free:.1f} ГБ ≥ {top_free_lt(r):g}: часовой перенос не нужен')
+                return 0
+            r['days'], why_days = effective_days(r, free)
     if '--worktrees-ok' in argv:                              # перенос и рабочих копий git: ссылка на месте сохраняет путь, записанный в .git/worktrees/*/gitdir
         r['worktrees_block'] = False
     repo = os.environ.get('LOGS_ARCHIVE_REPO') or ROOT
@@ -427,6 +481,10 @@ def main(argv: list) -> int:
             print('--worktrees — только сухой список: рабочие копии снимает владелец/директор (`git worktree remove`)', file=sys.stderr)
             return 2
         return worktrees_report(r, repo, as_json='--json' in argv)
+    lock = take_lock() if apply_ else None
+    if apply_ and lock is None:
+        print('перенос уже идёт (замок занят) — пропуск')
+        return 0
     todo, skipped = candidates(r, repo)
     todo.sort(key=lambda c: -c['freed'])
     limit = int(argv[argv.index('--limit') + 1]) if '--limit' in argv and argv.index('--limit') + 1 < len(argv) else 0
@@ -437,6 +495,8 @@ def main(argv: list) -> int:
         return 0
     tot = sum(c['total'] for c in todo)
     fr = sum(c['freed'] for c in todo)
+    if why_days:
+        print(why_days)
     print(f'{r["src"]} → {r["dst"]} · старше {r["days"]} сут и без ссылок из репозитория: {len(todo)} папок, {tot / GB:.1f} ГБ, освободит {fr / GB:.1f} ГБ ({"ПЕРЕНОС" if apply_ else "сухо"})')
     for c in todo:
         print(f'  {"перенесу" if not apply_ else "переношу"} {c["name"]}  {c["total"] / GB:.2f} ГБ, освободит {c["freed"] / GB:.2f} ГБ, возраст {c["age_d"]} сут')
@@ -456,7 +516,7 @@ def main(argv: list) -> int:
             fails.append(line)
     free = os.statvfs(r['src'])
     left = free.f_bavail * free.f_frsize / GB
-    summary = f'DIGEST:логи: перенесено {moved} из {len(todo)}, освободило {got / GB:.1f} ГБ, свободно на диске {left:.0f} ГБ'
+    summary = f'DIGEST:логи: перенесено {moved} из {len(todo)} (порог {r["days"]:g} сут), освободило {got / GB:.1f} ГБ, свободно на диске {left:.0f} ГБ'
     if '--digest' in argv:
         print(summary)
     else:

@@ -1,0 +1,14 @@
+[Unit]
+Description=remlab: почасовой перенос логов на HDD при малом месте на диске (T-20261124-20)
+Documentation=file:%h/igor/remlab/tools/ops/logs_archive.py
+
+[Service]
+Type=oneshot
+# DISK_GUARD=0: перенос сам освобождает место, сторож старта ему мешать не должен
+Environment=DISK_GUARD=0
+WorkingDirectory=%h/igor/remlab
+# --if-low: свободно ≥ верхней адаптивной ступени (rules dev-disk.json archive.adaptive) — выходит сразу, ничего не сканирует
+ExecStart=/usr/bin/python3 %h/igor/remlab/tools/ops/logs_archive.py --apply --digest --if-low
+Nice=15
+IOSchedulingClass=idle
+TimeoutStartSec=3h

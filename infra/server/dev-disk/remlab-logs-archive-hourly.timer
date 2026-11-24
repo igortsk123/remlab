@@ -1,0 +1,16 @@
+# remlab-logs-archive-hourly.timer — почасовой перенос ~/remlab-logs, когда на диске < 25 ГБ свободно (адаптивный порог суток, T-20261124-20).
+# Рядом с ночным remlab-logs-archive.timer (тот же скрипт; замок не даёт им идти вместе). Свободно ≥ 25 ГБ — запуск выходит за секунду.
+# ВКЛЮЧАЕТ ТОЛЬКО ВЛАДЕЛЕЦ (P-072): до этого файл лежит в репозитории и ничего не делает.
+#   cp infra/server/dev-disk/remlab-logs-archive-hourly.{service,timer} ~/.config/systemd/user/
+#   systemctl --user daemon-reload && systemctl --user enable --now remlab-logs-archive-hourly.timer
+# Сначала сухой прогон при малом месте: python3 tools/ops/logs_archive.py   (покажет порог и список, ничего не трогает)
+[Unit]
+Description=remlab: почасовой перенос логов на HDD при малом месте
+
+[Timer]
+OnCalendar=*-*-* *:20:00
+RandomizedDelaySec=120
+Persistent=false
+
+[Install]
+WantedBy=timers.target

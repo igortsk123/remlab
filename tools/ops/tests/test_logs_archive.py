@@ -360,3 +360,118 @@ def test_worktrees_only_ignored_cache_is_separate_verdict(wtw):
     os.utime(src / 'merged' / 'real.txt', (old, old))
     i = la.wt_info(w, str(repo), r, NOW, busy=lambda p: '')
     assert i['verdict'] == 'hold'
+
+
+# ───────────── T-20261124-20: адаптивный порог суток и часовой запуск ─────────────
+ADAPT = [{'free_lt_gb': 20, 'days': 1}, {'free_lt_gb': 25, 'days': 2}]
+
+
+def test_effective_days_three_levels():
+    r = {'days': 5, 'adaptive': ADAPT}
+    assert la.effective_days(r, 14.4)[0] == 1            # < 20 → 1 сут
+    assert la.effective_days(r, 19.99)[0] == 1
+    assert la.effective_days(r, 20.0)[0] == 2            # граница: 20 уже не «< 20»
+    assert la.effective_days(r, 24.9)[0] == 2            # < 25 → 2 сут
+    assert la.effective_days(r, 25.0)[0] == 5            # иначе правило
+    assert la.effective_days(r, 300)[0] == 5
+    assert '14.4' in la.effective_days(r, 14.4)[1] and 'адаптивный' in la.effective_days(r, 14.4)[1]
+
+
+def test_effective_days_never_raises_above_rule_and_order_independent():
+    assert la.effective_days({'days': 1, 'adaptive': ADAPT}, 24)[0] == 1          # ступень «2 сут» не поднимает порог выше обычного 1
+    assert la.effective_days({'days': 5, 'adaptive': list(reversed(ADAPT))}, 15)[0] == 1
+    assert la.effective_days({'days': 5}, 1)[0] == 5                               # ступеней нет — как раньше
+    assert la.top_free_lt({'adaptive': ADAPT}) == 25 and la.top_free_lt({}) == 0
+
+
+def test_rules_file_has_adaptive_steps_matching_director_spec():
+    r = la.rules()
+    assert sorted((s['free_lt_gb'], s['days']) for s in r['adaptive']) == [(20, 1), (25, 2)]
+    assert r['worktrees_block'] is True and r['days'] == 5
+
+
+def _main_env(monkeypatch, world, tmp_path, free):
+    src, dst, repo, r = world
+    rules = tmp_path / 'rules.json'
+    rules.write_text('{"archive": {"src": "%s", "dst": "%s", "days": 5, "min_hdd_free_gb": 0, "never": [], "adaptive": [{"free_lt_gb": 20, "days": 1}, {"free_lt_gb": 25, "days": 2}]}}' % (src, dst))
+    monkeypatch.setenv('LOGS_ARCHIVE_RULES', str(rules))
+    monkeypatch.setenv('LOGS_ARCHIVE_REPO', str(repo))
+    monkeypatch.setenv('LOGS_ARCHIVE_LOCK', str(tmp_path / 'lock'))
+    monkeypatch.setattr(la, 'busy_by', lambda p, proc_root='/proc': '')
+    monkeypatch.setattr(la, 'free_gb', lambda p: free)
+    return src, dst
+
+
+def test_main_uses_threshold_by_free_space(world, monkeypatch, capsys, tmp_path):
+    src, dst = _main_env(monkeypatch, world, tmp_path, 14.4)
+    mk(src / 't-1d', {'a': 100}, 1.5)                      # 1,5 суток: при обычных 5 остаётся, при 1 уезжает
+    assert la.main([]) == 0
+    out = capsys.readouterr().out
+    assert 'адаптивный порог 1 сут' in out and 'перенесу t-1d' in out
+    _main_env(monkeypatch, world, tmp_path, 22.0)          # 22 ГБ → 2 сут: 1,5 суток ещё свежая
+    la.main([])
+    out = capsys.readouterr().out
+    assert 'порог 2 сут' in out and 'перенесу t-1d' not in out and 'свежая' in out
+    _main_env(monkeypatch, world, tmp_path, 80.0)          # много места — обычные 5 сут
+    la.main([])
+    assert 'обычный порог 5 сут' in capsys.readouterr().out
+
+
+def test_explicit_days_overrides_adaptive(world, monkeypatch, capsys, tmp_path):
+    src, dst = _main_env(monkeypatch, world, tmp_path, 14.4)
+    mk(src / 't-3d', {'a': 100}, 3)
+    la.main(['--days', '9'])
+    out = capsys.readouterr().out
+    assert 'перенесу t-3d' not in out and 'адаптивный' not in out
+
+
+def test_if_low_exits_fast_when_space_is_enough(world, monkeypatch, capsys, tmp_path):
+    src, dst = _main_env(monkeypatch, world, tmp_path, 40.0)
+    mk(src / 't-old', {'a': 100}, 30)
+    assert la.main(['--apply', '--digest', '--if-low']) == 0
+    assert 'не нужен' in capsys.readouterr().out
+    assert (src / 't-old').is_dir() and not (src / 't-old').is_symlink() and not dst.exists()     # ничего не тронуто
+
+
+def test_if_low_applies_adaptive_move_and_keeps_worktrees_and_refs(world, monkeypatch, capsys, tmp_path):
+    src, dst = _main_env(monkeypatch, world, tmp_path, 14.4)
+    mk(src / 't-day', {'a': 1000}, 1.5)                    # 1,5 суток, без ссылок → уезжает
+    mk(src / 'ref-1123', {'a': 100}, 1.5)                  # имя в плане → остаётся и на ступени 1 сут
+    mk(src / 'wt-1', {'a': 100}, 1.5)
+    (src / 'wt-1' / '.git').write_text('gitdir: x')        # рабочая копия git → остаётся (worktrees_block)
+    os.utime(src / 'wt-1' / '.git', (NOW - 1.5 * DAY, NOW - 1.5 * DAY))
+    mk(src / 'fresh', {'a': 100}, 0.2)                     # правили 5 часов назад → свежая
+    assert la.main(['--apply', '--digest', '--if-low']) == 0
+    out = capsys.readouterr().out
+    assert (src / 't-day').is_symlink() and (dst / 't-day' / 'a').exists()
+    assert (src / 'ref-1123').is_dir() and not (src / 'ref-1123').is_symlink()
+    assert (src / 'wt-1').is_dir() and not (src / 'wt-1').is_symlink()
+    assert (src / 'fresh').is_dir() and not (src / 'fresh').is_symlink()
+    assert 'DIGEST:' in out and 'порог 1 сут' in out
+
+
+def test_lock_blocks_second_run(world, monkeypatch, capsys, tmp_path):
+    src, dst = _main_env(monkeypatch, world, tmp_path, 14.4)
+    mk(src / 't-day', {'a': 100}, 3)
+    held = la.take_lock()
+    assert held is not None
+    try:
+        assert la.take_lock() is None                       # второй процесс замок не получит
+        assert la.main(['--apply', '--if-low']) == 0
+        assert 'замок занят' in capsys.readouterr().out
+        assert (src / 't-day').is_dir() and not (src / 't-day').is_symlink()
+    finally:
+        held.close()
+    again = la.take_lock()
+    assert again is not None                                # после отпускания — свободен
+    again.close()
+
+
+def test_hourly_units_exist_and_do_not_enable_themselves():
+    root = Path(__file__).resolve().parents[3] / 'infra' / 'server' / 'dev-disk'
+    svc, tmr = (root / 'remlab-logs-archive-hourly.service').read_text(encoding='utf-8'), (root / 'remlab-logs-archive-hourly.timer').read_text(encoding='utf-8')
+    assert 'logs_archive.py --apply --digest --if-low' in svc and 'DISK_GUARD=0' in svc
+    assert 'OnCalendar=*-*-* *:' in tmr and 'ВКЛЮЧАЕТ ТОЛЬКО ВЛАДЕЛЕЦ' in tmr
+    assert 'WantedBy' in tmr and 'enable' in tmr            # включение описано в комментарии, само не включается
+    night = (root / 'remlab-logs-archive.timer').read_text(encoding='utf-8')
+    assert '01:10:00' in night                              # ночной таймер не тронут
