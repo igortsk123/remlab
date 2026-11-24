@@ -130,7 +130,11 @@ def main():
 
     print('heavy_slot и ночь:')
     with tempfile.TemporaryDirectory() as t:
-        env = {k: v for k, v in os.environ.items() if k != 'TMPDIR'}
+        # Сторож места (`disk_guard`, rules/dev-disk.json: свободно на / < start_min_free_gb → heavy_slot не стартует, rc 3, stdout пуст, ❗ в журнал и Telegram)
+        # зависит от диска ХОЗЯИНА, не от кода: при <15 ГБ свободно проверка TMPDIR красная в любой копии (24.11, merge-worktree). Тест проверяет TMPDIR, не место:
+        # сторож выключен осознанно (`DISK_GUARD=0`) — итог один при любом диске, ❗ в Telegram и запись в общий журнал не шлются.
+        env = {k: v for k, v in os.environ.items() if k not in ('TMPDIR', 'DISK_GUARD')}
+        env['DISK_GUARD'] = '0'
         r = subprocess.run([sys.executable, 'tools/ops/heavy_slot.py', 't113-selftest', '--no-slot', '--min-gb', '0', '--',
                             'bash', '-c', 'echo "$TMPDIR"'], cwd=ROOT, capture_output=True, text=True, stdin=subprocess.DEVNULL,
                            env={**env, 'REMLAB_TMP': os.path.join(t, 'h'), 'HEAVY_SLOT_DIR': os.path.join(t, 'slot'),
@@ -141,6 +145,19 @@ def main():
                            env={**env, 'TMPDIR': '/x/given', 'REMLAB_TMP': os.path.join(t, 'h'),
                                 'HEAVY_SLOT_DIR': os.path.join(t, 'slot'), 'HEAVY_SLOT_LOG': os.path.join(t, 'hs.log')})
         ok(r.stdout.strip() == '/x/given', 'heavy_slot: заданный TMPDIR не трогает')
+    with tempfile.TemporaryDirectory() as t:                         # тот же запуск при «диск полон»: сторож отказывает (rc 3) — и только DISK_GUARD=0 делает тест независимым от диска
+        low = os.path.join(t, 'low.json')
+        open(low, 'w', encoding='utf-8').write('{"start_min_free_gb": 100000000, "start_guard_path": "/", "alert_every_min": 30}\n')
+        base = {k: v for k, v in os.environ.items() if k not in ('TMPDIR', 'DISK_GUARD')}
+        base.update(REMLAB_TMP=os.path.join(t, 'h'), HEAVY_SLOT_DIR=os.path.join(t, 'slot'), HEAVY_SLOT_LOG=os.path.join(t, 'hs.log'),
+                    DISK_GUARD_RULES=low, DISK_GUARD_ALERT='/bin/true', DISK_GUARD_STATE=os.path.join(t, 'st'), DISK_GUARD_LOG=os.path.join(t, 'dg.log'))
+        cmd = [sys.executable, 'tools/ops/heavy_slot.py', 't61-selftest', '--no-slot', '--min-gb', '0', '--', 'bash', '-c', 'echo "$TMPDIR"']
+        r = subprocess.run(cmd, cwd=ROOT, capture_output=True, text=True, stdin=subprocess.DEVNULL, env=base)
+        ok(r.returncode == 3 and r.stdout.strip() == '', f'диск «полон», сторож включён → heavy_slot отказывает rc 3 (rc={r.returncode}) — это и красило тест')
+        r = subprocess.run(cmd, cwd=ROOT, capture_output=True, text=True, stdin=subprocess.DEVNULL, env={**base, 'DISK_GUARD': '0'})
+        ok(r.returncode == 0 and r.stdout.strip() == os.path.join(t, 'h'), f'диск «полон», DISK_GUARD=0 → TMPDIR = REMLAB_TMP ({r.stdout.strip()!r}): итог от диска не зависит')
+    st = open(os.path.join(ROOT, 'tools/ops/heavy-slot-selftest.sh'), encoding='utf-8').read()
+    ok('export DISK_GUARD=0' in st, 'heavy-slot-selftest.sh: сторож места выключен (самопроверка очереди не зависит от диска хозяина)')
     ne = open(os.path.join(ROOT, 'tools/scout/nightly_exam.sh'), encoding='utf-8').read()
     i_src, i_exp, i_exam = ne.find('. ../ops/remlab-tmp.sh'), ne.find('export TMPDIR="$REMLAB_TMP"'), ne.find('./run.sh exam')
     ok(0 < i_src < i_exp < i_exam, 'nightly_exam: remlab-tmp.sh и export TMPDIR — до экзамена')
