@@ -240,6 +240,10 @@ def main() -> int:
             return print('!! группа не исчезла за 3 мин — не создаю, разбери руками') or 1
     # имя освобождается не мгновенно: 20.10 после 404 ещё ≥3 мин отвечал name_conflict
     for attempt in range(1, 41):
+        why = SC.series_stopped()                                                     # T-58/3: стоп серии (метка) — перед КАЖДОЙ попыткой создания (предел уже проверен до сноса)
+        if why:
+            SC.release(a.group)
+            return print(f'!! {a.group} НЕ создана: {why} — пул без группы, верни руками') or 1
         st, resp = MG.api('', 'POST', body)
         if st == 201:
             break
