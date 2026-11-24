@@ -29,3 +29,4 @@ tools/scout/pipeline.py
 tools/scout/remlab_tmp.py
 tools/scout/rules/camera-check.json
 tools/scout/rules/pose-rank.json
+tools/scout/rules/tex-coverage.json
