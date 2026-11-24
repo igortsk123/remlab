@@ -674,7 +674,7 @@ def test_carcass_library():
     ok(C0['enabled'] is False, 'в rules выключено по умолчанию (включение — после приёмки на замороженном наборе)')
     ent = {'дуб барбера|лдсп 16 мм': {'members': {'a': [64.0, 3.0, 18.0], 'b': [63.0, 3.0, 17.0], 'c': [65.0, 3.0, 19.0]}},
            'разброс|лдсп 16 мм': {'members': {'a': [30.0, 0.0, 0.0], 'b': [60.0, 0.0, 0.0]}}, 'один|лдсп 16 мм': {'members': {'a': [50.0, 0.0, 0.0]}}}
-    C = dict(C0, enabled=True, entries=ent)
+    C = dict(C0, enabled=True, entries=ent, facade_axis_witness=False)   # этот тест — про тон бока; ось по прежнему пути (свидетель — в test_carcass_library_modes/test_facade_axis)
     card = {'Цвет шкафа: Цвет корпуса': ' Дуб  Барбера ', 'Материал корпуса': 'ЛДСП 16 мм'}
     r = SP.carcass_library_tone(card, C)
     ok(r['ok'] and r['n'] == 3 and abs(r['tone'][0] - 64.0) < 1e-6, f'ключ нормализован (регистр, пробелы): медиана участников {r}')
@@ -741,7 +741,7 @@ def test_carcass_library_modes():
         g = q.geom(tex)
         parts = [np.array(q.part, np.int32)]
         R = dict(TF.RULES['surface_groups'], _card_role='шкаф')
-        R['carcass_library'] = dict(C0, enabled=True, entries=ent, **R_over)
+        R['carcass_library'] = dict(dict(C0, facade_axis_witness=False), enabled=True, entries=ent, **R_over)
         pas, ctx = SP.build([g], [tex], [known], parts, None, R, TF.FILL, TF)
         ctx['known_keep'] = [known & ~TF.unpainted_mask(tex)]                                              # как в tex_fill: k_keep
         ctx['front_resolved'] = front                                                                       # как в tex_fill: единый свидетель «перёда» (None при флаге facade_axis_witness выкл)
@@ -772,7 +772,7 @@ def test_carcass_library_modes():
     ok(c_off['kept_known_side'] >= 0 and 'release_base' not in c_off and 'kept_known_side_noobs_faces' in c_off, f"диагностика kept_known_side в отчёте ({c_off['kept_known_side']}), release_base нет")
     # ось фасада — единый свидетель (T-20261124-21)
     W0 = {'theta': 0.0, 'axis': (2, 1), 'source': 'camera04', 'flags': []}
-    ok(not C0.get('facade_axis_witness', False) and float(C0.get('facade_diag_deg', 0)) == 10.0, 'в rules facade_axis_witness выключен по умолчанию, facade_diag_deg = 10')
+    ok(C0.get('facade_axis_witness', False) is True and float(C0.get('facade_diag_deg', 0)) == 10.0, 'в rules facade_axis_witness ВКЛЮЧЁН (T-21, прогон (б) 35 товаров), facade_diag_deg = 10')
     c_w, out_w, _ = case(True, {'disputed_wins': True, 'facade_axis_witness': True}, front=W0)
     ok(c_w['applied'] and c_w['facade_axis_info']['by'] == 'witness' and c_w['geoms'][0]['facade_axis'] == 'z' and c_w['geoms'][0]['facade_by'] == 'witness', f"свидетель z → фасад z, в отчёте ось/источник: {c_w['facade_axis_info']['source']}")
     ok(np.array_equal(np.asarray(out_w[0]), np.asarray(out_off[0])), 'ось свидетеля = прежняя (z) → вывод побитово как без флага (регресс 0)')
