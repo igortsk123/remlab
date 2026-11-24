@@ -783,18 +783,17 @@ def carcass_library_tone(card: dict | None, C: dict, kind: str = 'members') -> d
 
 
 def facade_axis(geoms: list, front: dict | None = None, C: dict | None = None) -> dict:
-    """ОДНА ось лица (фасада) корпуса НА ТОВАР для всего 07 (T-20261124-21; директор и советник 24.11: один свидетель, второй копии нет). Ось в плане: x или z (y — вверх).
-    Порядок: (1) свидетель `front` = tools/scout/front_axis.py `front_axis_resolved` (orient → камера 04 при снимке на длинную грань → доли известного; даёт θ, ось и знак перёд↔зад) — θ у диагонали
-    (до ближайшей оси > 45° − `facade_diag_deg`) — ось по нормали длинной грани габарита (если длинная/короткая ≥ `facade_gab_trust`), сторона по камере; иначе «не знаю»; (2) нет свидетеля — ГАБАРИТ в плане (главные оси вершин, как `photo_frontal_of`): нормаль длинной грани, знака нет; (3) нет и габарита (квадрат в плане) —
-    ось неизвестна → вызывающий правило НЕ применяет (к фото-весу не возвращаемся: 3/4-снимок давал бок за фасад). Угловые (план повёрнут > `facade_skew_deg` от x/z или заполнение плана < `facade_fill_min`: L-образные, скос 45°) — тоже неизвестна.
-    Площадь граней осью НЕ решает (перегородки открытых стеллажей дают грани ±x при лице z) — только сверка: флаги `axis_area_conflict` (отношение ≥ 1,3 и ось ≠), `axis_gabarit_conflict`.
-    → {'axis': 'x'|'z'|None, 'sign': ±1|None, 'by': witness|gabarit|unknown, 'source', 'reason', 'theta', 'area_axis', 'area_ratio', 'gabarit_axis', 'gabarit_ratio', 'skew_deg', 'fill', 'flags'}; чистая функция."""
+    """ОДНА ось лица (фасада) корпуса НА ТОВАР для всего 07 (T-20261124-21; директор и два советника 24.11: один свидетель, второй копии нет, запасных путей нет). Ось в плане: x или z (y — вверх).
+    Ось даёт ТОЛЬКО свидетель `front` = tools/scout/front_axis.py `front_axis_resolved` (orient → камера 04 при снимке на длинную грань → доли известного; θ, ось, знак перёд↔зад).
+    Воздержание (ось None, причина в `reason`; вызывающий бока библиотекой НЕ красит — перекрашенная дверь хуже некрашеного бока): нет свидетеля; θ у диагонали (до ближайшей оси > 45° − `facade_diag_deg`; бок — конус, axis_of_theta квантует в x/z);
+    угловой (план повёрнут > `facade_skew_deg` от x/z или заполнение плана < `facade_fill_min`: L-образный, скос 45°).
+    Габарит в плане (главные оси вершин, как `photo_frontal_of`) и площадь граней осью НЕ решают — только сверка в отчёте: флаги `axis_gabarit_conflict`, `axis_area_conflict` (перегородки открытых стеллажей дают грани ±x при лице z).
+    → {'axis': 'x'|'z'|None, 'sign': ±1|None, 'by': witness|unknown, 'source', 'reason', 'theta', 'area_axis', 'area_ratio', 'gabarit_axis', 'gabarit_ratio', 'skew_deg', 'fill', 'flags'}; чистая функция."""
     import json as _json
 
     import front_axis as FA
     C = C or {}
     diag_deg, skew_max, fill_min = float(C.get('facade_diag_deg', 10.0)), float(C.get('facade_skew_deg', 20.0)), float(C.get('facade_fill_min', 0.8))
-    gab_trust = float(C.get('facade_gab_trust', 1.5))
     sq = float(_json.load(open(FA.AXIS_RULES, encoding='utf-8'))['square_ratio'])
     Vs, Fs, off = [], [], 0
     for g in geoms:
@@ -826,9 +825,14 @@ def facade_axis(geoms: list, front: dict | None = None, C: dict | None = None) -
         fl = r1 + r2 > 1
         r1, r2 = np.where(fl, 1 - r1, r1), np.where(fl, 1 - r2, r2)
         S = V[F[idx, 0]] + r1[:, None] * (V[F[idx, 1]] - V[F[idx, 0]]) + r2[:, None] * (V[F[idx, 2]] - V[F[idx, 0]])
-        lo, hi = V[:, [0, 2]].min(axis=0), V[:, [0, 2]].max(axis=0)
-        gi_ = np.clip(((S[:, [0, 2]] - lo) / np.maximum(hi - lo, 1e-9) * 24).astype(int), 0, 23)
-        fill = float(len(np.unique(gi_[:, 0] * 24 + gi_[:, 1]))) / (24 * 24)
+        mu = V[:, [0, 2]].mean(axis=0)
+        fills = []
+        for B in (np.eye(2), E):                                                     # рамка по x/z и по осям габарита: у повёрнутого прямоугольника полна вторая, у углового — ни одна
+            Qv, Qs = P @ B, (S[:, [0, 2]] - mu) @ B
+            lo, hi = Qv.min(axis=0), Qv.max(axis=0)
+            gi_ = np.clip(((Qs - lo) / np.maximum(hi - lo, 1e-9) * 24).astype(int), 0, 23)
+            fills.append(float(len(np.unique(gi_[:, 0] * 24 + gi_[:, 1]))) / (24 * 24))
+        fill = max(fills)
     info = {'axis': None, 'sign': None, 'by': 'unknown', 'source': None, 'reason': None, 'theta': None, 'area_axis': 'xyz'[area_axis], 'area_ratio': round(ratio, 2),
             'gabarit_axis': None if gab is None else 'xyz'[gab], 'gabarit_ratio': round(ext_long / max(ext_short, 1e-9), 2), 'skew_deg': round(skew, 1), 'fill': None if fill is None else round(fill, 3), 'flags': []}
     if skew > skew_max:
@@ -843,23 +847,16 @@ def facade_axis(geoms: list, front: dict | None = None, C: dict | None = None) -
         o = float(th) % 90.0
         o = min(o, 90.0 - o)
         info.update({'theta': float(th), 'source': wit.get('source')})
-        if o > 45.0 - diag_deg:                                                      # 3/4-снимок у диагонали: ось по θ неоднозначна
-            if gab is not None and ext_long / max(ext_short, 1e-9) >= gab_trust:             # габарит уверенный (не квадрат): лицо = длинная грань, сторона — по камере (θ)
-                comp = np.sin(np.radians(float(th))) if gab == 0 else np.cos(np.radians(float(th)))
-                ax, sg, info['by'] = gab, (1 if comp >= 0 else -1), 'witness_snap'
-                info['flags'].append('witness_diagonal_snapped')
-            else:
-                info['reason'] = f'свидетель у диагонали: θ {float(th):.0f}° (до ближайшей оси {o:.0f}° > {45.0 - diag_deg:.0f}°), габарит неуверенный'
-                return info
-        else:
-            ax, sg, info['by'] = int(fx[0]), int(fx[1]), 'witness'
+        if o > 45.0 - diag_deg:                                                      # 3/4-снимок у диагонали: ось по θ неоднозначна → воздержание
+            info['reason'] = f'свидетель у диагонали: θ {float(th):.0f}° (до ближайшей оси {o:.0f}° > {45.0 - diag_deg:.0f}°)'
+            return info
+        ax, sg, info['by'] = int(fx[0]), int(fx[1]), 'witness'
         if gab is not None and gab != ax:
             info['flags'].append('axis_gabarit_conflict')
-    elif gab is not None:
-        ax, sg, info['by'] = gab, None, 'gabarit'
-        info['flags'].append('front_witness_absent')
     else:
-        info['reason'] = 'нет свидетеля «перёда», план квадратный — ось не определить'
+        if wit.get('flags'):
+            info['witness_flags'] = list(wit['flags'])
+        info['reason'] = 'нет свидетеля «перёда» (θ неизвестна: ' + ','.join(wit.get('flags') or ['нет данных']) + ') — габарит и площадь осью не решают'
         return info
     if ratio >= 1.3 and area_axis != ax:
         info['flags'].append('axis_area_conflict')
