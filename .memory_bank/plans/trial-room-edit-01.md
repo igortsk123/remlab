@@ -2,12 +2,15 @@
 workstream: agent-trial
 slug: trial-room-edit-01
 title: План тура пробы — подписи по центру, названия без подписей по правилу владельца, правка названия и размеров комнаты (3D сам, мебель — по кнопке)
-status: in_progress
+status: partial
+prev_status: in_progress
 created: 2026-11-10
-updated: 2026-11-10
+updated: 2026-11-24
 completed:
 plan_kind: sub
 parent_plan: MASTER-agent-trial
+pause_reason: "пауза до покраски (владелец TG 2626)"
+resume_trigger: "покраска принята владельцем"
 ---
 
 ## Цель

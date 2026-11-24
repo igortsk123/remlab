@@ -2,12 +2,15 @@
 workstream: agent-trial
 slug: trial-confirm-plan-01
 title: Тур — «Подтвердить планировку»: правки черновиком, один пересчёт по кнопке, ход по комнатам, фото после подтверждения
-status: in_progress
+status: partial
+prev_status: in_progress
 created: 2026-11-11
-updated: 2026-11-11
+updated: 2026-11-24
 completed:
 plan_kind: sub
 parent_plan: MASTER-agent-trial
+pause_reason: "пауза до покраски (владелец TG 2626)"
+resume_trigger: "покраска принята владельцем"
 ---
 
 ## Цель

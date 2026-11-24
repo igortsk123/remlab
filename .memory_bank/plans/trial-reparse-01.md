@@ -2,12 +2,15 @@
 workstream: agent-trial
 slug: trial-reparse-01
 title: «Перечитать планировку» — исправления чтения плана доходят до уже загруженных туров (тот же адрес, мебель заново)
-status: in_progress
+status: partial
+prev_status: in_progress
 created: 2026-11-11
-updated: 2026-11-11
+updated: 2026-11-24
 completed:
 plan_kind: sub
 parent_plan: MASTER-agent-trial
+pause_reason: "пауза до покраски (владелец TG 2626)"
+resume_trigger: "покраска принята владельцем"
 ---
 
 ## Цель

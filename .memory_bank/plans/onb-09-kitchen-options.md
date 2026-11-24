@@ -2,12 +2,15 @@
 workstream: demo
 slug: onb-09-kitchen-options
 title: onb-09 — кухня flat215 «готова»: опции застройщика на примерах onb-08, посадка на план кухни, 3D, бюджет «Улучшения», вопрос 5, EN-двойник
-status: draft
+status: partial
+prev_status: draft
 created: 2026-11-05
-updated: 2026-11-05
+updated: 2026-11-24
 completed:
 plan_kind: sub
 parent_plan: onb-00-quiz-master
+pause_reason: "пауза до покраски (владелец TG 2626)"
+resume_trigger: "покраска принята владельцем"
 ---
 
 ## Цель

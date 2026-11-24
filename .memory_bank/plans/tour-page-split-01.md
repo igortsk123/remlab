@@ -2,14 +2,17 @@
 workstream: demo
 slug: tour-page-split-01
 title: Страница демо и тура — быстрее первый экран и без общего замка правок (сжатие, вынос кода, модули)
-status: draft
+status: partial
+prev_status: draft
 created: 2026-11-12
-updated: 2026-11-12
+updated: 2026-11-24
 completed:
 tier: plan
 topic: demo-page-split
 scope: tools/scout/flat215-demo, tools/scout/flat215_demo.py, lib/trial/tour*.ts
 source: _intake/brief-T-20261112-83.md
+pause_reason: "пауза до покраски (владелец TG 2626)"
+resume_trigger: "покраска принята владельцем"
 ---
 
 ## Цель

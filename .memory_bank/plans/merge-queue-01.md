@@ -2,10 +2,13 @@
 workstream: dev-ops
 slug: merge-queue-01
 title: Очередь-сборщик веток — пакет из 2–4 веток, один полный прогон, поиск виновной делением пополам; сперва «в тени», без вливания
-status: in_progress
+status: partial
+prev_status: in_progress
 created: 2026-11-12
-updated: 2026-11-12
+updated: 2026-11-24
 completed:
+pause_reason: "пауза до покраски (владелец TG 2626)"
+resume_trigger: "покраска принята владельцем"
 ---
 
 ## Цель

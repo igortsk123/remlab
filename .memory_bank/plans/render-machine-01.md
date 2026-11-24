@@ -2,13 +2,16 @@
 workstream: viz
 slug: render-machine-01
 title: Машина рендера на видеокарте — своя группа Salad с кнопкой вкл/выкл в ботах, запасной CPU, проба serverless
-status: in_progress
+status: partial
+prev_status: in_progress
 created: 2026-11-17
-updated: 2026-11-17
+updated: 2026-11-24
 tier: plan
 topic: render-machine
 scope: отдельная группа Salad под рендер Blender (не меши) — образ, замер 3090/4090, единый контроллер вкл/выкл из ботов remlab трёх серверов, «прогрелась» владельцу, автостоп, сторожа; сравнение с serverless (Modal/Cerebrium)
 parent_plan: photo-render-first-01
+pause_reason: "пауза до покраски (владелец TG 2626)"
+resume_trigger: "покраска принята владельцем"
 ---
 
 ## Цель

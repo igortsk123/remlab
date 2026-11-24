@@ -2,12 +2,15 @@
 workstream: product
 slug: floorplan-raster-bench-01
 title: Стенд «картинка планировки → стены → серое 3D в верных пропорциях» на 3 планах владельца (A, B, C)
-status: in_progress
+status: partial
+prev_status: in_progress
 created: 2026-11-09
-updated: 2026-11-10
+updated: 2026-11-24
 completed:
 plan_kind: sub
 parent_plan: b2b-13-plan-ingestion
+pause_reason: "пауза до покраски (владелец TG 2626)"
+resume_trigger: "покраска принята владельцем"
 ---
 
 ## Цель

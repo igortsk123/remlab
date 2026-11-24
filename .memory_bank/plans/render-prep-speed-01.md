@@ -3,12 +3,15 @@ tier: 2
 topic: render-prep-speed
 title: "Фото за ≈15 с после смены товара"
 scope: Ускорение «Сделать фото» после смены товара покупателем — подготовка сцены на DEV и докачка моделей на машину
-status: in_progress
+status: partial
+prev_status: in_progress
 plan_kind: task
 parent_plan: MASTER-cost-first
 created: 2026-11-18
-updated: 2026-11-18
+updated: 2026-11-24
 source: manual
+pause_reason: "пауза до покраски (владелец TG 2626)"
+resume_trigger: "покраска принята владельцем"
 ---
 
 # render-prep-speed-01 — фото за ≈15 с после смены любого товара

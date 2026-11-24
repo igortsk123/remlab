@@ -2,10 +2,13 @@
 workstream: agent-trial
 slug: tour-auto-reissue-01
 title: Автоперевыпуск туров после выкладки демо — правки страницы и сборщика доходят до всех живых туров сами
-status: in_progress
+status: partial
+prev_status: in_progress
 created: 2026-11-12
-updated: 2026-11-12
+updated: 2026-11-24
 completed:
+pause_reason: "пауза до покраски (владелец TG 2626)"
+resume_trigger: "покраска принята владельцем"
 ---
 
 ## Цель

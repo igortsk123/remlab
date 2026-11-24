@@ -2,10 +2,13 @@
 workstream: layout
 slug: bedroom-templates-catalog-01
 title: Спальня строго по шаблонам — полный каталог (≈17 композиций) и перебор всех шаблонов в движке
-status: in_progress
+status: partial
+prev_status: in_progress
 created: 2026-11-12
-updated: 2026-11-12
+updated: 2026-11-24
 completed:
+pause_reason: "пауза до покраски (владелец TG 2626)"
+resume_trigger: "покраска принята владельцем"
 ---
 
 ## Цель

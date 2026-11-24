@@ -2,13 +2,16 @@
 workstream: product
 slug: agent-trial-08-demo-as-template
 title: Проба агента — итог пробы как ровно /demo под загруженный план (демо = шаблон, этажи, пустые комнаты с заполнением)
-status: draft
+status: partial
+prev_status: draft
 created: 2026-11-09
-updated: 2026-11-09
+updated: 2026-11-24
 completed:
 plan_kind: subplan
 parent_plan: MASTER-agent-trial
-review_after: 2026-11-23
+prev_review_after: 2026-11-23
+pause_reason: "пауза до покраски (владелец TG 2626)"
+resume_trigger: "покраска принята владельцем"
 ---
 
 ## Цель

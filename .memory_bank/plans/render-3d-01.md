@@ -2,12 +2,15 @@
 workstream: viz
 slug: render-3d-01
 title: 3D под рендер — отделка, ткани, окно, свет и единая сцена для /demo и Blender
-status: draft
+status: partial
+prev_status: draft
 created: 2026-11-17
-updated: 2026-11-17
+updated: 2026-11-24
 tier: plan
 topic: render-3d
 scope: улучшения 3D-сцены квартиры, общие для браузера (/demo, туры) и бесплатного рендера Blender
+pause_reason: "пауза до покраски (владелец TG 2626)"
+resume_trigger: "покраска принята владельцем"
 ---
 
 ## Цель

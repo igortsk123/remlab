@@ -2,12 +2,15 @@
 workstream: render
 slug: tour-render-01
 title: Тур — фото всех комнат и стилей с прогревом машины с первой секунды
-status: in_progress
+status: partial
+prev_status: in_progress
 created: 2026-11-18
-updated: 2026-11-18
+updated: 2026-11-24
 completed:
 plan_kind: task
 parent_plan:
+pause_reason: "пауза до покраски (владелец TG 2626)"
+resume_trigger: "покраска принята владельцем"
 ---
 
 ## Цель

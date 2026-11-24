@@ -2,12 +2,15 @@
 workstream: viz
 slug: photo-tariff-mass-01
 title: Дешёвый тариф фото (≈3,7 ₽ за 2 вида) для автофото туров и массовых фото
-status: in_progress
+status: partial
+prev_status: in_progress
 created: 2026-11-17
-updated: 2026-11-17
+updated: 2026-11-24
 tier: plan
 topic: photo-tariff-mass
 scope: тариф фото нейросети для массовых заказов (автофото тура класса auto)
+pause_reason: "пауза до покраски (владелец TG 2626)"
+resume_trigger: "покраска принята владельцем"
 ---
 
 ## Цель

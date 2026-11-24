@@ -2,10 +2,13 @@
 workstream: ops
 slug: refresh-split-01
 title: Дневная сборка — утро и вечер (замер, деление, два запуска)
-status: in_progress
+status: partial
+prev_status: in_progress
 created: 2026-11-12
-updated: 2026-11-18
+updated: 2026-11-24
 completed:
+pause_reason: "пауза до покраски (владелец TG 2626)"
+resume_trigger: "покраска принята владельцем"
 ---
 
 ## Цель

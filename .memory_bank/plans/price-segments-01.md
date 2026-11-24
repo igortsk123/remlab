@@ -3,12 +3,15 @@ tier: 2
 topic: price-segments
 title: "Ценовые ступени по роли (П1.90)"
 scope: Ценовые ступени эконом/комфорт/премиум — свои у каждой роли, одно правило для ленты «Заменить», UI и банка наборов
-updated: 2026-11-19
-status: in_progress
+updated: 2026-11-24
+status: partial
+prev_status: in_progress
 plan_kind: subplan
 parent_plan: MASTER-cost-first
 source: manual
 review_after: 2026-11-25
+pause_reason: "пауза до покраски (владелец TG 2626)"
+resume_trigger: "покраска принята владельцем"
 ---
 
 # Ценовые ступени по роли (П1.90, владелец TG 1975)

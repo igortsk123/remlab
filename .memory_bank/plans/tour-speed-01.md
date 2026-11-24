@@ -2,10 +2,13 @@
 workstream: trial
 slug: tour-speed-01
 title: Ускорение «фото → 3D с рендерами» для больших квартир (план + бесплатный замер)
-status: draft
+status: partial
+prev_status: draft
 created: 2026-11-18
-updated: 2026-11-18
+updated: 2026-11-24
 completed:
+pause_reason: "пауза до покраски (владелец TG 2626)"
+resume_trigger: "покраска принята владельцем"
 ---
 
 ## Цель

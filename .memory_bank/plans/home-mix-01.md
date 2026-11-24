@@ -3,12 +3,15 @@ workstream: demo-ui
 slug: home-mix-01
 title: Главная — один «ваш интерьер» вместо вкладок стилей, смена кнопкой «Выбрать другой»; два выбранных варианта смешиваются по комнатам
 status: partial
-pause_reason: без движения с 07.11; владелец 22.11 TG 1185 — на паузу, приоритет — конвейер покраски
-resume_trigger: слово владельца или задача в plan-zadach.md
+prev_status: partial
+prev_pause_reason: без движения с 07.11; владелец 22.11 TG 1185 — на паузу, приоритет — конвейер покраски
+prev_resume_trigger: слово владельца или задача в plan-zadach.md
 created: 2026-11-07
-updated: 2026-11-22
+updated: 2026-11-24
 completed:
 parent_plan: room-conveyor-02
+pause_reason: "пауза до покраски (владелец TG 2626)"
+resume_trigger: "покраска принята владельцем"
 ---
 
 ## Цель
