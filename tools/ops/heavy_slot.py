@@ -148,6 +148,8 @@ from __future__ import annotations
 
 import contextlib
 import fcntl
+import json
+import math
 import os
 import re
 import signal
@@ -957,11 +959,43 @@ def _record(d: str, typ: str, label: str, peak: float, peak_rss: float, hold: fl
         sys.stderr.write(f'heavy-slot: замер не записан ({e.__class__.__name__})\n')
 
 
+# ---------------------------------------------------------------- ПЕРЕБОР: держатель взял сильно больше заявки (T-20261124-14)
+
+OVERRUN_DEFAULTS = {'factor': 2.0, 'min_excess_gb': 1.0, 'declared_floor_gb': 0.5, 'rec_margin': 1.15, 'repeat_x': 1.5}
+RULES_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)), '..', 'scout', 'rules', 'heavy-slot.json')
+
+
+def overrun_cfg() -> dict:
+    """Порог ПЕРЕБОРА — `rules/heavy-slot.json` → `overrun` (нет файла рядом — умолчания выше; `HEAVY_SLOT_RULES` — другой файл; `HEAVY_SLOT_OVERRUN_X` перебивает `factor`, ≤ 0 — сторож выключен).
+    factor — во сколько раз пик дерева выше заявки `--min-gb`; min_excess_gb — и не меньше стольких ГБ сверх заявки (мелочь не шумит); declared_floor_gb — заявка 0 считается как этот пол;
+    rec_margin — запас к пику в рекомендации `--min-gb`; repeat_x — повторное предупреждение, когда пик вырос ещё в столько раз."""
+    cfg = dict(OVERRUN_DEFAULTS)
+    try:
+        with open(os.environ.get('HEAVY_SLOT_RULES') or RULES_FILE, encoding='utf-8') as f:
+            cfg.update({k: float(v) for k, v in (json.load(f).get('overrun') or {}).items() if k in cfg})
+    except (OSError, ValueError, AttributeError):
+        pass
+    cfg['factor'] = _env_f('HEAVY_SLOT_OVERRUN_X', cfg['factor'])
+    return cfg
+
+
+def overrun_of(declared: float, peak: float, cfg: dict | None = None) -> tuple[float, float] | None:
+    """(кратность пика к заявке, рекомендуемый `--min-gb` = пик × rec_margin вверх до 0,5 ГБ) — если пик ≥ factor × заявки и больше заявки не меньше чем на min_excess_gb; иначе None."""
+    c = cfg or overrun_cfg()
+    if c['factor'] <= 0:
+        return None
+    base = max(declared, c['declared_floor_gb'])
+    if peak < c['factor'] * base or peak - declared < c['min_excess_gb']:
+        return None
+    return peak / base, math.ceil(peak * c['rec_margin'] * 2) / 2
+
+
 class _Meter(threading.Thread):
     """Замер памяти дерева держателя раз в `every` с; WARN в журнал при держании дольше `long_s`."""
 
-    def __init__(self, label: str, pid: int, every: float, long_s: float, holder: str = '', eff: float = 0.0):
+    def __init__(self, label: str, pid: int, every: float, long_s: float, holder: str = '', eff: float = 0.0, declared: float | None = None):
         super().__init__(daemon=True)
+        self.declared, self.over_told = declared, 0.0                # заявка `--min-gb` (для ПЕРЕБОРА; None — сторож не нужен), пик, о котором уже сказано
         self.label, self.pid, self.every, self.long_s = label, pid, every, long_s
         self.peak, self.peak_rss, self.t0, self.warned = 0.0, 0.0, time.time(), False
         self.holder, self.eff, self.told = holder, eff, 0.0
@@ -973,6 +1007,7 @@ class _Meter(threading.Thread):
             a, b = tree_mem(self.pid, self.label)
             self.peak, self.peak_rss = max(self.peak, a), max(self.peak_rss, b)
             self.tell()
+            self.overrun()
 
     def publish(self) -> None:
         """ЯДРА ПО ФАКТУ (T-75): в запись держателя — CPU своего дерева за окно (`fcpu`, ядер) и занятость машины за окно
@@ -1014,6 +1049,27 @@ class _Meter(threading.Thread):
             log(self.label, f'WARN: превысил свой порог {self.eff:.2f} ГБ (пик {self.peak:.2f}) — другие считают мою долю '
                             f'по факту, не ниже объявленного')
         self.told = self.peak
+
+    def overrun(self) -> None:
+        """ПЕРЕБОР (T-20261124-14): пик дерева ≥ factor × заявки (`overrun_cfg`) — предупреждение держателю в его вывод (stderr обёртки) и в журнал с рекомендацией `--min-gb` по факту, пик — в запись
+        держателя (`over_peak`: `--status` покажет строку). Повтор — только когда пик вырос ещё в repeat_x раз; запись держателя — только своя (по pid)."""
+        if self.declared is None:
+            return
+        cfg = overrun_cfg()
+        o = overrun_of(self.declared, self.peak, cfg)
+        if not o or (self.over_told and self.peak < self.over_told * cfg['repeat_x']):
+            return
+        x, rec = o
+        msg = (f'ПЕРЕБОР ×{x:.1f}: заявил {self.declared:g} ГБ, дерево взяло {self.peak:.1f} ГБ (порог ×{cfg["factor"]:g} — rules/heavy-slot.json); '
+               f'другие считают мою долю по факту и ждут — рекомендую --min-gb {rec:g}')
+        log(self.label, 'WARN: ' + msg)
+        sys.stderr.write(f'heavy-slot: {self.label}: {msg}\n')
+        self.over_told = self.peak
+        if self.holder:
+            h = _read_kv(self.holder) or {}
+            if h.get('pid') == str(os.getpid()):
+                h['over_peak'] = f'{self.peak:.3f}'
+                _write_kv(self.holder, h)
 
     def run(self) -> None:
         while True:
@@ -1560,7 +1616,7 @@ def heavy_slot(label: str, min_gb: float = 6.0, timeout: float | None = None, no
         old_c = os.environ.get('HEAVY_SLOT_CORES')
         os.environ['HEAVY_SLOT_CORES'] = cores_env(cores)   # T-17/2: ребёнок ограничивает себя (vitest — maxWorkers)
         long_s = _env_f('HEAVY_SLOT_LONG_S', 2700)
-        meter = _Meter(label, os.getpid(), max(0.05, _env_f('HEAVY_SLOT_SAMPLE', 5)), long_s, holder_p, own)
+        meter = _Meter(label, os.getpid(), max(0.05, _env_f('HEAVY_SLOT_SAMPLE', 5)), long_s, holder_p, own, declared=min_gb)
         meter.start()
         t_run = time.time()
         try:
@@ -1578,7 +1634,8 @@ def heavy_slot(label: str, min_gb: float = 6.0, timeout: float | None = None, no
             hold = time.time() - t_run
             log(label, f'отпустил: держал {_sec(hold)} с; пик памяти дерева {peak:.2f} ГБ (RSS {peak_rss:.2f}), тип {typ}, '
                        f'порог {min_gb:g}' + (f' (по замеру {own:.2f})' if own < min_gb else '')
-                + (f'; WARN: держание дольше {long_s / 60:g} мин' if hold > long_s else ''))
+                + (f'; WARN: держание дольше {long_s / 60:g} мин' if hold > long_s else '')
+                + ((lambda o: f'; ПЕРЕБОР ×{o[0]:.1f} (заявил {min_gb:g}, пик {peak:.1f}) — в следующий раз --min-gb {o[1]:g}' if o else '')(overrun_of(min_gb, peak))))
             _record(d, typ, label, peak, peak_rss, hold, min_gb, own)
     finally:
         if ticket:
@@ -1690,6 +1747,12 @@ def status(out=sys.stdout) -> int:
             a, b = tree_mem(int(h['pid']), h['label'])
             pr(f"  процесс: {_proc(int(h['pid']))}")
             pr(f"  память дерева сейчас: {a:.2f} ГБ (RSS {b:.2f})")
+            with contextlib.suppress(ValueError):
+                decl = float(h.get('min_gb') or 0)
+                ov = overrun_of(decl, max(float(h.get('over_peak') or 0), a))
+                if ov:
+                    pr(f"  ПЕРЕБОР ×{ov[0]:.1f}: заявил {decl:g} ГБ, пик {max(float(h.get('over_peak') or 0), a):.1f} ГБ — рекомендую --min-gb {ov[1]:g}"
+                       + (f" · из-за доли по факту ждут: {len(waiters)}" if waiters else ''))
             if h.get('cmd'):
                 pr(f"  команда: {h['cmd']}")
         elif held:

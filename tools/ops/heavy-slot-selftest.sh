@@ -590,6 +590,39 @@ for v in 0.01 0.02 0.01; do printf '2026-11-06 10:00:00\tcutout\tt9-cutout\t%s\t
 "$S" cutout-f --min-gb 4 -- true
 ok "пол порога по замеру 0,5 ГБ (дерево не видит память контейнеров)" "$(yes_if 'grep -q "cutout-f .*порог по замеру: .* → 0.50" "$HEAVY_SLOT_LOG"')"
 
+# --- T-20261124-14: ПЕРЕБОР — держатель заявил мало, взял много (≥ factor × заявки из rules/heavy-slot.json): предупреждение держателю (stderr) и в журнал с рекомендацией --min-gb,
+# строка в --status, итог в «отпустил»; мелочь и порог из конфига — без шума
+mem 8
+export HEAVY_SLOT_SAMPLE=0.1
+overrun_case() {  # <метка> <заявка> <GБ по заглушке> <файл> → ждёт ~1 с замеров, снимает --status, отпускает; stderr держателя — <файл>.err
+  echo "$1 $3" >> "$HEAVY_SLOT_MEM_STUB"
+  "$S" "$1" --min-gb "$2" -- sh -c "$(holdp "$1" "$4")" 2> "$T/$4.err" & local pp=$!
+  until_f "[ -e $T/$4.up-$1 ]"
+  sleep 1
+  "$S" --status > "$T/$4.st"
+  touch "$T/$4.go-$1"; wait $pp
+}
+overrun_case ov14-h 3 7 ov14
+ok "ПЕРЕБОР: заявил 3, взял 7 (×2,3 ≥ 2) — журнал с рекомендацией --min-gb 8,5; stderr держателя; --status: строка ПЕРЕБОР; «отпустил»: итог" \
+  "$(yes_if 'grep -q "ov14-h .*WARN: ПЕРЕБОР ×2.3: заявил 3 ГБ, дерево взяло 7.0 ГБ (порог ×2 — rules/heavy-slot.json); .*рекомендую --min-gb 8.5" "$HEAVY_SLOT_LOG" && grep -q "^heavy-slot: ov14-h: ПЕРЕБОР ×2.3: заявил 3 ГБ" "$T/ov14.err" && grep -q "^  ПЕРЕБОР ×2.3: заявил 3 ГБ, пик 7.0 ГБ — рекомендую --min-gb 8.5" "$T/ov14.st" && grep -q "ov14-h .*отпустил: .*; ПЕРЕБОР ×2.3 (заявил 3, пик 7.0) — в следующий раз --min-gb 8.5" "$HEAVY_SLOT_LOG" && [ "$(grep -c "ov14-h .*WARN: ПЕРЕБОР" "$HEAVY_SLOT_LOG")" = 1 ]')"
+overrun_case ov14-n 3 5.9 ov14n
+ok "ПЕРЕБОР: заявил 3, взял 5,9 (×1,97 < 2) — тихо: ни журнала, ни stderr, ни строки в --status" \
+  "$(yes_if '! grep -q "ov14-n .*ПЕРЕБОР" "$HEAVY_SLOT_LOG" && ! grep -q ПЕРЕБОР "$T/ov14n.err" "$T/ov14n.st"')"
+overrun_case ov14-s 0.3 1.2 ov14s
+ok "ПЕРЕБОР: мелочь (заявил 0,3, взял 1,2: ×4, но сверх заявки 0,9 < 1 ГБ) — тихо" "$(yes_if '! grep -q "ov14-s .*ПЕРЕБОР" "$HEAVY_SLOT_LOG" && ! grep -q ПЕРЕБОР "$T/ov14s.st"')"
+printf '{"overrun": {"factor": 4}}' > "$T/rules14.json"
+HEAVY_SLOT_RULES="$T/rules14.json" overrun_case ov14-c 3 7 ov14c
+ok "ПЕРЕБОР: порог из конфига (factor 4 вместо 2): взял 7 при заявке 3 (×2,3) — тихо" "$(yes_if '! grep -q "ov14-c .*ПЕРЕБОР" "$HEAVY_SLOT_LOG" && ! grep -q ПЕРЕБОР "$T/ov14c.st"')"
+HEAVY_SLOT_OVERRUN_X=0 overrun_case ov14-o 3 7 ov14o
+ok "ПЕРЕБОР: HEAVY_SLOT_OVERRUN_X=0 выключает сторож" "$(yes_if '! grep -q "ov14-o .*ПЕРЕБОР" "$HEAVY_SLOT_LOG" && ! grep -q ПЕРЕБОР "$T/ov14o.st"')"
+ok "ПЕРЕБОР: overrun_of(3, 12.7) → ×4,2, рекомендация 15; (3, 5.9) → нет; (0, 1.2) → ×2,4 / 1,5; без файла правил — умолчания" \
+  "$(yes_if '[ "$(HEAVY_SLOT_RULES=$T/нет.json python3 -c "
+import sys; sys.path.insert(0, \"$DIR\"); import heavy_slot as H
+a = H.overrun_of(3, 12.7); b = H.overrun_of(3, 5.9); c = H.overrun_of(0, 1.2)
+print(round(a[0], 1), a[1], b, round(c[0], 1), c[1], H.overrun_cfg()[\"factor\"])
+")" = "4.2 15.0 None 2.4 1.5 2.0" ]')"
+unset HEAVY_SLOT_SAMPLE
+
 mem 8
 "$S" g-run --min-gb 2 -- sh -c "sleep 0.8; echo done >> $T/guard" & pg=$!
 until_held
