@@ -107,6 +107,10 @@ FILL = {
     'pattern_side_cos': 0.2,         # узорная часть: узор кладётся только на тексели, обращённые к фото (cos нормали с направлением камеры pr_az ≥ порога); обратная сторона/сиденье/низ — тон ткани без цветов (дефект Sakura 21.11: цветы спинки на заду и сиденье)
     'smooth_roles': ['legs', 'frame', 'handles'],   # роли без плитки фактуры на недостроенном: тон части без блоков («ёлочка» стыков на дереве, Sakura 21.11)
     'tone_share_roles': ['legs', 'frame', 'handles'],   # роли, у которых тон един на все части одной роли (один материал — один тон: задние ножки темнее передних из-за теней)
+    'legs_common_tone': False,       # T-21 П1: ножки ПО ГЕОМЕТРИИ (роль legs этапа 3 не доходит) → группа ножек одной формы и цвета красится тоном лучшей видимой ножки (свет/тень фото не переносятся); по умолчанию выкл.
+    'legs_geo_weight': 0.0,          # группа ножек: вес геодезического цвета известного соседа (0 — только пин; 1 — как у остальных частей)
+    'legs_band': [0.02, 0.20], 'legs_zone': 0.45, 'legs_max_frac': 0.25, 'legs_radius': 1.5, 'legs_grow': 1.7,   # ножка: полоса поиска и верх тела (доли высоты), макс. ширина (доля габарита), цилиндр (×ширины/2), рост сечения → конец ножки
+    'legs_shape_tol': 0.25, 'legs_compat_dab': 10.0, 'legs_compat_dl': 35.0, 'legs_min_known': 200,   # группа: форма ±25 %, цвет известного (a,b ≤ 10, L ≤ 35), лучшая ножка — известного не меньше
     'tone_only_use': True,           # run_stage: читать `tone_only.png` из папки этапа 6 (нет файла — прежнее поведение)
     'relief_calib_donor': False,     # Ш6 вариант 2: часть без своего фото берёт калибровку рельефа TRELLIS (σ/p95 чистой ткани) у донора тона той же роли; по умолчанию выкл. (без него рельеф у таких частей = stat)
     'borrow_texture': False,         # Ш6 вариант 1: часть без чистых блоков (нет квилта/блока) берёт микрофактуру у части ТОЙ ЖЕ материальной зоны (роль и тон близки, не узорная); по умолчанию выкл.
@@ -1025,6 +1029,149 @@ def seam_pass(txs: list, out_lab: list, labs: list, kn_keep: list, conf: list | 
     return srep
 
 
+def legs_common_groups(txs: list, kn: list, labs: list, c: dict) -> dict:
+    """Ножки по ГЕОМЕТРИИ (T-20261124-21, П1 «у Крита не прокрашены ножки»): роль `legs` этапа 3 не доходит до 07 (ножки там body/unknown → `tone_share_roles` мёртв), поэтому ножки ищем по форме.
+    Ножка = связный кусок в нижней полосе габарита (`legs_band`, доли высоты), малый в плане (≤ `legs_max_frac` габарита по обеим осям); тело ножки — грани ниже `legs_zone` в цилиндре вокруг неё, до высоты, где сечение
+    вдруг растёт (обвязка, корпус: `legs_grow`) — корпус и царга в ножку не берутся. Группа = ножки одной формы (ширина/высота ±`legs_shape_tol` к лучшей) и совместимого цвета известного
+    (Δa,b ≤ `legs_compat_dab`, ΔL ≤ `legs_compat_dl`; металл+дерево в одну группу не слипаются). Тон группы = тон известного ЛУЧШЕЙ ножки (больше известных текселей, не меньше `legs_min_known`): свет/тень фото на тон не влияют.
+    Группа ≥ 2 ножек становится ОТДЕЛЬНОЙ частью (номер после последней): её тон — пин, известные тексели не трогаются. Меняет `tx.part_f`/`tx.part` на местах.
+    → {'applied': bool, 'why': str|None, 'legs': [...], 'groups': [{'part', 'legs', 'pin', 'best', 'best_known'}], 'pins': {part: (tone, std, n_known)}}."""
+    from scipy import ndimage
+    rep = {'applied': False, 'why': None, 'legs': [], 'groups': [], 'pins': {}}
+    cen = [np.asarray(tx.P)[tx.F].mean(axis=1) for tx in txs]
+    allc = np.concatenate(cen)
+    if not len(allc):
+        rep['why'] = 'нет граней'
+        return rep
+    y0, y1 = float(allc[:, 1].min()), float(allc[:, 1].max())
+    H = y1 - y0
+    fx = (float(allc[:, 0].min()), float(allc[:, 0].max()))
+    fz = (float(allc[:, 2].min()), float(allc[:, 2].max()))
+    foot = max(fx[1] - fx[0], fz[1] - fz[0], 1e-9)
+    lo_b, hi_b = y0 + c['legs_band'][0] * H, y0 + c['legs_band'][1] * H
+    thr = y0 + c['legs_zone'] * H
+    # ножки в нижней полосе: сетка по (x, z), связные пятна
+    cell = foot / 80.0
+    pts, gid = [], []
+    for gi, cn in enumerate(cen):
+        m = (cn[:, 1] >= lo_b) & (cn[:, 1] <= hi_b)
+        pts.append(cn[m][:, [0, 2]])
+    P2 = np.concatenate(pts)
+    if len(P2) < 20:
+        rep['why'] = 'в нижней полосе нет граней'
+        return rep
+    ix = ((P2[:, 0] - fx[0]) / cell).astype(int)
+    iz = ((P2[:, 1] - fz[0]) / cell).astype(int)
+    G = np.zeros((ix.max() + 3, iz.max() + 3), bool)
+    G[ix + 1, iz + 1] = True
+    lab_g, n_g = ndimage.label(ndimage.binary_dilation(G, iterations=1))
+    comp = lab_g[ix + 1, iz + 1]
+    legs = []
+    for k in range(1, n_g + 1):
+        q = P2[comp == k]
+        if len(q) < 8:
+            continue
+        w = float(max(q[:, 0].max() - q[:, 0].min(), q[:, 1].max() - q[:, 1].min()))
+        if w > c['legs_max_frac'] * foot:
+            rep['legs'].append({'big_comp_w': round(w / foot, 3)})
+            continue
+        legs.append({'c': q.mean(axis=0), 'w': max(w, cell * 2)})
+    if len(legs) < 2:
+        rep['why'] = f'ножек по форме найдено {len(legs)} (< 2)'
+        return rep
+    # тело каждой ножки: цилиндр R вокруг центра, слоями вверх, пока сечение не вырастет
+    step = 0.04 * H
+    for i, lg in enumerate(legs):
+        R = float(c['legs_radius']) * lg['w'] / 2 + cell
+        lg['R'] = R
+        top = thr
+        yy = lo_b
+        while yy < thr:
+            seg = []
+            for cn in cen:
+                d = np.hypot(cn[:, 0] - lg['c'][0], cn[:, 2] - lg['c'][1])
+                m = (d <= R) & (cn[:, 1] >= yy) & (cn[:, 1] < yy + step)
+                if m.any():
+                    seg.append(cn[m][:, [0, 2]])
+            if seg:
+                s = np.concatenate(seg)
+                ws = float(max(s[:, 0].max() - s[:, 0].min(), s[:, 1].max() - s[:, 1].min()))
+                if ws > c['legs_grow'] * lg['w'] + 2 * cell:
+                    top = yy
+                    break
+            yy += step
+        lg['top'] = float(top)
+        lg['h'] = float(top - y0)
+    # грани ножек по геометриям; своя ножка — ближайшая из подходящих
+    leg_of = []
+    for cn in cen:
+        lo = -np.ones(len(cn), np.int32)
+        best_d = np.full(len(cn), np.inf)
+        for i, lg in enumerate(legs):
+            d = np.hypot(cn[:, 0] - lg['c'][0], cn[:, 2] - lg['c'][1])
+            m = (d <= lg['R']) & (cn[:, 1] < lg['top']) & (d < best_d)
+            lo[m] = i
+            best_d[m] = d[m]
+        leg_of.append(lo)
+    # известные Lab по ножкам
+    Lk = [[] for _ in legs]
+    nfaces = [0] * len(legs)
+    for gi, tx in enumerate(txs):
+        lid = leg_of[gi][tx.f]
+        kk = np.asarray(kn[gi]).reshape(-1)[tx.ti]
+        lflat = labs[gi].reshape(-1, 3)[tx.ti]
+        for i in range(len(legs)):
+            mm = (lid == i) & kk
+            if mm.any():
+                Lk[i].append(lflat[mm])
+        for i in range(len(legs)):
+            nfaces[i] += int((leg_of[gi] == i).sum())
+    Lk = [np.concatenate(x) if x else np.zeros((0, 3)) for x in Lk]
+    mk = int(c['legs_min_known'])
+    for i, lg in enumerate(legs):
+        lg['known'] = int(len(Lk[i]))
+        lg['faces'] = nfaces[i]
+        lg['tone'] = tone_of(Lk[i], c) if len(Lk[i]) >= mk else None
+        rep['legs'].append({'c': [round(float(x), 3) for x in lg['c']], 'w': round(lg['w'], 3), 'h': round(lg['h'], 3), 'known': lg['known'], 'faces': lg['faces'],
+                            'tone': None if lg['tone'] is None else [round(float(x), 1) for x in lg['tone']]})
+    # группы: лучший остаток + совместимые по форме и цвету
+    rest = [i for i in range(len(legs)) if legs[i]['faces'] > 0]
+    nxt = int(max(int(np.max(tx.part_f)) for tx in txs)) + 1
+    while rest:
+        cand = [i for i in rest if legs[i]['tone'] is not None]
+        if not cand:
+            break
+        b = max(cand, key=lambda i: legs[i]['known'])
+        tb = legs[b]['tone']
+        grp = [b]
+        for i in rest:
+            if i == b:
+                continue
+            lg = legs[i]
+            if abs(lg['w'] - legs[b]['w']) > c['legs_shape_tol'] * legs[b]['w'] + 1e-9 or abs(lg['h'] - legs[b]['h']) > c['legs_shape_tol'] * legs[b]['h'] + 1e-9:
+                continue
+            if lg['tone'] is not None:
+                if abs(lg['tone'][0] - tb[0]) > c['legs_compat_dl'] or float(np.hypot(lg['tone'][1] - tb[1], lg['tone'][2] - tb[2])) > c['legs_compat_dab']:
+                    continue
+            grp.append(i)
+        rest = [i for i in rest if i not in grp]
+        if len(grp) < 2:
+            continue
+        pid = nxt
+        nxt += 1
+        for gi, tx in enumerate(txs):
+            m = np.isin(leg_of[gi], grp)
+            if m.any():
+                tx.part_f[m] = pid
+                tx.part = tx.part_f[tx.f]
+        rep['groups'].append({'part': pid, 'legs': grp, 'pin': [round(float(x), 2) for x in tb], 'best': int(b), 'best_known': legs[b]['known']})
+        rep['pins'][pid] = (np.asarray(tb, float), Lk[b].std(axis=0), legs[b]['known'])
+    rep['applied'] = bool(rep['groups'])
+    if not rep['applied']:
+        rep['why'] = 'нет группы ≥ 2 совместимых ножек с известным ≥ legs_min_known'
+    return rep
+
+
 def fill(geoms: list, known: list, parts: list | None = None, cfg: dict | None = None, mirror: bool = True, draft: dict | None = None, tone_only: list | None = None, unobs_draft_fn=None, conf: list | None = None, detail_zones: dict | None = None) -> dict:
     """geoms — `tex_coverage.load_geoms`; known — по геометрии (T×T bool), parts — по геометрии номера частей ГРАНЕЙ (None — одна часть).
     draft — черновик TRELLIS на ту же форму/развёртку (`draft_texels`): {'lab': [(T,T,3) Lab], 'ok': [(T,T) bool]}; нужен при cfg['source']=='trellis': невидимое берёт цвет черновика,
@@ -1071,6 +1218,10 @@ def fill(geoms: list, known: list, parts: list | None = None, cfg: dict | None =
         tex_in.append(rgb)
         labs.append(rgb2lab(rgb.reshape(-1, 3)).reshape(T, T, 3))
     rep = {'geoms': [], 'parts': {}, 'mirror': None, 'fallback_global': 0, 'no_patch': 0, 'time_s': {}}
+    legs_rep = None
+    if c.get('legs_common_tone'):
+        legs_rep = legs_common_groups(txs, kn, labs, c)           # ножки — отдельной частью (ДО статистики частей); тон — пин лучшей ножки ниже
+        rep['legs_common_tone'] = {k_: v_ for k_, v_ in legs_rep.items() if k_ != 'pins'}
     # --- статистика частей (Lab среднее и разброс), по известным
     part_ids = sorted({int(p) for t in txs for p in np.unique(t.part)})
     stat, glob_l = {}, []
@@ -1090,6 +1241,9 @@ def fill(geoms: list, known: list, parts: list | None = None, cfg: dict | None =
     for p in part_ids:
         L = np.concatenate([labs[gi].reshape(-1, 3)[tx.ti[kn[gi].reshape(-1)[tx.ti] & (tx.part == p)]] for gi, tx in enumerate(txs)])
         rep['parts'][p] = {'known_texels': int(len(L)), 'pattern': bool(pat_eff[p] > c['pattern_chroma']), 'pattern_chroma_std': round(float(pat_std[p]), 2), 'pattern_chroma_eff': round(float(pat_eff[p]), 2), 'mean_lab': [round(float(x), 2) for x in stat[p][0]], 'std_lab': [round(float(x), 2) for x in stat[p][1]], 'stats_from_global': stat[p][3]}
+    if legs_rep and legs_rep['applied']:
+        for p_, (tn_, sd_, nk_) in legs_rep['pins'].items():                  # группа ножек: тон лучшей ножки, не пул по теням (известные тексели не трогаются — тон только на неизвестные)
+            stat[p_] = (tn_, sd_, max(int(stat[p_][2]), int(nk_)), False)
     rep['tone_shared'] = {}
     roles_ = c.get('part_role') or {}
     for role in c.get('tone_share_roles') or []:                     # один материал — один тон: части одной роли (ножки…) красятся общим тоном (по свету, без теней)
@@ -1297,6 +1451,8 @@ def fill(geoms: list, known: list, parts: list | None = None, cfg: dict | None =
                 else:
                     at, gc = at_texels(dist_a, col_a, c['geo_len'], gsel_t)
                     base = stat[p][0]
+                    if legs_rep and legs_rep['applied'] and p in legs_rep['pins']:      # группа ножек: тон общий (пин), цвет соседнего известного (свет/тень фото) далеко не растекается
+                        at = at * float(c['legs_geo_weight'])
                 lab_flat[flat_idx] = at[:, None] * gc + (1.0 - at[:, None]) * base
                 lam_t[gsel_t] = at
             if msel_t.any():
@@ -1318,7 +1474,8 @@ def fill(geoms: list, known: list, parts: list | None = None, cfg: dict | None =
         if len(vals) < 50:
             continue
         tgt, tgt_from, gap = float(stat[p][0][0]), 'tone', None
-        if c.get('brightness_target', RULES.get('brightness_target', 'tone')) == 'median' and not stat[p][3]:          # T-198/1: цель — медиана L известного части (как мерит check), мода — только для a,b; статистика «глобальная» — своей медианы нет
+        _legs_pin = bool(legs_rep and legs_rep['applied'] and p in legs_rep['pins'])           # пин группы ножек: цель — его L, не медиана известного по теням
+        if c.get('brightness_target', RULES.get('brightness_target', 'tone')) == 'median' and not stat[p][3] and not _legs_pin:          # T-198/1: цель — медиана L известного части (как мерит check), мода — только для a,b; статистика «глобальная» — своей медианы нет
             Lk = np.concatenate([labs[gi].reshape(-1, 3)[tx.ti[kn[gi].reshape(-1)[tx.ti] & (tx.part == p)]][:, 0] for gi, tx in enumerate(txs)])
             if len(Lk) >= c['min_known']:
                 med_k = float(np.median(Lk))
