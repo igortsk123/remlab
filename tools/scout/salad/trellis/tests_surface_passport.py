@@ -719,8 +719,55 @@ def test_carcass_library():
     ok(not crep2['applied'] and abs(float(np.median(lab_L(out2[0], left & ~known))) - 30.0) < 4.0, f'один участник < min_members — воздержание, бока как в main: {crep2.get("why")}')
 
 
+def test_carcass_library_modes():
+    print('библиотека отделок, флаги пробы (T-20261124-06, п.1–3 директора): тон освещённого верха, верх из библиотеки, спорное → библиотека побеждает; без флагов — как раньше:')
+    C0 = TF.RULES['surface_groups']['carcass_library']
+    ok(C0.get('tone_mode', 'side') == 'side' and not C0.get('top', False) and not C0.get('disputed_wins', False), 'в rules флаги выключены по умолчанию')
+    ent = {'дуб барбера|лдсп 16 мм': {'members': {'a': [55.0, 6.0, 17.0], 'b': [55.0, 6.0, 18.0], 'c': [56.0, 6.0, 17.0]}, 'tops': {'a': [70.0, 5.0, 24.0], 'b': [69.0, 5.0, 24.0], 'c': [70.0, 5.0, 25.0]}}}
+    card = {'Цвет шкафа: Цвет корпуса': 'Дуб Барбера', 'Материал корпуса': 'ЛДСП 16 мм'}
+    rt = SP.carcass_library_tone(card, dict(C0, enabled=True, entries=ent), 'tops')
+    ok(rt['ok'] and abs(rt['tone'][0] - 70.0) < 1e-6, f'тон верха отделки (kind=tops): {rt}')
+
+    def case(left_known, R_over):
+        q = Quads()
+        q.quad([[-1, 0, 1], [1, 0, 1], [1, 1, 1], [-1, 1, 1]], (0, 0, .5, .5), part=0, sub=4)                 # фасад +Z, виден
+        q.quad([[-1, 0, -1], [-1, 0, 1], [-1, 1, 1], [-1, 1, -1]], (.5, 0, 1, .5), part=1, sub=4)           # левый бок
+        q.quad([[1, 0, -1], [1, 0, 1], [1, 1, 1], [1, 1, -1]], (.5, .5, 1, 1), part=2, sub=4)               # правый бок
+        q.quad([[-1, 1, 1], [1, 1, 1], [1, 1, -1], [-1, 1, -1]], (0, .5, .5, 1), part=3, sub=4)              # верх (+Y), на фото не виден
+        face, left, right, top = tile_mask((0, 0, .5, .5)), tile_mask((.5, 0, 1, .5)), tile_mask((.5, .5, 1, 1)), tile_mask((0, .5, .5, 1))
+        tex = np.zeros((T, T, 3), np.uint8)
+        tex[face | left | right | top] = lab_rgb(30.0, 0.0, 0.0)
+        known = face | left if left_known else face.copy()
+        g = q.geom(tex)
+        parts = [np.array(q.part, np.int32)]
+        R = dict(TF.RULES['surface_groups'], _card_role='шкаф')
+        R['carcass_library'] = dict(C0, enabled=True, entries=ent, **R_over)
+        pas, ctx = SP.build([g], [tex], [known], parts, None, R, TF.FILL, TF)
+        crep = SP.carcass_library_side(pas, ctx, [g], R, card)
+        k0 = [known & ~TF.unpainted_mask(tex)]
+        if ctx.get('carcass_release'):                                                                   # как в tex_fill: освобождённые фото-тексели красит группа
+            k0 = [k0[0] & ~np.asarray(ctx['carcass_release'][0], bool)]
+        out, _ = SP.apply_groups([g], [tex], k0, pas, ctx, R, TF)
+        return crep, out, (face, left, right, top, known)
+    crep, out, (face, left, right, top, known) = case(False, {})
+    Lr = float(np.median(lab_L(out[0], right & ~known)))
+    ok(crep['applied'] and abs(Lr - 55.0) < 4.0 and abs(float(np.median(lab_L(out[0], top & ~known))) - 30.0) < 4.0, f'без флагов: бок по тону бока (L {Lr:.1f}), верх не тронут (как раньше)')
+    crep, out, (face, left, right, top, known) = case(False, {'tone_mode': 'lit'})
+    Lr = float(np.median(lab_L(out[0], right & ~known)))
+    ok(crep['tone_mode'] == 'lit' and abs(Lr - 70.0) < 4.0, f'tone_mode=lit: бок тоном освещённого верха (L {Lr:.1f})')
+    crep, out, (face, left, right, top, known) = case(False, {'top': True})
+    Lt, Lr = float(np.median(lab_L(out[0], top & ~known))), float(np.median(lab_L(out[0], right & ~known)))
+    ok(crep['applied'] and crep.get('top_texels', 0) > 0 and abs(Lt - 70.0) < 4.0 and abs(Lr - 55.0) < 4.0, f'top: верх из библиотеки (L {Lt:.1f}), бок как был (L {Lr:.1f})')
+    crep, out, (face, left, right, top, known) = case(True, {})
+    ok(abs(float(np.median(lab_L(out[0], left & known))) - 30.0) < 2.0 and crep['photo_side']['disputed'], f'спорное без флага: фото-бок остаётся, помечен «спорно» (ΔE {crep["photo_side"]["de76_to_library"]})')
+    crep, out, (face, left, right, top, known) = case(True, {'disputed_wins': True})
+    Ll = float(np.median(lab_L(out[0], left & known)))
+    ok(crep.get('released_photo_texels', 0) > 0 and abs(Ll - 55.0) < 4.0, f'disputed_wins: видимый «бок» с чужим тоном перекрашен библиотекой (L {Ll:.1f}), освобождено {crep.get("released_photo_texels")} текселей')
+    ok(np.array_equal(out[0][face], np.asarray(out[0])[face]) and abs(float(np.median(lab_L(out[0], face))) - 30.0) < 2.0, 'фасад (фото, ось фасада) не тронут')
+
+
 def main() -> int:
-    for f in (test_carcass_library, test_new_rules_only_body_type, test_rule_entries_body, test_rule_entries_not_body, test_blur_caches, test_split_plane_one_tone, test_contrast_door_own_group, test_gray_pattern_not_flattened, test_back_is_body_not_facade, test_back_not_tiny_contrast, test_top_follows_group, test_edge_body_tone, test_light_floor, test_rebuild_body_gates, test_type_allows_body, test_body_override_only_for_body_type, test_facade_relief_and_release_weak, test_grain_no_dark_seams, test_gradient_continues, test_outlier_replaced, test_orphan_attached, test_orphan_guards, test_orphan_keeps_hook_tone, test_hook_keep_top, test_ultratex_switch_off, test_hidden_pattern_by_type):
+    for f in (test_carcass_library, test_carcass_library_modes,test_new_rules_only_body_type, test_rule_entries_body, test_rule_entries_not_body, test_blur_caches, test_split_plane_one_tone, test_contrast_door_own_group, test_gray_pattern_not_flattened, test_back_is_body_not_facade, test_back_not_tiny_contrast, test_top_follows_group, test_edge_body_tone, test_light_floor, test_rebuild_body_gates, test_type_allows_body, test_body_override_only_for_body_type, test_facade_relief_and_release_weak, test_grain_no_dark_seams, test_gradient_continues, test_outlier_replaced, test_orphan_attached, test_orphan_guards, test_orphan_keeps_hook_tone, test_hook_keep_top, test_ultratex_switch_off, test_hidden_pattern_by_type):
         f()
     print(f'tests_surface_passport: ошибок {bad}')
     return 1 if bad else 0

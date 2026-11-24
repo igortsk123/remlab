@@ -2923,6 +2923,9 @@ def run_stage_once(run: str, sku: str, glb: str, known: list | None = None, part
                 k_ap, _n_rw = SP.release_weak_known(k_keep, load_prov_png(_sy_dir, _rw.get('provs', [2, 3])), sg_ctx['over'], sg_cfg)
                 _kn_released = [np.asarray(a, bool) & ~np.asarray(b, bool) for a, b in zip(k_keep, k_ap)]
                 sg_rep['release_weak_known'] = _n_rw
+            if sg_ctx.get('carcass_release'):                                                           # T-20261124-06: спорные видимые «боковые» тексели (фасад на боку) — красит библиотека отделок
+                k_ap = [np.asarray(a, bool) & ~np.asarray(m_, bool) for a, m_ in zip(k_ap, sg_ctx['carcass_release'])]
+                sg_rep['carcass_library_released'] = int(sum(int(np.asarray(m_).sum()) for m_ in sg_ctx['carcass_release']))
             _m = _hmark()
             m_b = SP.measure(geoms, tex_after, k_ap, sg_pas, sg_ctx, sg_cfg, sys.modules[__name__])
             _hdone(hooks, 'sg_measure_before', _m)

@@ -745,7 +745,7 @@ def _lib_norm(s) -> str:
     return ' '.join(str(s or '').strip().lower().split())
 
 
-def carcass_library_tone(card: dict | None, C: dict) -> dict:
+def carcass_library_tone(card: dict | None, C: dict, kind: str = 'members') -> dict:
     """Тон бока корпуса по ЛЕНТЕ (T-20261124-06, Ш2): «Цвет корпуса» + «Материал корпуса» карточки → запись библиотеки отделок `carcass_library.entries[ключ].members` ({товар: Lab бока по фото}).
     Тон — медиана Lab участников без самого товара (поле карточки `_sku`: leave-one-product-out в пробе; в проде поля нет — берутся все). Меньше `min_members` участников или разброс
     (макс. ΔE76 до медианы) > `max_spread_de` — отказ с причиной. → {'ok', 'key', 'tone', 'n', 'spread_de', 'why'}; чистая функция."""
@@ -757,22 +757,26 @@ def carcass_library_tone(card: dict | None, C: dict) -> dict:
     ent = (C.get('entries') or {}).get(key)
     if not ent:
         return {'ok': False, 'key': key, 'why': 'отделки нет в библиотеке'}
-    me = {s: v for s, v in (ent.get('members') or {}).items() if s != card.get('_sku')}
-    if len(me) < int(C.get('min_members', 2)):
-        return {'ok': False, 'key': key, 'n': len(me), 'why': f'участников библиотеки {len(me)} < {C.get("min_members", 2)}'}
+    me = {s: v for s, v in (ent.get(kind) or {}).items() if s != card.get('_sku')}          # kind: 'members' — бока (как на фото), 'tops' — верх (освещённый, T-20261124-06 п.1–2)
+    min_n = int(C.get('min_members_top', C.get('min_members', 2))) if kind == 'tops' else int(C.get('min_members', 2))          # верх — не меньше трёх меток (две расходящиеся дают «среднее» ни о чём)
+    if len(me) < min_n:
+        return {'ok': False, 'key': key, 'n': len(me), 'why': f'участников библиотеки {len(me)} < {min_n}'}
     arr = np.asarray(list(me.values()), float)
     tone = np.median(arr, axis=0)
     spread = float(np.linalg.norm(arr - tone, axis=1).max())
-    if spread > float(C.get('max_spread_de', 10.0)):
-        return {'ok': False, 'key': key, 'n': len(me), 'spread_de': round(spread, 1), 'why': f'разброс тона отделки {spread:.1f} > {C.get("max_spread_de", 10.0)} — библиотека не уверена'}
+    cap = float(C.get('max_spread_de_top', C.get('max_spread_de', 10.0))) if kind == 'tops' else float(C.get('max_spread_de', 10.0))          # метки верха шумнее (блик/рельеф кромки): свой, более мягкий потолок
+    if spread > cap:
+        return {'ok': False, 'key': key, 'n': len(me), 'spread_de': round(spread, 1), 'why': f'разброс тона отделки {spread:.1f} > {cap} — библиотека не уверена'}
     return {'ok': True, 'key': key, 'tone': [round(float(x), 2) for x in tone], 'n': len(me), 'spread_de': round(spread, 1)}
 
 
 def carcass_library_side(pas: dict, ctx: dict, geoms: list, R: dict, card: dict | None) -> dict:
-    """Тон БОКОВ корпуса из библиотеки отделок (T-20261124-06, Ш2; первый выпуск — только бока; верх/зад/ножки — позже). Правило `carcass_library`: включено; тип с paint.hidden_pattern = body;
-    в библиотеке есть отделка товара (цвет корпуса в карточке) и она уверена. Боковые грани = нормаль вдоль горизонтальной оси, перпендикулярной фасаду (фасад — ось с большей площадью×|n|
-    у граней с фото), в панелях, где фото покрывает < `body_override.obs_share`. Их НЕ закрытые фото тексели красит виртуальная группа с тоном библиотеки (фото-тексели остаются; тон
-    группы-корпуса body_override на них не действует). Диагностика: тон видимых боковых текселей по фото и ΔE к библиотеке (спорное — в отчёт, не отказ). → отчёт (pas['carcass_library'])."""
+    """Тон БОКОВ (и по флагу ВЕРХА) корпуса из библиотеки отделок (T-20261124-06, Ш2). Правило `carcass_library`: включено; тип с paint.hidden_pattern = body; в библиотеке есть отделка товара
+    (цвет корпуса в карточке) и она уверена. Боковые грани = нормаль вдоль горизонтальной оси, перпендикулярной фасаду (фасад — ось с большей площадью×|n| у граней с фото), в панелях, где фото
+    покрывает < `body_override.obs_share`. Их НЕ закрытые фото тексели красит виртуальная группа с тоном библиотеки (фото-тексели остаются).
+    Флаги (все выкл. по умолчанию): `tone_mode`='lit' — тон бока берётся с ОСВЕЩЁННОГО верха отделки (метка бока снята с затенённой стороны снимка: на модели выходит темнее и насыщеннее дуба на фото);
+    `top` — то же для верха/кромки (грани оси y, знак +, в панелях без фото; хук Ш3в/«верх» на этих текселях снимается); `disputed_wins` — если тон ВИДИМЫХ боковых текселей фото расходится с библиотекой
+    (ΔE76 > `dispute_de`, чаще это фасад, спроецированный на бок), библиотека красит и их. Диагностика (фото vs библиотека, спорное) — в отчёт. → отчёт (pas['carcass_library'])."""
     import ref_zone as RZ
     C = R.get('carcass_library') or {}
     rep = {'enabled': bool(C.get('enabled', False)), 'applied': False}
@@ -786,9 +790,17 @@ def carcass_library_side(pas: dict, ctx: dict, geoms: list, R: dict, card: dict 
         return rep
     lib = carcass_library_tone(card, C)
     rep['library'] = lib
-    if not lib['ok']:
-        rep['why'] = lib['why']
+    lit = str(C.get('tone_mode', 'side')) == 'lit'
+    use_top = bool(C.get('top', False))
+    lib_top = carcass_library_tone(card, C, 'tops') if (use_top or lit) else {'ok': False, 'why': 'tone_mode=side, top выкл'}
+    rep['library_top'] = lib_top
+    side_tone = (lib_top['tone'] if (lit and lib_top['ok']) else (lib['tone'] if lib['ok'] else None))
+    ref_tone = lib['tone'] if lib['ok'] else side_tone                                      # с чем сравниваем фото-бок: тон бока «как на фото»
+    top_tone = lib_top['tone'] if (use_top and lib_top['ok']) else None
+    if side_tone is None and top_tone is None:
+        rep['why'] = lib['why'] if not lib['ok'] else lib_top.get('why')
         return rep
+    rep['tone_mode'] = 'lit' if (lit and lib_top['ok']) else 'side'
     app = [g for g in pas['groups'] if g.get('applied') and 'virtual_for' not in g]
     if not app:
         rep['why'] = 'нет применимых групп'
@@ -797,9 +809,11 @@ def carcass_library_side(pas: dict, ctx: dict, geoms: list, R: dict, card: dict 
     O = R.get('body_override') or {}
     obs_share = float(O.get('obs_share', 0.05))
     vid = 200000 + int(gmain['id'])
+    vid_top = 300000 + int(gmain['id'])
     maps = ctx['maps']
     cos_side = float(np.cos(np.radians(float(C.get('side_deg', 40.0)))))
-    n_over, n_faces, geoms_rep, ph_lab, ph_w = 0, 0, [], [], []
+    n_over, n_faces, geoms_rep, ph_lab, ph_w, n_top = 0, 0, [], [], [], 0
+    txo_all = {}
     for gi, g in enumerate(geoms):
         V = np.asarray(g['V'], np.float64)
         F = np.asarray(g['F'], np.int64)
@@ -823,31 +837,60 @@ def carcass_library_side(pas: dict, ctx: dict, geoms: list, R: dict, card: dict 
         side = np.abs(nrm[:, sa]) >= cos_side
         sel = side & unobs_q[pg]
         tx = occ & sel[np.maximum(ids, 0)]
-        if int(tx.sum()):
+        if side_tone is not None and int(tx.sum()):
             ctx['over'][gi].reshape(-1)[tx] = vid
-        n_over += int(tx.sum())
+        n_over += int(tx.sum()) if side_tone is not None else 0
         n_faces += int(sel.sum())
         obs = side & ~unobs_q[pg] & (kn_f > 0)                                          # диагностика: боковые грани, которые фото видит
         txo = occ & kn & obs[np.maximum(ids, 0)]
         if int(txo.sum()):
             ph_lab.append(np.asarray(ctx['labs'][gi]).reshape(-1, 3)[txo])
             ph_w.append(ar[ids[txo]])
-        geoms_rep.append({'geom': gi, 'facade_axis': 'xyz'[fa], 'side_axis': 'xyz'[sa], 'side_faces_unobserved': int(sel.sum()), 'texels': int(tx.sum()), 'side_faces_observed': int(obs.sum())})
+            txo_all[gi] = txo
+        ntg = 0
+        if top_tone is not None:                                                         # верх/кромка: грани оси y со знаком + в панелях без фото
+            topf = (nrm[:, 1] >= cos_side) & unobs_q[pg]
+            txt = occ & topf[np.maximum(ids, 0)]
+            ntg = int(txt.sum())
+            if ntg:
+                ctx['over'][gi].reshape(-1)[txt] = vid_top
+                hk = ctx.get('hook_keep')
+                if hk is not None:
+                    hk[gi] = np.asarray(hk[gi], bool) & ~txt.reshape(np.asarray(hk[gi]).shape)       # верх задан библиотекой отделки, а не хуком Ш3в/карточкой
+                n_top += ntg
+        geoms_rep.append({'geom': gi, 'facade_axis': 'xyz'[fa], 'side_axis': 'xyz'[sa], 'side_faces_unobserved': int(sel.sum()), 'texels': int(tx.sum()), 'side_faces_observed': int(obs.sum()), 'top_texels': ntg})
     rep['geoms'] = geoms_rep
+    n_rel = 0
     if ph_lab:
         L = np.concatenate(ph_lab)
         W = np.concatenate(ph_w)
         pt = [wmedian(L[:, c], W) for c in range(3)]
-        rep['photo_side'] = {'n': int(len(L)), 'tone': [round(float(x), 1) for x in pt], 'de76_to_library': round(float(np.linalg.norm(np.asarray(pt) - np.asarray(lib['tone']))), 1),
-                             'disputed': bool(np.linalg.norm(np.asarray(pt) - np.asarray(lib['tone'])) > float(C.get('dispute_de', 12.0)))}
-    if not n_over:
-        rep['why'] = 'боковых невидимых текселей нет'
+        dis_de = float(np.linalg.norm(np.asarray(pt) - np.asarray(ref_tone))) if ref_tone is not None else None
+        rep['photo_side'] = {'n': int(len(L)), 'tone': [round(float(x), 1) for x in pt], 'de76_to_library': None if dis_de is None else round(dis_de, 1),
+                             'disputed': bool(dis_de is not None and dis_de > float(C.get('dispute_de', 12.0)))}
+        if side_tone is not None and rep['photo_side']['disputed'] and bool(C.get('disputed_wins', False)):          # спорное → библиотека красит и видимые «боковые» тексели (фасад, спроецированный на бок)
+            rel = {}
+            for gi, txo in txo_all.items():
+                ctx['over'][gi].reshape(-1)[txo] = vid
+                rel[gi] = txo.reshape(np.asarray(ctx['kn_clean'][gi]).shape)
+                n_rel += int(txo.sum())
+            ctx['carcass_release'] = [rel.get(gi, np.zeros(np.asarray(ctx['kn_clean'][gi]).shape, bool)) for gi in range(len(geoms))]
+            rep['released_photo_texels'] = int(n_rel)
+    if not n_over and not n_top and not n_rel:
+        rep['why'] = 'боковых/верхних невидимых текселей нет'
         return rep
     sg = min(float(gmain.get('sigma_grain_L') or 0.0), float((R.get('grain_cap') or {}).get('max_sigma_l', 2.5)))
-    vg = {'id': vid, 'virtual_for': int(gmain['id']), 'parts': [], 'class': 'тон + зерно', 'class_why': f'бока корпуса по библиотеке отделок «{lib["key"]}» (лента), n={lib["n"]}', 'tone_lab': lib['tone'],
-          'sigma_grain_L': round(sg, 3), 'sigma_band_L': gmain.get('sigma_band_L'), 'applied': True, 'texels_known': 0, 'texels_total': int(n_over), 'from_library': lib['key']}
-    pas['groups'].append(vg)
-    rep.update({'applied': True, 'group': vid, 'texels': int(n_over), 'side_faces': int(n_faces), 'tone': lib['tone']})
+    if side_tone is not None and (n_over or n_rel):
+        src = lib_top if rep['tone_mode'] == 'lit' else lib
+        vg = {'id': vid, 'virtual_for': int(gmain['id']), 'parts': [], 'class': 'тон + зерно', 'class_why': f'бока корпуса по библиотеке отделок «{src["key"]}» (лента), n={src["n"]}, тон {rep["tone_mode"]}', 'tone_lab': side_tone,
+              'sigma_grain_L': round(sg, 3), 'sigma_band_L': gmain.get('sigma_band_L'), 'applied': True, 'texels_known': 0, 'texels_total': int(n_over + n_rel), 'from_library': src['key']}
+        pas['groups'].append(vg)
+        rep.update({'applied': True, 'group': vid, 'texels': int(n_over), 'side_faces': int(n_faces), 'tone': side_tone})
+    if top_tone is not None and n_top:
+        vt = {'id': vid_top, 'virtual_for': int(gmain['id']), 'parts': [], 'class': 'тон + зерно', 'class_why': f'верх/кромка корпуса по библиотеке отделок «{lib_top["key"]}» (лента), n={lib_top["n"]}', 'tone_lab': top_tone,
+              'sigma_grain_L': round(sg, 3), 'sigma_band_L': gmain.get('sigma_band_L'), 'applied': True, 'texels_known': 0, 'texels_total': int(n_top), 'from_library': lib_top['key']}
+        pas['groups'].append(vt)
+        rep.update({'applied': True, 'group_top': vid_top, 'top_texels': int(n_top), 'top_tone': top_tone})
     return rep
 
 
