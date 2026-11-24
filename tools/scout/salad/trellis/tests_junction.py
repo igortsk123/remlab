@@ -115,6 +115,49 @@ def test_rescue_probe_does_not_change_pick():
     assert p2 is pick and not info['applied'] and info['healable'], info
 
 
+# ---- az_sigma (T-20261124-18, запрос р.1) ----
+AZR = {'enabled': True, 'window_deg': 15.0, 'k': 1.5, 'floor_deg': 2.0, 'calibration': 'тест'}
+
+
+def _alpha_box(cam):
+    return PF.splat_mask(np.vstack([_face(2, HI[2], (0, 1)), _face(0, HI[0], (2, 1))]), cam, S) > 0
+
+
+def test_az_sigma_not_diagonal_is_null():
+    cam = {**TRUE, 'az': 20.0}                                                       # |20 mod 90 − 45| = 25 ≥ 15
+    r = PF.az_sigma(np.zeros((10, 3)), cam, _alpha_box(cam), CV, AZR, n=N, log=lambda *a: None)
+    assert r['applicable'] is False and r['value'] is None and 'не диагональный' in r['reason'], r
+
+
+def test_az_sigma_math_floor_and_mod180():
+    """подмена nm_two_stage: az сдвигается на заданное; проверяем СКО от исходного, модуль 180°, пол и k."""
+    cam = {**TRUE, 'az': 44.0}
+    shifts = iter([0.5, -0.5, 0.5, -0.5, 0.5, -0.5])
+    real = PF.nm_two_stage
+    PF.nm_two_stage = lambda Pc, Mp, Mb, n, c0: ({**c0, 'az': c0['az'] + next(shifts)}, 1)
+    try:
+        r = PF.az_sigma(np.zeros((10, 3)), cam, _alpha_box(cam), CV, AZR, n=N, log=lambda *a: None)
+        assert r['applicable'] and abs(r['sigma_raw_deg'] - 0.5) < 1e-6 and r['value'] == 2.0, r          # 1,5·0,5 = 0,75 < пола 2,0
+        big = iter([4.0, -4.0, 4.0, -4.0, 4.0, -4.0])
+        PF.nm_two_stage = lambda Pc, Mp, Mb, n, c0: ({**c0, 'az': c0['az'] + next(big)}, 1)
+        r = PF.az_sigma(np.zeros((10, 3)), cam, _alpha_box(cam), CV, AZR, n=N, log=lambda *a: None)
+        assert abs(r['value'] - 6.0) < 1e-6, r                                       # 1,5·4
+        flip = iter([180.5, 179.5, 180.5, 179.5, 180.5, 179.5])                      # az ↔ az+180°: симметрия не должна давать ложную σ
+        PF.nm_two_stage = lambda Pc, Mp, Mb, n, c0: ({**c0, 'az': c0['az'] + next(flip)}, 1)
+        r = PF.az_sigma(np.zeros((10, 3)), cam, _alpha_box(cam), CV, AZR, n=N, log=lambda *a: None)
+        assert abs(r['sigma_raw_deg'] - 0.5) < 1e-6, r
+    finally:
+        PF.nm_two_stage = real
+
+
+def test_az_sigma_real_box_small():
+    """настоящий nm_two_stage на ящике с известной камерой (диагональ 45°): σ малая, value ≥ пола, 6 отклонений."""
+    cam = {**TRUE, 'az': 40.0}
+    V = np.vstack([_face(2, HI[2], (0, 1)), _face(2, LO[2], (0, 1)), _face(0, HI[0], (2, 1)), _face(0, LO[0], (2, 1))])
+    r = PF.az_sigma(V, cam, _alpha_box(cam), CV, AZR, n=N, log=lambda *a: None)
+    assert r['applicable'] and len(r['deltas_deg']) == 6 and r['value'] >= 2.0 and r['sigma_raw_deg'] < 6.0, r
+
+
 if __name__ == '__main__':
     for n, f in sorted(globals().items()):
         if n.startswith('test_') and callable(f):
