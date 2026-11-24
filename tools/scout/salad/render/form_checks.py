@@ -21,6 +21,8 @@
   dims_depth    · глубина формы ÷ глубина карточки при масштабе по высоте (T-20261124-11; паспорт #130/#132/#145): значение — отклонение меньшей горизонтальной оси, +0,25 = форма толще каталога на 25 %. Только ЭТАЛОННЫЕ размеры карточки (ось, выведенная программой — `NOT_REFERENCE_RX` из dimless.py, — не берётся: иначе мерка сверяла бы форму с её же приором) · «форма-ящик толще каталога», «тонкие ленты/стержни»
   dims_axes     · наибольшее по модулю отклонение габарита формы от карточки по осям (ширина, глубина, высота) · то же
   (обе мерки в observe: `dims_flag: false` — флага нет, значение и `would_flag` («сработало бы при пороге») пишутся; сколько сработало бы — для калибровки порогов `dims_*` в rules)
+  thin_width    · толщина тонких частей (ленты, стержни, ножки-прутья) формы ÷ фото по силуэтам, оба к высоте `thin_h`; габарит верный (dims молчит), а лента тоньше/толще фото (T-20261124-17; #145) · «ленты/стержни»
+  thin_len      · длина тонких частей формы ÷ фото (пропали/появились лишние стержни; в 3/4 часть скрыта — допуск шире). Обе — observe: `thin_flag: false`, пишется `would_flag`
 Режим: `block` в rules — проверки, чей флаг даёт статус `shape_reject` (в списке только то, у чего 0 ложных на годных формах); остальные — `observe`.
 Статус формы: shape_reject (сработала block-проверка) · camera_or_mask_uncertain (только провал контура из этапа 04: поза/маска/перёд-зад — не доказательство брака формы) · needs_review (прочие флаги) · pass.
 Запуск: python3 form_checks.py --glbs DIR --glb-name '{sku}-hd.glb' --photos DIR --frames DIR --skus a,b | --skus-file F --out DIR [--eye eye.json --table table.md]
@@ -250,6 +252,88 @@ def legs_checks(sku: str, photo: str | None, roots: list[str], R: dict) -> list[
     ph = SL.read_rgba(photo)
     pa = SL.warp_inv((ph[..., 3] > 127).astype(np.uint8) * 255, np.array(reg['P'], np.float64).reshape(3, 3), (w, h), interp=cv2.INTER_NEAREST) > 127
     return [legs_match(S, pa, R)]
+
+
+# ---------- тонкие ленты и стержни: габарит верный, толщина нет (T-20261124-17; паспорт #145) ----------
+def thin_parts(mask: np.ndarray, R: dict) -> dict:
+    """Тонкие части силуэта (ленты, стержни, спицы, ножки-прутья, тонкие рамы и кромки): то, что пропадает при раскрытии маски кругом радиуса `thin_r` × высоты силуэта (раскрытие = объединение кругов, целиком
+    влезающих в маску; через два EDT, без структурного элемента). Масштаб — высота силуэта = `thin_h` пикселей, отношение сторон сохраняется. Берутся связные куски остатка длиной ≥ `thin_comp_min` × высоты
+    (мелкая «крошка» у краёв толстых частей — не лента). У куска: толщина = 4 × среднее (EDT − ½) по его пикселям (для полосы шириной n пикселей это n — без дрожания на чётных/нечётных n, как у «2·EDT−1» по хребту),
+    длина = площадь ÷ толщина, центр — доли ширины и высоты.
+    → {len: суммарная длина ÷ высота, w: медиана толщин кусков ÷ высота (None, если кусков нет), n: число кусков, share: доля площади силуэта, comps: [{cx, cy, len, w}]}."""
+    from scipy import ndimage
+    h0, w0 = mask.shape
+    H = int(R['thin_h'])
+    s = H / max(h0, 1)
+    img = np.asarray(Image.fromarray((mask * 255).astype(np.uint8)).resize((max(int(round(w0 * s)), 1), H), Image.BILINEAR)) > 127
+    img = np.pad(img, 2)                                                       # рамка из фона: край кадра — тоже край силуэта
+    edt = ndimage.distance_transform_edt(img)
+    r = max(float(R['thin_r']) * H, 1.0)
+    core = edt > r
+    thin = img & ~(ndimage.distance_transform_edt(~core) <= r) if core.any() else img.copy()
+    lab, n = ndimage.label(thin, structure=np.ones((3, 3), bool))
+    comps, area = [], 0
+    for i, sl in enumerate(ndimage.find_objects(lab), start=1):
+        if sl is None:
+            continue
+        m = lab[sl] == i
+        a = int(m.sum())
+        wpx = 4.0 * float((edt[sl][m] - 0.5).mean())
+        if wpx <= 0 or a / wpx < float(R['thin_comp_min']) * H:
+            continue
+        ys, xs = np.nonzero(m)
+        comps.append({'cx': (float(xs.mean()) + sl[1].start) / img.shape[1], 'cy': (float(ys.mean()) + sl[0].start) / H, 'len': a / wpx / H, 'w': wpx / H})
+        area += a
+    if not comps:
+        return {'len': 0.0, 'w': None, 'n': 0, 'share': 0.0, 'comps': []}
+    return {'len': sum(c['len'] for c in comps), 'w': float(np.median([c['w'] for c in comps])), 'n': len(comps), 'share': area / max(float(img.sum()), 1.0), 'comps': comps}
+
+
+def thin_pairs(a: dict, b: dict, R: dict) -> list[tuple]:
+    """Пары «тонкая часть формы ↔ тонкая часть фото»: жадно по расстоянию между центрами (доли ширины и высоты) ≤ `thin_pair_dist`, длины в пределах ×`thin_pair_len` друг от друга (ножка — с ножкой, кромка — с кромкой).
+    Ближайшие пары первыми, каждая часть — в одной паре. → [(часть формы, часть фото, расстояние)]."""
+    cand = sorted(((math.hypot(p['cx'] - q['cx'], p['cy'] - q['cy']), i, j) for i, p in enumerate(a['comps']) for j, q in enumerate(b['comps'])
+                   if max(p['len'], q['len']) <= float(R['thin_pair_len']) * max(min(p['len'], q['len']), 1e-9)), key=lambda t: t[0])
+    used_a, used_b, out = set(), set(), []
+    for d, i, j in cand:
+        if d > float(R['thin_pair_dist']):
+            break
+        if i in used_a or j in used_b:
+            continue
+        used_a.add(i)
+        used_b.add(j)
+        out.append((a['comps'][i], b['comps'][j], d))
+    return out
+
+
+def thin_checks(front: np.ndarray, photo: np.ndarray, R: dict, az: float = 0.0) -> list[dict]:
+    """Мерка по силуэту фото для тонких частей (паспорт #145: габарит формы совпал с карточкой — `dims_*` молчит, — но лента/стержень тоньше или толще, чем на фото).
+    thin_width: толщина тонких частей формы ÷ фото ПО ПАРАМ (`thin_pairs`: ножка с ножкой, кромка с кромкой), значение — медиана отношений пар; нужно ≥ `thin_min_pairs` пар. Нет тонких частей у фото —
+    мерка неприменима; у фото есть, у формы нет (или пар не набралось) — значение None, причина в note (длину ловит thin_len). Сработало бы при ≤ `thin_w_lo` или ≥ `thin_w_hi`.
+    thin_len: суммарная длина тонких частей формы ÷ фото (пропали/появились лишние стержни; фото в 3/4 прячет часть — допуск шире). OBSERVE: `thin_flag: false` → флага нет, `would_flag` пишется.
+    Силуэт формы — ортогональный при лучшем азимуте (приближение, как `sil_checks`): перспектива фото и поворот чуть меняют толщину, допуск порога это учитывает."""
+    on = bool(R.get('thin_flag', False))
+    a, b = thin_parts(front, R), thin_parts(photo, R)
+    ctx = (f"азимут {az:.0f}° (приближение, ортогонально); тонких кусков форма/фото {a['n']}/{b['n']}, длина {a['len']:.2f}/{b['len']:.2f} высоты, "
+           f"толщина (медиана) {('%.3f' % a['w']) if a['w'] else '—'}/{('%.3f' % b['w']) if b['w'] else '—'} высоты")
+    thr_w = [R['thin_w_lo'], R['thin_w_hi']]
+    thr_l = [R['thin_len_lo'], R['thin_len_hi']]
+    if b['w'] is None or b['len'] < R['thin_min_len']:
+        why = ctx + ' — у фото тонких частей нет: мерка неприменима'
+        return [dict(check('thin_width', None, thr_w, False, why), would_flag=False, pairs=0), dict(check('thin_len', None, thr_l, False, why), would_flag=False)]
+    lr = a['len'] / b['len']
+    would_l = lr <= R['thin_len_lo'] or lr >= R['thin_len_hi']
+    out_l = dict(check('thin_len', round(lr, 3), thr_l, would_l and on, ctx), would_flag=bool(would_l))
+    if a['w'] is None or a['len'] < R['thin_min_len']:
+        return [dict(check('thin_width', None, thr_w, False, ctx + ' — у формы тонких частей нет (на фото есть): пропали или слиты'), would_flag=False, pairs=0), out_l]
+    pr = thin_pairs(a, b, R)
+    if len(pr) < int(R['thin_min_pairs']):
+        return [dict(check('thin_width', None, thr_w, False, ctx + f' — пар «часть формы ↔ часть фото» {len(pr)} < {int(R["thin_min_pairs"])}: сравнить толщину не с чем'), would_flag=False, pairs=len(pr)), out_l]
+    ratios = [p['w'] / q['w'] for p, q, _ in pr]
+    wr = float(np.median(ratios))
+    would_w = wr <= R['thin_w_lo'] or wr >= R['thin_w_hi']
+    note = ctx + f"; пар {len(pr)}, отношения толщин {', '.join('%.2f' % x for x in sorted(ratios))}"
+    return [dict(check('thin_width', round(wr, 3), thr_w, would_w and on, note), would_flag=bool(would_w), pairs=len(pr)), out_l]
 
 
 # ---------- задняя стенка по кадрам ----------
@@ -535,8 +619,10 @@ def run_sku(sku: str, glb: str | None, photo: str | None, frames: str | None, ru
                 pm = photo_mask(photo)
                 fs, az = best_front(surface_points(m, int(R['sil_points'])), pm, R)
                 rec['checks'] += sil_checks(fs, pm, R, az)
+                rec['checks'] += thin_checks(sil_at(surface_points(m, int(R['thin_points']), seed=3), az, int(R['thin_grid'])), pm, R, az)
             else:
                 rec['checks'].append(check('sil_extra~', None, R['sil_extra'], False, 'нет маски фото — приближённые силуэтные проверки пропущены'))
+                rec['checks'].append(dict(check('thin_width', None, [R['thin_w_lo'], R['thin_w_hi']], False, 'нет маски фото — мерка тонких частей пропущена'), would_flag=False))
     if frames:
         rec['checks'] += back_dup(frames, R)
     if alpha_dir:

@@ -404,6 +404,145 @@ class DimsVsCard(unittest.TestCase):
         self.assertEqual(FC.cards_from_db(['1_2'], boom), {})
 
 
+class ThinVsPhoto(unittest.TestCase):
+    """T-20261124-17: мерка по силуэту фото для тонких лент/стержней (паспорт #145), observe. Известная толщина — синтетика: стол (столешница + ножки-цилиндры), «фото» — маска фронта, нарисованная точно."""
+
+    @staticmethod
+    def table(leg_r=0.012, n_legs=4):
+        top = trimesh.creation.box(extents=(1.0, 0.08, 0.6))
+        top.apply_translation((0, 0.96, 0))
+        legs = []
+        for x, z in ((-0.42, -0.22), (0.42, -0.22), (-0.42, 0.22), (0.42, 0.22))[:n_legs]:
+            c = trimesh.creation.cylinder(radius=leg_r, height=0.92, sections=24)
+            c.apply_transform(trimesh.transformations.rotation_matrix(np.pi / 2, [1, 0, 0]))     # ось цилиндра у trimesh — Z, нужна вертикаль (Y)
+            c.apply_translation((x, 0.46, z))
+            legs.append(c)
+        return trimesh.util.concatenate([top] + legs)
+
+    @staticmethod
+    def photo(leg_w=0.024, xs=(-0.42, 0.42), H=700, top_h=0.08):
+        W = H
+        m = np.zeros((H, W), bool)
+        m[: int(top_h * H), :] = True
+        lw = max(int(round(leg_w * H)), 1)
+        for x in xs:
+            cx = int((x + 0.5) * W)
+            m[int(top_h * H):, max(cx - lw // 2, 0): cx - lw // 2 + lw] = True
+        return m
+
+    def front(self, **kw):
+        return FC.sil_at(FC.surface_points(self.table(**kw), int(R['thin_points']), seed=1), 0.0, int(R['thin_grid']))
+
+    def test_rules_have_thresholds_and_observe_by_default(self):
+        for k in ('thin_flag', 'thin_points', 'thin_grid', 'thin_h', 'thin_r', 'thin_comp_min', 'thin_min_len', 'thin_pair_dist', 'thin_pair_len', 'thin_min_pairs', 'thin_w_lo', 'thin_w_hi', 'thin_len_lo', 'thin_len_hi'):
+            self.assertIn(k, R)
+        self.assertFalse(R['thin_flag'])                                          # observe: флага нет, пока не откалиброван порог
+        self.assertNotIn('thin_width', RULES['block'])
+        self.assertNotIn('thin_len', RULES['block'])
+        self.assertLess(R['thin_w_lo'], 1.0 < R['thin_w_hi'])
+
+    def test_thin_parts_finds_legs_not_body(self):
+        a = FC.thin_parts(self.photo(0.024), R)
+        self.assertEqual(a['n'], 2)                                               # две ножки; столешница 8 % высоты — «толстая» (кругу радиуса 3 % она по высоте больше)
+        self.assertAlmostEqual(a['w'], 0.024, delta=0.003)                        # толщина ножки в долях высоты — по определению, без дрожания на чётных/нечётных пикселях
+        self.assertAlmostEqual(a['len'], 2 * 0.92, delta=0.25)
+        fat = np.ones((200, 300), bool)                                           # сплошной прямоугольник — тонких частей нет
+        self.assertEqual(FC.thin_parts(fat, R)['n'], 0)
+        self.assertIsNone(FC.thin_parts(fat, R)['w'])
+
+    def test_crumbs_at_rough_edge_are_not_ribbons(self):
+        rng = np.random.default_rng(1)
+        m = np.zeros((300, 300), bool)
+        m[20:280, 20:280] = True
+        edge = rng.random((300, 300)) < 0.08
+        m |= np.roll(m, 3, axis=1) & edge                                           # рваный край толстого тела
+        self.assertEqual(FC.thin_parts(m, R)['n'], 0)
+
+    def test_exact_form_is_clean_control(self):
+        d = FC.thin_checks(self.front(leg_r=0.012), self.photo(0.024), R, 0.0)
+        w, ln = by(d, 'thin_width'), by(d, 'thin_len')
+        self.assertAlmostEqual(w['value'], 1.0, delta=0.12)                       # в замере на разных толщинах 1,02–1,08 (точечный силуэт формы чуть «жирнее» точной маски)
+        self.assertAlmostEqual(ln['value'], 1.0, delta=0.1)
+        self.assertFalse(w['would_flag'] or ln['would_flag'] or w['flag'] or ln['flag'])
+        self.assertEqual(w['pairs'], 2)
+
+    def test_form_thicker_than_photo_would_flag_but_observe_has_no_flag(self):
+        d = FC.thin_checks(self.front(leg_r=0.012), self.photo(0.012), R, 0.0)    # ножка формы вдвое толще, чем на фото
+        w = by(d, 'thin_width')
+        self.assertAlmostEqual(w['value'], 2.0, delta=0.35)
+        self.assertTrue(w['would_flag'])
+        self.assertFalse(w['flag'])                                                # observe
+        self.assertIn('пар 2', w['note'])
+
+    def test_form_thinner_than_photo_would_flag(self):
+        d = FC.thin_checks(self.front(leg_r=0.012), self.photo(0.048), R, 0.0)    # ножка формы вдвое тоньше, чем на фото (лента/стержень)
+        w = by(d, 'thin_width')
+        self.assertAlmostEqual(w['value'], 0.5, delta=0.1)
+        self.assertTrue(w['would_flag'])
+
+    def test_moderate_deviation_inside_tolerance_is_quiet(self):
+        w = by(FC.thin_checks(self.front(leg_r=0.012), self.photo(0.019), R, 0.0), "thin_width")     # на фото ножка на 20 % тоньше: перспектива и поворот
+        self.assertFalse(w['would_flag'])
+        w = by(FC.thin_checks(self.front(leg_r=0.012), self.photo(0.029), R, 0.0), "thin_width")     # на 20 % толще
+        self.assertFalse(w['would_flag'])
+
+    def test_flag_appears_only_when_switched_on(self):
+        on = dict(R, thin_flag=True)
+        w = by(FC.thin_checks(self.front(leg_r=0.012), self.photo(0.048), on, 0.0), 'thin_width')
+        self.assertTrue(w['flag'] and w['would_flag'])
+
+    def test_photo_without_thin_parts_is_not_applicable(self):
+        d = FC.thin_checks(self.front(leg_r=0.012), np.ones((300, 400), bool), R, 0.0)
+        w = by(d, 'thin_width')
+        self.assertIsNone(w['value'])
+        self.assertFalse(w['would_flag'] or w['flag'])
+        self.assertIn('мерка неприменима', w['note'])
+
+    def test_form_lost_thin_parts_is_reported_by_length_not_width(self):
+        blob = np.ones((300, 300), bool)                                            # форма без ножек (плита), на фото ножки
+        d = FC.thin_checks(blob, self.photo(0.024), R, 0.0)
+        self.assertIsNone(by(d, 'thin_width')['value'])
+        self.assertIn('пропали', by(d, 'thin_width')['note'])
+        self.assertEqual(by(d, 'thin_len')['value'], 0.0)
+        self.assertTrue(by(d, 'thin_len')['would_flag'])
+
+    def test_legs_in_other_places_are_not_paired(self):
+        d = FC.thin_checks(self.front(leg_r=0.012), self.photo(0.024, xs=(-0.1, 0.1)), R, 0.0)    # ножки фото далеко от ножек формы (другой ракурс/поза) — не пара
+        w = by(d, 'thin_width')
+        self.assertIsNone(w['value'])
+        self.assertEqual(w['pairs'], 0)
+        self.assertIn('пар', w['note'])
+
+    def test_scale_invariance(self):
+        a = FC.thin_checks(self.front(leg_r=0.012), self.photo(0.024, H=500), R, 0.0)
+        b = FC.thin_checks(self.front(leg_r=0.012), self.photo(0.024, H=1400), R, 0.0)
+        self.assertAlmostEqual(by(a, 'thin_width')['value'], by(b, 'thin_width')['value'], delta=0.08)
+
+    def test_run_sku_writes_thin_checks_with_photo_and_skips_without(self):
+        d = tempfile.mkdtemp(prefix='tests_fc_thin_')
+        g = os.path.join(d, 't.glb')
+        self.table().export(g)
+        a = np.zeros((700, 700, 4), np.uint8)
+        a[:, :, 3] = self.photo(0.024).astype(np.uint8) * 255
+        p = os.path.join(d, 'p.png')
+        Image.fromarray(a).save(p)
+        rec = FC.run_sku('s', g, p, None, RULES)
+        names = [c['name'] for c in rec['checks']]
+        self.assertIn('thin_width', names)
+        self.assertIn('thin_len', names)
+        self.assertNotIn('thin_width', rec['flags'])                                # observe: флагом не становится
+        self.assertEqual(rec['status'], 'pass' if rec['auto'] == 'ok' else rec['status'])
+        none = FC.run_sku('s', g, None, None, RULES)
+        self.assertIsNone(by(none['checks'], 'thin_width')['value'])
+        self.assertIn('нет маски фото', by(none['checks'], 'thin_width')['note'])
+
+    def test_run_is_independent_of_card_and_pose(self):
+        # мерка толщины не зависит от карточки (dims_*) и позы этапа 04: работает на любом товаре с маской фото
+        src = inspect.getsource(FC.thin_checks) + inspect.getsource(FC.thin_parts) + inspect.getsource(FC.thin_pairs)
+        self.assertNotIn('card', src)
+        self.assertNotIn('pose', src)
+
+
 def trimesh_concat(*ms):
     import trimesh
     return trimesh.util.concatenate(list(ms))

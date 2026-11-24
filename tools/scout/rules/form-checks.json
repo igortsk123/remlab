@@ -53,7 +53,21 @@
     "dims_depth_over": 0.2,
     "dims_depth_under": 0.3,
     "dims_axis_dev": 0.25,
-    "dims_dia_axes": false
+    "dims_dia_axes": false,
+    "thin_flag": false,
+    "thin_points": 800000,
+    "thin_grid": 768,
+    "thin_h": 512,
+    "thin_r": 0.03,
+    "thin_comp_min": 0.06,
+    "thin_min_len": 0.15,
+    "thin_pair_dist": 0.15,
+    "thin_pair_len": 3.0,
+    "thin_min_pairs": 1,
+    "thin_w_lo": 0.65,
+    "thin_w_hi": 1.6,
+    "thin_len_lo": 0.5,
+    "thin_len_hi": 2.0
   },
   "block": [
     "glb_sane",
