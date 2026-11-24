@@ -782,6 +782,90 @@ def carcass_library_tone(card: dict | None, C: dict, kind: str = 'members') -> d
     return {'ok': True, 'key': key, 'tone': [round(float(x), 2) for x in tone], 'n': len(me), 'spread_de': round(spread, 1)}
 
 
+def facade_axis(geoms: list, front: dict | None = None, C: dict | None = None) -> dict:
+    """ОДНА ось лица (фасада) корпуса НА ТОВАР для всего 07 (T-20261124-21; директор и два советника 24.11: один свидетель, второй копии нет, запасных путей нет). Ось в плане: x или z (y — вверх).
+    Ось даёт ТОЛЬКО свидетель `front` = tools/scout/front_axis.py `front_axis_resolved` (orient → камера 04 при снимке на длинную грань → доли известного; θ, ось, знак перёд↔зад).
+    Воздержание (ось None, причина в `reason`; вызывающий бока библиотекой НЕ красит — перекрашенная дверь хуже некрашеного бока): нет свидетеля; θ у диагонали (до ближайшей оси > 45° − `facade_diag_deg`; бок — конус, axis_of_theta квантует в x/z);
+    угловой (план повёрнут > `facade_skew_deg` от x/z или заполнение плана < `facade_fill_min`: L-образный, скос 45°).
+    Габарит в плане (главные оси вершин, как `photo_frontal_of`) и площадь граней осью НЕ решают — только сверка в отчёте: флаги `axis_gabarit_conflict`, `axis_area_conflict` (перегородки открытых стеллажей дают грани ±x при лице z).
+    → {'axis': 'x'|'z'|None, 'sign': ±1|None, 'by': witness|unknown, 'source', 'reason', 'theta', 'area_axis', 'area_ratio', 'gabarit_axis', 'gabarit_ratio', 'skew_deg', 'fill', 'flags'}; чистая функция."""
+    import json as _json
+
+    import front_axis as FA
+    C = C or {}
+    diag_deg, skew_max, fill_min = float(C.get('facade_diag_deg', 10.0)), float(C.get('facade_skew_deg', 20.0)), float(C.get('facade_fill_min', 0.8))
+    sq = float(_json.load(open(FA.AXIS_RULES, encoding='utf-8'))['square_ratio'])
+    Vs, Fs, off = [], [], 0
+    for g in geoms:
+        v, f = np.asarray(g['V'], np.float64), np.asarray(g['F'], np.int64)
+        Vs.append(v)
+        Fs.append(f + off)
+        off += len(v)
+    V, F = np.concatenate(Vs), np.concatenate(Fs)
+    n3 = np.cross(V[F[:, 1]] - V[F[:, 0]], V[F[:, 2]] - V[F[:, 0]])
+    ar = np.linalg.norm(n3, axis=1) / 2
+    nrm = n3 / np.maximum(np.linalg.norm(n3, axis=1, keepdims=True), 1e-12)
+    a = [float((ar * np.abs(nrm[:, k])).sum()) for k in (0, 2)]
+    area_axis = 0 if a[0] > a[1] else 2
+    ratio = max(a) / max(min(a), 1e-12)
+    P = V[:, [0, 2]] - V[:, [0, 2]].mean(axis=0)
+    _w, E = np.linalg.eigh(np.cov(P.T))
+    ext_long, ext_short = float(np.ptp(P @ E[:, 1])), float(np.ptp(P @ E[:, 0]))
+    e = E[:, 1]
+    phi = abs(float(np.degrees(np.arctan2(e[1], e[0])))) % 90.0
+    skew = min(phi, 90.0 - phi)
+    square = ext_short <= 0 or ext_long / ext_short < sq
+    gab = None if square else (2 if abs(e[0]) > abs(e[1]) else 0)                    # длинная сторона вдоль x → нормаль длинной грани (лицо) по z
+    hz = np.where(np.abs(nrm[:, 1]) >= 0.7)[0]
+    fill = None
+    if len(hz) and float(ar[hz].sum()) > 0:                                          # заполнение плана горизонтальными поверхностями (верх/полки): L-образный и угловой — ниже
+        rng = np.random.default_rng(0)
+        idx = rng.choice(hz, size=20000, p=ar[hz] / ar[hz].sum())
+        r1, r2 = rng.random(20000), rng.random(20000)
+        fl = r1 + r2 > 1
+        r1, r2 = np.where(fl, 1 - r1, r1), np.where(fl, 1 - r2, r2)
+        S = V[F[idx, 0]] + r1[:, None] * (V[F[idx, 1]] - V[F[idx, 0]]) + r2[:, None] * (V[F[idx, 2]] - V[F[idx, 0]])
+        mu = V[:, [0, 2]].mean(axis=0)
+        fills = []
+        for B in (np.eye(2), E):                                                     # рамка по x/z и по осям габарита: у повёрнутого прямоугольника полна вторая, у углового — ни одна
+            Qv, Qs = P @ B, (S[:, [0, 2]] - mu) @ B
+            lo, hi = Qv.min(axis=0), Qv.max(axis=0)
+            gi_ = np.clip(((Qs - lo) / np.maximum(hi - lo, 1e-9) * 24).astype(int), 0, 23)
+            fills.append(float(len(np.unique(gi_[:, 0] * 24 + gi_[:, 1]))) / (24 * 24))
+        fill = max(fills)
+    info = {'axis': None, 'sign': None, 'by': 'unknown', 'source': None, 'reason': None, 'theta': None, 'area_axis': 'xyz'[area_axis], 'area_ratio': round(ratio, 2),
+            'gabarit_axis': None if gab is None else 'xyz'[gab], 'gabarit_ratio': round(ext_long / max(ext_short, 1e-9), 2), 'skew_deg': round(skew, 1), 'fill': None if fill is None else round(fill, 3), 'flags': []}
+    if skew > skew_max:
+        info['reason'] = f'план повёрнут на {skew:.0f}° от осей x/z (угловой/скос)'
+        return info
+    if fill is not None and fill < fill_min:
+        info['reason'] = f'план заполнен на {100 * fill:.0f} % < {100 * fill_min:.0f} % (L-образный/угловой)'
+        return info
+    wit = front or {}
+    th, fx = wit.get('theta'), wit.get('axis')
+    if th is not None and fx is not None:
+        o = float(th) % 90.0
+        o = min(o, 90.0 - o)
+        info.update({'theta': float(th), 'source': wit.get('source')})
+        if o > 45.0 - diag_deg:                                                      # 3/4-снимок у диагонали: ось по θ неоднозначна → воздержание
+            info['reason'] = f'свидетель у диагонали: θ {float(th):.0f}° (до ближайшей оси {o:.0f}° > {45.0 - diag_deg:.0f}°)'
+            return info
+        ax, sg, info['by'] = int(fx[0]), int(fx[1]), 'witness'
+        if gab is not None and gab != ax:
+            info['flags'].append('axis_gabarit_conflict')
+    else:
+        if wit.get('flags'):
+            info['witness_flags'] = list(wit['flags'])
+        info['reason'] = 'нет свидетеля «перёда» (θ неизвестна: ' + ','.join(wit.get('flags') or ['нет данных']) + ') — габарит и площадь осью не решают'
+        return info
+    if ratio >= 1.3 and area_axis != ax:
+        info['flags'].append('axis_area_conflict')
+    if wit.get('flags'):
+        info['witness_flags'] = list(wit['flags'])
+    info.update({'axis': 'xyz'[ax], 'sign': sg})
+    return info
+
+
 def carcass_library_side(pas: dict, ctx: dict, geoms: list, R: dict, card: dict | None) -> dict:
     """Тон БОКОВ (и по флагу ВЕРХА) корпуса из библиотеки отделок (T-20261124-06, Ш2). Правило `carcass_library`: включено; тип с paint.hidden_pattern = body; в библиотеке есть отделка товара
     (цвет корпуса в карточке) и она уверена. Боковые грани = нормаль вдоль горизонтальной оси, перпендикулярной фасаду (фасад — ось с большей площадью×|n| у граней с фото), в панелях, где фото
@@ -826,6 +910,15 @@ def carcass_library_side(pas: dict, ctx: dict, geoms: list, R: dict, card: dict 
     cos_side = float(np.cos(np.radians(float(C.get('side_deg', 40.0)))))
     n_over, n_faces, geoms_rep, ph_lab, ph_w, n_top = 0, 0, [], [], [], 0
     txo_all = {}
+    kobs_all, kept_noobs = {}, 0                                                        # T-20261124-21: диагностика kept_known_side (известное, оставшееся в k_ap после release)
+    kk_have = ctx.get('known_keep') is not None                                         # tex_fill кладёт k_keep; нет — диагностика kept_known_side не считается
+    fa_info = None
+    if bool(C.get('facade_axis_witness', False)):                                       # T-20261124-21: ось лица — единый свидетель на товар; неизвестна → правило не применяем (не возвращаемся к фото-весу)
+        fa_info = facade_axis(geoms, ctx.get('front_resolved'), C)
+        rep['facade_axis_info'] = fa_info
+        if fa_info['axis'] is None:
+            rep['why'] = 'ось фасада неизвестна: ' + str(fa_info['reason'])
+            return rep
     for gi, g in enumerate(geoms):
         V = np.asarray(g['V'], np.float64)
         F = np.asarray(g['F'], np.int64)
@@ -841,6 +934,8 @@ def carcass_library_side(pas: dict, ctx: dict, geoms: list, R: dict, card: dict 
         if sum(w_ax) <= 0:
             continue
         fa = 0 if w_ax[0] > w_ax[1] else 2
+        if fa_info is not None:
+            fa = 'xyz'.index(fa_info['axis'])
         sa = 2 if fa == 0 else 0
         pg = RZ.panel_ids(V, F, None)
         tot_q = np.bincount(pg[ids[occ]], minlength=int(pg.max()) + 1)
@@ -859,6 +954,12 @@ def carcass_library_side(pas: dict, ctx: dict, geoms: list, R: dict, card: dict 
             ph_lab.append(np.asarray(ctx['labs'][gi]).reshape(-1, 3)[txo])
             ph_w.append(ar[ids[txo]])
             txo_all[gi] = txo
+        if kk_have:                                                                      # известные (known_keep, без эрозии kn_clean) тексели тех же obs-граней; набор граней НЕ расширяется
+            kk = np.asarray(ctx['known_keep'][gi], bool).reshape(-1)
+            obs_t = np.maximum(ids, 0)
+            vw = side & ~unobs_q[pg]                                                     # боковые грани просматриваемых панелей — и с чистыми текселями (obs), и без (эрозия съела чистые, известное осталось)
+            kobs_all[gi] = occ & kk & vw[obs_t]
+            kept_noobs += int((occ & kk & (vw & ~obs)[obs_t]).sum())      # известные тексели боковых граней просматриваемых панелей без чистых текселей (пункт 3 рецензии — не трогаем, только считаем)
         ntg = 0
         if top_tone is not None:                                                         # верх/кромка: грани оси y со знаком + в панелях без фото
             topf = (nrm[:, 1] >= cos_side) & unobs_q[pg]
@@ -870,7 +971,7 @@ def carcass_library_side(pas: dict, ctx: dict, geoms: list, R: dict, card: dict 
                 if hk is not None:
                     hk[gi] = np.asarray(hk[gi], bool) & ~txt.reshape(np.asarray(hk[gi]).shape)       # верх задан библиотекой отделки, а не хуком Ш3в/карточкой
                 n_top += ntg
-        geoms_rep.append({'geom': gi, 'facade_axis': 'xyz'[fa], 'side_axis': 'xyz'[sa], 'side_faces_unobserved': int(sel.sum()), 'texels': int(tx.sum()), 'side_faces_observed': int(obs.sum()), 'top_texels': ntg})
+        geoms_rep.append({'geom': gi, 'facade_by': 'witness' if fa_info is not None else 'photo', 'facade_axis': 'xyz'[fa], 'side_axis': 'xyz'[sa], 'side_faces_unobserved': int(sel.sum()), 'texels': int(tx.sum()), 'side_faces_observed': int(obs.sum()), 'top_texels': ntg})
     rep['geoms'] = geoms_rep
     n_rel = 0
     if ph_lab:
@@ -883,11 +984,15 @@ def carcass_library_side(pas: dict, ctx: dict, geoms: list, R: dict, card: dict 
         if side_tone is not None and rep['photo_side']['disputed'] and bool(C.get('disputed_wins', False)):          # спорное → библиотека красит и видимые «боковые» тексели (фасад, спроецированный на бок)
             rel = {}
             for gi, txo in txo_all.items():
-                ctx['over'][gi].reshape(-1)[txo] = vid
-                rel[gi] = txo.reshape(np.asarray(ctx['kn_clean'][gi]).shape)
-                n_rel += int(txo.sum())
+                src = txo
+                ctx['over'][gi].reshape(-1)[src] = vid
+                rel[gi] = src.reshape(np.asarray(ctx['kn_clean'][gi]).shape)
+                n_rel += int(src.sum())
             ctx['carcass_release'] = [rel.get(gi, np.zeros(np.asarray(ctx['kn_clean'][gi]).shape, bool)) for gi in range(len(geoms))]
             rep['released_photo_texels'] = int(n_rel)
+            if kk_have:                                                                   # диагностика: известные тексели obs-граней, оставшиеся в k_ap после release (не инвариант: kn_clean ≠ known_keep)
+                rep['kept_known_side'] = int(sum(int((kobs_all[gi] & ~rel[gi].reshape(-1)).sum()) if gi in rel else int(kobs_all[gi].sum()) for gi in kobs_all))
+                rep['kept_known_side_noobs_faces'] = int(kept_noobs)
     if not n_over and not n_top and not n_rel:
         rep['why'] = 'боковых/верхних невидимых текселей нет'
         return rep
