@@ -1959,8 +1959,17 @@ def test_known_synth_by_type():
             os.environ["KNOWN_SYNTH_TRUSTED"] = old
 
 
+def test_cpu_model_in_check():
+    """T-20261124-09: модель процессора в check.json/report.json 07 (секунды на разных нодах Salad различаются ×2 при том же коде). Строка или None; повторный вызов — тот же объект (кэш); результат этапа не зависит."""
+    m = TF._cpu_model()
+    ok(m is None or (isinstance(m, str) and m.strip() == m and len(m) > 2), f"_cpu_model: строка или None ({m!r})")
+    ok(TF._cpu_model() is m, "_cpu_model: кэш, одна и та же строка")
+    src = open(TF.__file__, encoding="utf-8").read()
+    ok("cpu_model=rep['cpu_model']" in src and "rep['cpu_model'] = _cpu_model()" in src, "07: cpu_model пишется и в report.json, и в check.json (extra)")
+
+
 def main() -> int:
-    for f in (test_part_deltas_same_as_reference, test_known_synth_by_type, test_known_synth_not_trusted, test_detail_zones_fill, test_check_on_final_texture, test_side_azimuths, test_top_prior_hook, test_mirror_off_by_default, test_shrink_layout, test_tie_picks_front_on_back, test_front_on_back, test_front_on_back_within_parts, test_front_on_back_unequal_parts, test_color, test_photo, test_parts, test_lighter_than_photo, test_no_known_part, test_mirror, test_texture, test_gutter_render, test_seam_steps_concavity, test_diffuse_quilt_far, test_draft_source, test_tone_mode_pattern, test_quilt_efros, test_quilt_holes, test_known_unchanged, test_render_pattern, test_outlier_blocks, test_dark_fabric, test_trellis_relief, test_part_roles_from_stage3, test_stage7_side_tone_smooth_rules, test_tone_from_neighbour, test_nail_twins, test_borrow_donors, test_tone_only, test_part_pattern_single_truth, test_pr_camera_and_winding, test_hidden_visible, test_stage6_gate, test_cli_run_stage, test_orphan_parts, test_cli_parts_flags, test_zones_fallback, test_brightness_target_median, test_run_stage_fallback, test_render_low, test_quilt_lattice, test_pattern_lattice, test_part_independence, test_unobserved_relief):
+    for f in (test_cpu_model_in_check, test_part_deltas_same_as_reference, test_known_synth_by_type, test_known_synth_not_trusted, test_detail_zones_fill, test_check_on_final_texture, test_side_azimuths, test_top_prior_hook, test_mirror_off_by_default, test_shrink_layout, test_tie_picks_front_on_back, test_front_on_back, test_front_on_back_within_parts, test_front_on_back_unequal_parts, test_color, test_photo, test_parts, test_lighter_than_photo, test_no_known_part, test_mirror, test_texture, test_gutter_render, test_seam_steps_concavity, test_diffuse_quilt_far, test_draft_source, test_tone_mode_pattern, test_quilt_efros, test_quilt_holes, test_known_unchanged, test_render_pattern, test_outlier_blocks, test_dark_fabric, test_trellis_relief, test_part_roles_from_stage3, test_stage7_side_tone_smooth_rules, test_tone_from_neighbour, test_nail_twins, test_borrow_donors, test_tone_only, test_part_pattern_single_truth, test_pr_camera_and_winding, test_hidden_visible, test_stage6_gate, test_cli_run_stage, test_orphan_parts, test_cli_parts_flags, test_zones_fallback, test_brightness_target_median, test_run_stage_fallback, test_render_low, test_quilt_lattice, test_pattern_lattice, test_part_independence, test_unobserved_relief):
         f()
     print(f'tests_tex_fill: ошибок {bad}')
     return 1 if bad else 0

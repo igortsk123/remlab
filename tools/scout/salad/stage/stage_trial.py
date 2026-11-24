@@ -481,6 +481,20 @@ def seam_inputs(fill_root: str, vis_root: str, only: str = '') -> dict[str, dict
     return out
 
 
+NODE_DEFAULTS = {'low': (4, 2), 'big': (4, 4)}                                     # размер ноды → (заданий всего, из них этапа 07); big — T-34 A/B 23.11: ×4 быстрее на 07 при той же цене за товар
+BATCH_MIN = 2                                                                      # пакет от стольких товаров идёт на big, одиночный товар — на low (T-20261124-09)
+
+
+def resolve_node(variant: str | None, procs: int, fill_procs: int, n_products: int) -> tuple[str, int, int]:
+    """Размер ноды и число заданий. Явные `--variant/--procs/--fill-procs` главнее; не заданы — big для пакета (≥BATCH_MIN товаров), low для одного.
+    → ('' для low | 'big', procs, fill_procs): пустая строка — формат `kit_driver.profile_resources` (нет варианта = базовая строка профиля)."""
+    v = variant if variant else ('big' if n_products >= BATCH_MIN else 'low')
+    if v not in NODE_DEFAULTS:
+        raise ValueError(f'размер ноды «{v}» неизвестен: {sorted(NODE_DEFAULTS)}')
+    dp, df = NODE_DEFAULTS[v]
+    return ('' if v == 'low' else v), (procs or dp), (fill_procs or df)
+
+
 def make_spec(a, inputs: dict) -> KD.Spec:
     def build(name, class_id, auth):
         warm = float(getattr(a, 'keep_warm', 0) or 0)
@@ -569,9 +583,9 @@ def main() -> int:
     ap.add_argument('--out', default=os.path.expanduser('~/remlab-logs/t189-1122/salad-out'))
     ap.add_argument('--card', default=CARD_NAME, help='класс Salad из профиля cpu_stage (запасные — в профиле)')
     ap.add_argument('--tier', default='low', choices=['low', 'medium'], help='low; нет машин → medium (автоматически); batch и high запрещены правилом владельца 22.11')
-    ap.add_argument('--procs', type=int, default=4, help='заданий одновременно на ноде (по профилю: 4 vCPU)')
-    ap.add_argument('--variant', default='', choices=['', 'big'], help='T-34 A/B: вариант размера ноды из профиля cpu_stage (big = 8 vCPU / 16 ГБ); пусто — 4 vCPU / 8 ГБ. Тёплой ноде такого размера — своё имя (--suffix)')
-    ap.add_argument('--fill-procs', type=int, default=2, help='из них этапа 07 (пик памяти до 9 ГБ при 8 ГБ ноды — вариант А директора 22.11)')
+    ap.add_argument('--procs', type=int, default=0, help='заданий одновременно на ноде; 0 — по размеру ноды (NODE_DEFAULTS: low 4, big 4)')
+    ap.add_argument('--variant', default=None, choices=['low', 'big'], help='размер ноды из профиля cpu_stage: low = 4 vCPU / 8 ГБ, big = 8 vCPU / 16 ГБ. Не задан — по пакету (T-20261124-09): ≥2 товаров → big, один товар → low. Тёплой ноде другого размера — своё имя (--suffix)')
+    ap.add_argument('--fill-procs', type=int, default=0, help='из них этапа 07; 0 — по размеру ноды (NODE_DEFAULTS: low 2 — пик 07 ≈3 ГБ при 8 ГБ ноды, big 4 — 4×3,3 ≈13 ГБ из 16)')
     ap.add_argument('--threads', type=int, default=1, help='потоков BLAS/OpenMP на одно задание')
     ap.add_argument('--stage-timeout-s', type=int, default=900)
     ap.add_argument("--stuck-min", type=float, default=30.0, help="сторож «завис»: шаг не менялся и GPU<5 %% дольше N мин → гашу; для CPU-этапов 06/07 GPU всегда ≈0, считают долго (07 с ничьей — до 10 мин на товар на 0,12 ядра): 30; 0 — выкл")
@@ -603,6 +617,7 @@ def main() -> int:
     ap.add_argument('--warm-release', action='store_true', help='конец прогона: погасить тёплые ноды с меткой --warm-owner (ровно свои; подхваченные другим прогоном не трогает)')
     ap.add_argument('--sweep-warm', action='store_true', help='T-34: погасить тёплые ноды, которым пора (предел жизни вышел или простой > idle_min по записи ~/remlab-logs/warm-nodes); занятые прогоном не трогает')
     a = ap.parse_args()
+    a.variant_given = a.variant is not None
     import bench_run as BR
     import migrate_groups as MG
     if a.stop_only:
@@ -658,6 +673,8 @@ def main() -> int:
         if not q.todo():
             say('очередь пуста — нечего считать, группу не создаю')
             return 0
+    a.variant, a.procs, a.fill_procs = resolve_node(getattr(a, 'variant', None), a.procs, a.fill_procs, len(inputs))
+    say(f'нода: {a.variant or "low"} ({"8 vCPU / 16 ГБ" if a.variant == "big" else "4 vCPU / 8 ГБ"}), заданий {a.procs}, из них этапа 07 — {a.fill_procs}; пакет из {len(inputs)} товаров' + ('' if getattr(a, 'variant_given', False) else ' (размер выбран по пакету: ≥2 → big, один → low)'))
     return KD.run_probe(a, MG, BR, make_spec(a, inputs))
 
 

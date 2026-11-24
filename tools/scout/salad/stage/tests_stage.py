@@ -983,6 +983,21 @@ try:
     _camera_body_only()
 except Exception as exc:  # noqa: BLE001
     ok(False, f'camera_body_only: проверка не выполнена: {type(exc).__name__}: {exc}')
+# ---------------------------------------------------------------- размер ноды по пакету (T-20261124-09)
+ok(ST.resolve_node(None, 0, 0, 1) == ('', 4, 2), 'размер ноды: один товар → low, 4 задания, 2 на этап 07')
+ok(ST.resolve_node(None, 0, 0, 2) == ('big', 4, 4) and ST.resolve_node(None, 0, 0, 29) == ('big', 4, 4), 'размер ноды: пакет ≥2 товаров → big, 4 задания, 4 на этап 07')
+ok(ST.resolve_node('low', 0, 0, 29) == ('', 4, 2), 'размер ноды: --variant low главнее пакета (пакет на low — по явному слову)')
+ok(ST.resolve_node('big', 0, 0, 1) == ('big', 4, 4), 'размер ноды: --variant big для одного товара — как просили')
+ok(ST.resolve_node(None, 6, 3, 5) == ('big', 6, 3) and ST.resolve_node('low', 3, 1, 5) == ('', 3, 1), 'размер ноды: явные --procs/--fill-procs главнее умолчаний размера')
+try:
+    ST.resolve_node('huge', 0, 0, 3)
+    ok(False, 'размер ноды: неизвестный размер должен отказывать')
+except ValueError:
+    ok(True, 'размер ноды: неизвестный размер — отказ')
+bigb = ST.build_body('t-stage', 'ghcr.io/o/n@sha256:' + 'a' * 64, 'low', 'cls-1650', AUTH, 3600, 900, 4, 4, 1, 900, worker_z=None, variant='big')
+rb = bigb['container']['resources']
+ok(rb['cpu'] == 8 and rb['memory'] == 16384 and bigb['container']['environment_variables']['STAGE_FILL_PROCS'] == '4', f'тело группы big: 8 vCPU / 16 ГБ из профиля cpu_stage, STAGE_FILL_PROCS=4 ({rb["cpu"]}, {rb["memory"]})')
+ok(4 * 3.4 < rb['memory'] / 1024 * 0.9, 'big: 4 задания 07 по пику ≈3,4 ГБ (замер T-24) влезают в 16 ГБ с запасом 10 %')
 
 
 print('ПРОВАЛЕНО: ' + str(len(FAILS)) if FAILS else 'ВСЕ ТЕСТЫ ЗЕЛЁНЫЕ')

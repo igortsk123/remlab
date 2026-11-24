@@ -2462,6 +2462,29 @@ def _center_by_part(v: np.ndarray, lab: np.ndarray, min_n: int) -> np.ndarray:
     return out
 
 
+_CPU_MODEL: list = []
+
+
+def _cpu_model() -> str | None:
+    """Модель процессора машины (первая `model name` из /proc/cpuinfo; нет — platform.processor()). T-20261124-09: скорость 07 на Salad у разных нод различается ×2 при том же коде —
+    без модели в check.json цифры секунд несравнимы. Не меняет результат этапа (только отчёт); сбой чтения — None."""
+    if not _CPU_MODEL:
+        name = None
+        try:
+            with open('/proc/cpuinfo', encoding='utf-8', errors='replace') as f:
+                for line in f:
+                    if line.lower().startswith('model name'):
+                        name = line.split(':', 1)[1].strip()
+                        break
+        except OSError:
+            pass
+        if not name:
+            import platform
+            name = platform.processor() or None
+        _CPU_MODEL.append(name)
+    return _CPU_MODEL[0]
+
+
 def _lattice_value(rep: dict) -> float:
     """Максимум решётки квилта по ИТОГОВЫМ сборкам всех путей (T-187/6, 23.11): fill-квилт (after, если пересобирали, иначе before), patch, own_panel (после пересборки/фоллбэка плоским)."""
     vals = []
@@ -2967,6 +2990,7 @@ def run_stage_once(run: str, sku: str, glb: str, known: list | None = None, part
     rep['hooks_time_s'] = {k_: {'wall_s': round(v_['wall_s'], 2), 'cpu_s': round(v_['cpu_s'], 2), 'n': v_['n']} for k_, v_ in hooks.items()}        # время каждого хука этапа (T-157): раньше report.time_s показывал только fill()
     _sp = sys.modules.get('surface_passport')
     rep['cache_stats'] = {'raster': dict(TC._RASTER_STATS), 'lab': dict(TC._LAB_STATS), 'blur': dict(_sp._BLUR_STATS) if _sp is not None and hasattr(_sp, '_BLUR_STATS') else None}                  # попадания/промахи кэшей растра и Lab с начала процесса (T-157)
+    rep['cpu_model'] = _cpu_model()                                         # T-20261124-09: сравнимость секунд между нодами
     rep['wall_s'], rep['cpu_s'] = round(secs, 1), round(cpu_s, 1)           # wall_s — только отчёт (на passed не влияет)
     metrics = {
         'empty_pct': {'value': rep['unpainted_after_pct'], 'threshold': th['empty_pct'][1], 'op': th['empty_pct'][0]},
@@ -3001,7 +3025,7 @@ def run_stage_once(run: str, sku: str, glb: str, known: list | None = None, part
     with open(os.path.join(d, 'report.json'), 'w', encoding='utf-8') as f:
         json.dump(report, f, ensure_ascii=False, indent=1, default=lambda o: o.item() if hasattr(o, 'item') else str(o))
     check = PS.write_check(d, out_name or STAGE, sku, None, dict(metrics['empty_pct'], name='empty_pct'), '', metrics={k: v for k, v in metrics.items() if k != 'empty_pct'}, seconds=secs,
-                           outputs=['filled.glb', 'report.json'], frame=PS.FRAME, known_pct=rep['known_pct'], mirrored_pct=rep['mirrored_pct'], empty_before_pct=rep['unpainted_before_pct'], empty_by_view=rep['unpainted_by_view'], steps=rep['steps'], parts=parts_note, source_used=used, source_tried=tried, pattern_metric=rep['pattern_metric'], pattern_src=rep.get('pattern_src'), paint_policy=rep.get('paint_policy'), stage6=s6, quilt_rejected=rep.get('quilt_rejected'), rules=_dz_rules + _tp_rules + _sg_rules)
+                           outputs=['filled.glb', 'report.json'], frame=PS.FRAME, cpu_model=rep['cpu_model'], known_pct=rep['known_pct'], mirrored_pct=rep['mirrored_pct'], empty_before_pct=rep['unpainted_before_pct'], empty_by_view=rep['unpainted_by_view'], steps=rep['steps'], parts=parts_note, source_used=used, source_tried=tried, pattern_metric=rep['pattern_metric'], pattern_src=rep.get('pattern_src'), paint_policy=rep.get('paint_policy'), stage6=s6, quilt_rejected=rep.get('quilt_rejected'), rules=_dz_rules + _tp_rules + _sg_rules)
     _PD_TEX.update(key=None, txs=None)
     return {'check': check, 'report': rep, 'geoms': geoms, 'tex_before': tex_before, 'tex_after': tex_after, 'known': known, 'parts': parts, 'dir': d, 'deltaE': de, 'kback': kback}
 

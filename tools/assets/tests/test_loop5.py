@@ -242,7 +242,7 @@ class T(unittest.TestCase):
         self.assertIn('--requeue-max', j)
         self.assertIn('--out /run/out/sh2', ' '.join(L.stage_cmd(r, 'a' * 40, '07', 2, SK, '/run', '1300', None, '/run/in.json', True)))   # без очереди — прежний out на ноду
         r = {**r, 'node': {'variant': '', 'procs': 0, 'fill_procs': 0, 'threads': 0}}                # база — нода low
-        self.assertNotIn('--variant', ' '.join(L.stage_cmd(r, 'a' * 40, '07', 0, SK, '/run', '1300', None, '/run/in.json', True)))
+        self.assertIn('--variant low', ' '.join(L.stage_cmd(r, 'a' * 40, '07', 0, SK, '/run', '1300', None, '/run/in.json', True)))     # low — явно (T-20261124-09: у stage_trial без флага пакет идёт на big)
         rb = {**r, 'node': {'variant': 'big', 'procs': 4, 'fill_procs': 3, 'threads': 2}}
         jb = ' '.join(L.stage_cmd(rb, 'a' * 40, '07', 0, SK, '/run', '1300', None, '/run/in.json', True))
         self.assertIn('--variant big', jb)

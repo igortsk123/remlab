@@ -310,8 +310,7 @@ def stage_cmd(rules: dict, sha: str, start: str, idx: int, skus: list[str], run_
         wm = rules['warm']
         cmd += ['--keep-warm', str(wm['idle_min']), '--warm-life-min', str(wm['life_min']), '--warm-min-left-min', str(wm['min_left_min']), '--warm-owner', run_id]   # метка владельца: стоп/освобождение чужой метки — отказ
     nd = rules.get('node') or {}
-    if nd.get('variant'):
-        cmd += ['--variant', nd['variant']]
+    cmd += ['--variant', nd.get('variant') or 'low']                                                # явно: у stage_trial размер по умолчанию зависит от пакета (T-20261124-09), круг держит своё правило из rules
     for k, flag in (('procs', '--procs'), ('fill_procs', '--fill-procs'), ('threads', '--threads')):
         if nd.get(k):
             cmd += [flag, str(nd[k])]
