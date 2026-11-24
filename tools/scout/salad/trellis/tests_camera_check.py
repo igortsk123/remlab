@@ -339,6 +339,8 @@ with tempfile.TemporaryDirectory() as root:
     check('e2e годная по площади: путь не нужен, thin_rescue=false (спасение не отнимает и не подменяет)', r5['passed'] and r5['extra']['thin_rescue'] is False)
     ea5 = r5['extra'].get('edge_angle') or {}
     check('e2e: extra.edge_angle записана (T-18), passed 04 не зависит от неё (enforce=false)', 'measured' in ea5 and ea5.get('enforce') in (False, None) and r5['passed'], str(ea5)[:200])
+    vc5 = r5['extra'].get('vertical_convergence') or {}
+    check('e2e: extra.vertical_convergence записана (T-18 шаг 3): измерена или «не измерено» с причиной; passed 04 не зависит', 'measured' in vc5 and (vc5['measured'] or vc5.get('reason')) and r5['passed'], str(vc5)[:200])
     rules_off = json.loads(json.dumps(RULES))
     rules_off['thin']['enabled'] = False
     _lr = CC.load_rules

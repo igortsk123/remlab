@@ -183,6 +183,28 @@ def verdict(iou: float, shares: dict, edge: float | None, rules: dict, unreliabl
     return True, 'камера легла' + (f" (внутренние кромки {edge:.3f} < {rules['edge_ref']}: справочно, проверить глазами)" if edge < rules['edge_ref'] else '')
 
 
+def vertical_convergence(photo: np.ndarray, pose: dict, rules: dict, cv: dict) -> dict:
+    """Схождение вертикалей: фото (LSD внутри маски, pose_fit.vertical_axis) против камеры 04. κ = tan φ / f, φ = el − tilt — наклон оси камеры. delta_deg — разница схождения по ширине товара.
+    Не измерено (мягкое, круглое, мало линий) → {measured: False, reason}. Порог отчёта report_deg — гипотеза, passed 04 не меняет."""
+    R = rules.get('vertical_axis') or {}
+    if not R.get('check_enabled', True):
+        return {'measured': False, 'reason': 'выключено правилом vertical_axis.check_enabled'}
+    try:
+        import pose_fit as PF
+        cam = pose['camera']
+        info = PF.vertical_axis(photo, photo[..., 3] > 127, cv, R)
+        if not info['measured']:
+            return {'measured': False, 'reason': info['reason'], 'photo': info}
+        phi = float(cam['el']) - PF.cam_tilt(cam)
+        k_render = float(np.tan(np.radians(phi)) / float(cam['f']))
+        delta = float(np.degrees((info['kappa'] - k_render) * info['w_frame']))
+        rep = float(R.get('report_deg', 0.5))
+        return {'measured': True, 'photo_kappa': info['kappa'], 'render_kappa': round(k_render, 5), 'delta_deg': round(delta, 2), 'photo_parallel': bool(info.get('parallel')),
+                'report_deg': rep, 'over_report': bool(abs(delta) > rep), 'photo': info}
+    except Exception as e:  # noqa: BLE001 — мерка не роняет этап 4
+        return {'measured': False, 'reason': f'сбой мерки: {type(e).__name__}: {str(e)[:100]}'}
+
+
 def main() -> int:
     import cv2
     from PIL import Image
@@ -238,6 +260,7 @@ def main() -> int:
         edge_angle = SEA.compare(S, pa, rules) if (rules.get('edge_angle') or {}).get('enabled', False) else {'measured': False, 'skip': 'выключено правилом edge_angle'}
     except Exception as e:  # noqa: BLE001 — мерка не роняет этап 4
         edge_angle = {'measured': False, 'skip': f'сбой мерки: {type(e).__name__}: {str(e)[:100]}'}
+    vconv = vertical_convergence(photo, pose, rules, pose.get('canvas') or {'x0': float(P[0, 2]), 'y0': float(P[1, 2]), 'side': float(P[0, 0]) * w})                  # схождение вертикалей рендер↔фото (T-20261124-18): только запись, passed не меняет
     legs = LC.legs_report(S, pa)                                    # ножки формы против фото (T-191/3): пишется в extra, passed не меняет — решение «ножкам фото не верим» принимает этап 06
     bsm = bottom_shape_mismatch(shares, coarse, rules) and not thin_rescue
     if bsm:
@@ -268,7 +291,7 @@ def main() -> int:
                                   'edge_agree': {'value': None if edge is None else round(edge, 4), **({'no_edges': True} if no_edges else {})}},
                          reason=reason if not ok else '', seconds=round(time.time() - t0, 1), outputs=['frame.png'], frame='frame.png',
                          edge_ref_min=rules['edge_ref'], edge_below_ref=bool(edge is not None and edge < rules['edge_ref']), no_edges=no_edges, note=reason if ok else '', strip_rows=shares['strip_rows'], strip_frac=rules['strip_frac'],
-                         bottom_mask_coarse=coarse, edge_angle=edge_angle, bottom_mask=bq, bottom_shape_mismatch=bsm, **LC.extra_fields(legs), shape_mismatch=shm, shape_corridor=shm_info, regen_form=bool(shm), iou_top=None if shares['iou_top'] is None else round(shares['iou_top'], 4),
+                         bottom_mask_coarse=coarse, edge_angle=edge_angle, vertical_convergence=vconv, bottom_mask=bq, bottom_shape_mismatch=bsm, **LC.extra_fields(legs), shape_mismatch=shm, shape_corridor=shm_info, regen_form=bool(shm), iou_top=None if shares['iou_top'] is None else round(shares['iou_top'], 4),
                          bottom_top_iou_min=rules.get('bottom_top_iou_min', rules['iou_min']), thin=tm, thin_rescue=thin_rescue, unreliable=bool(unrel), unreliable_reason=unrel_why, rules_file='tools/scout/rules/camera-check.json',
                          camera=pose['camera'], yaw=a.yaw if a.yaw is not None else pose.get('yaw'), pairs=None, photo=a.photo, method=reg.get('method'),
                          textured=pose.get('textured'), frame_note='фото 50 % + рендер 50 %; красный контур — рендер формы, зелёный — фото')
