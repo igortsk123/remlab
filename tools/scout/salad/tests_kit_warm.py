@@ -399,5 +399,46 @@ class BRRaises(BRFake):
 b_raise = BRRaises('x', {})
 check(KD.stop_and_verify(b_raise, 'g') is True and b_raise.stops == 1, 'состояние не прочитали (исключение): прежний путь, не падаем')
 
+# T-20261124-58/3. тёплая нода без записанной версии воркера / чужой версии — не берётся, ничего не трогаем (новая группа — только под другим --suffix, через ворота)
+with tempfile.TemporaryDirectory() as tmp:
+    clock = Clock()
+    w = World(clock)
+    drive(tmp, w, clock)
+    st = json.load(open(STATE(tmp)))
+    check(bool(st.get('worker_ver')) and len(st['worker_ver']) == 6, f'запись тёплой ноды хранит версию воркера ({st.get("worker_ver")})')
+    clock.sleep(60)
+    del st['worker_ver']
+    json.dump(st, open(STATE(tmp), 'w'))                                       # запись старого образца (до T-58/3)
+    rc, sm, out = drive(tmp, w, clock)
+    check(rc == 2 and w.stops == 0 and w.creates == 1 and w.starts == 1 and 'версия воркера не записана' in out, f'нода без версии в записи: отказ, нода не тронута (rc={rc}, creates={w.creates}, stops={w.stops})')
+    st['worker_ver'] = 'aaaaaa'
+    json.dump(st, open(STATE(tmp), 'w'))
+    rc, sm, out = drive(tmp, w, clock)
+    check(rc == 2 and w.stops == 0 and w.creates == 1 and 'другая версия воркера' in out, f'нода другой версии воркера: отказ, группа не пересоздаётся (rc={rc}, creates={w.creates})')
+
+# T-58/3. стоп серии: до создания — группа не создаётся; в цикле заданий — свои группы гасятся с проверкой, драйвер выходит сам
+_real_srp = KD.series_stop_reason
+try:
+    KD.series_stop_reason = lambda: 'серия k1 остановлена командой стопа серии (тест)'
+    with tempfile.TemporaryDirectory() as tmp:
+        clock = Clock()
+        w = World(clock)
+        rc, sm, out = drive(tmp, w, clock)
+        check(rc == 4 and w.creates == 0 and w.starts == 0 and 'серия k1 остановлена' in out, f'метка до создания: ОТКАЗ, ни create, ни /start (rc={rc}, creates={w.creates}, starts={w.starts})')
+    seen = [0]
+
+    def stop_after_start():
+        seen[0] += 1
+        return '' if seen[0] <= 3 else 'серия k1 остановлена командой стопа серии (тест)'
+    KD.series_stop_reason = stop_after_start
+    with tempfile.TemporaryDirectory() as tmp:
+        clock = Clock()
+        w = World(clock)
+        rc, sm, out = drive(tmp, w, clock, keep_warm=0.0)
+        check(sm.get('stopped_by') == 'planned' and 'series_stop' in str(sm.get('planned_reason')) and w.stops == 1 and sm.get('stop_verified') and w.creates == 1 and not sm.get('kept_warm'),
+              f'метка в цикле: группа погашена с проверкой «0 нод», драйвер вышел сам, новых групп нет (stopped_by={sm.get("stopped_by")}, stops={w.stops}, creates={w.creates})')
+finally:
+    KD.series_stop_reason = _real_srp
+
 print('\nИТОГ:', 'ВСЁ ЗЕЛЁНОЕ' if not FAILS else f'ПАДЕНИЙ {len(FAILS)}')
 sys.exit(1 if FAILS else 0)

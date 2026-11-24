@@ -7,6 +7,8 @@
 `stop_and_verify` снимает резерв; в тестовом процессе без явной папки ворота выключены (чужие тесты со своими подставными API не ломаются).
 Запуск: python3 tools/scout/salad/tests_salad_ceiling.py
 """
+import contextlib
+import io
 import json
 import os
 import sys
@@ -355,6 +357,112 @@ starters = subprocess.run(['git', 'grep', '-l', '-E', r"[}\w$]/start['\"`]|/star
 starters = [c for c in starters if '/tests_' not in c and '/test_' not in c and not c.endswith(('kit_driver.py', 'salad_ceiling.py'))]
 bare = [c for c in starters if not any(k in open(os.path.join(root, c), encoding='utf-8').read() for k in ('salad_ceiling', 'SC.admit', 'api_retry'))]
 ok(not bare, f'каждый скрипт с POST …/start идёт через ворота; мимо: {bare}')
+
+# ================= T-20261124-58/3: пересоздание групп и погашенные серии — через те же ворота =================
+import argparse  # noqa: E402
+import time  # noqa: E402
+
+# 1. метка стопа серии: кто видит, кто нет
+d = fresh()
+SC.series_stop('kA', d=d, reason='тест', now=1000.0)
+ok(SC.series_stopped('kA', since=500.0, d=d) != '', 'метка: драйвер, запущенный ДО метки, видит стоп серии')
+ok(SC.series_stopped('kA', since=2000.0, d=d) == '', 'метка: новая серия с тем же ключом (старт позже метки) стоп не видит — метку удалять не нужно')
+ok(SC.series_stopped('kB', since=0.0, d=d) == '', 'метка чужой серии не мешает')
+ok(SC.series_clear('kA', d=d) and SC.series_stopped('kA', since=0.0, d=d) == '', 'series_clear: ручная уборка метки')
+ok(SC.series_stopped('', since=0.0, d=d) == '', 'серия не задана — метки не читаются')
+
+# 2. ворота admit: серия остановлена → отказ ДО чтения списка (ни одного обращения к Salad), другая серия и «без серии» проходят
+d = fresh()
+SC.series_stop('kA', d=d, reason='повтор погашен')
+mgs = ListMG(nine())
+okc, why = SC.admit(mgs, 'g1', 1, d=d, series='kA')
+ok((not okc) and 'серия kA остановлена' in why and 'повтор погашен' in why and mgs.calls == [], f'admit: серия остановлена → отказ, Salad не опрашивается ({why[:80]})')
+ok(SC.admit(ListMG(nine()), 'g1', 1, d=d, series='kZ')[0], 'admit: другая серия — можно')
+ok(SC.admit(ListMG(nine()), 'g1', 1, d=d)[0], 'admit: серия не задана — метка не читается')
+
+# 3. штатная команда стопа серии (CLI) пишет метку; --series-status её видит
+d = fresh()
+os.environ['SALAD_CEILING_DIR'] = d
+buf = io.StringIO()
+with contextlib.redirect_stdout(buf):
+    rc_stop = SC.main(['--stop-series', 'k-cli', '--reason', 'руками'])
+    rc_st = SC.main(['--series-status', 'k-cli'])
+    rc_none = SC.main(['--series-status', 'k-none'])
+ok(rc_stop == 0 and rc_st == 0 and rc_none == 1 and os.path.isfile(os.path.join(d, 'series-stop', 'k-cli.json')), f'CLI: --stop-series пишет метку, --series-status: есть 0 / нет 1 ({rc_stop},{rc_st},{rc_none})')
+
+# 4. драйвер: серия объявлена → api_retry и create_and_start при метке не шлют ни create, ни /start
+os.environ['SALAD_CEILING_DIR'] = fresh()
+mod = KD._sc()
+KD.series_bind('kD')
+ok(KD.series_stop_reason() == '', 'драйвер: метки нет — стопа нет')
+mod.series_stop('kD', reason='стоп серии')
+ok('kD' in KD.series_stop_reason(), 'драйвер: метка записана после старта процесса — серия остановлена')
+mg_s = ListMG([])
+code, resp, n = KD.api_retry(mg_s, '', 'POST', {'name': 'w2b-0b7c85m', 'replicas': 1}, 'w2b-0b7c85m', say, lambda x: None)
+ok(code == KD.CEILING_REFUSED and ('POST', '') not in mg_s.calls and 'серия kD' in str(resp.get('detail')), 'api_retry: пересоздание «…m» при метке серии → отказ, create не шлётся')
+okc, t0, why = KD.create_and_start(mg_s, BR(), 'w2b-0b7c85m', {'name': 'w2b-0b7c85m', 'replicas': 1}, say, Clock().sleep, Clock(), 60)
+ok((not okc) and why.startswith('salad_ceiling:') and ('POST', '') not in mg_s.calls, f'create_and_start: при метке серии группа не создаётся ({why[:70]})')
+mg_s2 = ListMG([stopped('w2b-0b7c85')])
+code, resp, n = KD.api_retry(mg_s2, '/w2b-0b7c85/start', 'POST', None, 'w2b-0b7c85', say, lambda x: None)
+ok(code == KD.CEILING_REFUSED and ('POST', '/w2b-0b7c85/start') not in mg_s2.calls, 'api_retry: /start при метке серии → отказ')
+
+# 5. повтор на запасной тариф (run_probe) — при метке серии не делается; без метки — идёт и снова через ворота
+calls_once = []
+real_once, real_prof, real_tr = KD._run_probe_once, KD.resource_profile, KD.tier_refusal
+KD._run_probe_once = lambda a_, MG_, BR_, spec_, result=None, **kw: (calls_once.append(a_.suffix), result.update({'summary': {'stopped_by': 'no_machine'}}), 1)[2]
+KD.resource_profile = lambda wt, path=None: {'tier': 'low', 'tier_fallback': 'medium'}
+KD.tier_refusal = lambda prof_, tier_: None
+try:
+    a_ = argparse.Namespace(apply=True, tier='low', suffix='s1')
+    with contextlib.redirect_stdout(io.StringIO()) as out_m:
+        rc_m = KD.run_probe(a_, None, None, argparse.Namespace(work_type='x'))
+    ok(rc_m == 1 and calls_once == ['s1'] and a_.suffix == 's1' and 'повтор' in out_m.getvalue(), f'run_probe: серия остановлена → повтор «…m» не создаётся (вызовы {calls_once})')
+    mod.bind_series('')
+    calls_once.clear()
+    a_ = argparse.Namespace(apply=True, tier='low', suffix='s1')
+    with contextlib.redirect_stdout(io.StringIO()) as out_m:
+        KD.run_probe(a_, None, None, argparse.Namespace(work_type='x'))
+    ok(calls_once == ['s1', 's1m'], f'run_probe: серии нет — повтор идёт (проверка, что стоп-тест не пустой): {calls_once}')
+finally:
+    KD._run_probe_once, KD.resource_profile, KD.tier_refusal = real_once, real_prof, real_tr
+    mod.bind_series('')
+
+# 6. пересоздание «…m» при 10 живых → отказ (предел — те же ворота), при 9 — можно
+os.environ['SALAD_CEILING_DIR'] = fresh()
+mg10 = ListMG(nine() + [grp('x9')])
+okc, t0, why = KD.create_and_start(mg10, BR(), 'w4b-0b7c85m', {'name': 'w4b-0b7c85m', 'replicas': 1}, say, Clock().sleep, Clock(), 60)
+ok((not okc) and 'salad_ceiling' in why and 'предел 10' in why and ('POST', '') not in mg10.calls, f'пересоздание «…m» при 10 живых → отказ без create ({why[:80]})')
+mg9 = ListMG(nine())
+okc, t0, why = KD.create_and_start(mg9, BR(), 'w4b-0b7c85m', {'name': 'w4b-0b7c85m', 'replicas': 1}, say, Clock().sleep, Clock(), 60)
+ok(okc and ('POST', '') in mg9.calls, 'пересоздание «…m» при 9 живых → можно')
+
+# 7. recreate_group: цикл попыток создания проверяет метку серии перед каждой попыткой
+rg = open(os.path.join(HERE, 'recreate_group.py'), encoding='utf-8').read()
+loop_at = rg.index('for attempt in range(1, 41):')
+ok('SC.series_stopped()' in rg[loop_at:loop_at + 300] and rg.index('SC.series_stopped()', loop_at) < rg.index("MG.api('', 'POST', body)", loop_at), 'recreate_group: метка серии читается перед КАЖДОЙ попыткой создания')
+
+# 8. версия воркера: от образа и кода воркера; тёплая нода чужой версии не берётся
+dg_a, dg_b = 'i@sha256:' + 'a' * 64, 'i@sha256:' + 'b' * 64
+with tempfile.TemporaryDirectory() as td:
+    wf = os.path.join(td, 'worker.py')
+    open(wf, 'w').write('v1')
+    v1 = KD.worker_version(dg_a, wf)
+    ok(len(v1) == 6 and v1 == KD.worker_version(dg_a, wf), 'worker_version: 6 hex, стабильна')
+    open(wf, 'w').write('v2')
+    ok(KD.worker_version(dg_a, wf) != v1, 'worker_version: код воркера изменился → версия другая')
+ok(KD.worker_version(dg_b, '') != KD.worker_version(dg_a, ''), 'worker_version: образ другой → версия другая')
+good = {'image': dg_a, 'worker_ver': 'aaaaaa', 'expires_at': 10_000.0}
+ok(KD.warm_decide('running', good, dg_a, 0.0, 600.0, ver='aaaaaa')[0] == 'adopt', 'warm_decide: версия та же → подхват')
+act, why = KD.warm_decide('running', good, dg_a, 0.0, 600.0, ver='bbbbbb')
+ok(act == 'refuse' and 'версия воркера' in why, f'warm_decide: живая нода другой версии → не берём ({why[:60]})')
+act, why = KD.warm_decide('running', {'image': dg_a, 'expires_at': 10_000.0}, dg_a, 0.0, 600.0, ver='aaaaaa')
+ok(act == 'refuse' and 'не записана' in why, 'warm_decide: у живой ноды версия не записана → не берём')
+ok(KD.warm_decide('running', {'image': dg_a, 'expires_at': 10_000.0}, dg_a, 0.0, 600.0)[0] == 'adopt', 'warm_decide: без ver (старые вызовы) — как раньше')
+ok(KD.warm_decide('stopped', {'worker_ver': 'aaaaaa'}, dg_a, 0.0, 600.0, ver='bbbbbb')[0] == 'refuse', 'warm_decide: остановленная группа записанной другой версии → не стартуем')
+act, why = KD.warm_decide('stopped', {}, dg_a, 0.0, 600.0, ver='aaaaaa', group_image=dg_b)
+ok(act == 'refuse' and 'другой образ' in why, 'warm_decide: у остановленной группы образ в Salad другой (нет записи) → не стартуем')
+ok(KD.warm_decide('stopped', {}, dg_a, 0.0, 600.0, ver='aaaaaa', group_image=dg_a)[0] == 'restart', 'warm_decide: образ группы тот же → старт заново')
+ok(KD.warm_decide(None, {}, dg_a, 0.0, 600.0, ver='aaaaaa')[0] == 'create', 'warm_decide: группы нет → создание (через ворота)')
 
 print('\nFAILS:', FAILS or 'нет')
 sys.exit(1 if FAILS else 0)

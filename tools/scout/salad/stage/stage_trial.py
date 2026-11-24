@@ -608,7 +608,11 @@ def main() -> int:
     ap.add_argument('--warm-min-left-min', type=float, default=25.0)
     ap.add_argument('--warm-dir', default='', help='папка записей и замков тёплых нод (по умолчанию ~/remlab-logs/warm-nodes)')
     ap.add_argument('--worker-from-image', action='store_true')
-    ap.add_argument('--suffix', default=time.strftime('%m%d%H%M', time.gmtime()))
+    ap.add_argument('--suffix', default='', help='суффикс имени группы; не задан — время + `-v<версия воркера>` (T-58/3: по имени группы видно, какой воркер внутри)')
+    ap.add_argument('--series', default='', help='T-58/3: ключ серии (loop5 — его run-id; не задан — --warm-owner или имя папки --queue). Штатный стоп серии (--stop-series КЛЮЧ) пишет метку: '
+                                                 'драйвер читает её перед каждым созданием группы и на каждом шаге цикла, гасит свои группы с проверкой «0 нод» и выходит сам')
+    ap.add_argument('--stop-series', default='', metavar='КЛЮЧ', help='T-58/3: штатный стоп серии КЛЮЧ — записать метку и выйти; живые драйверы серии сами погасят свои группы (ни kill, ни pkill)')
+    ap.add_argument('--stop-reason', default='', help='с --stop-series: причина в метке')
     ap.add_argument('--apply', action='store_true')
     ap.add_argument('--queue', default='', help='T-34: общая очередь товаров (папка): все ноды-процессы берут из неё товар, как освободился слот, и ведут его по всем --stages без барьера; '
                                                 'очередь наполняется из --inputs (повторно — не дублирует); с --suffix каждой ноды разный')
@@ -621,6 +625,14 @@ def main() -> int:
     ap.add_argument('--sweep-warm', action='store_true', help='T-34: погасить тёплые ноды, которым пора (предел жизни вышел или простой > idle_min по записи ~/remlab-logs/warm-nodes); занятые прогоном не трогает')
     a = ap.parse_args()
     a.variant_given = a.variant is not None
+    if a.stop_series:
+        mod = KD._sc()
+        if mod is None:
+            sys.exit('ворота предела недоступны — метку стопа серии не записать')
+        say(f'стоп серии {a.stop_series}: метка {mod.series_stop(a.stop_series, reason=a.stop_reason)}; драйверы серии погасят свои группы и выйдут сами')
+        return 0
+    a.series = a.series or a.warm_owner or (os.path.basename(os.path.normpath(os.path.expanduser(a.queue))) if a.queue else '')
+    a.suffix = a.suffix or (time.strftime('%m%d%H%M', time.gmtime()) + (f'-v{KD.worker_version(a.image, WORKER)}' if a.image else ''))
     import bench_run as BR
     import migrate_groups as MG
     if a.stop_only:

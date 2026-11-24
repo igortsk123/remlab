@@ -18,6 +18,7 @@
 from __future__ import annotations
 
 import base64  # noqa: F401 — модели удобно иметь под рукой
+import hashlib
 import json
 import os
 import re
@@ -67,13 +68,21 @@ def holder_do(fn: str, *args, **kw) -> None:
         say(f'!! реестр держателей: {fn} не удалось ({type(e).__name__}: {str(e)[:80]})')
 
 
+_SC_MOD = None
+
+
 def _sc():
-    """Ворота предела живых машин (`salad_ceiling.py`): общий для всех проб замок и счёт по ВСЕМ группам аккаунта. Не нашли модуль — None → создание ЗАПРЕЩЕНО (на деньгах «не знаю» = отказ)."""
+    """Ворота предела живых машин (`salad_ceiling.py`): общий для всех проб замок и счёт по ВСЕМ группам аккаунта. Не нашли модуль — None → создание ЗАПРЕЩЕНО (на деньгах «не знаю» = отказ).
+    Модуль грузится ОДИН раз на процесс (T-58/3): в нём живёт серия процесса (`bind_series`) и момент старта — повторная загрузка их бы обнулила."""
+    global _SC_MOD
+    if _SC_MOD is not None:
+        return _SC_MOD
     try:
         import importlib.util
         spec = importlib.util.spec_from_file_location('salad_ceiling', os.path.join(os.path.dirname(os.path.abspath(__file__)), 'salad_ceiling.py'))
         m = importlib.util.module_from_spec(spec)
         spec.loader.exec_module(m)
+        _SC_MOD = m
         return m
     except Exception as e:  # noqa: BLE001
         say(f'!! ворота предела Salad недоступны ({type(e).__name__}: {str(e)[:80]})')
@@ -99,6 +108,40 @@ def ceiling_release(name: str) -> None:
             m.release(name)
     except Exception as e:  # noqa: BLE001
         say(f'!! резерв предела: снять не удалось ({type(e).__name__}: {str(e)[:80]})')
+
+
+def series_stop_reason() -> str:
+    """Стоп серии (T-20261124-58/3): причина, если штатная команда стопа серии записала метку ПОСЛЕ старта этого процесса; пусто — идём дальше. Не бросает. Метку читают и ворота (`admit`)."""
+    m = _sc()
+    try:
+        return m.series_stopped() if m is not None else ''
+    except Exception:  # noqa: BLE001 — не прочитали метку: решают ворота (они же её читают при каждом создании)
+        return ''
+
+
+def series_bind(key: str) -> None:
+    """Объявить серию процесса (драйвер, `--series`): ворота этого процесса начинают видеть метку стопа серии. Повторный вызов с тем же ключом момент старта не сдвигает."""
+    m = _sc()
+    if m is not None and key and m.series_key() != key:
+        m.bind_series(key)
+
+
+def image_digest(image: str) -> str:
+    mm = re.search(r'sha256:([0-9a-f]{64})', image or '')
+    return mm.group(1) if mm else ''
+
+
+def worker_version(image: str, worker_file: str = '') -> str:
+    """Короткая версия воркера (6 hex): дайджест образа + код воркера (файл `worker_file`). Едет в записи тёплой ноды и (по умолчанию) в имени группы; тёплая нода другой версии не берётся
+    (T-20261124-58/3: ночью 24.11 тёплые ноды держали образ без этапа 07b → HTTP 400, а по имени группы версию было не видно)."""
+    h = hashlib.sha1()
+    h.update((image_digest(image) or image or '').encode())
+    try:
+        with open(worker_file, 'rb') as f:
+            h.update(f.read())
+    except (OSError, TypeError, ValueError):
+        pass
+    return h.hexdigest()[:6]
 
 
 # ---------------------------------------------------------------- деньги
@@ -1435,18 +1478,31 @@ def warm_sweep(warm_dir: str, now: float, stop: Callable[[str], bool], grace_s: 
     return out
 
 
-def warm_decide(status: str | None, state: dict, image: str, now: float, min_left_s: float) -> tuple[str, str]:
+def warm_decide(status: str | None, state: dict, image: str, now: float, min_left_s: float, ver: str | None = None, group_image: str | None = None) -> tuple[str, str]:
     """Что делать с тёплой группой по её состоянию в Salad и записи: create | adopt | restart | restart_stop | refuse (+ причина).
     adopt — нода жива, тот же образ, до предела жизни воркера (MAX_LIFETIME_S) ≥ min_left; restart — группа остановлена (воркер ушёл по простою): старт заново, образ в кэше;
-    restart_stop — жива, но записи нет/мало жизни/не та: гасим и стартуем заново; refuse — чужой образ или группа в переходном состоянии."""
+    restart_stop — жива, но записи нет/мало жизни/не та: гасим и стартуем заново; refuse — чужой образ или группа в переходном состоянии.
+    T-20261124-58/3: `ver` (версия воркера) и `group_image` (образ, который у группы на самом деле, из GET) — тёплую ноду ЧУЖОЙ версии не берём в любом состоянии (refuse: новая группа — только через
+    ворота предела, под другим --suffix); у живой ноды без записанной версии — тоже refuse (неизвестно, какой воркер внутри). None — проверка не делается (старые вызовы)."""
     if status is None:
         return 'create', 'группы нет'
+    gd, wd = image_digest(group_image or ''), image_digest(image)
+    if gd and wd and gd != wd:
+        return 'refuse', f'у группы другой образ ({gd[:12]}…, нужен {wd[:12]}…) — версия воркера не та: другой --suffix или погасите её (--stop-only)'
+    bad_ver = bool(ver and state.get('worker_ver') and state['worker_ver'] != ver)
+    bad_msg = f'у тёплой группы другая версия воркера ({state.get("worker_ver")}, нужна {ver}) — не беру: другой --suffix или погасите её (--stop-only)'
     if status in ('stopped', 'pending', 'failed'):
+        if bad_ver:
+            return 'refuse', bad_msg
         return 'restart', f'группа {status}: старт заново (образ в кэше Salad)'
     if status != 'running':
         return 'refuse', f'группа в состоянии «{status}» — повторите позже'
     if state.get('image') != image:
         return 'refuse', 'у живой тёплой группы другой образ — возьмите другой --suffix или погасите её (--stop-only)'
+    if bad_ver:
+        return 'refuse', bad_msg
+    if ver and not state.get('worker_ver'):
+        return 'refuse', f'у живой тёплой группы версия воркера не записана (нужна {ver}) — не беру: другой --suffix или погасите её (--stop-only)'
     if not state.get('expires_at'):
         return 'restart_stop', 'записи о сроке жизни нет — перезапуск'
     left = float(state['expires_at']) - now
@@ -1465,7 +1521,11 @@ def run_probe(a, MG, BR, spec: Spec, **kw) -> int:
     except ProfileRefused:
         return rc
     if (res.get('summary') or {}).get('stopped_by') == 'no_machine' and a.apply and a.tier == prof['tier'] and prof['tier_fallback'] != a.tier and not tier_refusal(prof, prof['tier_fallback']) and getattr(a, 'tier_fallback', True):
-        say(f'нет машин на «{a.tier}» — один раз пробую «{prof["tier_fallback"]}» (профиль {spec.work_type}; выше нельзя)')
+        why_stop = series_stop_reason()
+        if why_stop:                                                                  # T-58/3: серия остановлена — «…m» не создаём (ночь 24.11: драйверы остановленной серии пересоздали группы сами)
+            say(f'повтор «{prof["tier_fallback"]}» не делаю: {why_stop}')
+            return rc
+        say(f'нет машин на «{a.tier}» — один раз пробую «{prof["tier_fallback"]}» (профиль {spec.work_type}; выше нельзя) — группа снова через ворота предела')
         a.tier, a.suffix = prof['tier_fallback'], f'{a.suffix}m'
         return _run_probe_once(a, MG, BR, spec, result={}, **kw)
     return rc
@@ -1478,6 +1538,8 @@ def _run_probe_once(a, MG, BR, spec: Spec, gw_factory=Gateway, sleep=time.sleep,
     """Платная проба на Salad по общему образцу. `a`: image, suffix, tier, apply, cap, probe_cap, max_min, running_min, start_min, health_min, ready_min, stall_min, stall_gb,
     job_min, out. Без `--apply` — только разбор (тело без секретов, группа НЕ создаётся)."""
     name = f'{spec.prefix}-{a.suffix}'
+    series_bind(str(getattr(a, 'series', '') or ''))         # T-58/3: серия процесса — ворота и цикл видят метку стопа серии
+    ver = worker_version(a.image, spec.worker_file)
     try:                                                     # профиль ресурсов — ДО всего (в т.ч. до разбора без --apply): нет профиля/чужой тариф/чужая карта → отказ
         prof = resource_profile(spec.work_type)
         refuse = tier_refusal(prof, a.tier) or card_refusal(prof, spec.card)
@@ -1501,6 +1563,7 @@ def _run_probe_once(a, MG, BR, spec: Spec, gw_factory=Gateway, sleep=time.sleep,
         say('ОТКАЗ по профилю ресурсов:', refuse)
         say('группу НЕ создаю, денег не потрачено')
         return 3
+    say('версия воркера', ver, '(дайджест образа + код воркера)')
     say('группа', name, spec.card, 'тариф', a.tier, 'цена $/ч', price, 'задания', spec.jobs, f'потолок пробы ${a.probe_cap}, общий ${a.cap}')
     if not a.apply:
         safe_print(body, spec.z_keys)
@@ -1513,6 +1576,10 @@ def _run_probe_once(a, MG, BR, spec: Spec, gw_factory=Gateway, sleep=time.sleep,
                 say('❗ входы не готовы — платный запуск не пройдёт; группу НЕ создаю')
                 return 3
         return 0
+    why_stop = series_stop_reason()
+    if why_stop:
+        say(f'ОТКАЗ: {why_stop} — группу НЕ создаю, денег не потрачено')
+        return 4
     try:
         slot_check()
     except SlotRefused as exc:
@@ -1567,7 +1634,8 @@ def _run_probe_once(a, MG, BR, spec: Spec, gw_factory=Gateway, sleep=time.sleep,
                 state = json.load(open(warm_state_path, encoding='utf-8'))
             except (OSError, ValueError):
                 state = {}
-            action, why = warm_decide(st0, state, a.image, clock(), float(getattr(a, 'warm_min_left_min', 25)) * 60)
+            gimg = ((g or {}).get('container') or {}).get('image') if isinstance(g, dict) else None
+            action, why = warm_decide(st0, state, a.image, clock(), float(getattr(a, 'warm_min_left_min', 25)) * 60, ver=ver, group_image=gimg)
             if action == 'adopt':                                  # группа «running», но воркер мог уйти по простою (экземпляр остановлен) — без живого экземпляра подхватывать нечего
                 _ci, ins0 = BR.instances(name)
                 if not any(i.get('state') == 'running' and i.get('started') for i in (ins0 or [])):
@@ -1600,7 +1668,7 @@ def _run_probe_once(a, MG, BR, spec: Spec, gw_factory=Gateway, sleep=time.sleep,
         ok_create, t_start, refuse = create_and_start(MG, BR, name, body, say, sleep, clock, wait_s, counters=summary, existing=restart)
         if ok_create and keep_warm:
             os.makedirs(os.path.dirname(warm_state_path), exist_ok=True)
-            json.dump({'name': name, 'image': a.image, 'started_at': t_start, 'expires_at': t_start + warm_life_s, 'idle_min': keep_warm, 'owner': warm_owner, 'claimed_at': clock()},
+            json.dump({'name': name, 'image': a.image, 'worker_ver': ver, 'started_at': t_start, 'expires_at': t_start + warm_life_s, 'idle_min': keep_warm, 'owner': warm_owner, 'claimed_at': clock()},
                       open(warm_state_path, 'w', encoding='utf-8'))
     if not ok_create:
         if warm_fh is not None:
@@ -1638,6 +1706,11 @@ def _run_probe_once(a, MG, BR, spec: Spec, gw_factory=Gateway, sleep=time.sleep,
     try:
         while True:
             t = clock()
+            why_stop = series_stop_reason()
+            if why_stop:                                                   # T-58/3: стоп серии — гашу свои группы с проверкой «0 нод» и выхожу сам (finally ниже); новых групп не создаю
+                say(f'!! {why_stop} — гашу {name} и выхожу')
+                summary['stopped_by'], summary['planned_reason'] = 'planned', f'series_stop: {why_stop}'
+                break
             _, st, _cnt = BR.group_state(name)
             _, ins = BR.instances(name)
             last_ins = ins
