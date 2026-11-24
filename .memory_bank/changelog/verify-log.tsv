@@ -441,3 +441,9 @@ date	doc	reason	claims	mismatch	fixed	note
 2026-11-21	.memory_bank/core/architecture.md	rotation	33	4	4	
 2026-11-24	.memory_bank/advertising/autopilot.md	rotation	39	2	2	
 2026-11-24	.memory_bank/core/bedroom.md	rotation	33	4	4	
+2026-11-24	.claude/rules/pipeline-tracing.md	drift	26	0	0	
+2026-11-24	.memory_bank/domain/flat3d-configurator.md	drift	175	3	3	
+2026-11-24	.memory_bank/domain/mesh-pool-ops.md	drift	75	3	3	
+2026-11-24	.memory_bank/lessons/demo-planner.md	drift	70	0	0	
+2026-11-24	.memory_bank/lessons/floorplan-trial.md	drift	55	1	1	
+2026-11-24	.memory_bank/lessons/layout-solver.md	drift	105	2	2	

@@ -3,7 +3,7 @@ tier: 1
 topic: mesh-pool
 scope: Пул нод Salad — группы, тарифы, деньги, стопоры
 tier2: "../domain/mesh-pool-ops.md"
-updated: 2026-11-23
+updated: 2026-11-24
 importance: high
 source: manual
 status: working
