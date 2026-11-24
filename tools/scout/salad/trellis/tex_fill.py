@@ -2905,6 +2905,11 @@ def run_stage_once(run: str, sku: str, glb: str, known: list | None = None, part
     if sg_pas is not None and rep['top_prior'].get('applied'):           # верх задан по карточке/по тону своей части: группа корпуса его не перекрашивает (другой материал — комод: дуб сверху, графит на фасадах)
         sg_ctx['hook_keep'] = [np.any(np.asarray(a)[..., :3] != np.asarray(b)[..., :3], axis=-1) & ~np.asarray(k, bool) for a, b, k in zip(tex_after, _tex_pre_top, k_keep)]
         rep['top_prior']['kept_from_groups_texels'] = int(sum(int(m.sum()) for m in sg_ctx['hook_keep']))
+    if sg_pas is not None:                                              # T-20261124-06 Ш2: бока корпуса по библиотеке отделок (лента «Цвет корпуса»), выключено по умолчанию (rules carcass_library.enabled)
+        try:
+            sg_rep['carcass_library'] = SP.carcass_library_side(sg_pas, sg_ctx, geoms, sg_cfg, (cfg or {}).get('top_card'))
+        except Exception as e:  # noqa: BLE001
+            sg_rep['carcass_library'] = {'enabled': True, 'applied': False, 'error': f'{type(e).__name__}: {e}'}
     rep['top_source'] = rep['top_prior'].get('top_source')
     rep['ultratex'] = ut_rep
     _kn_released = None

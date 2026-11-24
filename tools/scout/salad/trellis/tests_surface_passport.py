@@ -668,8 +668,59 @@ def test_blur_caches():
         del os.environ['REMLAB_BLUR_CACHE']
 
 
+def test_carcass_library():
+    print('бока корпуса по библиотеке отделок (T-20261124-06, Ш2): тон из ленты, только невидимые бока, только body, выключено по умолчанию:')
+    C0 = TF.RULES['surface_groups']['carcass_library']
+    ok(C0['enabled'] is False, 'в rules выключено по умолчанию (включение — после приёмки на замороженном наборе)')
+    ent = {'дуб барбера|лдсп 16 мм': {'members': {'a': [64.0, 3.0, 18.0], 'b': [63.0, 3.0, 17.0], 'c': [65.0, 3.0, 19.0]}},
+           'разброс|лдсп 16 мм': {'members': {'a': [30.0, 0.0, 0.0], 'b': [60.0, 0.0, 0.0]}}, 'один|лдсп 16 мм': {'members': {'a': [50.0, 0.0, 0.0]}}}
+    C = dict(C0, enabled=True, entries=ent)
+    card = {'Цвет шкафа: Цвет корпуса': ' Дуб  Барбера ', 'Материал корпуса': 'ЛДСП 16 мм'}
+    r = SP.carcass_library_tone(card, C)
+    ok(r['ok'] and r['n'] == 3 and abs(r['tone'][0] - 64.0) < 1e-6, f'ключ нормализован (регистр, пробелы): медиана участников {r}')
+    r1 = SP.carcass_library_tone(dict(card, _sku='a'), C)
+    ok(r1['ok'] and r1['n'] == 2, f'_sku исключает сам товар (leave-one-product-out): n={r1.get("n")}')
+    ok(not SP.carcass_library_tone(dict(card, _sku='a'), dict(C, min_members=3))['ok'], 'участников меньше min_members — отказ')
+    ok('разброс' in SP.carcass_library_tone({'Цвет шкафа: Цвет корпуса': 'разброс', 'Материал корпуса': 'ЛДСП 16 мм'}, C)['why'], 'разброс тона отделки больше max_spread_de — отказ с причиной')
+    ok(SP.carcass_library_tone({'Материал корпуса': 'ЛДСП'}, C)['why'].startswith('в карточке нет') and SP.carcass_library_tone({'Цвет шкафа: Цвет корпуса': 'неведомый', 'Материал корпуса': 'х'}, C)['why'] == 'отделки нет в библиотеке', 'нет цвета в карточке / отделки нет в библиотеке — отказ с причиной')
+    q = Quads()
+    q.quad([[-1, 0, 1], [1, 0, 1], [1, 1, 1], [-1, 1, 1]], (0, 0, .5, 1), part=0, sub=4)                 # фасад +Z, виден
+    q.quad([[-1, 0, -1], [-1, 0, 1], [-1, 1, 1], [-1, 1, -1]], (.5, 0, 1, .5), part=1, sub=4)           # левый бок (нормаль по x), на фото не виден
+    q.quad([[1, 0, -1], [1, 0, 1], [1, 1, 1], [1, 1, -1]], (.5, .5, 1, 1), part=2, sub=4)               # правый бок
+    face, left, right = tile_mask((0, 0, .5, 1)), tile_mask((.5, 0, 1, .5)), tile_mask((.5, .5, 1, 1))
+    tex = np.zeros((T, T, 3), np.uint8)
+    tex[face] = lab_rgb(30.0, 0.0, 0.0)
+    tex[left | right] = lab_rgb(30.0, 0.0, 0.0)                                                          # заливка: бока графитовые, как фасад
+    known = face.copy()
+    g = q.geom(tex)
+    parts = [np.array(q.part, np.int32)]
+
+    def go(R_over, role='шкаф'):
+        R = dict(TF.RULES['surface_groups'], _card_role=role)
+        R['carcass_library'] = R_over
+        pas, ctx = SP.build([g], [tex], [known], parts, None, R, TF.FILL, TF)
+        crep = SP.carcass_library_side(pas, ctx, [g], R, card)
+        k0 = [known & ~TF.unpainted_mask(tex)]
+        out, _ = SP.apply_groups([g], [tex], k0, pas, ctx, R, TF)
+        return pas, crep, out
+    pas, crep, out = go(C)
+    ok(crep['applied'] and crep['geoms'][0]['facade_axis'] == 'z' and crep['geoms'][0]['side_axis'] == 'x', f'включено: фасад по z, бока по x, группа создана: {crep.get("geoms")}')
+    Ll, Lr = float(np.median(lab_L(out[0], left & ~known))), float(np.median(lab_L(out[0], right & ~known)))
+    ok(abs(Ll - 64.0) < 4.0 and abs(Lr - 64.0) < 4.0, f'оба бока тоном библиотеки (L {Ll:.1f} / {Lr:.1f}), не графитом фасада')
+    ok(np.array_equal(out[0][face], tex[face]), 'фото (известное) не изменилось')
+    vg = [x for x in pas['groups'] if x.get('from_library')]
+    ok(len(vg) == 1 and 'virtual_for' in vg[0] and vg[0]['texels_total'] > 0, 'виртуальная группа с пометкой from_library (фильтры «virtual_for» её знают)')
+    pas0, crep0, out0 = go(dict(C, enabled=False))
+    ok(not crep0['applied'] and not crep0['enabled'] and abs(float(np.median(lab_L(out0[0], left & ~known))) - 30.0) < 4.0, 'выключено — бока как в main')
+    pas1, crep1, out1 = go(C, role='диван')
+    ok(not crep1['applied'] and 'type_gate' in crep1 and not crep1['type_gate']['allowed'], f'не body (диван) — правило не действует: {crep1.get("why")}')
+    ent2 = {'дуб барбера|лдсп 16 мм': {'members': {'a': [64.0, 3.0, 18.0]}}}
+    pas2, crep2, out2 = go(dict(C, entries=ent2))
+    ok(not crep2['applied'] and abs(float(np.median(lab_L(out2[0], left & ~known))) - 30.0) < 4.0, f'один участник < min_members — воздержание, бока как в main: {crep2.get("why")}')
+
+
 def main() -> int:
-    for f in (test_new_rules_only_body_type, test_rule_entries_body, test_rule_entries_not_body, test_blur_caches, test_split_plane_one_tone, test_contrast_door_own_group, test_gray_pattern_not_flattened, test_back_is_body_not_facade, test_back_not_tiny_contrast, test_top_follows_group, test_edge_body_tone, test_light_floor, test_rebuild_body_gates, test_type_allows_body, test_body_override_only_for_body_type, test_facade_relief_and_release_weak, test_grain_no_dark_seams, test_gradient_continues, test_outlier_replaced, test_orphan_attached, test_orphan_guards, test_orphan_keeps_hook_tone, test_hook_keep_top, test_ultratex_switch_off, test_hidden_pattern_by_type):
+    for f in (test_carcass_library, test_new_rules_only_body_type, test_rule_entries_body, test_rule_entries_not_body, test_blur_caches, test_split_plane_one_tone, test_contrast_door_own_group, test_gray_pattern_not_flattened, test_back_is_body_not_facade, test_back_not_tiny_contrast, test_top_follows_group, test_edge_body_tone, test_light_floor, test_rebuild_body_gates, test_type_allows_body, test_body_override_only_for_body_type, test_facade_relief_and_release_weak, test_grain_no_dark_seams, test_gradient_continues, test_outlier_replaced, test_orphan_attached, test_orphan_guards, test_orphan_keeps_hook_tone, test_hook_keep_top, test_ultratex_switch_off, test_hidden_pattern_by_type):
         f()
     print(f'tests_surface_passport: ошибок {bad}')
     return 1 if bad else 0

@@ -1134,6 +1134,32 @@
       "test_positive": "tools/scout/salad/trellis/tests_island_edge.py::test_top_pulled_to_median_side_untouched",
       "test_negative": "tools/scout/salad/trellis/tests_island_edge.py::test_few_top_faces_untouched",
       "note": "ПРОБНОЕ (24.11): выключено, проба — env TEX_VISIBLE_ISLAND=1. Рисунок/зерно верха этапом 6 не создаётся (его даёт 07) — правило трогает только тон. Мерка — extra.stats[].top_delta_std (до, после)."
+    },
+    {
+      "rule_id": "R-CARCASS-LIBRARY-07",
+      "title": "Бока корпуса body — тон по библиотеке отделок (лента: «Цвет корпуса» + «Материал корпуса» → Lab бока по фото); только невидимые тексели боковых граней, фото не меняется",
+      "state": "trial",
+      "source": [
+        "T-20261124-06",
+        "plans/body-carcass-tone-photo-01.md § 3 (Ш2)",
+        "ADR-0470 п.1 (ветка T-28/3 не вливается)"
+      ],
+      "applies": {
+        "families": [
+          "корпусное"
+        ]
+      },
+      "executor": "р.5 (T-20261124-06)",
+      "consumer": "tools/scout/salad/trellis/surface_passport.py:carcass_library_side",
+      "runtime": "off",
+      "test": "tools/scout/salad/trellis/tests_surface_passport.py",
+      "test_positive": "tools/scout/salad/trellis/tests_surface_passport.py::test_carcass_library",
+      "test_negative": "tools/scout/salad/trellis/tests_surface_passport.py::test_carcass_library",
+      "run_id": null,
+      "flag": "tools/scout/rules/paint-fill.json#surface_groups.carcass_library.enabled",
+      "check_field": "07-fill.surface_groups.carcass_library",
+      "enabled": null,
+      "note": "ВЫКЛЮЧЕНО по умолчанию (enabled=false) до приёмки на замороженном наборе (план § 4). Библиотека entries — разметка dev-набора (24 body, 8 отделок, один магазин divan.ru) — гипотеза. Потолок идеи (leave-one-out по меткам бока, 19 товаров с отделкой в библиотеке): ΔE медиана 1,8 (≤8: 18/19), против main лучше 13 / хуже 1 / = 2 (~/remlab-logs/t2406-1124/lib-lab.md). Вывод бока из 06 по оси (без сегментации) ненадёжен: бок наблюдён у 4 из 23 размеченных, 2 из 4 неверны (lib-sh2.md). run_id нет — не active."
     }
   ],
   "_active_rule": "active = consumer определён (ast) и вызывается боевым кодом + runtime=enforce и флаг включён + тест в CI + test_positive и test_negative на пример типа + run_id прогона. Без любого — trial (rule_registry_audit: ошибка). run_id — папка прогона в ~/remlab-logs, где правило отработало; проверка прогона структурная (--run): extra.rules[] с rule_id, type, digest, applied|abstain."
