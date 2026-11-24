@@ -178,6 +178,40 @@ def test_plate_left_guard():
     ok(mt["plate_left"] == {"value": 1, "threshold": 0, "op": "<="} and PS.left_metrics(PS.plate_left(_product().vertices, _product().faces, R))["plate_left"]["value"] == 0, "мерка check.json: плита осталась → 1 при пороге ≤ 0")
 
 
+def _open_bottom(m, y_max=1e-6, normal_down=0.9):
+    """Убирает грани-днища (нормаль вниз, у самого низа) — как срез плиты оставляет открытые торцы у ножек."""
+    low = m.triangles_center[:, 1] <= m.bounds[0][1] + y_max
+    return trimesh.Trimesh(m.vertices, m.faces[~(low & (m.face_normals[:, 1] < -normal_down))], process=False)
+
+
+def test_cap_open_bottom():
+    """T-20261124-10: открытые торцы ножек закрываются веером, нормалью вниз; широкое открытое дно (корпус), закрытая модель и модель без дна — не трогаются."""
+    t = _open_bottom(_product())
+    ok(len(t.faces) == len(_product().faces) - 8, "синтетика: 4 ножки без днищ (по 2 грани)")
+    v, f, rep = PS.cap_open_bottom(t.vertices, t.faces, R)
+    ok(rep["capped"] == 4 and rep["skipped_wide"] == 0 and rep["faces_added"] == len(f) and len(f) == 16 and len(v) == 4, f"4 ножки закрыты (контур 4 ребра → 4 грани веера): {rep}")
+    allv = np.vstack([t.vertices, v])
+    n = np.cross(allv[f[:, 1]] - allv[f[:, 0]], allv[f[:, 2]] - allv[f[:, 0]])
+    ok((n[:, 1] < 0).all(), "нормали крышек смотрят вниз (дно)")
+    closed = trimesh.Trimesh(np.vstack([t.vertices, v]), np.vstack([t.faces, f]), process=False)
+    from collections import Counter
+    wid = {tuple(r): i for i, r in enumerate(np.unique(np.round(closed.vertices, 6), axis=0))}           # вершины склеены по положению: крышка стыкуется со стенкой без щели
+    wi = np.array([wid[tuple(r)] for r in np.round(closed.vertices, 6)])
+    c = Counter(tuple(sorted((int(wi[a]), int(wi[b])))) for a, b in closed.edges)
+    inv = {i: r for r, i in wid.items()}
+    low = {e for e, k in c.items() if k == 1 and max(inv[e[0]][1], inv[e[1]][1]) < 0.01}
+    ok(not low, "после закрытия открытых рёбер у дна нет")
+    _v, _f, rep0 = PS.cap_open_bottom(_product().vertices, _product().faces, R)
+    ok(rep0["loops"] == 0 and len(_f) == 0, "закрытая модель — ничего не добавлено")
+    body = _open_bottom(_box(0.6, 0.5, 0.4, 0, 0.25, 0))
+    _v, _f, rep_w = PS.cap_open_bottom(body.vertices, body.faces, R)
+    ok(rep_w["skipped_wide"] == 1 and len(_f) == 0, "открытое дно корпуса шире 0,3·L — не закрываем (честный счёт skipped_wide)")
+    off = dict(R, cap=dict(R["cap"], enabled=False))
+    ok(len(PS.cap_open_bottom(t.vertices, t.faces, off)[1]) == 0, "правило выключено — пусто")
+    t2 = _open_bottom(trimesh.util.concatenate([_product(), _box(0.04, 0.3, 0.04, 0.0, 0.65, 0.0)]))      # торец на высоте — вне нижней зоны
+    ok(PS.cap_open_bottom(t2.vertices, t2.faces, R)[2]["capped"] == 4, "ножки закрыты и при постороннем теле выше; верхний край — не дно")
+
+
 def test_rules_and_no_ids():
     ok(PS.check() == 0, "правила целы")
     src = open(os.path.join(HERE, "..", "plate_strip.py"), encoding="utf-8").read() + open(PS.RULES_PATH, encoding="utf-8").read()
@@ -185,7 +219,7 @@ def test_rules_and_no_ids():
 
 
 if __name__ == "__main__":
-    for t in (test_strip, test_no_plate_untouched, test_rug_is_not_plate, test_product_through_plate_and_canopy, test_pedestal_base_is_not_plate, test_numpy_components_equal_scipy, test_axis_auto, test_texture_kept, test_plate_left_guard, test_rules_and_no_ids):
+    for t in (test_strip, test_no_plate_untouched, test_rug_is_not_plate, test_product_through_plate_and_canopy, test_pedestal_base_is_not_plate, test_numpy_components_equal_scipy, test_axis_auto, test_texture_kept, test_plate_left_guard, test_cap_open_bottom, test_rules_and_no_ids):
         print(t.__name__)
         t()
     print(f"plate_strip tests: ошибок {FAIL}")

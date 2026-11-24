@@ -204,6 +204,88 @@ def strip_mesh(mesh, rules: dict | None = None):
     return out, rep
 
 
+def cap_open_bottom(vertices: np.ndarray, faces: np.ndarray, rules: dict | None = None, up: int = 1) -> tuple[np.ndarray, np.ndarray, dict]:
+    """Закрывает открытые торцы у дна после среза плиты (T-20261124-10; блок `cap` в rules/plate-strip.json) → (новые вершины (k,3) — центры контуров; новые грани (m,3) с индексами в
+    [старые вершины; новые], отчёт). Ничего не меняет; плиты не было — не звать. Вершины для поиска контуров склеиваются по положению (glTF режет их по швам UV)."""
+    rules = rules or load_rules()
+    c = rules["cap"]
+    V = np.asarray(vertices, dtype=np.float64)
+    F = np.asarray(faces)
+    rep: dict = {"loops": 0, "capped": 0, "skipped_wide": 0, "skipped_branched": 0, "faces_added": 0}
+    none = (np.zeros((0, 3)), np.zeros((0, 3), dtype=np.int64), rep)
+    if not c.get("enabled", True) or len(F) == 0:
+        return none
+    L = float((V.max(axis=0) - V.min(axis=0)).max())
+    if L <= 0:
+        return none
+    key = np.round(V / (c["weld_frac"] * L)).astype(np.int64)
+    _u, first, inv = np.unique(key, axis=0, return_index=True, return_inverse=True)
+    inv = inv.reshape(-1)
+    Wf = inv[F]
+    es = np.sort(np.concatenate([Wf[:, [0, 1]], Wf[:, [1, 2]], Wf[:, [2, 0]]]), axis=1)
+    ue, cnt = np.unique(es, axis=0, return_counts=True)
+    bnd = ue[cnt == 1]
+    if not len(bnd):
+        return none
+    wpos = V[first]                                        # положение склеенной вершины
+    low = wpos[:, up].min() + c["zone_frac"] * L
+    bnd = bnd[(wpos[bnd][:, :, up] <= low).all(axis=1)]
+    adj: dict[int, list[int]] = {}
+    for a_, b_ in bnd:
+        adj.setdefault(int(a_), []).append(int(b_))
+        adj.setdefault(int(b_), []).append(int(a_))
+    h = [a for a in range(3) if a != up]
+    seen: set[int] = set()
+    new_v: list[np.ndarray] = []                           # центры контуров
+    new_f: list[list[int]] = []
+    for start in sorted(adj):
+        if start in seen:
+            continue
+        comp, stack = [], [start]                          # компонента связности контурных рёбер
+        while stack:
+            x = stack.pop()
+            if x in seen:
+                continue
+            seen.add(x)
+            comp.append(x)
+            stack.extend(adj[x])
+        rep["loops"] += 1
+        if any(len(adj[x]) != 2 for x in comp) or len(comp) < c["min_loop_verts"]:
+            rep["skipped_branched"] += 1
+            continue
+        loop, prev, cur = [comp[0]], None, comp[0]         # обход замкнутого контура
+        while True:
+            nxt = [y for y in adj[cur] if y != prev]
+            if not nxt:
+                break
+            prev, cur = cur, nxt[0]
+            if cur == loop[0]:
+                break
+            loop.append(cur)
+        if len(loop) != len(comp):
+            rep["skipped_branched"] += 1
+            continue
+        P = wpos[loop]
+        if float((P[:, h].max(axis=0) - P[:, h].min(axis=0)).max()) > c["max_loop_frac"] * L:
+            rep["skipped_wide"] += 1
+            continue
+        ctr = P.mean(axis=0)
+        ci = len(V) + len(new_v)
+        new_v.append(ctr)
+        orig = [int(first[x]) for x in loop]
+        for i in range(len(loop)):
+            t = [orig[i], orig[(i + 1) % len(loop)], ci]
+            pa, pb = V[t[0]], V[t[1]]
+            if float(np.cross(pb - pa, ctr - pa)[up]) > 0:   # нормаль должна смотреть вниз (дно): иначе меняем обход
+                t = [t[1], t[0], t[2]]
+            new_f.append(t)
+        rep["capped"] += 1
+    rep["faces_added"] = len(new_f)
+    if not new_f:
+        return np.zeros((0, 3)), np.zeros((0, 3), dtype=np.int64), rep
+    return np.asarray(new_v), np.asarray(new_f, dtype=np.int64), rep
+
+
 def plate_metrics(rep: dict, rules: dict | None = None) -> dict:
     """Мерки для check.json этапа (формат `paint_stage.write_check(metrics=…)`). Без плиты — только справочная мерка «плиты не было» (этап не краснеет)."""
     rules = rules or load_rules()
@@ -352,6 +434,13 @@ def check() -> int:
             bad.append(f"{k}={v!r} вне ({lo_}; {hi_}]")
     if r.get("up_axis") not in ("auto", 0, 1, 2):
         bad.append(f"up_axis={r.get('up_axis')!r}")
+    cp = r.get("cap") or {}
+    for k, lo_, hi_ in (("zone_frac", 0, 0.2), ("max_loop_frac", 0, 1.0), ("weld_frac", 0, 0.001), ("color_reach_frac", 0, 0.5)):
+        v = cp.get(k)
+        if not isinstance(v, (int, float)) or not lo_ < v <= hi_:
+            bad.append(f"cap.{k}={v!r} вне ({lo_}; {hi_}]")
+    if not isinstance(cp.get("min_loop_verts"), int) or cp["min_loop_verts"] < 3 or not isinstance(cp.get("enabled"), bool):
+        bad.append(f"cap.min_loop_verts/enabled: {cp.get('min_loop_verts')!r}/{cp.get('enabled')!r}")
     lc = r.get("left_check") or {}
     for k, lo_, hi_ in (("zone_frac", 0, 0.5), ("bin_frac", 0, 0.05), ("level_tol_frac", 0, 0.1), ("normal_min", 0.5, 1.0), ("cell_fill", 0, 1.0), ("above_cell_fill", 0, 1.0), ("min_cover", 0.5, 1.0), ("max_above_share", 0, 1.0), ("max_above_footprint", 0, 1.0)):
         v = lc.get(k)

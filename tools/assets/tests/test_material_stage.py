@@ -143,12 +143,12 @@ def test_plate_left_gate():
     with tempfile.TemporaryDirectory() as d:
         src = os.path.join(d, "p.glb")
         _plated_glb(src)
-        doc = MS.run_stage(src, os.path.join(d, "run"), "sku-p", product, frame=False)
+        doc = _run(src, os.path.join(d, "run"), "sku-p", product, frame=False)
         ok(doc["metrics"]["plate_left"]["value"] == 1 and doc["metrics"]["plate_left"]["ok"] is False and doc["passed"] is False, "модель с плитой: мерка plate_left = 1, этап 08 не прошёл")
         ok("plate_left" in doc["reason"] and doc["extra"]["plate"]["plate_left"] is True, "причина названа в check.json, отчёт сторожа лежит в extra.plate")
         clean = os.path.join(d, "c.glb")
         _tiny_glb(clean)
-        doc2 = MS.run_stage(clean, os.path.join(d, "run"), "sku-c", product, frame=False)
+        doc2 = _run(clean, os.path.join(d, "run"), "sku-c", product, frame=False)
         ok(doc2["metrics"]["plate_left"]["value"] == 0 and doc2["metrics"]["plate_left"]["ok"] is True, "товар без плиты: plate_left = 0, мерка зелёная")
         mark = lambda path: ((MS.read_glb(path)[0].get("asset") or {}).get("extras") or {}).get(MS.STAGE_MARK_KEY)   # noqa: E731
         ok(not doc["passed"] and mark(os.path.join(d, "run", "sku-p", "08-material", "material.glb")) is None, "красный этап 08: в material.glb НЕТ отметки «прошёл» (карты на сайт не пойдут)")
@@ -158,12 +158,47 @@ def test_plate_left_gate():
             print("  – tiny-товар не прошёл по другой мерке (", doc2["reason"][:80], ") — зелёную ветку проверяет test_mark_only_when_passed")
         # красный перевыпуск поверх зелёного: прежний material.glb с отметкой не переживает
         run2 = os.path.join(d, "run2")
-        green = MS.run_stage(clean, run2, "sku-r", product, frame=False)
+        green = _run(clean, run2, "sku-r", product, frame=False)
         g_glb = os.path.join(run2, "sku-r", "08-material", "material.glb")
         if green["passed"]:
             ok(mark(g_glb) == MS.STAGE, "перевыпуск: зелёный прогон поставил отметку")
-            red = MS.run_stage(src, run2, "sku-r", product, frame=False)
+            red = _run(src, run2, "sku-r", product, frame=False)
             ok(not red["passed"] and os.path.exists(g_glb) and mark(g_glb) is None, "красный перевыпуск поверх зелёного: отметка не осталась")
+
+
+def _run(src, run, sku, product, fill="green", **kw):
+    """run_stage с готовым check.json этапа 07 рядом (заслон fill_gate, T-20261124-10): прежние проверки идут как раньше. fill: green | red | none."""
+    ps = MS._paint_stage()
+    if fill != "none":
+        sd = ps.stage_dir(run, sku, "07-fill")
+        with open(os.path.join(sd, "check.json"), "w", encoding="utf-8") as f:
+            json.dump({"stage": "07-fill", "sku": sku, "passed": fill == "green", "reason": "" if fill == "green" else "тест: 07 красный"}, f)
+    return MS.run_stage(src, run, sku, product, **kw)
+
+
+def test_fill_gate():
+    """T-20261124-10: 08 зелёный только при зелёном 07 того же товара; путь 02→08 мимо 06/07 — красный, отметки «прошёл» нет."""
+    try:
+        MS._paint_stage()
+    except SystemExit:
+        print("  – paint_stage.py не найден: сквозная проверка пропущена")
+        return
+    product = {"sid": "x", "name": "Кресло Тест Велюр", "role": "кресло", "params": {"Материал обивки": "велюр"}}
+    mark = lambda path: ((MS.read_glb(path)[0].get("asset") or {}).get("extras") or {}).get(MS.STAGE_MARK_KEY)   # noqa: E731
+    with tempfile.TemporaryDirectory() as d:
+        clean = os.path.join(d, "c.glb")
+        _tiny_glb(clean)
+        run = os.path.join(d, "run")
+        base = _run(clean, run, "sku-base", product, fill="green", frame=False)
+        ok(base["metrics"]["fill_passed"]["value"] is True, "07 зелёный: мерка fill_passed = True")
+        for kind, why in (("none", "нет check.json"), ("red", "красный 07")):
+            doc = _run(clean, run, "sku-" + kind, product, fill=kind, frame=False)
+            g = os.path.join(run, "sku-" + kind, "08-material", "material.glb")
+            ok(doc["metrics"]["fill_passed"]["value"] is False and doc["passed"] is False, f"{why}: fill_passed = False, этап 08 красный")
+            ok("07" in doc["reason"] and mark(g) is None, f"{why}: причина названа, отметки «прошёл 08» нет (на сайт карты не пойдут)")
+        R2 = dict(R, check=dict(R["check"], require_fill_passed=False))
+        ok(MS.fill_gate(d, R2["check"]) == (True, ""), "правило выключено — заслон открыт")
+        ok(MS.fill_gate(d, R["check"])[0] is False, "правило включено, папки 07 нет — закрыт")
 
 
 def test_patch_glb():
@@ -206,12 +241,12 @@ def test_stage_end_to_end():
         src = os.path.join(d, "m.glb")
         _tiny_glb(src)
         product = {"sid": "x", "name": "Кресло Тест Велюр", "role": "кресло", "params": {"Материал обивки": "велюр", "Материал ножек": "Металл"}}
-        doc = MS.run_stage(src, os.path.join(d, "run"), "sku-1", product, frame=False)
+        doc = _run(src, os.path.join(d, "run"), "sku-1", product, frame=False)
         ok(doc["stage"] == "08-material" and doc["metrics"]["recipe_share"]["value"] == 1.0, "этап 08: все грани получили рецепт")
         ok(doc["metrics"]["color_unchanged"]["ok"] and doc["metrics"]["geometry_unchanged"]["ok"], "check.json: цвет и геометрия не тронуты")
         ok(os.path.exists(os.path.join(d, "run", "sku-1", "08-material", "material.glb")), "material.glb записан")
         ok(isinstance(doc["extra"]["parts"], list) and doc["extra"]["parts"][0]["class"] == "velour", "check.json: класс по частям с источником")
-        again = MS.run_stage(src, os.path.join(d, "run"), "sku-1", product, frame=False)
+        again = _run(src, os.path.join(d, "run"), "sku-1", product, frame=False)
         ok(again["extra"]["parts"] == doc["extra"]["parts"] and again["extra"]["glb"] == doc["extra"]["glb"], "перевыпуск даёт тот же результат")
 
 
@@ -468,7 +503,7 @@ def test_stage_geometry_and_inherited():
         src = os.path.join(d, "lamp.glb")
         _tiny_glb(src)
         product = {"sid": "x", "name": "Светильник напольный", "role": "торшер", "params": {"Материал корпуса": "Металл", "Материал плафона": "Стекло"}}
-        doc = MS.run_stage(src, os.path.join(d, "run"), "sku-g", product, frame=False)
+        doc = _run(src, os.path.join(d, "run"), "sku-g", product, frame=False)
         m = doc["metrics"]
         ok(doc["extra"]["parts_source"] == "geometry" and "inherited_share" in m and m["inherited_share"]["value"] == 0.0, "без этапа 3: части по форме, inherited_share в check.json (0 — все грани разложены)")
         ok(m["recipe_share"]["value"] == 1.0, "без этапа 3: у всех граней рецепт")
@@ -644,7 +679,7 @@ def test_gloss_rule_record():
         _tiny_glb(src)
         run = os.path.join(d, "run")
         for sku, name, role in (("s1", "Кресло Тест Велюр", "кресло"), ("s2", "Тумба Глянец", "комод")):
-            doc = MS.run_stage(src, run, sku, {"sid": "x", "name": name, "role": role, "params": {"Материал фасада": "МДФ в пленке ПВХ", "Материал обивки": "велюр"}}, frame=False)
+            doc = _run(src, run, sku, {"sid": "x", "name": name, "role": role, "params": {"Материал фасада": "МДФ в пленке ПВХ", "Материал обивки": "велюр"}}, frame=False)
             rr = [x for x in doc["extra"].get("rules", []) if x["rule_id"] == "R-GLOSS-08"]
             on_disk = json.load(open(os.path.join(run, sku, "08-material", "check.json"), encoding="utf-8"))["extra"]["rules"]
             ok(len(rr) == 1 and rr[0]["type"] == role and (rr[0].get("applied") is True or rr[0].get("abstain")) and on_disk == doc["extra"]["rules"], f"{role}: запись R-GLOSS-08 в check.json и в возвращённом словаре (applied или abstain с причиной)")
@@ -656,7 +691,7 @@ def test_gloss_rule_record():
 
 
 if __name__ == "__main__":
-    for t in (test_rules_complete, test_no_ids_in_code, test_resolve, test_legs_and_colour, test_bake, test_patch_glb, test_stage_end_to_end, test_plate_left_gate, test_shapes_without_stage3, test_top_zone_shade, test_stand_junction_is_metal, test_unsure_parts_report, test_soft_body_inherits_upholstery, test_stage3_roles, test_merge_roles_file, test_top_zone_bigger_than_body, test_inherit_unseen, test_stage_geometry_and_inherited, test_compound_field, test_painted_metal, test_gloss_finish, test_gloss_rule_record, test_glass_keeps_colour_map, test_frame_gate, test_flat_top_roughness):
+    for t in (test_rules_complete, test_no_ids_in_code, test_resolve, test_legs_and_colour, test_bake, test_patch_glb, test_stage_end_to_end, test_plate_left_gate, test_fill_gate, test_shapes_without_stage3, test_top_zone_shade, test_stand_junction_is_metal, test_unsure_parts_report, test_soft_body_inherits_upholstery, test_stage3_roles, test_merge_roles_file, test_top_zone_bigger_than_body, test_inherit_unseen, test_stage_geometry_and_inherited, test_compound_field, test_painted_metal, test_gloss_finish, test_gloss_rule_record, test_glass_keeps_colour_map, test_frame_gate, test_flat_top_roughness):
         print(t.__name__)
         t()
     print(f"material_stage tests: ошибок {FAIL}")

@@ -141,6 +141,9 @@ def input_zip_08(vis_dir: str, fill_dir: str, seam_dir: str, cam_check: str, cod
         else:
             z.write(os.path.join(fill_dir, 'filled.glb'), '07-fill/filled.glb')
         z.write(cam_check, '04-camera/check.json')
+        f07 = os.path.join(fill_dir, 'check.json')
+        if os.path.isfile(f07):                                  # заслон 08 «только после зелёного 07» (T-20261124-10): без check.json 07 этап 08 на ноде красный
+            z.write(f07, '07-fill/check.json')
         add_extras(z, v or {}, code_tar, 'extra_in_08')
     return buf.getvalue()
 

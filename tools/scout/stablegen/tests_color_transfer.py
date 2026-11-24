@@ -393,6 +393,19 @@ def main() -> int:
         r_ok = subprocess.run(cli + ['--shape', shp, '--out', o_ok], capture_output=True, text=True)
         check('transfer (CLI): своя форма → код 0 и файл есть', r_ok.returncode == 0 and os.path.exists(o_ok), (r_ok.returncode, r_ok.stderr[-200:]))
 
+    # крышки торцев (T-20261124-10): мерка нормалей не считает точки крышек; цвет им берётся с большей дальностью, но только в нижней зоне
+    ref_V = np.vstack([np.column_stack([np.full(40, np.cos(t) * 0.02), np.linspace(0.02, 0.3, 40), np.full(40, np.sin(t) * 0.02)]) for t in np.linspace(0, 6.28, 24)])   # стенка ножки от y=0.02 (низ срезан плитой)
+    tgt = {'V': np.vstack([ref_V, [[0, 0.0, 0]]])}
+    cap_pt = np.array([[0.0, 0.0005, 0.0]])                                                     # торец: низ, далеко от родной (она начинается с y=0.02)
+    wall_pt = np.array([[0.02, 0.15, 0.0]])
+    high_far = np.array([[0.2, 0.25, 0.0]])                                                     # далеко от родной, но НЕ внизу — не крышка
+    pts = np.vstack([cap_pt, wall_pt, high_far])
+    rep_pl = {'plate_found': True, 'up_axis': 1}
+    m = T._cap_points(tgt, pts, ref_V, rep_pl)
+    check('_cap_points: торец внизу вдали от родной — крышка; стенка и далёкая точка выше — нет', m.tolist() == [True, False, False], m.tolist())
+    check('_cap_points: плиты не было — пусто', not T._cap_points(tgt, pts, ref_V, {'plate_found': False}).any())
+    check('_cap_points: срез плиты отказал — пусто', not T._cap_points(tgt, pts, ref_V, {'plate_found': True, 'refused': 'причина'}).any())
+
     # sg_prep_shape: по умолчанию выключено (Blender в CI нет — проверяем текст)
     src = open(os.path.join(HERE, 'sg_prep_shape.py'), encoding='utf-8').read()
     check("sg_prep_shape.py: флаг --color-from есть, по умолчанию None", "'--color-from'" in src and 'default=None' in src.split("'--color-from'")[1].split('\n')[0])

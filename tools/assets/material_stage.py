@@ -799,6 +799,21 @@ def lab_to_rgb(lab: np.ndarray) -> np.ndarray:
     return np.clip(np.rint(c * 255), 0, 255).astype(np.uint8)
 
 
+def fill_gate(stages_dir: str, c: dict) -> tuple[bool, str]:
+    """Заслон «08 только после зелёного 07» (T-20261124-10; `check.require_fill_passed` в material-recipes.json) → (можно, причина). Берёт `<stages_dir>/07-fill/check.json` того же товара:
+    нет файла — путь 02→08 мимо 06/07 (цвет остался родным от TRELLIS) → нельзя; красный 07 → нельзя. Правило выключено — всегда можно."""
+    if not c.get("require_fill_passed"):
+        return True, ""
+    f = os.path.join(stages_dir, "07-fill", "check.json")
+    try:
+        d = json.load(open(f, encoding="utf-8"))
+    except (OSError, ValueError):
+        return False, "нет check.json этапа 07 (заливка) того же товара: путь мимо 06/07 оставляет родной цвет TRELLIS — на этап 08 не пускаем"
+    if not (isinstance(d, dict) and d.get("passed") is True):
+        return False, "этап 07 (заливка) не прошёл: " + str((d or {}).get("reason") or "причина не названа")[:140] if isinstance(d, dict) else "check.json этапа 07 нечитаем"
+    return True, ""
+
+
 def photo_signal(stages_dir: str, pp: dict):
     """Вход «цвет части с фото» (T-20261121-169/9в ❷). Один источник «видимого» — этап 6 (камера этапа 4, z-буфер, угол к камере, отступ от края силуэта):
     тексели `known.png` и цвет фото в `visible.glb`. Новой проекции здесь нет. Ворота: этап 4 passed и `silhouette_iou` этапа 6 ≥ `iou_min` (иначе камере не верим);
@@ -1102,6 +1117,7 @@ def run_stage(glb: str, run: str, sku: str, product: dict, parts_dir: str | None
     conf_ids = [pid for pid, r in res.items() if r["confident"]]
     confident_share = float(np.isin(part, conf_ids).sum()) / nf
     c = recipes["check"]
+    fill_ok, fill_why = fill_gate(stages_dir or os.path.join(run, ps.safe_name(sku)), c)
     color_same = colour_unchanged_outside(glb, out_glb, mask_all)
     geom_same = geometry_sha(glb) == geometry_sha(out_glb)
     parts_rep = [{"id": pid, "role": next((p["role"] for p in parts if p["id"] == pid), None), "face_share": next((p["face_share"] for p in parts if p["id"] == pid), None),
@@ -1123,11 +1139,14 @@ def run_stage(glb: str, run: str, sku: str, product: dict, parts_dir: str | None
         reason = f"{inherited_share:.0%} граней без части (порог {c['inherited_share_max']:.0%}): класс по соседним граням — слишком много угадано"
     elif confident_share < c["confident_share_min"]:
         reason = "не уверен: " + "; ".join(unsure)[:400]
+    elif not fill_ok:
+        reason = fill_why
     doc = ps.write_check(
         sdir, STAGE, sku, passed=None if not reason else False,
         metric={"name": "confident_share", "value": round(confident_share, 4), "threshold": c["confident_share_min"], "op": ">="},
         metrics={"recipe_share": {"value": round(recipe_share, 4), "threshold": c["recipe_share_min"], "op": ">="},
                  "inherited_share": {"value": round(inherited_share, 4), "threshold": c["inherited_share_max"], "op": "<="},
+                 "fill_passed": {"value": bool(fill_ok), "threshold": True, "op": "=="},
                  "color_unchanged": {"value": bool(color_same), "threshold": True, "op": "=="},
                  "geometry_unchanged": {"value": bool(geom_same), "threshold": True, "op": "=="},
                  "seconds": {"value": round(time.time() - t0, 1), "threshold": c["max_seconds"], "op": "<="}, **plate_mt},

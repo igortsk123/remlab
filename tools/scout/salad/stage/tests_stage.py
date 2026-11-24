@@ -649,11 +649,12 @@ ok(ST.stage_dirname('08') == '08-material' and ST.stages_of(_ap.Namespace(stages
 vd, fd, sd = (os.path.join(d08, x) for x in ('vis', 'fill', 'sea'))
 for p in (vd, fd, sd, os.path.join(d08, 'pose', 'sku1', '04-camera'), os.path.join(d08, 'pose', 'g1', 'sku2', '04-camera')):
     os.makedirs(p, exist_ok=True)
-for rel in ('vis/check.json', 'vis/known.png', 'vis/visible.glb', 'fill/filled.glb', 'sea/seam.glb', 'pose/sku1/04-camera/check.json', 'pose/g1/sku2/04-camera/check.json', 'prod.json', 'p.npz'):
+for rel in ('vis/check.json', 'vis/known.png', 'vis/visible.glb', 'fill/filled.glb', 'fill/check.json', 'sea/seam.glb', 'pose/sku1/04-camera/check.json', 'pose/g1/sku2/04-camera/check.json', 'prod.json', 'p.npz'):
     open(os.path.join(d08, rel), 'wb').write(b'{}' if rel.endswith('.json') else b'x')
 z08 = zipfile.ZipFile(io.BytesIO(ST.input_zip_08(vd, fd, sd, os.path.join(d08, 'pose', 'sku1', '04-camera', 'check.json'), b'TAR', {'extra_in_08': {'product.json': os.path.join(d08, 'prod.json'), '03-parts/parts.npz': os.path.join(d08, 'p.npz')}}))).namelist()
 ok(WS.missing_inputs('08', z08) == [] and '07-seam/seam.glb' in z08 and '07-fill/filled.glb' not in z08 and 'code.tar' in z08 and '03-parts/parts.npz' in z08 and '06-visible/known.png' in z08,
    f'input_zip_08: шов вместо filled.glb, product.json, части, code.tar ({sorted(z08)})')
+ok('07-fill/check.json' in z08, 'input_zip_08: check.json этапа 07 едет во вход (заслон 08 «только после зелёного 07», T-20261124-10)')
 os.remove(os.path.join(sd, 'seam.glb'))
 z08b = zipfile.ZipFile(io.BytesIO(ST.input_zip_08(vd, fd, sd, os.path.join(d08, 'pose', 'sku1', '04-camera', 'check.json'), None, {'extra_in_08': {'product.json': os.path.join(d08, 'prod.json')}}))).namelist()
 ok('07-fill/filled.glb' in z08b and '07-seam/seam.glb' not in z08b and WS.missing_inputs('08', z08b) == [], 'input_zip_08: шва нет — filled.glb')

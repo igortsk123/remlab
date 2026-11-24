@@ -93,6 +93,21 @@ if a.color_from and not a.no_plate_strip:
             bm.faces.ensure_lookup_table()
             bmesh.ops.delete(bm, geom=[bm.faces[i] for i in np.nonzero(remove)[0]], context='FACES')
             bmesh.ops.delete(bm, geom=[v for v in bm.verts if not v.link_faces], context='VERTS')
+            bm.verts.index_update()
+            bm.faces.ensure_lookup_table()
+            Vc = np.array([v.co[:] for v in bm.verts], dtype=np.float64)
+            Fc = np.array([[v.index for v in f.verts] for f in bm.faces], dtype=np.int64)
+            cap_v, cap_f, rep_cap = P.cap_open_bottom(Vc, Fc, up=int(rep_plate.get('up_axis', 1)))      # торцы ножек, открытые срезом плиты (T-20261124-10): иначе сквозь них виден фон
+            rep_plate['cap'] = rep_cap
+            if len(cap_f):
+                bm.verts.ensure_lookup_table()
+                nv0 = len(bm.verts)
+                for co in cap_v:
+                    bm.verts.new(tuple(float(x) for x in co))
+                bm.verts.ensure_lookup_table()
+                for t in cap_f:
+                    bm.faces.new([bm.verts[int(i)] for i in t])
+                bm.faces.ensure_lookup_table()
             bm.to_mesh(me)
             bm.free()
             me.update()

@@ -409,6 +409,27 @@ def chamfer_ratio(native_path: str, shape_path: str, n: int = 40000, strip_plate
     return float((d1.mean() + d2.mean()) / 2 / diag), float(max(np.percentile(d1, 99), np.percentile(d2, 99)) / diag)
 
 
+def _cap_points(tgt, pts, ref_V, plate_rep: dict) -> 'np.ndarray':
+    """Точки упрощённой, лежащие на крышках торцев: нижняя зона `cap.zone_frac` (plate-strip.json) И дальше порога переноса MAX_DIST от родной без плиты. Правило выключено / плиты не было — пусто."""
+    import numpy as np
+    from scipy.spatial import cKDTree
+    no = np.zeros(len(pts), bool)
+    try:
+        sys.path.insert(0, os.path.dirname(HERE))
+        import plate_strip as P
+        cp = P.load_rules().get('cap') or {}
+    except (ImportError, OSError, ValueError):
+        return no
+    if not cp.get('enabled') or not plate_rep.get('plate_found') or plate_rep.get('refused'):
+        return no
+    up = int(plate_rep.get('up_axis', 1))
+    ext = ref_V.max(0) - ref_V.min(0)
+    low = tgt['V'][:, up].min() + cp['zone_frac'] * float(ext.max())
+    diag = float(np.linalg.norm(ext)) or 1.0
+    far = cKDTree(ref_V).query(pts)[0] > MAX_DIST * diag
+    return (pts[:, up] <= low) & far
+
+
 def normal_deviation(native_path: str, shape_path: str, n: int = 40000) -> tuple[float, float, bool]:
     """Разница затенения родной↔упрощённая без съёмки (T-167: «плашка» на гладком боку у модели без NORMAL): на n точках поверхности упрощённой — угол между её НОРМАЛЬЮ ЗАТЕНЕНИЯ
     (нормали вершин из файла по барицентрике; нет NORMAL в файле — плоская нормаль грани, как её рисует просмотрщик) и СГЛАЖЕННОЙ нормалью родной (родная без плиты, сырая сетка TRELLIS шумит
@@ -417,7 +438,7 @@ def normal_deviation(native_path: str, shape_path: str, n: int = 40000) -> tuple
     import numpy as np
     import trimesh
     na, nb = load_glb(native_path), load_glb(shape_path)
-    na['F'], _ = plate_free_faces(na['V'], na['F'])
+    na['F'], plate_rep = plate_free_faces(na['V'], na['F'])
     ref_V, ref_N = native_reference(na['V'], na['F'], na['N'], read_prep(shape_path))          # эталон — родная после той же предобработки (сайдкар `<выход>.prep.json`)
     b = trimesh.Trimesh(vertices=nb['V'], faces=nb['F'], process=False)
     has_n = bool(nb.get('has_normals')) and nb.get('N') is not None
@@ -433,6 +454,8 @@ def normal_deviation(native_path: str, shape_path: str, n: int = 40000) -> tuple
     ref = smooth_native_normals(ref_V, ref_N, pts, np.asarray(b.face_normals)[fi], scale)
     cos = np.clip(np.einsum('nc,nc->n', nrm, ref), -1.0, 1.0)
     ang = np.degrees(np.arccos(cos))
+    keep = ~_cap_points(nb, pts, ref_V, plate_rep)                  # крышки торцев (plate_strip.cap_open_bottom): родной пары нет по построению — в мерку не входят
+    ang = ang[keep] if keep.any() else ang
     return float(ang.mean()), float(np.percentile(ang, 99)), has_n
 
 
@@ -541,6 +564,20 @@ def transfer(native_path: str, shape_path: str, out_path: str, size: int | None 
     tree = cKDTree(NP)
     dist, j = tree.query(TP, k=1, workers=-1)
     ok = dist <= max_dist * diag
+    cap_texels = 0
+    if plate_rep.get('plate_found') and not plate_rep.get('refused'):
+        try:
+            import plate_strip as _P
+            cp = _P.load_rules().get('cap') or {}
+        except (ImportError, OSError, ValueError):
+            cp = {}
+        if cp.get('enabled') and cp.get('color_reach_frac'):         # торцы ножек, закрытые крышкой после среза плиты (plate_strip.cap_open_bottom, T-20261124-10): стоят там, где была плита, — дальше порога от родной без плиты; в нижней зоне дальность больше
+            up = int(plate_rep.get('up_axis', 1))
+            ext = nat['V'][used].max(0) - nat['V'][used].min(0)
+            low = nat['V'][used][:, up].min() + cp['zone_frac'] * float(ext.max())
+            more = (TP[:, up] <= low) & (dist <= cp['color_reach_frac'] * diag) & ~ok
+            cap_texels = int(more.sum())
+            ok = ok | more
     oc_native = base[ny[j], nx[j]]
     oc_mr = mr[ny[j], nx[j]] if mr is not None else None
     res = np.zeros((size, size, 4), np.uint8)
@@ -567,7 +604,7 @@ def transfer(native_path: str, shape_path: str, out_path: str, size: int | None 
     m.export(tmp, file_type='glb')
     os.replace(tmp, out_path)
     rep = {'native': os.path.basename(native_path), 'native_size': nsize, 'size': size, 'native_texels': int(len(ny)), 'target_texels': int(len(ty)), 'with_color': int(ok.sum()),
-           'share': round(share, 5), 'faces_with_texel': round(face_coverage(tgt['V'], tgt['F'], tgt['UV'], size), 5), 'max_dist_m': round(max_dist * diag, 5), 'dist_p50': round(float(np.median(dist)), 6) if len(dist) else 0.0,
+           'share': round(share, 5), 'faces_with_texel': round(face_coverage(tgt['V'], tgt['F'], tgt['UV'], size), 5), 'max_dist_m': round(max_dist * diag, 5), 'cap_texels': cap_texels, 'dist_p50': round(float(np.median(dist)), 6) if len(dist) else 0.0,
            'dist_p99': round(float(np.percentile(dist, 99)), 6) if len(dist) else 0.0, 'has_mr': mr is not None, 'normals_from_native': normals is not None, 'native_prep': prep, 'plate_found': bool(plate_rep.get('plate_found')) and not plate_rep.get('refused'), 'sec_raster': round(t_ras, 1), 'sec_total': round(time.time() - t0, 1)}
     return rep
 
