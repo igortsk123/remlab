@@ -224,7 +224,7 @@
           ],
           "heavy": {
             "prio": 1,
-            "min_gb": 4,
+            "min_gb": 3,
             "cores": 2
           }
         },
