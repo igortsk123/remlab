@@ -10,6 +10,11 @@
      причина геометрии (`no_front` — камеры нет, `no_contact` — нет опоры, `forbid`…) — в поле `geometry_why`; канала роли у товара в каталоге нет — `unknown:no_channel`;
   ③ `body` по имени — без геометрического условия, но не у типа без канала (`no_body_for_types`) и не у стола (`body_scope: none`: столешница и ножки названы отдельно) — там `no_channel`/`body_scope`;
   ④ `agree`/`seen` у PartLLM нет (None) — воздержание по доверию не включается (решение директора П-3; сперва dry).
+  ⑤ «Геометрический запас» (T-20261124-03, блок `geometry_fallback` в таблице; выключатель `enabled`), чтобы крупная часть не оставалась «без роли»:
+     а) фасад/верх по имени, геометрия не подтвердила (самая крупная часть = фасад слит с корпусом; «ящик» с дном) — канал каталога тот же (main), что у корпуса → `body`;
+     б) общее имя («Base», «Horizontal Panel») у типа без `body` (стол) → столешница/ножки по геометрии, если подходит ровно одна роль;
+     в) имени нет вовсе (строка `""` с `geometry_fallback: unnamed`) → роль по геометрии, иначе объёмная часть = `body`.
+     Ножки/каркас/ручки/плафон, не подтверждённые геометрией, по-прежнему `unknown:name_geometry` (другой канал — подставлять корпус нельзя).
 Режим — `mode` в таблице: `off` | `dry` (по умолчанию; роли только в отчёт) | `on` (поля пишутся в parts.json). Мерка — `parts_roles.known_role_area_share` ≥ `metric.min`,
 знаменатель без частей `unknown:no_channel` (у типа канала нет — не провал, отдельная строка; П-2).
 """
@@ -40,6 +45,13 @@ def load_rules(path: str = RULES) -> dict:
                 raise ValueError(f"part-llm-roles.json: «{name}» → {k}={e[k]!r} нет в словаре ролей part-roles.json")
         if e["role"] == "unknown" and not e.get("reason"):
             raise ValueError(f"part-llm-roles.json: «{name}» → unknown без причины (reason)")
+        if e.get("geometry_fallback") not in (None, "unnamed"):
+            raise ValueError(f"part-llm-roles.json: «{name}» → geometry_fallback={e['geometry_fallback']!r}, ожидалось unnamed")
+    gf = t.get("geometry_fallback") or {}
+    for blk in ("generic_in_no_body_types", "unnamed"):
+        for r in (gf.get(blk) or {}).get("roles_order", []):
+            if r not in roles:
+                raise ValueError(f"part-llm-roles.json: geometry_fallback.{blk}.roles_order: роли {r!r} нет в словаре ролей part-roles.json")
     return t
 
 
@@ -55,6 +67,18 @@ def _entry(rules: dict, name: str) -> dict | None:
 def _done(rr: dict, role: str, why: str, conf: float, reason: str | None = None) -> dict:
     rd = rr["roles"][role]
     return {"role": role, "role_title": rd["titleRu"], "material_channel": rd.get("material_channel"), "role_conf": conf, "role_why": why, "unknown_reason": reason}
+
+
+def _geometry_roles(f: dict, role_rules: dict, product_role: str | None, channels: set[str] | None, order: list[str], catalog_classes: dict[str, str] | None) -> list[str]:
+    """Роли из `order`, под которые часть подходит ТОЛЬКО по геометрии группы товара (`parts_roles.role_fit`: те же require/alt_require/forbid, что у SAM-ветки)."""
+    import parts_roles as pro
+
+    return [r for r in order if pro.role_fit(f, role_rules, product_role, channels, r, catalog_classes=catalog_classes)[0]]
+
+
+def _body_allowed(grp: dict, product_role: str | None) -> bool:
+    """Можно ли тут поставить `body`: тип не без канала (`no_body_for_types`) и не тип, где материал столешницы/ножек назван отдельно (`body_scope: none`)."""
+    return product_role not in grp.get("no_body_for_types", []) and grp.get("body_scope", "all") != "none"
 
 
 def bridge_roles(names: dict[int, str], feats: dict[int, dict], rules: dict, role_rules: dict, product_role: str | None, channels: set[str] | None = None,
@@ -81,17 +105,38 @@ def bridge_roles(names: dict[int, str], feats: dict[int, dict], rules: dict, rol
             out[p] = {**_done(role_rules, "unknown", f"название «{name}» не в таблице part-llm-roles.json", rc["unknown"], "name_unknown"), "name": name}
             continue
         role, reason = e["role"], e.get("reason")
+        gf = rules.get("geometry_fallback") or {}
+        gf_on = bool(gf.get("enabled"))
+        tiny = f["area_share"] < ab["tiny_area_share"]
         if role == "unknown":
+            un = gf.get("unnamed") or {}
+            if gf_on and un.get("enabled") and e.get("geometry_fallback") == "unnamed" and not tiny and f["area_share"] >= float(un.get("min_area_share", 0)):
+                fits = _geometry_roles(f, role_rules, product_role, channels, un.get("roles_order", []), catalog_classes)           # имени нет: роль решает геометрия части
+                if len(fits) == 1:
+                    out[p] = {**_done(role_rules, fits[0], f"имени нет → роль по геометрии: {fits[0]} (условия роли выполнены)", rc["matched"]), "name": name}
+                    continue
+                if len(fits) > 1:
+                    out[p] = {**_done(role_rules, "unknown", f"имени нет, геометрии подходят роли {fits}", rc["unknown"], "ambiguous"), "name": name}
+                    continue
+                if un.get("body") and _body_allowed(grp, product_role):                                                             # объёмная часть, ни под какую иную роль не подошла → корпус (запасная роль)
+                    out[p] = {**_done(role_rules, "body", "имени нет, иная роль геометрией не подтверждена → корпус (объёмная часть)", rc["body"]), "name": name}
+                    continue
             out[p] = {**_done(role_rules, "unknown", e.get("why") or f"название «{name}» → без роли ({reason})", rc["unknown"], reason or rules["defaults"]["no_name_reason"]), "name": name}
             continue
-        if f["area_share"] < ab["tiny_area_share"]:
+        if tiny:
             out[p] = {**_done(role_rules, "unknown", f"площадь {f['area_share']:.4f} меньше {ab['tiny_area_share']}", rc["unknown"], "tiny"), "name": name}
             continue
         if role == "body":
             if product_role in grp.get("no_body_for_types", []):
                 out[p] = {**_done(role_rules, "unknown", f"тип «{product_role}»: канала материала для частей нет", rc["unknown"], "no_channel"), "name": name}
             elif grp.get("body_scope", "all") == "none":
-                out[p] = {**_done(role_rules, "unknown", "тип, где материал столешницы/ножек назван отдельно: body не ставим", rc["unknown"], "body_scope"), "name": name}
+                gen = gf.get("generic_in_no_body_types") or {}
+                fits = _geometry_roles(f, role_rules, product_role, channels, gen.get("roles_order", []), catalog_classes) if gf_on and gen.get("enabled") else []
+                if len(fits) == 1:                                                                                                  # у стола «Base»/«Horizontal Panel»: корпуса нет, роль — столешница или ножки по форме
+                    out[p] = {**_done(role_rules, fits[0], f"название «{name}» (общее) → роль по геометрии: {fits[0]} (условия роли выполнены)", rc["matched"]), "name": name}
+                else:
+                    out[p] = {**_done(role_rules, "unknown", "тип, где материал столешницы/ножек назван отдельно: body не ставим" + (f"; геометрии подходят роли {fits}" if fits else ""),
+                                      rc["unknown"], "body_scope"), "name": name}
             else:
                 out[p] = {**_done(role_rules, "body", f"название «{name}» → корпус/обивка (без геометрического условия)", rc["body"]), "name": name}
             continue
@@ -104,7 +149,12 @@ def bridge_roles(names: dict[int, str], feats: dict[int, dict], rules: dict, rol
             out[p] = {**_done(role_rules, picked, f"название «{name}» → {role}" + ("" if picked == role else f", геометрия — {picked}") + "; условия роли выполнены", rc["matched"]), "name": name}
         elif why == "no_channel":                                                  # у товара нет такого канала в каталоге (плафон без «shade»): не провал геометрии
             out[p] = {**_done(role_rules, "unknown", f"название «{name}» → {role}, но канала «{role}» у товара в каталоге нет", rc["unknown"], "no_channel"), "name": name}
-        else:                                                                      # геометрия не подтвердила имя; почему именно (no_front, no_contact, forbid…) — в geometry_why
+        elif (gf_on and (gf.get("to_body") or {}).get("enabled") and _body_allowed(grp, product_role)
+              and role_rules["roles"][role].get("material_channel") == role_rules["roles"]["body"].get("material_channel")):
+            # фасад/верх по имени, геометрия не подтвердила (самая крупная часть, фасад слит с корпусом, «ящик» с дном): канал каталога тот же, что у корпуса, — корпус, а не «нет роли»
+            out[p] = {**_done(role_rules, "body", f"название «{name}» → {role}, геометрия не подтвердила ({why or 'условия роли не выполнены'}); канал каталога тот же (main) → корпус", rc["body"]), "name": name,
+                      "geometry_why": why}
+        else:                                                                    # геометрия не подтвердила имя; почему именно (no_front, no_contact, forbid…) — в geometry_why
             out[p] = {**_done(role_rules, "unknown", f"название «{name}» → {role}, геометрия не подтверждена ({why or 'условия роли не выполнены'})", rc["unknown"],
                               rules["defaults"]["geometry_reason"]), "name": name, "geometry_why": why}
     return out

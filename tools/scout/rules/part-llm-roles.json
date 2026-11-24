@@ -8,6 +8,13 @@
   "exclude_unknown_reasons": ["no_channel"],
   "_doc": "Мерка: доля площади частей с известной ролью (parts_roles.known_role_area_share), порог 0,90; знаменатель — только части, у которых канал материала возможен: unknown:no_channel (плафона/ножек у типа нет: стойка лампы, горлышко вазы) в знаменатель не входит и считается отдельной строкой (решение директора П-2). Мерка мягкая: ниже порога — пометка, не отказ."
  },
+ "geometry_fallback": {
+  "_about": "Геометрический запас моста (T-20261124-03, строки журнала #199/#206/#207): на 28 товарах круга крупные части оставались «без роли» (unknown:name_geometry/body_scope/no_name) — фасад слит с корпусом («Drawer» 65–76 % площади), у стола «Horizontal Panel»/«Base» не получали ни столешницу, ни ножки. Исполняет tools/assets/parts_names_roles.bridge_roles; пороги геометрии — в part-roles.json (одно место). enabled=false возвращает прежнее поведение байт-в-байт.",
+  "enabled": true,
+  "to_body": {"enabled": true, "_doc": "имя дало роль того же канала каталога, что у корпуса (top, facade → main), геометрия не подтвердила (самая крупная часть, ящик с дном, вертикальная панель вместо плиты) → body. Роли других каналов (ножки, каркас, ручки, плафон) не подменяются: корпус вместо них дал бы им материал корпуса. Не у типов без body (стол: материал столешницы/ножек назван отдельно) и не у типов без канала."},
+  "generic_in_no_body_types": {"enabled": true, "roles_order": ["top", "legs", "frame"], "_doc": "общее имя (body по названию: «Base», «Horizontal Panel», «Casing») у типа без body (стол): роль — по геометрии из этого списка, если подходит РОВНО одна; иначе unknown:body_scope как раньше"},
+  "unnamed": {"enabled": true, "roles_order": ["top", "legs", "frame"], "min_area_share": 0.02, "body": true, "_doc": "части без названия (строка \"\" с geometry_fallback=unnamed): роль по геометрии (ровно одна подходит), иначе объёмная часть не меньше min_area_share → body, где он разрешён типом. Меняет решение плана 23.11 «по геометрии роль не ставим» — отдельный выключатель: enabled=false оставит no_name."}
+ },
  "defaults": {
   "no_name_reason": "no_name",
   "geometry_reason": "name_geometry"
@@ -81,6 +88,6 @@
   "Connection Part": {"role": "unknown", "reason": "no_channel", "why": "соединитель: канала материала нет"},
   "Standard Table": {"role": "unknown", "reason": "not_a_part", "why": "название целого предмета, не части"},
   "Other": {"role": "unknown", "reason": "not_a_part", "why": "PartLLM не назвал часть"},
-  "": {"role": "unknown", "reason": "no_name", "why": "имени нет — мост по имени ничего не решает (по геометрии роль не ставим: решение плана 23.11)"}
+  "": {"role": "unknown", "reason": "no_name", "geometry_fallback": "unnamed", "why": "имени нет — мост по имени ничего не решает; роль только по геометрии (geometry_fallback.unnamed; выключено — no_name, решение плана 23.11)"}
  }
 }

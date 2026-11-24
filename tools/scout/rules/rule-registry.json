@@ -974,6 +974,37 @@
       "check_field": null,
       "enabled": null,
       "note": "Решение пишется в результат front_axis_resolved: rules[] {rule_id, applied, decision, rejected{source,theta,delta}, edge_agree}, source=camera_ambiguous, flags[front_ambiguous:photo_side]; loop5 кладёт их в таблицу/кэш front_cache. Потребитель — лист оценки (loop5.front_of); 07 перёд из front_axis_resolved НЕ берёт (tex_fill.front_axis_of_check читает камеру 06). Порог второго свидетеля — camera-check.json: edge_ref (один источник). Охват круга 3: 3 из 29. trial: на следующей партии сверить глазами; в active — после прогона с run_id."
+    },
+    {
+      "rule_id": "R-PART-ROLES-GEOM-03",
+      "title": "Роли частей этапа 03 по геометрии, когда имя PartLLM не помогло: у стола «Base»/«Horizontal Panel»/«Support Structure» — столешница/ножки/каркас по форме, ножка с kind=body на полу — legs; у корпусных фасад/верх, слитые с корпусом, и безымянные крупные части — body (канал main); ножки, каркас, ручки, плафон корпусом не подменяются",
+      "state": "trial",
+      "source": [
+        "T-20261124-03 (директор 24.11, владелец TG 2384): журнал #199 (столешница и ножки в одной части), #206 (часть без роли), #207 (фасад и бока без роли)",
+        "замер на 28 товарах t198 (coarse/fine): coarse — стол ≥0,90 площади с ролью 0 из 4 → 4 из 4; fine — корпусные 2 из 10 → 10 из 10"
+      ],
+      "applies": {
+        "types": [
+          "стол обеденный",
+          "столик",
+          "комод",
+          "шкаф",
+          "тв-тумба",
+          "тумба прикроватная",
+          "витрина"
+        ]
+      },
+      "executor": "р.1 (parts_names_roles.bridge_roles, T-20261124-03)",
+      "consumer": "tools/assets/parts_names_roles.py:bridge_roles",
+      "runtime": "observe",
+      "test": "tools/assets/tests/test_parts_names_roles.py",
+      "test_positive": "tools/assets/tests/test_parts_names_roles.py::test_generic_names_of_a_table_get_top_and_legs_by_form",
+      "test_negative": "tools/assets/tests/test_parts_names_roles.py::test_to_body_not_where_body_is_not_allowed",
+      "run_id": null,
+      "flag": "tools/scout/rules/part-llm-roles.json#geometry_fallback",
+      "check_field": null,
+      "enabled": null,
+      "note": "Мост в режиме mode=dry (роли только в отчёт roles-bridge.json, parts.json и покраска не меняются) — поэтому observe/trial; в active — после перевода моста в on и прогона с run_id. Пороги — part-roles.json (table.legs.alt_require) и part-llm-roles.json geometry_fallback; выключатель geometry_fallback.enabled=false возвращает прежнее поведение байт-в-байт (тест). Не сделано: разбиение копланарного фасада внутри корпуса (данных нет), «Table Frame»/«Casing»/«Key Area» у стола остаются unknown; безымянные части → body меняют решение плана 23.11 «по геометрии роль не ставим» (отдельный выключатель unnamed.enabled)."
     }
   ],
   "_active_rule": "active = consumer определён (ast) и вызывается боевым кодом + runtime=enforce и флаг включён + тест в CI + test_positive и test_negative на пример типа + run_id прогона. Без любого — trial (rule_registry_audit: ошибка). run_id — папка прогона в ~/remlab-logs, где правило отработало; проверка прогона структурная (--run): extra.rules[] с rule_id, type, digest, applied|abstain."
