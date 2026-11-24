@@ -18,7 +18,9 @@
   "history_paths": [
    ".memory_bank/decisions.md",
    ".memory_bank/decisions/*",
-   ".memory_bank/lessons/*"
+   ".memory_bank/lessons/*",
+   ".memory_bank/*-history.md",
+   ".memory_bank/rules/history/*"
   ]
  },
  "history_markers": [
