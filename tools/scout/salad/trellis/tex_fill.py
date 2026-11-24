@@ -108,6 +108,7 @@ FILL = {
     'smooth_roles': ['legs', 'frame', 'handles'],   # роли без плитки фактуры на недостроенном: тон части без блоков («ёлочка» стыков на дереве, Sakura 21.11)
     'tone_share_roles': ['legs', 'frame', 'handles'],   # роли, у которых тон един на все части одной роли (один материал — один тон: задние ножки темнее передних из-за теней)
     'legs_common_tone': False,       # T-21 П1: ножки ПО ГЕОМЕТРИИ (роль legs этапа 3 не доходит) → группа ножек одной формы и цвета красится тоном лучшей видимой ножки (свет/тень фото не переносятся); по умолчанию выкл.
+    'legs_quilt': False,              # ножки группы: квилт (False — гладко: тон пина + зерно; решётка у Марти-2 0,76)
     'legs_pin': 'median_all',         # пин группы ножек: 'median_all' — медиана Lab по ВСЕМ известным текселям ножек группы (с тенями, как мерит check); 'best' — тон лучшей ножки (мода без теней)
     'legs_geo_weight': 0.0,          # группа ножек: вес геодезического цвета известного соседа (0 — только пин; 1 — как у остальных частей)
     'legs_band': [0.02, 0.20], 'legs_zone': 0.45, 'legs_max_frac': 0.25, 'legs_radius': 1.5, 'legs_grow': 1.7,   # ножка: полоса поиска и верх тела (доли высоты), макс. ширина (доля габарита), цилиндр (×ширины/2), рост сечения → конец ножки
@@ -1531,6 +1532,11 @@ def fill(geoms: list, known: list, parts: list | None = None, cfg: dict | None =
         qsrc, qbq, qbig = {}, {}, {}          # узорные: эталон src решётки, блок первой сборки, пробовалась ли ступень (в)
         for p, qdiv, qaug in qwork:
             qrng = qrngs.setdefault(int(p), part_rng(7, p))
+            if legs_rep and legs_rep.get('applied') and p in legs_rep['pins'] and not c.get('legs_quilt', False):          # ножки группы: узкие стойки — квилт из малого пула даёт решётку; фактура гладко (тон пина + зерно)
+                qflat.add(int(p))
+                qunobs.add(int(p))
+                rep.setdefault('quilt_lattice', {})[int(p)] = {'before': 0.0, 'rebuilt': 0, 'after': 0.0, 'flat': True, 'legs_group': True}
+                continue
             resg, okg = [], []
             for gi, tx in enumerate(txs):
                 res_, pm, _im = blk[gi]
