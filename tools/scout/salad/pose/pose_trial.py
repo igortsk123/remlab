@@ -47,9 +47,11 @@ def worker_command(path: str | None = None) -> tuple[list[str], str]:
     return KW.bundle(path or WORKER)
 
 
-def build_body(name: str, image: str, tier: str, class_id: str, auth: dict, life_s: int, idle_s: int, procs: int, omp: int, worker_z: str | None = None) -> dict:
+def build_body(name: str, image: str, tier: str, class_id: str, auth: dict, life_s: int, idle_s: int, procs: int, omp: int, worker_z: str | None = None, flags: str = '') -> dict:
     env = {'PORT': str(PORT), 'MAX_LIFETIME_S': str(life_s), 'IDLE_S': str(idle_s), 'POSE_PROCS': str(procs), 'POSE_OMP': str(omp),
            'POSE_FIT_TIMEOUT_S': str(load_rules()['fit_timeout_s']), 'POSE_CHECK_TIMEOUT_S': str(load_rules()['check_timeout_s']), 'DEPLOYMENT_EPOCH': f'20261122-{name}'}
+    if flags:
+        env['POSE_FIT_FLAGS'] = flags                                  # флаги подгонки (worker_pose.FIT_FLAG_NAMES), по умолчанию нет
     command = None
     if worker_z:
         command, env['KIT_WORKER_Z'] = worker_command()[0], worker_z
@@ -144,7 +146,7 @@ def make_spec(a) -> KD.Spec:
 
     def build(name, class_id, auth):
         return build_body(name, a.image, a.tier, class_id, auth, min(a.max_min * 60 + 600, 3 * 3600), a.idle_s, a.procs, a.omp,
-                          worker_z=None if getattr(a, 'worker_from_image', False) else worker_command()[1])
+                          worker_z=None if getattr(a, 'worker_from_image', False) else worker_command()[1], flags=getattr(a, 'flags', ''))
 
     def preflight():
         miss = [p for s in skus for p in paths(a, s) if not os.path.isfile(p)]
@@ -177,7 +179,7 @@ def run_local(a, sleep=time.sleep, clock=time.time) -> int:
     port = free_port()
     os.makedirs(a.out, exist_ok=True)
     env = dict(os.environ, PORT=str(port), POSE_CODE=os.path.join(a.code, 'tools/scout/salad/trellis'), POSE_WORK=os.path.join(a.out, '_work'), POSE_PROCS=str(a.procs), POSE_OMP=str(a.omp),
-               MAX_LIFETIME_S=str(a.max_min * 60), IDLE_S='900')
+               MAX_LIFETIME_S=str(a.max_min * 60), IDLE_S='900', POSE_FIT_FLAGS=getattr(a, 'flags', ''))
     env.pop('PYTHONPATH', None)
     logf = open(os.path.join(a.out, 'worker.log'), 'wb')
     p = subprocess.Popen([a.python, '-I', WORKER], env=env, stdout=logf, stderr=subprocess.STDOUT, cwd=a.out)
@@ -275,6 +277,7 @@ def main() -> int:
     ap.add_argument('--idle-s', type=int, default=900)
     ap.add_argument('--worker-from-image', action='store_true')
     ap.add_argument('--suffix', default=time.strftime('%m%d%H%M', time.gmtime()))
+    ap.add_argument('--flags', default='', help='флаги подгонки в подпроцесс воркера: POSE_JUNCTION=1,POSE_VERT_AXIS=1 (по умолчанию нет; T-20261124-18)')
     ap.add_argument('--apply', action='store_true')
     ap.add_argument('--stop-only', action='store_true')
     ap.add_argument('--local', action='store_true', help='бесплатная сверка: воркер на этой машине')
