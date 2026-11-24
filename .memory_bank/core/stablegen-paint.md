@@ -19,7 +19,7 @@ review_after: 2026-12-05
 
 ## Этапы
 1. **Форма** — TRELLIS.2 по одному фото фида (Salad 5060 Ti, тяжёлые → 5090). Краска TRELLIS не используется.
-2. **Ш0 приёмка формы** — правила `tools/scout/salad/render/form_checks.py` + `form_gate.py` (сам после `forms_render --accept`).
+2. **Ш0 приёмка формы** — правила `tools/scout/salad/render/form_checks.py` + `form_gate.py` (сам после `tools/ops/forms_render.py --accept`).
 3. **03 части** — PartLLM (мягкая), SegviGen (фасады, проба); P3-SAM — эталон (ADR-0460).
 4. **04 камера** — силуэт формы ↔ маска фото (`tools/scout/salad/trellis/pose_fit.py`, `camera_check.py`).
 5. **06 фото на форму** — проекция камерой 04 на UV (`tex_visible.py`, Lanczos, подгонка регистрации).

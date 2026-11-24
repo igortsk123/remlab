@@ -40,7 +40,7 @@ review_after: 2026-11-27
    карте: снять/переписать «Сегодня», дописать поведение, обновить техимена. Гейт завершения плана
    (`agent-workflow.md` п.4) дополняется пунктом «книга обновлена по карте».
 4. **Сверка кодом.** Раз в неделю (или после крупного плана) — сверка книги с кодом советником по правилу
-   `.claude/rules/codex-adviser.md`: главы по списку → `vercel-sol`, вся книга → `vercel` (astra); отчёт в
+   правило P-075 (реестр): главы по списку → `vercel-sol`, вся книга → `vercel` (astra); отчёт в
    `_intake/codex/`, расхождения правятся, счётчик «найдено/исправлено» — в `tools/memory-health.mjs`.
 5. **Публикация.** Страница `/test/book/` пересобирается при каждом коммите книги (конвертер
    `build_book.py` → в `tools/`, вызов из `deploy`/`publish_demo.sh`), чтобы владелец читал всегда свежее.
@@ -53,7 +53,7 @@ review_after: 2026-11-27
 
 ## Файлы к изменению
 - [ ] `guides/product-book-map.json` (новый), `tools/memory-audit.mjs` (BOOK-* проверки), `tools/book-build.py` (из scratchpad)
-- [ ] `.claude/skills/memory-check/SKILL.md` (этап «книга»), `.claude/rules/agent-workflow.md` (гейт), `guides/memory-automation.md`
+- [ ] `.claude/skills/memory-check/SKILL.md` (этап «книга»), правило P-069/P-071 (реестр) (гейт), `guides/memory-automation.md`
 - [ ] `deploy`/`publish_demo.sh` — пересборка страницы
 
 ## Критерии приёмки
