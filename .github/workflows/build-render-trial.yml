@@ -8,8 +8,10 @@ name: build-render-trial
 on:
   push:
     branches: ['trial/render*']
+    # paths = КАЖДЫЙ файл образа (список файлов, Dockerfile, скрипт контекста, COPY): правка любого пересобирает образ; сверка — tools/ops/trial_build_paths_check.py (CI)
     paths:
       - 'tools/scout/salad/render/**'
+      - 'tools/scout/salad/pose/stage_pose_code.py'
       - 'tools/scout/stablegen/render_stand.py'
       - 'tools/ops/forms_render.py'
       - '.github/workflows/build-render-trial.yml'

@@ -7,8 +7,13 @@ name: build-pose-trial
 on:
   push:
     branches: ['trial/pose*']
+    # paths = КАЖДЫЙ файл образа (список файлов, Dockerfile, скрипт контекста, COPY): правка любого пересобирает образ; сверка — tools/ops/trial_build_paths_check.py (CI)
     paths:
       - 'tools/scout/salad/pose/**'
+      - 'tools/scout/salad/trellis/*'
+      - 'tools/scout/salad/*'
+      - 'tools/scout/*'
+      - 'tools/scout/rules/*'
       - '.github/workflows/build-pose-trial.yml'
   workflow_dispatch:
 

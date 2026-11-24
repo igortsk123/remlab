@@ -9,8 +9,10 @@ name: build-pixal3d-bw-trial
 on:
   push:
     branches: ['trial/trellis2-pixtex']
+    # paths = КАЖДЫЙ файл образа (список файлов, Dockerfile, скрипт контекста, COPY): правка любого пересобирает образ; сверка — tools/ops/trial_build_paths_check.py (CI)
     paths:
       - 'tools/scout/salad/trellis/Dockerfile.pixal3d-bw'
+      - 'tools/scout/salad/trellis/worker_trellis.py'
       - '.github/workflows/build-pixal3d-bw-trial.yml'
   workflow_dispatch:
 

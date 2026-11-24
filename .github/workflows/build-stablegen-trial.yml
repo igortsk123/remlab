@@ -6,6 +6,7 @@ name: build-stablegen-trial
 on:
   push:
     branches: ['trial/trellis2-stablegen']
+    # paths = КАЖДЫЙ файл образа (список файлов, Dockerfile, скрипт контекста, COPY): правка любого пересобирает образ; сверка — tools/ops/trial_build_paths_check.py (CI)
     paths:
       - 'tools/scout/stablegen/Dockerfile.sg-comfy'
       - '.github/workflows/build-stablegen-trial.yml'
