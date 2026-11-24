@@ -685,6 +685,35 @@ def eval_one(sheets: str, i: str, R: dict, clay_dir: str, item: dict | None, cac
     return r
 
 
+def add_front(sheets: str, res: dict, R: dict) -> dict:
+    """Признак «фронт сплошной» (front_continuity.py, data/flat3d/front-continuity.json) — ОТДЕЛЬНАЯ строка: res[id]['front'] и сводка; ok/score/status пяти признаков не трогает.
+    Только корпусные (hidden_pattern = body), лист не развёрнут; остальным — «не применимо». «Не измерено» (маска мала) ≠ прошёл."""
+    from PIL import Image
+    if HERE not in sys.path:
+        sys.path.insert(0, HERE)                                                           # -I (изолированный запуск): соседний модуль не виден сам
+    import front_continuity as FC
+    sr = load_sheet_rules()
+    S, hp_ = int(sr['size']), int(sr['header_px'])
+    out = {'applicable': 0, 'passed': 0, 'failed': 0, 'unmeasured': 0, 'failed_ids': [], 'unmeasured_ids': []}
+    for i, v in res.items():
+        if v.get('hidden_pattern') != 'body' or v.get('flipped'):
+            v['front'] = {'status': 'na', 'why': 'не корпусной товар или ракурс развёрнут'}
+            continue
+        sh = np.asarray(Image.open(os.path.join(sheets, i + '.png')).convert('RGB'))
+        c0, c1 = sh[hp_: hp_ + S, 0:S], sh[hp_: hp_ + S, S: 2 * S]                         # ячейки: 0 — фото, 1 — «перед»
+        p_rgb, p_m = photo_cell(c0, R['geometry'])
+        r = FC.front_continuity(c1, view_mask(c1, R['geometry']), p_rgb, p_m)
+        st = 'unmeasured' if r['ok'] is None else ('passed' if r['ok'] else 'failed')
+        v['front'] = {'status': st, 'r': r['r'], 'why': r['why'], 'strip': r.get('strip'), 'spot': r.get('spot')}
+        out['applicable'] += 1
+        out[st] += 1
+        if st == 'failed':
+            out['failed_ids'].append(i)
+        elif st == 'unmeasured':
+            out['unmeasured_ids'].append(i)
+    return out
+
+
 def _eval_job(a: tuple) -> dict:
     return eval_one(*a)
 
@@ -707,6 +736,7 @@ def batch(sheets: str, out: str, only: list | None = None, rules: dict | None = 
     else:
         outs = [_eval_job(j) for j in jobs]
     res = dict(zip(ids, outs))
+    front_ids = add_front(sheets, res, R)                                              # «фронт сплошной» (T-20261124-18): отдельная строка, вердикты 5 признаков не меняет
     unc = sorted(k for k, v in res.items() if v.get('uncertain'))                  # «не измерено» целиком (маска фото мала)
     meas = [k for k in res if k not in unc]
     stat = {k: (v.get('status') or ('unmeasured' if v.get('uncertain') or v.get('ok') is None else ('passed' if v.get('ok') else 'failed'))) for k, v in res.items()}
@@ -728,7 +758,7 @@ def batch(sheets: str, out: str, only: list | None = None, rules: dict | None = 
                     k_ = str(d_.get('why') or 'без причины').split(' (')[0]
                     na_by_reason[k_] = na_by_reason.get(k_, 0) + 1
     flipped = sorted(k for k, v in res.items() if v.get('flipped'))
-    summary = {'items': len(res), 'measured': len(meas), 'uncertain': unc, 'flipped': len(flipped), 'flipped_ids': flipped, 'passed_all': n_ok,
+    summary = {'front_continuity': front_ids, 'items': len(res), 'measured': len(meas), 'uncertain': unc, 'flipped': len(flipped), 'flipped_ids': flipped, 'passed_all': n_ok,
                'passed_all_pct': round(100.0 * n_ok / len(res), 1) if res else None,        # от ВСЕХ товаров: «не измерено» в знаменателе, не прячется
                'failed': len(failed_ids), 'with_unmeasured': len(unm_ids), 'failed_ids': failed_ids, 'unmeasured_ids': unm_ids,
                'na_features': na_feat, 'na_views': na_view, 'na_by_reason': dict(sorted(na_by_reason.items())),
@@ -755,6 +785,8 @@ def main(argv: list) -> int:
     items = {x['id']: x for x in json.load(open(a.items, encoding='utf-8'))} if a.items else None
     r = batch(a.sheets, a.out, [x for x in a.only.split(',') if x] or None, clay_dir=a.clay_dir or None, items=items, workers=a.workers, cache_dir=a.cache or None)
     s = r['summary']
+    f_ = s['front_continuity']
+    print(f"фронт сплошной (корпусные): применимо {f_['applicable']} · прошли {f_['passed']} · не прошли {f_['failed']} {f_['failed_ids']} · не измерено {f_['unmeasured']}")
     print(f"товаров {s['items']}: прошли ВСЁ (всё измерено) {s['passed_all']} ({s['passed_all_pct']} %) · есть «не измерено» {s['with_unmeasured']} · не прошли {s['failed']} · неприменимо {s['na_features']} признаков и {s['na_views']} видов; ракурс развёрнут: {s['flipped']}")
     return 0
 
