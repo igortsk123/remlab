@@ -16,14 +16,14 @@ import os
 import numpy as np
 
 HERE = os.path.dirname(os.path.abspath(__file__))
-DEFAULTS = {'enabled': True, 'enforce': False, 'max_abs_deg': 0.5, 'span': [0.15, 0.85], 'straight_px': 3.0, 'min_len_frac': 0.35, 'min_len_px': 40}
+DEFAULTS = {'enabled': True, 'enforce': False, 'max_abs_deg': 0.5, 'span': [0.15, 0.85], 'straight_px': 3.0, 'min_len_frac': 0.35, 'min_len_px': 40, 'report_top_deg': 1.0}
 
 
 def rules(R: dict | None = None) -> dict:
     """Блок `edge_angle` из camera-check.json (R — весь файл или сам блок; None — прочитать файл)."""
     if R is None:
         try:
-            R = json.load(open(os.path.join(HERE, 'rules', 'camera-check.json'), encoding='utf-8'))
+            R = json.load(open(os.path.join(HERE, "..", "..", "rules", "camera-check.json"), encoding='utf-8'))
         except (OSError, ValueError):
             R = {}
     blk = R.get('edge_angle', R) if isinstance(R, dict) else {}
@@ -98,6 +98,9 @@ def compare(render_mask: np.ndarray, photo_mask: np.ndarray, R: dict | None = No
             out[side] = {'skip': a.get('why') if not a['ok'] else 'фото: ' + str(b.get('why'))}
     res = {'sides': out, 'measured': bool(sides), 'max_abs_deg': round(max(sides), 2) if sides else None, 'threshold_deg': r['max_abs_deg'], 'enforce': bool(r['enforce'])}
     res['passed'] = (res['max_abs_deg'] <= r['max_abs_deg']) if sides else None
+    t = out.get('top', {}).get('delta_deg')                                  # порог ОТЧЁТА (директор 24.11): верх 1,0°, бока — пока только число
+    res['top_over_report'] = None if t is None else bool(abs(t) > r['report_top_deg'])
+    res['report_top_deg'] = r['report_top_deg']
     return res
 
 
@@ -123,6 +126,7 @@ def selftest() -> int:
     ok(a['ok'] and abs(a['deg'] - 2.0) < 0.15, f'верх 2° → 2° ({a})')
     c = compare(box(0.6), box(-1.8))
     ok(c['measured'] and abs(c['sides']['top']['delta_deg'] + 2.4) < 0.2 and c['passed'] is False, f'клин −2,4° на верхней кромке не проходит порог 0,5° ({c["sides"]["top"]})')
+    ok(compare(box(0.0), box(-1.4))['top_over_report'] is True and compare(box(0.0), box(-0.7))['top_over_report'] is False, 'отчёт по верху: 1,4° — да, 0,7° — нет')
     c = compare(box(0.3), box(0.5))
     ok(c['passed'] is True, f'Δ 0,2° в пороге ({c["max_abs_deg"]})')
     arc = ((xx - 300) ** 2 + (yy - 500) ** 2) < 320 ** 2                     # купол — верх не прямой
