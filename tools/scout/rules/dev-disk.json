@@ -19,6 +19,8 @@
   "refs_exclude": [".memory_bank/changelog", ".memory_bank/archive", ".memory_bank/completed_plans"],
   "_refs_why": "ссылки из журналов (changelog), архива и закрытых планов — история «что делали», а не вход чужого скрипта: папку не держат. worktrees_block=true — папки с рабочими копиями git остаются (false: уезжают, путь в .git/worktrees/*/gitdir сохраняет ссылка на месте)"
  },
+ "worktree_prune": {"days": 3, "base": "origin/main"},
+ "_worktree_prune_why": "T-20261124-52 (владелец TG 2626): tools/ops/worktree_prune.py снимает рабочие копии git (git worktree remove, без --force) — на ветке или detached уже влитые в base, status пуст (вкл. untracked), последний коммит и папка старше days суток, процесса внутри нет, не заперта, не симлинк на HDD; влитые ветки старше days — git branch -d. Сухо по умолчанию, --apply — делать; крон ставит директор",
  "warn_free_gb": 30,
  "_warn_why": "свободно меньше — WARN:disk_free в дайджест: у соседнего проекта (tamara) резерв 25 ГБ, ночная сборка и волна мешей встают на полном диске",
  "dir_days": 7,

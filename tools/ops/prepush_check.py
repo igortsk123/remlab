@@ -290,6 +290,15 @@ def hook_stdin(stdin) -> bool:
     return stat.S_ISFIFO(mode) or stat.S_ISREG(mode)
 
 
+def from_git_hook(argv: list) -> bool:
+    """Зовёт ли нас git pre-push. Git всегда даёт хуку два аргумента — имя remote и его url (и протокол в stdin); ручной запуск —
+    `--stdin-refs`. Без этого stdin не читаем: через `r`/ssh он — пайп, неотличимый от пайпа git, и чтение висело навсегда
+    (24.11 два раза за час, T-20261124-52)."""
+    if '--stdin-refs' in argv:
+        return True
+    return len(argv) == 2 and not argv[0].startswith('--') and not argv[1].startswith('--')
+
+
 def changed_files(root: str, argv: list, stdin) -> list:
     if '--files' in argv:
         i = argv.index('--files') + 1
@@ -300,7 +309,7 @@ def changed_files(root: str, argv: list, stdin) -> list:
         return out
     git = lambda *a: subprocess.run(['git', '-C', root, *a], capture_output=True, text=True).stdout.split()
     out = []
-    lines = stdin.read().splitlines() if hook_stdin(stdin) else []
+    lines = stdin.read().splitlines() if from_git_hook(argv) and hook_stdin(stdin) else []
     for ln in lines:   # протокол pre-push: <local ref> <local sha> <remote ref> <remote sha>
         p = ln.split()
         if len(p) != 4 or p[1] == ZERO:
@@ -442,10 +451,31 @@ jobs:
     if len(head) == 2:
         want = sorted(subprocess.run(['git', '-C', ROOT_DEFAULT, 'diff', '--name-only', head[1], head[0]],
                                      capture_output=True, text=True).stdout.split())
-        got = changed_files(ROOT_DEFAULT, [], io.StringIO(f'refs/heads/x {head[0]} refs/heads/main {head[1]}\n'))
+        got = changed_files(ROOT_DEFAULT, ['origin', 'git@example.invalid:r.git'], io.StringIO(f'refs/heads/x {head[0]} refs/heads/main {head[1]}\n'))
         check(got == want, 'pre-push stdin: файлы от удалённого sha до локального', (got, want))
-        got = changed_files(ROOT_DEFAULT, [], io.StringIO(f'refs/heads/x {ZERO} refs/heads/main {head[1]}\n'))
+        got = changed_files(ROOT_DEFAULT, ['--stdin-refs'], io.StringIO(f'refs/heads/x {ZERO} refs/heads/main {head[1]}\n'))
         check(got == [], 'pre-push stdin: удаление ветки — проверять нечего', got)
+        # без признака хука (ручной запуск, `r`) протокол из stdin НЕ читается: берётся diff origin/main...HEAD, как при пустом stdin
+        manual = changed_files(ROOT_DEFAULT, [], io.StringIO(f'refs/heads/x {head[0]} refs/heads/main {head[1]}\n'))
+        want_manual = sorted(set(subprocess.run(['git', '-C', ROOT_DEFAULT, 'diff', '--name-only', 'origin/main...HEAD'],
+                                                capture_output=True, text=True).stdout.split()))
+        check(manual == want_manual, 'ручной запуск без аргументов git — stdin не читаем (diff origin/main...HEAD)', (manual, want_manual))
+    check(from_git_hook(['origin', 'git@x:r.git']) and from_git_hook(['--stdin-refs']) and from_git_hook(['--budget', '5', '--stdin-refs']),
+          'признак хука: remote+url от git или --stdin-refs')
+    check(not from_git_hook([]) and not from_git_hook(['--budget', '5']) and not from_git_hook(['--files', 'a.py', 'b.py'])
+          and not from_git_hook(['--root', '/x']), 'ручной запуск (в т.ч. через `r`) — не хук')
+    # живой пайп, в который никто не пишет и не закрывает (как ssh/`r`): без признака хука процесс завершается, а не висит
+    with tempfile.TemporaryFile('w+') as so:
+        proc = subprocess.Popen([sys.executable, os.path.abspath(__file__), '--dry', '--root', ROOT_DEFAULT],
+                                stdin=subprocess.PIPE, stdout=so, stderr=subprocess.STDOUT, text=True)   # stdin открыт и молчит
+        try:
+            rc = proc.wait(timeout=60)
+            check(rc == 0, 'открытый молчащий пайп stdin без признака хука — не виснем', rc)
+        except subprocess.TimeoutExpired:
+            check(False, 'открытый молчащий пайп stdin без признака хука — ВИСИТ (>60 с)')
+        finally:
+            proc.stdin.close()      # отпускаем (старый код тут дочитал бы до EOF и вышел) — без kill
+            proc.wait(timeout=120)
     # stdin не от git (сокет, как у Bash агента; tty; /dev/null) — не читаем, иначе висим вечно (13.11, 40 мин в слоте)
     import socket
     a, b = socket.socketpair()
