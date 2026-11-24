@@ -2,13 +2,15 @@
 workstream: product
 slug: agent-trial-01-upload-grey-tour
 title: Проба агента — загрузка плана → задание на проде → воркер DEV → серый 3D-тур по ссылке /try/<id>
-status: in_progress
+status: partial
 created: 2026-11-09
-updated: 2026-11-09
+updated: 2026-11-24
 completed:
 plan_kind: sub
 parent_plan: MASTER-agent-trial
 review_after: 2026-11-23
+pause_reason: "без движения с 09.11 — фокус П1 на конвейере мешей и покраске (ADR-0187, ADR-0468/0470); снято директором algor на ночном своде 24.11"
+resume_trigger: "владелец или директор возвращает пункт в П1 плана задач"
 ---
 
 ## Цель

@@ -3,13 +3,13 @@ tier: 2
 topic: ads-autopilot
 scope: Автопилот рекламы на сервере — джобы, пороги, режимы (dry-run/боевой), как выключить
 tier1: ../core/marketing-acquisition.md
-updated: 2026-10-23
+updated: 2026-11-24
 importance: high
 source: manual
 status: working
 source_of_truth: canonical
-last_verified: 2026-10-23
-review_after: "2026-11-23"
+last_verified: 2026-11-24
+review_after: "2026-12-24"
 ---
 
 # Автопилот рекламы (задеплоен 2026-07-11, режим DRY-RUN)
@@ -26,7 +26,7 @@ review_after: "2026-11-23"
 ## Джобы (systemd-таймеры, все — journalctl -u 'remlab-ads-*'; цикл по всем кампаниям)
 | Таймер | Когда | Что | Право записи |
 |---|---|---|---|
-| `remlab-ads-check` | 30 мин | per-campaign стоп-кран (>700 ₽/день, >300 ₽/час) + **суммарный** по общему счёту → suspend виновника; статус (модерация/старт/отклонение) каждой → TG; CPC>20/AT>30% warn; 2 дня <50 показов → BidCeiling +5 (max 25) | suspend, BidCeiling |
+| `remlab-ads-check` | 30 мин | per-campaign стоп-кран (>700 ₽/день, >300 ₽/час) + **суммарный** по общему счёту → suspend виновника; статус (модерация/старт/отклонение) каждой → TG; CPC>20 warn; AT>30% warn (только при расходе дня ≥100 ₽, `decisions.py:36`); 2 дня <50 показов и текущий потолок >0 → BidCeiling +5 (max 25, `check.py:110`) | suspend, BidCeiling |
 | `remlab-ads-minus` | 08–22 МСК / 2ч | по каждой кампании: новые запросы → Gemini с контекстом сервиса → ≤10 минусов (ядро под стоп-листом) | NegativeKeywords |
 | `remlab-ads-ab` | 10:05 МСК | по каждой: группе ≥300 пок/7д и CTR<2.5% — 1 A/B-текст (Href берём у группы, лимит 3 объявл/группа) | ads.add |
 | `remlab-ads-report` | 21:00 МСК | по каждой кампании: расход/клики/CPC + топ-группы + **воронка сметы** (Метрика 10–13) + действия роботов → TG | — |
