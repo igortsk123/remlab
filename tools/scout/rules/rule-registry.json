@@ -1053,6 +1053,87 @@
       "check_field": null,
       "enabled": null,
       "note": "Шаг ночи `component_guard --nightly` стоит в refresh_daily.sh после dimless; при enabled=false ничего не читает и не пишет. Включение — только после слова директора и миграции tools/scout/019-product-kind.sql (product_kind, kind_reason, role_before); первый --apply с --allow-new N (предохранитель: 824 из 824 строк магазина — не молча). Сухой отчёт 24.11 на боевой базе: снять 824/824 в 40 категориях mdm, вне mdm 0; контрпримеры (divan.ru «Модульные гостиные» 24; «Гардеробные системы» — размеры у 88 %; барная мебель, кушетки, порталы каминов, текстиль) не тронуты. Липкость: load3 и category_map --apply гасят роль у product_kind=component (SQL с проверкой колонки). Возврат роли — решением правила (появились размеры/сбой фида)."
+    },
+    {
+      "state": "trial",
+      "source": [
+        "T-20261124-05",
+        "plans/mesh-type-rules-01.md журнал 20.11 (#76, #78), 21.11 (#143), 22.11 (#155, #233)",
+        "~/remlab-logs/t2401-1124/rules-code.md §Д1 №4"
+      ],
+      "applies": {
+        "families": [
+          "корпусное",
+          "каркасное"
+        ]
+      },
+      "executor": "р.6 (T-20261124-05)",
+      "runtime": "off",
+      "test": "tools/scout/salad/trellis/tests_island_edge.py",
+      "run_id": null,
+      "flag": "tools/scout/rules/tex-visible.json#island_edge.enabled",
+      "check_field": "06-visible.extra.stats",
+      "enabled": null,
+      "rule_id": "R-ISLAND-TONE-06",
+      "title": "Тон у границы фото-острова: не взятые тексели рядом со взятыми сдвигаются к тону фото плавным полем (рваный контур, скачок тона у кромки)",
+      "consumer": "tools/scout/salad/trellis/tex_visible.py:island_tone",
+      "test_positive": "tools/scout/salad/trellis/tests_island_edge.py::test_ring_shifts_toward_photo_and_decays",
+      "test_negative": "tools/scout/salad/trellis/tests_island_edge.py::test_known_synth_not_repainted",
+      "note": "ПРОБНОЕ (24.11): выключено (island_edge.enabled=false), проба — env TEX_VISIBLE_ISLAND=1. Мерка island_jump (|ΔL|>4 или ΔE>6 между взятыми и не взятыми в 3 текселях от границы) — в check.json 06 extra.stats[].island_jump."
+    },
+    {
+      "state": "trial",
+      "source": [
+        "T-20261124-05",
+        "plans/mesh-type-rules-01.md журнал 20.11 (#76, #78), 21.11 (#143), 22.11 (#155, #233)",
+        "~/remlab-logs/t2401-1124/rules-code.md §Д1 №4"
+      ],
+      "applies": {
+        "families": [
+          "корпусное",
+          "каркасное"
+        ]
+      },
+      "executor": "р.6 (T-20261124-05)",
+      "runtime": "off",
+      "test": "tools/scout/salad/trellis/tests_island_edge.py",
+      "run_id": null,
+      "flag": "tools/scout/rules/tex-visible.json#island_edge.enabled",
+      "check_field": "06-visible.extra.stats",
+      "enabled": null,
+      "rule_id": "R-SLIT-CLOSE-06",
+      "title": "Тонкая тёмная щель на фото переносится целиком: разрывы вдоль линии (≤ max_gap_px) закрываются цветом линии; две параллельные щели и широкая тень не склеиваются",
+      "consumer": "tools/scout/salad/trellis/tex_visible.py:line_gaps",
+      "test_positive": "tools/scout/salad/trellis/tests_island_edge.py::test_dashed_line_closed_along_line",
+      "test_negative": "tools/scout/salad/trellis/tests_island_edge.py::test_two_parallel_slits_not_merged",
+      "note": "ПРОБНОЕ (24.11): выключено, проба — env TEX_VISIBLE_ISLAND=1. Мерка «доля рваных» = закрытые / (тонкие тёмные + закрытые) — extra.stats[].line_ragged_share (до) и line_ragged_share_after (после)."
+    },
+    {
+      "state": "trial",
+      "source": [
+        "T-20261124-05",
+        "plans/mesh-type-rules-01.md журнал 20.11 (#76, #78), 21.11 (#143), 22.11 (#155, #233)",
+        "~/remlab-logs/t2401-1124/rules-code.md §Д1 №4"
+      ],
+      "applies": {
+        "families": [
+          "корпусное",
+          "каркасное"
+        ]
+      },
+      "executor": "р.6 (T-20261124-05)",
+      "runtime": "off",
+      "test": "tools/scout/salad/trellis/tests_island_edge.py",
+      "run_id": null,
+      "flag": "tools/scout/rules/tex-visible.json#island_edge.enabled",
+      "check_field": "06-visible.extra.stats",
+      "enabled": null,
+      "rule_id": "R-TOP-MODE-06",
+      "title": "Верх по моде: Δ-поле тона Ш3б у граней верха тянется к медиане (полосы блика глянца гасятся, низкочастотный тон остаётся)",
+      "consumer": "tools/scout/salad/trellis/tex_visible.py:top_mode",
+      "test_positive": "tools/scout/salad/trellis/tests_island_edge.py::test_top_pulled_to_median_side_untouched",
+      "test_negative": "tools/scout/salad/trellis/tests_island_edge.py::test_few_top_faces_untouched",
+      "note": "ПРОБНОЕ (24.11): выключено, проба — env TEX_VISIBLE_ISLAND=1. Рисунок/зерно верха этапом 6 не создаётся (его даёт 07) — правило трогает только тон. Мерка — extra.stats[].top_delta_std (до, после)."
     }
   ],
   "_active_rule": "active = consumer определён (ast) и вызывается боевым кодом + runtime=enforce и флаг включён + тест в CI + test_positive и test_negative на пример типа + run_id прогона. Без любого — trial (rule_registry_audit: ошибка). run_id — папка прогона в ~/remlab-logs, где правило отработало; проверка прогона структурная (--run): extra.rules[] с rule_id, type, digest, applied|abstain."

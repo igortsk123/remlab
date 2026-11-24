@@ -79,6 +79,9 @@ TONE_REACH_FRAC = float(R.get('tone_reach_frac', 0.3))     # тон растек
 TONE_SKIP_DROPPED = bool(int(os.environ['TEX_VISIBLE_TONE_DROP'])) if 'TEX_VISIBLE_TONE_DROP' in os.environ else bool(R.get('tone_skip_dropped', True))   # грань, наблюдавшаяся, но отброшенная по ΔE (другой материал/блик), соседским тоном не красится
 TONE_MAX_DE = float(R.get('tone_max_de', 20.0))             # ΔE00(наблюдение, опора) больше — другой материал или блик: не красим
 TONE_MIN_OBS = int(R.get('tone_min_obs_px', 30))            # меньше наблюдений в геометрии — тона нет
+ISL = R.get('island_edge') or {}                              # T-20261124-05: тон у границы острова, тонкая щель целиком, верх по моде (rules/tex-visible.json § island_edge)
+ISL_ON = bool(int(os.environ['TEX_VISIBLE_ISLAND'])) if 'TEX_VISIBLE_ISLAND' in os.environ else bool(ISL.get('enabled', False))   # env 1/0 — проба / контроль
+ISL_TONE, ISL_LINE, ISL_TOP, ISL_JUMP = (ISL.get(k) or {} for k in ('edge_tone', 'line_close', 'top_mode', 'jump'))
 ZBUF_ON = bool(int(os.environ['TEX_VISIBLE_ZBUF'])) if 'TEX_VISIBLE_ZBUF' in os.environ else bool(R.get('z_buffer', True))   # z-буфер видимости (T-201); env 0 — контрольный прогон «как было»
 ZBUF_TOL = float(os.environ.get('TEX_VISIBLE_ZBUF_TOL', R.get('z_buffer_tol_px', 3.0)))                 # грань растра этапа 4 дальше ближайшей в пикселе больше чем на столько px предмета — растр ошибся (рисует без z-буфера), в пикселе видна ближайшая
 ZBUF_GEOM_TOL = float(R.get('z_buffer_geom_tol_px', 2.0))          # страховка «форма та же, что у камеры»: на пикселях, где растр и z-буфер назвали одну грань, глубины расходятся не больше (медиана, px предмета)
@@ -473,6 +476,9 @@ def tone_oblique(tex: np.ndarray, occ: np.ndarray, known: np.ndarray, fid: np.nd
     own = np.zeros(nF, bool)
     own[kept] = True                                                                                     # у самой наблюдавшейся грани — её собственное наблюдение (сглаженное Δ соседей светлее/темнее фото на этих пикселях)
     delta = np.where(own[:, None], lo_f - ref, delta)
+    if ISL_ON and (ISL_TOP.get('enabled', True)):                                                      # верх по моде: Δ граней верха → к их медиане (гасим полосы блика), низкочастотный тон остаётся
+        delta, top_info = top_mode(delta, painted, V, F, ISL_TOP)
+        info.update(top_info)
     lab_new = ref + delta * wgt
     frgb = LP.l2s8(LP.lab_to_lin(lab_new.astype(np.float32)[None]))[0]
     fcl = np.clip(fid, 0, nF - 1)
@@ -482,6 +488,132 @@ def tone_oblique(tex: np.ndarray, occ: np.ndarray, known: np.ndarray, fid: np.nd
     info['tone_painted'] = int(take.sum())
     info['tone_mean_abs_delta'] = [round(float(np.abs(delta[painted][:, c]).mean()), 2) for c in range(3)]
     return {'take': take, 'rgb': rgb, 'info': info}
+
+
+def _lab_img(tex: np.ndarray) -> np.ndarray:
+    """T×T×3 (0…255) → Lab T×T×3 float32 (та же Lab, что в тоне Ш3б)."""
+    import recolor_lp as LP
+    T = tex.shape[0]
+    return LP.lab_f(np.clip(tex, 0, 255).astype(np.float32).reshape(1, -1, 3))[0].reshape(T, T, 3).astype(np.float32)
+
+
+def _lab_to_rgb(lab: np.ndarray) -> np.ndarray:
+    """Lab (N,3) → sRGB 0…255 float (N,3)."""
+    import recolor_lp as LP
+    return LP.l2s8(LP.lab_to_lin(np.asarray(lab, np.float32)[None]))[0].astype(np.float64)
+
+
+def island_jump(tex: np.ndarray, occ: np.ndarray, known_photo: np.ndarray, known_all: np.ndarray, cfg: dict | None = None) -> dict:
+    """МЕРКА «скачок тона на границе острова» (справочная): медианы Lab взятых с фото текселей и не взятых (родной цвет) в `ring_px` по обе стороны границы взятого.
+    Скачок большой — граница фото-острова видна ступенькой (рваный контур, пятна у кромки). Нет границы/мало текселей — `None` (не 0)."""
+    from scipy.ndimage import distance_transform_edt
+    cfg = cfg if cfg is not None else ISL_JUMP
+    ring, min_px = float(cfg.get('ring_px', 3)), int(cfg.get('min_px', 30))
+    out = {'dL': None, 'da': None, 'db': None, 'dE': None, 'n_in': 0, 'n_out': 0, 'bad': None}
+    if int(known_photo.sum()) < min_px:
+        return out
+    d_in = distance_transform_edt(known_photo)
+    d_out = distance_transform_edt(~known_photo)
+    inn = known_photo & (d_in <= ring)
+    outer = occ & ~known_all & (d_out <= ring)
+    out['n_in'], out['n_out'] = int(inn.sum()), int(outer.sum())
+    if out['n_in'] < min_px or out['n_out'] < min_px:
+        return out
+    lab = _lab_img(tex)
+    dv = np.median(lab[inn], axis=0) - np.median(lab[outer], axis=0)
+    out.update(dL=round(float(dv[0]), 2), da=round(float(dv[1]), 2), db=round(float(dv[2]), 2), dE=round(float(np.hypot(dv[1], dv[2])), 2))
+    out['bad'] = bool(abs(dv[0]) > float(cfg.get('dL', 4.0)) or np.hypot(dv[1], dv[2]) > float(cfg.get('dAB', 6.0)))
+    return out
+
+
+def island_tone(tex: np.ndarray, native: np.ndarray, occ: np.ndarray, known_photo: np.ndarray, known_all: np.ndarray, cfg: dict | None = None) -> tuple[np.ndarray, dict]:
+    """ТОН У ГРАНИЦЫ ОСТРОВА: не взятые тексели в полосе `band_px` от взятых с фото получают плавный сдвиг Lab (поле Δ = фото − родной цвет, гаусс `sigma_px`, вес 1 у границы → 0 на band_px).
+    Меняется только низкочастотный тон; рисунок родного цвета и известные тексели не трогаются; тексель остаётся неизвестным. Возвращает (новая текстура, сводка)."""
+    from scipy.ndimage import distance_transform_edt, gaussian_filter
+    cfg = cfg if cfg is not None else ISL_TONE
+    band, sig = float(cfg.get('band_px', 6.0)), float(cfg.get('sigma_px', 4.0))
+    info = {'edge_tone_texels': 0}
+    if int(known_photo.sum()) < int(cfg.get('min_known_px', 200)):
+        info['edge_tone_skip'] = 'мало известного'
+        return tex, info
+    lab_t, lab_n = _lab_img(tex), _lab_img(native)
+    m = known_photo.astype(np.float32)
+    d = np.where(known_photo[..., None], lab_t - lab_n, 0.0).astype(np.float32)
+    den = gaussian_filter(m, sig)
+    num = np.stack([gaussian_filter(d[..., c], sig) for c in range(3)], 2)
+    dsm = num / np.maximum(den, 1e-3)[..., None]
+    dsm[..., 0] = np.clip(dsm[..., 0], -float(cfg.get('max_shift_L', 15.0)), float(cfg.get('max_shift_L', 15.0)))
+    dsm[..., 1:] = np.clip(dsm[..., 1:], -float(cfg.get('max_shift_ab', 20.0)), float(cfg.get('max_shift_ab', 20.0)))
+    dist = distance_transform_edt(~known_photo)
+    target = occ & ~known_all & (dist <= band) & (den >= float(cfg.get('min_cover', 0.02)))
+    if not target.any():
+        return tex, info
+    w = np.clip(1.0 - dist / max(band, 1e-6), 0.0, 1.0)[target][:, None]
+    new = tex.copy()
+    new[target] = _lab_to_rgb(lab_n[target] + w * dsm[target])
+    info['edge_tone_texels'] = int(target.sum())
+    info['edge_tone_mean_abs_shift'] = [round(float(np.abs(w * dsm[target][:, c]).mean()), 2) for c in range(3)]
+    return new, info
+
+
+def line_gaps(tex: np.ndarray, occ: np.ndarray, known: np.ndarray, cfg: dict | None = None) -> tuple[np.ndarray, np.ndarray, dict]:
+    """ТОНКАЯ ЩЕЛЬ ЦЕЛИКОМ: тёмная тонкая линия на взятом с фото (L темнее местного фона на `dark_dL`, ширина ≤ `max_width_px`) с разрывами ≤ `max_gap_px` вдоль линии (замыкание вдоль осей развёртки; диагональные щели не склеиваем).
+    Разрыв закрывается цветом ближайшего тёмного текселя. Заполненное шире `max_width_px` (две параллельные щели) отбрасывается; непрерывная линия не меняется.
+    Возвращает (тексели для закрытия, цвет RGB T×T×3 float, сводка с долей «рваных» = закрытые / (тёмные тонкие + закрытые))."""
+    from scipy.ndimage import binary_closing, binary_opening, distance_transform_edt, gaussian_filter
+    cfg = cfg if cfg is not None else ISL_LINE
+    w, gap, sig = int(cfg.get('max_width_px', 2)), int(cfg.get('max_gap_px', 5)), float(cfg.get('bg_sigma_px', 8.0))
+    info = {'line_thin_px': 0, 'line_gap_px': 0, 'line_ragged_share': None}
+    none = np.zeros(occ.shape, bool)
+    if int(known.sum()) < 200:
+        return none, tex, info
+    L = _lab_img(tex)[..., 0]
+    m = known.astype(np.float32)
+    ref = gaussian_filter(np.where(known, L, 0.0).astype(np.float32), sig) / np.maximum(gaussian_filter(m, sig), 1e-3)
+    dark = known & (L < ref - float(cfg.get('dark_dL', 12.0)))
+    thin = dark & ~binary_opening(dark, structure=np.ones((w + 1, w + 1), bool))
+    info['line_thin_px'] = int(thin.sum())
+    if not thin.any():
+        return none, tex, info
+    info['line_thin_share'] = round(float(thin.sum()) / max(int(known.sum()), 1), 4)
+    if info['line_thin_share'] > float(cfg.get('max_thin_share', 0.05)):                 # тёмных тонких линий много — это рисунок ткани/узор, а не щели: не трогаем (проба: узор 12008 превращался в сетку)
+        info['line_skip'] = 'рисунок: тонких тёмных линий %.1f %% взятого' % (100 * info['line_thin_share'])
+        return none, tex, info
+    k = gap + 1
+    ses = [np.ones((1, k), bool), np.ones((k, 1), bool)]                       # только вдоль осей развёртки: диагональное замыкание рисует клинья на стыках щелей (проба на комоде)
+    closed = np.zeros(occ.shape, bool)
+    for se in ses:
+        closed |= binary_closing(thin, structure=se)
+    gaps = closed & ~thin & occ
+    gaps &= ~binary_opening(gaps, structure=np.ones((w + 1, w + 1), bool))          # заполнение шире линии — это промежуток между двумя щелями, не разрыв
+    info['line_gap_px'] = int(gaps.sum())
+    info['line_ragged_share'] = round(float(gaps.sum()) / max(int(thin.sum() + gaps.sum()), 1), 4)
+    if not gaps.any():
+        return none, tex, info
+    _d, (iy, ix) = distance_transform_edt(~thin, return_distances=True, return_indices=True)
+    col = tex.copy()
+    col[gaps] = tex[iy[gaps], ix[gaps]]
+    return gaps, col, info
+
+
+def top_mode(delta: np.ndarray, painted: np.ndarray, V: np.ndarray, F: np.ndarray, cfg: dict | None = None) -> tuple[np.ndarray, dict]:
+    """ВЕРХ ПО МОДЕ: у окрашенных тоном Ш3б граней верха (|нормаль·вверх| ≥ `top_ny`; вверх — ось y GLB) поле Δ тянется к медиане Δ верха с весом `k`. Гасит полосы блика между гранями,
+    низкочастотный тон (медиана) остаётся. Граней мало (< `min_faces`) — не трогаем."""
+    cfg = cfg if cfg is not None else ISL_TOP
+    V, F = np.asarray(V, np.float64), np.asarray(F, np.int64)
+    n = np.cross(V[F[:, 1]] - V[F[:, 0]], V[F[:, 2]] - V[F[:, 0]])
+    ny = np.abs(n[:, 1]) / np.maximum(np.linalg.norm(n, axis=1), 1e-12)
+    top = painted & (ny >= float(cfg.get('top_ny', 0.7)))
+    info = {'top_faces': int(top.sum())}
+    if info['top_faces'] < int(cfg.get('min_faces', 20)):
+        info['top_skip'] = 'граней верха мало'
+        return delta, info
+    k = float(cfg.get('k', 0.7))
+    med = np.median(delta[top], axis=0)
+    out = delta.copy()
+    out[top] = (1.0 - k) * delta[top] + k * med
+    info['top_delta_std'] = [[round(float(delta[top][:, c].std()), 2) for c in range(3)], [round(float(out[top][:, c].std()), 2) for c in range(3)]]
+    return out, info
 
 
 def cube_frame(geoms: list, st: dict):
@@ -706,6 +838,17 @@ def transfer(geoms: list, st: dict, prgb: np.ndarray, pmask: np.ndarray, cos_min
         known = known | fill
         prov[fill] = PROV['hole']
         n_fill = int(fill.sum())
+        isl_info = {}
+        lg, lcol, li = line_gaps(tex, occ, known, ISL_LINE)                                            # тонкая щель: разрывы вдоль линии (мерка — всегда; закрываем при island_edge.enabled)
+        isl_info.update(li)
+        if ISL_ON and ISL_LINE.get('enabled', True) and lg.any():
+            tex[lg] = lcol[lg]
+            new_k = lg & ~known
+            prov[new_k] = PROV['hole']
+            cmap[new_k] = float(crr['conf_fill'])
+            known = known | lg
+            n_fill += int(new_k.sum())
+            isl_info['line_ragged_share_after'] = line_gaps(tex, occ, known, ISL_LINE)[2]['line_ragged_share']       # мерка после закрытия (то, что осталось рваным)
         n_pruned = prune_panels(g, fid, occ, known, tex, g['tex'].astype(np.float64), prov) if (BACK_ON and PRUNE_ON) else 0
         known_photo = known.copy()                                                                     # известное С ФОТО (без тона): по нему считаются гейт и мерки
         tone_info, n_synth = {}, 0
@@ -715,6 +858,15 @@ def transfer(geoms: list, st: dict, prgb: np.ndarray, pmask: np.ndarray, cos_min
             known = known | tn['take']
             prov[tn['take']] = PROV['synth']
             tone_info, n_synth = tn['info'], int(tn['take'].sum())
+        if ISL_ON and ISL_TONE.get('enabled', True):                                                    # тон у границы острова: не взятые рядом со взятыми — на плавный сдвиг к тону фото (остаются неизвестными)
+            jb = island_jump(tex, occ, known_photo, known)                                              # скачок ДО: правило включается только там, где граница острова видна ступенькой (признак, не ID)
+            isl_info['island_jump_before'] = jb
+            if jb.get('bad'):
+                tex, ti = island_tone(tex, g['tex'].astype(np.float64), occ, known_photo, known, ISL_TONE)
+                isl_info.update(ti)
+            else:
+                isl_info['edge_tone_skip'] = 'скачка нет или не измерен' if jb.get('bad') is None else 'скачок в норме'
+        isl_info['island_jump'] = island_jump(tex, occ, known_photo, known)
         gd, (iy, ix) = distance_transform_edt(~occ, return_distances=True, return_indices=True)     # желоб: ближайший занятый тексель на GUTTER пикселей наружу
         ring = (~occ) & (gd <= GUTTER)
         tex[ring] = tex[iy[ring], ix[ring]]
@@ -723,7 +875,7 @@ def transfer(geoms: list, st: dict, prgb: np.ndarray, pmask: np.ndarray, cos_min
         known_photos.append(known_photo)
         provs.append(prov)
         confs.append(np.where(known, cmap, 0.0).astype(np.float32))
-        stats.append({'name': g['name'], 'T': T, 'occupied': int(occ.sum()), 'known': int(known_photo.sum()), 'known_synth': n_synth, **tone_info, **back_info, 'known_pruned_panels': n_pruned, 'faces_ok': int(fm['ok'].sum()), 'faces_seen': int((fm['cnt'] > 0).sum()), 'texels_taken': int(use.sum()), 'known_facemap': n_face, 'known_splat': n_splat, 'known_filled': n_fill})
+        stats.append({'name': g['name'], 'T': T, 'occupied': int(occ.sum()), 'known': int(known_photo.sum()), 'known_synth': n_synth, **tone_info, **isl_info, **back_info, 'known_pruned_panels': n_pruned, 'faces_ok': int(fm['ok'].sum()), 'faces_seen': int((fm['cnt'] > 0).sum()), 'texels_taken': int(use.sum()), 'known_facemap': n_face, 'known_splat': n_splat, 'known_filled': n_fill})
     return {'tex': texs, 'known': knowns, 'known_photo': known_photos, 'prov': provs, 'conf': confs, 'stats': stats, 'depth_band_share': round(n_nogo / max(int(st['mask'].sum()), 1), 4), 'edge_bg_fringe_px': int((fringe & st['mask']).sum()), 'crease': crs}
 
 
