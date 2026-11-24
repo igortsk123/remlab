@@ -7,7 +7,7 @@ draft → in_progress → completed → перенос в completed_plans/
         cancelled / отложенное / поглощённое → archive/plans/ (с archive_reason, superseded_by)
 ```
 Только `completed` переносятся в `completed_plans/`. **Гейт:** план не становится `completed`, пока не
-выполнен `/memory-check` и audit не «чисто» (см. `.claude/rules/agent-workflow.md`).
+выполнен `/memory-check` и audit не «чисто» (см. P-071, P-074 — `rules/INDEX.md`).
 
 ## Статусы и поля
 | Статус | Описание |
@@ -27,7 +27,7 @@ draft → in_progress → completed → перенос в completed_plans/
 Триаж 2026-09-05: 53 плана ушли в архив (манифест — `changelog/memory-log.md`), открытых ≤ 25.
 
 ## Доска задач → план задач (с 12.11)
-Активные задачи — `.memory_bank/plan-zadach.md` (правило `.claude/rules/orchestration.md` § «Директор и менеджеры»); старая доска 22.10–12.11 —
+Активные задачи — `.memory_bank/plan-zadach.md` (правило P-070, `rules/P-070.md`); старая доска 22.10–12.11 —
 `changelog/board-2026-10-22--11-12.md`.
 
 ## Сейчас в работе (ручная сводка; обновлять при смене фокуса)

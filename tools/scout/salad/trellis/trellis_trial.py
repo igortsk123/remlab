@@ -523,8 +523,9 @@ def build_body(name: str, image: str, tier: str, model: str, hf_token: str, run_
             raise KD.ProfileRefused(bad)
         res = {**KD.profile_resources(prof), 'gpu_classes': [CARD['class_id']]}
     else:
-        if tier in KD.FORBIDDEN_TIERS:
-            raise KD.ProfileRefused(f'тариф «{tier}» запрещён (владелец TG 1456/1457)')
+        bad = KD.tier_forbidden(tier)
+        if bad:
+            raise KD.ProfileRefused(bad)
         res = {}
     command = None
     if donor is None and model in ('pixal3d', 'pixal3d-tex'):        # образ Pixal3D: transformers 4.57.3 требует huggingface-hub <1.0, а в образе оказался 2.4.0 (px0, 19.11: ImportError на прогреве) — пин при старте, пересборка не нужна

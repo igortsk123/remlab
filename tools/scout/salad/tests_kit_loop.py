@@ -539,7 +539,7 @@ with tempfile.TemporaryDirectory() as tmp:                        # д) в жу�
     check(rec.get('work_type') == 'kit-test' and rec.get('profile_basis') == 'по оценке' and (rec.get('profile') or {}).get('cpu') == 4 and summ.get('profile_basis') == 'по оценке',
           f'журнал и сводка: тип работы, профиль целиком, «по оценке» ({rec.get("work_type")}, {rec.get("profile_basis")})')
 
-# е) нет машин на low → ОДИН раз medium в ядре (деньги $0 — до running не списывается); второй раз — нет
+# е) нет машин на low → medium НЕ пробуем (владелец TG 2626: только low; в TEST_PROF fallback=medium нарочно — ловит гейт allowed_tiers)
 class BRNoNode(BR):
     def instances(self, name):
         if self.t0 is None:
@@ -566,8 +566,8 @@ class MGNames(MG):
 with tempfile.TemporaryDirectory() as tmp:
     clock0 = Clock()
     rc, a, out, mg, br = run_raw(tmp, make_spec('a'), mg=MGNames(), br=BRNoNode(clock0), clock=clock0)
-    check(a.tier == 'medium' and a.suffix == 'tm' and 'один раз пробую «medium»' in out, f'нет машин на low → один раз medium ({a.tier}, {a.suffix})')
-    check(len(mg.names) == 2, f'создано две группы: low и затем medium ({sorted(mg.names)})')
+    check(a.tier == 'low' and a.suffix == 't' and 'один раз пробую' not in out, f'нет машин на low → medium НЕ пробуем, тариф вне allowed_tiers (владелец TG 2626) ({a.tier}, {a.suffix})')
+    check(len(mg.names) == 1, f'создана одна группа: low, без повтора на medium ({sorted(mg.names)})')
 
 class DiskSlowGW(GW):
     """Фаза weights: папка растёт 0,5 ГБ/мин — ниже нормы 2,0 (DiskGuard), но выше «стоит» (Watch.stall)."""
