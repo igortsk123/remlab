@@ -445,6 +445,17 @@ class TestChooseTopTone(unittest.TestCase):
         self.assertEqual(TP.choose_top_tone([92.0, 0, 0], [78.0, 0, 0], self.S)['use'], 'synth')
         self.assertEqual(TP.choose_top_tone([60.0, 0, 0], [95.0, 0, 0], self.S)['use'], 'top')
 
+    def test_massive_even_top_beats_edge_only_with_flag(self):                  # Крит: верх L 76 (массово, ровно), кромка L 56 в тени — синтез берётся только при massive_enabled
+        sy, top = [76.0, 8.0, 20.0], [56.0, 8.0, 18.0]
+        mas = {'n': 9000, 'spread_L': 3.0}
+        self.assertEqual(TP.choose_top_tone(sy, top, self.S, mas)['use'], 'top')                       # выкл. — как было
+        S = dict(self.S, massive_enabled=True, massive_min_texels=3000, massive_max_spread_L=6.0)
+        r = TP.choose_top_tone(sy, top, S, mas)
+        self.assertEqual((r['use'], r.get('massive')), ('synth', True))
+        self.assertEqual(TP.choose_top_tone(sy, top, S, {'n': 500, 'spread_L': 3.0})['use'], 'top')     # мало текселей — кромке верим
+        self.assertEqual(TP.choose_top_tone(sy, top, S, {'n': 9000, 'spread_L': 15.0})['use'], 'top')   # неровно (рисунок/блик) — кромке верим
+        self.assertEqual(TP.choose_top_tone(sy, top, S, None)['use'], 'top')
+
     def test_disabled_or_missing(self):
         self.assertEqual(TP.choose_top_tone([100.0, 0, 0], [88.0, 0, 0], dict(self.S, enabled=False))['use'], 'top')
         self.assertEqual(TP.choose_top_tone(None, [88.0, 0, 0], self.S)['use'], 'top')
