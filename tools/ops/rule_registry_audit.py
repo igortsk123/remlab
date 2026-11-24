@@ -9,6 +9,7 @@
   • consumer `путь:символ` — разбор через ast: функция/класс/константа с этим именем ОПРЕДЕЛЕНА в файле (упоминание в строке/комментарии не считается) и ИСПОЛЬЗУЕТСЯ
     боевым кодом (вызов/ссылка вне своего определения, вне тестов); есть, но не используется → «символ есть, но не вызывается»;
   • flag `файл.json#a.b` — значение ключа должно быть включено (True / «enforce» / «on» / «active»); выключено → «код есть, но observe/выключен», что бы ни писал runtime;
+    при выключенном флаге runtime=enforce — ОШИБКА (реестр не должен говорить «применяет», пока выключатель выключен): ставь runtime=off;
   • test / test_positive / test_negative `путь::функция` — файл есть, функция найдена через ast, файл прописан в ci.yml;
   • active = consumer определён и используется + runtime=enforce и флаг включён + тест в CI + ПОЛОЖИТЕЛЬНЫЙ и ОТРИЦАТЕЛЬНЫЙ тесты на пример типа + `run_id` прогона.
     Иначе — ОШИБКА (rc=1, CI красный): правило с такими пробелами должно быть trial;
@@ -17,7 +18,7 @@
   • `--run <папка прогона>` — СТРУКТУРНО: у active в `*/<этап>/check.json` (этап — до точки в `check_field`) в `extra.rules[]` есть записи правила: rule_id, type,
     digest паспорта типа (= `mesh_type_passports.digest_of`) и `applied: true` либо `abstain` с причиной. Пустой охват (нет check.json / нет записей правила) = ошибка;
     применимые типы, встреченные в прогоне, но без записи правила = ошибка.
-КЛАССЫ: «битая ссылка/схема» · «нет кода» · «символ есть, но не вызывается» · «код есть, но observe/выключен» · «нет теста / тест не в CI» · «нет парных тестов/прогона» ·
+КЛАССЫ: «битая ссылка/схема» · «нет кода» · «символ есть, но не вызывается» · «код есть, но observe/выключен» · «реализовано не полностью» (поле gaps правила) · «нет теста / тест не в CI» · «нет парных тестов/прогона» ·
 «включено, в прогоне не достигнуто» · «тип без политики».
 
   python tools/ops/rule_registry_audit.py                     # отчёт классами (rc=0 кроме --check)
@@ -56,11 +57,12 @@ C_BROKEN = 'битая ссылка/схема'
 C_NOCODE = 'нет кода'
 C_NOCALL = 'символ есть, но не вызывается'
 C_OBSERVE = 'код есть, но observe/выключен'
+C_PARTIAL = 'реализовано не полностью'
 C_NOTEST = 'нет теста / тест не в CI'
 C_NOPAIR = 'нет парных тестов/прогона'
 C_NOTREACHED = 'включено, в прогоне не достигнуто'
 C_NOPOLICY = 'тип без политики'
-CLASSES = (C_BROKEN, C_NOCODE, C_NOCALL, C_OBSERVE, C_NOTEST, C_NOPAIR, C_NOTREACHED, C_NOPOLICY)
+CLASSES = (C_BROKEN, C_NOCODE, C_NOCALL, C_OBSERVE, C_PARTIAL, C_NOTEST, C_NOPAIR, C_NOTREACHED, C_NOPOLICY)
 
 
 def _read(path: str) -> str:
@@ -339,7 +341,12 @@ def audit(registry_path: str = REGISTRY, passports_path: str = PASSPORTS, ci_pat
                 on = False
             elif val not in ON_VALUES:
                 add(rid, C_OBSERVE, '%s: флаг %s = %r — выключено, что бы ни писал runtime' % (st, r['flag'], val), active)
+                if st != 'retired' and rt == 'enforce':      # реестр не должен говорить «применяет», когда выключатель выключен (T-20261124-04: R-BACKPANEL-06 так и было)
+                    add(rid, C_BROKEN, 'runtime=enforce противоречит выключенному флагу %s = %r: поставь runtime=off (или включи флаг)' % (r['flag'], val), True)
                 on = False
+        if r.get('gaps') and st != 'retired':               # честная опись нереализованного: правило частичное, а не «целиком работает»
+            for g in r['gaps']:
+                add(rid, C_PARTIAL, '%s: не реализовано — %s' % (st, g), False)
         # тесты: общий + парные; все — в CI
         refs = {k: r[k] for k in ('test', 'test_positive', 'test_negative') if r[k]}
         for k, ref in refs.items():

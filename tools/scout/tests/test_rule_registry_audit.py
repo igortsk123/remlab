@@ -121,6 +121,24 @@ def test_active_needs_pair_tests_and_run_id():
     assert errs >= 1 and ('R-T-1', RA.C_BROKEN, True) in classes(res)
 
 
+def test_trial_enforce_with_flag_off_is_error_runtime_off_is_not():
+    """T-20261124-04 (Д2): trial/enforce при выключенном флаге — реестр говорит «применяет», а выключатель выключен → ошибка; runtime=off честно — только класс."""
+    res, _, errs, _ = run([rule(**dict(GOOD, state='trial', flag='tools/f.json#off'))])
+    assert errs >= 1 and ('R-T-1', RA.C_BROKEN, True) in classes(res) and ('R-T-1', RA.C_OBSERVE, False) in classes(res), res
+    res, _, errs, _ = run([rule(**dict(GOOD, state='trial', runtime='off', flag='tools/f.json#off'))])
+    assert errs == 0 and ('R-T-1', RA.C_OBSERVE, False) in classes(res) and ('R-T-1', RA.C_BROKEN, True) not in classes(res), res
+    res, _, errs, _ = run([rule(**dict(GOOD, state='retired', flag='tools/f.json#off'))])          # снятое не сверяется
+    assert ('R-T-1', RA.C_BROKEN, True) not in classes(res), res
+
+
+def test_gaps_listed_as_class_not_error():
+    """Поле gaps — опись нереализованного: класс «реализовано не полностью», не ошибка; у retired не выводится."""
+    res, text, errs, _ = run([rule(**dict(GOOD, state='trial', gaps=['проём: детектора нет', 'стекло: нет источника']))])
+    assert errs == 0 and sum(1 for p in res['problems'] if p['cls'] == RA.C_PARTIAL) == 2 and RA.C_PARTIAL in text, (res, text)
+    res, _, errs, _ = run([rule(**dict(GOOD, state='retired', runtime='none', gaps=['x']))])
+    assert not any(p['cls'] == RA.C_PARTIAL for p in res['problems']), res
+
+
 def test_active_test_not_in_ci_fails():
     res, _, errs, _ = run([rule(**GOOD)], ci='run: echo нет')
     assert errs >= 1 and ('R-T-1', RA.C_NOTEST, True) in classes(res)
