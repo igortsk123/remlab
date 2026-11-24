@@ -1001,6 +1001,32 @@
       "check_field": null,
       "enabled": null,
       "note": "Мост в режиме mode=dry (роли только в отчёт roles-bridge.json, parts.json и покраска не меняются) — поэтому observe/trial; в active — после перевода моста в on (отдельно, по чек-листу Codex: теневой прогон 07/08, независимая разметка, точность по площади) и прогона с run_id. Пороги — part-roles.json (table.legs.alt_require, table.frame.alt_require, table.frame.material_channel) и part-llm-roles.json geometry_fallback; geometry_fallback.enabled=false возвращает прежнее поведение. Выключены по умолчанию: geometry_fallback.to_body (фасад/верх, слитый с корпусом, → body) и geometry_fallback.unnamed (безымянная часть → роль/body) — Codex: body/facade не честная метка слитой «фасад+корпус», 07 по роли facade берёт зоны рельефа и донора тона, мерка «доля с ролью» награждает неверный body. Не сделано: корпусные (fine ≥0,90 снова 2 из 10), столик с боковинами-плитами и «Casing»/«Key Area» остаётся unknown, расщепление фасада по областям."
+    },
+    {
+      "rule_id": "R-FORM-DIMS-02",
+      "title": "Ш0: габарит формы ÷ габарит карточки по трём осям (масштаб по высоте): глубина толще каталога ≥ +20 % или тоньше ≤ −30 %, любая ось > 25 % → «к глазам» (мерка dims_depth/dims_axes)",
+      "state": "trial",
+      "source": [
+        "T-20261124-11 (директор 24.11, кандидат Д1 №6: журнал #130, #132, #145)",
+        "plans/mesh-type-rules-01.md строки 21.11: глубина HD-формы (T-172), форма-ящик толще каталога (T-173), тонкие ленты/стержни",
+        "P-064 п.4 (калибровка мерок Ш0 по таблице «авто ↔ глаз»)"
+      ],
+      "applies": {
+        "types": [
+          "all"
+        ]
+      },
+      "executor": "р.1 (T-20261124-11)",
+      "consumer": "tools/scout/salad/render/form_checks.py:dims_vs_card",
+      "runtime": "observe",
+      "test": "tools/scout/salad/render/tests_form_checks.py",
+      "test_positive": "tools/scout/salad/render/tests_form_checks.py::test_thick_depth_would_flag_but_observe_has_no_flag",
+      "test_negative": "tools/scout/salad/render/tests_form_checks.py::test_exact_form_is_clean_control",
+      "run_id": null,
+      "flag": "tools/scout/rules/form-checks.json#thresholds.dims_flag",
+      "check_field": null,
+      "enabled": null,
+      "note": "Только эталонные размеры карточки (ось, выведенная приором/мерой меша/правилом формы, — не эталон: `dimless.NOT_REFERENCE_RX`, один источник); диаметр вместо ширины×глубины не сверяется (`dims_dia_axes: false`: у торшеров след формы шире диаметра в 2–3 раза). dims_flag=false: флага нет, значение и `would_flag` («сработало бы») пишутся в form_checks.json — для калибровки порогов `dims_depth_over/under`, `dims_axis_dev`; в `block` не входит. Порог НЕ трогать, пока не наберётся ≥10 срабатываний и точность по глазам (паспорт #130: 2 из 4, ложные — шум размеров карточки). Замер 24.11: 24 body t229/t234-11 — 2 из 24 сработало бы (+25,5 % витрина, +20,6 % комод); контроли 49 форм прежних замеров — столы/стулья/вазы ≈ 0, Сакура +24 %. Мерка не чинит форму: масштаб по осям до камеры 04 — отдельное решение."
     }
   ],
   "_active_rule": "active = consumer определён (ast) и вызывается боевым кодом + runtime=enforce и флаг включён + тест в CI + test_positive и test_negative на пример типа + run_id прогона. Без любого — trial (rule_registry_audit: ошибка). run_id — папка прогона в ~/remlab-logs, где правило отработало; проверка прогона структурная (--run): extra.rules[] с rule_id, type, digest, applied|abstain."

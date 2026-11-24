@@ -257,6 +257,158 @@ class MaskChecks(unittest.TestCase):
         self.assertEqual(FC.mask_checks(tempfile.mkdtemp(prefix='tests_fc_none_'), 'шкаф', R), [])
 
 
+def card(w=100.0, d=40.0, h=200.0, **kw):
+    return dict({'w': w, 'd': d, 'h': h, 'len': None, 'dia': None, 'src': {'w': 'param', 'd': 'param', 'h': 'param'}}, **kw)
+
+
+class DimsVsCard(unittest.TestCase):
+    """T-20261124-11: мерка «габарит формы ÷ габарит карточки по трём осям» (паспорт #130/#132/#145), observe."""
+
+    @staticmethod
+    def form(w=1.0, d=0.4, h=2.0):
+        return box((w, h, d))                                                    # trimesh: extents по (x, y, z); y — вертикаль
+
+    def test_rules_have_all_dims_thresholds_and_observe_by_default(self):
+        for k in ('dims_flag', 'dims_points', 'dims_pct', 'dims_rot_step', 'dims_anchor', 'dims_depth_over', 'dims_depth_under', 'dims_axis_dev'):
+            self.assertIn(k, R)
+        self.assertFalse(R['dims_flag'])                                          # observe: флага нет, пока не откалиброван порог
+        self.assertNotIn('dims_depth', RULES['block'])
+        self.assertNotIn('dims_axes', RULES['block'])
+
+    def test_exact_form_is_clean_control(self):
+        d, a = FC.dims_vs_card(self.form(), card(), R)
+        self.assertEqual((d['name'], a['name']), ('dims_depth', 'dims_axes'))
+        self.assertAlmostEqual(d['value'], 0.0, delta=0.03)
+        self.assertLess(a['value'], 0.03)
+        self.assertFalse(d['would_flag'] or a['would_flag'] or d['flag'] or a['flag'])
+
+    def test_thick_depth_would_flag_but_observe_has_no_flag(self):
+        d, a = FC.dims_vs_card(self.form(d=0.52), card(), R)                      # +30 % глубины при верных ширине и высоте (шкаф-ящик)
+        self.assertAlmostEqual(d['value'], 0.30, delta=0.03)
+        self.assertTrue(d['would_flag'])
+        self.assertTrue(a['would_flag'])
+        self.assertFalse(d['flag'] or a['flag'])                                  # observe
+        self.assertIn('глубина', d['note'])
+
+    def test_flag_appears_only_when_switched_on(self):
+        on = dict(R, dims_flag=True)
+        d, a = FC.dims_vs_card(self.form(d=0.52), card(), on)
+        self.assertTrue(d['flag'] and a['flag'])
+
+    def test_just_under_threshold_is_not_flagged(self):
+        d, a = FC.dims_vs_card(self.form(d=0.44), card(), R)                      # +10 % — медиана по каталогу, не брак
+        self.assertFalse(d['would_flag'] or a['would_flag'])
+
+    def test_thin_form_is_caught_by_under_threshold(self):
+        d, _a = FC.dims_vs_card(self.form(d=0.1), card(), R)                      # лента/стержень: −75 % глубины
+        self.assertLess(d['value'], -R['dims_depth_under'])
+        self.assertTrue(d['would_flag'])
+
+    def test_rotation_about_vertical_does_not_change_result(self):
+        import trimesh
+        for deg in (90, 37, 45):
+            m = self.form(d=0.52)
+            m.apply_transform(trimesh.transformations.rotation_matrix(np.radians(deg), [0, 1, 0]))
+            d, _ = FC.dims_vs_card(m, card(), R)
+            self.assertAlmostEqual(d['value'], 0.30, delta=0.04, msg=f'поворот {deg}°')
+
+    def test_square_footprint_has_no_axis_ambiguity(self):
+        d, a = FC.dims_vs_card(self.form(w=1.0, d=1.0), card(w=100, d=100), R)    # у PCA ось квадрата произвольна и раздувала бы габарит в √2
+        self.assertLess(abs(d['value']), 0.03)
+        self.assertLess(a['value'], 0.03)
+
+    def test_small_floating_piece_is_trimmed_by_percentiles(self):
+        body = self.form()
+        far = box((0.02, 0.02, 0.02), at=(3.0, 0, 3.0))                           # крошечный выброс далеко: меньше 0,3 % площади
+        d, a = FC.dims_vs_card(trimesh_concat(body, far), card(), R)
+        self.assertLess(a['value'], 0.05)
+        self.assertFalse(a['would_flag'])
+
+    def test_derived_axis_is_not_a_reference(self):
+        c = card(src={'w': 'param', 'd': 'role_prior', 'h': 'param'})             # глубина выведена приором — сверять форму с её же приором нельзя
+        d, a = FC.dims_vs_card(self.form(d=0.52), c, R)
+        self.assertIsNone(d['value'])
+        self.assertIsNone(a['value'])
+        self.assertIn('горизонтальных', d['note'])
+        self.assertFalse(d['would_flag'])
+        c2 = card(src={'w': 'param', 'd': 'param', 'h': 'mesh_ratio'})
+        self.assertIn('высоты', FC.dims_vs_card(self.form(), c2, R)[0]['note'])
+
+    def test_not_reference_list_is_the_single_one_from_dimless(self):
+        rx = FC.reference_rx()                                                     # добавляет tools/scout в путь импорта
+        import dimless
+        self.assertEqual(rx.pattern, dimless.NOT_REFERENCE_RX)
+
+    def test_no_card_gives_reason_not_a_number(self):
+        for c in ({}, None):
+            d, a = FC.dims_vs_card(self.form(), c, R)
+            self.assertIsNone(d['value'])
+            self.assertIn('нет карточки', a['note'])
+
+    def test_diameter_card_is_skipped_by_default_and_counted_when_enabled(self):
+        c = {'w': None, 'd': 25.0, 'h': 150.0, 'len': None, 'dia': 30.0, 'src': {'d': 'param', 'h': 'param', 'dia': 'param'}}
+        m = box((0.9, 1.5, 0.3))                                                   # дуга торшера: след шире диаметра в 3 раза
+        d, a = FC.dims_vs_card(m, c, R)
+        self.assertIsNone(d['value'])                                              # по умолчанию диаметр не сверяем с габаритом следа (замер: +130 % при верной высоте)
+        self.assertIn('диаметру', d['note'])
+        on = dict(R, dims_dia_axes=True)
+        d2, a2 = FC.dims_vs_card(box((0.3, 1.5, 0.3)), c, on)                      # круглая опора: след = диаметр
+        self.assertEqual(d2['basis'], 'dia')
+        self.assertLess(abs(d2['value']), 0.03)
+        self.assertLess(a2['value'], 0.03)
+
+    def test_basis_is_recorded(self):
+        d, a = FC.dims_vs_card(self.form(), card(), R)
+        self.assertEqual((d['basis'], a['basis']), ('wd', 'wd'))
+        c = card(d=None, len=40.0)                                                 # длина вместо глубины
+        c['src']['len'] = 'param'
+        self.assertEqual(FC.dims_vs_card(self.form(), c, R)[0]['basis'], 'wl')
+
+    def test_median_anchor_survives_wrong_card_height(self):
+        c = card(h=300.0)                                                          # высота карточки завышена в 1,5 раза; ширина и глубина верны
+        by_h = FC.dims_vs_card(self.form(), c, R)[0]['value']
+        by_med = FC.dims_vs_card(self.form(), c, dict(R, dims_anchor='median'))[0]['value']
+        self.assertLess(abs(by_med), 0.03)                                         # по медиане трёх осей ошибка высоты не портит глубину
+        self.assertGreater(abs(by_h), 0.3)
+
+    def test_run_sku_adds_dims_only_when_card_is_given(self):
+        import trimesh
+        with tempfile.TemporaryDirectory() as td:
+            g = os.path.join(td, 's-hd.glb')
+            self.form(d=0.52).export(g)
+            names = lambda rec: [c['name'] for c in rec['checks']]
+            self.assertNotIn('dims_depth', names(FC.run_sku('s', g, None, None, RULES)))                     # старые вызовы без карточки — как прежде
+            rec = FC.run_sku('s', g, None, None, RULES, card=card())
+            self.assertIn('dims_depth', names(rec))
+            self.assertEqual(rec['status'], 'pass')                                                           # would_flag не меняет статус (observe)
+            self.assertNotIn('dims_depth', rec['flags'])
+            nocard = FC.run_sku('s', g, None, None, RULES, card={})
+            self.assertIsNone(next(c for c in nocard['checks'] if c['name'] == 'dims_depth')['value'])
+
+    def test_cards_from_db_parses_rows_and_skips_bad_ids(self):
+        seen = {}
+
+        def runner(sql):
+            seen['sql'] = sql
+            return ('{"k":"1_2","w":100,"d":40,"h":200,"len":null,"dia":null,"src":{"w":"param","d":"param","h":"param","len":null,"dia":null}}\n'
+                    'мусор\n')
+        out = FC.cards_from_db(['1:2', "3_4'; drop table x;--", 'abc'], runner)
+        self.assertEqual(sorted(out), ['1_2'])
+        self.assertEqual(out['1_2']['h'], 200)
+        self.assertNotIn('drop', seen['sql'])                                      # в запрос идут только числовые ключи
+        self.assertEqual(FC.cards_from_db([], runner), {})
+
+    def test_cards_from_db_failure_is_empty_not_crash(self):
+        def boom(_sql):
+            raise OSError('нет docker')
+        self.assertEqual(FC.cards_from_db(['1_2'], boom), {})
+
+
+def trimesh_concat(*ms):
+    import trimesh
+    return trimesh.util.concatenate(list(ms))
+
+
 class Status(unittest.TestCase):
     def test_status_levels(self):
         ck = lambda *names: [FC.check(n, 1.0, 0.5, True) for n in names]

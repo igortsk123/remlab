@@ -18,6 +18,9 @@
   vlm_<вид>     · оценщик по картинке (vlm_judge.py, T-184/9): «да» в обоих прогонах VLM по виду брака из паспорта (`vlm_<вид>_check` — «да» хотя бы в одном: на глаз директору), виды и роли — в rules `vlm_judge` · «Дыры, рваный фасад», «грани», «фасад без щелей», «перекос корпуса», «зад=копия», «выдуманная деталь»
   body_skew     · перекос корпуса по 3D: завал и трапеция стенок корпуса (спереди и сбоку), градусы; только корпусные роли · «перекос корпуса»
   back_dup_mask · рельеф 0° и 180° внутри маски совпадает (прямо/зеркально), только для ролей с плоской спиной · «фасад продублирован на задней стенке»
+  dims_depth    · глубина формы ÷ глубина карточки при масштабе по высоте (T-20261124-11; паспорт #130/#132/#145): значение — отклонение меньшей горизонтальной оси, +0,25 = форма толще каталога на 25 %. Только ЭТАЛОННЫЕ размеры карточки (ось, выведенная программой — `NOT_REFERENCE_RX` из dimless.py, — не берётся: иначе мерка сверяла бы форму с её же приором) · «форма-ящик толще каталога», «тонкие ленты/стержни»
+  dims_axes     · наибольшее по модулю отклонение габарита формы от карточки по осям (ширина, глубина, высота) · то же
+  (обе мерки в observe: `dims_flag: false` — флага нет, значение и `would_flag` («сработало бы при пороге») пишутся; сколько сработало бы — для калибровки порогов `dims_*` в rules)
 Режим: `block` в rules — проверки, чей флаг даёт статус `shape_reject` (в списке только то, у чего 0 ложных на годных формах); остальные — `observe`.
 Статус формы: shape_reject (сработала block-проверка) · camera_or_mask_uncertain (только провал контура из этапа 04: поза/маска/перёд-зад — не доказательство брака формы) · needs_review (прочие флаги) · pass.
 Запуск: python3 form_checks.py --glbs DIR --glb-name '{sku}-hd.glb' --photos DIR --frames DIR --skus a,b | --skus-file F --out DIR [--eye eye.json --table table.md]
@@ -28,6 +31,7 @@ import argparse
 import json
 import math
 import os
+import re
 import sys
 
 import numpy as np
@@ -337,6 +341,126 @@ def body_skew(m, role: str, R: dict) -> list[dict]:
     return [check('body_skew', max(vals), R['body_skew_deg'], max(vals) > R['body_skew_deg'], '; '.join(note))]
 
 
+def reference_rx():
+    """Единый источник «что НЕ эталон размера карточки» — `dimless.NOT_REFERENCE_RX` (tools/scout/dimless.py; тот же список у приора глубины и калибровки меша): выведенная программой ось не годится эталоном для формы."""
+    sc = os.path.normpath(os.path.join(HERE, '..', '..'))
+    if sc not in sys.path:
+        sys.path.append(sc)                                                  # append, не insert: чужие модули рядом не должны перекрыть свои
+    import dimless
+    return re.compile(dimless.NOT_REFERENCE_RX)
+
+
+def card_axes(card: dict | None, R: dict) -> tuple[tuple | None, str]:
+    """Эталонные габариты карточки, см: ((высота, большая горизонтальная, меньшая горизонтальная), '') либо (None, причина). `card` = {'w','d','h','len','dia': число|None, 'src': {ось: источник из dims_evidence}}.
+    Ось, чей источник — не эталон (`reference_rx`), считается отсутствующей. Горизонтали: ширина+глубина (или длина вместо глубины), иначе диаметр дважды."""
+    if not card:
+        return None, 'нет карточки с размерами'
+    rx = reference_rx()
+    src = card.get('src') or {}
+
+    def val(k):
+        v = card.get(k)
+        if v is None or not float(v) > 0:
+            return None
+        return None if rx.search(src.get(k) or '') else float(v)
+    h, w, d, ln, dia = (val(k) for k in ('h', 'w', 'd', 'len', 'dia'))
+    if not h:
+        return None, 'нет эталонной высоты карточки'
+    if w and (d or ln):
+        a, b = sorted((w, d or ln), reverse=True)
+        basis = 'wd' if d else 'wl'
+    elif dia:
+        if not R.get('dims_dia_axes'):
+            return None, ('карточка по диаметру: габарит следа формы с дугой, плафоном или основанием не сравним с диаметром (замер: торшеры +130 % по ширине при верной высоте) — мерка не считается; '
+                          'у круглого стола/кашпо диаметр = след — включается `dims_dia_axes`')
+        a = b = dia
+        basis = 'dia'
+    else:
+        return None, 'нет двух эталонных горизонтальных размеров карточки'
+    return (h, a, b, basis), ''
+
+
+def form_axes(m, R: dict) -> tuple[float, float, float]:
+    """Габарит формы в её единицах: (большая горизонталь, меньшая горизонталь, высота). Горизонтали — стороны МИНИМАЛЬНОГО по площади прямоугольника вокруг следа на полу (перебор углов `dims_rot_step`; у квадрата и повёрнутой формы
+    нет произвола оси, как у PCA); перцентили `dims_pct` с обоих краёв отсекают единичные выбросы. Y — вертикаль."""
+    P = surface_points(m, int(R['dims_points']), seed=2)
+    xz = P[:, [0, 2]]
+    p = float(R['dims_pct'])
+    step = float(R['dims_rot_step'])
+
+    def rect(deg: float) -> tuple:
+        t = math.radians(deg)
+        u = xz[:, 0] * math.cos(t) + xz[:, 1] * math.sin(t)
+        v = -xz[:, 0] * math.sin(t) + xz[:, 1] * math.cos(t)
+        eu = float(np.percentile(u, 100 - p) - np.percentile(u, p))
+        ev = float(np.percentile(v, 100 - p) - np.percentile(v, p))
+        return (eu * ev, eu, ev, deg)
+    best = min((rect(d) for d in np.arange(0.0, 90.0, step)), key=lambda x: x[0])
+    best = min([best] + [rect(best[3] + k * step / 8.0) for k in range(-7, 8)], key=lambda x: x[0])        # уточнение угла вокруг найденного минимума: шаг сетки давал +3…4 п.п. к глубине у повёрнутой формы
+    ext = sorted((best[1], best[2]), reverse=True)
+    h = float(np.percentile(P[:, 1], 100 - p) - np.percentile(P[:, 1], p))
+    return ext[0], ext[1], h
+
+
+def dims_vs_card(m, card: dict | None, R: dict) -> list[dict]:
+    """Мерка «габарит формы ÷ габарит карточки по трём осям» (T-20261124-11, паспорт #130/#132/#145). Масштаб формы — по высоте (`dims_anchor: h`, как в замерах паспорта: +21,5/+19,7/+26,5 % у распашных шкафов) либо по медиане трёх отношений
+    (`median` — когда высота карточки сомнительна). Отклонение оси = (ось_формы / масштаб) / ось_карточки − 1.
+    dims_depth — меньшая горизонтальная (глубина): сработало бы при ≥ +`dims_depth_over` (толще каталога) или ≤ −`dims_depth_under` (тоньше — ленты/стержни); dims_axes — наибольшее |отклонение| по осям > `dims_axis_dev`.
+    OBSERVE: `dims_flag: false` → `flag` всегда false, `would_flag` — сработало бы; значение пишется всегда, когда есть эталонная карточка. Нет эталона — значения нет, причина в note."""
+    thr_d, thr_a = [-R['dims_depth_under'], R['dims_depth_over']], R['dims_axis_dev']
+
+    def empty(note):
+        return [dict(check('dims_depth', None, thr_d, False, note), would_flag=False), dict(check('dims_axes', None, thr_a, False, note), would_flag=False)]
+    ax, why = card_axes(card, R)
+    if ax is None:
+        return empty(why)
+    ch, ca, cb, basis = ax
+    fa, fb, fh = form_axes(m, R)
+    if min(fa, fb, fh) <= R['min_extent']:
+        return empty('форма без габарита по одной из осей — мерка не считается')
+    r = [fa / ca, fb / cb, fh / ch]
+    s = float(np.median(r)) if R['dims_anchor'] == 'median' else fh / ch
+    dev = [x / s - 1.0 for x in r]
+    note = (f"форма (масштаб по {'медиане осей' if R['dims_anchor'] == 'median' else 'высоте'}) / карточка, см: ширина {fa / s:.0f}/{ca:g} ({dev[0]:+.0%}), "
+            f"глубина {fb / s:.0f}/{cb:g} ({dev[1]:+.0%}), высота {fh / s:.0f}/{ch:g} ({dev[2]:+.0%})")
+    would_d = dev[1] >= R['dims_depth_over'] or dev[1] <= -R['dims_depth_under']
+    top = max(abs(x) for x in dev)
+    would_a = top > R['dims_axis_dev']
+    on = bool(R['dims_flag'])
+    return [dict(check('dims_depth', dev[1], thr_d, would_d and on, note), would_flag=bool(would_d), basis=basis),
+            dict(check('dims_axes', top, thr_a, would_a and on, note), would_flag=bool(would_a), basis=basis)]
+
+
+CARD_SQL = ("select json_build_object('k', shop_mid||'_'||external_id, 'w', w_cm, 'd', d_cm, 'h', h_cm, 'len', len_cm, 'dia', dia_cm, "
+            "'src', json_build_object('w', dims_evidence->'w'->>'source', 'd', dims_evidence->'d'->>'source', 'h', dims_evidence->'h'->>'source', "
+            "'len', dims_evidence->'len'->>'source', 'dia', dims_evidence->'dia'->>'source')) from products where shop_mid||'_'||external_id in ({ids})")
+
+
+def cards_from_db(skus: list[str], runner=None) -> dict:
+    """{товар (магазин_товар): карточка} из боевой базы (только чтение: размеры и источник каждой оси из dims_evidence) для `run_sku(card=…)`. Нет базы/сбой → {} (мерка тогда просто не считается, форма не страдает).
+    `runner(sql) -> текст` подменяется в тестах; по умолчанию docker exec psql (имя базы — env REMLAB_DEVDB_NAME, как у dimless/mesh_bind)."""
+    ids = sorted({s.replace(':', '_') for s in skus if re.fullmatch(r'\d+[_:]\d+', s)})
+    if not ids:
+        return {}
+    sql = CARD_SQL.format(ids=','.join("'" + i + "'" for i in ids))
+    try:
+        if runner:
+            raw = runner(sql)
+        else:
+            import subprocess
+            raw = subprocess.run(['docker', 'exec', '-i', 'remlab-devdb', 'psql', '-U', 'remlab', '-d', os.environ.get('REMLAB_DEVDB_NAME', 'remlab'), '-At'],
+                                 input=sql, capture_output=True, text=True, timeout=60).stdout
+    except Exception as exc:  # noqa: BLE001 — база недоступна: мерка по карточке пропускается, остальное идёт
+        print(f'cards_from_db: нет базы ({type(exc).__name__}) — dims_depth/dims_axes не считаются', file=sys.stderr)
+        return {}
+    out = {}
+    for ln in raw.splitlines():
+        if ln.startswith('{'):
+            j = json.loads(ln)
+            out[j.pop('k')] = j
+    return out
+
+
 def mask_checks(sku_dir: str, role: str, R: dict) -> list[dict]:
     """Проверки по кадрам с альфой (`<sku>/alpha/NN_<вид>_clay_graze.png` рядом с обычным кадром). Нет кадров — пусто."""
     ad = os.path.join(sku_dir, 'alpha')
@@ -390,7 +514,8 @@ def summary(recs: list[dict], eye: dict) -> str:
 
 
 # ---------- один товар ----------
-def run_sku(sku: str, glb: str | None, photo: str | None, frames: str | None, rules: dict, pose_roots: list[str] | None = None, alpha_dir: str | None = None, role: str = '', vlm_cache: str | None = None, chat=None, vlm_kw: dict | None = None) -> dict:
+def run_sku(sku: str, glb: str | None, photo: str | None, frames: str | None, rules: dict, pose_roots: list[str] | None = None, alpha_dir: str | None = None, role: str = '', vlm_cache: str | None = None, chat=None, vlm_kw: dict | None = None, card: dict | None = None) -> dict:
+    """`card` — размеры карточки (см. `card_axes`); None — мерка по карточке не считается вовсе, {} — карточки нет: в записи `dims_*` со значением None и причиной."""
     R = rules['thresholds']
     block = rules.get('block', [])
     rec: dict = {'sku': sku, 'observe': not block, 'block': block, 'checks': []}
@@ -402,6 +527,8 @@ def run_sku(sku: str, glb: str | None, photo: str | None, frames: str | None, ru
         if m is not None:
             rec['checks'] += [open_edges(m, R), detached(m, R)]
             rec['checks'] += body_skew(m, role, R)
+            if card is not None:
+                rec['checks'] += dims_vs_card(m, card, R)
             rec['checks'] += pose_checks(sku, pose_roots or [])
             rec['checks'] += legs_checks(sku, photo, pose_roots or [], R)
             if photo and os.path.isfile(photo):
@@ -459,6 +586,7 @@ def main() -> int:
     ap.add_argument('--pose-roots', default='', help='папки прогонов этапа 04 камеры (<root>/<sku>/04-camera/check.json или <root>/g*/<sku>/…) через запятую — точная сверка контура с фото')
     ap.add_argument('--alpha-root', default='', help='папка <sku>/NN_…_clay_graze.png + <sku>/alpha/ (кадры формы с альфой, T-184/5)')
     ap.add_argument('--roles', default='', help='JSON {sku: роль каталога} — для проверок спины (flat_back_roles)')
+    ap.add_argument('--cards', default='', help='JSON {sku: {w,d,h,len,dia,src}} (см) — мерка форма÷карточка; `db` — взять из базы (cards_from_db); пусто — мерка не считается')
     ap.add_argument('--vlm-cache', default='', help='папка кэша оценщика по картинке (включает vlm_judge: платные вызовы шлюза, ответы кэшируются по хешу GLB/фото и версии вопроса)')
     ap.add_argument('--rules', default=RULES)
     a = ap.parse_args()
@@ -468,10 +596,11 @@ def main() -> int:
         skus += [ln.split()[0] for ln in open(a.skus_file, encoding='utf-8') if ln.strip()]
     os.makedirs(a.out, exist_ok=True)
     roles = json.load(open(a.roles, encoding='utf-8')) if a.roles else {}
+    cards = cards_from_db(skus) if a.cards == 'db' else (json.load(open(a.cards, encoding='utf-8')) if a.cards else None)
     recs = []
     for s in skus:
         rec = run_sku(s, os.path.join(a.glbs, a.glb_name.format(sku=s)), os.path.join(a.photos, a.photo_name.format(sku=s)), os.path.join(a.frames, s) if a.frames else None, rules, [x for x in a.pose_roots.split(',') if x],
-                      os.path.join(a.alpha_root, s) if a.alpha_root else None, roles.get(s, ''), a.vlm_cache or None)
+                      os.path.join(a.alpha_root, s) if a.alpha_root else None, roles.get(s, ''), a.vlm_cache or None, card=None if cards is None else cards.get(s.replace(':', '_'), {}))
         os.makedirs(os.path.join(a.out, s), exist_ok=True)
         json.dump(rec, open(os.path.join(a.out, s, 'form_checks.json'), 'w', encoding='utf-8'), ensure_ascii=False, indent=1)
         recs.append(rec)
@@ -479,7 +608,7 @@ def main() -> int:
     json.dump(recs, open(os.path.join(a.out, 'all.json'), 'w', encoding='utf-8'), ensure_ascii=False, indent=1)
     if a.table:
         eye = json.load(open(a.eye, encoding='utf-8')) if a.eye else {}
-        open(a.table, 'w', encoding='utf-8').write(table(recs, eye, ['open_edges', 'detached', 'sil_iou', 'sil_extra', 'sil_miss', 'legs', 'sil_extra~', 'sil_miss~', 'holes', 'relief', 'back_dup', 'legs_match', 'relief_graze', 'back_relief', 'back_dup_mask']) + '\n\n' + summary(recs, eye) + '\n')
+        open(a.table, 'w', encoding='utf-8').write(table(recs, eye, ['open_edges', 'detached', 'sil_iou', 'sil_extra', 'sil_miss', 'legs', 'sil_extra~', 'sil_miss~', 'holes', 'relief', 'back_dup', 'legs_match', 'relief_graze', 'back_relief', 'back_dup_mask', 'dims_depth', 'dims_axes']) + '\n\n' + summary(recs, eye) + '\n')
     return 0
 
 

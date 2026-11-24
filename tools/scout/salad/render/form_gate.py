@@ -40,7 +40,7 @@ def eye_row(rec: dict, role: str = '') -> list[str]:
 
 
 def gate(out: str, glbs: str, skus: list[str], roles: dict | None = None, photos: str = '', photo_name: str = '', vlm_cache: str = '', rules_path: str = '',
-         pose_roots: list[str] | None = None, chat=None, find_glb=None, vlm: bool = True, vlm_all: bool = False, vlm_budget: float | None = None, log=None) -> list[dict]:
+         pose_roots: list[str] | None = None, chat=None, find_glb=None, vlm: bool = True, vlm_all: bool = False, vlm_budget: float | None = None, log=None, cards: dict | None = None) -> list[dict]:
     """Проверки по каждому товару, у которого есть кадры в `<out>/<sku>`; пишет form_checks.json и form_gate.tsv. Оценщик — по умолчанию 3 вида × корпусные роли × потолок; возвращает записи."""
     import form_checks as FC
     import vlm_judge as VJ
@@ -83,7 +83,8 @@ def gate(out: str, glbs: str, skus: list[str], roles: dict | None = None, photos
         if use_vlm and not photo:
             say(f'vlm {s}: нет фото рядом с прогоном (--photos) — оценщик пропущен')
         kw = {'kinds_only': kinds_only, 'budget': budget, 'log': say}
-        rec = FC.run_sku(s, find_glb(glbs, s), photo, fr, rules, pose_roots or [], None, roles.get(s, ''), cache if (use_vlm and photo) else None, chat, kw)
+        rec = FC.run_sku(s, find_glb(glbs, s), photo, fr, rules, pose_roots or [], None, roles.get(s, ''), cache if (use_vlm and photo) else None, chat, kw,
+                         None if cards is None else cards.get(s.replace(':', '_'), {}))               # размеры карточки (T-20261124-11): dims_depth/dims_axes в observe
         json.dump(rec, open(os.path.join(fr, 'form_checks.json'), 'w', encoding='utf-8'), ensure_ascii=False, indent=1)
         recs.append(rec)
         rows.append(eye_row(rec, roles.get(s, '')))
@@ -109,10 +110,15 @@ def main() -> int:
     ap.add_argument('--vlm-budget', type=float, default=None, help='потолок оценки расхода оценщика на запуск, $ (по умолчанию rules: budget_usd_per_form × число оцениваемых форм); не больше rules budget_usd_max')
     ap.add_argument('--pose-roots', default='')
     ap.add_argument('--rules', default='')
+    ap.add_argument('--cards', default='', help='JSON {sku: {w,d,h,len,dia,src}} (см) для мерки форма÷карточка; по умолчанию — из базы (cards_from_db, только чтение)')
+    ap.add_argument('--no-cards', action='store_true', help='без мерки форма÷карточка (dims_depth/dims_axes)')
     a = ap.parse_args()
+    import form_checks as FC
+    skus = [s for s in a.skus.split(',') if s]
+    cards = None if a.no_cards else (json.load(open(os.path.expanduser(a.cards), encoding='utf-8')) if a.cards else FC.cards_from_db(skus))
     roles = json.load(open(os.path.expanduser(a.roles), encoding='utf-8')) if a.roles else {}
-    recs = gate(os.path.expanduser(a.out), os.path.expanduser(a.glbs), [s for s in a.skus.split(',') if s], roles, os.path.expanduser(a.photos) if a.photos else '', a.photo_name,
-                os.path.expanduser(a.vlm_cache) if a.vlm_cache else '', a.rules, [x for x in a.pose_roots.split(',') if x], vlm=not a.no_vlm, vlm_all=a.vlm_all, vlm_budget=a.vlm_budget)
+    recs = gate(os.path.expanduser(a.out), os.path.expanduser(a.glbs), skus, roles, os.path.expanduser(a.photos) if a.photos else '', a.photo_name,
+                os.path.expanduser(a.vlm_cache) if a.vlm_cache else '', a.rules, [x for x in a.pose_roots.split(',') if x], vlm=not a.no_vlm, vlm_all=a.vlm_all, vlm_budget=a.vlm_budget, cards=cards)
     for r in recs:
         print(f"form_gate {r['sku']} {r['status']} {r['flags']}", flush=True)
     print(f'form_gate: проверено {len(recs)}, к глазам {sum(1 for r in recs if r["status"] in ("needs_review", "shape_reject"))}', flush=True)

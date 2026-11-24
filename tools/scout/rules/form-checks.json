@@ -44,7 +44,16 @@
     ],
     "body_skew_deg": 3.0,
     "body_skew_points": 300000,
-    "body_skew_leg_cut": 0.45
+    "body_skew_leg_cut": 0.45,
+    "dims_flag": false,
+    "dims_points": 200000,
+    "dims_pct": 0.3,
+    "dims_rot_step": 2,
+    "dims_anchor": "h",
+    "dims_depth_over": 0.2,
+    "dims_depth_under": 0.3,
+    "dims_axis_dev": 0.25,
+    "dims_dia_axes": false
   },
   "block": [
     "glb_sane",
