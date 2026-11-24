@@ -897,11 +897,24 @@ def colour_unchanged_outside(src_glb: str, dst_glb: str, mask: np.ndarray | None
     return bool((np.asarray(a)[~mask] == np.asarray(b)[~mask]).all())
 
 
-def patch_glb(src: str, dst: str, maps: dict, base_png: bytes | None = None) -> dict:
+def stamp_glb(path: str) -> None:
+    """Ставит в готовый GLB отметку «прошёл этап 08» (asset.extras[STAGE_MARK_KEY] = STAGE); геометрия, карты и их байты не тронуты. Зовёт run_stage ТОЛЬКО когда check.json вышел passed=true
+    (T-20261124-07/2): красный этап отметки не получает — лёгкая копия для сайта не берёт у него карты материала (runtime_mesh.stage_passed)."""
+    doc, binb = read_glb(path)
+    doc.setdefault("asset", {"version": "2.0"}).setdefault("extras", {})[STAGE_MARK_KEY] = STAGE
+    write_glb(path, doc, binb)
+
+
+def patch_glb(src: str, dst: str, maps: dict, base_png: bytes | None = None, stage_mark: bool = True) -> dict:
     """Копия GLB с новыми картами материала 0: metallicRoughness заменена (на месте), sheenColor и transmission добавлены расширениями. Геометрия не тронута; цвет — тоже,
     кроме `base_png` (карта цвета с тоном стекла у стеклянных граней — `tint_base_color`; нет тона — None, байт в байт)."""
     doc, binb = read_glb(src)
-    doc.setdefault("asset", {"version": "2.0"}).setdefault("extras", {})[STAGE_MARK_KEY] = STAGE     # по ней лёгкая копия для сайта узнаёт модель этапа 08 (не по ID)
+    if stage_mark:                                  # по ней лёгкая копия для сайта узнаёт модель этапа 08 (не по ID); run_stage передаёт False и ставит её после зелёного check.json (stamp_glb)
+        doc.setdefault("asset", {"version": "2.0"}).setdefault("extras", {})[STAGE_MARK_KEY] = STAGE
+    else:                                           # исходник мог уже нести отметку (вход — готовый material.glb): красный этап её не наследует
+        ex = (doc.get("asset") or {}).get("extras")
+        if isinstance(ex, dict):
+            ex.pop(STAGE_MARK_KEY, None)
     views = [bytearray(_view_bytes(doc, binb, i)) for i in range(len(doc["bufferViews"]))]
     mat = doc["materials"][0]
     pbr = mat.setdefault("pbrMetallicRoughness", {})
@@ -971,6 +984,9 @@ def run_stage(glb: str, run: str, sku: str, product: dict, parts_dir: str | None
     sdir = ps.stage_dir(run, sku, STAGE)
     fail = lambda why, **kw: ps.write_check(sdir, STAGE, sku, passed=False, reason=why, seconds=time.time() - t0,  # noqa: E731
                                             rules=[_rule_record().entry(RULE_GLOSS, product.get("role"), False, "этап 08 не дошёл до материалов: " + why[:120])], **kw)
+    stale = os.path.join(sdir, "material.glb")
+    if os.path.lexists(stale):                      # перевыпуск пересоздаёт material.glb целиком: прежний (с отметкой «прошёл») не должен пережить красный/упавший перевыпуск
+        os.unlink(stale)
     mesh = _load_mesh(glb)
     nf = len(mesh.faces)
     uv = getattr(mesh.visual, "uv", None)
@@ -1078,7 +1094,7 @@ def run_stage(glb: str, run: str, sku: str, product: dict, parts_dir: str | None
         if pp["apply"] and targets:
             base_png, m2 = shift_part_colours(base_png, glb, targets)
             mask_all = m2 if mask_all is None else (mask_all | m2)
-    pinfo = patch_glb(glb, out_glb, maps, base_png)
+    pinfo = patch_glb(glb, out_glb, maps, base_png, stage_mark=False)
     covered = part >= 0
     known = np.isin(part, [pid for pid in res])
     recipe_share = float((covered & known).sum()) / nf
@@ -1122,6 +1138,8 @@ def run_stage(glb: str, run: str, sku: str, product: dict, parts_dir: str | None
         gloss_finish_share=round(float(np.isin(part, [pid for pid, r in res.items() if r.get("gloss_from")]).sum()) / nf, 4), gloss_finish=cls.get("gloss"),
         rules=[gloss_rule_entry(product.get("role"), cls, res, recipes)],
         flat_top_parts=sorted(pid for pid, sh in horiz.items() if ftop and sh >= ftop["horizontal_min_share"]), glass_tone=tone_rep, part_photo=pp_rep, sheen=maps["hasSheen"], transmission=maps["hasTransmission"], recipes_sha=recipes_sha(), glb=pinfo)
+    if doc["passed"]:                               # отметку «прошёл этап 08» получает только зелёный этап; check.json — истина, GLB её повторяет
+        stamp_glb(out_glb)
     return doc
 
 

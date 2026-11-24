@@ -203,6 +203,11 @@ def run_one(run: str, sku: str, glb: str, rule: dict | None = None, weight: dict
     weight = weight or RM.weight_rule()
     t0 = time.time()
     d = PS.stage_dir(run, sku, STAGE)
+    for st in rule.get('require_passed_stages') or []:     # красный этап товара (08) — на сайт не готовим; раньше кэша: прежний зелёный 10-web не переживёт красный перевыпуск 08
+        ck_st = PS.read_check(PS.stage_dir(run, sku, st))
+        if ck_st is not None and not ck_st['passed']:
+            return PS.write_check(d, STAGE, sku, passed=False, metric={'name': 'stage_passed', 'value': 0, 'threshold': 1, 'op': '>='}, seconds=time.time() - t0, outputs=[],
+                                  reason=f"этап {st} не прошёл ({(ck_st.get('reason') or 'причина не названа')[:160]}) — на сайт не готовим", blocked_by=st, no_tool=False)
     src = open(glb, 'rb').read()
     sha = hashlib.sha256(src).hexdigest()[:16]
     prev = PS.read_check(d)

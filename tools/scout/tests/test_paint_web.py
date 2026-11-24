@@ -225,6 +225,24 @@ def test_overweight_is_reported():
     assert c['passed'] is False and 'bytes' in c['reason']
 
 
+def test_red_stage_blocks_web():
+    """Красный check.json этапа 08 того же товара: этап 10 отказывает ДО сборки (ktx не нужен), с причиной и именем этапа; зелёный или отсутствующий 08 — заслон не действует."""
+    assert RULE.get('require_passed_stages') == ['08-material']
+    with tempfile.TemporaryDirectory() as t:
+        run = os.path.join(t, 'run')
+        glb = os.path.join(t, 'x.glb')
+        open(glb, 'wb').write(b'not-a-glb')
+        PS.write_check(PS.stage_dir(run, 'red', '08-material'), '08-material', 'red', passed=False, reason='plate_left 1 <= 0')
+        c = W.run_one(run, 'red', glb, RULE, {'max_bytes': 5 * 1048576, 'ladder': []}, force=True)
+        assert c['passed'] is False and c['extra'].get('blocked_by') == '08-material' and 'plate_left' in c['reason'] and 'не готовим' in c['reason'], c
+        assert c['outputs'] == [] and not os.path.exists(os.path.join(PS.stage_dir(run, 'red', W.STAGE), 'web.glb'))
+        PS.write_check(PS.stage_dir(run, 'green', '08-material'), '08-material', 'green', passed=True, metric={'name': 'm', 'value': 1, 'threshold': 0, 'op': '>='})
+        c2 = W.run_one(run, 'green', glb, dict(RULE, ktx_bin='/нет/в/правиле/ktx'), {'max_bytes': 5 * 1048576, 'ladder': []}, force=True)
+        assert c2['extra'].get('blocked_by') is None, c2          # зелёный 08 заслон не включает (дальше — обычный отказ по утилите/файлу)
+        c3 = W.run_one(run, 'old', glb, dict(RULE, ktx_bin='/нет/в/правиле/ktx'), {'max_bytes': 5 * 1048576, 'ladder': []}, force=True)
+        assert c3['extra'].get('blocked_by') is None, c3          # нет check.json 08 (старая модель) — заслон не действует
+
+
 if __name__ == '__main__':
     for n, f in sorted(globals().items()):
         if n.startswith('test_') and callable(f):

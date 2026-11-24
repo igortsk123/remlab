@@ -150,6 +150,20 @@ def test_plate_left_gate():
         _tiny_glb(clean)
         doc2 = MS.run_stage(clean, os.path.join(d, "run"), "sku-c", product, frame=False)
         ok(doc2["metrics"]["plate_left"]["value"] == 0 and doc2["metrics"]["plate_left"]["ok"] is True, "товар без плиты: plate_left = 0, мерка зелёная")
+        mark = lambda path: ((MS.read_glb(path)[0].get("asset") or {}).get("extras") or {}).get(MS.STAGE_MARK_KEY)   # noqa: E731
+        ok(not doc["passed"] and mark(os.path.join(d, "run", "sku-p", "08-material", "material.glb")) is None, "красный этап 08: в material.glb НЕТ отметки «прошёл» (карты на сайт не пойдут)")
+        if doc2["passed"]:
+            ok(mark(os.path.join(d, "run", "sku-c", "08-material", "material.glb")) == MS.STAGE, "зелёный этап 08: отметка на месте")
+        else:
+            print("  – tiny-товар не прошёл по другой мерке (", doc2["reason"][:80], ") — зелёную ветку проверяет test_mark_only_when_passed")
+        # красный перевыпуск поверх зелёного: прежний material.glb с отметкой не переживает
+        run2 = os.path.join(d, "run2")
+        green = MS.run_stage(clean, run2, "sku-r", product, frame=False)
+        g_glb = os.path.join(run2, "sku-r", "08-material", "material.glb")
+        if green["passed"]:
+            ok(mark(g_glb) == MS.STAGE, "перевыпуск: зелёный прогон поставил отметку")
+            red = MS.run_stage(src, run2, "sku-r", product, frame=False)
+            ok(not red["passed"] and os.path.exists(g_glb) and mark(g_glb) is None, "красный перевыпуск поверх зелёного: отметка не осталась")
 
 
 def test_patch_glb():
