@@ -927,6 +927,79 @@ class TestZBuffer(unittest.TestCase):
         self.assertEqual(TV.visible_known_share(g, empty, tr), (0.0, 0))
 
 
+class TestZDepthAll(unittest.TestCase):
+    """T-20261124-27 (Крит): глубина этапа 4 на косых гранях — мусор (растр без z-буфера экстраполирует плоскость за грань); флаги zbuffer_depth_all / depth_band_tilt и мерка В."""
+
+    def setUp(self):
+        self.keep = (TV.BACK_ON, TV.ZBUF_ON, TV.ZDEPTH_ALL, TV.DEPTH_TILT)
+        TV.BACK_ON, TV.ZBUF_ON, TV.ZDEPTH_ALL, TV.DEPTH_TILT = False, True, False, False
+
+    def tearDown(self):
+        TV.BACK_ON, TV.ZBUF_ON, TV.ZDEPTH_ALL, TV.DEPTH_TILT = self.keep
+
+    def _garbage_stage(self):
+        g = z_scene('closed')
+        st = z_stage(g)
+        ys, xs = np.nonzero(st['mask'])
+        sel = (ys < np.median(ys)) & (xs < np.median(xs))                       # ~четверть силуэта — мусор, у остального глубина верна (медиана расхождения на общей грани остаётся ~0)
+        depth = st['depth'].copy()
+        depth[ys[sel], xs[sel]] += (500.0 + 700.0 * ((ys[sel] + xs[sel]) % 3)) * st['px_len']
+        return g, dict(st, depth=depth), (ys[sel], xs[sel])
+
+    def test_flag_off_keeps_depth_untouched_and_writes_metric(self):
+        g, st, _ = self._garbage_stage()
+        out, info = TV.zbuffer_fix(g, st)
+        self.assertTrue(out is st or (out['depth'] == st['depth']).all(), 'флаг выкл: глубина не меняется')
+        self.assertIn('depth_mismatch', info)                                    # мерка В пишется всегда
+
+    def test_flag_on_takes_depth_from_zbuffer_not_ids_uv_cos(self):
+        g, st, (gy, gx) = self._garbage_stage()
+        ids_n, z_n = TestZBuffer._nearest(self, g, st)
+        TV.ZDEPTH_ALL = True
+        out, info = TV.zbuffer_fix(g, st)
+        cov = st['mask'] & (st['ids'] >= 0) & (ids_n >= 0) & (z_n > 0)
+        self.assertGreater(int(cov.sum()), 1000)
+        self.assertTrue(np.allclose(out['depth'][cov], z_n[cov], atol=1e-4), 'глубина на покрытых z-буфером пикселях — из z-буфера')
+        self.assertGreater(float(np.abs(st['depth'][gy, gx] - z_n[gy, gx]).max()), 100 * st['px_len'], 'предусловие: мусор был')
+        self.assertTrue((out['ids'] == st['ids']).all() and (out['uv'] == st['uv']).all() and (out['cos'] == st['cos']).all(), 'id/UV/cos не трогаются')
+        out0 = (~cov) & st['mask']
+        self.assertTrue((out['depth'][out0] == st['depth'][out0]).all(), 'вне покрытия z-буфера глубина прежняя')
+        self.assertGreater(info['zbuf_depth_all_px'], 1000)
+        self.assertTrue(TV.depth_band(out)[gy, gx].mean() < 0.1, 'после правки мусорный квадрат не метится разрывом')
+
+    def test_depth_mismatch_metric_flags_garbage_on_grazing_faces_only(self):
+        n = 80
+        px_len = 0.01
+        zn = np.full((n, n), 3.0)
+        both = np.ones((n, n), bool)
+        ids = np.zeros((n, n), np.int32)
+        cosv = np.full((n, n), 0.13, np.float32)
+        st = {'depth': (zn + np.random.RandomState(1).uniform(500, 3000, (n, n)) * px_len).astype(np.float32), 'ids': ids, 'cos': cosv}
+        dm = TV.depth_mismatch(st, zn, both, ids + 5, px_len)
+        self.assertTrue(dm['suspect'])
+        self.assertGreater(dm['cos<0.2']['share_jump'], 0.9)
+        self.assertEqual(dm['cos<0.2']['id_match'], 0.0)
+        st2 = dict(st, depth=zn.astype(np.float32))
+        dm2 = TV.depth_mismatch(st2, zn, both, ids, px_len)
+        self.assertFalse(dm2['suspect'])
+        self.assertEqual(dm2['cos<0.2']['share_jump'], 0.0)
+        self.assertEqual(TV.depth_mismatch(st2, zn * 0, both, ids, px_len), {'N/A': 'нет покрытия z-буфера'})
+
+    def test_depth_band_tilt_plane_not_marked_step_marked(self):
+        st = fake_stage(cos_front=0.05)
+        xs = np.arange(PX, dtype=np.float64)[None, :] * np.ones((PX, 1))
+        st['depth'] = np.where(st['mask'], 3.0 + 20.0 * st['px_len'] * xs, 0.0).astype(np.float32)      # плоскость под ~87°: шаг 20 px_len на пиксель
+        self.assertGreater(TV.depth_band(st)[Q0 + 10:Q1 - 10, Q0 + 10:Q1 - 10].mean(), 0.9, 'контроль: без флага плоскость метится целиком (как было)')
+        TV.DEPTH_TILT = True
+        self.assertEqual(int(TV.depth_band(st)[Q0 + 10:Q1 - 10, Q0 + 10:Q1 - 10].sum()), 0, 'с флагом плоскость не метится')
+        mid = (Q0 + Q1) // 2
+        st['depth'] = st['depth'].copy()
+        st['depth'][:, mid:] += 300.0 * st['px_len']                             # ступенька (настоящий разрыв) всё равно метится
+        band = TV.depth_band(st)
+        self.assertTrue(band[mid, mid - 1] and band[mid, mid])
+        self.assertFalse(band[mid, Q0 + 10])
+
+
 class FrontCheck(unittest.TestCase):
     """Перёд/зад после переноса (T-20261123-43): вердикт по долям известного и кромкам камеры; без правил — не применимо."""
 

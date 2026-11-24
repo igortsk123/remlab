@@ -92,6 +92,8 @@ ZBUF_ON = bool(int(os.environ['TEX_VISIBLE_ZBUF'])) if 'TEX_VISIBLE_ZBUF' in os.
 ZBUF_TOL = float(os.environ.get('TEX_VISIBLE_ZBUF_TOL', R.get('z_buffer_tol_px', 3.0)))                 # грань растра этапа 4 дальше ближайшей в пикселе больше чем на столько px предмета — растр ошибся (рисует без z-буфера), в пикселе видна ближайшая
 ZBUF_GEOM_TOL = float(R.get('z_buffer_geom_tol_px', 2.0))          # страховка «форма та же, что у камеры»: на пикселях, где растр и z-буфер назвали одну грань, глубины расходятся не больше (медиана, px предмета)
 ZBUF_MIN_COVER = float(R.get('z_buffer_min_cover', 0.5))           # … и z-буфер покрывает не меньше этой доли силуэта растра
+ZDEPTH_ALL = bool(int(os.environ['TEX_VISIBLE_ZDEPTH_ALL'])) if 'TEX_VISIBLE_ZDEPTH_ALL' in os.environ else bool(R.get('z_buffer_depth_all', False))   # T-20261124-27 (Крит): глубина этапа 4 (depth.npz) на косых гранях — мусор; там, где z-буфер покрыл пиксель, глубина берётся из него (rules/tex-visible.json § _zdepth_doc); env 1/0 — проба / контроль
+DEPTH_TILT = bool(int(os.environ['TEX_VISIBLE_DEPTH_TILT'])) if 'TEX_VISIBLE_DEPTH_TILT' in os.environ else bool(R.get('depth_band_tilt', False))   # порог разрыва глубины растёт на ожидаемый шаг плоскости px_len·tgθ (при cos < ~0,09 плоскость сама «разрыв»); отдельный флаг от zbuffer_depth_all
 BACK_ON = bool(int(os.environ['TEX_VISIBLE_BACK'])) if 'TEX_VISIBLE_BACK' in os.environ else bool(R.get('back_cull', True))
 ZBUF_BACK = bool(int(os.environ['TEX_VISIBLE_ZBUF_BACK'])) if 'TEX_VISIBLE_ZBUF_BACK' in os.environ else bool(R.get('z_buffer_replace_back', True))   # ничья по глубине: грань спиной к камере уступает ближайшей (знаковая нормаль — вторичный признак при z-буфере)
 PRUNE_ON = bool(int(os.environ['TEX_VISIBLE_PRUNE'])) if 'TEX_VISIBLE_PRUNE' in os.environ else bool(R.get('back_prune_panels', True))
@@ -375,12 +377,17 @@ def depth_band(st: dict) -> np.ndarray:
     d0 = st['depth'].astype(np.float64)
     ok = (d0 > 0) & st['mask']
     d = median_filter(np.where(d0 > 0, d0, float(np.median(d0[ok])) if ok.any() else 0.0), size=max(DEPTH_MED, 1)) if DEPTH_MED > 1 else d0
-    lim = max(float(st.get('px_len') or 0.0), 1e-6) * DEPTH_JUMP
+    pl = max(float(st.get('px_len') or 0.0), 1e-6)
+    lim = pl * DEPTH_JUMP
     jump = np.zeros(d.shape, bool)
     for dy, dx in ((0, 1), (1, 0)):
         a, b = d[: d.shape[0] - dy, : d.shape[1] - dx], d[dy:, dx:]
         both = ok[: d.shape[0] - dy, : d.shape[1] - dx] & ok[dy:, dx:]
-        j = both & (np.abs(a - b) > lim)
+        lm = lim
+        if DEPTH_TILT:                                                    # плоскость под углом θ к лучу даёт шаг глубины px_len·tgθ на пиксель — это не разрыв
+            c = np.maximum(np.minimum(st['cos'][: d.shape[0] - dy, : d.shape[1] - dx], st['cos'][dy:, dx:]), 0.05).astype(np.float64)
+            lm = lim + pl * np.sqrt(1.0 - c * c) / c
+        j = both & (np.abs(a - b) > lm)
         jump[: d.shape[0] - dy, : d.shape[1] - dx] |= j
         jump[dy:, dx:] |= j
     if DEPTH_BAND <= 0:
@@ -706,6 +713,7 @@ def zbuffer_fix(geoms: list, st: dict) -> tuple[dict, dict]:
     med = float(np.median(np.abs(depth[same] - zn[same])) / px_len) if same.any() else float('inf')
     if cover < ZBUF_MIN_COVER or med > ZBUF_GEOM_TOL:
         return st, {'zbuf': f'пропуск: форма не совпала с растром камеры (покрытие {cover:.2f}, расхождение глубины {med:.1f} px)'}
+    dm = depth_mismatch(st, zn, both, ids_z, px_len)                                 # мерка В (T-20261124-27): честна ли глубина этапа 4 на видимых гранях; пишется всегда, флаг не нужен
     wrong = both & (ids != ids_z) & ((depth - zn) > ZBUF_TOL * px_len)
     n_back = 0
     if ZBUF_BACK:                                                                    # ничья по глубине (двойная стенка толщиной < допуска): грань спиной к камере (знаковая нормаль) видимой поверхностью замкнутой формы быть не может — берём ближайшую
@@ -714,19 +722,49 @@ def zbuffer_fix(geoms: list, st: dict) -> tuple[dict, dict]:
             tie = both & (ids != ids_z) & back[np.clip(ids, 0, len(back) - 1)] & ~back[np.clip(ids_z, 0, len(back) - 1)] & ~wrong
             n_back = int(tie.sum())
             wrong = wrong | tie
-    info = {'zbuf': 'вкл', 'zbuf_px_fixed': int(wrong.sum()), 'zbuf_px_back_tie': n_back, 'zbuf_faces_replaced': int(np.unique(ids[wrong]).size), 'zbuf_share': round(float(wrong.sum() / max(int(mask.sum()), 1)), 4)}
-    if not wrong.any():
+    info = {'zbuf': 'вкл', 'zbuf_px_fixed': int(wrong.sum()), 'zbuf_px_back_tie': n_back, 'zbuf_faces_replaced': int(np.unique(ids[wrong]).size), 'zbuf_share': round(float(wrong.sum() / max(int(mask.sum()), 1)), 4), 'depth_mismatch': dm}
+    zall = ZDEPTH_ALL and bool(((zn > 0) & both).any())
+    if not wrong.any() and not zall:
         return st, info
-    ys, xs = np.nonzero(wrong)
-    pa = PF.pixel_attrs(P, F, np.asarray(geoms[0]['UV'], np.float64), None, cam, n, ids_z[ys, xs], ys, xs)
     out = dict(st)
     out['ids'], out['uv'], out['cos'], out['depth'] = ids.copy(), st['uv'].copy(), st['cos'].copy(), depth.copy()
-    out['ids'][ys, xs] = ids_z[ys, xs]
-    out['uv'][ys, xs, 0] = pa['u']
-    out['uv'][ys, xs, 1] = 1.0 - pa['v']
-    out['cos'][ys, xs] = pa['cos']
-    out['depth'][ys, xs] = pa['zpix']
+    if wrong.any():
+        ys, xs = np.nonzero(wrong)
+        pa = PF.pixel_attrs(P, F, np.asarray(geoms[0]['UV'], np.float64), None, cam, n, ids_z[ys, xs], ys, xs)
+        out['ids'][ys, xs] = ids_z[ys, xs]
+        out['uv'][ys, xs, 0] = pa['u']
+        out['uv'][ys, xs, 1] = 1.0 - pa['v']
+        out['cos'][ys, xs] = pa['cos']
+        out['depth'][ys, xs] = pa['zpix']
+    if zall:                                                                         # флаг zbuffer_depth_all: глубина — из z-буфера везде, где он покрыл пиксель растра (id/UV/cos не трогаем); пиксели вне покрытия z-буфера остаются как есть
+        sel = both & (zn > 0) & ~wrong
+        out['depth'][sel] = zn[sel].astype(out['depth'].dtype)
+        info['zbuf_depth_all_px'] = int(sel.sum())
     return out, info
+
+
+def depth_mismatch(st: dict, zn: np.ndarray, both: np.ndarray, ids_z: np.ndarray, px_len: float) -> dict:
+    """Мерка В (T-20261124-27, Крит): расхождение глубины этапа 4 (`depth.npz`, растр без z-буфера: на косых гранях плоскость экстраполируется за грань) и z-буфера на видимых пикселях растра, по корзинам cos
+    (<0,2 / 0,2–0,4 / ≥0,4): доля пикселей с |Δ| > DEPTH_JUMP·px_len (столько `depth_band` считает разрывом), медиана |Δ|/px_len, доля пикселей, где id этапа 4 совпал с z-буфером. Здоровый растр — доля ≈ 0;
+    у Крита на верхе медиана ≈ 1100 px_len, depth_band метил 99,9 % верха. Флаг мерки: `suspect` — доля > 0,2 в корзине cos<0,4 при ≥ 500 пикселей (гипотеза-порог до замера на круге 29)."""
+    sel = both & (zn > 0)
+    out = {}
+    if not sel.any():
+        return {'N/A': 'нет покрытия z-буфера'}
+    dz = np.abs(st['depth'].astype(np.float64) - zn) / px_len
+    same = st['ids'] == ids_z
+    suspect = False
+    for name, lo, hi in (('cos<0.2', 0.0, 0.2), ('cos0.2-0.4', 0.2, 0.4), ('cos>=0.4', 0.4, 9.0)):
+        m = sel & (st['cos'] >= lo) & (st['cos'] < hi)
+        k = int(m.sum())
+        if k == 0:
+            continue
+        sh = float((dz[m] > DEPTH_JUMP).mean())
+        out[name] = {'px': k, 'share_jump': round(sh, 4), 'median_px_len': round(float(np.median(dz[m])), 2), 'id_match': round(float(same[m].mean()), 4)}
+        if hi <= 0.4 and k >= 500 and sh > 0.2:
+            suspect = True
+    out['suspect'] = suspect
+    return out
 
 
 def back_face_mask(geoms: list, st: dict):
