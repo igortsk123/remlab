@@ -30,6 +30,7 @@ HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, HERE)
 sys.path.insert(0, os.path.join(HERE, '..', '..'))
 import tex_coverage as TC  # noqa: E402
+import vertex_normals as VNM  # noqa: E402      # нормали вершин для NORMAL в GLB (T-20261124-10/4)
 
 FILL = {
     'photo_azimuths': (0.0, 45.0),   # камеры «фото»: азимут от лица предмета (0 = в лоб, +X вправо), градусы; подменяется камерой T-112 через `known` напрямую
@@ -2420,7 +2421,7 @@ def write_glb(geoms: list, texs: list, dst: str) -> None:
     from trimesh.visual.material import PBRMaterial
     sc = trimesh.Scene()
     for g, t in zip(geoms, texs):
-        mesh = trimesh.Trimesh(vertices=g['V'], faces=g['F'], process=False)
+        mesh = trimesh.Trimesh(vertices=g['V'], faces=g['F'], vertex_normals=VNM.geom_normals(g), process=False)      # NORMAL в файле (T-20261124-10/4)
         mesh.visual = TextureVisuals(uv=np.asarray(g['UV']), material=PBRMaterial(baseColorTexture=Image.fromarray(np.asarray(t)), metallicFactor=0.0, roughnessFactor=1.0))
         sc.add_geometry(mesh, geom_name=str(g.get('name') or 'mesh'))
     sc.export(dst)
