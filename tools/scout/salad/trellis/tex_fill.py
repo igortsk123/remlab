@@ -108,6 +108,7 @@ FILL = {
     'smooth_roles': ['legs', 'frame', 'handles'],   # роли без плитки фактуры на недостроенном: тон части без блоков («ёлочка» стыков на дереве, Sakura 21.11)
     'tone_share_roles': ['legs', 'frame', 'handles'],   # роли, у которых тон един на все части одной роли (один материал — один тон: задние ножки темнее передних из-за теней)
     'legs_common_tone': False,       # T-21 П1: ножки ПО ГЕОМЕТРИИ (роль legs этапа 3 не доходит) → группа ножек одной формы и цвета красится тоном лучшей видимой ножки (свет/тень фото не переносятся); по умолчанию выкл.
+    'legs_pin': 'median_all',         # пин группы ножек: 'median_all' — медиана Lab по ВСЕМ известным текселям ножек группы (с тенями, как мерит check); 'best' — тон лучшей ножки (мода без теней)
     'legs_geo_weight': 0.0,          # группа ножек: вес геодезического цвета известного соседа (0 — только пин; 1 — как у остальных частей)
     'legs_band': [0.02, 0.20], 'legs_zone': 0.45, 'legs_max_frac': 0.25, 'legs_radius': 1.5, 'legs_grow': 1.7,   # ножка: полоса поиска и верх тела (доли высоты), макс. ширина (доля габарита), цилиндр (×ширины/2), рост сечения → конец ножки
     'legs_shape_tol': 0.25, 'legs_compat_dab': 10.0, 'legs_compat_dl': 35.0, 'legs_min_known': 200,   # группа: форма ±25 %, цвет известного (a,b ≤ 10, L ≤ 35), лучшая ножка — известного не меньше
@@ -1164,8 +1165,11 @@ def legs_common_groups(txs: list, kn: list, labs: list, c: dict) -> dict:
             if m.any():
                 tx.part_f[m] = pid
                 tx.part = tx.part_f[tx.f]
-        rep['groups'].append({'part': pid, 'legs': grp, 'pin': [round(float(x), 2) for x in tb], 'best': int(b), 'best_known': legs[b]['known']})
-        rep['pins'][pid] = (np.asarray(tb, float), Lk[b].std(axis=0), legs[b]['known'])
+        pool_ = np.concatenate([Lk[i] for i in grp if len(Lk[i])]) if any(len(Lk[i]) for i in grp) else Lk[b]
+        pin_ = np.median(pool_, axis=0) if c.get('legs_pin', 'median_all') == 'median_all' and len(pool_) else np.asarray(tb, float)
+        rep['groups'].append({'part': pid, 'legs': grp, 'pin': [round(float(x), 2) for x in pin_], 'pin_best': [round(float(x), 2) for x in tb], 'pin_mode': c.get('legs_pin', 'median_all'),
+                              'best': int(b), 'best_known': legs[b]['known'], 'pool_known': int(len(pool_))})
+        rep['pins'][pid] = (np.asarray(pin_, float), pool_.std(axis=0) if len(pool_) else Lk[b].std(axis=0), int(len(pool_)))
     rep['applied'] = bool(rep['groups'])
     if not rep['applied']:
         rep['why'] = 'нет группы ≥ 2 совместимых ножек с известным ≥ legs_min_known'
@@ -2996,6 +3000,7 @@ def run_stage_once(run: str, sku: str, glb: str, known: list | None = None, part
     else:
         pick, used = one(cfg, draft), ((cfg or {}).get('source') or 'stat')
     rep, tex_after, de, big, de_worst = pick['rep'], pick['tex'], pick['de'], pick['big'], pick['de_worst']
+    _legs_fill = [np.array(t_) for t_ in tex_after] if pick.get('legs_protect') is not None else None      # ножки (legs_common_tone): результат fill — пин; хуки ниже его не меняют
     _m = _hmark()
     tex_after, rep['ref_zone_map'] = apply_ref_zone_map(geoms, tex_after, known, cfg)
     _hdone(hooks, 'ref_zone_map', _m)
@@ -3118,6 +3123,16 @@ def run_stage_once(run: str, sku: str, glb: str, known: list | None = None, part
     if _dz_eff is not None:                                                                  # зоны деталей/стекла — как на входе (хуки после заливки их не меняют)
         import detail_zones as DZ
         tex_after = DZ.restore(tex_before, tex_after, _dz_eff['protect'])
+    if _legs_fill is not None:
+        _lc = 0
+        _new = []
+        for ta_, lf_, m_ in zip(tex_after, _legs_fill, pick['legs_protect']):
+            ta_ = np.array(ta_)
+            _lc += int((np.any(ta_[..., :3] != lf_[..., :3], axis=-1) & m_).sum())
+            ta_[m_] = lf_[m_]
+            _new.append(ta_)
+        tex_after = _new
+        rep['legs_restored_texels'] = _lc                                   # сколько текселей ножек хуки успели изменить (и вернули)
     _m = _hmark()
     pick['finish'](tex_after, None if sg_pas is None else SP.ref_maps(geoms, k_keep, sg_pas, sg_ctx))                                          # мерки — по ИТОГОВОЙ текстуре (после ref_zone_map, own_panel, top_prior), не по текстуре до хуков
     _hdone(hooks, 'finish_final', _m)
