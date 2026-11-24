@@ -104,6 +104,21 @@ def test_rescue_heals_wrong_family():
     assert info['after']['gap_px'] <= 3.0 and info['iou_after'] >= iou0 - 0.005, info
 
 
+def test_rescue_never_flips_facing():
+    """Кандидат с обратной стороны (az+180°) даёт тот же силуэт и «стык в норме» — спасатель стыка не вправе переворачивать перёд↔зад (Монблан на Salad 24.11: az 172→346)."""
+    photo = _photo(TRUE)
+    tg = J.photo_targets(photo)
+    Mp = cv2.resize(photo[..., 3], (N, N), interpolation=cv2.INTER_AREA) > 127
+    V = np.concatenate([_face(2, HI[2], (0, 1)), _face(2, LO[2], (0, 1)), _face(0, HI[0], (2, 1)), _face(0, LO[0], (2, 1))])
+    start = {**TRUE, 'az': 4.0, 'd': 2.0, 'f': 1.6}
+    flipped = {**TRUE, 'az': (TRUE['az'] + 180.0) % 360}
+    iou0 = PF.iou(PF.splat_mask(V, start, N), Mp)
+    starts = J._starts(PF, start, [{'cam': flipped, 'cam_sil': flipped}], J.rules())
+    assert all(J._dyaw(c['az'], start['az']) <= 60.0 for c in starts) and len(starts) >= 2, [c['az'] for c in starts]
+    p2, info = J.rescue(PF, V, {'cam': start, 'iou': iou0}, [{'cam': flipped, 'cam_sil': flipped}], J.box_geometry(LO, HI), tg, Mp, N, CV, log=lambda *a: None)
+    assert info['healable'] and J._dyaw(p2['cam']['az'], start['az']) <= 60.0, (info.get('after'), p2['cam'])
+
+
 def test_rescue_probe_does_not_change_pick():
     photo = _photo(TRUE)
     tg = J.photo_targets(photo)
