@@ -99,6 +99,18 @@ class IslandTone(unittest.TestCase):
         self.assertTrue(np.array_equal(new[self.known], self.tex[self.known]), 'известное не тронуто')
         self.assertGreater(info['edge_tone_texels'], 0)
 
+    def test_mean_shift_stat_is_per_texel_and_memory_flat(self):
+        import tracemalloc
+        tracemalloc.start()
+        _new, info = TV.island_tone(self.tex, self.native, self.occ, self.known, self.known)
+        peak = tracemalloc.get_traced_memory()[1]
+        tracemalloc.stop()
+        n = info['edge_tone_texels']
+        self.assertGreater(n, 100)
+        self.assertLess(peak, 60 * n * 8 + 40_000_000, 'память не растёт как N² (баг мерки: (N,1)×(N,) = матрица N×N)')
+        self.assertEqual(len(info['edge_tone_mean_abs_shift']), 3)
+        self.assertTrue(all(0.0 <= v <= 40.0 for v in info['edge_tone_mean_abs_shift']), info)
+
     def test_jump_metric_drops(self):
         before = TV.island_jump(self.tex, self.occ, self.known, self.known)
         new, _ = TV.island_tone(self.tex, self.native, self.occ, self.known, self.known)

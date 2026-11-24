@@ -585,7 +585,7 @@ def island_tone(tex: np.ndarray, native: np.ndarray, occ: np.ndarray, known_phot
     new = tex.copy()
     new[target] = _lab_to_rgb(lab_n[target] + w * dsm[target])
     info['edge_tone_texels'] = int(target.sum())
-    info['edge_tone_mean_abs_shift'] = [round(float(np.abs(w * dsm[target][:, c]).mean()), 2) for c in range(3)]
+    info['edge_tone_mean_abs_shift'] = [round(float(np.abs(w * dsm[target]).mean(axis=0)[c]), 2) for c in range(3)]   # w (N,1) × (N,3); (N,1)×(N,) давало матрицу N×N — на 30 тыс. текселей 6,7 ГБ
     return new, info
 
 
