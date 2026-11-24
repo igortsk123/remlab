@@ -76,6 +76,46 @@ def test_collect_only_new_briefs(tmp_path):
     assert got == ["brief-T-20261123-01.md", "brief-T-20261124-02.md"]
 
 
+BLOCK = "BRIEF-PIPELINE,BRIEF-SALAD,BRIEF-CLEAN"
+
+
+def test_ci_block_since_cutoff(tmp_path):
+    """CI-режим (--since 2026-11-25 --block …): новый бриф без 4 строк → rc=1, полный → rc=0, старый (24.11) не проверяется."""
+    d = tmp_path / ".memory_bank" / "_intake"
+    d.mkdir(parents=True)
+    old = d / "brief-T-20261124-01.md"
+    old.write_text("[директор] T-20261124-01/1\nпусто\n", encoding="utf-8")
+    new = d / "brief-T-20261125-01.md"
+    new.write_text(GOOD, encoding="utf-8")
+    args = ["--root", str(tmp_path), "--since", "2026-11-25", "--block", BLOCK]
+    assert bl.main(args) == 0  # старый красный не виден, новый полный
+    no4 = GOOD.replace("- правило изменено: общее правило X;\n", "").replace("- где ещё действует: все товары;\n", "")
+    new.write_text(no4, encoding="utf-8")
+    assert bl.main(args) == 1  # у нового нет 4 строк конвейера
+    new.write_text(GOOD.replace("Salad или наши ядра", "Платформа"), encoding="utf-8")
+    assert bl.main(args) == 1
+    new.write_text(GOOD.replace("Что чистит шаг", "Уборка"), encoding="utf-8")
+    assert bl.main(args) == 1
+    new.write_text(GOOD.replace("## Границы", "## Рамки"), encoding="utf-8")
+    assert bl.main(args) == 0  # BOUNDS в блок не входит — только предупреждение
+
+
+def test_since_both_formats_and_bad_args(tmp_path):
+    d = tmp_path / ".memory_bank" / "_intake"
+    d.mkdir(parents=True)
+    (d / "brief-T-20261125-01.md").write_text(GOOD, encoding="utf-8")
+    assert [p.name for p in bl.collect(tmp_path, "20261125")] == ["brief-T-20261125-01.md"]
+    assert bl.main(["--root", str(tmp_path), "--since", "20261125"]) == 0
+    assert bl.main(["--root", str(tmp_path), "--since", "2026-11-25"]) == 0
+    for bad in (["--since", "вчера"], ["--block", "BRIEF-NOPE"]):
+        try:
+            bl.main(["--root", str(tmp_path), *bad])
+        except SystemExit as e:
+            assert e.code == 2
+        else:
+            raise AssertionError(bad)
+
+
 def test_cli_warn_vs_block(tmp_path, capsys):
     d = tmp_path / ".memory_bank" / "_intake"
     d.mkdir(parents=True)
