@@ -25,7 +25,7 @@ import numpy as np
 SCOUT = os.path.normpath(os.path.join(os.path.dirname(os.path.abspath(__file__)), '..', '..'))
 DEFAULTS = {'enabled': False, 'families': ['мягкое'], 'dark_dL': 15.0, 'dark_ratio': 0.6, 'thin_px': 8, 'ref_win': 31, 'side_k': [8, 12], 'side_dL': 6.0, 'support_px': 8, 'pattern_max_share_pct': 2.5,
             'edge_px': 25, 'lift_sigma': 4.0, 'feather_px': 1.0, 'max_lift_L': 25.0, 'grow_px': 1, 'min_zone_px': 50, 'outside_gap_px': 3,
-            'grow_dark_px': 0, 'grow_dL_k': 0.5, 'ragged_min_px': 12, 'grow_free': False}
+            'grow_dark_px': 0, 'grow_dL_k': 0.5, 'ragged_min_px': 12, 'grow_free': False, 'ragged_max_left_pct': 0.0}
 DIRS = ((0, 1), (1, 0), (1, 1), (1, -1))                     # (dy, dx): горизонталь, вертикаль, две диагонали
 
 
@@ -224,9 +224,14 @@ def run(prgb: np.ndarray, pmask: np.ndarray, st: dict, geoms: list, family: str 
     from scipy.ndimage import binary_dilation
     outside_changed = int((changed & ~binary_dilation(det['zone'] | det['leak'], iterations=max(int(r['grow_px']), 0) + 4)).sum())   # изменённое дальше feather от щели: должно быть 0
     info.update(det['stats'])
-    info.update(ragged(det, valid, new, seeds, r) if seeds.any() else {})
+    rg = ragged(det, valid, new, seeds, r) if seeds.any() else {}
+    info.update(rg)
+    # САМОПРОВЕРКА (T-15, Нумо М): подъём, после которого вокруг шва остаётся больше ragged_max_left_pct % тёмного, даёт «лесенку» (прерывистая маска у щели между РАЗНЫМИ поверхностями — подлокотник/подушка) — не применять, кадр побайтно прежний
+    guard_fail = float(r.get('ragged_max_left_pct') or 0.0) > 0 and rg.get('dark_left_pct') is not None and rg['dark_left_pct'] > float(r['ragged_max_left_pct'])
+    if guard_fail:
+        info['abstain'] = 'ragged'
     info['leak_grown_px'] = int(det['leak'].sum())
     info.update({'excess_pp_before': before['excess_pp'], 'excess_pp_if_applied': after['excess_pp'], 'dark_in_zone_pct': before['dark_in_zone_pct'], 'dark_out_pct': before['dark_out_pct'],
-                 'dark_in_zone_pct_if_applied': after['dark_in_zone_pct'], 'changed_px': int(changed.sum()), 'applied': bool(on and changed.any())})
+                 'dark_in_zone_pct_if_applied': after['dark_in_zone_pct'], 'changed_px': int(changed.sum()), 'applied': bool(on and changed.any() and not guard_fail)})
     maps = {'before': prgb, 'after': new, 'leak': det['leak'], 'zone': det['zone']} if det['stats']['leak_px'] else None
-    return {'prgb': new if (on and changed.any()) else prgb, 'info': info, 'maps': maps, 'outside_changed_px': outside_changed}
+    return {'prgb': new if (on and changed.any() and not guard_fail) else prgb, 'info': info, 'maps': maps, 'outside_changed_px': outside_changed}

@@ -111,6 +111,11 @@ def test_grow_and_ragged():
     far = np.ones((N, N), bool)
     far[:, X0 - 14:X0 + 14] = False
     ok(np.array_equal(b['prgb'][far], p[far]), 'вне щели байты те же и при росте')
+
+    g1 = SL.run(p, PM, stage(), geoms(), 'мягкое', dict(r1, ragged_max_left_pct=0.0001))
+    ok(g1['info'].get('abstain') == 'ragged' and not g1['info']['applied'] and g1['prgb'] is p, 'самопроверка: остаток выше порога → воздержание «ragged», кадр тот же объект')
+    g2 = SL.run(p, PM, stage(), geoms(), 'мягкое', dict(r1, ragged_max_left_pct=50.0))
+    ok(g2['info']['applied'] and g2['info'].get('abstain') is None, 'самопроверка: остаток ниже порога → применено')
     c = SL.run(p, PM, stage(), geoms(), 'мягкое', dict(r1, enabled=False))
     ok(c['prgb'] is p and not c['info']['applied'], 'выключено — кадр тот же объект и при росте')
 

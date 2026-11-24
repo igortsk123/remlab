@@ -30,7 +30,8 @@
     "outside_gap_px": 3,
     "grow_dark_px": 0,
     "grow_dL_k": 0.5,
-    "ragged_min_px": 12
+    "ragged_min_px": 12,
+    "ragged_max_left_pct": 0.0
   },
   "cos_full": 0.6,
   "edge_erode_px": 2.0,
