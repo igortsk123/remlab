@@ -43,6 +43,29 @@ def say(*a) -> None:
     print(time.strftime('%H:%M:%S'), *a, flush=True)
 
 
+def _hr():
+    """Реестр держателей групп (`holder_registry.py`, T-20261124-42/1, урок 929). Не нашли модуль — None, драйвер идёт без записи (платное не падает из-за учёта)."""
+    try:
+        import importlib.util
+        spec = importlib.util.spec_from_file_location('holder_registry', os.path.join(os.path.dirname(os.path.abspath(__file__)), 'holder_registry.py'))
+        m = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(m)
+        return m
+    except Exception as e:  # noqa: BLE001
+        say(f'!! реестр держателей недоступен ({type(e).__name__}) — идём без записи')
+        return None
+
+
+def holder_do(fn: str, *args, **kw) -> None:
+    """`holder_registry.<fn>(*args)`; любая ошибка — строка в журнал, драйвер идёт дальше."""
+    try:
+        m = _hr()
+        if m is not None:
+            getattr(m, fn)(*args, **kw)
+    except Exception as e:  # noqa: BLE001
+        say(f'!! реестр держателей: {fn} не удалось ({type(e).__name__}: {str(e)[:80]})')
+
+
 # ---------------------------------------------------------------- деньги
 def cost_usd(running_s: float, price: float, reserve_s: float = 60.0) -> float:
     """Начисления по времени `running` + запас на отставание счёта (платим с момента running)."""
@@ -367,6 +390,7 @@ def create_and_start(MG, BR, name: str, body: dict, say_fn=say, sleep=time.sleep
         code, resp, _ = api_retry(MG, f'/{name}/start', 'POST', None, name, say_fn, sleep, rules, counters)
         if code < 300:
             say_fn('start HTTP', code)
+            holder_do('write', name)                               # урок 929: кто держит группу — pid, задача, время (читает tools/ops/salad_live.py)
             return True, t_start, ''
         if code == 400 and clock() - t_wait < wait_s:
             say_fn('start HTTP 400 — образ ещё готовится (бесплатно), жду 30 с')
@@ -388,8 +412,12 @@ def stop_and_verify(BR, name: str) -> bool:
             st, cnt = None, None
         if st == 'failed' and isinstance(cnt, dict) and not sum(int(cnt.get(k, 0) or 0) for k in ('allocating_count', 'creating_count', 'running_count', 'stopping_count')):
             say(f'группа {name}: failed (терминальное), нод 0 — стоп не нужен')
+            holder_do('clear', name)
             return True
-    return bool(BR.stop_and_verify(name))
+    ok = bool(BR.stop_and_verify(name))
+    if ok:
+        holder_do('clear', name)                                   # «0 нод» подтверждено — держателя больше нет
+    return ok
 
 
 class Gateway:
@@ -1503,6 +1531,7 @@ def _run_probe_once(a, MG, BR, spec: Spec, gw_factory=Gateway, sleep=time.sleep,
         summary['adopted_warm'] = True
         warm_set_owner(warm_state_path, warm_owner, clock())                   # метка владельца под замком подхвата: чужой стоп/освобождение теперь видит, чья нода
         say(f'тёплая нода {name} подхвачена — прогрева нет')
+        holder_do('write', name)                                               # новый держатель — этот процесс (старая метка «тёплая» снимается)
     else:
         ok_create, t_start, refuse = create_and_start(MG, BR, name, body, say, sleep, clock, wait_s, counters=summary, existing=restart)
         if ok_create and keep_warm:
@@ -1593,6 +1622,7 @@ def _run_probe_once(a, MG, BR, spec: Spec, gw_factory=Gateway, sleep=time.sleep,
                 break
             if t - last_say >= 60:
                 last_say = t
+                holder_do('beat', name)                            # пульс держателя раз в минуту, вместе со строкой журнала
                 i0 = ins[0] if ins else {}
                 hc, hb = last_h
                 hs = {k: hb.get(k) for k in spec.health_keys if isinstance(hb, dict) and k in hb}
@@ -1739,6 +1769,7 @@ def _run_probe_once(a, MG, BR, spec: Spec, gw_factory=Gateway, sleep=time.sleep,
             summary['kept_warm'] = {'idle_min': keep_warm, 'worker_stops_itself_after_idle': False, 'needs_sweep': True}
             if warm_state_path:
                 warm_mark_used(warm_state_path, clock())
+            holder_do('mark_warm', name, min(t_start + warm_life_s, clock() + keep_warm * 60) + 600)   # намеренно тёплая: держатель — метка, гасит sweep (+10 мин запаса)
             say(f'тёплая нода {name} ОСТАВЛЕНА на {keep_warm:.0f} мин простоя: воркер при простое только выходит, а Salad поднимает его снова — гасит `stage_trial.py --sweep-warm` '
                 f'(loop5.sh --warm-sweep, он же в начале каждого круга); погасить сразу: stage_trial.py --stop-only --suffix {a.suffix}')
         else:
