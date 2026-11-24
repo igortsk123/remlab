@@ -322,6 +322,8 @@ with tempfile.TemporaryDirectory() as root:
     check('e2e торшер, но 02-prep plate_found без среза (unreliable): провал остаётся', not r4['passed'] and r4['extra']['thin_rescue'] is False and r4['extra']['unreliable'] is True, r4['reason'])
     r5 = e2e('good2', np.roll(A, 1, axis=1), A, root)
     check('e2e годная по площади: путь не нужен, thin_rescue=false (спасение не отнимает и не подменяет)', r5['passed'] and r5['extra']['thin_rescue'] is False)
+    ea5 = r5['extra'].get('edge_angle') or {}
+    check('e2e: extra.edge_angle записана (T-18), passed 04 не зависит от неё (enforce=false)', 'measured' in ea5 and ea5.get('enforce') in (False, None) and r5['passed'], str(ea5)[:200])
     rules_off = json.loads(json.dumps(RULES))
     rules_off['thin']['enabled'] = False
     _lr = CC.load_rules
