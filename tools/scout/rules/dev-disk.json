@@ -16,6 +16,10 @@
   "worktrees": {"idle_h": 12, "big_mb": 200, "base": "origin/main", "jobs": 4},
   "_worktrees_why": "T-20261123-38: `logs_archive.py --worktrees` (только сухо) — рабочие копии git под src, которые можно снять: HEAD влит в base или ветка удалена, git status чист (кроме node_modules), нет процессов, правок старше idle_h часов; big_mb — порог крупных выходов вне git внутри копий",
   "worktrees_block": true,
+  "refs_scope": ["tools", "app", "lib", ".github", "data", "components", "modules", "services", "hooks", "infra", "db", "e2e", "tests", "contracts", "caddy", "utils", "types", "styles"],
+  "_scope_why": "T-20261124-67 (владелец TG 2683): папку логов держит КОД (git grep -F по имени только в этих папках: tools/ вместе с tools/scout/rules, .github/ и т.д.) и живой прогон (live_refs), а не упоминание в .memory_bank/** (брифы, планы, паспорта, ADR: 24.11 их было 109 папок ≈ 63 ГБ, диск 14 ГБ) — там только пометка «упомянута в N доках». Нет ключа — прежнее поведение: весь репозиторий.",
+  "memory_paths": [".memory_bank"],
+  "hdd_prune": {"days": 14, "_why": "T-20261124-67 (владелец TG 2685/2686): папки на втором диске старше 14 суток (от свежего файла и от момента переноса) удаляет `logs_archive.py --prune-hdd --apply`, КРОМЕ ссылок из кода, живых прогонов и действующих планов; висячая ссылка на основном диске убирается; без --apply — сухой список."},
   "refs_exclude": [".memory_bank/changelog", ".memory_bank/archive", ".memory_bank/completed_plans"],
   "_refs_why": "ссылки из журналов (changelog), архива и закрытых планов — история «что делали», а не вход чужого скрипта: папку не держат. worktrees_block=true — папки с рабочими копиями git остаются (false: уезжают, путь в .git/worktrees/*/gitdir сохраняет ссылка на месте)"
  },
