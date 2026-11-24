@@ -173,6 +173,7 @@ def test_plate_left_guard():
     rep_r = PS.plate_left(rug.vertices, rug.faces, R)
     ok(not rep_r["plate_left"] and rep_r["above_footprint"] is None, "ковёр (над слоем пусто) — плоская вещь, не плита")
     ok(PS.plate_left(np.zeros((0, 3)), np.zeros((0, 3), int), R).get("refused"), "пустая модель: отказ с причиной, не падение")
+    ok(PS.left_metrics(PS.plate_left(np.zeros((0, 3)), np.zeros((0, 3), int), R))["plate_left_refused"]["op"] == "==", "отказ сторожа виден в мерках (красный этап, не молчаливый зелёный)")
     mt = PS.left_metrics(rep)
     ok(mt["plate_left"] == {"value": 1, "threshold": 0, "op": "<="} and PS.left_metrics(PS.plate_left(_product().vertices, _product().faces, R))["plate_left"]["value"] == 0, "мерка check.json: плита осталась → 1 при пороге ≤ 0")
 

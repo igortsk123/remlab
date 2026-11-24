@@ -304,8 +304,11 @@ def plate_left(vertices: np.ndarray, faces: np.ndarray, rules: dict | None = Non
 
 def left_metrics(rep: dict) -> dict:
     """Мерки для check.json этапа: `plate_left` = 0 (порог ≤ 0); справочно — покрытие и занятость над слоем."""
-    return {"plate_left": {"value": int(bool(rep.get("plate_left"))), "threshold": 0, "op": "<="},
-            "plate_cover": {"value": rep.get("cover")}, "plate_above_share": {"value": rep.get("above_share")}, "plate_above_footprint": {"value": rep.get("above_footprint")}}
+    m = {"plate_left": {"value": int(bool(rep.get("plate_left"))), "threshold": 0, "op": "<="},
+         "plate_cover": {"value": rep.get("cover")}, "plate_above_share": {"value": rep.get("above_share")}, "plate_above_footprint": {"value": rep.get("above_footprint")}}
+    if rep.get("refused"):                                  # сторож не смог посчитать (пустая модель/без объёма) — не «чисто», а красный отказ с причиной
+        m["plate_left_refused"] = {"value": 1, "threshold": 0, "op": "=="}
+    return m
 
 
 def _paint_stage():
