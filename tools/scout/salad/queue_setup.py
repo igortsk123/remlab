@@ -42,6 +42,7 @@ import migrate_groups as MG  # noqa: E402 — API контейнеров, дос
 import queue_run as QR       # noqa: E402 — API очереди
 import salad_groups as SG    # noqa: E402
 import recreate_group as RG  # noqa: E402 — переопределение образа/переменных опытной группы
+import salad_ceiling as SC  # noqa: E402 — предел живых машин Salad перед созданием (T-20261124-58)
 
 ENTRY = os.path.join(HERE, 'queue_entry.sh')
 PROXY = os.path.join(HERE, 'queue_proxy.py')
@@ -217,9 +218,14 @@ def main() -> int:
         print(f'очередь {a.queue}: уже есть, id {q.get("id")}, групп {[x.get("name") for x in q.get("container_groups") or []]}')
     else:
         return print(f'!! очередь не прочитана: HTTP {qcode} {str(q)[:150]}') or 1
+    okc, why = SC.admit(MG, a.group, int(body.get('replicas') or 1))             # предел живых машин Salad — перед КАЖДЫМ созданием группы (T-20261124-58)
+    print(why)
+    if not okc:
+        return 1
     st, resp = MG.api('', 'POST', body)
     print(f'группа {a.group}: создание HTTP {st} {"" if st == 201 else str(resp)[:300]}')
     if st != 201:
+        SC.release(a.group)
         return 1
     time.sleep(10)
     return check(a.group, a.queue)

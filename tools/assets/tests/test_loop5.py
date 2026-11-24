@@ -149,9 +149,14 @@ class T(unittest.TestCase):
         self.assertEqual(L.suffix_of(r0, '1300', 0), 'l51300s0')
         self.assertEqual(L.suffix_of(r0, '1300', 0, 1), 'l51300s0r1')              # у повтора своя группа Salad (без тёплой ноды)
         rw = {'image': 'x@sha256:0b7c855d4f98', 'warm': {'enabled': True}}
-        self.assertEqual(L.suffix_of(rw, '1300', 1, 0), 'w1-0b7c85')
-        self.assertEqual(L.suffix_of(rw, '9999', 1, 2), 'w1-0b7c85')               # тёплая: имя постоянное — от прогона и повтора не зависит
-        self.assertNotEqual(L.suffix_of({**rw, 'image': 'x@sha256:ffffff000000'}, '1300', 1), 'w1-0b7c85')   # другой образ — другая нода
+        self.assertEqual(L.suffix_of(rw, '1300', 1, 0), 'w1-0b7c85-1300')
+        self.assertEqual(L.suffix_of(rw, '1300', 1, 2), 'w1-0b7c85-1300')          # тёплая: у своего прогона имя постоянное — от повтора не зависит
+        # T-20261124-58 п.5: два прогона с одним образом — РАЗНЫЕ группы (раньше обе хватали одну, «занята другим прогоном»)
+        self.assertNotEqual(L.suffix_of(rw, '1300', 1), L.suffix_of(rw, '9999', 1))
+        self.assertEqual({L.suffix_of(rw, 'A', i) for i in range(4)} & {L.suffix_of(rw, 'B', i) for i in range(4)}, set())
+        # явная передача: следующий прогон берёт ноды прогона 1300 по --warm-from
+        self.assertEqual(L.suffix_of({**rw, 'warm': {'enabled': True, 'name_owner': '1300'}}, '9999', 1), 'w1-0b7c85-1300')
+        self.assertNotEqual(L.suffix_of({**rw, 'image': 'x@sha256:ffffff000000'}, '1300', 1), 'w1-0b7c85-1300')   # другой образ — другая нода
         with tempfile.TemporaryDirectory() as tmp:
             for tag, sku, size in (('sh0', SK[0], 5), ('sh0', SK[1], 0), ('sh0r1', SK[1], 5)):   # пустой material.glb (диск был полон) — не результат
                 p = os.path.join(tmp, 'out', tag, sku, '08-material', 'material.glb')
@@ -197,10 +202,10 @@ class T(unittest.TestCase):
         self.assertEqual((can, other, mine), (6, 4, []))
         # 7 чужих → 3
         self.assertEqual(L.cap_machines(r, 6, '1', live(*[run(f'x{i}', 'running', 1) for i in range(7)]))[0], 3)
-        # свои тёплые (те же имена) не считаются чужими: подхватим, а не создадим
+        # свои тёплые (те же имена) В СЧЁТЕ (T-20261124-58: раньше вычитались как «не чужие», три прогона вышли за 10): 1 своя + 5 чужих = 6 живых → 4 ноды
         mine_name = L.GROUP_PREFIX + L.suffix_of(r, '1', 0)
-        can, other, mine = L.cap_machines(r, 6, '1', live(run(mine_name, 'running', 1), *[run(f'x{i}', 'running', 1) for i in range(5)]))
-        self.assertEqual((can, other, mine), (5, 5, [mine_name]))
+        can, total, mine = L.cap_machines(r, 6, '1', live(run(mine_name, 'running', 1), *[run(f'x{i}', 'running', 1) for i in range(5)]))
+        self.assertEqual((can, total, mine), (4, 6, [mine_name]))
         # 10 и больше чужих → 0 (отказ)
         self.assertEqual(L.cap_machines(r, 6, '1', live(*[run(f'x{i}', 'running', 2) for i in range(6)]))[0], 0)
 
