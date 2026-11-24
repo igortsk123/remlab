@@ -26,7 +26,7 @@
 | `knowledge-db.md` | knowledge-db | Source-KB из книг — спека, KB0–KB9 | `../../remlab_knowledge_db_v1/spec/SPEC_source_kb_v1.md` | 2026-11-06 |
 | `layout.md` | layout | Расстановка: правила, зоны, прод-ядро | `../domain/occupancy-rules.md` | 2026-11-18 |
 | `leads.md` | leads | Лид-канал — заявка, TG-бот | — | 2026-10-18 |
-| `lessons.md` | lessons | Уроки перед планированием — что НЕ сработало | `../lessons/README.md` | 2026-11-23 |
+| `lessons.md` | lessons | Уроки перед планированием — что НЕ сработало | `../lessons/README.md` | 2026-11-24 |
 | `lr-composition.md` | lr-composition | Композиция гостиной — доли | `../domain/lr-composition-guide.md` | 2026-11-18 |
 | `manager-links.md` | manager-links | Ссылка менеджера покупателю, сигналы, его страница и бот | `../domain/manager-links.md` | 2026-11-18 |
 | `market.md` | market | Рынок RU/UK — спрос, монетизация | `../domain/market-research.md` | 2026-11-18 |
@@ -47,7 +47,7 @@
 | `stock-and-dims.md` | stock-and-dims | Размеры: наличие, честность, парсер, footprint | `../domain/stock-and-dims.md` | 2026-11-18 |
 | `styles.md` | styles | Стили — паспорта, скоринг, сеты | `../domain/interior-styles.md` | 2026-11-18 |
 | `user-flow.md` | user-flow | Stage 1 UX-flow, аналитика | `../domain/user-flow-details.md` | 2026-11-18 |
-| `bedroom.md` | bedroom | Спальня — каталог, банк наборов, показ, группы, детская | `../domain/pipeline-order-details.md` | 2026-11-19 |
+| `bedroom.md` | bedroom | Спальня — каталог, банк наборов, показ, группы, детская | `../domain/pipeline-order-details.md` | 2026-11-24 |
 | `design-figma.md` | design-figma | Дизайн демо в Фигме — книги, страницы, пересборка | `../completed_plans/design-01-figma-export.md` | 2026-11-10 |
 | `lr-checklist.md` | lr-checklist | Состав гостиной — роли и пригодность | `../domain/living-room-checklist.md` | 2026-11-13 |
 | `onboarding-quiz.md` | onboarding-quiz | Опрос-знакомство на /demo — показ, 3 стиля, события, приёмка | `../domain/onboarding-quiz.md` | 2026-11-18 |
