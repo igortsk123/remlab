@@ -34,6 +34,7 @@ import urllib.request
 
 import migrate_groups as MG
 import salad_groups as SG
+import salad_ceiling as SC
 
 
 def wait(pred, timeout_s: float, every_s: float = 5.0) -> bool:
@@ -222,6 +223,10 @@ def main() -> int:
     if not a.apply:
         return print('\nэто разбор без действий. Выполнить: --apply') or 0
 
+    okc, why = SC.admit(MG, a.group, int(body.get('replicas') or 1))             # предел живых машин Salad — до сноса старой группы (T-20261124-58)
+    print(why)
+    if not okc:
+        return 1
     if a.create_only:
         if MG.api(f'/{a.group}')[0] != 404:
             return print(f'{a.group} существует — --create-only только для уже удалённой') or 2
@@ -241,6 +246,7 @@ def main() -> int:
         print(f'  создание, попытка {attempt}: HTTP {st} {str(resp)[:100]}', flush=True)
         time.sleep(30)
     else:
+        SC.release(a.group)
         return print(f'!! {a.group} НЕ создана — пул без группы, верни руками') or 1
     code, got = MG.api(f'/{a.group}')
     r = (got.get('container') or {}).get('resources') or {}

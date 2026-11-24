@@ -152,8 +152,17 @@ def main() -> int:
 
     # 2) новые группы
     made = []
+    import types
+    import salad_ceiling as SC                                                  # предел живых машин Salad — перед КАЖДЫМ созданием (T-20261124-58)
     for spec in NEW:
+        okc, why = SC.admit(types.SimpleNamespace(api=api), spec['name'], int(spec['replicas']))
+        print(' ', why)
+        if not okc:
+            print(f'  !! {spec["name"]} НЕ создана: предел')
+            continue
         st, resp = api('', 'POST', build_body(donor, spec))
+        if st != 201:
+            SC.release(spec['name'])
         if st == 201:
             made.append(spec)
             print(f'  создана {spec["name"]}: тариф {resp.get("priority")}, реплик {resp.get("replicas")}')

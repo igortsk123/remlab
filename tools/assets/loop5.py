@@ -145,12 +145,14 @@ def warm_on(rules: dict) -> bool:
 
 
 def suffix_of(rules: dict, run_id: str, idx: int, rnd: int = 0) -> str:
-    """Имя группы Salad (суффикс). Тёплая нода (T-34) — постоянное имя `w<нода>-<6 знаков digest образа>` (один образ — одна нода; смена образа — новое имя), общее для всех прогонов и повторов;
-    иначе — на прогон (`l5<прогон>s<нода>[r<повтор>]`)."""
+    """Имя группы Salad (суффикс). Тёплая нода (T-34) — `w<нода>-<6 знаков digest образа>-<метка владельца>`: метка = прогон (`run_id`) или, при явной передаче, `rules.warm.name_owner` (`--warm-from <прогон>`).
+    Раньше имя было общим для всех прогонов с одним образом — два прогона одновременно хватали одну группу («занята другим прогоном», стоп «не подтверждён», T-20261124-58 п.5); теперь тёплую ноду
+    чужого прогона можно взять только явной передачей. Без тёплых — на прогон (`l5<прогон>s<нода>[r<повтор>]`)."""
     var = ((rules.get('node') or {}).get('variant') or '')[:1]                         # другой размер ноды — другое имя (тёплую 4/8 не подхватить как 8/16)
     if warm_on(rules):
         m = re.search(r'@sha256:([0-9a-f]{6})', rules['image'])
-        return f'w{idx}{var}-{m.group(1) if m else "x"}'
+        owner = str((rules.get('warm') or {}).get('name_owner') or run_id)
+        return f'w{idx}{var}-{m.group(1) if m else "x"}-{owner}'
     return f'l5{run_id}s{idx}{var}' + (f'r{rnd}' if rnd else '')
 
 
@@ -258,28 +260,30 @@ def _salad_items() -> list[dict]:
     return json.loads(p.stdout).get('items') or []
 
 
+def _ceiling_mod():
+    """Общие ворота предела живых машин Salad (`tools/scout/salad/salad_ceiling.py`): счёт и правило — в одном месте, здесь только справка перед стартом (решают ворота при создании группы)."""
+    import importlib.util
+    spec = importlib.util.spec_from_file_location('salad_ceiling', os.path.join(os.path.dirname(os.path.abspath(__file__)), '..', 'scout', 'salad', 'salad_ceiling.py'))
+    m = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(m)
+    return m
+
+
 def salad_live(fetch=None) -> dict[str, int]:
-    """{группа: живых машин} — всё, что не stopped/failed (подъём считается занятым: платная машина уже есть). Как ~/remlab-logs/router-r4/salad_live.sh."""
-    out: dict[str, int] = {}
-    for x in (fetch or _salad_items)():
-        cs = x.get('current_state') or {}
-        ic = cs.get('instance_status_counts') or {}
-        run = sum(int(ic.get(k) or 0) for k in ('allocating_count', 'creating_count', 'running_count'))
-        n = max(run, 1 if cs.get('status') in ('running', 'deploying', 'pending') else 0)
-        if n:
-            out[str(x.get('name'))] = n
-    return out
+    """{группа: живых машин} — всё, что не stopped/failed (подъём считается занятым: платная машина уже есть). Формула — `salad_ceiling.live_by_group`."""
+    return _ceiling_mod().live_by_group((fetch or _salad_items)())
 
 
 def cap_machines(rules: dict, wanted: int, run_id: str, fetch=None) -> tuple[int, int, list[str]]:
-    """Потолок живых машин Salad на всех (rules.salad_ceiling, владелец TG 1754: ≤10). → (сколько нод можно, живых чужих, свои уже тёплые).
-    Свои тёплые ноды этого прогона (те же имена — подхватим, а не создадим) в «чужие» не входят. Не вышло прочитать счёт — исключение (на деньгах молча не стартуем)."""
+    """СПРАВКА перед стартом (решают ворота `salad_ceiling.admit` при каждом создании группы, T-20261124-58). Потолок живых машин Salad на всех (rules.salad_ceiling, владелец TG 1754: ≤10).
+    → (сколько нод можно, живых ВСЕГО, свои уже тёплые). Свои тёплые ноды этого прогона В СЧЁТЕ (прежде вычитались как «не чужие» — так три прогона вышли за 10, 24.11 20:08).
+    Не вышло прочитать счёт — исключение (на деньгах молча не стартуем)."""
     ceiling = int(rules.get('salad_ceiling', 10))
     live = salad_live(fetch)
     mine = {GROUP_PREFIX + suffix_of(rules, run_id, i) for i in range(wanted)}
     mine_live = sorted(n for n in live if n in mine)
-    other = sum(v for n, v in live.items() if n not in mine)
-    return max(0, min(wanted, ceiling - other)), other, mine_live
+    total = sum(live.values())
+    return max(0, min(wanted, ceiling - total)), total, mine_live
 
 
 def free_gb(path: str) -> float:
@@ -692,6 +696,7 @@ def main(argv=None) -> int:
     ap.add_argument('--machines', type=int, default=0, help='сколько нод одновременно (по умолчанию rules.machines; меньше — если рядом уже идёт другой прогон)')
     ap.add_argument('--no-warm', action='store_true', help='не греть ноды между прогонами (как до T-34): группа на прогон, гасится в конце')
     ap.add_argument('--keep-warm-nodes', action='store_true', help='не гасить свои тёплые ноды по окончании Salad-части (следующий прогон подхватит; без этого — гасятся, rules.warm.release_on_done)')
+    ap.add_argument('--warm-from', default='', help='явная передача тёплых нод: взять ноды прогона <метка> (его run_id); без этого прогон работает только со своими (имя группы содержит run_id)')
     ap.add_argument('--warm-stop', action='store_true', help='погасить тёплые ноды сейчас (с проверкой «0 нод») и выйти')
     ap.add_argument('--warm-sweep', action='store_true', help='погасить тёплые ноды, которым пора (предел жизни/простой по записи); безопасно запускать часто — занятые не трогает')
     ap.add_argument('--rules', default=RULES)
@@ -702,6 +707,8 @@ def main(argv=None) -> int:
         rules['machines'] = min(a.machines, int(rules['machines']))
     if a.no_warm:
         rules.setdefault('warm', {})['enabled'] = False
+    if a.warm_from:
+        rules.setdefault('warm', {})['name_owner'] = a.warm_from
     if a.warm_sweep:
         return 0 if sweep_warm() else 1
     if a.warm_stop:
@@ -731,9 +738,9 @@ def main(argv=None) -> int:
         say(f'⚠ живой счёт Salad не прочитан ({exc}) — в разборе потолок не проверен')
         can, other, mine_live = want, -1, []
     if other >= 0:
-        say(f'Salad живо: чужих машин {other}, своих тёплых {len(mine_live)}; потолок {rules.get("salad_ceiling", 10)} → нод можно {can} из {want}')
+        say(f'Salad живо всего {other} (своих тёплых {len(mine_live)} — в счёте); потолок {rules.get("salad_ceiling", 10)} → нод можно {can} из {want}')
     if can <= 0:
-        raise SystemExit(f'ОТКАЗ: потолок {rules.get("salad_ceiling", 10)} живых машин Salad исчерпан (чужих живых {other}) — прогон не стартую; дождись освобождения или погаси лишнее')
+        raise SystemExit(f'ОТКАЗ: потолок {rules.get("salad_ceiling", 10)} живых машин Salad исчерпан (живых всего {other}) — прогон не стартую; дождись освобождения или погаси лишнее')
     if can < want:
         say(f'нод урезано {want} → {can} по потолку живых машин')
         rules['machines'] = can

@@ -33,6 +33,7 @@ DIGEST_RE = re.compile(r'^[A-Za-z0-9._\-/:]+@sha256:[0-9a-f]{64}$')
 DEFAULT_API_RULES = {'retries': 1, 'status_codes': [502, 503], 'pauses_s': [20], 'timeout_codes': [504, 599], 'lookup_pauses_s': [5, 15, 30], 'timeout_retries': 1,
                      'conflict_codes': [400, 409], 'conflict_type': 'name_conflict'}     # запасные числа; живые — rules/salad-groups.json → api_retry
 API_COUNTERS = {'retries_create': 0, 'retries_start': 0, 'adopted_after_504': 0, 'adopted_after_503': 0, 'orphans_stopped': 0, 'retries_post': 0}   # счётчики итога прогона: каждый повтор/подхват — не молча
+CEILING_REFUSED = 429                  # псевдокод отказа ворот предела (salad_ceiling.REFUSED): группа не создана/не стартована, платного нет
 NO_ANSWER = 599                        # псевдокод «ответа нет» (обрыв, таймаут сокета): MG.api в этих случаях бросает исключение, а код ≥ 300 нужен всем вызывающим
 SLOT_PRIO = 2                           # платные пробы — heavy-slot --prio 2 (P-038)
 SAFE_PREFIXES = ('mesh-', 'render-', 'trial-')       # чужие боевые группы не трогаем и не считаем «посторонними»
@@ -64,6 +65,40 @@ def holder_do(fn: str, *args, **kw) -> None:
             getattr(m, fn)(*args, **kw)
     except Exception as e:  # noqa: BLE001
         say(f'!! реестр держателей: {fn} не удалось ({type(e).__name__}: {str(e)[:80]})')
+
+
+def _sc():
+    """Ворота предела живых машин (`salad_ceiling.py`): общий для всех проб замок и счёт по ВСЕМ группам аккаунта. Не нашли модуль — None → создание ЗАПРЕЩЕНО (на деньгах «не знаю» = отказ)."""
+    try:
+        import importlib.util
+        spec = importlib.util.spec_from_file_location('salad_ceiling', os.path.join(os.path.dirname(os.path.abspath(__file__)), 'salad_ceiling.py'))
+        m = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(m)
+        return m
+    except Exception as e:  # noqa: BLE001
+        say(f'!! ворота предела Salad недоступны ({type(e).__name__}: {str(e)[:80]})')
+        return None
+
+
+def ceiling_admit(MG, name: str, need: int | None) -> tuple[bool, str]:
+    """Перед КАЖДЫМ create/start группы: можно ли поднять ещё `need` машин под общим пределом (`salad_ceiling` в rules/loop5.json). Нет → (False, причина), группа не создаётся."""
+    m = _sc()
+    if m is None:
+        return False, 'Salad: ворота предела недоступны — группу не создаю'
+    try:
+        return m.admit(MG, name, need)
+    except Exception as e:  # noqa: BLE001 — сбой ворот = отказ, не «свободно»
+        return False, f'Salad: ворота предела упали ({type(e).__name__}: {str(e)[:100]}) — группу не создаю'
+
+
+def ceiling_release(name: str) -> None:
+    """Снять резерв места под группу (погашена с «0 нод» или не создалась). Не бросает."""
+    try:
+        m = _sc()
+        if m is not None:
+            m.release(name)
+    except Exception as e:  # noqa: BLE001
+        say(f'!! резерв предела: снять не удалось ({type(e).__name__}: {str(e)[:80]})')
 
 
 # ---------------------------------------------------------------- деньги
@@ -282,6 +317,11 @@ def api_retry(MG, path: str, method: str, body, name: str, say_fn=say, sleep=tim
     Каждый повтор и подхват — строка в журнал (`say_fn`) и счётчик в `counters` (словарь итога)."""
     r = api_rules(rules)
     is_create = method == 'POST' and path == ''
+    if is_create or (method == 'POST' and path.endswith('/start')):          # T-20261124-58: предел живых машин — перед КАЖДЫМ create/start, под общим замком
+        okc, why = ceiling_admit(MG, name, (int(body.get('replicas') or 1) if isinstance(body, dict) else 1) if is_create else None)
+        say_fn(why)
+        if not okc:
+            return CEILING_REFUSED, {'ceiling_refused': True, 'detail': why}, 0
     what = path or 'создание'
     rk = 'retries_create' if is_create else 'retries_start'
 
@@ -357,7 +397,10 @@ def create_and_start(MG, BR, name: str, body: dict, say_fn=say, sleep=time.sleep
     else:
         code, resp, _ = api_retry(MG, '', 'POST', body, name, say_fn, sleep, rules, counters)
         say_fn('POST создание', code, str(resp)[:200] if code >= 300 else 'ok')
+        if code == CEILING_REFUSED and isinstance(resp, dict) and resp.get('ceiling_refused'):
+            return False, 0.0, f'salad_ceiling: {resp.get("detail")}'           # группы нет, машин нет, резерва нет (ворота его не записали)
         if code >= 300:
+            ceiling_release(name)
             v = orphan_check(MG, BR, name, say_fn, counters)
             if v is not None and counters is not None:
                 counters['orphan_stop_verified'] = v
@@ -397,6 +440,8 @@ def create_and_start(MG, BR, name: str, body: dict, say_fn=say, sleep=time.sleep
             sleep(30)
             continue
         say_fn('start HTTP', code, str(resp)[:200])
+        if code == CEILING_REFUSED and isinstance(resp, dict) and resp.get('ceiling_refused'):
+            return False, t_start, f'start_http_{code}: {resp.get("detail")}'    # группа создана и ждёт в stopped ($0): вызывающий гасит её через stop_and_verify
         return False, t_start, f'start_http_{code}'
 
 
@@ -413,10 +458,12 @@ def stop_and_verify(BR, name: str) -> bool:
         if st == 'failed' and isinstance(cnt, dict) and not sum(int(cnt.get(k, 0) or 0) for k in ('allocating_count', 'creating_count', 'running_count', 'stopping_count')):
             say(f'группа {name}: failed (терминальное), нод 0 — стоп не нужен')
             holder_do('clear', name)
+            ceiling_release(name)
             return True
     ok = bool(BR.stop_and_verify(name))
     if ok:
         holder_do('clear', name)                                   # «0 нод» подтверждено — держателя больше нет
+        ceiling_release(name)                                      # и место под группу в пределе освобождено
     return ok
 
 
