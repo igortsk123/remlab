@@ -581,9 +581,11 @@ def hypothesis_textures(an: dict, rules: dict, base_texs: list, length_cm: float
 CONF_RANK = {'none': 0, 'low': 1, 'medium': 2, 'high': 3}
 
 
-def choose_top_tone(synth_lab, top_lab, S: dict) -> dict:
+def choose_top_tone(synth_lab, top_lab, S: dict, massive: dict | None = None) -> dict:
     """Тон верха без фото (T-28/1): кандидат 06-synth (тон с острого угла) против Ш3в (по кромке/голосам). Берём synth, если |ΔL| к Ш3в ≤ `max_dL` (одно мнение — не спорим) ИЛИ synth светлый
     (L ≥ `light_min_L`) и Ш3в темнее него больше чем на `light_max_darker` (светлое не темнеет: белая столешница 18286 L100 → Ш3в 88); иначе Ш3в. Чистая функция.
+    T-20261124-27 (Крит, советник): `massive` = {'n': число synth-текселей верха, 'spread_L': разброс L (MAD)}; при `S.massive_enabled` и массовом (n ≥ massive_min_texels) ровном (spread_L ≤ massive_max_spread_L) верхе синтез берётся и при
+    расхождении с Ш3в (голос кромки понижается: кромка и верх разной освещённости — допущение «верх = кромка» неверно). Выкл. по умолчанию.
     → {'use': 'synth'|'top', 'lab': [...], 'why': str, 'dL': float}"""
     if not S.get('enabled', False) or synth_lab is None or top_lab is None:
         return {'use': 'top', 'lab': None if top_lab is None else [float(x) for x in top_lab], 'why': 'кандидата synth нет или правило выключено', 'dL': None}
@@ -593,6 +595,10 @@ def choose_top_tone(synth_lab, top_lab, S: dict) -> dict:
         return {'use': 'synth', 'lab': [float(x) for x in synth_lab], 'why': f'|ΔL| {abs(dl):.1f} ≤ {S["max_dL"]}: synth и Ш3в близки — берём synth', 'dL': round(dl, 1)}
     if sl >= float(S['light_min_L']) and dl > float(S['light_max_darker']):
         return {'use': 'synth', 'lab': [float(x) for x in synth_lab], 'why': f'synth светлый (L {sl:.0f} ≥ {S["light_min_L"]}), Ш3в темнее на {dl:.1f} > {S["light_max_darker"]} — светлое не темнеет', 'dL': round(dl, 1)}
+    if S.get('massive_enabled', False) and massive and massive.get('spread_L') is not None and int(massive.get('n') or 0) >= int(S.get('massive_min_texels', 3000)) \
+            and float(massive['spread_L']) <= float(S.get('massive_max_spread_L', 6.0)):
+        return {'use': 'synth', 'lab': [float(x) for x in synth_lab], 'why': f'верх наблюдён массово ({massive["n"]} тексел.) и ровно (разброс L {float(massive["spread_L"]):.1f} ≤ {S.get("massive_max_spread_L", 6.0)}), кромка расходится на ΔL {dl:+.1f}: голос кромки понижен — synth',
+                'dL': round(dl, 1), 'massive': True}
     return {'use': 'top', 'lab': [float(x) for x in top_lab], 'why': f'ΔL {dl:+.1f}: расхождение, не светлый случай — Ш3в', 'dL': round(dl, 1)}
 
 
@@ -621,6 +627,8 @@ def synth_top_lab(an: dict, synth, min_texels: int, diag: dict | None = None):
     lab = np.concatenate(labs)
     if len(lab) < int(min_texels):
         return None
+    if diag is not None:
+        diag['spread_L'] = round(float(np.median(np.abs(lab[:, 0] - np.median(lab[:, 0])))), 2)        # MAD светлоты: «ровно» (T-20261124-27)
     return np.median(lab, axis=0), int(len(lab))
 
 
@@ -704,8 +712,8 @@ def stage07(geoms: list, tex_after: list, known: list, parts, roles: dict | None
         if sy is None:
             rep['synth_candidate'] = dict(_dg, skipped=f'synth-текселей верха без фото < {SC.get("min_texels", 500)} или нет; фото-текселей верха < {SC.get("photo_min_texels", 10)}')
         if sy is not None:
-            ch = choose_top_tone(sy[0], res['tone_lab'], SC)
-            rep['synth_candidate'] = {'source': src, 'synth_lab': [round(float(x), 1) for x in sy[0]], 'n': sy[1], 'top_lab': [round(float(x), 1) for x in res['tone_lab']], 'use': ch['use'], 'why': ch['why'], 'dL': ch['dL']}
+            ch = choose_top_tone(sy[0], res['tone_lab'], SC, {'n': sy[1], 'spread_L': _dg.get('spread_L')} if src == 'synth' else None)
+            rep['synth_candidate'] = {'source': src, 'spread_L': _dg.get('spread_L'), 'massive': bool(ch.get('massive')), 'synth_lab': [round(float(x), 1) for x in sy[0]], 'n': sy[1], 'top_lab': [round(float(x), 1) for x in res['tone_lab']], 'use': ch['use'], 'why': ch['why'], 'dL': ch['dL']}
             if ch['use'] == 'synth':
                 res['tone_lab'] = [round(float(x), 1) for x in ch['lab']]
                 rep['tone_lab'] = res['tone_lab']
