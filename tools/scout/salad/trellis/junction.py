@@ -18,7 +18,7 @@ import numpy as np
 
 DEFAULTS = {'enabled': False, 'check_enabled': True, 'enforce': False, 'min_aspect': 1.3, 'window_frac': 0.15, 'min_edge_px': 6.0, 'min_len_frac': 0.3, 'active_gap_px': 3.0,
             'contour_extra_px': 2.0, 'iou_drop_max': 0.005, 'w_gap': 20.0, 'hinge_px': 2.0, 'az_range': 40.0, 'lnd_range': 1.8, 'max_starts': 16, 'good_iou_gap': 0.001,
-            'grid_az': [-12.0, 12.0], 'grid_d': [2.0, 3.0, 5.0], 'max_points': 150000, 'interior_px': 6, 'interior_frac': 0.85}
+            'grid_az': [-12.0, 12.0], 'grid_d': [2.0, 3.0, 5.0], 'max_points': 150000, 'interior_px': 6, 'interior_frac': 0.85, 'max_dyaw_deg': 60.0}
 
 
 def rules(R: dict | None = None) -> dict:
@@ -128,10 +128,17 @@ def front_edge(PF, cam: dict, box: dict | None, cv: dict, tg: dict, R: dict | No
     return out
 
 
+def _dyaw(a: float, b: float) -> float:
+    """Угол между азимутами, 0…180°."""
+    return abs((float(a) - float(b) + 180.0) % 360.0 - 180.0)
+
+
 def _starts(PF, pick_cam: dict, cands: list, p: dict) -> list:
     out, seen = [], set()
 
     def add(c):
+        if _dyaw(c['az'], pick_cam['az']) > p['max_dyaw_deg']:
+            return                                                                  # другая сторона (перёд↔зад, az+180°): решает flip_pick/выбор позы, не спасатель стыка
         k = (round(c['az'] / 5.0), round(float(c['d']), 0), round(c['el'] / 5.0))
         if k not in seen:
             seen.add(k)
@@ -187,10 +194,10 @@ def rescue(PF, V: np.ndarray, pick: dict, cands: list, box: dict, tg: dict, Mp: 
         fe = front_edge(PF, cm, box, cv, tg, p)
         io = PF.iou(PF.splat_mask(Pc, cm, n), Mp)
         results.append({'cam': cm, 'iou': round(io, 4), 'gap_px': fe['gap_px'], 'fe': fe, 'start': k})
-        if fe['gap_px'] <= p['active_gap_px'] and io >= iou0 - p['good_iou_gap']:
+        if fe['gap_px'] <= p['active_gap_px'] and io >= iou0 - p['good_iou_gap'] and _dyaw(cm['az'], cam0['az']) <= p['max_dyaw_deg']:
             break                                                                  # не хуже прежней и стык в норме — дальше не ищем (время)
     info['tried'] = len(results)
-    ok = [r for r in results if r['gap_px'] <= p['active_gap_px'] and r['iou'] >= iou0 - p['iou_drop_max']]
+    ok = [r for r in results if r['gap_px'] <= p['active_gap_px'] and r['iou'] >= iou0 - p['iou_drop_max'] and _dyaw(r['cam']['az'], cam0['az']) <= p['max_dyaw_deg']]
     best_any = min(results, key=lambda r: (r['gap_px'], -r['iou']))
     info['iou_before'] = round(iou0, 4)
     info['best_attempt'] = {'cam': best_any['cam'], 'iou': best_any['iou'], 'gap_px': best_any['gap_px']}
