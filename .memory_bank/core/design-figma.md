@@ -1,7 +1,7 @@
 ---
 tier: 1
 topic: design-figma
-scope: Дизайн демо в Фигме — книги, страницы, пересборка
+scope: Дизайн демо в Фигме — книги, пересборка
 tier2: "../completed_plans/design-01-figma-export.md"
 updated: 2026-11-10
 importance: med

@@ -1,7 +1,7 @@
 ---
 tier: 1
 topic: partners
-scope: Застройщик, ЖК, квартира, цена, сертификат — данные
+scope: Застройщик, ЖК, квартира, цена — данные
 tier2: "../completed_plans/b2b-06-apartment-as-data.md"
 updated: 2026-11-18
 importance: high

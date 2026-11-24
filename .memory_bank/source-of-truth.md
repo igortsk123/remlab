@@ -42,9 +42,9 @@ review_after: 2026-12-05
 
 ## Домен процесса — как работать
 Приоритет по убыванию:
-1. `.claude/rules/agent-workflow.md` + `guides/agent-workflow.md` — протокол план→деплой.
-2. `.memory_bank/plans/` — активные планы.
-3. `guides/code-standards.md`, правила `.claude/rules/`.
+1. Реестр правил работы `rules/INDEX.md` (P-NNN; строка на правило — `.claude/rules/00-operating-index.md`, гейты — `10-decision-gates.md`, приёмка — `review-checklist.md`) + `guides/agent-workflow.md` — протокол план→деплой. Файлы `.claude/rules/{agent-workflow,orchestration,codex-adviser,memory-discipline}.md` — указатели в реестр, не источник.
+2. `plan-zadach.md` (что делаем сейчас) и `.memory_bank/plans/` — активные планы.
+3. `guides/code-standards.md`, `.claude/rules/code-standards.md`.
 4. `decisions.md` (индекс + тома `decisions/`) — принятые решения.
 
 **Важно:** код не отменяет процесс. «Код уже написан иначе» — не основание игнорировать workflow.

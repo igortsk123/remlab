@@ -19,7 +19,7 @@ review_after: 2026-12-05
 **Что это.** Группы SaladCloud (Hunyuan3D) под `tools/scout/salad/`; тариф, окно, цена — ТОЛЬКО из
 `tools/scout/rules/salad-groups.json` (ADR-0177). Путь меша — [[mesh-pipeline]].
 
-**Карты и тариф (ADR-0315):** любые NVIDIA ≥ 16 ГБ, кроме RTX 50xx и 4090 (живая группа); тариф `low`/`batch`, выше — владелец.
+**Карты и тариф (ADR-0315):** любые NVIDIA ≥ 16 ГБ, кроме RTX 50xx и 4090 (живая группа); тариф только `low` (TG 2626).
 Фильтр ОЗУ выключен (`node_ram.min_gb 0`, ADR-0316): обрывы — вытеснение тарифом, не OOM. Квота 50 реплик; GPU/образ — новой группой (`recreate_group.py`).
 
 **Транспорт (ADR-0317):** очередь Salad (Job Queue) — группа с `queue_connection` при создании, посредник `queue_proxy.py` (порт 8001)
