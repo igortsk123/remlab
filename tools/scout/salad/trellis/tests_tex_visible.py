@@ -275,6 +275,25 @@ class TestTexVisible(unittest.TestCase):
             with open(os.path.join(sd, 'check.json'), encoding='utf-8') as fh:
                 self.assertTrue(json.load(fh)['extra']['camera_failed'])
 
+    def test_body_cut_carries_form_defect(self):
+        """T-20261124-02: камера не прошла гейт только по низу (ножки формы ≠ фото), верх лёг → body_cut годен и несёт флаг брака формы; не только по низу или верх не лёг → None."""
+        with tempfile.TemporaryDirectory() as td:
+            def cam(name, extra, metrics):
+                d = os.path.join(td, name, '04-camera')
+                os.makedirs(d)
+                json.dump({'passed': False, 'metrics': metrics, 'extra': extra}, open(os.path.join(d, 'check.json'), 'w'))
+                json.dump({'frame_px': 400}, open(os.path.join(td, name, 'stage_loss.json'), 'w'))
+                return os.path.join(td, name)
+            bad_bottom = {'miss_bottom': {'ok': False}, 'extra_bottom': {'ok': True}, 'iou': {'ok': True}}
+            ex = {'bottom_shape_mismatch': True, 'strip_rows': [300, 351], 'iou_top': 0.96, 'bottom_top_iou_min': 0.85}
+            bc = TV.body_cut(cam('ok', ex, bad_bottom))
+            self.assertIsNotNone(bc)
+            self.assertTrue(bc['bottom_shape_mismatch'])
+            self.assertEqual(bc['row'], 300)
+            self.assertIsNone(TV.body_cut(cam('top', dict(ex, iou_top=0.5), bad_bottom)))
+            self.assertIsNone(TV.body_cut(cam('body', ex, dict(bad_bottom, iou={'ok': False}))))
+            self.assertIsNone(TV.body_cut(cam('noflag', dict(ex, bottom_shape_mismatch=False), bad_bottom)))
+
     def test_camera_gate_failed_refuses_even_if_silhouette_matches(self):
         import trimesh
         from trimesh.visual import TextureVisuals
