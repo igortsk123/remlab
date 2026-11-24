@@ -22,6 +22,7 @@ import time
 HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, HERE)
 import queue_run as Q  # noqa: E402
+import salad_ceiling as SC  # noqa: E402 — предел живых машин Salad перед /start
 
 POLL_S = 20
 JOB_MAX_S = 20 * 60   # одно задание перекраски: ~2–5 мин; дольше 20 — что-то не так
@@ -83,6 +84,10 @@ def main() -> int:
     summary, rc = [], 1
     try:
         if not a.no_start:
+            okc, why = SC.admit_start(a.group)                     # предел живых машин Salad перед /start (T-20261124-58/2)
+            log(why)
+            if not okc:
+                return 1
             code, d = Q.req('POST', f'/containers/{a.group}/start', None, 60)
             log(f'start {a.group}: HTTP {code} {"" if code in (200, 202) else d}')
             if code not in (200, 202):

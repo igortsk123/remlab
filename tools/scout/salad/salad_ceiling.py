@@ -61,13 +61,19 @@ def live_by_group(items) -> dict[str, int]:
     return out
 
 
-def _read_reserved(path: str, now: float, ttl: float) -> dict[str, dict]:
+START_GRACE_S = 300
+
+
+def _read_reserved(path: str, now: float, ttl: float, grace: float = START_GRACE_S) -> dict[str, dict]:
+    """Живые резервы. Резерв, по которому уже ушёл /start (`started`), через `grace` с забывается: дальше группу видно в списке Salad, а остановленная НЕ через драйвер (batch_window down,
+    ssh_run, submit …) не должна держать место до конца срока."""
     try:
         with open(path, encoding='utf-8') as f:
             raw = json.load(f)
     except (OSError, ValueError):
         return {}
-    return {k: v for k, v in raw.items() if isinstance(v, dict) and now - float(v.get('ts', 0)) <= ttl}
+    return {k: v for k, v in raw.items() if isinstance(v, dict) and now - float(v.get('ts', 0)) <= ttl
+            and not (v.get('started') and now - float(v['started']) > grace)}
 
 
 def _write_reserved(path: str, data: dict) -> None:
@@ -121,8 +127,10 @@ def admit(MG, name: str, need: int | None = None, d: str | None = None, rules: d
             return False, f'Salad: список групп не прочитан (HTTP {code}) — группу не создаю (предел {limit})'
         now = clock()
         rpath = os.path.join(folder, 'salad-ceiling-reserved.json')
-        reserved = _read_reserved(rpath, now, ttl)
+        grace = float(rules.get('salad_start_grace_s', START_GRACE_S))
+        reserved = _read_reserved(rpath, now, ttl, grace)
         live = live_by_group(resp['items'])
+        is_start = need is None
         if need is None:
             if name in reserved:
                 need = int(reserved[name].get('need', 1))
@@ -142,7 +150,7 @@ def admit(MG, name: str, need: int | None = None, d: str | None = None, rules: d
         if others + mine > limit:
             return False, (f'Salad: живо {total_now}, предел {limit} — жди или останови свои (группа {name} добавит {mine - eff.get(name, 0)}; '
                            f'резерв других процессов {sum(int(v.get("need", 0)) for n, v in reserved.items() if n != name and n not in live)})')
-        reserved[name] = {'need': mine, 'ts': now}
+        reserved[name] = {'need': mine, 'ts': now, **({'started': now} if is_start else {})}
         try:
             _write_reserved(rpath, reserved)
         except OSError as e:
@@ -177,3 +185,56 @@ def release(name: str, d: str | None = None, rules: dict | None = None) -> bool:
         return False
     finally:
         lock.release()
+
+
+class DefaultMG:
+    """Минимальный клиент API групп для скриптов, у которых своего нет (`batch_show`, `cutout_redo`, `grey_probe`, `batch_window.sh`): `api(path, method, body) → (код, словарь)`.
+    Ключ — `SALAD_API_KEY` из окружения (скрипты его и так берут оттуда); нет ключа — исключение, ворота скажут «не прочитан» → отказ."""
+    API = 'https://api.salad.com/api/public/organizations/prodstore/projects/dmodel/containers'
+
+    def api(self, path: str = '', method: str = 'GET', body: dict | None = None) -> tuple[int, dict]:
+        import urllib.error
+        import urllib.request
+        data = json.dumps(body).encode() if body is not None else (b'' if method == 'POST' else None)
+        req = urllib.request.Request(f'{self.API}{path}', data=data, method=method,
+                                     headers={'Salad-Api-Key': os.environ['SALAD_API_KEY'], 'User-Agent': 'remlab-mesh/1.0', 'Content-Type': 'application/json'})
+        try:
+            with urllib.request.urlopen(req, timeout=30) as r:
+                raw = r.read()
+                return r.status, (json.loads(raw) if raw else {})
+        except urllib.error.HTTPError as e:
+            raw = e.read()
+            try:
+                return e.code, json.loads(raw)
+            except ValueError:
+                return e.code, {'detail': raw[:200].decode(errors='replace')}
+
+
+def admit_start(name: str, MG=None) -> tuple[bool, str]:
+    """Ворота перед `/start` УЖЕ созданной группы (число машин — из резерва или GET группы). Для скриптов со своим HTTP: `ok, why = admit_start(g)`; нет → не стартовать, `why` — в журнал."""
+    return admit(MG or DefaultMG(), name, None)
+
+
+def main(argv: list[str] | None = None) -> int:
+    """Для shell (`batch_window.sh`): `salad_ceiling.py --admit ГРУППА` → код 0 можно (строка на stdout), 1 нельзя (причина на stdout); `--release ГРУППА` — снять резерв."""
+    import argparse
+    ap = argparse.ArgumentParser(description=main.__doc__)
+    ap.add_argument('--admit', metavar='ГРУППА')
+    ap.add_argument('--release', metavar='ГРУППА')
+    a = ap.parse_args(argv)
+    if a.admit:
+        try:
+            ok, why = admit_start(a.admit)
+        except Exception as e:  # noqa: BLE001 — сбой ворот = отказ
+            ok, why = False, f'Salad: ворота предела упали ({type(e).__name__}: {str(e)[:100]}) — группу не стартую'
+        print(why)
+        return 0 if ok else 1
+    if a.release:
+        release(a.release)
+        return 0
+    ap.print_help()
+    return 2
+
+
+if __name__ == '__main__':
+    sys.exit(main())

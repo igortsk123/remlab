@@ -85,6 +85,14 @@ case "$action" in
       if ! why=$("$PY" "$HERE/salad_groups.py" --can-start "$g"); then
         say "старт $g пропущен: $why"; continue
       fi
+      # ПРЕДЕЛ ЖИВЫХ МАШИН SALAD (T-20261124-58/2): ворота — до /start; отказ или сбой ворот — группу не стартуем
+      # MESH_CEILING_GATE — только подмена команды ворот в стенде tests_batch_window (без сети); по умолчанию — salad_ceiling.py --admit
+      GATE_CMD=("$PY" "$HERE/salad_ceiling.py" --admit)
+      if [ -n "${MESH_CEILING_GATE:-}" ]; then GATE_CMD=("$MESH_CEILING_GATE"); fi
+      if ! why=$("${GATE_CMD[@]}" "$g" 2>&1); then
+        say "старт $g пропущен (предел машин): $why"; continue
+      fi
+      say "$why"
       code=$(curl -s -o /dev/null -w '%{http_code}' -X POST -H "Salad-Api-Key: $SALAD_API_KEY" \
              -d '' "$BASE/$g/start" || echo 000)
       say "старт $g: HTTP $code"      # 400 = уже запущена, это не ошибка

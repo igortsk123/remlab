@@ -260,6 +260,10 @@ def ensure_group_started():
     started = []
     for grp in [g for g in allowed if g not in up]:
       try:
+        okc, why = SC.admit_start(grp)                              # предел живых машин Salad — перед КАЖДЫМ /start (T-20261124-58/2)
+        print(why, flush=True)
+        if not okc:
+            continue
         req = urllib.request.Request(
             f"https://api.salad.com/api/public/organizations/prodstore/projects/dmodel/containers/{grp}/start",
             data=b'', method='POST',
@@ -299,6 +303,10 @@ def ensure_group_started():
                     if SG.allowed_now(g) and g not in started
                     and after.get(grp) in ('stopped', 'failed', None)]:
             try:
+                okc, why = SC.admit_start(grp)                      # повторный старт — тоже под воротами предела (T-20261124-58/2)
+                print(why, flush=True)
+                if not okc:
+                    continue
                 import urllib.request as _u
                 _u.urlopen(_u.Request(
                     f'https://api.salad.com/api/public/organizations/prodstore/projects/dmodel/containers/{grp}/start',
@@ -349,6 +357,7 @@ import node_health as NH  # noqa: E402 — общий бюджет переса�
 import proc_run as PR     # noqa: E402 — запуск шага без сирот (ОДИН на batch_show и ssh_run)
 import ssh_run as SR      # noqa: E402 — канонический плоский список заданий (`plan_jobs`)
 import salad_groups as SG  # noqa: E402 — тариф/окно группы: ОДИН источник (rules/salad-groups.json)
+import salad_ceiling as SC  # noqa: E402 — предел живых машин Salad перед /start (T-20261124-58/2)
 
 
 def holder_do(fn: str, *args) -> None:

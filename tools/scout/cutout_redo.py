@@ -435,6 +435,11 @@ def cmd_masks(a) -> int:
     if a.adopt:
         say(f'группа уже запущена (статус {st0}) — подхватываю без нового /start (деньги считаю с первого running)')
     else:
+        import salad_ceiling as SC                                 # предел живых машин Salad перед /start (T-20261124-58/2)
+        okc, why = SC.admit(MG, a.group, None)
+        say(why)
+        if not okc:
+            sys.exit(1)
         code, _ = MG.api(f'/{a.group}/start', 'POST')
         say('start HTTP', code)
         if code >= 300:
