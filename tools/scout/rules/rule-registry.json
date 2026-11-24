@@ -1,9 +1,9 @@
 {
   "_why": "Реестр правил (T-20261123-48, план type-rules-code-01 § Б, владелец TG 2308): ОДИН адрес правила. Состояние у ПРАВИЛА, не у документа. Журнал брака паспорта, Ш-строки paint-photo-fill-01 и план кругов ссылаются на rule_id, второй формулировки не держат. Сверку делает tools/ops/rule_registry_audit.py (CI): active = consumer существует и читает правило, runtime=enforce, тест есть и прописан в ci.yml. Кандидатов (proposed) без вердикта директора не включать. Правит реестр директор/р.1; числа-пороги здесь не живут — они в rules/*.json потребителя.",
-  "version": 2,
+  "version": 3,
   "states": {
     "proposed": "записано, исполнителя нет или нет вердикта директора — конвейер правило НЕ применяет",
-    "trial": "код есть, но работает в observe/частично/без боевого пути — конвейер не блокирует",
+    "trial": "код есть, но работает в observe/частично/без боевого пути — конвейер не блокирует · в реестре v3 — у группы срок решения и условие числом (_trial_deadline_rule)",
     "active": "конвейер применяет сам (runtime=enforce), есть consumer и тест в CI",
     "retired": "снято (отрицательный результат / заменено) — оставлено для истории"
   },
@@ -116,7 +116,7 @@
     {
       "rule_id": "R-BACKPANEL-06",
       "title": "Зад корпусной: рельеф, дорисованный TRELLIS по лицу, выравнивается в плоскость; камере не верим при слабом согласии кромок; фото-сторону не трогаем",
-      "state": "trial",
+      "state": "retired",
       "source": [
         "T-20261123-41",
         "plans/mesh-type-rules-01.md журнал 23.11 «исправлено (порог — гипотеза)» + «найден дефект камеры»",
@@ -137,7 +137,8 @@
       "flag": "tools/scout/rules/edge-sharpen.json#back_panel.enabled",
       "check_field": "06-visible.rules",
       "enabled": null,
-      "note": "ВЫКЛЮЧЕНО по факту (T-20261124-04, Д2): выключатель tools/scout/rules/edge-sharpen.json#back_panel.enabled=false; шаг для допущенного типа пишет воздержание «припарковано» и зад не трогает; run_id нет. Ждёт прогона на 100+ body и решения директора (24.11, T-43/9): на 21 новых body с пробными порогами сработало 2 из 21 (6020, 6402), воздержалось по шуму сетки 5, отказ этапа 6 у 13, камера 1; остаётся дефект «рельеф ящиков ниже полосы depth» (мерка steep по полосам высоты — кандидат, plans/mesh-type-rules-01.md журнал 24.11). Пробные пороги и триггер — только в trial-ветке trial/t43-9-thresholds, в main не влиты. История T-43/3…T-43/6 — plans/mesh-type-rules-01.md и git-журнал этого поля."
+      "note": "ВЫКЛЮЧЕНО по факту (T-20261124-04, Д2): выключатель tools/scout/rules/edge-sharpen.json#back_panel.enabled=false; шаг для допущенного типа пишет воздержание «припарковано» и зад не трогает; run_id нет. Ждёт прогона на 100+ body и решения директора (24.11, T-43/9): на 21 новых body с пробными порогами сработало 2 из 21 (6020, 6402), воздержалось по шуму сетки 5, отказ этапа 6 у 13, камера 1; остаётся дефект «рельеф ящиков ниже полосы depth» (мерка steep по полосам высоты — кандидат, plans/mesh-type-rules-01.md журнал 24.11). Пробные пороги и триггер — только в trial-ветке trial/t43-9-thresholds, в main не влиты. История T-43/3…T-43/6 — plans/mesh-type-rules-01.md и git-журнал этого поля.",
+      "retired_reason": "СНЯТО (24.11, T-20261124-54/2, решение директора; таблица T-54/1 строка 1, ~/remlab-logs/t2454-1124/report.md): замер без пользы: перегон t243body — «крапинки», применено 7, воздержалось 4; на 21 новом body сработало 2 из 21; выключатель back_panel.enabled=false, runtime=off; рельеф ящика решает модель «панель→роль→материал→источник тона» (Р5)"
     },
     {
       "rule_id": "R-TYPE-FACADE-BACK",
@@ -164,7 +165,8 @@
       "flag": null,
       "check_field": "07-fill.extra.rules",
       "enabled": null,
-      "note": "T-20261123-51/1 (23.11): политика типа (paint.hidden_pattern=body, hidden_exclusions) ЧИТАЕТСЯ 07 до паспорта поверхностей и применяется (tex_fill.paint_policy_for → surface_passport by_hidden_pattern); запись extra.rules[] — rule_record.type_policy_entries, что считать «применено» — rules/type-policy-effect.json. Круг 2 r2all-from06-cd911aed: политика прочитана 29/29, записей не было (код записи добавлен после прогона) — подтверждение на следующем прогоне. Зад — back_panel_stage (R-BACKPANEL-06). Не active: run_id нет."
+      "note": "T-20261123-51/1 (23.11): политика типа (paint.hidden_pattern=body, hidden_exclusions) ЧИТАЕТСЯ 07 до паспорта поверхностей и применяется (tex_fill.paint_policy_for → surface_passport by_hidden_pattern); запись extra.rules[] — rule_record.type_policy_entries, что считать «применено» — rules/type-policy-effect.json. Круг 2 r2all-from06-cd911aed: политика прочитана 29/29, записей не было (код записи добавлен после прогона) — подтверждение на следующем прогоне. Зад — back_panel_stage (R-BACKPANEL-06). Не active: run_id нет.",
+      "group": "G1"
     },
     {
       "rule_id": "R-TYPE-OPENINGS",
@@ -191,7 +193,8 @@
       "check_field": null,
       "enabled": null,
       "note": "СЛИТО в R-OPENINGS-ZONES-07 (T-20261123-47/4: продуктовое поведение К2 и техническая зона 07 — одно правило, один rule_id)",
-      "merged_into": "R-OPENINGS-ZONES-07"
+      "merged_into": "R-OPENINGS-ZONES-07",
+      "retired_reason": "СЛИТО в R-OPENINGS-ZONES-07 (T-20261123-47/4: продуктовое поведение К2 и техническая зона 07 — одно правило, один rule_id)"
     },
     {
       "rule_id": "R-TYPE-SOFT-BACK",
@@ -220,7 +223,8 @@
       "flag": null,
       "check_field": "07-fill.extra.rules",
       "enabled": null,
-      "note": "T-20261123-51/1 (23.11): same_fabric читается и применяется (диван/кресло, круг 2: 8 из 29), запись — type_policy_entries; «применено» только если квилтинг рисунка невидимого построен (в круге 2 не было нигде: no_synth 29/29, smooth у 5) — иначе воздержание с причиной. Подушки выключены (detail-zones.json pillows.enabled=false, нужен признак по объёму частей 03); «верх кровати — бельё» не сделано (кроватей в 29 нет). Не active: run_id нет."
+      "note": "T-20261123-51/1 (23.11): same_fabric читается и применяется (диван/кресло, круг 2: 8 из 29), запись — type_policy_entries; «применено» только если квилтинг рисунка невидимого построен (в круге 2 не было нигде: no_synth 29/29, smooth у 5) — иначе воздержание с причиной. Подушки выключены (detail-zones.json pillows.enabled=false, нужен признак по объёму частей 03); «верх кровати — бельё» не сделано (кроватей в 29 нет). Не active: run_id нет.",
+      "group": "G1"
     },
     {
       "rule_id": "R-TYPE-TABLE-CHAIR",
@@ -248,7 +252,8 @@
       "flag": null,
       "check_field": "07-fill.extra.rules",
       "enabled": null,
-      "note": "T-20261123-51/1 (23.11): стол/столик continue, стул plain — читаются и применяются (круг 2: стол 3, столик 1, стул 3); запись — type_policy_entries; continue без построенного рисунка — воздержание с причиной. «Тонкие ножки и просветы сохранить» в 07 не реализовано (только общие form_checks) — добавить, когда появится дефект на прогоне. Не active: run_id нет."
+      "note": "T-20261123-51/1 (23.11): стол/столик continue, стул plain — читаются и применяются (круг 2: стол 3, столик 1, стул 3); запись — type_policy_entries; continue без построенного рисунка — воздержание с причиной. «Тонкие ножки и просветы сохранить» в 07 не реализовано (только общие form_checks) — добавить, когда появится дефект на прогоне. Не active: run_id нет.",
+      "group": "G1"
     },
     {
       "rule_id": "R-TYPE-ROUND-PATTERN",
@@ -280,12 +285,13 @@
       "flag": null,
       "check_field": "07-fill.extra.rules",
       "enabled": null,
-      "note": "T-20261123-51/1 (23.11): continue читается и применяется (круг 2: ваза 2, лампа 1), запись — type_policy_entries; в круге 2 рисунок вокруг не строился (no_synth 29/29) → воздержание с причиной, «применено» не пишем. Риск прежний: общий отсев узора по направлению к фото (tex_fill) для вазы может дать обратное — проверить на первой партии ваз. Подушки выключены, шторы без детектора. Не active: run_id нет."
+      "note": "T-20261123-51/1 (23.11): continue читается и применяется (круг 2: ваза 2, лампа 1), запись — type_policy_entries; в круге 2 рисунок вокруг не строился (no_synth 29/29) → воздержание с причиной, «применено» не пишем. Риск прежний: общий отсев узора по направлению к фото (tex_fill) для вазы может дать обратное — проверить на первой партии ваз. Подушки выключены, шторы без детектора. Не active: run_id нет.",
+      "group": "G1"
     },
     {
       "rule_id": "R-TYPE-FLAT-ROUTE",
       "title": "К8: плоские изделия (картина, ковёр и т.п.) не идут на обычную объёмную покраску — своя стратегия",
-      "state": "trial",
+      "state": "retired",
       "source": [
         "plans/mesh-type-rules-01.md § Черновик К8",
         "a-types-1123.md § 1 К8"
@@ -305,7 +311,8 @@
       "flag": null,
       "check_field": null,
       "enabled": null,
-      "note": "procedural_plane/cutout заданы для ряда типов, но паспорт provisional и маршрутом не управляет; проверяется только совпадение с каноном стратегий"
+      "note": "procedural_plane/cutout заданы для ряда типов, но паспорт provisional и маршрутом не управляет; проверяется только совпадение с каноном стратегий",
+      "retired_reason": "СНЯТО (24.11, T-20261124-54/2, решение директора; таблица T-54/1 строка 6, ~/remlab-logs/t2454-1124/report.md): режим observe, замера нет, маршрутом не управляет (только сверка с каноном стратегий asset_strategy.strategy — канон и тест остаются); вернуть, когда будет исполнитель-маршрут"
     },
     {
       "rule_id": "R-TYPE-PHOTO-VIEWS",
@@ -332,12 +339,13 @@
       "flag": null,
       "check_field": null,
       "enabled": null,
-      "note": "СНЯТО (24.11, T-20261124-16, решение директора): покрыто порогом cos этапа 06 — новый путь проецирует фото камерой 04 и берёт тексель по углу обзора (cos_min/cos_full в tex-visible.json), поле paint.photo_views читателя в новом пути не имеет, кроватей и подушек в круге нет; отдельное правило видов не нужно. Если появится первая партия кроватей — вернуть как новое правило по результату пробы, а не по этой записи. Прежнее примечание: ЗАМОРОЖЕНО (T-20261123-51/1, директор 23.11): кроватей и подушек в круге 2 нет, зад кровати закрыт политикой same_fabric; поле paint.photo_views (grain_only) в паспорте есть, читателя нет. Код (≈7 ч) — только вместе с первой партией кроватей. код подписей видов — только в старом StableGen; новый путь проецирует фото камерой 04 и paint.photo_views не читает"
+      "note": "СНЯТО (24.11, T-20261124-16, решение директора): покрыто порогом cos этапа 06 — новый путь проецирует фото камерой 04 и берёт тексель по углу обзора (cos_min/cos_full в tex-visible.json), поле paint.photo_views читателя в новом пути не имеет, кроватей и подушек в круге нет; отдельное правило видов не нужно. Если появится первая партия кроватей — вернуть как новое правило по результату пробы, а не по этой записи. Прежнее примечание: ЗАМОРОЖЕНО (T-20261123-51/1, директор 23.11): кроватей и подушек в круге 2 нет, зад кровати закрыт политикой same_fabric; поле paint.photo_views (grain_only) в паспорте есть, читателя нет. Код (≈7 ч) — только вместе с первой партией кроватей. код подписей видов — только в старом StableGen; новый путь проецирует фото камерой 04 и paint.photo_views не читает",
+      "retired_reason": "СНЯТО (24.11, T-20261124-16, решение директора): покрыто порогом cos этапа 06 — новый путь проецирует фото камерой 04 и берёт тексель по углу обзора (cos_min/cos_full в tex-visible.json), поле paint.photo_views читателя в новом пути не имеет, кроватей и подушек в круге нет; отдельное правило видов не нужно. Если появится первая партия кроватей — вернуть как новое правило по результату пробы, а не по этой записи. Прежнее примечание: ЗАМОРОЖЕНО (T-20261123-51/1, директор 23.11): кроватей и подушек в круге 2 нет, зад кровати закрыт политикой same_fabric; поле paint.photo_views (grain_only) в паспорте есть, читателя нет. Код (≈7 ч) — только вместе с первой партией кроватей. код подписей видов — только в старом StableGen; новый путь проецирует фото камерой 04 и paint.photo_views не читает"
     },
     {
       "rule_id": "R-GUARD-HEADBOARD",
       "title": "Кровать: сторож потери изголовья при вырезке",
-      "state": "trial",
+      "state": "retired",
       "source": [
         "ADR-0456",
         "plans/mesh-type-passports-01",
@@ -358,12 +366,13 @@
       "flag": null,
       "check_field": null,
       "enabled": null,
-      "note": "сторож пишет вердикт в passport_shadow, но в mode=observe ничего не блокирует"
+      "note": "сторож пишет вердикт в passport_shadow, но в mode=observe ничего не блокирует",
+      "retired_reason": "СНЯТО (24.11, T-20261124-54/2, решение директора; таблица T-54/1 строка 7, ~/remlab-logs/t2454-1124/report.md): режим observe: вердикт идёт только в passport_shadow и в измерительный cutout_redo --guards, вырезку не блокирует; чисел «до → после» нет; вернуть, когда будет enforce и пример потери изголовья"
     },
     {
       "rule_id": "R-GUARD-PILLOW",
       "title": "Подушка: сторож однотонности при вырезке",
-      "state": "trial",
+      "state": "retired",
       "source": [
         "ADR-0456",
         "plans/mesh-type-passports-01",
@@ -384,7 +393,8 @@
       "flag": null,
       "check_field": null,
       "enabled": null,
-      "note": "то же: observe, ничего не блокирует"
+      "note": "то же: observe, ничего не блокирует",
+      "retired_reason": "СНЯТО (24.11, T-20261124-54/2, решение директора; таблица T-54/1 строка 8, ~/remlab-logs/t2454-1124/report.md): режим observe: метка только в passport_shadow/--guards, вырезку не меняет; чисел нет; вернуть вместе с enforce и примером"
     },
     {
       "rule_id": "R-CUT-LEGS-GAP",
@@ -410,7 +420,8 @@
       "flag": null,
       "check_field": null,
       "enabled": null,
-      "note": "СНЯТО (T-20261123-51/1, директор 23.11): гипотеза без принятого гейта и без исполнителя; вырезка — старый поток каталога, не конвейер 3D. Вернуть правилом, когда дефект «плита/провод у ножек» появится на прогоне."
+      "note": "СНЯТО (T-20261123-51/1, директор 23.11): гипотеза без принятого гейта и без исполнителя; вырезка — старый поток каталога, не конвейер 3D. Вернуть правилом, когда дефект «плита/провод у ножек» появится на прогоне.",
+      "retired_reason": "СНЯТО (T-20261123-51/1, директор 23.11): гипотеза без принятого гейта и без исполнителя; вырезка — старый поток каталога, не конвейер 3D. Вернуть правилом, когда дефект «плита/провод у ножек» появится на прогоне."
     },
     {
       "rule_id": "R-FORM-HARD",
@@ -436,7 +447,8 @@
       "flag": null,
       "check_field": null,
       "enabled": null,
-      "note": "общие мерки ловят 0 из 4 виденных браков (сверка 31 формы); критерии по типам (тонкие столешницы, бахрома, стекло) отсутствуют — потому trial, не active"
+      "note": "общие мерки ловят 0 из 4 виденных браков (сверка 31 формы); критерии по типам (тонкие столешницы, бахрома, стекло) отсутствуют — потому trial, не active",
+      "group": "G7"
     },
     {
       "rule_id": "R-FORM-GATE",
@@ -463,7 +475,8 @@
       "flag": null,
       "check_field": null,
       "enabled": null,
-      "note": "form_gate пишет оценку (needs_review) и не останавливает путь; VLM — observe на трёх видах; legs_match — observe"
+      "note": "form_gate пишет оценку (needs_review) и не останавливает путь; VLM — observe на трёх видах; legs_match — observe",
+      "group": "G7"
     },
     {
       "rule_id": "R-FORM-GLASS",
@@ -494,7 +507,8 @@
       "check_field": null,
       "enabled": null,
       "note": "СЛИТО (T-20261123-51/1, директор 23.11): цвет и прозрачность по стеклянной части — R-OPENINGS-ZONES-07 (зона стекла 07, glass_tone 08); «форму стекла по силуэту не принимать» — отдельной строкой в R-FORM-GATE (observe), своего исполнителя нет.",
-      "merged_into": "R-OPENINGS-ZONES-07"
+      "merged_into": "R-OPENINGS-ZONES-07",
+      "retired_reason": "СЛИТО (T-20261123-51/1, директор 23.11): цвет и прозрачность по стеклянной части — R-OPENINGS-ZONES-07 (зона стекла 07, glass_tone 08); «форму стекла по силуэту не принимать» — отдельной строкой в R-FORM-GATE (observe), своего исполнителя нет."
     },
     {
       "rule_id": "R-SOFT-STITCH",
@@ -548,7 +562,8 @@
       "flag": null,
       "check_field": null,
       "enabled": null,
-      "note": "хук есть; условие «тип верха и достоверность данных карточки» не сводится к «любой горизонтальный верх»; пороги обода — стартовые"
+      "note": "хук есть; условие «тип верха и достоверность данных карточки» не сводится к «любой горизонтальный верх»; пороги обода — стартовые",
+      "group": "G2"
     },
     {
       "rule_id": "R-GROUPS-GRADIENT",
@@ -573,7 +588,9 @@
       "flag": null,
       "check_field": null,
       "enabled": null,
-      "note": "surface_groups.gradient включён в paint-fill.json, но его проверочный gate выключен; пороги — гипотеза; не заменяет семантическое правило «фасадный рисунок нельзя на корпус»"
+      "note": "surface_groups.gradient включён в paint-fill.json, но его проверочный gate выключен; пороги — гипотеза; не заменяет семантическое правило «фасадный рисунок нельзя на корпус»",
+      "retire_proposed": "Советую снять (T-54/1), но режим не off — меняет покраску: paint-fill.json surface_groups.gradient.enabled=true: код класса «градиент» в surface_passport (07) исполняется при включённом флаге и меняет тон невидимого, хотя runtime реестра — observe (расхождение, поправить после замера). Снимать ТОЛЬКО замером «выключатель off против on» на тех же 29 (директор).",
+      "group": "G2"
     },
     {
       "rule_id": "R-SIDES-EVAL-TYPE",
@@ -598,7 +615,9 @@
       "flag": null,
       "check_field": null,
       "enabled": null,
-      "note": "f_pattern_typed: рисунок по hidden_pattern паспорта (continue/body/same_fabric/plain); unknown/not_applicable — «не оценено», не проход и не брак. Сквозная доставка hidden_pattern и policy_reason из 07 в оценку и запись extra.rules[] в check.json — не подтверждены; парных тестов (комод: ровный зад — не брак, ваза: брак) как отдельных функций пока нет — до них trial"
+      "note": "f_pattern_typed: рисунок по hidden_pattern паспорта (continue/body/same_fabric/plain); unknown/not_applicable — «не оценено», не проход и не брак. Сквозная доставка hidden_pattern и policy_reason из 07 в оценку и запись extra.rules[] в check.json — не подтверждены; парных тестов (комод: ровный зад — не брак, ваза: брак) как отдельных функций пока нет — до них trial",
+      "retire_proposed": "Советую снять (T-54/1), но режим не off — меняет покраску: enforce в оценщике sides_eval: меняет вердикт «рисунок» (мерка Р1 уже честно считает «не измерено»); снять = вернуть общий порог. Снимать ТОЛЬКО замером «выключатель off против on» на тех же 29 (директор).",
+      "group": "G1"
     },
     {
       "rule_id": "R-CAMERA-AMBIG",
@@ -650,7 +669,8 @@
       "flag": "tools/scout/rules/tex-visible.json#shadow_leak.enabled",
       "check_field": "06-visible.shadow_leak",
       "enabled": false,
-      "note": "T-20261124-15, 24.11: код в 06 (shadow_leak.py, вызов в tex_visible._run до переноса), выключатель shadow_leak.enabled=false (режим trial выключен): мерка «избыток тёмного в щели, п.п.» пишется в check.json 06 всегда для семьи «мягкое» («если применить» — тоже), текстуру не меняет. Включённое лечение — подъём цвета утечки к спокойной ткани, вне полосы байты те же; не мягкая мебель и воздержание по узору — prgb тот же объект. Пороги — rules/tex-visible.json shadow_leak (гипотезы по 29 круга). Не active: run_id нет, включение — по слову директора. В 07 отдельного кода нет: 07 берёт тон части из исправленного известного (смотреть по замеру пакета)."
+      "note": "T-20261124-15, 24.11: код в 06 (shadow_leak.py, вызов в tex_visible._run до переноса), выключатель shadow_leak.enabled=false (режим trial выключен): мерка «избыток тёмного в щели, п.п.» пишется в check.json 06 всегда для семьи «мягкое» («если применить» — тоже), текстуру не меняет. Включённое лечение — подъём цвета утечки к спокойной ткани, вне полосы байты те же; не мягкая мебель и воздержание по узору — prgb тот же объект. Пороги — rules/tex-visible.json shadow_leak (гипотезы по 29 круга). Не active: run_id нет, включение — по слову директора. В 07 отдельного кода нет: 07 берёт тон части из исправленного известного (смотреть по замеру пакета).",
+      "group": "G4"
     },
     {
       "rule_id": "R-DETAIL-EXCLUSIONS-07",
@@ -687,7 +707,8 @@
       "flag": "tools/scout/rules/detail-zones.json#enabled",
       "check_field": "07-fill.extra.rules",
       "enabled": null,
-      "note": "S2 (23.11): хуки в 07 (tex_fill.detail_zones_hook): protect-зоны (пуговицы, ручки, стекло) — вне статистики частей, пула, доноров, зеркала, рельефа и групп материала, на выходе как на входе; texture_off (рельеф двери) — тон без фактуры. Запись extra.rules[] и 07-fill/zones.json. Проба на диване Нумо (23.11, ядра): зона пуговиц 123 текселя, отличие итога от прогона без зон — зерно (медиана 3, max 12 из 255), известное не изменено. Подушки выключены (признак тона даёт ложные зоны — нужен признак по объёму частей 03, не сделан); stitching/bedding — not_implemented. Пороги пробные, калибровать на следующей партии. ОХВАТ door_relief (T-34/5 р.3, 23.11): круг 3 — 0 из 11 корпусных (шкаф 6, комод 4, тв-тумба 1; abstain no_facade_part): parts.json у 28 без ролей — мост «имя → роль» в режиме dry, части из конвертации до моста. Мост по 28 с «перёдом» из front_axis_resolved: роль facade 0 из 11 (было 0) — у 12 частей-кандидатов по имени (Drawer, Door Panel…) геометрия не подтверждает: 3 товара «Drawer» = весь корпус (крупнейшая часть), 1 — ящики не плоские (plate_vertical 0,15–0,53), 5 — facade-имён нет; у комода и тв-тумбы (4 части) щиты есть, но они обращены ОТ камеры фото (front_facing_share 0,01–0,14; «перёд» по front_axis — камера 04, не развёрнут). Ожидаемо 2 из 11 — только если facade подтверждать без «лица» (решение директора), причины по 9 — те же. mode→on — решение директора после таблицы с Codex."
+      "note": "S2 (23.11): хуки в 07 (tex_fill.detail_zones_hook): protect-зоны (пуговицы, ручки, стекло) — вне статистики частей, пула, доноров, зеркала, рельефа и групп материала, на выходе как на входе; texture_off (рельеф двери) — тон без фактуры. Запись extra.rules[] и 07-fill/zones.json. Проба на диване Нумо (23.11, ядра): зона пуговиц 123 текселя, отличие итога от прогона без зон — зерно (медиана 3, max 12 из 255), известное не изменено. Подушки выключены (признак тона даёт ложные зоны — нужен признак по объёму частей 03, не сделан); stitching/bedding — not_implemented. Пороги пробные, калибровать на следующей партии. ОХВАТ door_relief (T-34/5 р.3, 23.11): круг 3 — 0 из 11 корпусных (шкаф 6, комод 4, тв-тумба 1; abstain no_facade_part): parts.json у 28 без ролей — мост «имя → роль» в режиме dry, части из конвертации до моста. Мост по 28 с «перёдом» из front_axis_resolved: роль facade 0 из 11 (было 0) — у 12 частей-кандидатов по имени (Drawer, Door Panel…) геометрия не подтверждает: 3 товара «Drawer» = весь корпус (крупнейшая часть), 1 — ящики не плоские (plate_vertical 0,15–0,53), 5 — facade-имён нет; у комода и тв-тумбы (4 части) щиты есть, но они обращены ОТ камеры фото (front_facing_share 0,01–0,14; «перёд» по front_axis — камера 04, не развёрнут). Ожидаемо 2 из 11 — только если facade подтверждать без «лица» (решение директора), причины по 9 — те же. mode→on — решение директора после таблицы с Codex.",
+      "group": "G1"
     },
     {
       "rule_id": "R-OPENINGS-ZONES-07",
@@ -719,7 +740,9 @@
       "gaps": [
         "проём-пустота (void): детектора нет, воздержание not_implemented (rules/detail-zones.json#not_implemented)",
         "стекло: у реального товара нет источника (no_glass_source) — каталожная пара «стекло» не приходит; на 4 подходящих из 21 (2 витрины, 2 стеллажа) не сработало ни разу"
-      ]
+      ],
+      "retire_proposed": "Советую снять (T-54/1), но режим не off — меняет покраску: detail-zones.json enabled=true: зона стекла/проёма; на реальных товарах не сработала (0 из 4 подходящих). Снимать ТОЛЬКО замером «выключатель off против on» на тех же 29 (директор).",
+      "group": "G1"
     },
     {
       "rule_id": "R-KNOWN-SOURCE-07",
@@ -752,7 +775,8 @@
       "flag": null,
       "check_field": "07-fill.extra.rules",
       "enabled": null,
-      "note": "T-28/1 круг 3: ключ known_source.synth_trusted=false + require_hidden_pattern=body (paint-fill.json, верхний уровень — флагом не выражается, flag=null). A/B на ядрах 15195: с synth известным шаг цвета 0,6 %, без 26,3 % (σ зерна по фото-текселям 3,95 против 1,14) — потому рядом grain_cap. Диван 114667 = main байт-в-байт (filled.glb). Не active: нет run_id и парных тестов по правилу."
+      "note": "T-28/1 круг 3: ключ known_source.synth_trusted=false + require_hidden_pattern=body (paint-fill.json, верхний уровень — флагом не выражается, flag=null). A/B на ядрах 15195: с synth известным шаг цвета 0,6 %, без 26,3 % (σ зерна по фото-текселям 3,95 против 1,14) — потому рядом grain_cap. Диван 114667 = main байт-в-байт (filled.glb). Не active: нет run_id и парных тестов по правилу.",
+      "group": "G2"
     },
     {
       "rule_id": "R-LIGHT-FLOOR-07",
@@ -785,7 +809,9 @@
       "flag": "tools/scout/rules/paint-fill.json#surface_groups.light_floor.enabled",
       "check_field": "07-fill.extra.rules",
       "enabled": null,
-      "note": "T-28/1: на трёх body (ядра, 07 на 0fc93038a) пол света НЕ сработал — запись «условие не выполнено», 0 текселей; улучшение белого шкафа 10551 (зад/бока/низ 0,8/25,8/8,4 % → 0,1/0,2/0,3 %) даёт связка новых правил без пола (R-TOP-FOLLOW-07, R-KNOWN-SOURCE-07), не он. Раньше (salad25, 18286) пол действовал, но у типа «стол обеденный» (continue), которого гейт по типу исключил. Пороги min_L 90 / dL 4 — гипотезы."
+      "note": "T-28/1: на трёх body (ядра, 07 на 0fc93038a) пол света НЕ сработал — запись «условие не выполнено», 0 текселей; улучшение белого шкафа 10551 (зад/бока/низ 0,8/25,8/8,4 % → 0,1/0,2/0,3 %) даёт связка новых правил без пола (R-TOP-FOLLOW-07, R-KNOWN-SOURCE-07), не он. Раньше (salad25, 18286) пол действовал, но у типа «стол обеденный» (continue), которого гейт по типу исключил. Пороги min_L 90 / dL 4 — гипотезы.",
+      "retire_proposed": "Советую снять (T-54/1), но режим не off — меняет покраску: paint-fill.json …light_floor.enabled=true: на 3 body не сработал (0 текселей). Снимать ТОЛЬКО замером «выключатель off против on» на тех же 29 (директор).",
+      "group": "G2"
     },
     {
       "rule_id": "R-RELEASE-WEAK-07",
@@ -818,7 +844,8 @@
       "flag": "tools/scout/rules/paint-fill.json#surface_groups.body_override.release_weak_known.enabled",
       "check_field": "07-fill.extra.rules",
       "enabled": null,
-      "note": "T-28/1: на ядрах освободило 1385 текселей у 10887, 0 у 15195/10551; по отдельности A/B не снималась (в сумме с остальными новыми: 10887 низ/зад 42,4/10,2 → 10,3/4,4 %)."
+      "note": "T-28/1: на ядрах освободило 1385 текселей у 10887, 0 у 15195/10551; по отдельности A/B не снималась (в сумме с остальными новыми: 10887 низ/зад 42,4/10,2 → 10,3/4,4 %).",
+      "group": "G2"
     },
     {
       "rule_id": "R-EDGE-BODY-07",
@@ -851,7 +878,8 @@
       "flag": "tools/scout/rules/paint-fill.json#surface_groups.body_override.edge_body.enabled",
       "check_field": "07-fill.extra.rules",
       "enabled": null,
-      "note": "T-28/1: у 15195 не срабатывает (не-фасад близок к тону группы, ΔE00 1,4 ≤ 12); у 10887 даёт корпусной тон (в сумме с остальными новыми — низ/зад 42,4/10,2 → 10,3/4,4 %). Пороги — гипотезы."
+      "note": "T-28/1: у 15195 не срабатывает (не-фасад близок к тону группы, ΔE00 1,4 ≤ 12); у 10887 даёт корпусной тон (в сумме с остальными новыми — низ/зад 42,4/10,2 → 10,3/4,4 %). Пороги — гипотезы.",
+      "group": "G2"
     },
     {
       "rule_id": "R-TOP-SYNTH-07",
@@ -884,7 +912,9 @@
       "flag": "tools/scout/rules/top-prior.json#stage07.synth_candidate.enabled",
       "check_field": "07-fill.extra.rules",
       "enabled": null,
-      "note": "T-28/1: на 3 body не сработало (10551: synth L55 против Ш3в L78 — «расхождение, не светлый случай» → Ш3в; 15195/10887: synth/фото верха мало) — верх 10551 чинит R-TOP-FOLLOW-07."
+      "note": "T-28/1: на 3 body не сработало (10551: synth L55 против Ш3в L78 — «расхождение, не светлый случай» → Ш3в; 15195/10887: synth/фото верха мало) — верх 10551 чинит R-TOP-FOLLOW-07.",
+      "retire_proposed": "Советую снять (T-54/1), но режим не off — меняет покраску: top-prior.json …synth_candidate.enabled=true: на 3 body не сработал. Снимать ТОЛЬКО замером «выключатель off против on» на тех же 29 (директор).",
+      "group": "G2"
     },
     {
       "rule_id": "R-TOP-FOLLOW-07",
@@ -917,7 +947,8 @@
       "flag": "tools/scout/rules/paint-fill.json#surface_groups.top_follow.enabled",
       "check_field": "07-fill.extra.rules",
       "enabled": null,
-      "note": "T-28/1 (trial по решению директора 23.11): 10551 верх «не одним тоном» 28,7 → 0,2 % (L верха Ш3в 78,4 против тела 90,9, ΔE00 8,5 против порога 8 — на грани); 15195/10887 не срабатывает (класс «тон + зерно»). Выключатель — top_follow.enabled."
+      "note": "T-28/1 (trial по решению директора 23.11): 10551 верх «не одним тоном» 28,7 → 0,2 % (L верха Ш3в 78,4 против тела 90,9, ΔE00 8,5 против порога 8 — на грани); 15195/10887 не срабатывает (класс «тон + зерно»). Выключатель — top_follow.enabled.",
+      "group": "G2"
     },
     {
       "rule_id": "R-GRAIN-CAP-07",
@@ -950,7 +981,8 @@
       "flag": "tools/scout/rules/paint-fill.json#surface_groups.grain_cap.enabled",
       "check_field": "07-fill.extra.rules",
       "enabled": null,
-      "note": "T-28/1 (trial по решению директора 23.11): 15195 σ зерна 3,95/3,87 → 2,5, filled_faces_step_pct 26,3 → 8,9 % (main 0,71; порог max(main,10)); 10887 σ 2,4 < 2,5 не срезается, шаг 8,6 %. Потолок 2,5 — гипотеза по трём body (σ у main 0,1–2,1)."
+      "note": "T-28/1 (trial по решению директора 23.11): 15195 σ зерна 3,95/3,87 → 2,5, filled_faces_step_pct 26,3 → 8,9 % (main 0,71; порог max(main,10)); 10887 σ 2,4 < 2,5 не срезается, шаг 8,6 %. Потолок 2,5 — гипотеза по трём body (σ у main 0,1–2,1).",
+      "group": "G2"
     },
     {
       "rule_id": "R-FRONT-PHOTO-WITNESS",
@@ -975,7 +1007,10 @@
       "flag": "data/flat3d/front-axis.json#photo_witness",
       "check_field": null,
       "enabled": null,
-      "note": "Решение пишется в результат front_axis_resolved: rules[] {rule_id, applied, decision, rejected{source,theta,delta}, edge_agree}, source=camera_ambiguous, flags[front_ambiguous:photo_side]; loop5 кладёт их в таблицу/кэш front_cache. Потребитель — лист оценки (loop5.front_of); 07 перёд из front_axis_resolved НЕ берёт (tex_fill.front_axis_of_check читает камеру 06). Порог второго свидетеля — camera-check.json: edge_ref (один источник). Охват круга 3: 3 из 29. trial: на следующей партии сверить глазами; в active — после прогона с run_id."
+      "note": "Решение пишется в результат front_axis_resolved: rules[] {rule_id, applied, decision, rejected{source,theta,delta}, edge_agree}, source=camera_ambiguous, flags[front_ambiguous:photo_side]; loop5 кладёт их в таблицу/кэш front_cache. Потребитель — лист оценки (loop5.front_of); 07 перёд из front_axis_resolved НЕ берёт (tex_fill.front_axis_of_check читает камеру 06). Порог второго свидетеля — camera-check.json: edge_ref (один источник). Охват круга 3: 3 из 29. trial: на следующей партии сверить глазами; в active — после прогона с run_id.",
+      "group": "K29",
+      "enable_if": "пересчёт front_cache на 29 (ядра, $0) с photo_witness=true против false: 3 известных расхождения (стул 1557, кресло 7671, лампа 9365) исправлены ≥ 2 из 3, у остальных 26 «перёд» не меняется без причины (≤ 1, глазом); привязан run_id с записью extra.rules[] (в r4 записей правила нет — проверить)",
+      "decide_by": "2026-11-27"
     },
     {
       "rule_id": "R-PART-ROLES-GEOM-03",
@@ -1002,7 +1037,8 @@
       "flag": "tools/scout/rules/part-llm-roles.json#geometry_fallback",
       "check_field": null,
       "enabled": null,
-      "note": "Мост в режиме mode=dry (роли только в отчёт roles-bridge.json, parts.json и покраска не меняются) — поэтому observe/trial; в active — после перевода моста в on (отдельно, по чек-листу Codex: теневой прогон 07/08, независимая разметка, точность по площади) и прогона с run_id. Пороги — part-roles.json (table.legs.alt_require, table.frame.alt_require, table.frame.material_channel) и part-llm-roles.json geometry_fallback; geometry_fallback.enabled=false возвращает прежнее поведение. Выключены по умолчанию: geometry_fallback.to_body (фасад/верх, слитый с корпусом, → body) и geometry_fallback.unnamed (безымянная часть → роль/body) — Codex: body/facade не честная метка слитой «фасад+корпус», 07 по роли facade берёт зоны рельефа и донора тона, мерка «доля с ролью» награждает неверный body. Не сделано: корпусные (fine ≥0,90 снова 2 из 10), столик с боковинами-плитами и «Casing»/«Key Area» остаётся unknown, расщепление фасада по областям."
+      "note": "Мост в режиме mode=dry (роли только в отчёт roles-bridge.json, parts.json и покраска не меняются) — поэтому observe/trial; в active — после перевода моста в on (отдельно, по чек-листу Codex: теневой прогон 07/08, независимая разметка, точность по площади) и прогона с run_id. Пороги — part-roles.json (table.legs.alt_require, table.frame.alt_require, table.frame.material_channel) и part-llm-roles.json geometry_fallback; geometry_fallback.enabled=false возвращает прежнее поведение. Выключены по умолчанию: geometry_fallback.to_body (фасад/верх, слитый с корпусом, → body) и geometry_fallback.unnamed (безымянная часть → роль/body) — Codex: body/facade не честная метка слитой «фасад+корпус», 07 по роли facade берёт зоны рельефа и донора тона, мерка «доля с ролью» награждает неверный body. Не сделано: корпусные (fine ≥0,90 снова 2 из 10), столик с боковинами-плитами и «Casing»/«Key Area» остаётся unknown, расщепление фасада по областям.",
+      "group": "G3"
     },
     {
       "rule_id": "R-FORM-DIMS-02",
@@ -1028,7 +1064,8 @@
       "flag": "tools/scout/rules/form-checks.json#thresholds.dims_flag",
       "check_field": null,
       "enabled": null,
-      "note": "Только эталонные размеры карточки (ось, выведенная приором/мерой меша/правилом формы, — не эталон: `dimless.NOT_REFERENCE_RX`, один источник); диаметр вместо ширины×глубины не сверяется (`dims_dia_axes: false`: у торшеров след формы шире диаметра в 2–3 раза). dims_flag=false: флага нет, значение и `would_flag` («сработало бы») пишутся в form_checks.json — для калибровки порогов `dims_depth_over/under`, `dims_axis_dev`; в `block` не входит. Порог НЕ трогать, пока не наберётся ≥10 срабатываний и точность по глазам (паспорт #130: 2 из 4, ложные — шум размеров карточки). Замер 24.11: 24 body t229/t234-11 — 2 из 24 сработало бы (+25,5 % витрина, +20,6 % комод); контроли 49 форм прежних замеров — столы/стулья/вазы ≈ 0, Сакура +24 %. Мерка не чинит форму: масштаб по осям до камеры 04 — отдельное решение."
+      "note": "Только эталонные размеры карточки (ось, выведенная приором/мерой меша/правилом формы, — не эталон: `dimless.NOT_REFERENCE_RX`, один источник); диаметр вместо ширины×глубины не сверяется (`dims_dia_axes: false`: у торшеров след формы шире диаметра в 2–3 раза). dims_flag=false: флага нет, значение и `would_flag` («сработало бы») пишутся в form_checks.json — для калибровки порогов `dims_depth_over/under`, `dims_axis_dev`; в `block` не входит. Порог НЕ трогать, пока не наберётся ≥10 срабатываний и точность по глазам (паспорт #130: 2 из 4, ложные — шум размеров карточки). Замер 24.11: 24 body t229/t234-11 — 2 из 24 сработало бы (+25,5 % витрина, +20,6 % комод); контроли 49 форм прежних замеров — столы/стулья/вазы ≈ 0, Сакура +24 %. Мерка не чинит форму: масштаб по осям до камеры 04 — отдельное решение.",
+      "group": "G7"
     },
     {
       "rule_id": "R-COMPONENT-GUARD",
@@ -1054,7 +1091,8 @@
       "flag": "tools/scout/rules/component-guard.json#enabled",
       "check_field": null,
       "enabled": null,
-      "note": "Шаг ночи `component_guard --nightly` стоит в refresh_daily.sh после dimless; при enabled=false ничего не читает и не пишет. Включение — только после слова директора и миграции tools/scout/019-product-kind.sql (product_kind, kind_reason, role_before); первый --apply с --allow-new N (предохранитель: 824 из 824 строк магазина — не молча). Сухой отчёт 24.11 на боевой базе: снять 824/824 в 40 категориях mdm, вне mdm 0; контрпримеры (divan.ru «Модульные гостиные» 24; «Гардеробные системы» — размеры у 88 %; барная мебель, кушетки, порталы каминов, текстиль) не тронуты. Липкость: load3 и category_map --apply гасят роль у product_kind=component (SQL с проверкой колонки). Возврат роли — решением правила (появились размеры/сбой фида)."
+      "note": "Шаг ночи `component_guard --nightly` стоит в refresh_daily.sh после dimless; при enabled=false ничего не читает и не пишет. Включение — только после слова директора и миграции tools/scout/019-product-kind.sql (product_kind, kind_reason, role_before); первый --apply с --allow-new N (предохранитель: 824 из 824 строк магазина — не молча). Сухой отчёт 24.11 на боевой базе: снять 824/824 в 40 категориях mdm, вне mdm 0; контрпримеры (divan.ru «Модульные гостиные» 24; «Гардеробные системы» — размеры у 88 %; барная мебель, кушетки, порталы каминов, текстиль) не тронуты. Липкость: load3 и category_map --apply гасят роль у product_kind=component (SQL с проверкой колонки). Возврат роли — решением правила (появились размеры/сбой фида).",
+      "group": "G8"
     },
     {
       "state": "trial",
@@ -1081,7 +1119,8 @@
       "consumer": "tools/scout/salad/trellis/tex_visible.py:island_tone",
       "test_positive": "tools/scout/salad/trellis/tests_island_edge.py::test_ring_shifts_toward_photo_and_decays",
       "test_negative": "tools/scout/salad/trellis/tests_island_edge.py::test_known_synth_not_repainted",
-      "note": "ПРОБНОЕ (24.11): выключено (island_edge.enabled=false), проба — env TEX_VISIBLE_ISLAND=1. Мерка island_jump (|ΔL|>4 или ΔE>6 между взятыми и не взятыми в 3 текселях от границы) — в check.json 06 extra.stats[].island_jump."
+      "note": "ПРОБНОЕ (24.11): выключено (island_edge.enabled=false), проба — env TEX_VISIBLE_ISLAND=1. Мерка island_jump (|ΔL|>4 или ΔE>6 между взятыми и не взятыми в 3 текселях от границы) — в check.json 06 extra.stats[].island_jump.",
+      "group": "G5"
     },
     {
       "state": "trial",
@@ -1108,7 +1147,8 @@
       "consumer": "tools/scout/salad/trellis/tex_visible.py:line_gaps",
       "test_positive": "tools/scout/salad/trellis/tests_island_edge.py::test_dashed_line_closed_along_line",
       "test_negative": "tools/scout/salad/trellis/tests_island_edge.py::test_two_parallel_slits_not_merged",
-      "note": "ПРОБНОЕ (24.11): выключено, проба — env TEX_VISIBLE_ISLAND=1. Мерка «доля рваных» = закрытые / (тонкие тёмные + закрытые) — extra.stats[].line_ragged_share (до) и line_ragged_share_after (после)."
+      "note": "ПРОБНОЕ (24.11): выключено, проба — env TEX_VISIBLE_ISLAND=1. Мерка «доля рваных» = закрытые / (тонкие тёмные + закрытые) — extra.stats[].line_ragged_share (до) и line_ragged_share_after (после).",
+      "group": "G5"
     },
     {
       "state": "trial",
@@ -1135,7 +1175,8 @@
       "consumer": "tools/scout/salad/trellis/tex_visible.py:top_mode",
       "test_positive": "tools/scout/salad/trellis/tests_island_edge.py::test_top_pulled_to_median_side_untouched",
       "test_negative": "tools/scout/salad/trellis/tests_island_edge.py::test_few_top_faces_untouched",
-      "note": "ПРОБНОЕ (24.11): выключено, проба — env TEX_VISIBLE_ISLAND=1. Рисунок/зерно верха этапом 6 не создаётся (его даёт 07) — правило трогает только тон. Мерка — extra.stats[].top_delta_std (до, после)."
+      "note": "ПРОБНОЕ (24.11): выключено, проба — env TEX_VISIBLE_ISLAND=1. Рисунок/зерно верха этапом 6 не создаётся (его даёт 07) — правило трогает только тон. Мерка — extra.stats[].top_delta_std (до, после).",
+      "group": "G5"
     },
     {
       "rule_id": "R-CARCASS-LIBRARY-07",
@@ -1161,7 +1202,8 @@
       "flag": "tools/scout/rules/paint-fill.json#surface_groups.carcass_library.enabled",
       "check_field": "07-fill.surface_groups.carcass_library",
       "enabled": null,
-      "note": "ВЫКЛЮЧЕНО по умолчанию (enabled=false) до приёмки на замороженном наборе (план § 4). Библиотека entries — разметка dev-набора (24 body, 8 отделок, один магазин divan.ru) — гипотеза. Потолок идеи (leave-one-out по меткам бока, 19 товаров с отделкой в библиотеке): ΔE медиана 1,8 (≤8: 18/19), против main лучше 13 / хуже 1 / = 2 (~/remlab-logs/t2406-1124/lib-lab.md). Вывод бока из 06 по оси (без сегментации) ненадёжен: бок наблюдён у 4 из 23 размеченных, 2 из 4 неверны (lib-sh2.md). run_id нет — не active."
+      "note": "ВЫКЛЮЧЕНО по умолчанию (enabled=false) до приёмки на замороженном наборе (план § 4). Библиотека entries — разметка dev-набора (24 body, 8 отделок, один магазин divan.ru) — гипотеза. Потолок идеи (leave-one-out по меткам бока, 19 товаров с отделкой в библиотеке): ΔE медиана 1,8 (≤8: 18/19), против main лучше 13 / хуже 1 / = 2 (~/remlab-logs/t2406-1124/lib-lab.md). Вывод бока из 06 по оси (без сегментации) ненадёжен: бок наблюдён у 4 из 23 размеченных, 2 из 4 неверны (lib-sh2.md). run_id нет — не active.",
+      "group": "G6"
     },
     {
       "rule_id": "R-FORM-THIN",
@@ -1187,7 +1229,8 @@
       "flag": "tools/scout/rules/form-checks.json#thresholds.thin_flag",
       "check_field": null,
       "enabled": null,
-      "note": "Тонкая часть = кусок силуэта, пропадающий при раскрытии маски кругом радиуса `thin_r` (3 % высоты) — ножки-прутья, стойки торшеров, спицы, тонкие кромки; толстое (корпус, тюльпан-ножка, сиденье) не считается. Толщина куска = 4 × среднее(EDT − ½) по его пикселям (для полосы n пикселей — n; без дрожания чёт/нечёт), оба силуэта к высоте 512 px; пары «часть формы ↔ часть фото» жадно по центрам (≤ 0,15 ширины/высоты, длины в ×3), значение — медиана отношений пар. Силуэт формы — ортогональный при лучшем азимуте (приближение, как sil_checks: поворот и перспектива фото дают разброс); точечный силуэт формы «жирнее» точной маски на ~5–15 %. thin_flag=false: флага нет, значение и `would_flag` пишутся в form_checks.json; в `block` не входит. Порог НЕ трогать, пока не наберётся ≥10 срабатываний и точность по глазам. Замер 24.11 (24 body t229 + 46 контрольных форм t173 с фото + 5 светильников/ламп из них; ядра, $0): тонкие части у фото есть у 35 из 70, пары набрались у 30; отношение толщин медиана 1,13, квартили 1,05–1,25, min 0,84, max 1,87; сработало бы 1 из 30 (95 %: 0,6–16,7 %) — торшер с толстой стойкой вместо тонкого прута (1,87); в полосе 1,4–1,6 (ниже порога) светильник Базель (1,48). Не видит: части толще 6 % высоты (порог класса «тонкое»), скрытые на фото в 3/4. thin_len — только справочно (5 из 70 сработало бы, из них у 2 форм тонкие части пропали совсем, у 3 — шум 3/4 или переход толщины через границу класса). Мерка не чинит форму: ничего не бракует."
+      "note": "Тонкая часть = кусок силуэта, пропадающий при раскрытии маски кругом радиуса `thin_r` (3 % высоты) — ножки-прутья, стойки торшеров, спицы, тонкие кромки; толстое (корпус, тюльпан-ножка, сиденье) не считается. Толщина куска = 4 × среднее(EDT − ½) по его пикселям (для полосы n пикселей — n; без дрожания чёт/нечёт), оба силуэта к высоте 512 px; пары «часть формы ↔ часть фото» жадно по центрам (≤ 0,15 ширины/высоты, длины в ×3), значение — медиана отношений пар. Силуэт формы — ортогональный при лучшем азимуте (приближение, как sil_checks: поворот и перспектива фото дают разброс); точечный силуэт формы «жирнее» точной маски на ~5–15 %. thin_flag=false: флага нет, значение и `would_flag` пишутся в form_checks.json; в `block` не входит. Порог НЕ трогать, пока не наберётся ≥10 срабатываний и точность по глазам. Замер 24.11 (24 body t229 + 46 контрольных форм t173 с фото + 5 светильников/ламп из них; ядра, $0): тонкие части у фото есть у 35 из 70, пары набрались у 30; отношение толщин медиана 1,13, квартили 1,05–1,25, min 0,84, max 1,87; сработало бы 1 из 30 (95 %: 0,6–16,7 %) — торшер с толстой стойкой вместо тонкого прута (1,87); в полосе 1,4–1,6 (ниже порога) светильник Базель (1,48). Не видит: части толще 6 % высоты (порог класса «тонкое»), скрытые на фото в 3/4. thin_len — только справочно (5 из 70 сработало бы, из них у 2 форм тонкие части пропали совсем, у 3 — шум 3/4 или переход толщины через границу класса). Мерка не чинит форму: ничего не бракует.",
+      "group": "G7"
     },
     {
       "rule_id": "R-FILL-GATE-08",
@@ -1214,8 +1257,62 @@
       "flag": "data/flat3d/material-recipes.json#check.require_fill_present",
       "check_field": "08-material.fill_present",
       "enabled": null,
-      "note": "08 только при наличии 07; качество — автооценка 5 признаков; основание — ворота 07 не связаны с качеством (~/remlab-logs/t2406-1124/gates-eval.md). Кандидат в active; trial, пока нет run_id (боевой прогон 06→07→08: у Марти-2 06 красный, T-20261124-10/2) и пары примеров в test_rule_examples (пока оба — test_fill_gate: «07 нет/сбой → 08 красный, отметки нет» и «07 красный по порогам → 08 идёт, замечание extra.fill_stage»). Первая версия (13080265b) требовала ЗЕЛЁНЫЙ 07 — ослаблена в T-10/3."
+      "note": "08 только при наличии 07; качество — автооценка 5 признаков; основание — ворота 07 не связаны с качеством (~/remlab-logs/t2406-1124/gates-eval.md). Кандидат в active; trial, пока нет run_id (боевой прогон 06→07→08: у Марти-2 06 красный, T-20261124-10/2) и пары примеров в test_rule_examples (пока оба — test_fill_gate: «07 нет/сбой → 08 красный, отметки нет» и «07 красный по порогам → 08 идёт, замечание extra.fill_stage»). Первая версия (13080265b) требовала ЗЕЛЁНЫЙ 07 — ослаблена в T-10/3.",
+      "group": "K29",
+      "enable_if": "на круге 29: у всех товаров с 07 — 08 идёт (остановлено красным 07: 0 из 29), без 07 — красный отказ; привязан run_id (боевой прогон 06→07→08) и 2 парных примера в test_rule_examples (07 нет → красный; 07 красный по порогам → 08 идёт)",
+      "decide_by": "2026-11-27"
     }
   ],
-  "_active_rule": "active = consumer определён (ast) и вызывается боевым кодом + runtime=enforce и флаг включён + тест в CI + test_positive и test_negative на пример типа + run_id прогона. Без любого — trial (rule_registry_audit: ошибка). run_id — папка прогона в ~/remlab-logs, где правило отработало; проверка прогона структурная (--run): extra.rules[] с rule_id, type, digest, applied|abstain."
+  "_active_rule": "active = consumer определён (ast) и вызывается боевым кодом + runtime=enforce и флаг включён + тест в CI + test_positive и test_negative на пример типа + run_id прогона. Без любого — trial (rule_registry_audit: ошибка). run_id — папка прогона в ~/remlab-logs, где правило отработало; проверка прогона структурная (--run): extra.rules[] с rule_id, type, digest, applied|abstain.",
+  "groups": {
+    "G1": {
+      "title": "Политика типа и зоны деталей (К1–К7, детали, проёмы, оценка «рисунка» по типу)",
+      "decide_by": "2026-12-01",
+      "enable_if": "на круге 29 (честный пересчёт sides_eval, «не измерено» не считается прошедшим) признак «рисунок» проходит у ≥ 4 из 11 body (сейчас 2) и записи extra.rules[] applied/abstain есть у 29 из 29; не выполнено — снять группу, оставить К1 как политику паспорта"
+    },
+    "G2": {
+      "title": "Цепочка хуков тона body в 07 (верх, зад, бока; зерно, свет, градиент)",
+      "decide_by": "2026-12-01",
+      "enable_if": "на круге 29 и на отложенных body (не из тех 3 и не из 29): медиана «не одним тоном» у зад/бока/низ ≤ 10 % и ни один товар не хуже main больше чем на 10 п.п.; не выполнено — снять все хуки, вернуть main; новых хуков/порогов тона body не добавлять (рецензия 24.11)"
+    },
+    "G3": {
+      "title": "Роли частей по геометрии (мост 03)",
+      "decide_by": "2026-12-01",
+      "enable_if": "независимая разметка 24 body: роль верна по площади у ≥ 90 % и теневой прогон 07/08 без ухудшения; тогда мост dry → on"
+    },
+    "G4": {
+      "title": "Тень шва у мягкой (06)",
+      "decide_by": "2026-12-01",
+      "enable_if": "на 8 мягких «избыток тёмного в щели» медиана ↓ ≥ 50 % и контроли 6 из 6 байт в байт"
+    },
+    "G5": {
+      "title": "Края фото-острова 06 (остров, щель, мода верха)",
+      "decide_by": "2026-11-27",
+      "enable_if": "проба TEX_VISIBLE_ISLAND=1 на 29 (ядра, $0): island_jump ↓ ≥ 50 %, «заплатки» ≤ 6 из 29 (сейчас 10), товары без острова байт в байт"
+    },
+    "G6": {
+      "title": "Библиотека отделок корпуса (бока body)",
+      "decide_by": "2026-12-01",
+      "enable_if": "однократный holdout на отложенных body: ΔE бока ≤ 8 у ≥ 80 % и «лучше : хуже» против main ≥ 3 : 1 (сейчас 13 : 1 на 24)"
+    },
+    "G7": {
+      "title": "Проверки формы Ш0 (габарит, тонкие части, общие ворота)",
+      "decide_by": "2026-11-27",
+      "enable_if": "таблица «авто ↔ глаз» (P-064 п.4): из 5 сработавших (DIMS 2+2, THIN 1) настоящий брак у ≥ 3, тогда dims_flag/thin_flag=true; R-FORM-HARD ловит ≥ 3 из 4 виденных браков (сейчас 0 из 4)"
+    },
+    "G8": {
+      "title": "Каталог: комплектующие вне товаров",
+      "decide_by": "2026-11-27",
+      "enable_if": "выборка 30 из 824 глазами: ≥ 29 — комплектующие; применять (миграция 019, pg_dump) только со словом директора"
+    },
+    "K29": {
+      "title": "Кандидаты в active — включить по замеру в ближайшем пакете круга 29",
+      "kind": "enable",
+      "decide_by": "2026-11-27",
+      "enable_if": "по правилу 24.11 покраска меняется только замером «до → после» на тех же 29: у каждого правила — своё условие (ниже); оба идут в ближайший пакет круга 29, до этого state остаётся trial"
+    }
+  },
+  "decide_by_max": "2026-12-01",
+  "groups_max": 8,
+  "_trial_deadline_rule": "Пробные правила живут группами (groups): у группы decide_by (не позже decide_by_max = 2026-12-01) и enable_if — условие включения ЧИСЛОМ по 5 признакам или частной мерке на круге 29. Нет решения к decide_by — снять ВСЮ группу (state=retired, retired_reason, выключатель off). Групп «держать» не больше groups_max=8; группа kind=enable — кандидаты в active, включаются только замером «до → после» на тех же 29 (правило 24.11). Свод: ревью Fable, владелец 24.11; T-20261124-54/1 (таблица) и 54/2 (реестр). Проверка — tools/ops/rule_registry_audit.py (класс «срок/условие решения»); решение по группе принимает директор."
 }

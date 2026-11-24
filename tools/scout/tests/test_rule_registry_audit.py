@@ -28,21 +28,21 @@ def rule(**kw):
     return r
 
 
-def world(rules, ci='run: python tests/t.py', code=CODE, caller=CALLER, test=TEST, passports=None, flags=None):
+def world(rules, ci='run: python tests/t.py', code=CODE, caller=CALLER, test=TEST, passports=None, flags=None, reg=None):
     d = tempfile.mkdtemp(prefix='rra-')
     for name, text in (('tools/code.py', code), ('tools/caller.py', caller), ('tests/t.py', test), ('tools/f.json', json.dumps(flags or {'on': True, 'off': False, 'mode': 'observe'}))):
         os.makedirs(os.path.dirname(os.path.join(d, name)), exist_ok=True)
         open(os.path.join(d, name), 'w').write(text)
-    json.dump({'rules': rules}, open(os.path.join(d, 'reg.json'), 'w'), ensure_ascii=False)
+    json.dump(dict(reg or {}, rules=rules), open(os.path.join(d, 'reg.json'), 'w'), ensure_ascii=False)
     json.dump({'types': passports if passports is not None else {'комод': {'family': 'корпусное', 'paint': {'hidden_pattern': 'body'}}}},
               open(os.path.join(d, 'pass.json'), 'w'), ensure_ascii=False)
     open(os.path.join(d, 'ci.yml'), 'w').write(ci)
     return d
 
 
-def run(rules, run_dir='', **kw):
+def run(rules, run_dir='', today=None, **kw):
     d = world(rules, **kw)
-    res = RA.audit(os.path.join(d, 'reg.json'), os.path.join(d, 'pass.json'), os.path.join(d, 'ci.yml'), d, run_dir)
+    res = RA.audit(os.path.join(d, 'reg.json'), os.path.join(d, 'pass.json'), os.path.join(d, 'ci.yml'), d, run_dir, today=today)
     text, errs = RA.report(res)
     return res, text, errs, d
 
@@ -173,6 +173,73 @@ def test_schema_errors():
 def test_retired_skips_code_checks():
     res, _, errs, _ = run([rule(state='retired', consumer='tools/нет.py:f')])
     assert errs == 0, res
+
+
+V3 = {'version': 3, 'decide_by_max': '2026-12-01', 'groups_max': 2,
+      'groups': {'G1': {'decide_by': '2026-11-27', 'enable_if': 'рисунок прошёл у ≥ 4 из 11'},
+                 'G2': {'decide_by': '2026-12-01', 'enable_if': 'медиана ≤ 10 %'},
+                 'K': {'kind': 'enable', 'decide_by': '2026-11-27', 'enable_if': 'на 29: 0 отказов'}}}
+D = __import__('datetime').date
+
+
+def dl(res):
+    return [p for p in res["problems"] if p["cls"] == RA.C_DEADLINE]
+
+
+def trial(**kw):
+    return rule(**dict(dict(state='trial', group='G1'), **kw))
+
+
+def test_v3_trial_with_group_deadline_is_clean_and_old_registry_unchanged():
+    res, text, errs, _ = run([trial()], reg=V3, today=D(2026, 11, 25))
+    assert errs == 0 and not dl(res), (errs, text)
+    res, text, errs, _ = run([rule(state='trial')])               # реестр без version/groups (v2) — сроков не требует
+    assert errs == 0, text
+
+
+def test_v3_trial_needs_known_group():
+    for g in (None, 'G9'):
+        res, _, errs, _ = run([trial(group=g)], reg=V3, today=D(2026, 11, 25))
+        assert ('R-T-1', RA.C_DEADLINE, True) in classes(res) and errs >= 1, (g, res)
+
+
+def test_v3_group_deadline_and_condition_by_number():
+    bad = dict(V3, groups={'G1': {'decide_by': '2026-12-15', 'enable_if': 'когда станет лучше'}})
+    res, _, errs, _ = run([trial()], reg=bad, today=D(2026, 11, 25))
+    why = ' | '.join(p['why'] for p in res['problems'])
+    assert 'позже decide_by_max' in why and 'нет цифры' in why and errs == 2, why
+    nodate = dict(V3, groups={'G1': {'enable_if': '≥ 4 из 11'}})
+    res, _, errs, _ = run([trial()], reg=nodate, today=D(2026, 11, 25))
+    assert 'нет decide_by' in ' | '.join(p['why'] for p in res['problems']) and errs == 1
+
+
+def test_v3_overdue_group_is_class_not_error():
+    res, text, errs, _ = run([trial()], reg=V3, today=D(2026, 11, 28))
+    assert errs == 0 and any('вышел' in p['why'] for p in res['problems'] if p['cls'] == RA.C_DEADLINE), text
+    res, text, errs, _ = run([rule(state='retired', retired_reason='снято')], reg=V3, today=D(2027, 1, 1))   # у снятого срок не нужен
+    assert errs == 0 and not res['problems'], text
+
+
+def test_v3_rule_own_deadline_overrides_group_and_is_checked():
+    res, text, errs, _ = run([trial(group='K', decide_by='2026-11-27', enable_if='≥ 2 из 3 исправлены')], reg=V3, today=D(2026, 11, 25))
+    assert errs == 0 and not dl(res), text
+    res, _, errs, _ = run([trial(group='K', enable_if='лучше')], reg=V3, today=D(2026, 11, 25))
+    assert errs == 1
+
+
+def test_v3_hold_groups_limit_enable_group_not_counted():
+    rules = [trial(rule_id='R-A-1', group='G1'), trial(rule_id='R-A-2', group='G2'), trial(rule_id='R-A-3', group='K')]
+    res, _, errs, _ = run(rules, reg=V3, today=D(2026, 11, 25))
+    assert errs == 0, res                                            # 2 группы «держать» = groups_max, K — вида enable
+    res, _, errs, _ = run(rules, reg=dict(V3, groups_max=1), today=D(2026, 11, 25))
+    assert errs == 1 and 'groups_max' in res['problems'][0]['why']
+
+
+def test_v3_retired_needs_reason():
+    res, _, errs, _ = run([rule(state='retired')], reg=V3, today=D(2026, 11, 25))
+    assert errs == 1 and 'retired_reason' in res['problems'][0]['why']
+    res, _, errs, _ = run([rule(state='retired', retired_reason='снято: замер без пользы')], reg=V3, today=D(2026, 11, 25))
+    assert errs == 0
 
 
 def test_types_without_policy_is_class_and_strict_switch():
