@@ -52,6 +52,7 @@ draft → in_progress → completed → перенос в completed_plans/
 | price-segments-01 | Ценовые ступени по роли (П1.90) | in_progress | — | 2026-11-19 |
 | paint-photo-fill-01 | Покраска «фото + заливка» — порядок v3 (ADR-0457) | in_progress | — | 2026-11-23 |
 | paint-cycles-1123 | — | in_progress | — | 2026-11-23 |
+| body-carcass-tone-photo-01 | Тон корпуса body по участкам фото + лента + воздержание (T-20261124-06, ЧЕРНОВИК плана) | draft | 2026-11-24 | 2026-11-24 |
 | mesh-models-trial-01 | Проба открытых генераторов мешей против Hunyuan3D 2.1 | in_progress | — | 2026-11-20 |
 | floorplan-advisor-trials-01 | Пробы по совету советника — этажи, OCR размеров, внешняя сверка | in_progress | — | 2026-11-10 |
 | body-side-relief-1123 | Рельеф/рисунок фасада на невидимых сторонах у товаров с hidden_pattern=body (шкаф, комод, тв-тумба…) | draft | 2026-11-23 | 2026-11-23 |
