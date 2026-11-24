@@ -172,6 +172,16 @@ class RelayRetry(unittest.TestCase):
 class SaladApiRetry(unittest.TestCase):
     """create/start группы Salad при 504: повтор, перед повтором проверка «уже выполнено»."""
 
+    def setUp(self):
+        # Здесь проверяется только цикл повторов api_retry; ворота предела живых машин (T-20261124-58)
+        # проверяет tools/scout/salad/tests_salad_ceiling.py — тут они пропускают, без сети и счёта групп.
+        self._admit, self._release = S.KD.ceiling_admit, S.KD.ceiling_release
+        S.KD.ceiling_admit = lambda MG, name, need: (True, '')
+        S.KD.ceiling_release = lambda name: None
+
+    def tearDown(self):
+        S.KD.ceiling_admit, S.KD.ceiling_release = self._admit, self._release
+
     class MG:
         def __init__(self, script, group_state=None):
             self.script, self.calls, self.group = list(script), [], group_state
