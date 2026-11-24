@@ -84,6 +84,13 @@
     очереди. Допуск — по ФАКТУ свободной памяти: свободно ≥ свой порог + запас, БЕЗ вычета неизрасходованных заявок держателей
     (при `t182-whole` 6 ГБ заявлено / 1 по факту драйвер ждал 8 мин); защита головы его не закрывает. Остальные — как прежде
     (класс 1 и большие заявки доли держателей вычитают).
+    T-20261124-19 (24.11: 8 платных драйверов Salad — заявка 0,3 ГБ / 1 ядро, по факту 0 ядер / 0,5 ГБ — заняли все 8 обычных
+    слотов, и локальные задачи стояли 20–35 мин при 15 ГБ и 13 ядрах свободно): ЛЁГКИЙ ДЕРЖАТЕЛЬ (тот же признак `remote_small`) слот
+    НЕ занимает — берёт собственный замок `slot<k>.lock` ЗА обычными слотами и резервом (номера all_slots()+1 …, до
+    HEAVY_SLOT_LIGHT_SLOTS, 24), идёт мимо очереди и допуска по заявкам. Обычные слоты, доли памяти и заявки ядер его не видят —
+    нагрузку, которую он создаёт на самом деле, показывают MemAvailable и /proc/stat (факт), а не заявка. Условие входа одно —
+    по факту памяти: свободно ≥ свой порог + запас (одиночный — свой порог), сторож «свободно < запаса» ждёт и его. Старая версия
+    лёгких замков не знает — на неё они не влияют.
   * ЯДРА (T-20261111-17, владелец TG 1488: 11.11 в 13:55 нагрузка 24 на 15 ядрах — 3D в Playwright ~7 ядер, три регресса
     по -j 3 и ещё два прогона; память была, процессора нет). `--cores N` / `heavy_slot(cores=N)` — сколько ядер займёт задача;
     без ключа обёртка ВЫВОДИТ ядра из команды (T-17/2, `cores_hint`, строка журнала «ядра выведены: N (по …)»), не узнала —
@@ -222,6 +229,16 @@ def remote_small(prio: int, own: float, cores: float) -> bool:
     ест: стоять ему в нашей очереди дольше, чем нужно по факту, — деньги и время зря (урок 703)."""
     return (prio >= int(_env_f('HEAVY_SLOT_REMOTE_PRIO', 2)) and own <= _env_f('HEAVY_SLOT_REMOTE_GB', 1.0)
             and cores <= _env_f('HEAVY_SLOT_REMOTE_CORES', 1.0))
+
+
+def light_slots() -> int:
+    """ЛЁГКИЕ ДЕРЖАТЕЛИ (T-20261124-19): сколько замков за обычными слотами и резервом — HEAVY_SLOT_LIGHT_SLOTS, по умолчанию 24."""
+    return max(0, int(_env_f('HEAVY_SLOT_LIGHT_SLOTS', 24)))
+
+
+def light_ids() -> list:
+    """Номера замков лёгких держателей: сразу за all_slots() (обычные и резерв пробы их не считают)."""
+    return list(range(all_slots() + 1, all_slots() + light_slots() + 1))
 
 
 def fact_on() -> bool:
@@ -781,7 +798,7 @@ def _nested() -> int | None:
         pid = int(os.environ.get('HEAVY_SLOT_HELD', ''))
     except ValueError:
         return None
-    return pid if pid in _ancestors() and any(is_held(k) for k in range(1, all_slots() + 1)) else None
+    return pid if pid in _ancestors() and any(is_held(k) for k in range(1, all_slots() + light_slots() + 1)) else None
 
 
 def _noslot_parent() -> int | None:
@@ -1265,12 +1282,6 @@ def _need(d: str, k: int, own: float, n: int, cores: float = CORES_DEFAULT, prio
     cok, cwhy = _cores_ok(d, k, n, cores, prio)
     if not cok:
         return False, f'память не считал; {cwhy}', free, 'ядра'
-    if remote_small(prio, own, cores):                # удалённый платный драйвер: по ФАКТУ свободной памяти, без неизрасходованных заявок держателей
-        alone = not any(is_held(j) for j in range(1, n + 1) if j != k)     # одиночный — как всегда: свой порог без запаса (иначе при малой памяти не пустили бы вовсе)
-        mok = free >= (own if alone else own + res)
-        return mok, (f"удалённый платный драйвер (приоритет {prio}, порог {own:g} ГБ, ядер {cores:g}): свободно {free:.1f} ГБ "
-                     f"{'≥' if mok else '<'} свой {own:g}" + (' (одиночный — без запаса)' if alone else f' + запас {res:.1f}')
-                     + f" — заявки держателей не вычитаю; {cwhy}"), free, 'память'
     others, why, any_h = _holders_need(d, k, n)
     mok = free >= (others + own + res if any_h else own)
     return mok and cok, (f"свободно {free:.1f} ГБ {'≥' if mok else '<'} свой {own:g}"
@@ -1285,6 +1296,85 @@ def _admit(d: str, k: int, own: float, n: int, cores: float = CORES_DEFAULT,
     if not any(is_held(j) for j in range(1, n + 1) if j != k):
         return False, 'другие слоты свободны', 0.0, 'слот 1'
     return _need(d, k, own, n, cores, prio)
+
+
+@contextlib.contextmanager
+def _light_hold(label: str, min_gb: float, cores: float, pr: int, info: dict, poll: float, timeout, note, cmd: str, long: bool, typ: str):
+    """ЛЁГКИЙ ДЕРЖАТЕЛЬ (T-20261124-19): удалённый платный драйвер (`remote_small`) — отдельный замок за обычными слотами и резервом, мимо
+    очереди и заявок. Ждёт только факт памяти: сторож (свободно < запаса) и свободно ≥ свой порог + запас (одиночный — свой порог);
+    нет свободного лёгкого замка — тоже ждёт. Его заявки ядер и память в долях обычных держателей не считаются (`n = all_slots()`)."""
+    d = os.path.dirname(_lock_file())
+    n, ids, res = all_slots(), light_ids(), reserve_gb()
+    step = min(1.0, poll) if poll > 0 else 0.05
+    t0, last, why = time.time(), -1e9, ''
+    fd, slot = None, 0
+    me = {'label': label, 'pid': os.getpid(), 'since': int(t0), 'min_gb': min_gb, 'eff_gb': round(min_gb, 3), 'type': typ, 'bf': 1, 'cmd': cmd[:300],
+          'prio': pr, 'cores': f'{cores:g}', 'long': int(bool(long)), 'v': 75, 'light': 1}
+    fds = {k: os.open(_lock_file(k), os.O_RDWR | os.O_CREAT, 0o644) for k in ids}
+    holder_p = ''
+    try:
+        while True:
+            free = mem_available_gb()
+            alone = not any(is_held(j) for j in range(1, n + 1))
+            need = min_gb if alone else min_gb + res
+            if free < res:
+                why = f'сторож: свободно {free:.1f} ГБ < запаса {res:.1f}'
+            elif free < need:
+                why = f'свободно {free:.1f} ГБ < свой {min_gb:g}' + ('' if alone else f' + запас {res:.1f}')
+            else:
+                why = ''
+                for k in ids:
+                    try:
+                        fcntl.flock(fds[k], fcntl.LOCK_EX | fcntl.LOCK_NB)
+                    except BlockingIOError:
+                        continue
+                    fd, slot = fds[k], k
+                    break
+                if fd is not None:
+                    break
+                why = f'все {len(ids)} лёгких замков заняты'
+            if time.time() - last >= 300 or last < 0:
+                note(f'лёгкий держатель ждёт: {why}')
+                last = time.time()
+            if timeout is not None and time.time() - t0 >= timeout:
+                note(f'не дождался лёгкого замка за {round(time.time() - t0)} с (--timeout {timeout:g}) — не запускаю')
+                raise SlotTimeout(label)
+            time.sleep(step)
+        holder_p = _holder_file(d, slot)
+        free = mem_available_gb()
+        _write_kv(holder_p, dict(me, since=int(time.time()), stage='работает', free_gb=round(free, 1), slot=slot, run_t=f'{time.time():.2f}'))
+        waited = time.time() - t0
+        note(f'взял ЛЁГКИЙ замок {slot} (мимо очереди и заявок): ждал {_sec(waited)} с, свободно {free:.1f} ГБ ≥ свой {min_gb:g}'
+             + ('' if alone else f' + запас {res:.1f}') + f' — удалённый платный драйвер (приоритет {pr}, ядер {cores:g}); заявки обычных держателей не вычитаю'
+             + (', долгая' if long else ''))
+        info.update(waited_s=round(waited, 1), free_gb=free, fd=fd, yields=0, eff_gb=min_gb, slot=slot, light=True)
+        old = os.environ.get('HEAVY_SLOT_HELD')
+        os.environ['HEAVY_SLOT_HELD'] = str(os.getpid())
+        old_c = os.environ.get('HEAVY_SLOT_CORES')
+        os.environ['HEAVY_SLOT_CORES'] = cores_env(cores)
+        long_s = _env_f('HEAVY_SLOT_LONG_S', 2700)
+        meter = _Meter(label, os.getpid(), max(0.05, _env_f('HEAVY_SLOT_SAMPLE', 5)), long_s, holder_p, min_gb, declared=None)
+        meter.start()
+        t_run = time.time()
+        try:
+            yield info
+        finally:
+            for k_, v_ in (('HEAVY_SLOT_HELD', old), ('HEAVY_SLOT_CORES', old_c)):
+                if v_ is None:
+                    os.environ.pop(k_, None)
+                else:
+                    os.environ[k_] = v_
+            peak, peak_rss = meter.stop()
+            log(label, f'отпустил лёгкий замок {slot}: держал {_sec(time.time() - t_run)} с; пик памяти дерева {peak:.2f} ГБ (RSS {peak_rss:.2f}), тип {typ}')
+    finally:
+        if fd is not None:
+            h = _read_kv(holder_p) or {}
+            if h.get('pid') == str(os.getpid()):
+                _unlink(holder_p)
+            with contextlib.suppress(OSError):
+                fcntl.flock(fd, fcntl.LOCK_UN)        # как у обычного слота (T-20261120-162): осиротевший потомок замок не держит
+        for f in fds.values():
+            os.close(f)
 
 
 @contextlib.contextmanager
@@ -1338,6 +1428,10 @@ def heavy_slot(label: str, min_gb: float = 6.0, timeout: float | None = None, no
         info['nested'] = parent
         log(label, f'вложенный вызов: слот уже у предка pid={parent} — не ждём')
         yield info
+        return
+    if remote_small(pr, min_gb, cores):               # T-20261124-19: удалённый платный драйвер слот не занимает — лёгкий замок мимо очереди
+        with _light_hold(label, min_gb, cores, pr, info, poll, timeout, note, cmd, long, task_type(label)) as li:
+            yield li
         return
     # n — все слоты (обычные + резерв пробы): доли памяти держателей и «занят ли другой слот» — по всем; ids — какие слоты
     # могу брать я: класс ≥ 1 — и резерв (T-20261110-29), обычный — только обычные (с T-75 — до max_slots(), номера сверх
@@ -1454,8 +1548,7 @@ def heavy_slot(label: str, min_gb: float = 6.0, timeout: float | None = None, no
                     return 0
                 res_only = all(k in res_ids for k in free_k)
             who, waited = _head_wait(d, live)
-            remote = remote_small(pr, own, cores)    # удалённый платный драйвер: допуск по факту памяти, защита головы его не закрывает
-            if waited >= lim and not res_only and not remote:
+            if waited >= lim and not res_only:
                 if not said_closed:
                     note(f'обгон закрыт: голова {who} ждёт {waited / 60:.0f} мин (≥ {lim / 60:g}) — новые не стартуют, '
                          f'слоты стекают к ней; жду по очереди')
@@ -1469,7 +1562,7 @@ def heavy_slot(label: str, min_gb: float = 6.0, timeout: float | None = None, no
                 return 0
             others = _holders_need(d, 0, n)[0]
             room = mem_available_gb() - others - res
-            if own > (mem_available_gb() - res if remote else room):
+            if own > room:
                 return 0
             for i, (_, _, kv) in enumerate(live[:pos]):
                 if kv.get('proxy') == '1' or (i > 0 and kv.get('bf') != '1'):
@@ -1764,6 +1857,15 @@ def status(out=sys.stdout) -> int:
                + ('; '.join(f'pid {p} {_proc(p)}' for p in owners) or 'не видно (чужой пользователь?)'))
         any_held = any_held or held
         stale = stale or bool(h and not held)
+    lights = []
+    for k in light_ids():
+        if is_held(k):
+            h = _read_kv(_holder_file(d, k)) or {}
+            if h and _alive(int(h.get('pid', 0) or 0)):
+                lights.append(h)
+    for h in lights:
+        pr(f"ЛЁГКИЙ: {h.get('label')} · pid {h.get('pid')} · {h.get('stage', '?')} {_ago(h.get('since'))} · заявка {h.get('min_gb')} ГБ, ядер {cores_of(h):g}"
+           f" · слот {h.get('slot')} (за обычными, очередь и заявки не занимает)")
     if not any_held:
         pr('СВОБОДНО: очередь никто не держит' + (' (запись держателя устарела — процесс умер)' if stale else ''))
     anyp = any(prio_clamp(w.get('prio') or 0) for w in waiters)
@@ -1833,7 +1935,7 @@ def status(out=sys.stdout) -> int:
             if any_held and others != float('inf'):
                 line += f'\n  сейчас: держатели могут взять ещё {others:.1f} ГБ → войдёт задача с порогом до ' \
                         f'{max(mem_available_gb() - others - res, 0):.1f} ГБ'
-                line += (f'\n  удалённый платный драйвер (приоритет ≥ {int(_env_f("HEAVY_SLOT_REMOTE_PRIO", 2))}, порог ≤ '
+                line += (f'\n  удалённый платный драйвер = лёгкий держатель, слота не занимает (до {light_slots()} замков за обычными; приоритет ≥ {int(_env_f("HEAVY_SLOT_REMOTE_PRIO", 2))}, порог ≤ '
                          f'{_env_f("HEAVY_SLOT_REMOTE_GB", 1.0):g} ГБ, ядер ≤ {_env_f("HEAVY_SLOT_REMOTE_CORES", 1.0):g}): по факту — '
                          f'войдёт, если свободно ≥ свой порог + запас {res:.1f} ГБ (сейчас свободно {mem_available_gb():.1f}), '
                          f'заявки держателей не вычитаются')
