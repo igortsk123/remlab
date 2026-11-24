@@ -16,6 +16,9 @@ import tempfile
 HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, HERE)
 sys.path.insert(0, os.path.abspath(os.path.join(HERE, '..', '..', 'ops')))
+sys.path.append(os.path.abspath(os.path.join(HERE, '..')))
+import remlab_tmp  # noqa: E402  временное теста — на диске, папка убирается при выходе (test_tmp_hygiene)
+remlab_tmp.use('tests_holder_registry')
 import holder_registry as HR  # noqa: E402
 import salad_live as SL  # noqa: E402
 
