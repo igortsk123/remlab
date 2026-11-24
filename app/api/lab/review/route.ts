@@ -15,9 +15,10 @@ const KINDS = {
   style_note: ["note"],
   quarantine: ["accept", "reject", "cut"],
   orient: ["cur", "new", "y0", "y90", "y180", "y270"],
+  pair: ["left", "right", "same"], // слепые пары «было/стало» (T-20261124-18 Р4): ключ — «<страница>:<пара>», вердикт — какая половина лучше
 } as const;
 const Body = z.object({
-  kind: z.enum(["style", "style_note", "quarantine", "orient"]),
+  kind: z.enum(["style", "style_note", "quarantine", "orient", "pair"]),
   key: z.string().min(1).max(160).regex(/^[\p{L}\p{N}_:|.\- ]+$/u),
   verdict: z.string().max(10),
   comment: z.string().trim().max(1000).optional(),

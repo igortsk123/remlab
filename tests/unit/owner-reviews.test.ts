@@ -36,4 +36,13 @@ describe("отметки владельца", () => {
     const j = (await r.json()) as { rows: { itemKey: string; comment: string | null }[] };
     expect(j.rows.map((x) => x.comment)).toEqual(["подходит и к сканди, и к джапанди", null]);
   });
+  it("слепые пары: left/right/same принимаются, чужой вердикт — 400, ответы отдаются по курсору", async () => {
+    expect((await post({ kind: "pair", key: "pary-1124:3", verdict: "left" })).status).toBe(200);
+    expect((await post({ kind: "pair", key: "pary-1124:3", verdict: "same" })).status).toBe(200);
+    expect((await post({ kind: "pair", key: "pary-1124:4", verdict: "accept" })).status).toBe(400);
+    expect((await post({ kind: "pair", key: "<b>", verdict: "left" })).status).toBe(400);
+    const r = await GET(new Request("http://x/api/lab/review?kind=pair&after=0", { headers: { "x-forwarded-for": "10.9.0.4" } }));
+    const j = (await r.json()) as { rows: { itemKey: string; verdict: string }[] };
+    expect(j.rows.map((x) => x.verdict)).toEqual(["left", "same"]);
+  });
 });
