@@ -463,12 +463,28 @@ class ProfileRefused(RuntimeError):
     """Группу Salad создаём ТОЛЬКО по профилю типа работы (`rules/salad-resources.json`). Нет профиля, свои числа мимо него, запрещённый тариф, карта вне профиля → отказ ДО создания группы (код 3)."""
 
 
-FORBIDDEN_TIERS = ('batch', 'high')                           # владелец TG 1456/1457: low, нет машин → medium, выше и batch нельзя
 PROFILE_REQUIRED = ('card', 'cpu', 'memory_mb', 'storage_gb', 'shm_mb', 'tier', 'tier_fallback', 'expect', 'basis')
 
 
 def resources_path() -> str:
     return os.path.join(os.path.dirname(os.path.abspath(__file__)), '..', 'rules', 'salad-resources.json')
+
+
+def allowed_tiers(path: str | None = None) -> list:
+    """Разрешённые тарифы Salad — `allowed_tiers` в `rules/salad-resources.json` (владелец TG 2626: только low). Нет файла/списка — пусто = отказ всем (в коде тарифов нет)."""
+    try:
+        v = json.load(open(path or resources_path(), encoding='utf-8')).get('allowed_tiers')
+    except (OSError, ValueError):
+        return []
+    return [str(x) for x in v] if isinstance(v, list) else []
+
+
+def tier_forbidden(tier, path: str | None = None) -> str | None:
+    """Единственная проверка тарифа перед созданием/стартом группы Salad: тариф вне `allowed_tiers` → строка отказа, иначе None."""
+    ok = allowed_tiers(path)
+    if tier in ok:
+        return None
+    return f'тариф «{tier}» запрещён (владелец TG 2626), только {" и ".join(ok) or "— список allowed_tiers в rules/salad-resources.json пуст"}'
 
 
 def load_profiles(path: str | None = None) -> dict:
@@ -479,11 +495,11 @@ def load_profiles(path: str | None = None) -> dict:
 
 
 def profile_problems(prof: dict) -> list[str]:
-    """Чем строка профиля негодна (пусто — годна): все поля на месте, тарифы только low/medium, `basis` честный (measured — дата и лог)."""
+    """Чем строка профиля негодна (пусто — годна): все поля на месте, тарифы только из `allowed_tiers`, `basis` честный (measured — дата и лог)."""
     out = [f'нет поля «{k}»' for k in PROFILE_REQUIRED if k not in prof]
     for k in ('tier', 'tier_fallback'):
-        if prof.get(k) in FORBIDDEN_TIERS or (k in prof and prof[k] not in ('low', 'medium')):
-            out.append(f'{k}={prof.get(k)!r}: разрешены только low и medium')
+        if k in prof and tier_forbidden(prof[k]):
+            out.append(f'{k}={prof.get(k)!r}: {tier_forbidden(prof[k])}')
     if prof.get('basis') not in ('measured', 'estimate'):
         out.append('basis: measured или estimate')
     elif prof['basis'] == 'measured':
@@ -520,8 +536,9 @@ def profile_resources(prof: dict, variant: str = '') -> dict:
 
 
 def tier_refusal(prof: dict, tier: str) -> str | None:
-    if tier in FORBIDDEN_TIERS:
-        return f'тариф «{tier}» запрещён (владелец TG 1456/1457: low, нет машин — medium, выше и batch нельзя)'
+    bad = tier_forbidden(tier)
+    if bad:
+        return bad
     if tier not in (prof['tier'], prof['tier_fallback']):
         return f'тариф «{tier}» вне профиля: разрешены {prof["tier"]} и (нет машин) {prof["tier_fallback"]}'
     return None
@@ -666,7 +683,7 @@ def probes(port: int, path: str = '/health') -> tuple[dict, dict]:
 def group_body(name: str, image: str, tier: str, class_id: str, port: int, env: dict, auth: dict, command: list | None = None, *, work_type: str = '', variant: str = '',
                card: str | None = None, resources: dict | None = None) -> dict:
     """Тело временной группы пробы: 1 нода, без автостарта и перезапуска, шлюз с ключом, пробы на /health. Ресурсы — ТОЛЬКО из профиля типа работы (`work_type`,
-    `rules/salad-resources.json`): свои `resources` → `ProfileRefused`, как и нет профиля, тариф вне {low, medium} (batch/high — нельзя), карта вне профиля."""
+    `rules/salad-resources.json`): свои `resources` → `ProfileRefused`, как и нет профиля, тариф вне `allowed_tiers` (только low, TG 2626), карта вне профиля."""
     if resources is not None:
         raise ProfileRefused('ресурсы группы нельзя передавать мимо профиля: правь строку типа работы в rules/salad-resources.json')
     prof = resource_profile(work_type)
@@ -1392,15 +1409,15 @@ def warm_decide(status: str | None, state: dict, image: str, now: float, min_lef
 
 
 def run_probe(a, MG, BR, spec: Spec, **kw) -> int:
-    """Платная проба по профилю типа работы. Тариф `low`; нет машин (`no_machine`, $0 — до running не списывается) → ОДИН раз `tier_fallback` (medium) в ядре, не в драйверах.
-    ВАЖНО: `a.tier`/`a.suffix` меняются на месте (замыкания `build_body` драйверов читают `a`). Выше medium и batch — нельзя (`tier_refusal`)."""
+    """Платная проба по профилю типа работы. Тариф `low` (владелец TG 2626: только low). Нет машин (`no_machine`, $0) → повтор на `tier_fallback` ТОЛЬКО если он ≠ текущему и разрешён (`tier_refusal`); в правилах он = low, повтора нет.
+    ВАЖНО: `a.tier`/`a.suffix` меняются на месте (замыкания `build_body` драйверов читают `a`)."""
     res: dict = {}
     rc = _run_probe_once(a, MG, BR, spec, result=res, **kw)
     try:
         prof = resource_profile(spec.work_type)
     except ProfileRefused:
         return rc
-    if (res.get('summary') or {}).get('stopped_by') == 'no_machine' and a.apply and a.tier == prof['tier'] and prof['tier_fallback'] != a.tier and getattr(a, 'tier_fallback', True):
+    if (res.get('summary') or {}).get('stopped_by') == 'no_machine' and a.apply and a.tier == prof['tier'] and prof['tier_fallback'] != a.tier and not tier_refusal(prof, prof['tier_fallback']) and getattr(a, 'tier_fallback', True):
         say(f'нет машин на «{a.tier}» — один раз пробую «{prof["tier_fallback"]}» (профиль {spec.work_type}; выше нельзя)')
         a.tier, a.suffix = prof['tier_fallback'], f'{a.suffix}m'
         return _run_probe_once(a, MG, BR, spec, result={}, **kw)

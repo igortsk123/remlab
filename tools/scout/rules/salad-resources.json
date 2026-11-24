@@ -1,5 +1,7 @@
 {
- "_about": "ПРОФИЛЬ РЕСУРСОВ SALAD ПО ТИПУ РАБОТЫ (T-186/1, владелец TG 1456/1457/1470). Группу Salad создаёт ТОЛЬКО kit_driver и ТОЛЬКО по строке этого файла: нет строки — отказ до создания группы (код 3), свои числа мимо профиля — отказ. Тариф: `tier` (low), нет машин — один раз `tier_fallback` (medium); выше и `batch` — запрещены. Цены тут не хранятся: только живые (kit_driver.gpu_class). `basis`: `measured` — нужны `measured.date` и `measured.log`; `estimate` — «по оценке», не мерили (в журнал проб пишется явно). Воркер отдаёт пики в /health (peak_rss_gb, peak_vram_gb, disk_free_gb, disk_mb_s, weights_gb_min); после прогона `resource_profile.py --suggest <summary>` печатает расхождения, строку правит человек. `expect.weights_gb_min_min` — нижняя скорость докачки весов для DiskGuard (если нет — из salad-groups.json → disk_guard).",
+ "_about": "ПРОФИЛЬ РЕСУРСОВ SALAD ПО ТИПУ РАБОТЫ (T-186/1, владелец TG 1456/1457/1470). Группу Salad создаёт ТОЛЬКО kit_driver и ТОЛЬКО по строке этого файла: нет строки — отказ до создания группы (код 3), свои числа мимо профиля — отказ. Тариф: ТОЛЬКО из `allowed_tiers` (владелец TG 2626: только low, batch/medium/high нельзя; kit_driver.tier_refusal). `tier_fallback` = low (нет машин — повтора на другом тарифе нет). Цены тут не хранятся: только живые (kit_driver.gpu_class). `basis`: `measured` — нужны `measured.date` и `measured.log`; `estimate` — «по оценке», не мерили (в журнал проб пишется явно). Воркер отдаёт пики в /health (peak_rss_gb, peak_vram_gb, disk_free_gb, disk_mb_s, weights_gb_min); после прогона `resource_profile.py --suggest <summary>` печатает расхождения, строку правит человек. `expect.weights_gb_min_min` — нижняя скорость докачки весов для DiskGuard (если нет — из salad-groups.json → disk_guard).",
+ "allowed_tiers": ["low"],
+ "_allowed_tiers_why": "Разрешённые тарифы Salad (владелец 24.11, TG 2626: только low; batch нельзя, выше — только его словом). Проверка — kit_driver.tier_refusal/tier_forbidden: любой тариф вне списка — отказ ДО создания группы (ProfileRefused, код 3). Расширять список — только по слову владельца.",
  "profiles": {
   "trellis_shape": {
    "card": "RTX 5060 Ti (16 GB)",
@@ -12,7 +14,7 @@
    "storage_gb": 80,
    "shm_mb": 1024,
    "tier": "low",
-   "tier_fallback": "medium",
+   "tier_fallback": "low",
    "expect": {
     "job_s": 245,
     "job_s_5090": 128,
@@ -94,7 +96,7 @@
    "storage_gb": 80,
    "shm_mb": 2048,
    "tier": "low",
-   "tier_fallback": "medium",
+   "tier_fallback": "low",
    "expect": {
     "job_s": 341,
     "peak_vram_gb": 25.2,
@@ -117,7 +119,7 @@
    "storage_gb": 40,
    "shm_mb": 2048,
    "tier": "low",
-   "tier_fallback": "medium",
+   "tier_fallback": "low",
    "expect": {},
    "basis": "estimate",
    "basis_note": "числа прежних проб parts_trial (T-183), пики не мерили"
@@ -130,7 +132,7 @@
    "storage_gb": 10,
    "shm_mb": 1024,
    "tier": "low",
-   "tier_fallback": "medium",
+   "tier_fallback": "low",
    "expect": {
     "job_s": 261,
     "per_item_render_s_min": 68,
@@ -155,7 +157,7 @@
    "storage_gb": 10,
    "shm_mb": 1024,
    "tier": "low",
-   "tier_fallback": "medium",
+   "tier_fallback": "low",
    "expect": {
     "job_s": 1140,
     "per_item_s_min": 277,
@@ -187,7 +189,7 @@
     }
    },
    "tier": "low",
-   "tier_fallback": "medium",
+   "tier_fallback": "low",
    "expect": {},
    "basis": "measured",
    "measured": {
@@ -204,7 +206,7 @@
    "storage_gb": 80,
    "shm_mb": 1024,
    "tier": "low",
-   "tier_fallback": "medium",
+   "tier_fallback": "low",
    "expect": {},
    "basis": "estimate",
    "basis_note": "Pixal3D / Pixal3D-tex пробы (trellis_trial): прежние умолчания драйвера 8 vCPU/32 ГБ/80 ГиБ/1 ГБ, пики не мерили"
@@ -219,7 +221,7 @@
    "storage_gb": 80,
    "shm_mb": 1024,
    "tier": "low",
-   "tier_fallback": "medium",
+   "tier_fallback": "low",
    "expect": {},
    "basis": "estimate",
    "basis_note": "LocalMesh (trellis_trial): прежние умолчания драйвера, карта 4060 Ti 16 ГБ — по комментарию драйвера, пики не мерили"
@@ -232,7 +234,7 @@
    "storage_gb": 10,
    "shm_mb": 1024,
    "tier": "low",
-   "tier_fallback": "medium",
+   "tier_fallback": "low",
    "expect": {
     "job_s": 30
    },

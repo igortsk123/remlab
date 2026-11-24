@@ -229,6 +229,8 @@
     },
     "mesh-batch-7": {
       "tier": "batch",
+      "disabled": true,
+      "disabled_reason": "тариф batch запрещён (владелец 24.11, TG 2626: Salad только low); запись оставлена — по ней цена и тариф старых нодо-минут",
       "price_class": "RTX 4060 Ti (16 GB)",
       "_price_class_why": "ночь 23→24.10: 270 из 295 выдач Salad — RTX 4060 Ti (16 GB) (события Instance Allocated); смесь классов точно — pool_ledger.py",
       "window_utc": [
@@ -245,6 +247,8 @@
     },
     "mesh-batch-6": {
       "tier": "batch",
+      "disabled": true,
+      "disabled_reason": "тариф batch запрещён (владелец 24.11, TG 2626: Salad только low); запись оставлена — по ней цена и тариф старых нодо-минут",
       "window_utc": [
         9,
         15

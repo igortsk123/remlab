@@ -2,7 +2,7 @@
 tier: 2
 topic: workflow
 scope: Полный протокол план→деплой с обоснованиями
-tier1: ../../.claude/rules/agent-workflow.md
+tier1: ../rules/INDEX.md
 updated: 2026-11-18
 importance: high
 source: manual
@@ -10,7 +10,7 @@ source: manual
 
 # Workflow агента — полная версия
 
-Правила — реестр: P-069, P-071, P-074 (`.claude/rules/00-operating-index.md`; `.claude/rules/agent-workflow.md` — указатель). Здесь — обоснования и детали.
+Правила — реестр: P-069, P-071, P-074 (`.claude/rules/00-operating-index.md`). Здесь — обоснования и детали.
 
 ## Почему план перед кодом
 Агент с большим контекстом склонен «сразу чинить». Это даёт правки мимо намерения, скрытый

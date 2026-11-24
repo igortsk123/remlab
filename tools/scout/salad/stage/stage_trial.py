@@ -6,7 +6,7 @@
 Запуск (платный, только под heavy-slot --prio 2, одна группа на пакет, потолок $1):
   heavy-slot.sh t189-stage-probe --prio 2 -- python stage_trial.py --image ghcr.io/…/mesh-stage-trial@sha256:… --inputs inputs.json --apply
 Без --apply — только разбор: тело группы без секретов, проверка образа и входов (группа НЕ создаётся). `--stop-only --suffix X` — погасить группу X и проверить «0 нод».
-Тариф: low; нет машин → medium (автоматически, ядро набора); batch и high запрещены (владелец 22.11, TG 1456/1457).
+Тариф: только low (владелец 24.11, TG 2626); нет машин → остановка без повышения до medium; batch, medium и high запрещены (tools/scout/rules/salad-resources.json allowed_tiers).
 КОД ЭТАПА ЕДЕТ В ЗАДАНИИ (T-193/1/1): драйвер собирает `code.tar` из `git archive <SHA>` (`code_tar.py`; `--code-ref`, по умолчанию HEAD этого дерева), кладёт его во вход каждого задания и шлёт `code_sha` +
 `code_tar_sha256`; воркер считает ИМЕННО этот код (образ — только среда), в ответе `code_sha`/`_code.json` — сверяется. Срез проверяется до платной группы (импорт точек входа из чистой распаковки).
 Входы — файл `inputs.json`: {"<товар>": {"glb": путь, "photo": путь RGBA-вырезки, "pose_run": папка камеры этапа 4, "body_only": false}} (список — аргументом, в код не зашит).
@@ -585,7 +585,7 @@ def main() -> int:
     ap.add_argument('--zones-from', default='', choices=['', 'parts', 'panels'], help='перебить rules/paint-fill.json zones_from (пусто — как в правилах)')
     ap.add_argument('--out', default=os.path.expanduser('~/remlab-logs/t189-1122/salad-out'))
     ap.add_argument('--card', default=CARD_NAME, help='класс Salad из профиля cpu_stage (запасные — в профиле)')
-    ap.add_argument('--tier', default='low', choices=['low', 'medium'], help='low; нет машин → medium (автоматически); batch и high запрещены правилом владельца 22.11')
+    ap.add_argument('--tier', default='low', choices=['low'], help='только low (владелец 24.11, TG 2626); medium, batch и high запрещены')
     ap.add_argument('--procs', type=int, default=0, help='заданий одновременно на ноде; 0 — по размеру ноды (NODE_DEFAULTS: low 4, big 4)')
     ap.add_argument('--variant', default=None, choices=['low', 'big'], help='размер ноды из профиля cpu_stage: low = 4 vCPU / 8 ГБ, big = 8 vCPU / 16 ГБ. Не задан — по пакету (T-20261124-09): ≥2 товаров → big, один товар → low. Тёплой ноде другого размера — своё имя (--suffix)')
     ap.add_argument('--fill-procs', type=int, default=0, help='из них этапа 07; 0 — по размеру ноды (NODE_DEFAULTS: low 2 — пик 07 ≈3 ГБ при 8 ГБ ноды, big 4 — 4×3,3 ≈13 ГБ из 16)')
