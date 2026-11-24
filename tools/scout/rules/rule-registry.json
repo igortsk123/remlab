@@ -977,21 +977,17 @@
     },
     {
       "rule_id": "R-PART-ROLES-GEOM-03",
-      "title": "Роли частей этапа 03 по геометрии, когда имя PartLLM не помогло: у стола «Base»/«Horizontal Panel»/«Support Structure» — столешница/ножки/каркас по форме, ножка с kind=body на полу — legs; у корпусных фасад/верх, слитые с корпусом, и безымянные крупные части — body (канал main); ножки, каркас, ручки, плафон корпусом не подменяются",
+      "title": "Роли частей этапа 03 стола по геометрии, когда имя PartLLM не помогло: общее имя («Base», «Horizontal Panel», «Support Structure») у типа без body → столешница/ножки/царга по форме, если подходит ровно одна роль; ножка стоит на полу, вертикальная и не плита (obb.slab=false) → legs; царга под столешницей (не на полу, не самая крупная, нижний край ≥0,6 высоты, не плита верха) → frame с каналом ножек (legs). Запасы «имя отвергнуто геометрией → body» и «безымянная ≥2 % → роль/body» ВЫКЛЮЧЕНЫ по умолчанию (решение директора 24.11 по Codex)",
       "state": "trial",
       "source": [
         "T-20261124-03 (директор 24.11, владелец TG 2384): журнал #199 (столешница и ножки в одной части), #206 (часть без роли), #207 (фасад и бока без роли)",
-        "замер на 28 товарах t198 (coarse/fine): coarse — стол ≥0,90 площади с ролью 0 из 4 → 4 из 4; fine — корпусные 2 из 10 → 10 из 10"
+        "T-20261124-03/2: правило frame у table + правки по ответу Codex (~/remlab-logs/t2403-1124/codex-roles-answer.md): канал роли в группе, obb.slab у ножки, безымянные и to_body — выкл",
+        "замер 28 товаров t198: столы ≥0,90 площади с ролью coarse 0 из 4 → 3 из 4, fine 0 из 4 → 3 из 4; контроли без изменений"
       ],
       "applies": {
         "types": [
           "стол обеденный",
-          "столик",
-          "комод",
-          "шкаф",
-          "тв-тумба",
-          "тумба прикроватная",
-          "витрина"
+          "столик"
         ]
       },
       "executor": "р.1 (parts_names_roles.bridge_roles, T-20261124-03)",
@@ -999,12 +995,12 @@
       "runtime": "observe",
       "test": "tools/assets/tests/test_parts_names_roles.py",
       "test_positive": "tools/assets/tests/test_parts_names_roles.py::test_generic_names_of_a_table_get_top_and_legs_by_form",
-      "test_negative": "tools/assets/tests/test_parts_names_roles.py::test_to_body_not_where_body_is_not_allowed",
+      "test_negative": "tools/assets/tests/test_parts_names_roles.py::test_table_side_panel_is_not_a_leg",
       "run_id": null,
       "flag": "tools/scout/rules/part-llm-roles.json#geometry_fallback",
       "check_field": null,
       "enabled": null,
-      "note": "Мост в режиме mode=dry (роли только в отчёт roles-bridge.json, parts.json и покраска не меняются) — поэтому observe/trial; в active — после перевода моста в on и прогона с run_id. Пороги — part-roles.json (table.legs.alt_require) и part-llm-roles.json geometry_fallback; выключатель geometry_fallback.enabled=false возвращает прежнее поведение байт-в-байт (тест). Не сделано: разбиение копланарного фасада внутри корпуса (данных нет), «Table Frame»/«Casing»/«Key Area» у стола остаются unknown; безымянные части → body меняют решение плана 23.11 «по геометрии роль не ставим» (отдельный выключатель unnamed.enabled)."
+      "note": "Мост в режиме mode=dry (роли только в отчёт roles-bridge.json, parts.json и покраска не меняются) — поэтому observe/trial; в active — после перевода моста в on (отдельно, по чек-листу Codex: теневой прогон 07/08, независимая разметка, точность по площади) и прогона с run_id. Пороги — part-roles.json (table.legs.alt_require, table.frame.alt_require, table.frame.material_channel) и part-llm-roles.json geometry_fallback; geometry_fallback.enabled=false возвращает прежнее поведение. Выключены по умолчанию: geometry_fallback.to_body (фасад/верх, слитый с корпусом, → body) и geometry_fallback.unnamed (безымянная часть → роль/body) — Codex: body/facade не честная метка слитой «фасад+корпус», 07 по роли facade берёт зоны рельефа и донора тона, мерка «доля с ролью» награждает неверный body. Не сделано: корпусные (fine ≥0,90 снова 2 из 10), столик с боковинами-плитами и «Casing»/«Key Area» остаётся unknown, расщепление фасада по областям."
     }
   ],
   "_active_rule": "active = consumer определён (ast) и вызывается боевым кодом + runtime=enforce и флаг включён + тест в CI + test_positive и test_negative на пример типа + run_id прогона. Без любого — trial (rule_registry_audit: ошибка). run_id — папка прогона в ~/remlab-logs, где правило отработало; проверка прогона структурная (--run): extra.rules[] с rule_id, type, digest, applied|abstain."

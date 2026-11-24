@@ -46,6 +46,13 @@ def group_of(product_role: str | None, classes: dict | None = None) -> str:
     return hit.pop() if len(hit) == 1 else "any"
 
 
+def role_channel(rules: dict, grp: dict | None, role: str):
+    """Канал материала роли: у роли группы есть машинное поле `groups.<g>.roles.<role>.material_channel` (канал, которым красится роль в этом типе: у стола frame — канал ножек,
+    «материал каркаса в каталоге входит в legs») — берём его, иначе глобальный `roles.<role>.material_channel`. Один источник для assign_roles и моста названий (T-20261124-03/2)."""
+    own = ((grp or {}).get("roles") or {}).get(role, {}).get("material_channel")
+    return own if own is not None else rules["roles"][role].get("material_channel")
+
+
 def _get(f: dict, key: str):
     cur = f
     for k in key.split("."):
@@ -123,7 +130,7 @@ def _similar_to_trusted(features: dict, out: dict, st: dict, colours: dict, rule
             if f["up_q90"] > lg["max_up_q90"] or (de is not None and de < lg["min_de_main"]):
                 continue
         rd = rules["roles"][role]
-        new = {**o, "role": role, "role_title": rd["titleRu"], "material_channel": rd.get("material_channel"), "role_conf": rc["matched"], "unknown_reason": None,
+        new = {**o, "role": role, "role_title": rd["titleRu"], "material_channel": next(iter(chans)), "role_conf": rc["matched"], "unknown_reason": None,   # канал — доверенных частей (у стола frame = канал ножек), не глобальный канал роли
                "role_why": f"сходство с доверенной частью(ями) {sorted(match)}: цвет ΔE<={st['de_max']}, текстура x{2 ** st['tx_max']:.1f}, канал {next(iter(chans))}"}
         _rule_apply(st, q, out, "similar_to_trusted", new)
 
@@ -162,7 +169,7 @@ def assign_roles(features: dict[int, dict], rules: dict, product_role: str | Non
 
     def done(p, role, why, conf, reason=None):
         rd = rules["roles"][role]
-        out[p] = {"role": role, "role_title": rd["titleRu"], "material_channel": rd.get("material_channel"), "role_conf": conf, "role_why": why, "unknown_reason": reason}
+        out[p] = {"role": role, "role_title": rd["titleRu"], "material_channel": role_channel(rules, grp, role), "role_conf": conf, "role_why": why, "unknown_reason": reason}
 
     live = []
     for p, f in features.items():
@@ -308,10 +315,10 @@ def _no_front_same_channel(p: int, f: dict, out: dict, grp: dict, rules: dict, c
         return
     names = _front_free_roles(f, grp, rules, channels, ctx)
     main = rules["roles"]["body"].get("material_channel")
-    if not names or any(rules["roles"][n].get("material_channel") != main for n in names):
+    if not names or any(role_channel(rules, grp, n) != main for n in names):
         return
     rd = rules["roles"][names[0]]
-    _rule_apply(rule, p, out, "no_front_same_channel", {"role": names[0], "role_title": rd["titleRu"], "material_channel": rd.get("material_channel"), "role_conf": rc["matched"],
+    _rule_apply(rule, p, out, "no_front_same_channel", {"role": names[0], "role_title": rd["titleRu"], "material_channel": role_channel(rules, grp, names[0]), "role_conf": rc["matched"],
                 "role_why": "фронта нет, но роли " + "/".join(names) + " красятся одним каналом с основной частью — фронт материал не меняет", "unknown_reason": None})
 
 

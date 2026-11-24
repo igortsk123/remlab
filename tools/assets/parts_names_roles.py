@@ -64,9 +64,11 @@ def _entry(rules: dict, name: str) -> dict | None:
     return rules["map"].get((name or "").strip())
 
 
-def _done(rr: dict, role: str, why: str, conf: float, reason: str | None = None) -> dict:
+def _done(rr: dict, role: str, why: str, conf: float, reason: str | None = None, grp: dict | None = None) -> dict:
+    """Запись роли. Канал материала — через `parts_roles.role_channel` (канал роли в группе товара, иначе глобальный): у стола frame красится каналом ножек (T-20261124-03/2)."""
+    import parts_roles as pro
     rd = rr["roles"][role]
-    return {"role": role, "role_title": rd["titleRu"], "material_channel": rd.get("material_channel"), "role_conf": conf, "role_why": why, "unknown_reason": reason}
+    return {"role": role, "role_title": rd["titleRu"], "material_channel": pro.role_channel(rr, grp, role), "role_conf": conf, "role_why": why, "unknown_reason": reason}
 
 
 def _geometry_roles(f: dict, role_rules: dict, product_role: str | None, channels: set[str] | None, order: list[str], catalog_classes: dict[str, str] | None) -> list[str]:
@@ -113,7 +115,7 @@ def bridge_roles(names: dict[int, str], feats: dict[int, dict], rules: dict, rol
             if gf_on and un.get("enabled") and e.get("geometry_fallback") == "unnamed" and not tiny and f["area_share"] >= float(un.get("min_area_share", 0)):
                 fits = _geometry_roles(f, role_rules, product_role, channels, un.get("roles_order", []), catalog_classes)           # имени нет: роль решает геометрия части
                 if len(fits) == 1:
-                    out[p] = {**_done(role_rules, fits[0], f"имени нет → роль по геометрии: {fits[0]} (условия роли выполнены)", rc["matched"]), "name": name}
+                    out[p] = {**_done(role_rules, fits[0], f"имени нет → роль по геометрии: {fits[0]} (условия роли выполнены)", rc["matched"], grp=grp), "name": name}
                     continue
                 if len(fits) > 1:
                     out[p] = {**_done(role_rules, "unknown", f"имени нет, геометрии подходят роли {fits}", rc["unknown"], "ambiguous"), "name": name}
@@ -133,7 +135,7 @@ def bridge_roles(names: dict[int, str], feats: dict[int, dict], rules: dict, rol
                 gen = gf.get("generic_in_no_body_types") or {}
                 fits = _geometry_roles(f, role_rules, product_role, channels, gen.get("roles_order", []), catalog_classes) if gf_on and gen.get("enabled") else []
                 if len(fits) == 1:                                                                                                  # у стола «Base»/«Horizontal Panel»: корпуса нет, роль — столешница или ножки по форме
-                    out[p] = {**_done(role_rules, fits[0], f"название «{name}» (общее) → роль по геометрии: {fits[0]} (условия роли выполнены)", rc["matched"]), "name": name}
+                    out[p] = {**_done(role_rules, fits[0], f"название «{name}» (общее) → роль по геометрии: {fits[0]} (условия роли выполнены)", rc["matched"], grp=grp), "name": name}
                 else:
                     out[p] = {**_done(role_rules, "unknown", "тип, где материал столешницы/ножек назван отдельно: body не ставим" + (f"; геометрии подходят роли {fits}" if fits else ""),
                                       rc["unknown"], "body_scope"), "name": name}
@@ -146,11 +148,11 @@ def bridge_roles(names: dict[int, str], feats: dict[int, dict], rules: dict, rol
             ok2, _ = pro.role_fit(f, role_rules, product_role, channels, e["else"], catalog_classes=catalog_classes)
             picked = e["else"] if ok2 else None
         if picked:
-            out[p] = {**_done(role_rules, picked, f"название «{name}» → {role}" + ("" if picked == role else f", геометрия — {picked}") + "; условия роли выполнены", rc["matched"]), "name": name}
+            out[p] = {**_done(role_rules, picked, f"название «{name}» → {role}" + ("" if picked == role else f", геометрия — {picked}") + "; условия роли выполнены", rc["matched"], grp=grp), "name": name}
         elif why == "no_channel":                                                  # у товара нет такого канала в каталоге (плафон без «shade»): не провал геометрии
             out[p] = {**_done(role_rules, "unknown", f"название «{name}» → {role}, но канала «{role}» у товара в каталоге нет", rc["unknown"], "no_channel"), "name": name}
         elif (gf_on and (gf.get("to_body") or {}).get("enabled") and _body_allowed(grp, product_role)
-              and role_rules["roles"][role].get("material_channel") == role_rules["roles"]["body"].get("material_channel")):
+              and pro.role_channel(role_rules, grp, role) == pro.role_channel(role_rules, grp, "body")):
             # фасад/верх по имени, геометрия не подтвердила (самая крупная часть, фасад слит с корпусом, «ящик» с дном): канал каталога тот же, что у корпуса, — корпус, а не «нет роли»
             out[p] = {**_done(role_rules, "body", f"название «{name}» → {role}, геометрия не подтвердила ({why or 'условия роли не выполнены'}); канал каталога тот же (main) → корпус", rc["body"]), "name": name,
                       "geometry_why": why}

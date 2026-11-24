@@ -27,6 +27,9 @@ RR = pro.load_rules()
 TBL = pn.load_rules()
 TBL_OFF = json.loads(json.dumps(TBL))
 TBL_OFF["geometry_fallback"]["enabled"] = False                 # выключатель «как было» (T-20261124-03)
+TBL_ON = json.loads(json.dumps(TBL))
+TBL_ON["geometry_fallback"]["unnamed"]["enabled"] = True        # включённые по умолчанию ВЫКЛЮЧЕННЫЕ запасы (решение директора 24.11 по Codex): только проверяем их устройство
+TBL_ON["geometry_fallback"]["to_body"]["enabled"] = True
 KINDS5 = {0: "body", 1: "thin", 2: "thin", 3: "thin", 4: "thin"}
 
 
@@ -135,14 +138,14 @@ class Bridge(unittest.TestCase):
     def test_unnamed_part_gets_role_by_geometry_when_fallback_on(self):
         """T-20261124-03 (в): части без имени — роль по геометрии (плита наверху → top, стоящие на полу ножки → legs); объёмная часть, ни под что не подошедшая, → body там, где он разрешён."""
         ft = feats(self.v, self.f, self.part, KINDS5)
-        r = pn.bridge_roles({}, ft, TBL, RR, "столик", {"legs"})
+        r = pn.bridge_roles({}, ft, TBL_ON, RR, "столик", {"legs"})
         self.assertEqual(r[0]["role"], "top")
         self.assertEqual([r[p]["role"] for p in (1, 2, 3, 4)], ["legs"] * 4)
         sofa = assemble([box(0, 0.6, 0, 1.0, 0.8, 0.6, n=16), box(0, 0.9, -0.25, 1.0, 0.5, 0.1, n=12)])
         fs = feats(*sofa, {0: "body", 1: "body"})
-        rs = pn.bridge_roles({}, fs, TBL, RR, "диван", {"legs"})
+        rs = pn.bridge_roles({}, fs, TBL_ON, RR, "диван", {"legs"})
         self.assertEqual((rs[0]["role"], rs[1]["role"]), ("body", "body"))
-        rt = pn.bridge_roles({}, fs, TBL, RR, "стол обеденный", {"legs"})     # у стола body нет: объёмная часть без имени остаётся без роли
+        rt = pn.bridge_roles({}, fs, TBL_ON, RR, "стол обеденный", {"legs"})     # у стола body нет: объёмная часть без имени остаётся без роли
         self.assertEqual(rt[0]["role"], "unknown")
         ro = pn.bridge_roles({}, fs, TBL_OFF, RR, "диван", {"legs"})
         self.assertEqual((ro[0]["unknown_reason"], ro[1]["unknown_reason"]), ("no_name", "no_name"))
@@ -342,7 +345,7 @@ class GeometryFallback(unittest.TestCase):
     def test_facade_by_name_failing_geometry_becomes_body_same_channel(self):
         _, _, _, ft = self.chest()
         names = {0: "Drawer", 1: "Door Panel", 2: "Leg"}
-        r = pn.bridge_roles(names, ft, TBL, RR, "комод", {"legs"})
+        r = pn.bridge_roles(names, ft, TBL_ON, RR, "комод", {"legs"})
         self.assertEqual(r[0]["role"], "body")                                # самая крупная часть с именем «Drawer»: фасад слит с корпусом (forbid is_largest) → корпус
         self.assertEqual(r[0]["material_channel"], RR["roles"]["body"]["material_channel"])
         self.assertIn("геометрия не подтвердила", r[0]["role_why"])
@@ -353,9 +356,9 @@ class GeometryFallback(unittest.TestCase):
 
     def test_to_body_not_where_body_is_not_allowed(self):
         _, _, _, ft = self.chest()
-        r = pn.bridge_roles({0: "Drawer", 1: "Door Panel", 2: "Leg"}, ft, TBL, RR, "стол обеденный", {"legs"})
+        r = pn.bridge_roles({0: "Drawer", 1: "Door Panel", 2: "Leg"}, ft, TBL_ON, RR, "стол обеденный", {"legs"})
         self.assertNotEqual(r[0]["role"], "body")                             # у стола body нет: фасад столу не ставим
-        r2 = pn.bridge_roles({0: "Drawer", 1: "Door Panel", 2: "Leg"}, ft, TBL, RR, "люстра", set())
+        r2 = pn.bridge_roles({0: "Drawer", 1: "Door Panel", 2: "Leg"}, ft, TBL_ON, RR, "люстра", set())
         self.assertNotIn("body", {r2[p]["role"] for p in r2})                 # у типа без канала частей — тоже
 
     def test_generic_names_of_a_table_get_top_and_legs_by_form(self):
@@ -382,6 +385,44 @@ class GeometryFallback(unittest.TestCase):
         r2 = pn.bridge_roles({0: "Base"}, feats(*big, {0: "body"}), TBL, RR, "стол обеденный", {"legs"})
         self.assertEqual((r2[0]["role"], r2[0]["unknown_reason"]), ("unknown", "body_scope"))
 
+    def apron_table(self, apron_top=0.95, apron_h=0.08):
+        """Стол с царгой: плита наверху (0), четыре ножки на полу (1–4) и царга — тонкая плита под столешницей (5), не на полу и не самая крупная."""
+        top = box(0, 1.0, 0, 1.0, 0.06, 1.0, n=40)
+        legs = [box(x, 0.485, z, 0.05, 0.97, 0.05, n=4) for x in (-0.45, 0.45) for z in (-0.45, 0.45)]
+        apron = box(0, apron_top - apron_h / 2 - 0.03, 0, 0.8, apron_h, 0.8, n=12)
+        return assemble([top] + legs + [apron])
+
+    def test_table_apron_named_frame_gets_frame_by_position(self):
+        """T-20261124-03/2: «Table Frame» — царга под столешницей (kind=body, не на полу, не самая крупная, висит в верхней половине) → frame; ножки и столешница не задеты."""
+        v, f, part = self.apron_table()
+        kinds = {**KINDS5, 5: "body"}
+        ft = feats(v, f, part, kinds)
+        names = {0: "Surface Panel", 1: "Leg", 2: "Leg", 3: "Leg", 4: "Leg", 5: "Table Frame"}
+        r = pn.bridge_roles(names, ft, TBL, RR, "стол обеденный", {"legs"})
+        self.assertEqual(r[5]["role"], "frame")
+        self.assertEqual(r[5]["material_channel"], "legs")                     # у стола frame красится каналом ножек («материал каркаса в каталоге входит в legs»), а не глобальным каналом frame
+        self.assertNotEqual(r[5]["material_channel"], RR["roles"]["frame"]["material_channel"])
+        self.assertEqual(r[0]["role"], "top")
+        self.assertEqual([r[p]["role"] for p in (1, 2, 3, 4)], ["legs"] * 4)
+        self.assertEqual(pn.summarize(ft, r, TBL)["known_role_area_share"], 1.0)
+
+    def test_frame_by_position_rejects_floor_part_and_top_slab(self):
+        v, f, part = self.apron_table()
+        ft = feats(v, f, part, {**KINDS5, 5: "body"})
+        # «Table Frame» на самой плите верха (нижний квантиль ≥ 0,98) и «Table Frame» на ножке (на полу) — frame не получают
+        r_top = pn.bridge_roles({0: "Table Frame", 1: "Leg", 2: "Leg", 3: "Leg", 4: "Leg", 5: "Table Frame"}, ft, TBL, RR, "стол обеденный", {"legs"})
+        self.assertNotEqual(r_top[0]["role"], "frame")
+        r_leg = pn.bridge_roles({0: "Tabletop", 1: "Table Frame", 2: "Leg", 3: "Leg", 4: "Leg", 5: "Table Frame"}, ft, TBL, RR, "стол обеденный", {"legs"})
+        self.assertNotEqual(r_leg[1]["role"], "frame")                        # ножка стоит на полу — каркасом не станет (legs по форме у неё не выбирается именем)
+        self.assertEqual(r_leg[5]["role"], "frame")
+
+    def test_frame_rule_is_a_rule_of_table_group_only(self):
+        """Правило положения — условие роли группы table: у корпусного (комод) имя «Frame» по этим условиям каркасом не станет."""
+        v, f, part = self.apron_table()
+        ft = feats(v, f, part, {**KINDS5, 5: "body"})
+        r = pn.bridge_roles({0: "Frame", 1: "Frame", 2: "Frame", 3: "Frame", 4: "Frame", 5: "Frame"}, ft, TBL, RR, "комод", {"legs", "frame"})
+        self.assertNotEqual(r[5]["role"], "frame")
+
     def test_disabled_block_equals_missing_block(self):
         v, f, part = table()
         ft = feats(v, f, part, KINDS5)
@@ -402,6 +443,73 @@ class GeometryFallback(unittest.TestCase):
                 pn.load_rules(fh.name)
         finally:
             os.unlink(fh.name)
+
+
+class GeometryEnemies(unittest.TestCase):
+    """Тесты-«враги» (Codex 24.11, ~/remlab-logs/t2403-1124/codex-roles-answer.md): безымянный фасад, стекло, фурнитура, боковина стола не получают чужую роль; запасные пути (to_body, unnamed) выключены по умолчанию."""
+
+    def chest(self):
+        """Корпус (самая крупная часть), фасадная плита, безымянная часть-«стекло» спереди, мелкая «фурнитура»."""
+        v, f, part = assemble([box(0, 0.5, 0, 1.0, 0.8, 0.5, n=16), box(0, 0.5, 0.27, 0.9, 0.5, 0.04, n=8), box(0, 0.7, 0.30, 0.4, 0.3, 0.01, n=6), box(0.3, 0.3, 0.30, 0.06, 0.03, 0.03, n=3)])
+        return feats(v, f, part, {0: "body", 1: "body", 2: "body", 3: "thin"})
+
+    def test_risky_fallbacks_are_off_by_default(self):
+        gf = TBL["geometry_fallback"]
+        self.assertTrue(gf["enabled"])                                         # общий выключатель и generic_in_no_body_types действуют
+        self.assertFalse(gf["to_body"]["enabled"])                             # «имя отвергнуто геометрией → body» — только отдельным решением
+        self.assertFalse(gf["unnamed"]["enabled"])                             # «безымянная ≥2 % → роль/body» — тоже
+
+    def test_unnamed_front_glass_hardware_stay_unknown_by_default(self):
+        ft = self.chest()
+        r = pn.bridge_roles({}, ft, TBL, RR, "комод", {"legs", "handles"})
+        self.assertEqual({r[p]["role"] for p in r}, {"unknown"})              # безымянные фасад, «стекло», фурнитура — ни body, ни facade, ни handles
+        self.assertEqual({r[p]["unknown_reason"] for p in r if r[p]["unknown_reason"] != "tiny"}, {"no_name"})
+
+    def test_rejected_name_stays_unknown_by_default(self):
+        ft = self.chest()
+        r = pn.bridge_roles({0: "Drawer", 1: "Door Panel", 2: "Glass Door", 3: "Handle"}, ft, TBL, RR, "комод", {"legs", "handles"})
+        self.assertEqual((r[0]["role"], r[0]["unknown_reason"]), ("unknown", "name_geometry"))   # самая крупная «Drawer»: слитый фасад не маскируем под body
+        self.assertEqual(r[2]["unknown_reason"], "name_unknown")             # «стекло» — имени нет в таблице
+        self.assertNotIn(r[3]["role"], ("body", "facade"))
+
+    def test_to_body_never_swallows_other_channels_even_when_on(self):
+        ft = self.chest()
+        r = pn.bridge_roles({0: "Drawer", 1: "Door Panel", 2: "Glass Door", 3: "Handle"}, ft, TBL_ON, RR, "комод", {"legs", "handles"})
+        self.assertNotEqual(r[3]["role"], "body")                              # ручки — другой канал (handles): корпусом не подменяются
+        self.assertEqual(r[2]["unknown_reason"], "name_unknown")
+
+    def side_panel_table(self):
+        """Стол, у которого боковина — вертикальная плита до пола (часть 1), и обычная ножка (2)."""
+        top = box(0, 1.0, 0, 1.0, 0.06, 1.0, n=40)
+        panel = box(-0.45, 0.485, 0, 0.03, 0.97, 0.8, n=12)
+        leg = box(0.45, 0.485, 0.45, 0.05, 0.97, 0.05, n=4)
+        return assemble([top, panel, leg])
+
+    def test_table_side_panel_is_not_a_leg(self):
+        v, f, part = self.side_panel_table()
+        ft = feats(v, f, part, {0: "body", 1: "body", 2: "thin"})
+        for nm in ("Leg", "Base", "Support Structure"):
+            r = pn.bridge_roles({0: "Tabletop", 1: nm, 2: "Leg"}, ft, TBL, RR, "стол обеденный", {"legs"})
+            self.assertNotEqual(r[1]["role"], "legs", nm)                    # узкая боковина-плита (obb.slab) ножкой не станет ни по имени, ни по общему имени
+            self.assertEqual(r[2]["role"], "legs")                            # настоящая ножка рядом — legs
+
+    def test_table_legs_alt_rule_requires_non_slab(self):
+        alts = RR["groups"]["table"]["roles"]["legs"]["alt_require"]
+        self.assertTrue(any(c["f"] == "obb.slab" and c["v"] is False for grp in alts for c in grp))
+
+    def test_role_channel_is_group_specific(self):
+        self.assertEqual(pro.role_channel(RR, RR["groups"]["table"], "frame"), "legs")
+        self.assertEqual(pro.role_channel(RR, RR["groups"]["case"], "frame"), RR["roles"]["frame"]["material_channel"])
+        self.assertEqual(pro.role_channel(RR, None, "frame"), RR["roles"]["frame"]["material_channel"])
+        self.assertEqual(pro.role_channel(RR, RR["groups"]["table"], "legs"), RR["roles"]["legs"]["material_channel"])
+
+    def test_assign_roles_uses_table_frame_channel(self):
+        v, f, part = GeometryFallback().apron_table()
+        ft = feats(v, f, part, {**KINDS5, 5: "body"})
+        out = pro.assign_roles(ft, RR, "стол обеденный", {"legs"})
+        for p, o in out.items():
+            if o["role"] == "frame":
+                self.assertEqual(o["material_channel"], "legs")
 
 
 if __name__ == "__main__":
