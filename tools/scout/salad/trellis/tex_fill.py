@@ -1975,7 +1975,15 @@ def fill(geoms: list, known: list, parts: list | None = None, cfg: dict | None =
         return rep
 
     finish(outs)
-    return {'tex': outs, 'report': rep, 'finish': finish, 'keep': kn_keep}
+    legs_protect = None                                    # тексели виртуальной части ножек: тон — пин; паспорт поверхностей (группа «часть 0 = один тон») их не перекрашивает
+    if legs_rep and legs_rep['applied']:
+        pp_ = [int(p_) for p_ in legs_rep['pins']]
+        legs_protect = []
+        for gi, tx in enumerate(txs):
+            m_ = np.zeros(tx.T * tx.T, bool)
+            m_[tx.ti[np.isin(tx.part, pp_)]] = True
+            legs_protect.append(m_.reshape(tx.T, tx.T))
+    return {'tex': outs, 'report': rep, 'finish': finish, 'keep': kn_keep, 'legs_protect': legs_protect}
 
 
 # ---------------------------------------------------------------- черновик TRELLIS на нашу форму --------------------
@@ -2974,7 +2982,7 @@ def run_stage_once(run: str, sku: str, glb: str, known: list | None = None, part
         _hdone(hooks, 'front_back_vals_in_one', _m)
         vals = {'empty_pct': rp['unpainted_after_pct'], 'dE00_front_back': dw, 'dL_front_back': dlw, 'filled_faces_step_pct': rp['steps']['after']['filled_faces_step_pct'], 'far_excess_pct': rp['far_pct']['excess']}
         nfail = sum(0 if PS.judge(vals[k], th[k][0], th[k][1]) else 1 for k in vals)
-        return {'finish': r_['finish'], 'keep': r_.get('keep'), 'rep': rp, 'tex': tx_, 'de': de_, 'big': bg, 'de_worst': dw, 'vals': vals, 'nfail': nfail, 'key': (nfail, dw if dw is not None else 99.0, vals['far_excess_pct'] if vals['far_excess_pct'] is not None else 99.0)}
+        return {'finish': r_['finish'], 'keep': r_.get('keep'), 'legs_protect': r_.get('legs_protect'), 'rep': rp, 'tex': tx_, 'de': de_, 'big': bg, 'de_worst': dw, 'vals': vals, 'nfail': nfail, 'key': (nfail, dw if dw is not None else 99.0, vals['far_excess_pct'] if vals['far_excess_pct'] is not None else 99.0)}
     tried = {}
     if draft is not None and (cfg or {}).get('source') == 'trellis' and dict(FILL, **(cfg or {}))['draft_fallback']:      # Б и А: Б берётся, только если мерки не хуже (число непрошедших, затем ΔE перёд↔зад, затем пятна)
         cA = one(dict(cfg or {}, source='stat'), None)
@@ -3083,6 +3091,10 @@ def run_stage_once(run: str, sku: str, glb: str, known: list | None = None, part
             if sg_ctx.get('carcass_release'):                                                           # T-20261124-06: спорные видимые «боковые» тексели (фасад на боку) — красит библиотека отделок
                 k_ap = [np.asarray(a, bool) & ~np.asarray(m_, bool) for a, m_ in zip(k_ap, sg_ctx['carcass_release'])]
                 sg_rep['carcass_library_released'] = int(sum(int(np.asarray(m_).sum()) for m_ in sg_ctx['carcass_release']))
+            _lp = pick.get('legs_protect')
+            if _lp is not None:                                                                         # ножки (legs_common_tone): тон — пин группы, паспорт их не перекрашивает (иначе общий тон «части 0» затирает пин)
+                k_ap = [np.asarray(a, bool) | np.asarray(m_, bool) for a, m_ in zip(k_ap, _lp)]
+                sg_rep['legs_protected_texels'] = int(sum(int(np.asarray(m_).sum()) for m_ in _lp))
             _m = _hmark()
             m_b = SP.measure(geoms, tex_after, k_ap, sg_pas, sg_ctx, sg_cfg, sys.modules[__name__])
             _hdone(hooks, 'sg_measure_before', _m)
