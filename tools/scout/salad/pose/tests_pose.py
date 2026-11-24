@@ -7,6 +7,7 @@ import ast
 import hashlib
 import json
 import os
+import re
 import sys
 import tempfile
 import threading
@@ -324,6 +325,39 @@ class PureTests(unittest.TestCase):
             SPC.stage(REPO, os.path.join(d, 'x'), ['tools/scout/нет-такого.py'])
         with self.assertRaises(FileExistsError):
             SPC.stage(REPO, d)
+
+    def test_rules_json_of_closure_are_listed(self):
+        """Правила, на которые ссылаются модули списка (строковый литерал `<имя>.json`, такой файл лежит в tools/scout/rules), — тоже в pose_files.txt: образ собирается по списку (сборка 24.11 упала на tex-coverage.json)."""
+        listed = set(SPC.read_list())
+        have = set(os.listdir(os.path.join(REPO, 'tools/scout/rules')))
+        need = {}
+        for f in listed:
+            if not f.endswith('.py'):
+                continue
+            with open(os.path.join(REPO, f), encoding='utf-8') as fh:
+                tree = ast.parse(fh.read())
+            for node in ast.walk(tree):
+                if isinstance(node, ast.Constant) and isinstance(node.value, str):
+                    for m in re.findall(r'[A-Za-z0-9_-]+\.json', node.value):
+                        if m in have:
+                            need.setdefault('tools/scout/rules/' + m, f)
+        self.assertEqual(sorted((r, src) for r, src in need.items() if r not in listed), [], 'правила, читаемые модулями образа, не в pose_files.txt')
+
+    def test_image_import_line_works_from_staged_dir(self):
+        """Та же строка проверки комплектности, что в Dockerfile.pose (RUN python -I -c …), прогнана из каталога, собранного по pose_files.txt (вместо /opt/scout-root — временная папка)."""
+        try:
+            import numpy, cv2, scipy, PIL, trimesh  # noqa: F401,E401
+        except ImportError as e:
+            self.skipTest(f'нет библиотек образа в этом окружении: {e}')
+        import subprocess
+        text = open(os.path.join(HERE, 'Dockerfile.pose'), encoding='utf-8').read()
+        m = re.search(r'RUN python -I -c "(.*?)"\n', text, re.S)
+        self.assertIsNotNone(m, 'в Dockerfile.pose нет строки проверки комплектности')
+        d = os.path.join(tempfile.mkdtemp(prefix='tests_pose_img_'), 'code')
+        SPC.stage(REPO, d)
+        code = m.group(1).replace('\\\n', '').replace('/opt/scout-root', d)
+        r = subprocess.run([sys.executable, '-I', '-c', code], cwd=tempfile.gettempdir(), capture_output=True, text=True, timeout=300)
+        self.assertEqual(r.returncode, 0, 'строка проверки образа упала на каталоге по pose_files.txt:\n' + r.stderr[-1500:])
 
     def test_worker_shows_progress_for_driver_guard(self):
         import kit_driver as KD
