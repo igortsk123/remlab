@@ -1,15 +1,16 @@
 #!/usr/bin/env python3
-"""Линт брифов рабочим `.memory_bank/_intake/brief-T-*.md` — обязательные строки правил P-024/P-032/P-037/P-041/P-067 проверяет код
+"""Линт брифов рабочим `.memory_bank/_intake/brief-T-*.md` — обязательные строки правил P-071/P-072 (сводных 23.11; снятые P-024/P-032/P-037/P-041/P-067/P-046) проверяет код
 (T-20261123-23/1, п.2). Директор зовёт его перед выдачей брифа; без аргументов смотрит брифы с датой в T-ID не раньше `--since` (23.11).
+CI (с 24.11, ревью Fable Б9/Б10): блокирует `--since 2026-11-25 --block BRIEF-PIPELINE,BRIEF-SALAD,BRIEF-CLEAN` — старые брифы не трогаются.
 Проверки (категории; по умолчанию предупреждения, exit 0; `--block КАТ,…` — блокирующие):
   BRIEF-LABEL     первая строка — метка `[роль] T-…`
-  BRIEF-SALAD     есть вопрос «Salad или наши ядра» (P-067)
-  BRIEF-CLEAN     есть «Что чистит шаг» (P-041)
-  BRIEF-PIPELINE  нет какой-то из 4 строк конвейера: «правило изменено», «где ещё действует», «шаг пересоберёт», «особый случай» (P-032)
-  BRIEF-BOUNDS    нет раздела/строки «Границы» (P-037)
-  BRIEF-MEMCHECK  нет «/memory-check не запускать — свод директор» (P-037/P-046)
+  BRIEF-SALAD     есть вопрос «Salad или наши ядра» (P-072)
+  BRIEF-CLEAN     есть «Что чистит шаг» (P-072)
+  BRIEF-PIPELINE  нет какой-то из 4 строк конвейера: «правило изменено», «где ещё действует», «шаг пересоберёт», «особый случай» (P-071)
+  BRIEF-BOUNDS    нет раздела/строки «Границы» (P-072)
+  BRIEF-MEMCHECK  нет «/memory-check не запускать — свод директор» (P-072/P-071)
 «N/A: причина» вместо содержимого допустимо — проверяется наличие самой строки, не её смысл. Без зависимостей (python 3.9+).
-Запуск: `python tools/ops/brief_lint.py [файл …] [--since 20261123] [--block КАТ,…] [--root .]`; тест: `python -m pytest tools/ops/tests/test_brief_lint.py -q`."""
+Запуск: `python tools/ops/brief_lint.py [файл …] [--since 20261123|2026-11-23] [--block КАТ,…] [--root .]`; тест: `python -m pytest tools/ops/tests/test_brief_lint.py -q`."""
 from __future__ import annotations
 
 import argparse
@@ -34,7 +35,7 @@ def lint_brief(text: str) -> list[tuple[str, str]]:
         f.append(("BRIEF-SALAD", "нет «Salad или наши ядра»"))
     if "что чистит шаг" not in low:
         f.append(("BRIEF-CLEAN", "нет «Что чистит шаг»"))
-    # бриф может потребовать строки в отчёте («4 строки конвейера» — P-032 принимает и так), а не нести их текстом
+    # бриф может потребовать строки в отчёте («4 строки конвейера» — P-071 принимает и так), а не нести их текстом
     miss = [] if "строки конвейера" in low else [name for name, key in PIPELINE if key not in low]
     if miss:
         f.append(("BRIEF-PIPELINE", "нет строк конвейера: " + ", ".join(miss)))
@@ -58,12 +59,18 @@ def collect(root: Path, since: str) -> list[Path]:
 def main(argv=None) -> int:
     ap = argparse.ArgumentParser(description=__doc__.split("\n")[0])
     ap.add_argument("files", nargs="*")
-    ap.add_argument("--since", default="20261123", help="проверять брифы с датой в имени не раньше (ГГГГММДД)")
+    ap.add_argument("--since", default="20261123", help="проверять брифы с датой в имени не раньше (ГГГГММДД или ГГГГ-ММ-ДД)")
     ap.add_argument("--block", default="")
     ap.add_argument("--root", default=".")
     a = ap.parse_args(argv)
+    a.since = a.since.replace("-", "")
+    if not re.fullmatch(r"\d{8}", a.since):
+        ap.error("--since: дата ГГГГММДД или ГГГГ-ММ-ДД")
     files = [Path(x) for x in a.files] or collect(Path(a.root), a.since)
     block = {c.strip() for c in a.block.split(",") if c.strip()}
+    unknown = block - set(CATEGORIES)
+    if unknown:
+        ap.error("--block: неизвестные категории " + ", ".join(sorted(unknown)))
     total = bad = 0
     for p in files:
         if not p.is_file():
