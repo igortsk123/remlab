@@ -8,7 +8,7 @@ updated: 2026-11-13
 completed:
 plan_kind: track_master
 parent_plan: MASTER-cost-first
-review_after: 2026-11-23
+review_after: 2026-12-08
 ---
 
 ## Цель
