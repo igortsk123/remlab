@@ -2,12 +2,15 @@
 workstream: catalog
 slug: bedroom-life-01
 title: Жизнь в спальне — настольные лампы на тумбах и бра над ними, через конвейер (наборы → 3D → туры)
-status: draft
+status: partial
+prev_status: draft
 created: 2026-11-17
-updated: 2026-11-17
+updated: 2026-11-24
 tier: plan
 topic: bedroom-life
 scope: состав наборов спальни (свет у кровати) и показ в 3D /demo, туров и рендера
+pause_reason: "пауза до покраски (владелец TG 2626)"
+resume_trigger: "покраска принята владельцем"
 ---
 
 ## Цель

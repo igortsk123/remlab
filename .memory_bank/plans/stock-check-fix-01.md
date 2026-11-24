@@ -2,10 +2,13 @@
 workstream: ops
 slug: stock-check-fix-01
 title: Проверка наличия падает каждый день — память базы, тяжёлый запрос, догонка (П1.28, T-20261112-56/4)
-status: in_progress
+status: partial
+prev_status: in_progress
 created: 2026-11-18
-updated: 2026-11-18
+updated: 2026-11-24
 completed:
+pause_reason: "пауза до покраски (владелец TG 2626)"
+resume_trigger: "покраска принята владельцем"
 ---
 
 ## Цель

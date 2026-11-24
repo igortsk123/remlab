@@ -2,14 +2,17 @@
 workstream: catalog
 slug: product-names-01
 title: Одно название у товара везде — карточка товара сводится при сборке, банки не застывают
-status: in_progress
+status: partial
+prev_status: in_progress
 created: 2026-11-19
-updated: 2026-11-19
+updated: 2026-11-24
 completed:
 tier: 2
 topic: product-names
 scope: Один товар — одно название и одна карточка на странице тура и /demo; сторож сборки; подмена товара под тем же номером
 source: manual
+pause_reason: "пауза до покраски (владелец TG 2626)"
+resume_trigger: "покраска принята владельцем"
 ---
 
 ## Цель

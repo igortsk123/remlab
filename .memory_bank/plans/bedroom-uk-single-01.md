@@ -2,13 +2,16 @@
 workstream: product
 slug: bedroom-uk-single-01
 title: Спальня — раздел «Спальня» на странице шаблонов /test/canons/ + НОВОЕ назначение «узкая односпальная» (UK single 90×190)
-status: in_progress
+status: partial
+prev_status: in_progress
 created: 2026-11-09
-updated: 2026-11-10
+updated: 2026-11-24
 completed:
 plan_kind: sub
 parent_plan: MASTER-agent-trial
-review_after: 2026-11-23
+prev_review_after: 2026-11-23
+pause_reason: "пауза до покраски (владелец TG 2626)"
+resume_trigger: "покраска принята владельцем"
 ---
 
 ## Цель

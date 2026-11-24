@@ -2,12 +2,15 @@
 workstream: viz
 slug: photo-render-first-01
 title: «Сделать фото» = наш рендер Blender; «Улучшить фото» = нейросеть поверх рендера
-status: draft
+status: partial
+prev_status: draft
 created: 2026-11-17
-updated: 2026-11-17
+updated: 2026-11-24
 tier: plan
 topic: photo-render-first
 scope: кнопка фото на /demo и в турах — сперва бесплатный рендер Blender тех же 2 ракурсов, затем по кнопке улучшение нейросетью с рендером на входе
+pause_reason: "пауза до покраски (владелец TG 2626)"
+resume_trigger: "покраска принята владельцем"
 ---
 
 ## Цель

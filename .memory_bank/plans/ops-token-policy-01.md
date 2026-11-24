@@ -2,10 +2,13 @@
 workstream: ops
 slug: ops-token-policy-01
 title: Единая политика расхода токенов и учёт — remlab, tamara, sup2 на pakardev, algor, common
-status: in_progress
+status: partial
+prev_status: in_progress
 created: 2026-11-05
-updated: 2026-11-12
+updated: 2026-11-24
 completed:
+pause_reason: "пауза до покраски (владелец TG 2626)"
+resume_trigger: "покраска принята владельцем"
 ---
 
 ## Цель

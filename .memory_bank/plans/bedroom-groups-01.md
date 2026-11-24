@@ -2,13 +2,16 @@
 workstream: product
 slug: bedroom-groups-01
 title: Спальня группами-шаблонами — «сон» (кровать + 2 тумбы + ковёр) целиком, хранение и работа своими группами
-status: draft
+status: partial
+prev_status: draft
 created: 2026-11-12
-updated: 2026-11-12
+updated: 2026-11-24
 completed:
 plan_kind: subplan
 parent_plan: MASTER-agent-trial
 review_after: 2026-11-26
+pause_reason: "пауза до покраски (владелец TG 2626)"
+resume_trigger: "покраска принята владельцем"
 ---
 
 ## Цель

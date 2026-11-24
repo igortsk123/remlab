@@ -2,10 +2,13 @@
 workstream: layout
 slug: living-full-01
 title: living-full-01 — гостиная целиком по шаблону (полный состав, мелочи на носителях), затем тот же формат для любой комнаты
-status: draft
+status: partial
+prev_status: draft
 created: 2026-11-12
-updated: 2026-11-12
+updated: 2026-11-24
 plan_kind: track
+pause_reason: "пауза до покраски (владелец TG 2626)"
+resume_trigger: "покраска принята владельцем"
 ---
 
 ## Источник

@@ -2,10 +2,13 @@
 workstream: ops
 slug: rules-registry-01
 title: Свод правил работы — один реестр P-NNN, короткий индекс, 4 гейта, без противоречий
-status: in_progress
+status: partial
+prev_status: in_progress
 created: 2026-11-20
-updated: 2026-11-20
+updated: 2026-11-24
 completed:
+pause_reason: "пауза до покраски (владелец TG 2626)"
+resume_trigger: "покраска принята владельцем"
 ---
 
 ## Цель

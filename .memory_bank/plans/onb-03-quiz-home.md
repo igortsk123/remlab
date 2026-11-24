@@ -3,14 +3,17 @@ workstream: demo
 slug: onb-03-quiz-home
 title: onb-03 — ступень 1 — опрос v1 (приветствие, 3 вопроса, 3 стиля), новая главная, бюджет-корзина, имя от менеджера, сигнал менеджеру
 status: partial
+prev_status: partial
 created: 2026-11-05
-updated: 2026-11-20
+updated: 2026-11-24
 completed:
 plan_kind: sub
 parent_plan: onb-00-quiz-master
-pause_reason: "нет в плане задач (plan-zadach.md) с 12.11 — без движения с 05.11; приоритеты ставит владелец"
-resume_trigger: "пункт с этим планом появился в plan-zadach.md"
+prev_pause_reason: "нет в плане задач (plan-zadach.md) с 12.11 — без движения с 05.11; приоритеты ставит владелец"
+prev_resume_trigger: "пункт с этим планом появился в plan-zadach.md"
 review_after: 2026-12-04
+pause_reason: "пауза до покраски (владелец TG 2626)"
+resume_trigger: "покраска принята владельцем"
 ---
 
 ## Цель

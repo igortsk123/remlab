@@ -2,12 +2,15 @@
 workstream: agent-trial
 slug: viz-decor-01
 title: Красивое 3D «как на фото» — пол из сканов, шторы и свет, картины, декор мешами
-status: draft
+status: partial
+prev_status: draft
 created: 2026-11-11
-updated: 2026-11-11
+updated: 2026-11-24
 completed:
 plan_kind: sub
 parent_plan: MASTER-agent-trial
+pause_reason: "пауза до покраски (владелец TG 2626)"
+resume_trigger: "покраска принята владельцем"
 ---
 
 ## Цель

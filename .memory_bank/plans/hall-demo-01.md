@@ -2,10 +2,13 @@
 workstream: room-pipeline
 slug: hall-demo-01
 title: Прихожая flat215 в /demo тем же конвейером, что спальня — витрина комнаты по профилю, без копии demo_bedroom
-status: in_progress
+status: partial
+prev_status: in_progress
 created: 2026-11-06
-updated: 2026-11-13
+updated: 2026-11-24
 parent_plan: room-pipeline-01
+pause_reason: "пауза до покраски (владелец TG 2626)"
+resume_trigger: "покраска принята владельцем"
 ---
 
 ## Цель

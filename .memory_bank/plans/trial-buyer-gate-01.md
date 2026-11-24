@@ -4,11 +4,14 @@ title: Ссылка покупателя на тур — только после
 tier: 2
 topic: agent-trial
 scope: ссылка покупателя на тур не работает, пока агент не подтвердил планировку; покупателю — без «Подтвердите планировку»
-updated: 2026-11-12
-status: in_progress
+updated: 2026-11-24
+status: partial
+prev_status: in_progress
 plan_kind: feature
 parent_plan: MASTER-agent-trial
 source: manual
+pause_reason: "пауза до покраски (владелец TG 2626)"
+resume_trigger: "покраска принята владельцем"
 ---
 
 # Ссылка покупателя — только после подтверждения планировки (trial-buyer-gate-01)

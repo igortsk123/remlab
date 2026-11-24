@@ -2,13 +2,16 @@
 workstream: render
 slug: render-materials-01
 title: Материалы мебели в рендере — ткань как ткань, дерево как дерево (слой поверх товара, ≤15 с на GPU)
-status: in_progress
+status: partial
+prev_status: in_progress
 created: 2026-11-17
-updated: 2026-11-18
+updated: 2026-11-24
 tier: plan
 topic: render-materials
 scope: материалы мебели в рендере Blender (и облегчённо в 3D /demo) — класс материала товара, маска частей, слой поверх, бюджет времени
 parent_plan: render-3d-01
+pause_reason: "пауза до покраски (владелец TG 2626)"
+resume_trigger: "покраска принята владельцем"
 ---
 
 ## Цель
