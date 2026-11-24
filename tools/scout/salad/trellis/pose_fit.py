@@ -47,6 +47,7 @@ MS_EL = (5.0, 20.0, 35.0)          # старты по наклону (подъ�
 MS_D = 3.0
 MS_W_BOTTOM = 0.25                 # вес долей несовпадения нижней полосы в оценке старта
 BLUR_FRAC = 0.10                   # размытие масок на этапе 1 мультистарта, доля стороны кадра
+AZS_DEFAULTS = {'enabled': False, 'window_deg': 15.0, 'k': 1.5, 'floor_deg': 2.0, 'calibration': 'слабая: синтетика A–E (5 точек одной формы, az 154° — не диагональ; err/σ_raw 0,96…3,34), не доверительный интервал'}
 _VK = None                         # наклон вертикалей фото κ = tan φ / f на время подгонки (fit_pose, флаг vertical_axis); None — прежняя модель
 _STRIP = None                      # strip_frac из rules/camera-check.json (читается один раз)
 
@@ -530,6 +531,37 @@ def angle_refine(PTS: np.ndarray, cam: dict, alpha: np.ndarray, cv: dict, R: dic
 VERT_DEFAULTS = {'mode': 'parallel', 'parallel_deg': 0.3, 'enabled': False, 'min_lines': 6, 'min_len_frac': 0.15, 'max_tilt_deg': 10.0, 'interior_erode_px': 3, 'max_rms_deg': 0.3, 'min_span_frac': 0.25, 'kappa_max': 0.2}
 
 
+AZS_PERT = (('сдвиг x +1,5 %', 1.0, 1.0, 0.015, 0.0), ('сдвиг y −1,5 %', 1.0, 1.0, 0.0, -0.015), ('ширина ×1,03', 1.03, 1.0, 0.0, 0.0), ('ширина ×0,97', 0.97, 1.0, 0.0, 0.0),
+            ('высота ×1,03', 1.0, 1.03, 0.0, 0.0), ('высота ×0,97', 1.0, 0.97, 0.0, 0.0))     # (имя, масштаб x, масштаб y, сдвиг x, сдвиг y; масштаб — вокруг центра маски, сдвиг — доля её размера)
+
+
+def az_sigma(PTS: np.ndarray, cam: dict, alpha: np.ndarray, cv: dict, R: dict, n: int = 256, log=print) -> dict:
+    """Неопределённость азимута (T-20261124-18, запрос р.1: запас полосы воздержания facade_axis). Только у «диагональных» видов |az mod 90 − 45| < window_deg (около 45° фасад и бок почти одинаковы по площади),
+    остальным value=None. Локальное уточнение `nm_two_stage` (без мультистарта и перебора az0) от найденной позы на 6 возмущённых масках фото (AZS_PERT: сдвиг, ширина, высота);
+    sigma_raw — СКО отклонений az по модулю 180° ОТ ИСХОДНОГО (не от среднего: смещение — тоже неопределённость); value = max(floor_deg, k · sigma_raw): k = средняя истинная ошибка ÷ среднее sigma_raw на синтетике A–E (1,45 → 1,5), floor_deg 2,0° — минимум истинной ошибки на A–D (1,6–2,0°) при sigma_raw 0,4–1,1° — калибровка СЛАБАЯ
+    (5 точек одной формы, az 154° — не диагональ), не доверительный интервал. Пишется в pose.json/extra, passed 04 не меняет."""
+    import cv2
+    diag = abs((float(cam['az']) % 90.0) - 45.0)
+    out = {'applicable': bool(diag < R['window_deg']), 'diag_off_deg': round(diag, 1), 'window_deg': R['window_deg'], 'k': R['k'], 'calibration': R['calibration']}
+    if not out['applicable']:
+        out.update({'value': None, 'reason': 'не диагональный вид (|az mod 90 − 45| = %.1f° ≥ %s°)' % (diag, R['window_deg'])})
+        return out
+    ys, xs = np.nonzero(alpha)
+    cx, cy, w, h = float(xs.mean()), float(ys.mean()), float(xs.max() - xs.min() + 1), float(ys.max() - ys.min() + 1)
+    Pc = PTS[:: max(1, len(PTS) // 150000)]
+    deltas = []
+    for _, sx, sy, tx, ty in AZS_PERT:
+        M = np.array([[sx, 0, cx - sx * cx + tx * w], [0, sy, cy - sy * cy + ty * h]], np.float32)
+        Ap = cv2.warpAffine(alpha.astype(np.float32), M, (alpha.shape[1], alpha.shape[0]), flags=cv2.INTER_LINEAR, borderValue=0) > 0.5
+        Mp = canvas_mask(Ap, cv, n)
+        c, _ = nm_two_stage(Pc, Mp, _blur(Mp, n), n, cam)
+        deltas.append(((c['az'] - cam['az'] + 90.0) % 180.0) - 90.0)
+    raw = float(np.sqrt(np.mean(np.square(deltas))))
+    out.update({'sigma_raw_deg': round(raw, 3), 'deltas_deg': [round(float(x), 2) for x in deltas], 'value': round(max(float(R['floor_deg']), float(R['k']) * raw), 2), 'floor_deg': R['floor_deg'], 'n': len(deltas), 'unit': 'deg'})
+    log(f"az_sigma: диагональный вид (откл. {diag:.1f}°), σ_raw {raw:.2f}°, k {R['k']}, пол {R['floor_deg']}° → {out['value']}°")
+    return out
+
+
 def vertical_axis(photo: np.ndarray, alpha: np.ndarray, cv: dict, R: dict | None = None) -> dict:
     """Наклон вертикалей ФОТО без формы (T-20261124-18): длинные почти вертикальные отрезки (LSD) ТОЛЬКО внутри маски товара (фон, пол, тени и силуэт — не берутся);
     наклон отрезка (рад) как линейная функция x в кадре камеры: b = d tilt / dx; точка схода вертикалей: κ = −b = tan φ / f (φ — наклон оси камеры к горизонту).
@@ -804,6 +836,11 @@ def fit_pose(glb: str, photo_path: str, out_run: str, yaw: float = 0.0, px: int 
                 pick = {**pick, 'edge': edge_score(geo, pick['cam'], photo, alpha, cv, tex), 'junction': jn_info}
             else:
                 pick = {**pick, 'junction': jn_info}
+        az_info = None
+        _R_azs = {**AZS_DEFAULTS, **((CC0.load_rules().get('az_sigma')) or {})}
+        _env_azs = os.environ.get('POSE_AZ_SIGMA')                     # '1' — считать, '0' — нет; нет — по правилу az_sigma.enabled (по умолчанию выкл.: ≈ +40 с на диагональный товар)
+        if (_env_azs == '1') if _env_azs in ('0', '1') else bool(_R_azs['enabled']):
+            az_info = az_sigma(geo['V'], pick['cam'], alpha, cv, _R_azs, log=log)
         cam = pick['cam']
         front = _bbox_fit(geo['V'][:: max(1, len(geo['V']) // 150000)], 0.0, 0.0, 1000.0, (lambda ys, xs: (xs.min() / n, ys.min() / n, (xs.max() + 1) / n, (ys.max() + 1) / n))(*np.nonzero(Mp)))
         iou_front = iou(splat_mask(geo['V'][:: max(1, len(geo['V']) // 150000)], front, n), Mp)
