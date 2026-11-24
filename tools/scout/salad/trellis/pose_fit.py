@@ -408,7 +408,19 @@ def refine_ok(iou_before: float, iou_after: float, drop: float = None) -> bool:
     return (iou_before - iou_after) <= (REFINE_IOU_DROP if drop is None else drop)
 
 
-def refine_by_edges(geo: dict, cam: dict, photo: np.ndarray, alpha: np.ndarray, cv: dict, tex: np.ndarray, n: int = 512, maxiter: int = 110, log=print) -> tuple[dict, dict]:
+def refine_v2_rules() -> dict | None:
+    """Правило `camera_refine_v2` из rules/pose-rank.json (T-20261124-44): включено → {w_iou, n, tri_drop}; выключено/нет блока → None (поведение прежнее, байт в байт)."""
+    import pose_rank as PR
+    r = PR.rules().get('camera_refine_v2') or {}
+    return r if r.get('enabled') else None
+
+
+def refine_ok_tri(tri_before: float, tri_after: float, drop: float) -> bool:
+    """v2: принимаем уточнение, пока IoU треугольников (`edge_score.iou_frame`, один и тот же кадр до и после) не упал больше `drop` (правило `camera_refine_v2.tri_drop`)."""
+    return (tri_before - tri_after) <= drop
+
+
+def refine_by_edges(geo: dict, cam: dict, photo: np.ndarray, alpha: np.ndarray, cv: dict, tex: np.ndarray, n: int = 512, maxiter: int = 110, log=print, w_iou: float | None = None) -> tuple[dict, dict]:
     """Силуэт слабо держит азимут/перспективу; внутренние кромки (стыки фасадов, швы, рисунок) держат сильно. Уточнение Нелдера–Мида камеры по цели `W_IOU·(1−IoU кадра) − совпадение кромок` (кадр n px, без ECC),
     старт — найденная по силуэту камера, диапазон ограничен вокруг неё (az ±`R_AZ`°, подъём ±`R_EL`°, ln d ±`R_LND`): возвращает (камера, оценка)."""
     from scipy.optimize import minimize
@@ -422,7 +434,7 @@ def refine_by_edges(geo: dict, cam: dict, photo: np.ndarray, alpha: np.ndarray, 
         if key not in cache:
             c = _cam(v)
             e = edge_score(geo, c, photo, alpha, cv, tex, n)
-            cache[key] = (W_IOU * (1.0 - e['iou_frame']) - edge_term(e), e)
+            cache[key] = ((W_IOU if w_iou is None else w_iou) * (1.0 - e['iou_frame']) - edge_term(e), e)
         return cache[key][0]
 
     def f(v):
@@ -514,6 +526,8 @@ def fit_pose(glb: str, photo_path: str, out_run: str, yaw: float = 0.0, px: int 
         j, b = A.read_glb(glb)
         tex = T.read_texture(j, b) if (j.get('images') or []) else None
 
+        V2 = refine_v2_rules()                                         # None — выключено (по умолчанию): уточнение как в main
+
         def search(PTS: np.ndarray) -> tuple:
             """Поиск позы по облаку точек формы PTS (вершины или выборка с поверхности): подбор → мультистарт → пул ничьих → кромки → уточнение. → (pick, cands, ms_info)."""
             cands = fit_camera(PTS, Mp, n, topk, log=log)
@@ -538,13 +552,21 @@ def fit_pose(glb: str, photo_path: str, out_run: str, yaw: float = 0.0, px: int 
                 c['cam_sil'] = dict(c['cam'])
                 c['iou_sil'] = c['iou']                                # IoU силуэта ДО уточнения (коридор shape_mismatch в camera_check считает по нему)
                 edge_before = c['edge']
-                c['cam'], c['edge'] = refine_by_edges(geo, c['cam'], photo, alpha, cv, tex, log=log)
+                if V2 is None:
+                    c['cam'], c['edge'] = refine_by_edges(geo, c['cam'], photo, alpha, cv, tex, log=log)
+                else:                                                  # camera_refine_v2: вес и кадр — из правила; IoU «до» и «после» — по треугольникам в одном кадре
+                    c['iou_tri_sil'] = edge_score(geo, c['cam'], photo, alpha, cv, tex, int(V2['n']))['iou_frame']
+                    c['cam'], c['edge'] = refine_by_edges(geo, c['cam'], photo, alpha, cv, tex, n=int(V2['n']), log=log, w_iou=float(V2['w_iou']))
+                    c['iou_tri'] = c['edge']['iou_frame']
                 c['iou'] = round(iou(splat_mask(Pc, c['cam'], n), Mp), 4)
                 log(f"  после уточнения az={c['cam']['az']:.1f} el={c['cam']['el']:.1f} d={c['cam']['d']:.2f} IoU(силуэт) {c['iou']} кромки до ECC {c['edge']['agree']}")
-                c['refine_rejected'] = not refine_ok(c['iou_sil'], c['iou'])
+                c['refine_rejected'] = (not refine_ok(c['iou_sil'], c['iou'])) if V2 is None else (not refine_ok_tri(c['iou_tri_sil'], c['iou_tri'], float(V2['tri_drop'])))
                 if c['refine_rejected']:
-                    log(f"  уточнение отклонено: IoU силуэта {c['iou_sil']} → {c['iou']} (падение > {REFINE_IOU_DROP}); остаётся поза по силуэту")
+                    log(f"  уточнение отклонено: IoU силуэта {c['iou_sil']} → {c['iou']} (падение > {REFINE_IOU_DROP}); остаётся поза по силуэту" if V2 is None else
+                        f"  уточнение отклонено: IoU треугольников {c['iou_tri_sil']} → {c['iou_tri']} (падение > {V2['tri_drop']}); остаётся поза по силуэту")
                     c['cam'], c['edge'], c['iou'] = dict(c['cam_sil']), edge_before, c['iou_sil']
+                    if V2 is not None:
+                        c['iou_tri'] = c['iou_tri_sil']
             best = max(pool, key=lambda c: c['edge']['agree'])
             if trig == 'bottom' and best is not std0:
                 ok, why_acc = ms_accept(pose_score(splat_mask(Pc, best['cam'], n), Mp), pose_score(splat_mask(Pc, std0['cam'], n), Mp), best['edge']['agree'], std0['edge']['agree'])

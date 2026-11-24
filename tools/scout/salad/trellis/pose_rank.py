@@ -315,9 +315,14 @@ def flip_hypothesis(PF, geo: dict, cam: dict, Pc: np.ndarray, Mp: np.ndarray, n:
     c, nit = PF.nm_two_stage(Pc, Mp, PF._blur(Mp, n), n, cam0)
     iou_sil = PF.iou(PF.splat_mask(Pc, c, n), Mp)
     e0 = PF.edge_score(geo, c, photo, alpha, cv, tex)
-    c2, e2 = PF.refine_by_edges(geo, c, photo, alpha, cv, tex, log=log)
+    V2 = PF.refine_v2_rules()                                          # camera_refine_v2 (T-44): None — выключено, как в main
+    if V2 is None:
+        c2, e2 = PF.refine_by_edges(geo, c, photo, alpha, cv, tex, log=log)
+    else:
+        tri0 = PF.edge_score(geo, c, photo, alpha, cv, tex, int(V2['n']))['iou_frame']
+        c2, e2 = PF.refine_by_edges(geo, c, photo, alpha, cv, tex, n=int(V2['n']), log=log, w_iou=float(V2['w_iou']))
     iou2 = PF.iou(PF.splat_mask(Pc, c2, n), Mp)
-    if not PF.refine_ok(iou_sil, iou2):
+    if not (PF.refine_ok(iou_sil, iou2) if V2 is None else PF.refine_ok_tri(tri0, e2['iou_frame'], float(V2['tri_drop']))):
         c2, e2, iou2 = dict(c), e0, iou_sil
     return {'cam': {k: round(float(v), 5) for k, v in c2.items()}, 'iou': round(float(iou2), 4), 'iou_sil': round(float(iou_sil), 4), 'edge': e2, 'steps': nit}
 
