@@ -81,7 +81,7 @@ review_after: 2026-12-04
 - [ ] **Т9. Живые проверки:** правки по таблице `onb-02` Т7 (обход опроса для старых, не трогая их смысл) + новые из той же таблицы;
   строки в `domain/demo-scenario-map.md`, покрытие — `tools/ops/demo-map-check.mjs`. Ночной `tools/ops/demo-warm.mjs` не должен
   упереться в окно опроса.
-- [ ] **Т10. Выкладка** по `.claude/rules/agent-workflow.md`: worktree → `pnpm typecheck && pnpm lint && pnpm test && pnpm build` →
+- [ ] **Т10. Выкладка** по P-069/P-071 (реестр): worktree → `pnpm typecheck && pnpm lint && pnpm test && pnpm build` →
   ff в `main`, push (CI выкатывает сайт) → публикация демо `tools/scout/publish_demo.sh` → флаг `quiz.enabled=true` сперва на `demo` RU,
   после приёмки — `demo-uk`.
 

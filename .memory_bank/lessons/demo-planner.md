@@ -3,7 +3,8 @@ tier: 2
 topic: lessons-demo-planner
 scope: Уроки: демо-планировщик — кадры демо, витрина, конструктор, одностраничный html — читать перед планом по этой теме
 tier1: ../core/lessons.md
-updated: 2026-11-13
+updated: 2026-11-24
+last_verified: 2026-11-24
 importance: med
 source: manual
 status: stable

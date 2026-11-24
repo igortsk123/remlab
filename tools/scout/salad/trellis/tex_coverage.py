@@ -629,6 +629,9 @@ def coverage_image(m: dict):
 
 
 # ---------------------------------------------------------------- GLB -------------------------------------------
+import vertex_normals as _VN  # noqa: E402     # нормали вершин: из файла / по рецепту; писатели GLB кладут их в NORMAL (T-20261124-10/4)
+
+
 def load_geoms(path: str) -> list:
     """GLB → список геометрий {'V','F','UV','tex'} с применёнными трансформами сцены (как `mesh_render.load_parts`; без слияния вершин: развёртка остаётся как есть)."""
     import numpy as np
@@ -647,7 +650,7 @@ def load_geoms(path: str) -> list:
         if uv is None or im is None:
             raise ValueError(f'{os.path.basename(path)}: у геометрии «{name}» нет развёртки или текстуры (нужен GLB с краской MV-Adapter)')
         out.append({'name': name, 'V': np.asarray(g.vertices, np.float64), 'F': np.asarray(g.faces, np.int64), 'UV': np.asarray(uv, np.float64),
-                    'tex': np.asarray(im.convert('RGB'), np.uint8), 'mesh': g})
+                    'tex': np.asarray(im.convert('RGB'), np.uint8), 'mesh': g, 'VN': _VN.file_normals(g)})      # VN — нормали файла (None — NORMAL не было): их несут писатели GLB (T-20261124-10/4)
     if not out:
         raise ValueError(f'{os.path.basename(path)}: в файле нет геометрии')
     return out
@@ -661,7 +664,7 @@ def write_coverage_glb(geoms: list, maps: list, dst: str) -> None:
     from trimesh.visual.material import PBRMaterial
     sc = trimesh.Scene()
     for g, m in zip(geoms, maps):
-        mesh = trimesh.Trimesh(vertices=g['V'], faces=g['F'], process=False)
+        mesh = trimesh.Trimesh(vertices=g['V'], faces=g['F'], vertex_normals=_VN.geom_normals(g), process=False)
         mesh.visual = TextureVisuals(uv=np.asarray(g['UV']), material=PBRMaterial(baseColorTexture=coverage_image(m), metallicFactor=0.0, roughnessFactor=1.0))
         sc.add_geometry(mesh, geom_name=str(g.get('name') or 'mesh'))
     sc.export(dst)

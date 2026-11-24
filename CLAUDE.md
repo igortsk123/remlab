@@ -3,7 +3,7 @@
 B2C-сервис **«Смета-first» (v0.4, ADR-0016)**: расчёт ремонта/материалов → смета-список с
 реф-ссылками (комиссия, в т.ч. с юзерских ссылок) → хвосты: AI-визуализация и мастера-лиды.
 Мастер-план — `plans/MASTER-cost-first.md` (М0–М7). Рынок РФ (Гдеслон) → UK.
-Стек: TS strict + Next.js + Drizzle + Zod + Inngest + self-host postgres/pgvector + Gemini +
+Стек: TS strict + Next.js + Drizzle + Zod + self-host postgres/pgvector + Gemini +
 YooKassa + PostHog (`core/architecture.md`).
 Стадия: **ядро сметы М1–М3 в проде** (`remont-lab.online`), Директ (автопилот dry-run).
 **Фокус — М5 «мебельный трек»** (каталог → меши на Salad → демо для партнёра) по решению
@@ -22,11 +22,11 @@ Tier 0 = этот файл + INDEX + `.claude/rules/*.md`; Tier 2 = `.memory_ban
 четыре гейта — `.claude/rules/10-decision-gates.md`. Свод 23.11: 7 сводных правил P-069…P-075 + правила продукта.
 
 ## Команды
-`pnpm test` · `pnpm e2e` · `pnpm typecheck` · `pnpm lint` · `pnpm db:migrate` · `pnpm build` · `./deploy.sh`
+`pnpm test` · `pnpm e2e` · `pnpm typecheck` · `pnpm lint` · `pnpm build` · `./deploy.sh`
+Схема БД — канон `db/init/` + `tools/apply-db-init.sh`; `pnpm db:migrate` (лишь 14 таблиц) неполная — не для новых БД.
 
 ## Решения человека (не Claude)
 Партнёрки/Гдеслон; кэшбек; цены paid-ступеней; модель после бенча; источники прайсов; дизайн экранов; юр. вопросы.
 
 ## Path-scoped правила (.claude/rules/)
-всегда: `00-operating-index` · `10-decision-gates` · `review-checklist` (остальные — указатели в реестр); по путям:
-`code-standards` (ts/tsx) · `ui-rules` (app/components) · `pipeline-tracing` (ADR-0013).
+всегда: `00-operating-index` · `10-decision-gates` · `review-checklist`; по путям: `code-standards` (ts/tsx) · `ui-rules` (app/components) · `pipeline-tracing` (ADR-0013).

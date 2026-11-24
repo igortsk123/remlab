@@ -30,6 +30,7 @@ HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, HERE)
 sys.path.insert(0, os.path.join(HERE, '..', '..'))
 import tex_coverage as TC  # noqa: E402
+import vertex_normals as VNM  # noqa: E402      # нормали вершин для NORMAL в GLB (T-20261124-10/4)
 
 FILL = {
     'photo_azimuths': (0.0, 45.0),   # камеры «фото»: азимут от лица предмета (0 = в лоб, +X вправо), градусы; подменяется камерой T-112 через `known` напрямую
@@ -2595,7 +2596,7 @@ def write_glb(geoms: list, texs: list, dst: str) -> None:
     from trimesh.visual.material import PBRMaterial
     sc = trimesh.Scene()
     for g, t in zip(geoms, texs):
-        mesh = trimesh.Trimesh(vertices=g['V'], faces=g['F'], process=False)
+        mesh = trimesh.Trimesh(vertices=g['V'], faces=g['F'], vertex_normals=VNM.geom_normals(g), process=False)      # NORMAL в файле (T-20261124-10/4)
         mesh.visual = TextureVisuals(uv=np.asarray(g['UV']), material=PBRMaterial(baseColorTexture=Image.fromarray(np.asarray(t)), metallicFactor=0.0, roughnessFactor=1.0))
         sc.add_geometry(mesh, geom_name=str(g.get('name') or 'mesh'))
     sc.export(dst)
@@ -2623,6 +2624,15 @@ def front_axis_of_check(chk) -> tuple | None:
     a = np.radians(float(cam['az']))
     sx, cz = float(np.sin(a)), float(np.cos(a))
     return (0, 1 if sx >= 0 else -1) if abs(sx) > abs(cz) else (2, 1 if cz >= 0 else -1)
+
+
+def front_resolved_of(glb: str, prev_dir: str | None) -> dict | None:
+    """ЕДИНЫЙ свидетель «перёда» для 07 под флагом `carcass_library.facade_axis_witness` (T-20261124-21): tools/scout/front_axis.py `front_axis_resolved` по GLB этапа и 06-visible/check.json + known.png
+    (θ, ось+знак, источник, флаги). Нет прогона этапа 6 — None. Из него же берут ось own_panel_tone_hook, front_on_back_corr и carcass_library_side (одна ось на товар)."""
+    if not prev_dir:
+        return None
+    import front_axis as FA
+    return FA.resolve_from_files(glb, os.path.join(prev_dir, 'check.json'))
 
 
 def _center_by_part(v: np.ndarray, lab: np.ndarray, min_n: int) -> np.ndarray:
@@ -3017,8 +3027,14 @@ def run_stage_once(run: str, sku: str, glb: str, known: list | None = None, part
     if ut_glb and os.path.isfile(ut_glb):
         _ug = TC.load_geoms(ut_glb)
         ut_g = _ug if RZ_same_mesh(geoms, _ug) else None
+    _fw = bool(((RULES.get('surface_groups') or {}).get('carcass_library') or {}).get('facade_axis_witness', False))
+    _front_res = front_resolved_of(glb, prev_dir) if _fw else None                      # T-20261124-21: один свидетель на весь 07 (флаг выкл → прежняя ось камеры 04, побитово)
+    _fax = front_axis_of_check(_chk6)
+    if _fw:
+        _fax = tuple(_front_res['axis']) if _front_res and _front_res.get('axis') else None
+        rep['front_witness'] = _front_res
     _m = _hmark()
-    tex_after, rep['own_panel'] = own_panel_tone_hook(geoms, tex_after, known, ut_g, parts, front_axis_of_check(_chk6), float(th['front_on_back_corr'][1]))
+    tex_after, rep['own_panel'] = own_panel_tone_hook(geoms, tex_after, known, ut_g, parts, _fax, float(th['front_on_back_corr'][1]))
     _hdone(hooks, 'own_panel', _m)
     import ref_zone as RZ
     _m_sib = _hmark()
@@ -3083,6 +3099,8 @@ def run_stage_once(run: str, sku: str, glb: str, known: list | None = None, part
         rep['top_prior']['kept_from_groups_texels'] = int(sum(int(m.sum()) for m in sg_ctx['hook_keep']))
     if sg_pas is not None:                                              # T-20261124-06 Ш2: бока корпуса по библиотеке отделок (лента «Цвет корпуса»), выключено по умолчанию (rules carcass_library.enabled)
         try:
+            sg_ctx['front_resolved'] = _front_res                                                 # T-20261124-21: единый свидетель «перёда» (None при флаге выкл) — ось фасада carcass_library (surface_passport.facade_axis)
+            sg_ctx['known_keep'] = [np.asarray(k_, bool) for k_ in k_keep]                        # T-20261124-21: то же «известное», что увидит apply_groups (k_ap = k_keep без released)
             sg_rep['carcass_library'] = SP.carcass_library_side(sg_pas, sg_ctx, geoms, sg_cfg, (cfg or {}).get('top_card'))
         except Exception as e:  # noqa: BLE001
             sg_rep['carcass_library'] = {'enabled': True, 'applied': False, 'error': f'{type(e).__name__}: {e}'}
@@ -3148,7 +3166,7 @@ def run_stage_once(run: str, sku: str, glb: str, known: list | None = None, part
     _hdone(hooks, 'front_back_vals_final', _m)
     pick['vals'] = dict(pick['vals'], empty_pct=rep['unpainted_after_pct'], dE00_front_back=de_worst, dL_front_back=_dlw, filled_faces_step_pct=rep['steps']['after']['filled_faces_step_pct'], far_excess_pct=rep['far_pct']['excess'])
     _m = _hmark()
-    rep['front_on_back'] = front_on_back_corr(geoms, tex_after, front_axis_of_check(_chk6), parts=parts)
+    rep['front_on_back'] = front_on_back_corr(geoms, tex_after, _fax, parts=parts)
     _hdone(hooks, 'front_on_back_corr', _m)
     rep['front_on_back_raw'] = rep['front_on_back'].get('raw')                      # старая мера (по яркости целиком) — для сравнения (T-198/1)
     _m = _hmark()

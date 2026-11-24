@@ -3,12 +3,12 @@ tier: 2
 topic: mesh-pool-ops
 scope: Эксплуатация пула Salad — регламент подъёма/остановки, замеры темпа и цены, разбор остановок 04–05.09
 tier1: ../core/mesh-pool.md
-updated: 2026-11-22
+updated: 2026-11-24
 importance: med
 source: manual
 status: working
 source_of_truth: supporting
-last_verified: 2026-11-12
+last_verified: 2026-11-24
 ---
 
 # Пул нод Salad — эксплуатация (Tier 2)
@@ -27,7 +27,7 @@ last_verified: 2026-11-12
 8. 12.11: проба 0/3 — открытая автоволна и таймер разбора
 
 ## 1. Регламент
-- **Правила групп** — `tools/scout/rules/salad-groups.json`: тариф (`low`/`batch`), окно, цена;
+- **Правила групп** — `tools/scout/rules/salad-groups.json`: тариф (в файле low/batch; по правилу владельца с 24.11 — только `low`, TG 2626; код ещё не приведён), окно, цена;
   код не хранит копий этих чисел (ADR-0177; исключения — курс `pool_ledger.py:USD_RUB` и тарифы пилотного
   `submit.py:RATE_PER_HOUR`). Группы с окном поднимает `batch_window.sh up` (крон 09:00 UTC) — только без стоп-файла
   и при живом `batch_show.py`, и не группу под запретом цены (`salad_groups.py --can-start`); гасит `down` в 15:00
@@ -138,7 +138,7 @@ last_verified: 2026-11-12
   кредиты — только по свежему маркеру `mesh-no-credits.json` от `batch_show` (`MESH_GUARD_CLUE_H`=6). Стенд
   `tools/scout/salad/tests_money_guard.py` гоняет настоящий `main()` и валит старый код.
 - `autostart_policy: true` поднимает группу при СОЗДАНИИ, окно тарифа её не гасит.
-- ~~Пересадка ноды снимает и ту, что докачала образ на 100 %~~ — закрыто 05.09: докачавшую (≥99,9 %) не снимаем (`tools/scout/salad/batch_show.py:451`).
+- ~~Пересадка ноды снимает и ту, что докачала образ на 100 %~~ — закрыто 05.09: докачавшую (≥99,9 %) не снимаем (`tools/scout/salad/batch_show.py:450`).
 - Почему воркер иногда не встаёт на `cu124-localpaint2` (кэш Salad холодный после смены образа).
 - Поправка цвета меша по фото магазина на SKU — ждёт слова владельца (условия Codex в блокноте).
 
@@ -201,7 +201,7 @@ last_verified: 2026-11-12
   ручной волны засчитывался автоволне → halt `money_guard`. Дважды 12.11 (20:01 и 23:27).
 - Исправлено (влито 13.11 `6af4336b`+`c558704e`, `money_guard` перезапущен 01:35): конец расхода волны — подтверждённый запуск
   следующей (`launched`, `tools/scout/salad/wave_guard.py`, `tools/scout/salad/wave_cap.py --launched`); запись, закрытая без
-  запуска (код 75), конца не задаёт; аренда закрывается только после успешной остановки групп; halt очереди `queue_run` (по коду `close_wave` берёт `halt` только при `source == 'lease'`, `wave_guard.py:271`) исключён
+  запуска (код 75), конца не задаёт; аренда закрывается только после успешной остановки групп; halt очереди `queue_run` (по коду `close_wave` берёт `halt` только при `source == 'lease'`, `wave_guard.py:274`, `:284`) исключён
   из счёта. Тесты — `tools/scout/salad/tests_money_guard.py`.
 
 ## Образ TRELLIS.2 с весами внутри (T-179/1, р.5, 21.11)
@@ -224,3 +224,4 @@ last_verified: 2026-11-12
 
 ## Сбои API Salad — повторы (23.11, T-20261123-03/04)
 - **Сбои API Salad (23.11, 65b0ba4a/604cbe0c):** создание группы 504/обрыв → поиск группы по имени и подхват (без второго create), 503 → один повтор, сироты гасятся (`kit_driver.api_retry`, `tools/scout/rules/salad-groups.json` → `api_retry`); 502/503 шлюза на POST задания сразу после «нода готова» → паузы 10–60 с (≤3 мин) + `/health`, отказ ОДНОГО задания `gateway_503`, не всей пробы (`kit_driver.post_job`, `gateway_post.gateway_wait`); счётчики `retries_create/retries_post/adopted_after_504`.
+- **Дальше (23.11, f1126b921 T-220/1, 7d5713b1b T-20/2):** 524 добавлен в `retry_http` и `gateway_wait.codes` (`salad-groups.json`: `[502, 503, 524]`); у зависимых этапов (`kit_driver.py:Spec.ordered`, `:1190`) повтор идёт В НАЧАЛО очереди с паузой `requeue_pause_s` 30 с, не более `requeue_max` 2 (`kit_driver.py:1670-1673`) — в конец очереди следующий этап брал пустой вход и ронял ноду; отказ шлюза и «нечего отправлять» после него не копят серию отказов (`summary.gateway_refused`, `stopped_by=gateway_503`, `kit_driver.py:1685-1687`); потолок повторов шлюза на ноду — `node_series_max` 1 / `node_swap_max` 2: исчерпана серия → пересадка ноды, задание на свежую.

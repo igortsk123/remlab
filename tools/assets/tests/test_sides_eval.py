@@ -411,5 +411,15 @@ with tempfile.TemporaryDirectory() as t6:
     s6 = SE.batch(t6, os.path.join(t6, 'o'))['summary']
     ok(s6['na_features'] > 0 and s6['na_views'] == 0 and sum(s6['na_by_reason'].values()) == s6['na_features'] and all(k for k in s6['na_by_reason']), f"сводка: «неприменимо» отдельным числом и по причинам: {s6['na_features']} {s6['na_by_reason']}")
 
+# «фронт сплошной» (T-20261124-18): отдельная строка отчёта; пять признаков и их сводка не меняются
+with tempfile.TemporaryDirectory() as t7:
+    Image.fromarray(sheet()).save(os.path.join(t7, 'a.png'))
+    rb = SE.batch(t7, os.path.join(t7, 'o1'), items={'a': {'id': 'a', 'hidden_pattern': 'body'}})
+    rn = SE.batch(t7, os.path.join(t7, 'o2'), items={'a': {'id': 'a', 'hidden_pattern': 'plain'}})
+    fb, fn = rb['eval']['a'].get('front') or {}, rn['eval']['a'].get('front') or {}
+    ok(fb.get('status') in ('passed', 'failed', 'unmeasured') and rb['summary']['front_continuity']['applicable'] == 1, f"корпусной: признак «фронт сплошной» в отчёте отдельной строкой ({fb.get('status')})")
+    ok(fn.get('status') == 'na' and rn['summary']['front_continuity']['applicable'] == 0, 'не корпусной: «не применимо», в сводке не считается')
+    ok(list(rb['summary'])[0] == 'front_continuity', 'в сводке признак стоит первым')
+    ok(all(rb['eval']['a'].get(k) == SE.batch(t7, os.path.join(t7, 'o3'), items={'a': {'id': 'a', 'hidden_pattern': 'body'}})['eval']['a'].get(k) for k in ('ok', 'score', 'status')), 'вердикты пяти признаков от признака «фронт» не зависят (повтор даёт то же)')
 print('FAIL' if FAIL else 'OK', FAIL)
 sys.exit(1 if FAIL else 0)

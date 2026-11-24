@@ -18,7 +18,7 @@ review_after: 2026-12-05
 TS strict, pnpm, Next.js 15 App Router. Drizzle — только schema+query (`db/schema.ts`); миграции — raw SQL
 `db/init/*.sql` + `tools/apply-db-init.sh` (drizzle-kit нет). Zod: `contracts/`. Провайдеры `lib/providers`
 (`Result<T,E>`): gateway (по умолчанию)/gemini/fake/traced. Аналитика `lib/analytics.ts` (PostHog); Sentry нет. Vitest + Playwright.
-CI: `.github/workflows/{ci,deploy,memory-audit,build-stablegen-trial}.yml`.
+CI: `.github/workflows/` — `ci`, `deploy`, `memory-audit` + 15 `build-*` (образы Salad).
 
 ## UI-слой (ADR-0041)
 Untitled UI React, `components/base|application`; бренд — `styles/brand.css`; `.claude/rules/ui-rules.md`.
@@ -28,7 +28,7 @@ Untitled UI React, `components/base|application`; бренд — `styles/brand.c
   `components/SiteHeader.tsx`; заглушки (`ComingSoon`, если не `NEXT_PUBLIC_SHOW_WIP=1`): `/styles`, `/sovety`, `/calc/remont`, `/start`; `/soon`;
   `/lab` (+ `mesh-review`, `mesh-audit`, `mesh-check`, `cutout-check`); `/flat` — 3D ([[apartment-configurator]]); B2B: `/manager`, `/partner/report`,
   `/embed/[partner]/[flat]`; проба `/try`, `/try/[id]`; юр.: `/cookies`, `/privacy`, `/terms`; legacy М5: `/rooms`,
-  `/p/[id]/*`. `/api` — 17 каталогов (`ls app/api`).
+  `/p/[id]/*`. `/api` — 17 каталогов.
 - `/modules` — store, estimate (memory/pg), leads, style, collections, sends, share-requests, partner-report,
   owner-reviews, retention; legacy М5 — ideas, room-analysis, visual-generation, generation-job.
 - **Смета (v0.4):** `contracts/estimate.ts`, `lib/estimate/*`, `lib/pricing/works`; наружу только через `/go/`.

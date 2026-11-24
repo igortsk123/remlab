@@ -1989,6 +1989,21 @@ def child_env() -> dict:
     return remlab_tmp.child_env()
 
 
+THREAD_VARS = ('OMP_NUM_THREADS', 'OPENBLAS_NUM_THREADS', 'MKL_NUM_THREADS', 'NUMEXPR_NUM_THREADS', 'VECLIB_MAXIMUM_THREADS')
+
+
+def thread_env(env: dict, cores) -> dict:
+    """T-20261124-40 (урок 930): numpy/BLAS/OpenMP по умолчанию берут ВСЕ ядра машины — прогон с заявкой N ядер брал в 2–4 раза
+    больше, очередь стояла. Потоки математики команды = заявке билета (целое ≥ 1, как HEAVY_SLOT_CORES); явно заданное
+    вызывающим не перетираем. Возвращает копию."""
+    out = dict(env)
+    n = cores_env(cores if cores is not None else CORES_DEFAULT)
+    for k in THREAD_VARS:
+        if not out.get(k):
+            out[k] = n
+    return out
+
+
 def run(argv: list) -> int:
     """`<метка> [--min-gb N] [--cores N] [--long|--short] [--timeout S] [--prio 0|1|2] [--no-slot] -- <команда…>` → rc
     команды (124 — не дождался). Долгая (`--long` или по признаку в команде — `long_auto`; `--short` — признак не брать)
@@ -2054,7 +2069,7 @@ def run(argv: list) -> int:
                     os.nice(long_nice())
                 except OSError as e:
                     log(label, f'nice не поставился ({e.__class__.__name__}) — иду с обычным приоритетом')
-            p = subprocess.Popen(cmd, pass_fds=(info['fd'],) if info['fd'] is not None else (), env=child_env())
+            p = subprocess.Popen(cmd, pass_fds=(info['fd'],) if info['fd'] is not None else (), env=thread_env(child_env(), info.get('cores')))
 
             def _fwd(sig, _frm):
                 p.send_signal(sig)

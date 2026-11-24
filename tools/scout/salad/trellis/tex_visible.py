@@ -34,6 +34,7 @@ SCOUT = os.path.dirname(SALAD)
 sys.path[:0] = [HERE, SALAD, SCOUT]
 
 import tex_coverage as TC  # noqa: E402
+import vertex_normals as VNM  # noqa: E402      # нормали вершин для NORMAL в GLB (T-20261124-10/4)
 import paint_stage as PS  # noqa: E402
 import front_axis as FA  # noqa: E402       # общий свидетель «перёда» (T-21/2): доли известного по сторонам; нет модуля — ошибка импорта, не молчание
 import back_panel_stage as BPS  # noqa: E402    # зад корпусной после переноса (T-43/❓2): тип по паспорту, камера и фото-сторона из этого же выхода
@@ -143,7 +144,7 @@ def load_shape(path: str) -> list:
         tex = np.asarray(im.convert('RGB'), np.uint8) if im is not None else np.full((2048, 2048, 3), GREY, np.uint8)
         if tex.shape[0] != tex.shape[1]:
             tex = np.asarray(Image.fromarray(tex).resize((max(tex.shape[:2]),) * 2, Image.BILINEAR))
-        out.append({'name': name, 'V': np.asarray(g.vertices, np.float64), 'F': np.asarray(g.faces, np.int64), 'UV': np.asarray(uv, np.float64), 'tex': tex, 'has_tex': im is not None})
+        out.append({'name': name, 'V': np.asarray(g.vertices, np.float64), 'F': np.asarray(g.faces, np.int64), 'UV': np.asarray(uv, np.float64), 'tex': tex, 'has_tex': im is not None, 'VN': VNM.file_normals(g)})
     if not out:
         raise ValueError(f'{os.path.basename(path)}: в файле нет геометрии')
     return out
@@ -922,7 +923,7 @@ def write_glb(geoms: list, texs: list, dst: str) -> None:
     from trimesh.visual.material import PBRMaterial
     sc = trimesh.Scene()
     for g, t in zip(geoms, texs):
-        m = trimesh.Trimesh(vertices=g['V'], faces=g['F'], process=False)
+        m = trimesh.Trimesh(vertices=g['V'], faces=g['F'], vertex_normals=VNM.geom_normals(g), process=False)      # NORMAL в файле (T-20261124-10/4): без него зритель шейдит гранями
         m.visual = TextureVisuals(uv=g['UV'], material=PBRMaterial(baseColorTexture=Image.fromarray(t), metallicFactor=0.0, roughnessFactor=0.9))
         sc.add_geometry(m, node_name=g['name'], geom_name=g['name'])
     sc.export(dst)

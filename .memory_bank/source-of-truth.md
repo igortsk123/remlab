@@ -21,7 +21,8 @@ review_after: 2026-12-05
 1. **ADR-0016 + `plans/MASTER-cost-first.md` — концепция v0.4 «Смета-first» (высший приоритет).**
    Ядро — реф-смета (2 входа: калькуляторы, «сколько стоит»); визуализация/мебель — ступень М5.
    **Порядок исполнения временно переопределён (ADR-0187, 05.09): М5 идёт раньше М2–М4** до
-   принятия демо партнёром; это НЕ отмена концепции.
+   принятия демо партнёром; это НЕ отмена концепции. Демо застройщику — только после того, как покраска мебели станет хорошей;
+   срок полной готовности — до 24.12.2026 или раньше (владелец 24.11 TG 2644).
 2. `docs/master-brief-v0.3.md` — историческая бизнес-база (мебельный affiliate): жива для ступени
    М5 и юнит-экономики; при конфликте с v0.4 — **wins v0.4**; при конфликте с v0.2 — wins v0.3.
 3. `product_brief.md`, `core/market.md`, `core/user-flow.md` — Tier 1 сводки (плашки ADR-0016).
@@ -42,9 +43,9 @@ review_after: 2026-12-05
 
 ## Домен процесса — как работать
 Приоритет по убыванию:
-1. `.claude/rules/agent-workflow.md` + `guides/agent-workflow.md` — протокол план→деплой.
-2. `.memory_bank/plans/` — активные планы.
-3. `guides/code-standards.md`, правила `.claude/rules/`.
+1. Реестр правил работы `rules/INDEX.md` (P-NNN; строка на правило — `.claude/rules/00-operating-index.md`, гейты — `10-decision-gates.md`, приёмка — `review-checklist.md`) + `guides/agent-workflow.md` — протокол план→деплой. Файлы `.claude/rules/{agent-workflow,orchestration,codex-adviser,memory-discipline}.md` — указатели в реестр, не источник.
+2. `plan-zadach.md` (что делаем сейчас) и `.memory_bank/plans/` — активные планы.
+3. `guides/code-standards.md`, `.claude/rules/code-standards.md`.
 4. `decisions.md` (индекс + тома `decisions/`) — принятые решения.
 
 **Важно:** код не отменяет процесс. «Код уже написан иначе» — не основание игнорировать workflow.
