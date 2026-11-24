@@ -251,6 +251,8 @@ def ensure_group_started():
     odd = [g for g in allowed if g not in up and states.get(g) not in ('stopped', 'failed')]
     if up:
         print(f'уже подняты, старт не нужен: {", ".join(f"{g} ({states[g]})" for g in up)}', flush=True)
+        for g in up:
+            holder_do('adopt', g, 'batch_show')                    # подхват: держатель — этот конвейер, если живого держателя нет
         ok = True
     if odd:
         print('состояние не пойму, всё равно пробую поднять: '
@@ -265,6 +267,7 @@ def ensure_group_started():
                      'User-Agent': 'remlab-mesh/1.0'})
         urllib.request.urlopen(req, timeout=60).read()
         print(f'группа {grp}: start отправлен', flush=True)
+        holder_do('write', grp, 'batch_show')
         started.append(grp)
         ok = True
       except urllib.error.HTTPError as e:
@@ -346,6 +349,15 @@ import node_health as NH  # noqa: E402 — общий бюджет переса�
 import proc_run as PR     # noqa: E402 — запуск шага без сирот (ОДИН на batch_show и ssh_run)
 import ssh_run as SR      # noqa: E402 — канонический плоский список заданий (`plan_jobs`)
 import salad_groups as SG  # noqa: E402 — тариф/окно группы: ОДИН источник (rules/salad-groups.json)
+
+
+def holder_do(fn: str, *args) -> None:
+    """Реестр держателей групп (holder_registry.py, T-20261124-42/1, урок 929): любая ошибка — строка в журнал, конвейер идёт дальше."""
+    try:
+        import holder_registry as HR
+        getattr(HR, fn)(*args)
+    except Exception as e:  # noqa: BLE001
+        print(f'!! реестр держателей: {fn} не удалось ({type(e).__name__}: {str(e)[:80]})', flush=True)
 
 # ОРИЕНТАЦИЯ МИКРОПАЧКАМИ (01.09). Один заход на `--limit 200` вырастал до 8.6 ГБ и его
 # убивал earlyoom — шаг не «тормозил», а НЕ ДОДЕЛЫВАЛ работу, и пачка оставалась без
@@ -916,6 +928,7 @@ def run_batch(done: int, n: int, total: int) -> tuple[int, str]:
             print('нет тёплых нод — жду 3 мин и пробую снова', flush=True)
         cull_slow_pulls()
         cull_dead_warmups()   # ноды «Running» с мёртвым прогревом — самый дорогой простой
+        holder_do('beat_all')                                      # пульс держателя: конвейер жив
         time.sleep(180)
         return done, 'wait'
     if s is None:
@@ -925,6 +938,7 @@ def run_batch(done: int, n: int, total: int) -> tuple[int, str]:
         print('   ни одного закрытого задания — жду 3 мин и пробую снова', flush=True)
         cull_slow_pulls()
         cull_dead_warmups()   # ноды «Running» с мёртвым прогревом — самый дорогой простой
+        holder_do('beat_all')                                      # пульс держателя: конвейер жив
         time.sleep(180)
         return done, 'wait'
     return done, 'next'
@@ -972,6 +986,7 @@ def heal_wave(PAUSE: str, guard_done: bool = True, post: bool = True) -> bool:
             print('волна: нет тёплых нод — жду 3 мин', flush=True)
             ensure_group_started()
             cull_slow_pulls()
+            holder_do('beat_all')                                      # пульс держателя: конвейер жив
             time.sleep(180)
             continue
         if c != 0:
@@ -1060,6 +1075,12 @@ def stop_groups() -> bool:
     stop = f'{PY} - <<P\nimport sys; sys.path.insert(0,"{HERE}")\nimport ssh_run; sys.exit(0 if ssh_run.stop_group() else 1)\nP'
     c, o = sh(stop, timeout=400)
     print(o, flush=True)
+    if c == 0:
+        try:
+            for _g in SG.groups_from_env():                        # ssh_run.stop_group проверил «остановлены» — держателей больше нет
+                holder_do('clear', _g)
+        except (Exception, SystemExit) as e:  # noqa: BLE001 — нет SALAD_GROUP: groups_from_env() выходит через sys.exit; учёт не должен обрывать гашение и тревогу ниже
+            print(f'!! реестр держателей: не стёрт ({type(e).__name__})', flush=True)
     if c != 0:
         # НЕУДАЧНОЕ ГАШЕНИЕ — ЭТО ДЕНЬГИ (замечание Codex 05.09): раньше ненулевой код просто
         # печатался, конвейер шёл дальше и выходил, а группы оставались тарифицироваться до
