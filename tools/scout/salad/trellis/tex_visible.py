@@ -38,6 +38,8 @@ import paint_stage as PS  # noqa: E402
 import front_axis as FA  # noqa: E402       # общий свидетель «перёда» (T-21/2): доли известного по сторонам; нет модуля — ошибка импорта, не молчание
 import back_panel_stage as BPS  # noqa: E402    # зад корпусной после переноса (T-43/❓2): тип по паспорту, камера и фото-сторона из этого же выхода
 import crease_mask as CM  # noqa: E402     # мерки полос у изломов и карта уверенности текселя (T-194/1, T-194/2); текстуру не меняет
+import shadow_leak as SLK  # noqa: E402     # R-SHADOW-LEAK (T-20261124-15): тень щели в известном — мерка всегда для мягкого, лечение по rules/tex-visible.json shadow_leak.enabled
+import mesh_type_passports as MTP  # noqa: E402   # роль → семья типа (мягкое/корпусное/…) для допуска правила
 
 def _rules() -> dict:
     try:
@@ -47,6 +49,7 @@ def _rules() -> dict:
 
 
 R = _rules()
+SLK_ON = bool(int(os.environ['SHADOW_LEAK'])) if 'SHADOW_LEAK' in os.environ else None       # env 1/0 — проба «включено/выключено» поверх rules; нет — из rules/tex-visible.json shadow_leak.enabled
 COS_MIN = float(R.get('cos_min', 0.40))          # cos угла к лучу: 66° и больше — вскользь, не берём (rules/tex-visible.json)
 DEPTH_JUMP = float(R.get('depth_jump_px', 12.0))  # разрыв глубины между соседними пикселями кадра больше стольких px_len — край складки/щели: полоса вокруг не берётся
 MM_GAP = float(R.get('multi_material_gap_L', 25.0))      # бимодальный L* внутри части → мерка перёд↔бок N/A
@@ -1094,11 +1097,32 @@ def frame(path: str, prgb: np.ndarray, pmask: np.ndarray, after: np.ndarray, dst
 
 # ── этап ───────────────────────────────────────────────────────────────────────────────────────────────────────────
 
-def run(glb: str, photo: str, pose_run: str, run_dir: str, sku: str, cos_min: float = COS_MIN, body_only: bool = False) -> dict:
+def role_family(role: str | None) -> str | None:
+    """Роль каталога → семья паспорта типа (None — роли нет/тип неизвестен: правила по семье воздерживаются)."""
+    if not role:
+        return None
+    try:
+        return (MTP.get(role) or {}).get('family')
+    except Exception:  # noqa: BLE001 — реестр не читается: без семьи правило не применяется
+        return None
+
+
+def save_leak_frame(path: str, maps: dict) -> None:
+    """Кадр «до | после | карта утечки» вокруг найденных щелей (полный размер кадра камеры, отступ 60 px)."""
+    lk = maps['leak']
+    ys, xs = np.nonzero(lk)
+    h, w = lk.shape
+    y0, y1, x0, x1 = max(int(ys.min()) - 60, 0), min(int(ys.max()) + 60, h), max(int(xs.min()) - 60, 0), min(int(xs.max()) + 60, w)
+    mp = maps['before'].copy()
+    mp[lk] = (255, 40, 40)
+    Image.fromarray(np.concatenate([maps['before'][y0:y1, x0:x1], maps['after'][y0:y1, x0:x1], mp[y0:y1, x0:x1]], 1)).save(path)
+
+
+def run(glb: str, photo: str, pose_run: str, run_dir: str, sku: str, cos_min: float = COS_MIN, body_only: bool = False, role: str = '') -> dict:
     """Этап 6 для одного товара. Любая ошибка (форма не читается, нет файлов камеры, не та форма) — НЕ роняет пакет: пишет check.json passed=false с причиной (fail-closed, T-168)."""
     t0 = time.time()
     try:
-        return _run(glb, photo, pose_run, run_dir, sku, cos_min, body_only)
+        return _run(glb, photo, pose_run, run_dir, sku, cos_min, body_only, role)
     except Exception as e:  # noqa: BLE001 — причина уходит в check.json и в ответ, пакет идёт дальше
         d = PS.stage_dir(run_dir, sku, '06-visible')
         why = f'{type(e).__name__}: {e}'[:400]
@@ -1239,7 +1263,7 @@ def body_cut(pose_run: str):
     return {'row': int(rows[0]), 'frame_px': fpx, 'iou_top': float(ex.get('iou_top') or 0.0), 'bottom_shape_mismatch': True}
 
 
-def _run(glb: str, photo: str, pose_run: str, run_dir: str, sku: str, cos_min: float = COS_MIN, body_only: bool = False) -> dict:
+def _run(glb: str, photo: str, pose_run: str, run_dir: str, sku: str, cos_min: float = COS_MIN, body_only: bool = False, role: str = '') -> dict:
     t0 = time.time()
     d = PS.stage_dir(run_dir, sku, '06-visible')
     cg, cg_why = camera_gate(pose_run)
@@ -1289,6 +1313,9 @@ def _run(glb: str, photo: str, pose_run: str, run_dir: str, sku: str, cos_min: f
                 pmask = pmask.copy(); pmask[blk] = False
                 prgb = prgb.copy(); prgb[blk] = 0
             reg['applied'] = True
+    sl = SLK.run(prgb, pmask, st, geoms, role_family(role), None, SLK_ON)               # тень щели в известном (R-SHADOW-LEAK): выключено/чужая семья — prgb тот же объект, байты те же
+    prgb = sl['prgb']
+    sl['info']['outside_changed_px'] = sl.get('outside_changed_px')
     tr = transfer(geoms, st, prgb, pmask, cos_min)
     fchk = front_check(geoms, tr, st['camera'], pose_run)
     if fchk['state'] == 'flipped':                                   # фото на стороне, противоположной перёду, камере не верим: красить нечего (до 07)
@@ -1317,12 +1344,16 @@ def _run(glb: str, photo: str, pose_run: str, run_dir: str, sku: str, cos_min: f
     after_vis = frame_from_tex(st, geoms, [hatch(t, k) for t, k in zip(tr['tex'], tr['known'])])
     side_views = frame(os.path.join(d, 'frame.png'), prgb, pmask, after_vis, dst, view_glb=view, cam=st['camera'])
     os.remove(view)
+    leak_out = []
+    if sl['maps'] is not None:
+        save_leak_frame(os.path.join(d, 'shadow-leak.png'), sl['maps'])
+        leak_out = ['shadow-leak.png']
     mm, why = gate(m, thin_pass)
     main = mm.pop('silhouette_iou')
     ok = not why
     PS.write_check(d, '06-visible', sku, passed=ok, metric={'name': 'silhouette_iou', **{k: main[k] for k in ('value', 'threshold', 'op')}}, metrics=mm,
-                   reason='' if ok else '; '.join(why), seconds=round(time.time() - t0, 1), outputs=['visible.glb', 'known.png', 'conf.png', 'frame.png'], frame='frame.png',
-                   needs_qwen=(not ok), cos_min=cos_min, camera=st['camera'], side_views=side_views, pose_run=pose_run, crease_shadow=crease_info, stats=tr['stats'], front_check=fchk, depth_band_share=tr['depth_band_share'], body_only=(cut_row is not None), form_defect=(None if bc is None else {'kind': 'bottom_shape_mismatch', 'about': 'ножки формы (этап 2) не совпали с фото (число/длина/наклон): камера годна только по корпусу, фото на ножки не переносилось', 'iou_top': round(bc['iou_top'], 4), 'row': cut_row}), registration_fit=reg, cut_row=cut_row, legs_block=(None if lc is None else {'why': lc['why'], 'trusted_legs': len(lc['boxes']), 'row': cut_row}), legs_left_to_stage8=(cut_row is not None), z_buffer=zbuf_info, extra_metrics={k: v for k, v in m.items() if k not in GATE})
+                   reason='' if ok else '; '.join(why), seconds=round(time.time() - t0, 1), outputs=['visible.glb', 'known.png', 'conf.png', 'frame.png'] + leak_out, frame='frame.png',
+                   needs_qwen=(not ok), cos_min=cos_min, camera=st['camera'], side_views=side_views, pose_run=pose_run, crease_shadow=crease_info, stats=tr['stats'], front_check=fchk, depth_band_share=tr['depth_band_share'], body_only=(cut_row is not None), form_defect=(None if bc is None else {'kind': 'bottom_shape_mismatch', 'about': 'ножки формы (этап 2) не совпали с фото (число/длина/наклон): камера годна только по корпусу, фото на ножки не переносилось', 'iou_top': round(bc['iou_top'], 4), 'row': cut_row}), registration_fit=reg, cut_row=cut_row, legs_block=(None if lc is None else {'why': lc['why'], 'trusted_legs': len(lc['boxes']), 'row': cut_row}), legs_left_to_stage8=(cut_row is not None), z_buffer=zbuf_info, shadow_leak=sl['info'], extra_metrics={k: v for k, v in m.items() if k not in GATE})
     return {'sku': sku, 'passed': ok, 'metrics': m, 'why': why, 'dir': d}
 
 
@@ -1368,12 +1399,14 @@ def main() -> int:
     ap.add_argument('sku')
     ap.add_argument('--product-json', default='', help='product.json товара {sid,name,role,params} (путь во входе задания Salad): роль → допуск «зад корпусной» по паспорту типа (после 06, back_panel_stage); нет файла/роли — шаг не запускается')
     a = ap.parse_args()
-    r = run(a.glb, a.photo, a.pose_run, a.run_dir, a.sku, body_only=a.body_only)
+    role = ''
     if a.product_json:
         try:
             role = (json.load(open(a.product_json, encoding='utf-8')) or {}).get('role') or ''
         except (OSError, ValueError):
             role = ''
+    r = run(a.glb, a.photo, a.pose_run, a.run_dir, a.sku, body_only=a.body_only, role=role)
+    if a.product_json:
         bp = BPS.run_stage(a.run_dir, a.sku, role, keep_original=False, pose_run=a.pose_run,      # согласие кромок — из pose.json прогона позы во входе (в папке товара на ноде его нет)
                            refusal='' if r.get('passed') else str(r.get('reason') or 'отказ без причины'))   # этап отказал — выход 06 не годится, зад не трогаем, но запись правила пишется
         r['back_panel'] = {'applied': bp['applied'], 'reason': bp['reason']}

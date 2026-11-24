@@ -28,6 +28,7 @@ tools/scout/salad/trellis/tex_seam.py
 tools/scout/salad/trellis/seam_stage.py
 tools/scout/salad/trellis/tex_visible.py
 tools/scout/salad/trellis/crease_mask.py
+tools/scout/salad/trellis/shadow_leak.py
 tools/scout/salad/trellis/legs_check.py
 tools/scout/rules/tex-visible.json
 tools/scout/rules/camera-check.json

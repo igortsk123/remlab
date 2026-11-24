@@ -5,10 +5,11 @@
 
 ОБЩИЙ ПРИЗНАК (не по товару): пиксель кадра камеры 04 — «утечка тени», если одновременно
   1. он тёмный относительно локальной ткани (медиана окна ref_win: ниже на dark_dL L* или ниже dark_ratio × медианы) и входит в ТОНКУЮ тёмную полосу (шире thin_px px не считается — это тёмная ткань, не щель);
-  2. по одной из 4 ориентаций ткань по ОБЕ стороны полосы (на расстоянии side_k px) светлее него не меньше чем на side_dL L*;
-  3. по той же ориентации форма в этом месте — СИММЕТРИЧНАЯ ложбина глубины: обе стороны ближе к камере не меньше чем на trough_px px предмета, а друг от друга отличаются не больше trough_sym_px
-     (ступень заслонения — не щель; тёмный рисунок на гладкой поверхности — не щель);
-  4. он глубже edge_px от силуэта фото (у края — фон и ореол, их ведёт edge_bg).
+  2. по одной из 4 ориентаций ткань по ОБЕ стороны полосы (в среднем на расстоянии side_k px) светлее него не меньше чем на side_dL L* (контактная тень размыта — боковые точки берём дальше самой полосы);
+  3. он лежит не дальше support_px от ИЗЛОМА формы в кадре камеры 04 (угол нормалей соседних граней > angle_deg, `crease_mask.crease_pixels`): это щель/шов формы, а не рисунок ткани. Карта глубины для этого
+     не годится — на обивке она в шуме (проверено на 29 круга); чисто по яркости ловится и узор ткани (ветки на «Сакуре») — такой признак без опоры на форму не принимается;
+  4. он глубже edge_px от силуэта фото (у края — фон и ореол, их ведёт edge_bg);
+  5. СТРАЖ УЗОРА: тот же яркостной признак (п. 1–2) вне опоры формы занимает не больше pattern_max_share_pct % площади — иначе ткань с тёмным рисунком, правило воздерживается (`abstain: pattern`).
 ЛЕЧЕНИЕ (только если включено правилом): цвет утечки плавно поднимается к цвету СПОКОЙНОЙ ткани вокруг (нормированная гауссова свёртка по пикселям, не тёмным и не из полосы), светлота — не больше чем на
 max_lift_L, цветность — на ту же долю; кромка полосы размыта feather_px (без «бусин»). Пиксели вне полосы НЕ меняются ни на бит. Тип: только семьи из `families` (паспорт типа); прочие — воздержание, prgb тот же объект.
 МЕРКА (всегда, даже при выключенном правиле — «холостой режим»): избыток тёмного в щели = доля тёмных пикселей в геометрической щели (любая ложбина глубины, без условия цвета) минус доля тёмных вне
@@ -22,9 +23,8 @@ import os
 import numpy as np
 
 SCOUT = os.path.normpath(os.path.join(os.path.dirname(os.path.abspath(__file__)), '..', '..'))
-DEFAULTS = {'enabled': False, 'families': ['мягкое'], 'dark_dL': 15.0, 'dark_ratio': 0.6, 'thin_px': 5, 'ref_win': 31, 'side_k': [4, 6], 'side_dL': 10.0,
-            'trough_px': 1.0, 'trough_sym_px': 2.0, 'edge_px': 25, 'lift_sigma': 4.0, 'feather_px': 1.0, 'max_lift_L': 25.0, 'grow_px': 1, 'min_zone_px': 50, 'outside_gap_px': 3,
-            'depth_median': 3}
+DEFAULTS = {'enabled': False, 'families': ['мягкое'], 'dark_dL': 15.0, 'dark_ratio': 0.6, 'thin_px': 8, 'ref_win': 31, 'side_k': [8, 12], 'side_dL': 6.0, 'support_px': 8, 'pattern_max_share_pct': 2.5,
+            'edge_px': 25, 'lift_sigma': 4.0, 'feather_px': 1.0, 'max_lift_L': 25.0, 'grow_px': 1, 'min_zone_px': 50, 'outside_gap_px': 3}
 DIRS = ((0, 1), (1, 0), (1, 1), (1, -1))                     # (dy, dx): горизонталь, вертикаль, две диагонали
 
 
@@ -71,33 +71,15 @@ def _thin(dark: np.ndarray, thin_px: int) -> np.ndarray:
     return dark & ~binary_opening(dark, structure=np.ones((int(thin_px) + 1, int(thin_px) + 1), bool))
 
 
-def depth_trough(st: dict, r: dict) -> list:
-    """По каждой ориентации: bool-карта «симметричная ложбина глубины» (обе стороны на side_k px ближе не меньше trough_px px предмета, стороны различаются не больше trough_sym_px).
-    Соседи обязаны быть формой (mask). Глубина — медиана 3×3 внутри формы (на рёбрах треугольников в карте пятна-выбросы)."""
-    from scipy.ndimage import median_filter
-    mask = st['mask'] & (st['ids'] >= 0)
-    d = np.asarray(st['depth'], np.float32)
-    dm = int(r['depth_median'])
-    if dm > 1:
-        d = median_filter(np.where(mask, d, np.float32(np.nan)).astype(np.float32), size=dm, mode='nearest')
-    pl = max(float(st.get('px_len') or 0.0), 1e-6)
-    ks = [int(k) for k in r['side_k']]
-    out = []
-    for dy, dx in DIRS:
-        da = np.mean([_shift(d, dy * k, dx * k) for k in ks], axis=0)
-        db = np.mean([_shift(d, -dy * k, -dx * k) for k in ks], axis=0)
-        ma = np.all([_shift(mask, dy * k, dx * k) for k in ks], axis=0)
-        mb = np.all([_shift(mask, -dy * k, -dx * k) for k in ks], axis=0)
-        with np.errstate(invalid='ignore'):
-            near_a = (d - da) >= float(r['trough_px']) * pl                  # центр ДАЛЬШЕ боковой точки (глубина — расстояние до камеры): боковые ближе → ложбина
-            near_b = (d - db) >= float(r['trough_px']) * pl
-            sym = np.abs(da - db) <= float(r['trough_sym_px']) * pl
-        out.append(mask & ma & mb & near_a & near_b & sym & np.isfinite(d))
-    return out
+def crease_of(st: dict, geoms: list, crr: dict | None = None) -> np.ndarray:
+    """Излом формы в кадре камеры 04 (пиксели, где соседи — грани с углом нормалей > angle_deg, без разрыва глубины)."""
+    import crease_mask as CM
+    crr = crr or CM.load_rules()
+    return CM.crease_pixels(st['ids'], st['depth'], st['mask'], CM.face_normals(geoms), float(st.get('px_len') or 0.0), crr)
 
 
-def detect(prgb: np.ndarray, pmask: np.ndarray, st: dict, r: dict | None = None) -> dict:
-    """→ {leak: bool кадра (утечка тени), zone: bool кадра (геометрическая щель, любой тон), dark: bool (тёмные), stats}."""
+def detect(prgb: np.ndarray, pmask: np.ndarray, st: dict, geoms: list, r: dict | None = None) -> dict:
+    """→ {leak: bool кадра (утечка тени), zone: bool кадра (геометрическая щель: опора формы, любой тон), dark, L8, ref, pattern_share_pct, stats}."""
     from scipy.ndimage import binary_dilation, distance_transform_edt
     r = r or load_rules()
     valid = st['mask'] & pmask
@@ -106,22 +88,22 @@ def detect(prgb: np.ndarray, pmask: np.ndarray, st: dict, r: dict | None = None)
     dark = _dark(L8, ref, r) & valid
     thin = _thin(dark, int(r['thin_px']))
     ks = [int(k) for k in r['side_k']]
-    troughs = depth_trough(st, r)
     Lf = L8.astype(np.float32)
     lighter = np.zeros(valid.shape, bool)
-    zone = np.zeros(valid.shape, bool)
-    for (dy, dx), tr in zip(DIRS, troughs):
+    for dy, dx in DIRS:
         la = np.mean([_shift(Lf, dy * k, dx * k) for k in ks], axis=0)
         lb = np.mean([_shift(Lf, -dy * k, -dx * k) for k in ks], axis=0)
-        both = (la - Lf >= float(r['side_dL']) * 2.55) & (lb - Lf >= float(r['side_dL']) * 2.55)
-        lighter |= both & tr
-        zone |= tr
+        lighter |= (la - Lf >= float(r['side_dL']) * 2.55) & (lb - Lf >= float(r['side_dL']) * 2.55)
+    crease = crease_of(st, geoms)
+    support = binary_dilation(crease, iterations=max(int(r['support_px']), 1)) if crease.any() else np.zeros(valid.shape, bool)
     inner = distance_transform_edt(pmask) >= float(r['edge_px'])
-    leak = thin & lighter & inner & valid
-    zone = zone & valid & inner
-    zone = binary_dilation(zone, iterations=max(int(r['grow_px']), 0)) & valid if int(r['grow_px']) > 0 else zone
-    return {'leak': leak, 'zone': zone, 'dark': dark, 'L8': L8, 'ref': ref,
-            'stats': {'leak_px': int(leak.sum()), 'zone_px': int(zone.sum()), 'dark_px': int(dark.sum()), 'thin_dark_px': int(thin.sum()), 'valid_px': int(valid.sum())}}
+    photo = thin & lighter & inner & valid                                  # яркостной признак без опоры на форму
+    leak = photo & support
+    zone = support & valid & inner
+    pat = 100.0 * float((photo & ~support).sum()) / max(int(valid.sum()), 1)
+    return {'leak': leak, 'zone': zone, 'dark': dark, 'L8': L8, 'ref': ref, 'pattern_share_pct': pat,
+            'stats': {'leak_px': int(leak.sum()), 'zone_px': int(zone.sum()), 'dark_px': int(dark.sum()), 'thin_dark_px': int(thin.sum()), 'valid_px': int(valid.sum()), 'crease_px': int(crease.sum()),
+                      'photo_only_px': int((photo & ~support).sum()), 'pattern_share_pct': round(pat, 3)}}
 
 
 def excess_pp(dark: np.ndarray, zone: np.ndarray, valid: np.ndarray, r: dict) -> dict:
@@ -170,7 +152,7 @@ def family_allowed(family: str | None, r: dict) -> bool:
     return bool(family) and family in (r.get('families') or [])
 
 
-def run(prgb: np.ndarray, pmask: np.ndarray, st: dict, family: str | None, r: dict | None = None, enabled: bool | None = None) -> dict:
+def run(prgb: np.ndarray, pmask: np.ndarray, st: dict, geoms: list, family: str | None, r: dict | None = None, enabled: bool | None = None) -> dict:
     """Точка входа 06. → {prgb (тот же объект, если не менялся), info (в check.json `shadow_leak`), maps|None}.
     Семья не из `families` → воздержание. Правило выключено (`enabled` false) → только мерка «если применить», prgb не тронут (побайтно)."""
     r = r or load_rules()
@@ -179,8 +161,12 @@ def run(prgb: np.ndarray, pmask: np.ndarray, st: dict, family: str | None, r: di
     if not family_allowed(family, r):
         info['abstain'] = 'family'
         return {'prgb': prgb, 'info': info, 'maps': None}
-    det = detect(prgb, pmask, st, r)
+    det = detect(prgb, pmask, st, geoms, r)
     valid = st['mask'] & pmask
+    if det['pattern_share_pct'] > float(r['pattern_max_share_pct']):       # рисунок ткани: тёмные тонкие полосы по всему изделию, не только у швов
+        info.update(det['stats'])
+        info['abstain'] = 'pattern'
+        return {'prgb': prgb, 'info': info, 'maps': None}
     before = excess_pp(det['dark'], det['zone'], valid, r)
     new, changed = lift(prgb, pmask, st, det, r)
     L8n = _lum8(new)

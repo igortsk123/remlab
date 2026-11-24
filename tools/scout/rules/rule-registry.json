@@ -627,28 +627,30 @@
     },
     {
       "rule_id": "R-SHADOW-LEAK",
-      "title": "Ш3: тени/блики своей материальной зоны не идут в доноры; гейт shadow_leak; происхождение каждого текселя",
-      "state": "proposed",
+      "title": "Мягкая мебель: тень щели/шва, запёкшаяся в известное на 06, поднимается к цвету спокойной ткани (тонкая тёмная полоса у излома формы при светлой ткани по обе стороны)",
+      "state": "trial",
       "source": [
         "plans/paint-photo-fill-01.md Ш3",
-        "советник 21.11 sovetnik-delight"
+        "советник 21.11 sovetnik-delight",
+        "plans/mesh-type-rules-01.md журнал брака #88/#141/#179",
+        "T-20261124-15 (Д1 №8, ~/remlab-logs/t2401-1124/rules-code.md)"
       ],
       "applies": {
-        "types": [
-          "all"
+        "families": [
+          "мягкое"
         ]
       },
-      "executor": "р.4/р.5",
-      "consumer": null,
-      "runtime": "none",
-      "test": null,
-      "test_positive": null,
-      "test_negative": null,
+      "executor": "р.3 (T-20261124-15)",
+      "consumer": "tools/scout/salad/trellis/shadow_leak.py:run",
+      "runtime": "observe",
+      "test": "tools/scout/salad/trellis/tests_shadow_leak.py",
+      "test_positive": "tools/scout/salad/trellis/tests_shadow_leak.py::test_positive",
+      "test_negative": "tools/scout/salad/trellis/tests_shadow_leak.py::test_negatives",
       "run_id": null,
-      "flag": null,
-      "check_field": null,
-      "enabled": null,
-      "note": "в main символа shadow_leak нет"
+      "flag": "tools/scout/rules/tex-visible.json#shadow_leak.enabled",
+      "check_field": "06-visible.shadow_leak",
+      "enabled": false,
+      "note": "T-20261124-15, 24.11: код в 06 (shadow_leak.py, вызов в tex_visible._run до переноса), выключатель shadow_leak.enabled=false (режим trial выключен): мерка «избыток тёмного в щели, п.п.» пишется в check.json 06 всегда для семьи «мягкое» («если применить» — тоже), текстуру не меняет. Включённое лечение — подъём цвета утечки к спокойной ткани, вне полосы байты те же; не мягкая мебель и воздержание по узору — prgb тот же объект. Пороги — rules/tex-visible.json shadow_leak (гипотезы по 29 круга). Не active: run_id нет, включение — по слову директора. В 07 отдельного кода нет: 07 берёт тон части из исправленного известного (смотреть по замеру пакета)."
     },
     {
       "rule_id": "R-DETAIL-EXCLUSIONS-07",
