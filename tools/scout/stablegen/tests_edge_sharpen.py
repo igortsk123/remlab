@@ -331,6 +331,41 @@ class BackPanelStage(unittest.TestCase):
             doc, d = self._stage(t, {"camera": {"az": 0.0, "el": 0.0}, "front_check": {"edge_agree": 0.9}}, "ваза", reg, None, rules=live)
             self.assertIn("тип не допускает", doc["reason"])
 
+    def test_disabled_rule_is_byte_identical(self):
+        """T-43/7: выключатель false (живые правила) и отказ по типу — вход 07 байт-в-байт как без правила: visible.glb, prov/known/conf не меняются, новых файлов нет
+        (кроме следа back_panel.json), check.json отличается только записью правила в extra.rules."""
+        import hashlib
+        import json as _json
+        import tempfile
+        from PIL import Image
+        reg = self._reg({"комод": {"hidden_pattern": "body", "mode": "active"}, "ваза": {"hidden_pattern": "continue", "mode": "active"}})
+        live = E.load_rules()
+        self.assertFalse(live["back_panel"]["enabled"])
+
+        def snap(d):
+            return {n: hashlib.sha256(open(os.path.join(d, n), "rb").read()).hexdigest() for n in sorted(os.listdir(d))}
+        for role in ("комод", "ваза"):
+            with tempfile.TemporaryDirectory() as t:
+                d = os.path.join(t, "s1", "06-visible")
+                os.makedirs(d)
+                V, F, _ = T._relief_back(None, n=40)
+                T._write_glb(os.path.join(d, "visible.glb"), V, F)
+                rng = np.random.RandomState(7)
+                for n in ("prov.png", "known.png", "conf.png"):
+                    Image.fromarray((rng.rand(16, 16) * 255).astype(np.uint8)).save(os.path.join(d, n))
+                chk = {"extra": {"camera": {"az": 0.0, "el": 0.0}, "front_check": {"edge_agree": 0.9}}}
+                with open(os.path.join(d, "check.json"), "w", encoding="utf-8") as f:
+                    _json.dump(chk, f)
+                before = snap(d)
+                doc = __import__("back_panel_stage").run_stage(t, "s1", role, reg=reg, rules=live)
+                after = snap(d)
+                self.assertFalse(doc["applied"])
+                changed = {n for n in set(before) | set(after) if before.get(n) != after.get(n)}
+                self.assertEqual(changed, {"check.json", "back_panel.json"}, role)
+                c2 = _json.load(open(os.path.join(d, "check.json"), encoding="utf-8"))
+                self.assertEqual({k: v for k, v in c2["extra"].items() if k != "rules"}, chk["extra"], role)
+                self.assertEqual({k: v for k, v in c2.items() if k != "extra"}, {}, role)
+
     def test_stage_policy_refusal_leaves_files(self):
         import tempfile
         reg = self._reg({"комод": {"hidden_pattern": "body", "mode": "active"}, "ваза": {"hidden_pattern": "continue", "mode": "active"}})
