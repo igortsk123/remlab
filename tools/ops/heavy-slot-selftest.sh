@@ -826,6 +826,14 @@ ok "ядра выведены: pytest без xdist → 1, pytest -n 4 → 4 ($ry
   "$(yes_if '[ "$ry" = "1 4" ] && grep -q "ci-y .*ядра выведены: 1 (по pytest без xdist" "$HEAVY_SLOT_LOG" && grep -q "ci-x .*ядра выведены: 4 (по pytest -n 4" "$HEAVY_SLOT_LOG"')"
 ok "ядра выведены из команды: регресс -j 3 → 3, без -j → 4, playwright → 6, vitest → 3, прочее → 2, --cores 5 перекрывает; HEAVY_SLOT_CORES у команды ($r)" \
   "$(yes_if '[ "$r" = "3 4 6 3 2 5" ] && grep -q "ci-j .*ядра выведены: 3 (по регрессу разбора -j 3)" "$HEAVY_SLOT_LOG" && grep -q "ci-4 .*ядра выведены: 4 (по регрессу разбора -j 4, умолчание regress.py)" "$HEAVY_SLOT_LOG" && grep -q "ci-p .*ядра выведены: 6 (по Playwright" "$HEAVY_SLOT_LOG" && grep -q "ci-j .*взял: .*, ядер 3," "$HEAVY_SLOT_LOG" && ! grep -q "ci-[ok] .*ядра выведены" "$HEAVY_SLOT_LOG" && [ -z "${HEAVY_SLOT_CORES:-}" ]')"
+# T-20261124-40 (урок 930): потоки numpy/BLAS/OpenMP команды = заявке ядер; явно заданное не перетирается
+tenv() { echo "printf '%s %s %s %s %s' \"\$OMP_NUM_THREADS\" \"\$OPENBLAS_NUM_THREADS\" \"\$MKL_NUM_THREADS\" \"\$NUMEXPR_NUM_THREADS\" \"\$VECLIB_MAXIMUM_THREADS\" > $T/tenv-$1"; }
+env -u OMP_NUM_THREADS -u OPENBLAS_NUM_THREADS -u MKL_NUM_THREADS -u NUMEXPR_NUM_THREADS -u VECLIB_MAXIMUM_THREADS "$S" th-3 --min-gb 1 --cores 3 -- sh -c "$(tenv 3)"
+env -u OPENBLAS_NUM_THREADS -u MKL_NUM_THREADS -u NUMEXPR_NUM_THREADS -u VECLIB_MAXIMUM_THREADS OMP_NUM_THREADS=1 "$S" th-x --min-gb 1 --cores 3 -- sh -c "$(tenv x)"
+env -u OMP_NUM_THREADS -u OPENBLAS_NUM_THREADS -u MKL_NUM_THREADS -u NUMEXPR_NUM_THREADS -u VECLIB_MAXIMUM_THREADS "$S" th-f --min-gb 1 --cores 2.7 -- sh -c "$(tenv f)"
+r="$(cat "$T/tenv-3")|$(cat "$T/tenv-x")|$(cat "$T/tenv-f")"
+ok "потоки математики команды = заявке ядер (3 → все пять переменных 3; 2,7 → 2); явный OMP_NUM_THREADS=1 сохранён, остальные — 3 ($r)" \
+  "$(yes_if '[ "$r" = "3 3 3 3 3|1 3 3 3 3|2 2 2 2 2" ]')"
 r=$(python3 -c "
 import os, sys; sys.path.insert(0, '$DIR'); import heavy_slot as H
 os.environ.pop('HEAVY_SLOT_CORES', None)
