@@ -14,7 +14,7 @@
 |------|-------|----------------------|--------|---------|
 | `access-and-integrations.md` | access-and-integrations | Интеграции/доступы — ключи, клиенты | `../domain/integrations.md` | 2026-11-19 |
 | `agent-trial.md` | agent-trial | Проба агента (UK) — воркер, стадии, тур /try | `../plans/MASTER-agent-trial.md` | 2026-11-18 |
-| `apartment-configurator.md` | apartment-configurator | 3D-конфигуратор квартиры — устройство | `../domain/flat3d-configurator.md` | 2026-11-18 |
+| `apartment-configurator.md` | apartment-configurator | 3D-конфигуратор квартиры — устройство | `../domain/flat3d-configurator.md` | 2026-11-24 |
 | `architecture.md` | architecture | Стек, модули, генерация, деплой — по коду | `../../docs/tech-spec-ts-stack.md` | 2026-11-21 |
 | `catalog.md` | catalog | Каталог — загрузка из фидов/API, свежесть, сторожа | `../domain/catalog-enrichment.md` | 2026-11-19 |
 | `data-model.md` | data-model | Схема БД, миграции, pgvector | `../../docs/tech-spec-ts-stack.md` | 2026-11-18 |
@@ -34,7 +34,7 @@
 | `mesh-color.md` | mesh-color | Цвет мешей — диагноз, мерка, рычаги | `../domain/viz-fidelity-playbook.md` | 2026-11-19 |
 | `mesh-owner-audit.md` | mesh-owner-audit | Приёмка мешей владельцем — /lab/mesh-audit | `../completed_plans/mesh-owner-audit.md` | 2026-11-20 |
 | `mesh-pipeline.md` | mesh-pipeline | 3D-меши — генерация, учёт, приёмка | `../domain/viz-fidelity-playbook.md` | 2026-11-20 |
-| `mesh-pool.md` | mesh-pool | Пул нод Salad — группы, тарифы, деньги, стопоры | `../domain/mesh-pool-ops.md` | 2026-11-23 |
+| `mesh-pool.md` | mesh-pool | Пул нод Salad — группы, тарифы, деньги, стопоры | `../domain/mesh-pool-ops.md` | 2026-11-24 |
 | `mesh-run.md` | mesh-run | Прогон мешей — РАБОЧИЙ вариант, старт, остановка | `../domain/mesh-run-playbook.md` | 2026-11-18 |
 | `observability-tracing.md` | observability-tracing | Трейсинг AI-пайплайна — лог, разбор | `../domain/observability.md` | 2026-11-18 |
 | `partners.md` | partners | Застройщик, ЖК, квартира, цена — данные | `../completed_plans/b2b-06-apartment-as-data.md` | 2026-11-18 |

@@ -3,7 +3,8 @@ tier: 2
 topic: flat3d-configurator-details
 scope: 3D-конфигуратор квартиры — подробности модели, сцены и конвейера ассетов
 tier1: ../core/apartment-configurator.md
-updated: 2026-11-17
+updated: 2026-11-24
+last_verified: 2026-11-24
 importance: med
 source: manual
 status: working
@@ -55,10 +56,15 @@ y вглубь; x/y предмета = ЦЕНТР; rot по часовой, 0 �
   `tools/assets/transform_golden.py` ← `tools/scout/scene_mesh.py`).
 
 ## Ассеты
-`tools/assets/runtime_mesh.py`: текстуры ужимаются до 1024 (desktop) / 512 (lite) — это потолок,
-уменьшение только сверху вниз; в таблице `data/flat3d/runtime-meshes.json` 116 в HEAD (117 в рабочей копии 18.11): 85 — 1024 (+ lite-текстура 512),
-31 — 512 без отдельной lite-текстуры (`size-lite` есть). metallicRoughness → в
-скаляры, картинки переносятся в бинарный чанк, затем `gltfpack -cc -tc` (Meshopt + KTX2).
+`tools/assets/runtime_mesh.py`: сторона текстуры первой попытки копии для сайта — `tools/scout/rules/rt-weight.json:texture.size` (2048 + KTX2,
+`quality` 82; 1024 съедала мелкий рисунок фасада, T-20261123-31, `runtime_mesh.py:13-14, 639-640`); у `-lite` — 512 своим ключом `--size`.
+Копия тяжелее `rt-weight.json:max_bytes` (5 МБ) идёт по лестнице `rt-weight.json:ladder`: карты материала 512/256 → цвет 1024/512 →
+упрощение граней 0,6/0,4 (уменьшение только сверху вниз); не влезло — отказ `rt_weight_over_limit`, демо с такой моделью не публикуется
+(ворота `demo_rt`), `publish_rt.sh` проверяет вес до rsync. В таблице `data/flat3d/runtime-meshes.json` 116 в HEAD на 24.11
+(в рабочей копии сборка добавляет — 120 на 24.11): в HEAD 85 — 1024 (+ lite-текстура 512), 31 — 512 без отдельной lite-текстуры
+(`size-lite` есть); `texture_px` в таблице — у копий до 23.11, новые собираются с 2048. metallicRoughness и прочие карты материала
+(sheen, transmission) остаются в копии только у моделей, прошедших этап 08 (признак в GLB `asset.extras.remlab_stage = "08-material"`,
+`rt-weight.json:material`, e1868fce5), у остальных — в скаляры; картинки переносятся в бинарный чанк, затем `gltfpack -cc -tc` (Meshopt + KTX2).
 Замер 28.09: 3,94 → 0,29 МБ (desktop) и 0,15 МБ (lite); 40 моделей 158 → 12 МБ.
 Публикация — `tools/assets/publish_rt.sh` (`rsync` в `/opt/remlab/test/rt/`, без удаления); маршрут `/rt/*` в Caddy:
 `immutable`, неделя, парный `redir /rt /rt/` (без него адрес без слэша = 404). С 14.10 (demo-01, ADR-0288): свежесть копии —
