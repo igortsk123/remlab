@@ -9,6 +9,7 @@ name: build-supratex-trial
 on:
   push:
     branches: ['trial/trellis2*']
+    # paths = КАЖДЫЙ файл образа (список файлов, Dockerfile, скрипт контекста, COPY): правка любого пересобирает образ; сверка — tools/ops/trial_build_paths_check.py (CI)
     paths:
       - 'tools/scout/salad/trellis/Dockerfile.supratex'
       - 'tools/scout/salad/trellis/worker_trellis.py'
