@@ -799,19 +799,24 @@ def lab_to_rgb(lab: np.ndarray) -> np.ndarray:
     return np.clip(np.rint(c * 255), 0, 255).astype(np.uint8)
 
 
-def fill_gate(stages_dir: str, c: dict) -> tuple[bool, str]:
-    """Заслон «08 только после зелёного 07» (T-20261124-10; `check.require_fill_passed` в material-recipes.json) → (можно, причина). Берёт `<stages_dir>/07-fill/check.json` того же товара:
-    нет файла — путь 02→08 мимо 06/07 (цвет остался родным от TRELLIS) → нельзя; красный 07 → нельзя. Правило выключено — всегда можно."""
-    if not c.get("require_fill_passed"):
-        return True, ""
+def fill_gate(stages_dir: str, c: dict) -> tuple[bool, str, dict]:
+    """Заслон «08 только при наличии 07» (T-20261124-10/3, владелец TG 2484; `check.require_fill_present` в material-recipes.json) → (можно, причина, отчёт о 07).
+    Читает `<stages_dir>/07-fill/check.json` того же товара. 07 ЕСТЬ, если файл читается и этап выдал результат (`outputs` не пуст): тогда 08 идёт, а красный вердикт 07 по порогам
+    (dE00_front_back, time_s, filled_faces_step_pct…) попадает в отчёт замечанием (`fill_stage`) — ворота 07 с качеством не связаны (`~/remlab-logs/t2406-1124/gates-eval.md`), качество — автооценка.
+    Нет файла/папки, файл нечитаем или этап не дал выхода (сбой, отказ входа) — путь мимо 06/07 оставляет родной цвет TRELLIS (урок 807) → нельзя. Правило выключено — всегда можно."""
+    if not c.get("require_fill_present"):
+        return True, "", {}
     f = os.path.join(stages_dir, "07-fill", "check.json")
     try:
         d = json.load(open(f, encoding="utf-8"))
     except (OSError, ValueError):
-        return False, "нет check.json этапа 07 (заливка) того же товара: путь мимо 06/07 оставляет родной цвет TRELLIS — на этап 08 не пускаем"
-    if not (isinstance(d, dict) and d.get("passed") is True):
-        return False, "этап 07 (заливка) не прошёл: " + str((d or {}).get("reason") or "причина не названа")[:140] if isinstance(d, dict) else "check.json этапа 07 нечитаем"
-    return True, ""
+        return False, "нет check.json этапа 07 (заливка) того же товара: путь мимо 06/07 оставляет родной цвет TRELLIS — на этап 08 не пускаем", {}
+    if not isinstance(d, dict):
+        return False, "check.json этапа 07 нечитаем — на этап 08 не пускаем", {}
+    if not d.get("outputs"):
+        return False, "этап 07 (заливка) не дал результата (сбой или отказ входа): " + str(d.get("reason") or "причина не названа")[:140], {}
+    note = {"passed": d.get("passed") is True, "reason": str(d.get("reason") or "")[:200]}
+    return True, "", note
 
 
 def photo_signal(stages_dir: str, pp: dict):
@@ -1117,7 +1122,7 @@ def run_stage(glb: str, run: str, sku: str, product: dict, parts_dir: str | None
     conf_ids = [pid for pid, r in res.items() if r["confident"]]
     confident_share = float(np.isin(part, conf_ids).sum()) / nf
     c = recipes["check"]
-    fill_ok, fill_why = fill_gate(stages_dir or os.path.join(run, ps.safe_name(sku)), c)
+    fill_ok, fill_why, fill_note = fill_gate(stages_dir or os.path.join(run, ps.safe_name(sku)), c)
     color_same = colour_unchanged_outside(glb, out_glb, mask_all)
     geom_same = geometry_sha(glb) == geometry_sha(out_glb)
     parts_rep = [{"id": pid, "role": next((p["role"] for p in parts if p["id"] == pid), None), "face_share": next((p["face_share"] for p in parts if p["id"] == pid), None),
@@ -1146,11 +1151,11 @@ def run_stage(glb: str, run: str, sku: str, product: dict, parts_dir: str | None
         metric={"name": "confident_share", "value": round(confident_share, 4), "threshold": c["confident_share_min"], "op": ">="},
         metrics={"recipe_share": {"value": round(recipe_share, 4), "threshold": c["recipe_share_min"], "op": ">="},
                  "inherited_share": {"value": round(inherited_share, 4), "threshold": c["inherited_share_max"], "op": "<="},
-                 "fill_passed": {"value": bool(fill_ok), "threshold": True, "op": "=="},
+                 "fill_present": {"value": bool(fill_ok), "threshold": True, "op": "=="},
                  "color_unchanged": {"value": bool(color_same), "threshold": True, "op": "=="},
                  "geometry_unchanged": {"value": bool(geom_same), "threshold": True, "op": "=="},
                  "seconds": {"value": round(time.time() - t0, 1), "threshold": c["max_seconds"], "op": "<="}, **plate_mt},
-        reason=reason, seconds=time.time() - t0, outputs=["material.glb"], frame=frame_name, plate=plate_rep,
+        reason=reason, seconds=time.time() - t0, outputs=["material.glb"], frame=frame_name, plate=plate_rep, fill_stage=fill_note,
         faces=nf, parts_source=parts_source, shape=shape_rep, catalog_parts_not_located=not_located, unsure_parts=unsure_rep, product_class={"class": cls["class"], "stage": cls["stage"], "confidence": cls["confidence"], "reason": cls["reason"], "parts": cls.get("parts")},
         parts=parts_rep, classes=table, compound=cls.get("compound") or [], untouched_share=round(float(np.isin(part, [pid for pid, r in res.items() if r["class"] == "unknown"]).sum()) / nf, 4),
         painted_metal_share=round(float(np.isin(part, [pid for pid, r in res.items() if r.get("painted_from")]).sum()) / nf, 4),

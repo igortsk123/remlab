@@ -167,17 +167,21 @@ def test_plate_left_gate():
 
 
 def _run(src, run, sku, product, fill="green", **kw):
-    """run_stage с готовым check.json этапа 07 рядом (заслон fill_gate, T-20261124-10): прежние проверки идут как раньше. fill: green | red | none."""
+    """run_stage с готовым check.json этапа 07 рядом (заслон fill_gate, T-20261124-10/3): прежние проверки идут как раньше. fill: green | red (по порогам, результат есть) | crash (сбой, выхода нет) | none (нет файла)."""
     ps = MS._paint_stage()
     if fill != "none":
         sd = ps.stage_dir(run, sku, "07-fill")
+        doc = {"stage": "07-fill", "sku": sku, "passed": fill == "green", "reason": "" if fill == "green" else "не прошли: dE00_front_back 10.19 <= 6.0 (тест)",
+               "outputs": [] if fill == "crash" else ["filled.glb", "report.json"]}
+        if fill == "crash":
+            doc["reason"] = "тест: сбой 07 до результата"
         with open(os.path.join(sd, "check.json"), "w", encoding="utf-8") as f:
-            json.dump({"stage": "07-fill", "sku": sku, "passed": fill == "green", "reason": "" if fill == "green" else "тест: 07 красный"}, f)
+            json.dump(doc, f)
     return MS.run_stage(src, run, sku, product, **kw)
 
 
 def test_fill_gate():
-    """T-20261124-10: 08 зелёный только при зелёном 07 того же товара; путь 02→08 мимо 06/07 — красный, отметки «прошёл» нет."""
+    """T-20261124-10/3: 08 идёт только при наличии 07 того же товара; красный 07 по порогам не останавливает (замечание в отчёте); нет 07 / сбой — стоп, отметки «прошёл» нет."""
     try:
         MS._paint_stage()
     except SystemExit:
@@ -190,14 +194,18 @@ def test_fill_gate():
         _tiny_glb(clean)
         run = os.path.join(d, "run")
         base = _run(clean, run, "sku-base", product, fill="green", frame=False)
-        ok(base["metrics"]["fill_passed"]["value"] is True, "07 зелёный: мерка fill_passed = True")
-        for kind, why in (("none", "нет check.json"), ("red", "красный 07")):
+        ok(base["metrics"]["fill_present"]["value"] is True and base["extra"]["fill_stage"]["passed"] is True, "07 зелёный: fill_present = True, в отчёте вердикт 07 «прошёл»")
+        red = _run(clean, run, "sku-red", product, fill="red", frame=False)
+        g = os.path.join(run, "sku-red", "08-material", "material.glb")
+        ok(red["metrics"]["fill_present"]["value"] is True and red["passed"] is True and mark(g) == MS.STAGE, "07 красный по порогам: 08 ИДЁТ, отметка «прошёл 08» стоит")
+        ok(red["extra"]["fill_stage"]["passed"] is False and "dE00_front_back" in red["extra"]["fill_stage"]["reason"], "вердикт красного 07 — замечанием в отчёте 08 (extra.fill_stage)")
+        for kind, why in (("none", "07 нет (нет check.json)"), ("crash", "сбой 07 (выхода нет)")):
             doc = _run(clean, run, "sku-" + kind, product, fill=kind, frame=False)
             g = os.path.join(run, "sku-" + kind, "08-material", "material.glb")
-            ok(doc["metrics"]["fill_passed"]["value"] is False and doc["passed"] is False, f"{why}: fill_passed = False, этап 08 красный")
+            ok(doc["metrics"]["fill_present"]["value"] is False and doc["passed"] is False, f"{why}: fill_present = False, этап 08 красный")
             ok("07" in doc["reason"] and mark(g) is None, f"{why}: причина названа, отметки «прошёл 08» нет (на сайт карты не пойдут)")
-        R2 = dict(R, check=dict(R["check"], require_fill_passed=False))
-        ok(MS.fill_gate(d, R2["check"]) == (True, ""), "правило выключено — заслон открыт")
+        R2 = dict(R, check=dict(R["check"], require_fill_present=False))
+        ok(MS.fill_gate(d, R2["check"])[:2] == (True, ""), "правило выключено — заслон открыт")
         ok(MS.fill_gate(d, R["check"])[0] is False, "правило включено, папки 07 нет — закрыт")
 
 

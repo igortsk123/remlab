@@ -1189,12 +1189,13 @@
     },
     {
       "rule_id": "R-FILL-GATE-08",
-      "title": "08 зелёный только при зелёном 07 того же товара: путь 02→08 мимо фото-цвета (06) и заливки (07) на сайт не идёт — родной цвет TRELLIS донором не бывает",
+      "title": "08 идёт только при наличии 07 того же товара (нет папки/check.json, сбой этапа — стоп); красный 07 по порогам 08 не останавливает, вердикт 07 — замечанием в отчёте 08",
       "state": "trial",
       "source": [
         "T-20261124-10 (директор 24.11, ответ на ❓1: «заслон 08 passed только при зелёном 07», тот же приём, что require_passed_stages)",
         "урок 807 (цвет делают 06 и 07, родной цвет TRELLIS не донор)",
-        "plans/mesh-type-rules-01.md журнал 24.11 «кайма родного цвета»"
+        "plans/mesh-type-rules-01.md журнал 24.11 «кайма родного цвета»",
+        "владелец TG 2484 / директор 24.11 (T-20261124-10/3): ослабить с «зелёный 07» до «07 есть»; основание — ворота 07 не связаны с качеством, ~/remlab-logs/t2406-1124/gates-eval.md"
       ],
       "applies": {
         "types": [
@@ -1208,10 +1209,10 @@
       "test_positive": "tools/assets/tests/test_material_stage.py::test_fill_gate",
       "test_negative": "tools/assets/tests/test_material_stage.py::test_fill_gate",
       "run_id": null,
-      "flag": "data/flat3d/material-recipes.json#check.require_fill_passed",
-      "check_field": "08-material.fill_passed",
+      "flag": "data/flat3d/material-recipes.json#check.require_fill_present",
+      "check_field": "08-material.fill_present",
       "enabled": null,
-      "note": "Кандидат в active. Код в main (13080265b); trial, пока нет run_id (боевой прогон 06→07→08 зелёным: у Марти-2 06 красный, edge_bg_share, T-20261124-10/2) и пары примеров в test_rule_examples (сейчас оба — test_fill_gate: «07 зелёный → fill_passed» и «нет/красный 07 → 08 красный, отметки нет»). Без зелёного 07 check.json 08 красный (метрика fill_passed), отметка remlab_stage=08-material не ставится, runtime_mesh карты не берёт."
+      "note": "08 только при наличии 07; качество — автооценка 5 признаков; основание — ворота 07 не связаны с качеством (~/remlab-logs/t2406-1124/gates-eval.md). Кандидат в active; trial, пока нет run_id (боевой прогон 06→07→08: у Марти-2 06 красный, T-20261124-10/2) и пары примеров в test_rule_examples (пока оба — test_fill_gate: «07 нет/сбой → 08 красный, отметки нет» и «07 красный по порогам → 08 идёт, замечание extra.fill_stage»). Первая версия (13080265b) требовала ЗЕЛЁНЫЙ 07 — ослаблена в T-10/3."
     }
   ],
   "_active_rule": "active = consumer определён (ast) и вызывается боевым кодом + runtime=enforce и флаг включён + тест в CI + test_positive и test_negative на пример типа + run_id прогона. Без любого — trial (rule_registry_audit: ошибка). run_id — папка прогона в ~/remlab-logs, где правило отработало; проверка прогона структурная (--run): extra.rules[] с rule_id, type, digest, applied|abstain."
