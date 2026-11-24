@@ -2908,6 +2908,7 @@ def run_stage_once(run: str, sku: str, glb: str, known: list | None = None, part
         rep['top_prior']['kept_from_groups_texels'] = int(sum(int(m.sum()) for m in sg_ctx['hook_keep']))
     if sg_pas is not None:                                              # T-20261124-06 Ш2: бока корпуса по библиотеке отделок (лента «Цвет корпуса»), выключено по умолчанию (rules carcass_library.enabled)
         try:
+            sg_ctx['known_keep'] = [np.asarray(k_, bool) for k_ in k_keep]                        # T-20261124-21: то же «известное», что увидит apply_groups (k_ap = k_keep без released)
             sg_rep['carcass_library'] = SP.carcass_library_side(sg_pas, sg_ctx, geoms, sg_cfg, (cfg or {}).get('top_card'))
         except Exception as e:  # noqa: BLE001
             sg_rep['carcass_library'] = {'enabled': True, 'applied': False, 'error': f'{type(e).__name__}: {e}'}

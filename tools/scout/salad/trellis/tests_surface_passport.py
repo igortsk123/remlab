@@ -743,6 +743,7 @@ def test_carcass_library_modes():
         R = dict(TF.RULES['surface_groups'], _card_role='шкаф')
         R['carcass_library'] = dict(C0, enabled=True, entries=ent, **R_over)
         pas, ctx = SP.build([g], [tex], [known], parts, None, R, TF.FILL, TF)
+        ctx['known_keep'] = [known & ~TF.unpainted_mask(tex)]                                              # как в tex_fill: k_keep
         crep = SP.carcass_library_side(pas, ctx, [g], R, card)
         k0 = [known & ~TF.unpainted_mask(tex)]
         if ctx.get('carcass_release'):                                                                   # как в tex_fill: освобождённые фото-тексели красит группа
@@ -764,6 +765,18 @@ def test_carcass_library_modes():
     Ll = float(np.median(lab_L(out[0], left & known)))
     ok(crep.get('released_photo_texels', 0) > 0 and abs(Ll - 55.0) < 4.0, f'disputed_wins: видимый «бок» с чужим тоном перекрашен библиотекой (L {Ll:.1f}), освобождено {crep.get("released_photo_texels")} текселей')
     ok(np.array_equal(out[0][face], np.asarray(out[0])[face]) and abs(float(np.median(lab_L(out[0], face))) - 30.0) < 2.0, 'фасад (фото, ось фасада) не тронут')
+    # T-20261124-21: release из known_keep (флаг release_known_keep) — «кромка» известного (вне эрозии kn_clean) тоже красится; без флага — как раньше
+    ok(not C0.get('release_known_keep', False), 'в rules release_known_keep выключен по умолчанию')
+    c_off, out_off, (face, left, right, top, known) = case(True, {'disputed_wins': True})
+    c_on, out_on, _ = case(True, {'disputed_wins': True, 'release_known_keep': True})
+    ok(c_off['release_base'] == 'kn_clean' and c_off['kept_known_side'] > 0, f"без флага: в k_ap остаются известные тексели obs-граней (кромка): kept_known_side={c_off['kept_known_side']}")
+    ok(c_on['release_base'] == 'known_keep' and c_on['kept_known_side'] == 0 and c_on['released_photo_texels'] > c_off['released_photo_texels'], f"с флагом: kept_known_side=0, освобождено больше ({c_off['released_photo_texels']} → {c_on['released_photo_texels']})")
+    Lo = float(np.median(lab_L(out_off[0], left & known)))
+    Ln = float(np.median(lab_L(out_on[0], left & known)))
+    ok(abs(Ln - 55.0) <= abs(Lo - 55.0) + 1e-6 and abs(Ln - 55.0) < 4.0, f'с флагом бок перекрашен не хуже, чем без (L {Lo:.1f} → {Ln:.1f}, тон библиотеки 55)')
+    c_nd, out_nd, _ = case(False, {'release_known_keep': True})
+    c_nd0, out_nd0, _ = case(False, {})
+    ok(np.array_equal(np.asarray(out_nd[0]), np.asarray(out_nd0[0])) and 'release_base' not in c_nd, 'нет видимого фото-бока (нечего освобождать): вывод с флагом побитово как без флага (регресс 0)')
 
 
 def main() -> int:

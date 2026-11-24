@@ -826,6 +826,9 @@ def carcass_library_side(pas: dict, ctx: dict, geoms: list, R: dict, card: dict 
     cos_side = float(np.cos(np.radians(float(C.get('side_deg', 40.0)))))
     n_over, n_faces, geoms_rep, ph_lab, ph_w, n_top = 0, 0, [], [], [], 0
     txo_all = {}
+    txr_all, kobs_all, kept_noobs = {}, {}, 0                                           # T-20261124-21: release из known_keep (то, что видит apply), а не из kn_clean
+    kk_have = ctx.get('known_keep') is not None                                         # tex_fill кладёт k_keep; нет — диагностика kept_known_side не считается
+    rk_on = bool(C.get('release_known_keep', False)) and kk_have
     for gi, g in enumerate(geoms):
         V = np.asarray(g['V'], np.float64)
         F = np.asarray(g['F'], np.int64)
@@ -859,6 +862,12 @@ def carcass_library_side(pas: dict, ctx: dict, geoms: list, R: dict, card: dict 
             ph_lab.append(np.asarray(ctx['labs'][gi]).reshape(-1, 3)[txo])
             ph_w.append(ar[ids[txo]])
             txo_all[gi] = txo
+        if kk_have:                                                                      # известные (known_keep, без эрозии kn_clean) тексели тех же obs-граней; набор граней НЕ расширяется
+            kk = np.asarray(ctx['known_keep'][gi], bool).reshape(-1)
+            obs_t = np.maximum(ids, 0)
+            txr_all[gi] = occ & (kk | kn) & obs[obs_t]
+            kobs_all[gi] = occ & kk & obs[obs_t]
+            kept_noobs += int((occ & kk & (side & ~unobs_q[pg] & ~obs)[obs_t]).sum())      # известные тексели боковых граней просматриваемых панелей без чистых текселей (пункт 3 рецензии — не трогаем, только считаем)
         ntg = 0
         if top_tone is not None:                                                         # верх/кромка: грани оси y со знаком + в панелях без фото
             topf = (nrm[:, 1] >= cos_side) & unobs_q[pg]
@@ -883,11 +892,16 @@ def carcass_library_side(pas: dict, ctx: dict, geoms: list, R: dict, card: dict 
         if side_tone is not None and rep['photo_side']['disputed'] and bool(C.get('disputed_wins', False)):          # спорное → библиотека красит и видимые «боковые» тексели (фасад, спроецированный на бок)
             rel = {}
             for gi, txo in txo_all.items():
-                ctx['over'][gi].reshape(-1)[txo] = vid
-                rel[gi] = txo.reshape(np.asarray(ctx['kn_clean'][gi]).shape)
-                n_rel += int(txo.sum())
+                src = txr_all.get(gi, txo) if rk_on else txo                             # флаг release_known_keep: освобождаем все известные тексели obs-граней, не только «чистые»
+                ctx['over'][gi].reshape(-1)[src] = vid
+                rel[gi] = src.reshape(np.asarray(ctx['kn_clean'][gi]).shape)
+                n_rel += int(src.sum())
             ctx['carcass_release'] = [rel.get(gi, np.zeros(np.asarray(ctx['kn_clean'][gi]).shape, bool)) for gi in range(len(geoms))]
             rep['released_photo_texels'] = int(n_rel)
+            rep['release_base'] = 'known_keep' if rk_on else 'kn_clean'
+            if kk_have:                                                                   # инвариант: после release в k_ap не осталось известных текселей obs-граней (с флагом = 0; без флага показывает дефект)
+                rep['kept_known_side'] = int(sum(int((kobs_all[gi] & ~rel[gi].reshape(-1)).sum()) if gi in rel else int(kobs_all[gi].sum()) for gi in kobs_all))
+                rep['kept_known_side_noobs_faces'] = int(kept_noobs)
     if not n_over and not n_top and not n_rel:
         rep['why'] = 'боковых/верхних невидимых текселей нет'
         return rep
