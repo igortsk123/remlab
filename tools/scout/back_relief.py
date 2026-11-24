@@ -70,9 +70,13 @@ def back_relief(V, F, front_dir, rules: dict | None = None, ctx: dict | None = N
     res = np.clip(res, -rl["clip_frac"] * depth, rl["clip_frac"] * depth)                      # редкие выбросы (ножки, выступ) σ не раздувают: они не рельеф зада
     sigma = float(np.sqrt((w * res ** 2).sum() / w.sum()) / depth * 100)
     share = float(w[np.abs(res) > rl["tol_frac"] * depth].sum() / w.sum() * 100)
-    return {"ok": True, "reason": "", "sigma_pct": round(sigma, 3), "share_pct": round(share, 2), "depth": round(depth, 4), "faces": int(sel.sum()),
+    npl = a - co[0] * u - co[1] * v                   # нормаль подогнанной плоскости (в сторону от камеры — минус)
+    npl = npl / np.linalg.norm(npl)
+    cosp = np.clip(-(nrm[sel] @ npl), -1.0, 1.0)
+    steep = float(w[cosp < np.cos(np.radians(rl["steep_deg"]))].sum() / w.sum() * 100)           # МЕЛКИЙ масштаб: доля площади граней, наклонённых к плоскости круче steep_deg (σ мелкую рябь не видит); порог steep_share_max_pct (гипотеза: 0,5 % — между 10887/18370 «после» 0,3–0,45 и видимой рябью 13224/15195 1,9/0,57)
+    return {"ok": True, "reason": "", "sigma_pct": round(sigma, 3), "share_pct": round(share, 2), "steep_pct": round(steep, 2), "depth": round(depth, 4), "faces": int(sel.sum()),
             "tilt_deg": round(float(np.degrees(np.arctan(np.hypot(co[0], co[1])))), 2),
-            "passed": bool(sigma <= rl["sigma_max_pct"] and share <= rl["share_max_pct"])}
+            "passed": bool(sigma <= rl["sigma_max_pct"] and share <= rl["share_max_pct"] and steep <= rl["steep_share_max_pct"])}
 
 
 def load_glb(path: str):

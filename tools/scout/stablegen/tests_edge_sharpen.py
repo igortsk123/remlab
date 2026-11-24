@@ -484,9 +484,14 @@ class BackPanelStage(unittest.TestCase):
         self.assertTrue(a["passed"], a)
         self.assertLess(a["sigma_pct"], b["sigma_pct"] / 3)
         self.assertLessEqual(a["sigma_pct"], rl["sigma_max_pct"])
-        Vp, Fp = grid_box(n=70, ripple=0.0005)                                       # ровный зад — сторож не срабатывает
+        Vp, Fp = grid_box(n=70, ripple=0.00005)                                      # ровный зад — сторож не срабатывает
         flat = BR.back_relief(Vp, Fp, cam, rules())
         self.assertTrue(flat["passed"], flat)
+        Vq, Fq = grid_box(n=70, ripple=0.003)                                        # мелкая рябь при малом σ: σ и доля площади в пороге, а круто наклонённых граней много — сторож срабатывает
+        rip = BR.back_relief(Vq, Fq, cam, rules())
+        self.assertLessEqual(rip["sigma_pct"], rl["sigma_max_pct"], rip)
+        self.assertGreater(rip["steep_pct"], rl["steep_share_max_pct"], rip)
+        self.assertFalse(rip["passed"], rip)
 
     def test_release_moved_known(self):
         import tempfile
