@@ -22,6 +22,7 @@ import urllib.request
 HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, os.path.join(HERE, '..', 'scout', 'salad'))
 import holder_registry as HR  # noqa: E402
+import salad_ceiling as SC  # noqa: E402 — единый счёт живых машин (тот же, что в воротах предела)
 
 URL = 'https://api.salad.com/api/public/organizations/prodstore/projects/dmodel/containers'
 UA = 'remlab-mesh/1.0'
@@ -34,16 +35,17 @@ def fetch_groups(key: str, timeout: int = 30) -> dict:
 
 
 def live_groups(listing: dict) -> list[dict]:
-    """Живые/поднимающиеся группы — та же логика, что в salad_live.sh: статус не stopped/failed или есть allocating/creating/running."""
+    """Живые/поднимающиеся группы. ЧИСЛО машин — ОДНА функция с воротами предела: `salad_ceiling.live_by_group` (T-20261124-58/2: прежде здесь был свой счёт, и stopped-группа
+    показывалась «живых 1», а ворота её не считали). Группа без живых машин (stopped, failed, stopping с 0) в строки не попадает."""
+    items = listing.get('items') or []
+    live = SC.live_by_group(items)
     rows = []
-    for x in listing.get('items') or []:
-        cs = x.get('current_state') or {}
-        st = cs.get('status')
-        ic = cs.get('instance_status_counts') or {}
-        run = sum(int(ic.get(k) or 0) for k in ('allocating_count', 'creating_count', 'running_count'))
-        if st not in ('stopped', 'failed') or run:
-            live = max(run, 1 if st in ('running', 'deploying', 'pending') else 0)
-            rows.append({'name': x.get('name'), 'status': st, 'replicas': x.get('replicas'), 'running': ic.get('running_count'), 'live': live})
+    for x in items:
+        n = live.get(str(x.get('name')), 0)
+        if n:
+            cs = x.get('current_state') or {}
+            ic = cs.get('instance_status_counts') or {}
+            rows.append({'name': x.get('name'), 'status': cs.get('status'), 'replicas': x.get('replicas'), 'running': ic.get('running_count'), 'live': n})
     return rows
 
 

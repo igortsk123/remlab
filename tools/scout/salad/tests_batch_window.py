@@ -29,14 +29,15 @@ printf '%s' "${code:-200}"
 '''
 PGREP = '#!/bin/bash\nexit 0\n'                      # «конвейер жив» — подъём не отменяется
 ALERT = '#!/bin/bash\necho "$*" >> "$TD/alerts"\n'
+GATE = '#!/bin/bash\necho "Salad: ворота стенда ($1)"\nexit "${GATE_CODE:-0}"\n'   # ворота предела машин (T-20261124-58/2) без сети: код из GATE_CODE
 
 
-def run(action: str, codes: str, groups: str | None = None, rules: dict | None = None) -> dict:
+def run(action: str, codes: str, groups: str | None = None, rules: dict | None = None, gate_code: int = 0) -> dict:
     with tempfile.TemporaryDirectory(prefix='bw-') as td:
         bind = os.path.join(td, 'bin')
         os.makedirs(bind)
         os.makedirs(os.path.join(td, 'scout-scenes'))
-        for name, body in (('curl', CURL), ('pgrep', PGREP), ('alert.sh', ALERT)):
+        for name, body in (('curl', CURL), ('pgrep', PGREP), ('alert.sh', ALERT), ('gate.sh', GATE)):
             p = os.path.join(bind, name)
             open(p, 'w').write(body)
             os.chmod(p, 0o755)
@@ -45,7 +46,8 @@ def run(action: str, codes: str, groups: str | None = None, rules: dict | None =
         json.dump(rules or {'groups': {}}, open(rp, 'w'))
         env = {'PATH': bind + ':' + os.environ.get('PATH', ''), 'HOME': td, 'TD': td, 'CODES': codes,
                'MESH_PY': sys.executable, 'MESH_ALERT': os.path.join(bind, 'alert.sh'), 'MESH_GROUPS_RULES': rp,
-               'MESH_PRICE_HALT': os.path.join(td, 'нет-запрета.json'), 'MESH_BATCH_LOG': os.path.join(td, 'bw.log')}
+               'MESH_PRICE_HALT': os.path.join(td, 'нет-запрета.json'), 'MESH_BATCH_LOG': os.path.join(td, 'bw.log'),
+               'MESH_CEILING_GATE': os.path.join(bind, 'gate.sh'), 'GATE_CODE': str(gate_code)}
         if groups is not None:
             env['MESH_BATCH_GROUPS'] = groups
         p = subprocess.run(['bash', SCRIPT, action], env=env, capture_output=True, text=True, timeout=60)
@@ -86,6 +88,11 @@ def main() -> int:
         r = run(act, 'mesh-live=200', None, rules)
         ok(f'{act}: список из правил — удалённая (deleted) группа расписанию не отдаётся, к Salad не ходим',
            r['rc'] == 0 and r['calls'] == [f"{'start' if act == 'up' else 'stop'} mesh-live"] and not r['alerts'], r)
+    r = run('up', 'mesh-a=200,mesh-b=200', 'mesh-a mesh-b', gate_code=1)                   # T-20261124-58/2: предел машин — /start не уходит
+    ok('up: ворота предела отказали — /start не отправляется, причина в журнале, тревоги нет',
+       r['rc'] == 0 and r['calls'] == [] and r['log'].count('пропущен (предел машин)') == 2 and not r['alerts'], r)
+    r = run('up', 'mesh-a=200', 'mesh-a')
+    ok('up: ворота пустили — /start отправляется', r['rc'] == 0 and r['calls'] == ['start mesh-a'], r)
     print(f'tests_batch_window: ошибок {bad}')
     return 1 if bad else 0
 

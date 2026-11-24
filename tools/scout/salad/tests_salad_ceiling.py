@@ -50,7 +50,7 @@ class ListMG:
         if method == 'GET':
             for x in self.items:
                 if '/' + x['name'] == path:
-                    return 200, {**x, 'replicas': self.replicas}
+                    return 200, {'replicas': self.replicas, **x}
             return 404, {}
         if method == 'POST' and path == '':
             self.items.append(grp((body or {}).get('name', '?'), 0, 'stopped'))      # создана и ждёт образ: stopped, 0 машин
@@ -246,6 +246,115 @@ creators = subprocess.run(['git', 'grep', '-l', '-E', r"api(_retry)?\(.*'', *'PO
 creators = [c for c in creators if '/tests_' not in c and '/test_' not in c and not c.endswith('kit_driver.py')]
 gated = {c for c in creators if 'salad_ceiling' in open(os.path.join(root, c), encoding='utf-8').read() or 'KD.api_retry' in open(os.path.join(root, c), encoding='utf-8').read()}
 ok(set(creators) <= gated, f'каждый скрипт, создающий группы Salad, идёт через ворота (salad_ceiling или KD.api_retry); мимо: {sorted(set(creators) - gated)}')
+
+# ================= T-20261124-58/2: ворота и на /start УЖЕ созданной (остановленной) группы =================
+def stopped(name, replicas=1):
+    return {'name': name, 'replicas': replicas, 'current_state': {'status': 'stopped', 'instance_status_counts': {}}}
+
+
+# единый счёт: остановленная/упавшая/останавливающаяся группа без машин — 0 (раньше tools/ops/salad_live.py показывал её «живых 1»)
+ok(SC.live_by_group([stopped('s'), grp('f', 0, 'failed'), grp('st', 0, 'stopping')]) == {}, 'live_by_group: stopped/failed/stopping без машин → 0')
+sys.path.append(os.path.abspath(os.path.join(HERE, '..', '..', 'ops')))
+import salad_live as SLV  # noqa: E402
+rows = SLV.live_groups({'items': [stopped('s'), grp('f', 0, 'failed'), grp('st', 0, 'stopping'), grp('r', 2), grp('p', 0, 'pending')]})
+ok(sorted((r['name'], r['live']) for r in rows) == [('p', 1), ('r', 2)], f'salad_live.live_groups считает ТЕМ ЖЕ live_by_group: stopped → не строка ({[(r["name"], r["live"]) for r in rows]})')
+src = open(os.path.join(HERE, '..', '..', 'ops', 'salad_live.py'), encoding='utf-8').read()
+ok('SC.live_by_group' in src and "'allocating_count'" not in src, 'salad_live.py не держит своего счёта (зовёт salad_ceiling.live_by_group)')
+
+# /start остановленной группы: 10 живых → отказ, 9 → ок (число машин — из GET группы)
+os.environ['SALAD_CEILING_DIR'] = fresh()
+ok(not SC.admit(ListMG(nine() + [grp('x9')] + [stopped('sg')]), 'sg', None)[0], '/start остановленной группы при 10 живых → отказ')
+os.environ['SALAD_CEILING_DIR'] = fresh()
+ok(SC.admit(ListMG(nine() + [stopped('sg')]), 'sg', None)[0], '/start остановленной группы при 9 живых → ок')
+os.environ['SALAD_CEILING_DIR'] = fresh()
+ok(not SC.admit(ListMG(nine() + [stopped('sg3', 3)]), 'sg3', None)[0], '/start остановленной группы на 3 реплики при 9 живых → отказ')
+# резерв после /start держится только «грейс»: остановили мимо драйвера — место не висит час
+d = fresh()
+t = [5000.0]
+mgs = ListMG(nine() + [stopped('sg')])
+ok(SC.admit(mgs, 'sg', None, d=d, clock=lambda: t[0])[0] and not SC.admit(ListMG(nine() + [stopped('sg')]), 'zz', 1, d=d, clock=lambda: t[0])[0], 'после /start группа держит место (резерв), пока Salad её не показал')
+t[0] += SC.START_GRACE_S + 5
+ok(SC.admit(ListMG(nine() + [stopped('sg')]), 'zz', 1, d=d, clock=lambda: t[0])[0], 'через грейс резерв стартовавшей группы забыт (остановлена мимо драйвера — место свободно)')
+
+
+class FakeNet(ListMG):
+    """Подмена `DefaultMG`: список групп и GET группы — из ListMG; POST /start записывается."""
+    sent = []
+
+    def __init__(self):
+        super().__init__(FakeNet.items0, replicas=FakeNet.replicas0)
+
+
+def with_net(items, replicas=1):
+    FakeNet.items0, FakeNet.replicas0, FakeNet.sent = list(items), replicas, []
+    SC.DefaultMG = FakeNet
+    os.environ['SALAD_CEILING_DIR'] = fresh()
+
+
+# путь 1–2: batch_show.ensure_group_started (первый старт и повторный start) — живой код с подставным urllib
+import urllib.request  # noqa: E402
+import batch_show as BS  # noqa: E402
+
+
+class _Resp:
+    def read(self):
+        return b''
+
+
+LAST_BS = ['']
+
+
+def run_batch_show(items):
+    with_net(items)
+    os.environ.setdefault('SALAD_API_KEY', 'KEY-FAKE')                 # настоящего ключа тесту не нужно: сеть подменена
+    sent = []
+    real = (urllib.request.urlopen, BS.halt_reason, BS.group_states, BS.SG.groups_from_env, BS.SG.allowed_now, BS.holder_do)
+    urllib.request.urlopen = lambda req, timeout=None: (sent.append(getattr(req, 'full_url', req)), _Resp())[1]
+    BS.halt_reason, BS.group_states, BS.holder_do = (lambda: ''), (lambda: {'sg': 'stopped'}), (lambda *a, **k: None)
+    BS.SG.groups_from_env, BS.SG.allowed_now = (lambda: ['sg']), (lambda g: True)
+    try:
+        import contextlib
+        import io
+        buf_bs = io.StringIO()
+        with contextlib.redirect_stdout(buf_bs):
+            res = BS.ensure_group_started()
+        LAST_BS[:] = [buf_bs.getvalue()]
+    finally:
+        urllib.request.urlopen, BS.halt_reason, BS.group_states, BS.SG.groups_from_env, BS.SG.allowed_now, BS.holder_do = real
+    return res, [s for s in sent if str(s).endswith('/start')]
+
+
+res, sent = run_batch_show(nine() + [grp('x9')] + [stopped('sg')])
+ok(sent == [], 'batch_show.ensure_group_started: при 10 живых /start НЕ уходит')
+res, sent = run_batch_show(nine() + [stopped('sg')])
+ok(len(sent) == 1, f'batch_show.ensure_group_started: при 9 живых /start уходит ({LAST_BS[0][-200:]!r})')
+
+# путь 3: grey_probe, путь 4: cutout_redo — порядок в коде: ворота раньше POST /start (сам main тяжёлый: GPU, очередь, фото)
+for rel, gate, start in (('grey_probe.py', 'SC.admit_start(a.group)', "'/containers/{a.group}/start'"), ('../cutout_redo.py', 'SC.admit(MG, a.group, None)', "f'/{a.group}/start'")):
+    text = open(os.path.join(HERE, rel), encoding='utf-8').read()
+    ok(gate in text and start in text and text.index(gate) < text.index(start), f'{rel}: ворота стоят ДО POST /start')
+    ok('if not okc:' in text[text.index(gate):text.index(start)], f'{rel}: отказ ворот прекращает старт')
+
+# путь 5: batch_window.sh — CLI ворот (код выхода 0/1) и порядок в скрипте
+with_net(nine() + [grp('x9')] + [stopped('sg')])
+import contextlib  # noqa: E402
+import io  # noqa: E402
+buf = io.StringIO()
+with contextlib.redirect_stdout(buf):
+    rc_full = SC.main(['--admit', 'sg'])
+ok(rc_full == 1 and 'предел 10' in buf.getvalue(), 'salad_ceiling.py --admit при 10 живых → код 1 и причина на stdout (batch_window.sh пропускает группу)')
+with_net(nine() + [stopped('sg')])
+with contextlib.redirect_stdout(io.StringIO()):
+    rc_ok = SC.main(['--admit', 'sg'])
+ok(rc_ok == 0, 'salad_ceiling.py --admit при 9 живых → код 0')
+sh = open(os.path.join(HERE, 'batch_window.sh'), encoding='utf-8').read()
+ok('salad_ceiling.py" --admit' in sh and sh.index('salad_ceiling.py" --admit') < sh.index('$BASE/$g/start') and sh.index('"${GATE_CMD[@]}"') < sh.index('$BASE/$g/start'), 'batch_window.sh: ворота (--admit) стоят ДО curl …/start')
+
+# сторож: каждый скрипт с POST …/start идёт через ворота (salad_ceiling / api_retry), кроме самих ворот и тестов
+starters = subprocess.run(['git', 'grep', '-l', '-E', r"[}\w$]/start['\"`]|/start\" *\|\||\$g/start", '--', 'tools'], cwd=root, capture_output=True, text=True, stdin=subprocess.DEVNULL).stdout.split()
+starters = [c for c in starters if '/tests_' not in c and '/test_' not in c and not c.endswith(('kit_driver.py', 'salad_ceiling.py'))]
+bare = [c for c in starters if not any(k in open(os.path.join(root, c), encoding='utf-8').read() for k in ('salad_ceiling', 'SC.admit', 'api_retry'))]
+ok(not bare, f'каждый скрипт с POST …/start идёт через ворота; мимо: {bare}')
 
 print('\nFAILS:', FAILS or 'нет')
 sys.exit(1 if FAILS else 0)
