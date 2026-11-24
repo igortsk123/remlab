@@ -45,12 +45,26 @@ JOB_RE = re.compile(r'^[A-Za-z0-9._\-]{1,150}$')
 CLK = os.sysconf('SC_CLK_TCK') if hasattr(os, 'sysconf') else 100
 
 
+FIT_FLAG_NAMES = ('POSE_VERT_AXIS', 'POSE_JUNCTION', 'POSE_ANGLE_FIT')      # флаги подгонки (все выкл. по умолчанию), которые можно передать в подпроцесс (T-20261124-18); других имён не пускаем
+
+
+def fit_flags(raw: str) -> dict:
+    """`POSE_FIT_FLAGS="POSE_JUNCTION=1,POSE_VERT_AXIS=1"` → {имя: значение} только из FIT_FLAG_NAMES и значений 0/1/probe; пусто/мусор — {} (камера как без флагов)."""
+    out = {}
+    for part in (raw or '').split(','):
+        k, _, v = part.strip().partition('=')
+        if k in FIT_FLAG_NAMES and v in ('0', '1', 'probe'):
+            out[k] = v
+    return out
+
+
 def cfg() -> dict:
     """Настройки из окружения группы (драйвер кладёт их в env; секретов тут нет)."""
     return {'code': os.environ.get('POSE_CODE', '/opt/scout/tools/scout/salad/trellis'),
             'work': os.environ.get('POSE_WORK', '/tmp/pose'),
             'procs': max(1, int(os.environ.get('POSE_PROCS', '6'))),
             'omp': os.environ.get('POSE_OMP', '1'),
+            'flags': fit_flags(os.environ.get('POSE_FIT_FLAGS', '')),
             'fit_timeout': float(os.environ.get('POSE_FIT_TIMEOUT_S', '3600')),
             'check_timeout': float(os.environ.get('POSE_CHECK_TIMEOUT_S', '900'))}
 
@@ -207,7 +221,7 @@ class Pool:
     def _exec(self, j: dict, name: str, cmd: list[str], timeout: float) -> tuple[int, float]:
         """Одна команда в своём процессе; вывод — в файл; по таймауту — kill СВОЕГО процесса. → (код, сек)."""
         env = {'PATH': os.environ.get('PATH', '/usr/bin:/bin'), 'OMP_NUM_THREADS': self.c['omp'], 'OPENBLAS_NUM_THREADS': self.c['omp'], 'MKL_NUM_THREADS': self.c['omp'],
-               'NUMEXPR_NUM_THREADS': self.c['omp'], 'HOME': os.environ.get('HOME', '/tmp')}
+               'NUMEXPR_NUM_THREADS': self.c['omp'], 'HOME': os.environ.get('HOME', '/tmp'), **self.c.get('flags', {})}
         logp = os.path.join(j['dir'], f'{name}.log')
         t0 = time.time()
         with open(logp, 'wb') as lf:
