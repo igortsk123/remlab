@@ -6,6 +6,7 @@ import tempfile
 import unittest
 
 import numpy as np
+from scipy.ndimage import binary_erosion, distance_transform_edt
 from PIL import Image
 
 HERE = os.path.dirname(os.path.abspath(__file__))
@@ -347,6 +348,59 @@ class TestTexVisible(unittest.TestCase):
             self.assertFalse(fr[inner].any(), fabric)                              # сама ткань — нет, даже кремовая
         white = np.full((n, n, 3), 255, np.uint8); white[inner] = (246, 246, 244)       # белая ткань на белом фоне: «светлее фона» — сама ткань, правило не режет и мерка N/A
         self.assertFalse(TV.edge_bg_fringe({'mask': pm.copy(), 'cos': np.ones((n, n), np.float32)}, white, pm).any())
+
+    def _two_material_photo(self, halo: bool):
+        """Синтетика Марти-2: синяя обивка (большая) + светлое дерево (ножка 40 px) на белом фоне; halo — белый ореол 3 px у края ТКАНИ."""
+        n = 300
+        pm = np.zeros((n, n), bool)
+        blue = np.zeros((n, n), bool); blue[20:120, 20:280] = True
+        wood = np.zeros((n, n), bool); wood[130:280, 120:160] = True
+        pm = blue | wood
+        prgb = np.full((n, n, 3), 255, np.uint8)
+        prgb[blue] = (30, 60, 120)
+        prgb[wood] = (205, 160, 110)
+        if halo:
+            edge = blue & ~binary_erosion(blue, iterations=3)                     # 3 px по краю синего блока — белёсый ореол вырезки
+            prgb[edge] = (250, 250, 250)
+        return n, pm, blue, wood, prgb, {'mask': pm.copy(), 'cos': np.ones((n, n), np.float32)}
+
+    def test_edge_bg_local_reference_two_materials_wood_is_not_background(self):
+        """Дефект мерки (T-20261124-10/2): одна медиана ткани принимала светлое дерево рядом с синей обивкой за «фон вырезки»; опора — ближайшее ядро: дерево сравнивается с деревом."""
+        n, pm, blue, wood, prgb, st = self._two_material_photo(halo=False)
+        lab = TV._lab(prgb)
+        near_wood = wood & (distance_transform_edt(pm) <= 6)
+        old = TV.bg_like(lab, TV.core_median(st, prgb, pm)) & near_wood
+        self.assertTrue(int(old.sum()) > 100)        # прежняя опора: дерево у края — «фон» (это и есть дефект)
+        ref = TV.local_reference(st, prgb, pm)
+        self.assertEqual(ref.shape, (n, n, 3))
+        new = TV.bg_like(lab, ref) & near_wood
+        self.assertEqual(int(new.sum()), 0)                                                  # локальная опора: ни одного пикселя дерева
+        self.assertTrue(abs(float(ref[200, 140, 0]) - float(TV._lab(np.array([[[205, 160, 110]]], np.uint8))[0, 0, 0])) < 2.0)   # у ножки опора — цвет дерева
+        self.assertTrue(abs(float(ref[60, 150, 0]) - float(TV._lab(np.array([[[30, 60, 120]]], np.uint8))[0, 0, 0])) < 2.0)      # у спинки — цвет обивки
+
+    def test_edge_bg_local_fringe_keeps_wood_and_still_catches_halo_on_fabric(self):
+        old_flag = TV.EDGE_BG_LOCAL
+        try:
+            n, pm, blue, wood, prgb, st = self._two_material_photo(halo=True)
+            TV.EDGE_BG_LOCAL = False
+            fr_old = TV.edge_bg_fringe(st, prgb, pm)
+            TV.EDGE_BG_LOCAL = True
+            fr_new = TV.edge_bg_fringe(st, prgb, pm)
+            halo = blue & ~binary_erosion(blue, iterations=3)
+            self.assertTrue(fr_old[wood].sum() > 100)                                         # прежнее правило режет дерево
+            self.assertEqual(int(fr_new[wood].sum()), 0)                                      # новое — не режет
+            self.assertTrue(fr_new[halo].mean() > 0.95)                                       # настоящий ореол на ткани ловится
+            self.assertFalse(fr_new[blue & ~halo].any())                                      # сама обивка не режется
+            TV.EDGE_BG_LOCAL = True
+            for fabric in ((30, 60, 120), (214, 206, 192)):                                    # одноматериальный контроль (как у прежнего теста): кайма ловится, ткань нет
+                m = np.zeros((200, 200), bool); m[20:180, 20:180] = True
+                inner = np.zeros((200, 200), bool); inner[24:176, 24:176] = True
+                p2 = np.full((200, 200, 3), 255, np.uint8); p2[inner] = fabric
+                f2 = TV.edge_bg_fringe({'mask': m.copy(), 'cos': np.ones((200, 200), np.float32)}, p2, m)
+                self.assertTrue(f2[m & ~inner].all(), fabric)
+                self.assertFalse(f2[inner].any(), fabric)
+        finally:
+            TV.EDGE_BG_LOCAL = old_flag
 
     def test_frayed_share_counts_known_pixels_next_to_unknown_only(self):
         n = 100

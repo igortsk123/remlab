@@ -54,6 +54,8 @@ MM_SHARE = float(R.get('multi_material_min_share', 0.20))
 EDGE_BG_PX = float(os.environ.get('EDGE_BG_PX', R.get('edge_bg_reject_px', 8.0)))   # 0 — правило выкл.
 EDGE_BG_MEASURE = float(R.get('edge_bg_measure_px', 6.0))
 EDGE_BG_DL = float(R.get('edge_bg_dL', 6.0))
+EDGE_BG_LOCAL = os.environ.get('EDGE_BG_LOCAL', str(R.get('edge_bg_local', False))).lower() in ('1', 'true', 'yes')   # T-20261124-10/2: опора каймы — цвет БЛИЖАЙШЕГО ядра, а не одна медиана на товар
+EDGE_BG_REF_SIGMA = float(R.get('edge_bg_ref_sigma_px', 6.0))     # сглаживание опорного цвета ядра (px кадра)
 EDGE_BG_WHITE_L = float(R.get('edge_bg_white_L', 90.0))   # медиана ядра светлее — ткань белая, мерка и правило каймы слепы (N/A)
 FRAYED_PX = int(R.get('frayed_px', 3))           # рваность: известный пиксель в этих px от неизвестного внутри силуэта
 DEPTH_MED = int(R.get('depth_median_px', 7))   # медиана карты глубины перед поиском разрыва: на рёбрах треугольников в ней пятна-выбросы
@@ -254,9 +256,15 @@ def _de(lab: np.ndarray, ref: np.ndarray) -> np.ndarray:
 
 
 def bg_like(lab: np.ndarray, med: np.ndarray) -> np.ndarray:
-    """Цвет «как фон вырезки»: ближе к белому, чем к цвету ткани (медиана ядра), и светлее ткани на EDGE_BG_DL L*."""
+    """Цвет «как фон вырезки»: ближе к белому, чем к цвету ткани (опора), и светлее ткани на EDGE_BG_DL L*. Опора med — один цвет (3,) или по пикселю (H,W,3: local_reference)."""
     white = _lab(np.full((1, 1, 3), 255, np.uint8))[0, 0]
-    return (_de(lab, white) < _de(lab, med)) & (lab[..., 0] > med[0] + EDGE_BG_DL)
+    med = np.asarray(med)
+    if med.ndim == 1:
+        return (_de(lab, white) < _de(lab, med)) & (lab[..., 0] > med[0] + EDGE_BG_DL)
+    flat, mflat = lab.reshape(-1, 3), med.reshape(-1, 3)
+    import recolor_lp as LP
+    d_ref = LP.de2000(flat, np.asarray(mflat, np.float64)).reshape(lab.shape[:-1])
+    return (_de(lab, white) < d_ref) & (lab[..., 0] > med[..., 0] + EDGE_BG_DL)
 
 
 def core_median(st: dict, prgb: np.ndarray, pmask: np.ndarray) -> np.ndarray:
@@ -271,15 +279,40 @@ def core_median(st: dict, prgb: np.ndarray, pmask: np.ndarray) -> np.ndarray:
 TV_FALLBACK_COS = 0.5
 
 
+def fringe_reference(st: dict, prgb: np.ndarray, pmask: np.ndarray) -> np.ndarray:
+    """Опорный цвет «ткани» для каймы/мерки края (T-20261124-10/2): флаг edge_bg_local ВЫКЛ — одна медиана ядра на весь товар (core_median, как раньше); ВКЛ — local_reference по пикселю.
+    Одна медиана на товар из двух материалов (синяя обивка + светлое дерево) принимала дерево за «фон вырезки» (Марти-2: 4416 из 4416 пикселей на ножках, edge_bg_share 0,258)."""
+    return local_reference(st, prgb, pmask) if EDGE_BG_LOCAL else core_median(st, prgb, pmask)
+
+
+def local_reference(st: dict, prgb: np.ndarray, pmask: np.ndarray) -> np.ndarray:
+    """Lab-опора по пикселю (H,W,3): сглаженный (σ = edge_bg_ref_sigma_px) цвет БЛИЖАЙШЕГО пикселя ядра — ядро то же, что у core_median (cos >= 0.8, глубже 12 px от краёв фото и силуэта).
+    Дерево у ножки сравнивается с деревом ядра ножки, обивка — с обивкой: материал не размазывается в одну медиану. Ядра нет (< 100 px) — запасное, как у core_median; совсем нет — одна медиана."""
+    from scipy.ndimage import distance_transform_edt, gaussian_filter
+    dp, dm = distance_transform_edt(pmask), distance_transform_edt(st['mask'])
+    core = st['mask'] & pmask & (st['cos'] >= 0.8) & (dp > 12) & (dm > 12)
+    if core.sum() < 100:
+        core = st['mask'] & pmask & (st['cos'] >= TV_FALLBACK_COS)
+    if not core.any():
+        return np.broadcast_to(core_median(st, prgb, pmask), prgb.shape).astype(np.float32)
+    lab = _lab(prgb).astype(np.float32)
+    w = core.astype(np.float32)
+    sg = max(EDGE_BG_REF_SIGMA, 0.5)
+    ws = gaussian_filter(w, sg)[..., None]
+    sm = np.stack([gaussian_filter(lab[..., c] * w, sg) for c in range(3)], -1) / np.maximum(ws, 1e-6)
+    _, (iy, ix) = distance_transform_edt(~core, return_indices=True)
+    return sm[iy, ix].astype(np.float32)
+
+
 def edge_bg_fringe(st: dict, prgb: np.ndarray, pmask: np.ndarray) -> np.ndarray:
     """Пиксели кадра у края альфы фото (<= EDGE_BG_PX), чей цвет — фон вырезки, а не ткань: в перенос не идут (общее правило, не по товару)."""
     if EDGE_BG_PX <= 0:
         return np.zeros(pmask.shape, bool)
     from scipy.ndimage import distance_transform_edt
     med = core_median(st, prgb, pmask)
-    if med[0] > EDGE_BG_WHITE_L:
+    if med[0] > EDGE_BG_WHITE_L:                       # белая ткань (по всему товару): «светлее фона» — сама ткань
         return np.zeros(pmask.shape, bool)
-    return bg_like(_lab(prgb), med) & (distance_transform_edt(pmask) <= EDGE_BG_PX) & pmask
+    return bg_like(_lab(prgb), fringe_reference(st, prgb, pmask) if EDGE_BG_LOCAL else med) & (distance_transform_edt(pmask) <= EDGE_BG_PX) & pmask
 
 
 def known_px(geoms: list, st: dict, tr: dict) -> np.ndarray:
@@ -327,9 +360,9 @@ def edge_bg_share(geoms: list, st: dict, prgb: np.ndarray, pmask: np.ndarray, tr
     med = core_median(st, prgb, pmask)
     if med[0] > EDGE_BG_WHITE_L:
         return {'edge_bg_share': None, 'edge_known_px': int(near.sum()), 'edge_bg_px': 0, 'edge_bg_na': f'N/A: белая ткань (медиана ядра L* {med[0]:.1f} > {EDGE_BG_WHITE_L:g}), мерка слепа'}
-    bg = bg_like(_lab(after), med) & near
+    bg = bg_like(_lab(after), fringe_reference(st, prgb, pmask) if EDGE_BG_LOCAL else med) & near
     n = int(near.sum())
-    return {'edge_bg_share': None if n < 200 else round(float(bg.sum() / n), 4), 'edge_known_px': n, 'edge_bg_px': int(bg.sum())}
+    return {'edge_bg_share': None if n < 200 else round(float(bg.sum() / n), 4), 'edge_known_px': n, 'edge_bg_px': int(bg.sum()), 'edge_bg_ref': 'local' if EDGE_BG_LOCAL else 'median'}
 
 
 def depth_band(st: dict) -> np.ndarray:
