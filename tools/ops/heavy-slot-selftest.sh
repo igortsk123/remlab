@@ -41,6 +41,8 @@ S="$DIR/heavy-slot.sh"
 . "$DIR/remlab-tmp.sh"
 T=$(remlab_tmp_dir heavy-slot-selftest) || { echo "heavy-slot selftest: нет временной папки в $REMLAB_TMP"; exit 1; }
 remlab_tmp_trap "$T"
+# Сторож места (disk_guard) зависит от диска хозяина: при <15 ГБ свободно heavy_slot отказывает (rc 3), и самопроверка очереди зависала/краснела (T-20261124-61). Здесь проверяется очередь, не место — выключен осознанно.
+export DISK_GUARD=0
 export HEAVY_SLOT_DIR="$T/slot" HEAVY_SLOT_LOG="$T/heavy-slot.log" HEAVY_SLOT_MEMINFO="$T/meminfo" HEAVY_SLOT_POLL=0.1 HEAVY_SLOT_REPORT=0
 # бюджет ядер — подменой, не nproc машины (T-20261111-17): в CI 2–4 ядра, и до-ядерные случаи (по 2 ядра на задачу,
 # до 6 держателей) упирались бы в процессор раннера; ядерные случаи ставят свой бюджет явно
