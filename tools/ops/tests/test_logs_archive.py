@@ -475,3 +475,171 @@ def test_hourly_units_exist_and_do_not_enable_themselves():
     assert 'WantedBy' in tmr and 'enable' in tmr            # включение описано в комментарии, само не включается
     night = (root / 'remlab-logs-archive.timer').read_text(encoding='utf-8')
     assert '01:10:00' in night                              # ночной таймер не тронут
+
+
+# ───────────── T-20261124-67: что держит папку — код и живой прогон, не память; удаление со второго диска ─────────────
+def _commit(repo, msg='z'):
+    subprocess.run(['git', '-C', str(repo), 'add', '.'], check=True)
+    subprocess.run(['git', '-C', str(repo), '-c', 'user.email=a@b', '-c', 'user.name=t', 'commit', '-qm', msg], check=True)
+
+
+def _scoped(world):
+    src, dst, repo, r = world
+    (repo / '.memory_bank' / 'plans').mkdir(parents=True)
+    (repo / '.memory_bank' / '_intake').mkdir()
+    (repo / 'tools').mkdir()
+    (repo / '.memory_bank' / '_intake' / 'brief.md').write_text('вход — remlab-logs/mem-only-1, ещё раз mem-only-1; и mem-only-2\n')
+    (repo / 'tools' / 'tool.py').write_text("IN = '~/remlab-logs/code-ref-1/in.json'\n")
+    _commit(repo)
+    r = dict(r, refs_scope=['tools', '.github'], memory_paths=['.memory_bank'])
+    return src, dst, repo, r
+
+
+def test_memory_only_mention_moves_with_docs_note_but_code_ref_holds(world):
+    src, dst, repo, r = _scoped(world)
+    mk(src / 'mem-only-1', {'a': 100}, 9)                         # упомянута только в брифе памяти → переносится, пометка «в N доках»
+    mk(src / 'mem-only-2', {'a': 100}, 9)
+    mk(src / 'code-ref-1', {'a': 100}, 9)                         # имя в коде tools/ → держит
+    mk(src / 'ref-1123', {'a': 100}, 9)                           # имя только в plan.md в КОРНЕ репо (вне refs_scope) → тоже не держит
+    todo, skipped = la.candidates(r, str(repo), now=NOW, busy=lambda p: '', live=lambda: {})
+    assert names(todo) == ['mem-only-1', 'mem-only-2', 'ref-1123']
+    docs = {c['name']: c['docs'] for c in todo}
+    assert docs['mem-only-1'] == 1 and docs['ref-1123'] == 0     # «упомянута в N доках» — только справка
+    assert 'ссылка в репозитории' in dict(skipped)['code-ref-1']
+    r2 = {k: v for k, v in r.items() if k != 'refs_scope'}        # без refs_scope — прежнее поведение: держит и память
+    todo, skipped = la.candidates(r2, str(repo), now=NOW, busy=lambda p: '', live=lambda: {})
+    assert names(todo) == [] and {'mem-only-1', 'mem-only-2', 'code-ref-1', 'ref-1123'} <= set(dict(skipped))
+
+
+def _fake_proc(tmp_path, src):
+    """Заглушки процессов: 101 — прогон с путём в командной строке; 102 — прогон с `--rules файл` (out_root, base_root, glob, catalog внутри); 103 — держатель heavy-slot только в holder-файле."""
+    proc = tmp_path / 'proc'
+    for pid, args in {
+        '101': ['python3', 'run.py', '--out', f'{src}/live-cmd/out'],
+        '102': ['python3', 'tools/assets/loop5.py', f'--rules={tmp_path}/rules-live.json', '--all'],
+        '104': ['bash', '-c', 'sleep 1'],
+    }.items():
+        (proc / pid).mkdir(parents=True)
+        (proc / pid / 'cmdline').write_bytes(b'\0'.join(a.encode() for a in args) + b'\0')
+    (proc / '103').mkdir()
+    (tmp_path / 'rules-live.json').write_text('{"out_root": "%s/live-out/r1", "base_root": "~/nonexistent-home-zz/x", "shard_inputs_glob": "%s/shard*/inputs/*.json", '
+                                              '"catalog": "%s/live-cat/c.json", "parts_root": "%s/live-nest/p", "note": "x"}' % (src, src, src, src))
+    (tmp_path / 'inner.json').write_text('{"deep": "%s/live-deep/z"}' % src)                          # файл, на который ссылается файл из командной строки (вложенность)
+    (tmp_path / 'rules-live.json').write_text((tmp_path / 'rules-live.json').read_text().replace('"note": "x"', '"inputs": "%s/inner.json"' % tmp_path))
+    hd = tmp_path / 'heavy'
+    hd.mkdir()
+    (hd / 'holder').write_text(f'label=t-live\npid=103\ncmd=python3 -I stage.py --inputs {src}/live-holder/in.json\nprio=1\n')
+    (hd / 'holder9').write_text(f'label=dead\npid=999999\ncmd=python3 x.py {src}/dead-holder/a\n')   # держатель мёртв (нет /proc/999999) — не держит
+    return proc, hd
+
+
+def test_live_refs_cmdline_rules_file_nested_glob_and_holder(tmp_path):
+    src = tmp_path / 'logs'
+    src.mkdir()
+    proc, hd = _fake_proc(tmp_path, src)
+    live = la.live_refs(str(src), proc_root=str(proc), heavy_dir=str(hd))
+    for n in ('live-cmd', 'live-out', 'live-cat', 'live-nest', 'live-deep', 'live-holder'):
+        assert la.hold_of(n, live), n                                  # путь из командной строки / из --rules / из вложенного файла / из holder heavy-slot
+    assert la.hold_of('shard-01', live) and la.hold_of('shard9', live)   # шаблон `shard*` держит все совпавшие
+    assert not la.hold_of('dead-holder', live) and not la.hold_of('unrelated', live)
+    assert 'командная строка' in live['live-cmd'] and 'rules-live.json' in live['live-out'] and 'inner.json' in live['live-deep'] and 'heavy-slot' in live['live-holder']
+
+
+def test_live_runs_hold_their_dirs_in_candidates_and_move_one(world, tmp_path):
+    src, dst, repo, r = world
+    proc, hd = _fake_proc(tmp_path, src)
+    live = lambda: la.live_refs(str(src), proc_root=str(proc), heavy_dir=str(hd))
+    for n in ('live-cmd', 'live-out', 'live-deep', 'live-holder', 'shard-77', 'free-old'):
+        mk(src / n, {'a': 100}, 9)
+    todo, skipped = la.candidates(r, str(repo), now=NOW, busy=lambda p: '', live=live)
+    assert names(todo) == ['free-old']                                # остальные — вход/выход живого прогона
+    sk = dict(skipped)
+    assert all('живого прогона' in sk[n] for n in ('live-cmd', 'live-out', 'live-deep', 'live-holder', 'shard-77'))
+    c = {'name': 'live-out', 'path': str(src / 'live-out'), 'total': 100, 'freed': 100}          # процесс взял папку между списком и переносом
+    ok, line = la.move_one(c, dict(r, days=5), now=NOW, busy=lambda p: '', live=live)
+    assert not ok and 'живого прогона' in line and (src / 'live-out').is_dir() and not (src / 'live-out').is_symlink()
+
+
+def _old_link(src, dst, name, days=20):
+    """Папка уже на HDD (файлы старше), на основном диске — ссылка, созданная `days` суток назад."""
+    mk(dst / name, {'a.bin': 1000, 'b/c.bin': 500}, days)
+    os.symlink(dst / name, src / name)
+    t = NOW - days * DAY
+    os.utime(src / name, (t, t), follow_symlinks=False)
+
+
+def _hdd_world(world):
+    src, dst, repo, r = _scoped(world)
+    (repo / 'tools' / 'tool2.py').write_text("X = 'hdd-code'\n")
+    (repo / '.memory_bank' / 'plans' / 'live-plan.md').write_text('---\nstatus: in_progress\n---\nвход — hdd-plan-act\n')
+    (repo / '.memory_bank' / 'plans' / 'old-plan.md').write_text('---\nstatus: completed\n---\nбыл вход — hdd-plan-done\n')
+    (repo / '.memory_bank' / 'plans' / 'nostatus.md').write_text('вход — hdd-plan-nostatus\n')
+    _commit(repo, 'h')
+    dst.mkdir(exist_ok=True)
+    for n in ('hdd-free', 'hdd-code', 'hdd-plan-act', 'hdd-plan-done', 'hdd-plan-nostatus', 'hdd-live'):
+        _old_link(src, dst, n)
+    _old_link(src, dst, 'hdd-young', 3)                                # лежит 3 суток — рано
+    mk(dst / 'hdd-touched', {'a': 10}, 20)                             # давно лежит, но внутри свежий файл
+    (dst / 'hdd-touched' / 'new.bin').write_bytes(b'y')
+    os.symlink(dst / 'hdd-touched', src / 'hdd-touched')
+    os.utime(src / 'hdd-touched', (NOW - 20 * DAY,) * 2, follow_symlinks=False)
+    return src, dst, repo, dict(r, hdd_prune={'days': 14})
+
+
+def test_hdd_prune_list_excludes_code_live_active_plans_and_young(world):
+    src, dst, repo, r = _hdd_world(world)
+    todo, skipped = la.hdd_candidates(r, str(repo), now=NOW, live=lambda: {'hdd-live': 'pid 1: x'})
+    assert names(todo) == ['hdd-free', 'hdd-plan-done']                # завершённый план не держит; действующий и без status — держат
+    sk = dict(skipped)
+    assert 'код' in sk['hdd-code'] and 'живого прогона' in sk['hdd-live'] and 'live-plan.md' in sk['hdd-plan-act'] and 'nostatus.md' in sk['hdd-plan-nostatus']
+    assert 'меньше' in sk['hdd-young'] and 'менялась' in sk['hdd-touched']
+    assert all(c['total'] == 1500 and c['age_d'] >= 19 for c in todo)
+    assert all((dst / n).is_dir() for n in sk)                          # список сухой — ничего не удалено
+
+
+def test_hdd_prune_one_removes_dir_and_dangling_link_only_inside_dst(world, tmp_path):
+    src, dst, repo, r = _hdd_world(world)
+    todo, _ = la.hdd_candidates(r, str(repo), now=NOW, live=lambda: {})
+    c = next(x for x in todo if x['name'] == 'hdd-free')
+    ok, line = la.prune_one(c, r, now=NOW, live=lambda: {})
+    assert ok and 'удалено' in line and not (dst / 'hdd-free').exists() and not os.path.lexists(src / 'hdd-free')    # папка и висячая ссылка убраны
+    other = tmp_path / 'elsewhere'
+    mk(other, {'a': 1}, 30)                                           # вне dst — не трогаем
+    ok, line = la.prune_one({'name': 'elsewhere', 'path': str(other), 'total': 1}, r, now=NOW, live=lambda: {})
+    assert not ok and other.is_dir() and 'не папка прямо в' in line
+    c2 = next(x for x in todo if x['name'] == 'hdd-plan-done')
+    ok, line = la.prune_one(c2, r, now=NOW, live=lambda: {'hdd-plan-done': 'pid 7: x'})      # стала живой — пропуск
+    assert not ok and (dst / 'hdd-plan-done').is_dir() and os.path.islink(src / 'hdd-plan-done')
+
+
+def test_main_prune_hdd_dry_by_default_and_apply_needs_flag(world, monkeypatch, capsys, tmp_path):
+    src, dst, repo, r = _hdd_world(world)
+    rules = tmp_path / 'rules2.json'
+    import json as _j
+    rules.write_text(_j.dumps({'archive': {**{k: v for k, v in r.items()}, 'src': str(src), 'dst': str(dst)}}))
+    monkeypatch.setenv('LOGS_ARCHIVE_RULES', str(rules))
+    monkeypatch.setenv('LOGS_ARCHIVE_REPO', str(repo))
+    monkeypatch.setenv('LOGS_ARCHIVE_LOCK', str(tmp_path / 'lock'))
+    monkeypatch.setenv('HEAVY_SLOT_DIR', str(tmp_path / 'noheavy'))
+    monkeypatch.setattr(la, 'busy_by', lambda p, proc_root='/proc': '')
+    monkeypatch.setattr(la, 'live_refs', lambda src, proc_root='/proc', heavy_dir=None: {'hdd-live': 'pid 1'})
+    monkeypatch.setattr(la, 'free_gb', lambda p: 100.0)
+    assert la.main([]) == 0
+    out = capsys.readouterr().out
+    assert 'удалил бы hdd-free' in out and 'удалил бы hdd-plan-done' in out and 'сухо — удалил бы' in out
+    assert (dst / 'hdd-free').is_dir()                                 # сухо: ничего не удалено
+    assert la.main(['--apply', '--digest']) == 0                       # обычный перенос --apply на HDD ничего не удаляет
+    capsys.readouterr()
+    assert (dst / 'hdd-free').is_dir() and (dst / 'hdd-plan-done').is_dir()
+    assert la.main(['--prune-hdd', '--apply', '--digest']) == 0
+    out = capsys.readouterr().out
+    assert 'DIGEST:логи на HDD: удалено 2 из 2' in out
+    assert not (dst / 'hdd-free').exists() and not (dst / 'hdd-plan-done').exists() and not os.path.lexists(src / 'hdd-free')
+    for n in ('hdd-code', 'hdd-plan-act', 'hdd-plan-nostatus', 'hdd-live', 'hdd-young', 'hdd-touched'):
+        assert (dst / n).is_dir() and os.path.islink(src / n), n
+
+
+def test_rules_file_has_scope_and_hdd_prune():
+    import json as _j
+    a = _j.load(open(os.path.join(os.path.dirname(la.__file__), '..', 'scout', 'rules', 'dev-disk.json'), encoding='utf-8'))['archive']
+    assert {'tools', 'app', 'lib', '.github'} <= set(a['refs_scope']) and '.memory_bank' not in a['refs_scope'] and a['hdd_prune']['days'] == 14
