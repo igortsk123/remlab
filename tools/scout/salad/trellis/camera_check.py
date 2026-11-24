@@ -205,6 +205,28 @@ def vertical_convergence(photo: np.ndarray, pose: dict, rules: dict, cv: dict) -
         return {'measured': False, 'reason': f'сбой мерки: {type(e).__name__}: {str(e)[:100]}'}
 
 
+def front_edge_dx(photo: np.ndarray, pose: dict, rules: dict, cv: dict, out_dir: str) -> dict:
+    """Стык «фронт|бок» (T-20261124-18, владелец TG 2571): front_edge_dx_px — проекция переднего вертикального угла фронтальной плоскости формы ↔ длинная вертикальная кромка фото,
+    обе стороны, px фото (junction.front_edge); кадр-наложение junction.png. Не измерено (форма не коробчатая, нет габарита в pose.json, сбой) → {measured: False, reason} — не «прошёл»."""
+    import junction as JN
+    R = {**JN.DEFAULTS, **(rules.get('junction') or {})}
+    if not R.get('check_enabled', True):
+        return {'measured': False, 'reason': 'выключено правилом junction.check_enabled'}
+    try:
+        import cv2
+        import pose_fit as PF
+        fb = pose.get('form_box')
+        box = JN.box_geometry(fb['lo'], fb['hi'], R) if fb else None
+        tg = JN.photo_targets(photo, R)
+        fe = JN.front_edge(PF, pose['camera'], box, cv, tg, R)
+        cv2.imwrite(os.path.join(out_dir, 'junction.png'), cv2.cvtColor(JN.overlay(photo, tg, fe), cv2.COLOR_RGB2BGR))
+        fe['over'] = bool(fe.get('measured') and fe['gap_px'] > R['active_gap_px'])
+        fe['threshold_px'] = R['active_gap_px']
+        return fe
+    except Exception as e:  # noqa: BLE001 — мерка не роняет этап 4
+        return {'measured': False, 'reason': f'сбой мерки: {type(e).__name__}: {str(e)[:100]}'}
+
+
 def main() -> int:
     import cv2
     from PIL import Image
@@ -261,6 +283,10 @@ def main() -> int:
     except Exception as e:  # noqa: BLE001 — мерка не роняет этап 4
         edge_angle = {'measured': False, 'skip': f'сбой мерки: {type(e).__name__}: {str(e)[:100]}'}
     vconv = vertical_convergence(photo, pose, rules, pose.get('canvas') or {'x0': float(P[0, 2]), 'y0': float(P[1, 2]), 'side': float(P[0, 0]) * w})                  # схождение вертикалей рендер↔фото (T-20261124-18): только запись, passed не меняет
+    fedge = front_edge_dx(photo, pose, rules, pose.get('canvas') or {'x0': float(P[0, 2]), 'y0': float(P[1, 2]), 'side': float(P[0, 0]) * w}, out)     # стык фронт|бок: пишется всегда; ворота — только при junction.enforce
+    if (rules.get('junction') or {}).get('enforce', False) and fedge.get('over'):
+        reason = ('стык фронта: ребро формы ↔ кромка фото %s px (порог %s) — на фронте будет разрыв узора; ' % (fedge['dx_px'], fedge['threshold_px'])) + reason if not ok else ('стык фронта: ребро формы ↔ кромка фото %s px (порог %s); ' % (fedge['dx_px'], fedge['threshold_px'])) + reason
+        ok = False
     legs = LC.legs_report(S, pa)                                    # ножки формы против фото (T-191/3): пишется в extra, passed не меняет — решение «ножкам фото не верим» принимает этап 06
     bsm = bottom_shape_mismatch(shares, coarse, rules) and not thin_rescue
     if bsm:
@@ -289,9 +315,9 @@ def main() -> int:
                          metrics={'miss': lim('miss', 'miss_max'), 'extra': lim('extra', 'extra_max'),
                                   'miss_bottom': lim('miss_bottom', 'miss_bottom_max'), 'extra_bottom': lim('extra_bottom', 'extra_bottom_max'),
                                   'edge_agree': {'value': None if edge is None else round(edge, 4), **({'no_edges': True} if no_edges else {})}},
-                         reason=reason if not ok else '', seconds=round(time.time() - t0, 1), outputs=['frame.png'], frame='frame.png',
+                         reason=reason if not ok else '', seconds=round(time.time() - t0, 1), outputs=['frame.png'] + (['junction.png'] if os.path.isfile(os.path.join(out, 'junction.png')) else []), frame='frame.png',
                          edge_ref_min=rules['edge_ref'], edge_below_ref=bool(edge is not None and edge < rules['edge_ref']), no_edges=no_edges, note=reason if ok else '', strip_rows=shares['strip_rows'], strip_frac=rules['strip_frac'],
-                         bottom_mask_coarse=coarse, edge_angle=edge_angle, vertical_convergence=vconv, bottom_mask=bq, bottom_shape_mismatch=bsm, **LC.extra_fields(legs), shape_mismatch=shm, shape_corridor=shm_info, regen_form=bool(shm), iou_top=None if shares['iou_top'] is None else round(shares['iou_top'], 4),
+                         bottom_mask_coarse=coarse, edge_angle=edge_angle, vertical_convergence=vconv, front_edge=fedge, front_edge_dx_px=(fedge.get('dx_px') if fedge.get('measured') else None), bottom_mask=bq, bottom_shape_mismatch=bsm, **LC.extra_fields(legs), shape_mismatch=shm, shape_corridor=shm_info, regen_form=bool(shm), iou_top=None if shares['iou_top'] is None else round(shares['iou_top'], 4),
                          bottom_top_iou_min=rules.get('bottom_top_iou_min', rules['iou_min']), thin=tm, thin_rescue=thin_rescue, unreliable=bool(unrel), unreliable_reason=unrel_why, rules_file='tools/scout/rules/camera-check.json',
                          camera=pose['camera'], yaw=a.yaw if a.yaw is not None else pose.get('yaw'), pairs=None, photo=a.photo, method=reg.get('method'),
                          textured=pose.get('textured'), frame_note='фото 50 % + рендер 50 %; красный контур — рендер формы, зелёный — фото')
