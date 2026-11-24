@@ -250,6 +250,16 @@ class HttpTests(unittest.TestCase):
 
 
 class PureTests(unittest.TestCase):
+    def test_fit_flags_whitelist(self):
+        """T-20261124-18: флаги подгонки в подпроцесс — только из белого списка и значений 0/1/probe; мусор → {} (камера как без флагов)."""
+        self.assertEqual(WP.fit_flags('POSE_JUNCTION=1, POSE_VERT_AXIS=1,POSE_ANGLE_FIT=probe'), {'POSE_JUNCTION': '1', 'POSE_VERT_AXIS': '1', 'POSE_ANGLE_FIT': 'probe'})
+        self.assertEqual(WP.fit_flags('PATH=/x,POSE_JUNCTION=2,POSE_CODE=/etc,LD_PRELOAD=1'), {})
+        self.assertEqual(WP.fit_flags(''), {})
+        body = PT.build_body('trial-pose-t', 'x/y@sha256:' + 'a' * 64, 'low', 'cls', {}, 3600, 900, 6, 1, worker_z='Z', flags='POSE_JUNCTION=1')
+        self.assertEqual(body['container']['environment_variables']['POSE_FIT_FLAGS'], 'POSE_JUNCTION=1')
+        body0 = PT.build_body('trial-pose-t', 'x/y@sha256:' + 'a' * 64, 'low', 'cls', {}, 3600, 900, 6, 1, worker_z='Z')
+        self.assertNotIn('POSE_FIT_FLAGS', body0['container']['environment_variables'])
+
     def test_safe_extract_blocks_traversal(self):
         import io
         buf = io.BytesIO()
