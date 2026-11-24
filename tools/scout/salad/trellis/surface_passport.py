@@ -16,6 +16,7 @@
 """
 from __future__ import annotations
 
+import json
 import os
 import sys
 
@@ -745,6 +746,17 @@ def _lib_norm(s) -> str:
     return ' '.join(str(s or '').strip().lower().split())
 
 
+def _carcass_entries(C: dict) -> dict:
+    """Записи библиотеки отделок: `entries` прямо в правиле (тесты) или файл данных `entries_file` рядом с rules/paint-fill.json (ID товаров — данные, не правила)."""
+    if C.get('entries') is not None:
+        return C.get('entries') or {}
+    f = C.get('entries_file')
+    if not f:
+        return {}
+    p = os.path.join(HERE, '..', '..', 'rules', f)
+    return (json.load(open(p, encoding='utf-8')).get('entries') or {})
+
+
 def carcass_library_tone(card: dict | None, C: dict, kind: str = 'members') -> dict:
     """Тон бока корпуса по ЛЕНТЕ (T-20261124-06, Ш2): «Цвет корпуса» + «Материал корпуса» карточки → запись библиотеки отделок `carcass_library.entries[ключ].members` ({товар: Lab бока по фото}).
     Тон — медиана Lab участников без самого товара (поле карточки `_sku`: leave-one-product-out в пробе; в проде поля нет — берутся все). Меньше `min_members` участников или разброс
@@ -754,7 +766,7 @@ def carcass_library_tone(card: dict | None, C: dict, kind: str = 'members') -> d
     if not k:
         return {'ok': False, 'key': None, 'why': 'в карточке нет цвета корпуса (лента)'}
     key = k + '|' + _lib_norm(card.get(C.get('mat_field', '')))
-    ent = (C.get('entries') or {}).get(key)
+    ent = (_carcass_entries(C)).get(key)
     if not ent:
         return {'ok': False, 'key': key, 'why': 'отделки нет в библиотеке'}
     me = {s: v for s, v in (ent.get(kind) or {}).items() if s != card.get('_sku')}          # kind: 'members' — бока (как на фото), 'tops' — верх (освещённый, T-20261124-06 п.1–2)
