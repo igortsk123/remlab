@@ -159,6 +159,7 @@ def process(a, rules: dict, d: str, rep: dict) -> None:
     PM.swap_tex_glb(base, labtex, basel, unlit=True)
     orb_cam = '%.2fdeg %.2fdeg %s' % (st['camera']['az'] % 360, 90 - st['camera']['el'], fit['radius'])
     S = int(fit['frame_px'])
+    SG = int(rules['gate']['frame_px'])
     PM.render_jobs([{'glb': basel, 'out': os.path.join(work, 'm-cam.png'), 'orbit': orb_cam, 'size': S}, {'glb': basel, 'out': os.path.join(work, 'm-top.png'), 'orbit': fit['top_orbit'], 'size': S}], rules, work)
     lm_cam = PM.read_label_frame(np.asarray(Image.open(os.path.join(work, 'm-cam.png')).convert('RGB')), len(names), pal, fit['label_dist'])
     lm_top = PM.read_label_frame(np.asarray(Image.open(os.path.join(work, 'm-top.png')).convert('RGB')), len(names), pal, fit['label_dist'])
@@ -183,13 +184,16 @@ def process(a, rules: dict, d: str, rep: dict) -> None:
     PM.swap_tex_glb(base, tex, os.path.join(work, 'fin.glb'), rough=rules['unlit_roughness'])
     PM.swap_tex_glb(base, ctl, os.path.join(work, 'ctl.glb'), rough=rules['unlit_roughness'])
     PM.render_jobs([{'glb': os.path.join(work, 'fin.glb'), 'out': os.path.join(work, 'fin-cam.png'), 'orbit': orb_cam, 'size': S}, {'glb': os.path.join(work, 'fin.glb'), 'out': os.path.join(work, 'fin-top.png'), 'orbit': fit['top_orbit'], 'size': S},
-                    {'glb': os.path.join(work, 'ctl.glb'), 'out': os.path.join(work, 'ctl-cam.png'), 'orbit': orb_cam, 'size': S}], rules, work)
+                    {'glb': os.path.join(work, 'ctl.glb'), 'out': os.path.join(work, 'ctl-cam.png'), 'orbit': orb_cam, 'size': S},
+                    {'glb': os.path.join(work, 'fin.glb'), 'out': os.path.join(work, 'fin-cam-g.png'), 'orbit': orb_cam, 'size': SG},
+                    {'glb': os.path.join(work, 'ctl.glb'), 'out': os.path.join(work, 'ctl-cam-g.png'), 'orbit': orb_cam, 'size': SG}], rules, work)
     import cv2
     pgs = [gi for gi, gn in enumerate(names) if gn not in keep and (gn in alb or borrowed.get(gn) in alb)]
     region = np.isin(lm_cam, pgs)
     if fit['erode_px']:
         region = cv2.erode(region.astype(np.uint8), np.ones((2 * int(fit['erode_px']) + 1,) * 2, np.uint8)).astype(bool)
-    gate = PM.face_gate(np.asarray(Image.open(os.path.join(work, 'fin-cam.png')).convert('RGB')), np.asarray(Image.open(os.path.join(work, 'ctl-cam.png')).convert('RGB')), region, rules)
+    region = cv2.resize(region.astype(np.uint8), (SG, SG), interpolation=cv2.INTER_NEAREST).astype(bool)      # ворота — на кадре покрупнее: щели в 1–2 px на 420 не видны
+    gate = PM.face_gate(np.asarray(Image.open(os.path.join(work, 'fin-cam-g.png')).convert('RGB')), np.asarray(Image.open(os.path.join(work, 'ctl-cam-g.png')).convert('RGB')), region, rules)
     rep['gate'] = gate
     if gate['fail']:
         raise Abstain('ворота «лицо против фото»: ' + '; '.join(gate['fail']))
