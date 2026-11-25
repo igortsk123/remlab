@@ -45,7 +45,7 @@ JOB_RE = re.compile(r'^[A-Za-z0-9._\-]{1,150}$')
 CLK = os.sysconf('SC_CLK_TCK') if hasattr(os, 'sysconf') else 100
 
 
-FIT_FLAG_NAMES = ('POSE_VERT_AXIS', 'POSE_JUNCTION', 'POSE_ANGLE_FIT')      # флаги подгонки (все выкл. по умолчанию), которые можно передать в подпроцесс (T-20261124-18); других имён не пускаем
+FIT_FLAG_NAMES = ('POSE_VERT_AXIS', 'POSE_JUNCTION', 'POSE_ANGLE_FIT', 'POSE_FLIP_ALWAYS')      # флаги подгонки (все выкл. по умолчанию), которые можно передать в подпроцесс (T-20261124-18); других имён не пускаем
 
 
 def fit_flags(raw: str) -> dict:
@@ -262,6 +262,9 @@ class Pool:
             for k, flag in (('yaw', '--yaw'), ('px', '--px'), ('n_fit', '--n-fit'), ('topk', '--topk')):
                 if p.get(k) is not None:
                     args += [flag, str(p[k])]
+            _role = p.get('role')
+            if isinstance(_role, str) and _role.strip() and len(_role) <= 60 and _role.isprintable():       # T-20261125-88: тип с перёдом (pose-rank.json: flip_always); без роли — как раньше
+                args += ['--role', _role.strip()]
             rc, j['fit_s'] = self._exec(j, 'fit', self._cmd('pose_fit.py', args), self.c['fit_timeout'])
             if rc != 0:
                 j['error'] = j['error'] or f"pose_fit rc={rc}: {tail(os.path.join(d, 'fit.log'), 300)}"

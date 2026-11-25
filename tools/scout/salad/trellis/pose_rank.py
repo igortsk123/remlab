@@ -307,6 +307,81 @@ def flip_decision(sp: dict, sf: dict, R: dict) -> dict:
     return {'apply': apply, 'votes': votes, 'gap': gap, 'sil_gap': sil_gap, 'why': why}
 
 
+def front_kind(role: str | None, R: dict) -> str | None:
+    """Тип с перёдом по роли каталога (префикс): 'corpus' — корпусная, 'soft' — мягкая/стул/кровать; иначе None. Флаг `flip_always.enabled` (или env POSE_FLIP_ALWAYS=1) выкл — всегда None (поведение как раньше)."""
+    import os
+    fa = R.get('flip_always') or {}
+    r = (role or '').strip().lower()
+    env = os.environ.get('POSE_FLIP_ALWAYS')                           # 1 — вкл, 0 — выкл на один запуск (приоритет у env), иначе правило
+    if not r or not (env == '1' or (env != '0' and fa.get('enabled'))):
+        return None
+    for kind, key in (('corpus', 'roles_corpus'), ('soft', 'roles_soft')):
+        if any(r.startswith(str(x).lower()) for x in (fa.get(key) or [])):
+            return kind
+    return None
+
+
+def _welded(V: np.ndarray, F: np.ndarray) -> tuple:
+    """Сетка TRELLIS без общих вершин → со склеенными (рельеф формы считает соседство граней)."""
+    V = np.asarray(V, float)
+    F = np.asarray(F)
+    q = max(float(np.ptp(V, axis=0).max()) * 1e-6, 1e-12)
+    _, first, inv = np.unique(np.round(V / q).astype(np.int64), axis=0, return_index=True, return_inverse=True)
+    inv = inv.reshape(-1)
+    Fw = inv[F]
+    return V[first], Fw[(Fw[:, 0] != Fw[:, 1]) & (Fw[:, 1] != Fw[:, 2]) & (Fw[:, 0] != Fw[:, 2])]
+
+
+def front_form_votes(geo: dict, cam: dict, kind: str, R: dict) -> tuple:
+    """Голоса по ФОРМЕ (не по фото) «камера смотрит на зад?»: relief_form — `front_by_relief` (сторона к камере с меньшим числом крутых граней → «за» разворот), mesh_front (только мягкая): перёд формы далеко от азимута камеры → «за». → (votes, info)."""
+    import edge_sharpen as ES
+    import front_by_relief as FBR
+    fa = R['flip_always']
+    votes = {'relief_form': 'нет'}
+    info: dict = {}
+    try:
+        Vw, Fw = _welded(geo['V'], geo['F'])
+        fb = FBR.front_by_relief(Vw, Fw, ES.camera_dir(cam['az'], cam['el']), ES.load_rules())
+        info['relief_form'] = {k: fb.get(k) for k in ('verdict', 'steep_camera_side', 'steep_opposite_side', 'ratio')}
+        votes['relief_form'] = {'opposite': 'за', 'camera': 'против'}.get(fb['verdict'], '—')
+    except Exception as e:                                             # noqa: BLE001 — причина в info, голос «нет»
+        info['relief_form'] = {'error': f'{type(e).__name__}: {str(e)[:120]}'}
+    if kind == 'soft':
+        votes['mesh_front'] = 'нет'
+        try:
+            import types
+            import mesh_front as MF
+            V, F = np.asarray(geo['V'], np.float32), np.asarray(geo['F'], np.int32)
+            tri = V[F]
+            n = np.cross(tri[:, 1] - tri[:, 0], tri[:, 2] - tri[:, 0])
+            n = n / np.maximum(np.linalg.norm(n, axis=1, keepdims=True), 1e-12)
+            m = types.SimpleNamespace(vertices=V, faces=F, face_normals=n.astype(np.float32))
+            sf = MF.infer_seat_front([m], 'стул')
+            info['mesh_front'] = {k: sf.get(k) for k in ('status', 'front_yaw')}
+            if sf.get('status') == 'confident':
+                d = abs((float(cam['az']) - float(sf['front_yaw']) + 180.0) % 360.0 - 180.0)
+                lim = float(fa['mesh_front_cam_deg'])
+                votes['mesh_front'] = 'против' if d <= lim else ('за' if d >= 180.0 - lim else '—')
+                info['mesh_front']['az_dist'] = round(d, 1)
+        except Exception as e:                                         # noqa: BLE001
+            info['mesh_front'] = {'error': f'{type(e).__name__}: {str(e)[:120]}'}
+    return votes, info
+
+
+def front_decision(sp: dict, sf: dict, form_votes: dict, R: dict) -> dict:
+    """Решение «перёд» для типа с перёдом: голоса flip_decision (силуэт, кромки, цвет, рельеф затенения) + голоса формы. Разворот: силуэт перевёрнутой не хуже `sil_drop_max`, «за» ≥ `flip_always.need_votes`, «против» нет.
+    verdict: 'развёрнут' | 'перёд верный' (нет голосов «за», есть «против») | 'перёд не определён' (остальное: голосов мало или они расходятся)."""
+    base = flip_decision(sp, sf, R)
+    votes = {**base['votes'], **form_votes}
+    pro, con = list(votes.values()).count('за'), list(votes.values()).count('против')
+    sil_ok = base['sil_gap'] <= R['flip_pick']['sil_drop_max']
+    need = int(R['flip_always']['need_votes'])
+    apply = bool(sil_ok and pro >= need and con == 0)
+    verdict = 'развёрнут' if apply else ('перёд верный' if (pro == 0 and con >= 1) else 'перёд не определён')
+    why = ((f"силуэт перевёрнутой хуже на {base['sil_gap']:+.3f} (> {R['flip_pick']['sil_drop_max']}) — не разворачиваем; " if not sil_ok else '') + f"голосов за {pro} (нужно {need}), против {con}")
+    return {'apply': apply, 'votes': votes, 'gap': base['gap'], 'sil_gap': base['sil_gap'], 'why': why, 'verdict': verdict, 'pro': pro, 'con': con}
+
+
 def flip_hypothesis(PF, geo: dict, cam: dict, Pc: np.ndarray, Mp: np.ndarray, n: int, photo: np.ndarray, alpha: np.ndarray, cv: dict, tex, log=print) -> dict:
     """Перевёрнутая поза: подбор по силуэту от ТОЧНОГО az+180° (то же ядро, что мультистарт), затем уточнение по кромкам (отклоняется, если роняет IoU силуэта, как у обычных кандидатов).
     Не берём «семейство рядом»: у комода от +180° ближайшее семейство отстояло на 20° и было заведомо не той позой. → {cam, iou, edge (словарь edge_score), steps}."""
@@ -327,11 +402,31 @@ def flip_hypothesis(PF, geo: dict, cam: dict, Pc: np.ndarray, Mp: np.ndarray, n:
     return {'cam': {k: round(float(v), 5) for k, v in c2.items()}, 'iou': round(float(iou2), 4), 'iou_sil': round(float(iou_sil), 4), 'edge': e2, 'steps': nit}
 
 
-def flip_pick(PF, geo: dict, pick: dict, Pc: np.ndarray, Mp: np.ndarray, n: int, photo: np.ndarray, alpha: np.ndarray, cv: dict, tex, edge_ref: float, log=print, R: dict | None = None) -> tuple:
+def _flip_always(PF, geo, pick, Pc, Mp, n, photo, alpha, cv, tex, edge_ref, log, R, kind, info):
+    """Ветка flip_pick для типов с перёдом (`front_kind`): триггера по кромкам нет, гипотеза az+180° считается всегда; голоса — `front_decision`."""
+    info.update({'enabled': True, 'always': True, 'kind': kind, 'triggered': True})
+    fh = flip_hypothesis(PF, geo, pick['cam'], Pc, Mp, n, photo, alpha, cv, tex, log=log)
+    bf = R['orientation']['blur_frac']
+    sp = flip_signals(PF, geo, pick['cam'], photo, alpha, cv, tex, Pc, Mp, n, blur_frac=bf)
+    sf = flip_signals(PF, geo, fh['cam'], photo, alpha, cv, tex, Pc, Mp, n, blur_frac=bf)
+    fv, finfo = front_form_votes(geo, pick['cam'], kind, R)
+    dec = front_decision(sp, sf, fv, R)
+    info.update({'pick': {'cam': pick['cam'], **sp}, 'flip': {'cam': fh['cam'], 'iou': fh['iou'], 'edge_agree': fh['edge']['agree'], **sf}, **{k: dec[k] for k in ('votes', 'gap', 'sil_gap', 'why')},
+                 'applied': dec['apply'], 'front': {'kind': kind, 'verdict': dec['verdict'], 'pro': dec['pro'], 'con': dec['con'], 'votes': dec['votes'], 'form': finfo, 'az_pick': round(float(pick['cam']['az']), 2), 'az_flip': round(float(fh['cam']['az']), 2)}})
+    log(f"  перёд ({kind}): az={pick['cam']['az']:.1f} против az+180 → {fh['cam']['az']:.1f}; голоса {dec['votes']} · {dec['why']} → {dec['verdict']}")
+    if dec['apply']:
+        pick = {**pick, 'cam': fh['cam'], 'iou': fh['iou'], 'score': sf['score'], 'edge': fh['edge'], 'flip_pick': True, 'cam_before_flip': info['pick']['cam']}
+    return pick, info
+
+
+def flip_pick(PF, geo: dict, pick: dict, Pc: np.ndarray, Mp: np.ndarray, n: int, photo: np.ndarray, alpha: np.ndarray, cv: dict, tex, edge_ref: float, log=print, R: dict | None = None, role: str | None = None) -> tuple:
     """Весь шаг: триггер по кромкам → гипотеза az+180° → сигналы → решение. → (pick, info): pick заменён перевёрнутой позой (поле `flip_pick` у неё), если решено развернуть; info — для pose.json."""
     R = R or rules()
     F = R['flip_pick']
     info: dict = {'enabled': bool(F['enabled']), 'edge_ref': edge_ref, 'triggered': False, 'applied': False}
+    kind = front_kind(role, R)                                         # П1.158 (T-88): тип с перёдом и флаг flip_always — гипотеза всегда, решение голосами
+    if kind:
+        return _flip_always(PF, geo, pick, Pc, Mp, n, photo, alpha, cv, tex, edge_ref, log, R, kind, info)
     if not F['enabled']:
         return pick, info
     if not flip_trigger(pick.get('edge'), edge_ref):
