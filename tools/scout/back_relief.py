@@ -22,6 +22,14 @@ sys.path.insert(0, HERE)
 import edge_sharpen as ES  # noqa: E402
 
 
+def weighted_p99(x, w, q: float = 0.99) -> float:
+    """Взвешенный перцентиль (вес — площадь грани): наименьшее x, у которого накопленная доля веса ≥ q."""
+    x, w = np.asarray(x, float), np.asarray(w, float)
+    o = np.argsort(x)
+    c = np.cumsum(w[o])
+    return float(x[o][min(int(np.searchsorted(c, q * c[-1])), len(x) - 1)])
+
+
 def back_relief(V, F, front_dir, rules: dict | None = None, ctx: dict | None = None) -> dict:
     """Рельеф зада формы (V, F) при камере `front_dir`. → {ok, reason, sigma_pct, share_pct, depth, faces, tilt_deg, passed}; ok=False — зад не найден (мерка не определена, passed=None).
     Ось глубины — `edge_sharpen._axis_frame` (лицо к камере); конец зада — крайние `end_frac` глубины со стороны от камеры; грани — нормаль в конусе `cone_deg` от «от камеры»; контур следа (скругление зад→бок, ножки) отступом `edge_cells` клеток не считается."""
@@ -67,6 +75,7 @@ def back_relief(V, F, front_dir, rules: dict | None = None, ctx: dict | None = N
     sw = np.sqrt(w)
     co, *_ = np.linalg.lstsq(X * sw[:, None], t[sel] * sw, rcond=None)
     res = t[sel] - X @ co
+    flat_p99 = weighted_p99(np.abs(res), w) / max(float(np.linalg.norm(V.max(0) - V.min(0))), 1e-12)     # Codex back_flat_p99: 99-й перцентиль |расстояние до плоскости| / диагональ, по площади, без кайта (внутренность следа)
     res = np.clip(res, -rl["clip_frac"] * depth, rl["clip_frac"] * depth)                      # редкие выбросы (ножки, выступ) σ не раздувают: они не рельеф зада
     sigma = float(np.sqrt((w * res ** 2).sum() / w.sum()) / depth * 100)
     share = float(w[np.abs(res) > rl["tol_frac"] * depth].sum() / w.sum() * 100)
@@ -74,7 +83,7 @@ def back_relief(V, F, front_dir, rules: dict | None = None, ctx: dict | None = N
     npl = npl / np.linalg.norm(npl)
     cosp = np.clip(-(nrm[sel] @ npl), -1.0, 1.0)
     steep = float(w[cosp < np.cos(np.radians(rl["steep_deg"]))].sum() / w.sum() * 100)           # МЕЛКИЙ масштаб: доля площади граней, наклонённых к плоскости круче steep_deg (σ мелкую рябь не видит); порог steep_share_max_pct (гипотеза: 0,5 % — между 10887/18370 «после» 0,3–0,45 и видимой рябью 13224/15195 1,9/0,57)
-    return {"ok": True, "reason": "", "sigma_pct": round(sigma, 3), "share_pct": round(share, 2), "steep_pct": round(steep, 2), "depth": round(depth, 4), "faces": int(sel.sum()),
+    return {"ok": True, "reason": "", "sigma_pct": round(sigma, 3), "share_pct": round(share, 2), "steep_pct": round(steep, 2), "depth": round(depth, 4), "faces": int(sel.sum()), "flat_p99": round(float(flat_p99), 5),
             "tilt_deg": round(float(np.degrees(np.arctan(np.hypot(co[0], co[1])))), 2),
             "passed": bool(sigma <= rl["sigma_max_pct"] and share <= rl["share_max_pct"] and steep <= rl["steep_share_max_pct"])}
 

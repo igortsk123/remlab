@@ -579,6 +579,9 @@ def back_panel(V, F, front_dir, rules: dict | None = None, ctx: dict | None = No
     `protect` — вершины, которые не трогаем НИКОГДА (сторона с фото этапа 6): их сдвиг 0 жёстко; rep['photo_touched'] — сколько защищённых всё же сдвинулось (должно быть 0).
     → (V2, moved — маска сдвинутых вершин, rep). Допуск по ТИПУ — снаружи (`back_panel_gate`: политика паспорта типа)."""
     rules = rules or load_rules()
+    te = rules["back_panel"].get("tight_edge") or {}
+    if te.get("enabled"):                                                                           # T-80: узкая полоса края + размыкание следа (ножки не панель); выкл (по умолчанию) = как раньше
+        rules = dict(rules, back_panel=dict(rules["back_panel"], **{k: te[k] for k in ("rim_cells", "rim_band", "foot_open_cells")}))
     V = np.asarray(V, np.float64)
     F = np.asarray(F, np.int64)
     ctx = ctx or context(V, F, rules)
@@ -613,6 +616,9 @@ def back_panel(V, F, front_dir, rules: dict | None = None, ctx: dict | None = No
     foot[c[anchor]] = True
     from scipy.ndimage import binary_closing, binary_fill_holes
     foot = binary_fill_holes(binary_closing(foot.reshape(G, G), iterations=2))      # дырки следа (клетки без вершин зада, выбросы) — не край: край только внешний контур
+    if int(br.get("foot_open_cells", 0)) > 0:                                                       # T-80: тонкое (ножки) — не панель зада: размыкание следа убирает выступы уже `foot_open_cells` клеток, основное тело не сжимается; 0 = как раньше
+        from scipy.ndimage import binary_opening
+        foot = binary_opening(foot, iterations=int(br["foot_open_cells"]))
     for _ in range(int(br["rim_cells"])):
         e = foot.copy()
         e[1:, :] &= foot[:-1, :]
@@ -726,8 +732,11 @@ def back_panel_glb(src: str, dst: str, az_deg: float, el_deg: float, rules: dict
     if len(prims) != 1:
         return {"apply": False, "reason": f"геометрий {len(prims)}, нужна одна", "written": False}
     pr = prims[0]
-    if pose_edge is not None and pose_edge < pose_edge_min():
-        return {"apply": False, "reason": f"камере не верим: согласие кромок {pose_edge:.3f} < {pose_edge_min():g} (по силуэту перед и зад не различить) — зад не трогаем", "written": False}
+    fb_on = bool((rules["back_panel"].get("front_by_relief") or {}).get("enabled", False))        # T-80: проверка стороны фасада по форме; выкл = как раньше (гейт по согласию кромок — ниже, до расчёта)
+    weak_edge = pose_edge is not None and pose_edge < pose_edge_min()
+    weak_reason = f"камере не верим: согласие кромок {pose_edge:.3f} < {pose_edge_min():g} (по силуэту перед и зад не различить) — зад не трогаем" if weak_edge else ""
+    if weak_edge and not fb_on:
+        return {"apply": False, "reason": weak_reason, "written": False}
 
     def view(i, dt, n):
         a = js["accessors"][i]
@@ -747,6 +756,15 @@ def back_panel_glb(src: str, dst: str, az_deg: float, el_deg: float, rules: dict
     Fw = inv[F]
     Fw = Fw[(Fw[:, 0] != Fw[:, 1]) & (Fw[:, 1] != Fw[:, 2]) & (Fw[:, 0] != Fw[:, 2])]
     cam = camera_dir(az_deg, el_deg)
+    fb_info = {}
+    if fb_on:                                                                                         # сторона фасада по форме (front_by_relief — один источник): az перевёрнут → зад (= настоящий фасад) не трогаем
+        import front_by_relief as FBR
+        fb = FBR.front_by_relief(Vw, Fw, cam, rules)
+        fb_info = {"front_by_relief": {k: fb[k] for k in ("verdict", "reason", "steep_camera_side", "steep_opposite_side", "ratio")}}
+        if fb["verdict"] == "opposite":
+            return {"apply": False, "reason": "азимут камеры 04 перевёрнут на 180°: " + fb["reason"] + " — зад не трогаем", "az_flipped": True, "written": False, **fb_info}
+        if fb["verdict"] != "camera":                                                                     # воздержание формы ≠ «зад чистый»: кромки сторону не заменяют (у Рошали 0,58 пропускали, а фасад с дверями — на заду) → не трогаем, нужен второй сигнал (этап 04, р.6)
+            return {"apply": False, "abstain": True, "reason": "воздержание: нужен второй сигнал (" + fb["reason"] + ") — зад не трогаем", "written": False, **fb_info}
     prot = None
     ph_info = {}
     if photo is not None:
@@ -765,6 +783,7 @@ def back_panel_glb(src: str, dst: str, az_deg: float, el_deg: float, rules: dict
         ph_info["photo_verts"] = int(prot.sum())
     V2w, moved_w, rep = back_panel(Vw, Fw, cam, rules, protect=prot)
     rep.update(ph_info)
+    rep.update(fb_info)
     rep["written"] = False
     if not rep["apply"]:
         return rep

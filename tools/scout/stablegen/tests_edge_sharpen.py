@@ -142,6 +142,43 @@ class T(unittest.TestCase):
         self.assertTrue(all(prof[i] <= prof[i + 1] + 0.1 * amp for i in range(3)), prof)    # и растёт к середине без провалов
         self.assertEqual(rep["flipped_after"], 0)
 
+    def _tight(self, on):
+        R = rules()
+        R["back_panel"] = dict(R["back_panel"], tight_edge=dict(R["back_panel"]["tight_edge"], enabled=on))
+        return R
+
+    def test_tight_edge_default_off_identical(self):
+        """T-80: tight_edge по умолчанию выкл, и выкл/нет ключа — тот же результат (байт в байт)."""
+        self.assertFalse(rules()["back_panel"]["tight_edge"]["enabled"])
+        V, F, back = self._relief_back()
+        R0 = rules()
+        del R0["back_panel"]["tight_edge"]
+        Va, _, ra = E.back_panel(V, F, np.array([0.0, 0.0, 1.0]), R0)
+        Vb, _, rb = E.back_panel(V, F, np.array([0.0, 0.0, 1.0]), self._tight(False))
+        self.assertTrue(ra["apply"] and rb["apply"])
+        self.assertTrue(np.array_equal(Va, Vb))
+
+    def test_tight_edge_flat_and_narrow_fade(self):
+        """tight_edge вкл: зад выровнен, лицо не тронуто, складок нет, потолок сдвига соблюдён; край гаснет в более узкой полосе, чем по умолчанию (рельеф на край зада садится ближе к кромке)."""
+        V, F, back = self._relief_back()
+        R = self._tight(True)
+        V2, moved, rep = E.back_panel(V, F, np.array([0.0, 0.0, 1.0]), R)
+        self.assertTrue(rep["apply"], rep)
+        self.assertLess(float(V2[back, 2].std()), float(V[back, 2].std()) / 5)
+        self.assertEqual(float(np.abs(V2[V[:, 2] > 0.3] - V[V[:, 2] > 0.3]).max()), 0.0)
+        self.assertEqual(rep["flipped_after"], 0)
+        self.assertLessEqual(rep["shift_max_pct"], R["back_panel"]["depth"] * 100 + 1e-9)
+        Vs, Fs = grid_box(n=90, ripple=0.0003)                                                 # полоса через весь зад: профиль сдвига у края
+        st = (Vs[:, 2] < 0.05) & (Vs[:, 1] > 0.25) & (Vs[:, 1] < 0.35)
+        Vs = Vs.copy()
+        Vs[st, 2] -= 0.02
+        pr = {}
+        for on in (False, True):
+            Vq, _, rp = E.back_panel(Vs, Fs, np.array([0.0, 0.0, 1.0]), self._tight(on))
+            self.assertTrue(rp["apply"], rp)
+            pr[on] = float(np.median((Vq[:, 2] - Vs[:, 2])[st & (np.abs(Vs[:, 0] - 0.06) < 0.02)]))
+        self.assertGreater(pr[True], pr[False])
+
     def test_back_flat_or_domed_refused(self):
         V, F = grid_box(n=70, ripple=0.0005)                                   # зад уже плоский — рельефа нет
         _, _, rep = E.back_panel(V, F, np.array([0.0, 0.0, 1.0]), rules())
@@ -562,6 +599,93 @@ class BackPanelStage(unittest.TestCase):
             r2 = BS.release_moved_known(ga, gb, vis, rules())                        # повтор — тот же результат, от исходной маски
             self.assertEqual(r1["released"], r2["released"])
             self.assertTrue(os.path.exists(os.path.join(vis, "known.pre-backpanel.png")))
+
+
+class FrontByRelief(unittest.TestCase):
+    """Сторона фасада по форме (T-20261125-80; tools/scout/front_by_relief.py — один источник): камера 04 перевёрнута → зад (настоящий фасад) выравнивать нельзя."""
+
+    @staticmethod
+    def _two_sided(stripes_back, rough_front, rough_back, rough=0.002, amp=0.02, n=70):
+        """Коробка 1×0.6×0.8 (грань z≈0 — «зад» при камере +z, z≈0.8 — «лицо»). `stripes_back` полос глубиной amp на заду (то, что выравнивает back_panel); `rough_*` — мелкая шершавость грани
+        (круто наклонённые грани — признак детального фасада: двери, ящики, ручки; у ровной плиты их нет)."""
+        V, F = grid_box(n=n, ripple=0.0003)
+        V = V.copy()
+        rng = np.random.default_rng(3)
+        inner = (V[:, 0] > 0.05) & (V[:, 0] < 0.95) & (V[:, 1] > 0.05) & (V[:, 1] < 0.55)
+        bk, fr = (V[:, 2] < 0.05) & inner, (V[:, 2] > 0.75) & inner
+        for k in range(stripes_back):
+            lo = 0.06 + 0.15 * k
+            V[bk & (V[:, 0] > lo) & (V[:, 0] < lo + 0.07), 2] -= amp
+        if rough_back:
+            V[bk, 2] += rng.normal(0, rough, int(bk.sum()))
+        if rough_front:
+            V[fr, 2] += rng.normal(0, rough, int(fr.sum()))
+        return V, F
+
+    @staticmethod
+    def _rules(on=True):
+        r = E.load_rules()
+        r["back_panel"] = dict(r["back_panel"], enabled=True, front_by_relief=dict(r["back_panel"]["front_by_relief"], enabled=on))
+        return r
+
+    def test_rules_default_off(self):
+        self.assertFalse(E.load_rules()["back_panel"]["front_by_relief"]["enabled"])           # выключатель по умолчанию выкл
+
+    def test_verdicts(self):
+        import front_by_relief as FB
+        R = self._rules()
+        Vb, Fb = self._two_sided(6, False, True)                                              # детальный фасад только на z≈0
+        v = FB.front_by_relief(Vb, Fb, np.array([0.0, 0.0, 1.0]), R)
+        self.assertEqual(v["verdict"], "opposite", v)                                            # камера +z: фасад позади камеры → az перевёрнут
+        v = FB.front_by_relief(Vb, Fb, np.array([0.0, 0.0, -1.0]), R)
+        self.assertEqual(v["verdict"], "camera", v)                                              # камера −z: фасад на стороне камеры
+        Vf, Ff = self._two_sided(6, True, True)                                               # одинаково детально с обеих сторон (дубль) — не различить
+        self.assertEqual(FB.front_by_relief(Vf, Ff, np.array([0.0, 0.0, 1.0]), R)["verdict"], "ambiguous")
+        Vp, Fp = self._two_sided(0, False, False)                                             # обе гладкие
+        v = FB.front_by_relief(Vp, Fp, np.array([0.0, 0.0, 1.0]), R)
+        self.assertEqual(v["verdict"], "ambiguous", v)
+        self.assertIn("гладкие", v["reason"])
+
+    def test_back_panel_glb_flag(self):
+        import tempfile
+        V, F = self._two_sided(6, False, True)                                                # фасад (детальный) сзади камеры +z
+        with tempfile.TemporaryDirectory() as t:
+            a, b0, b1 = os.path.join(t, "a.glb"), os.path.join(t, "b0.glb"), os.path.join(t, "b1.glb")
+            T._write_glb(a, V, F)
+            off = E.back_panel_glb(a, b0, 0.0, 0.0, self._rules(False))                          # выкл: как раньше — зад выровнен
+            self.assertTrue(off["written"] and "front_by_relief" not in off, off)
+            on = E.back_panel_glb(a, b1, 0.0, 0.0, self._rules(True))                            # вкл: фасад на заду → az перевёрнут → не трогаем
+            self.assertFalse(on["written"], on)
+            self.assertTrue(on.get("az_flipped"), on)
+            self.assertFalse(os.path.exists(b1))
+            self.assertEqual(on["front_by_relief"]["verdict"], "opposite")
+            V2, F2 = self._two_sided(6, True, True)                                            # не различить — воздержание: зад НЕ трогаем (кромки сторону не заменяют; Рошаль: фасад на заду, кромки 0,58)
+            T._write_glb(a, V2, F2)
+            for pe in (None, 0.9):                                                              # и без согласия кромок, и при высоком — одинаково
+                amb = E.back_panel_glb(a, b1, 0.0, 0.0, self._rules(True), pose_edge=pe)
+                self.assertFalse(amb["written"], amb)
+                self.assertTrue(amb.get("abstain"), amb)
+                self.assertIn("нужен второй сигнал", amb["reason"])
+                self.assertEqual(amb["front_by_relief"]["verdict"], "ambiguous")
+            self.assertFalse(os.path.exists(b1))
+            T._write_glb(a, *self._two_sided(6, True, False))                                  # подтверждённый фасад на стороне камеры — выравниваем
+            self.assertTrue(E.back_panel_glb(a, b1, 0.0, 0.0, self._rules(True), pose_edge=0.9)["written"])
+
+    def test_weak_edge_gate(self):
+        import tempfile
+        V, F = self._two_sided(6, True, False)                                                # детальное лицо на стороне камеры, на заду — только полосы
+        with tempfile.TemporaryDirectory() as t:
+            a, b = os.path.join(t, "a.glb"), os.path.join(t, "b.glb")
+            T._write_glb(a, V, F)
+            self.assertFalse(E.back_panel_glb(a, b, 0.0, 0.0, self._rules(False), pose_edge=0.3)["written"])     # выкл: слабое согласие кромок блокирует
+            r = E.back_panel_glb(a, b, 0.0, 0.0, self._rules(True), pose_edge=0.3)
+            self.assertEqual(r["front_by_relief"]["verdict"], "camera", r)                       # вкл: фасад на стороне камеры — поза подтверждена формой
+            self.assertTrue(r["written"], r)
+            Va, Fa = self._two_sided(6, True, True)                                            # не различить + слабое согласие → не трогаем (воздержание)
+            T._write_glb(a, Va, Fa)
+            r2 = E.back_panel_glb(a, b, 0.0, 0.0, self._rules(True), pose_edge=0.3)
+            self.assertFalse(r2["written"], r2)
+            self.assertIn("нужен второй сигнал", r2["reason"])
 
 
 if __name__ == "__main__":
