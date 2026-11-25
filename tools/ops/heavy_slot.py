@@ -579,6 +579,13 @@ def _ancestors(pid: int | None = None) -> list:
     return out
 
 
+def _related(me: int | None, pid: int) -> bool:
+    """Тот же процесс, его предок или потомок (T-20261125-90/2: служба держит warm-prep и сама же ждёт заказ — одна память; её собственная бронь не считается против неё)."""
+    if not me or not pid:
+        return False
+    return me == pid or pid in _ancestors(me) or me in _ancestors(pid)
+
+
 def _starttime(pid: int) -> str:
     """Время старта процесса (поле 22 /proc/pid/stat) — чтобы чужой процесс с тем же pid не «оживил» умерший билет."""
     try:
@@ -899,7 +906,9 @@ def task_type(label: str) -> str:
     for t in _TYPES:
         if t in s:
             return t
-    s2 = re.sub(r'[-_]?\d+$', '', re.sub(r'^t\d+(-\d+)?[-_]', '', s))
+    s2 = re.sub(r'^t\d+(-\d+)?[-_]', '', s)
+    s2 = re.sub(r'[-_](?=[0-9a-f]*\d)[0-9a-f]{6,}$', '', s2)         # T-20261125-90/2: хеш заказа (`photo-render-abfc0fd5`) — не часть типа, иначе замеры типа не копятся (у каждого заказа свой «тип»)
+    s2 = re.sub(r'[-_]?\d+$', '', s2)
     return s2 or s
 
 
@@ -1015,6 +1024,9 @@ def _peaks(d: str) -> list:
 def _counted(rows: list, typ: str) -> list:
     """Засчитанные замеры типа: держание ≥ HEAVY_SLOT_MEASURE_MIN_S (упавший за секунды прогон пика не показал), последние 10."""
     min_s = _env_f('HEAVY_SLOT_MEASURE_MIN_S', 30)
+    mc = measure_cfg()
+    if typ in mc['short_types']:
+        min_s = min(min_s, mc['short_min_s'])      # T-20261125-90/2: короткие по природе шаги (заказ «Фото по кнопке» держит слот 1–2 с) — пик виден и за секунду
     return [r for r in rows if r['type'] == typ and r['hold_s'] >= min_s][-10:]
 
 
@@ -1070,6 +1082,26 @@ def _rules_section(name: str, defaults: dict) -> dict:
             cfg.update({k: float(v) for k, v in (json.load(f).get(name) or {}).items() if k in cfg})
     except (OSError, ValueError, AttributeError):
         pass
+    return cfg
+
+
+MEASURE_DEFAULTS = {'short_min_s': 1.0}
+
+
+def measure_cfg() -> dict:
+    """ЗАМЕР КОРОТКИХ ШАГОВ (T-20261125-90/2) — `rules/heavy-slot.json` → `measure`: types — типы, чей замер засчитывается от short_min_s секунд (а не от HEAVY_SLOT_MEASURE_MIN_S, 30 с);
+    у них держание по природе секунды (заказ покупателя `photo-render`: 1–2 с при пике 1,3–1,5 ГБ, а заявка 8 ГБ). Без этого порог по замеру (T-91) для них не включался никогда."""
+    cfg = _rules_section('measure', MEASURE_DEFAULTS)
+    types = ['photo-render']
+    try:
+        with open(os.environ.get('HEAVY_SLOT_RULES') or RULES_FILE, encoding='utf-8') as f:
+            t = (json.load(f).get('measure') or {}).get('types')
+        if isinstance(t, list):
+            types = [str(x) for x in t]
+    except (OSError, ValueError, AttributeError):
+        pass
+    cfg['short_types'] = set(types)
+    cfg['short_min_s'] = _env_f('HEAVY_SLOT_MEASURE_SHORT_S', cfg['short_min_s'])
     return cfg
 
 
@@ -1261,14 +1293,15 @@ class _Meter(threading.Thread):
 
 # ---------------------------------------------------------------- допуск по памяти (T-74: без двойного счёта)
 
-def _holder_rows(d: str, k: int, n: int) -> tuple[list, int | None]:
-    """Другие держатели (кроме слота k) → ([{label, type, stage, th, used, share, back, held_s, text}], номер слота с нечитаемым порогом | None).
+def _holder_rows(d: str, k: int, n: int, me: int | None = None) -> tuple[list, int | None]:
+    """Другие держатели (кроме слота k и СВЯЗАННЫХ с `me` — тот же процесс/предок/потомок; me=None — этот процесс, T-20261125-90/2) → ([{label, type, stage, th, used, share, back, held_s, text}], номер слота с нечитаемым порогом | None).
     th — эффективный порог (`eff_gb`, у старой версии — `min_gb`); used — PSS дерева сейчас (уже вычтена из MemAvailable); share = max(th − used, 0);
     back = used + share — сколько вернётся в «место» после ухода держателя. ПРЕВЫШЕНИЕ (T-91): пик (`peak_gb`) или память сейчас выше порога —
     доля по факту, не ниже объявленного. ЖИВОЙ ПИК (T-20261125-74): держит ≥ live_share.min_s и живой пик (`lpeak` из записи — пишет замер) в
     factor раз ниже порога — порог = max(factor × пик, floor_gb): заявка в разы выше факта не бронирует память зря (4 шарда по 3 ГБ при 0,3–0,65 —
     10,7 ГБ «брони» 25.11 держали голову 47 мин)."""
     rows, now, cfg = [], time.time(), live_cfg()
+    me = os.getpid() if me is None else me
     for j in range(1, n + 1):
         if j == k or not is_held(j):
             continue
@@ -1281,6 +1314,8 @@ def _holder_rows(d: str, k: int, n: int) -> tuple[list, int | None]:
             pid = int(h.get('pid', 0))
         except ValueError:
             pid = 0
+        if _related(me, pid):
+            continue                                  # бронь своего же процесса (или его дерева) — его же память, против себя не считается
         used = tree_mem(pid, h.get('label', ''))[0] if h.get('stage') == 'работает' else 0.0
         try:
             held = now - float(h.get('run_t') or h.get('since') or now)
@@ -1351,7 +1386,11 @@ def _head_eta(d: str, n: int, live: list, who: str) -> tuple[float | None, str]:
         th_head = float(hd.get('eff_gb') or hd['min_gb'])
     except (KeyError, ValueError):
         return 0.0, ''
-    rows, bad = _holder_rows(d, 1 if is_h1 else 0, n)
+    try:
+        hpid = int(hd.get('pid') or 0)
+    except ValueError:
+        hpid = 0
+    rows, bad = _holder_rows(d, 1 if is_h1 else 0, n, me=hpid)       # T-20261125-90/2: держатели того же процесса, что и голова, не мешают голове — иначе защита открывалась из-за её же брони
     if bad:
         return 0.0, ''
     room = mem_available_gb() - sum(r['share'] for r in rows) - reserve_gb()
@@ -1372,7 +1411,7 @@ def _head_eta(d: str, n: int, live: list, who: str) -> tuple[float | None, str]:
     return eta, why
 
 
-def _holders_cores(d: str, k: int, n: int, strict: bool = True) -> tuple[float, bool]:
+def _holders_cores(d: str, k: int, n: int, strict: bool = True, me: int | None = None) -> tuple[float, bool]:
     """Ядра ДРУГИХ держателей (кроме слота k) → (сумма, есть ли держатели). Запись без `cores` (старая версия) —
     CORES_DEFAULT. Замок без записи — чужая ПРОБА слота (ожидающий взял замок на время допуска и отпустит) или новый держатель
     до записи: для допуска (strict) — CORES_DEFAULT, осторожно, как память считает его бесконечным (иначе двое,
@@ -1380,12 +1419,15 @@ def _holders_cores(d: str, k: int, n: int, strict: bool = True) -> tuple[float, 
     показывает только держателей. Держатель слота 1, ещё ждущий память/ядра, считается целиком: его ядра забронированы,
     обгоняющие их не займут (T-20261111-17)."""
     total, any_h = 0.0, False
+    me = os.getpid() if me is None else me
     for j in range(1, n + 1):
         if j == k or not is_held(j):
             continue
         h = _read_kv(_holder_file(d, j))
         if h is None and not strict:
             continue
+        if h is not None and _related(me, int(h.get('pid') or 0) if str(h.get('pid') or '0').isdigit() else 0):
+            continue                                  # ядра своего же процесса (T-20261125-90/2) не считаются против него
         total += cores_of(h or {})
         any_h = True
     return total, any_h
@@ -1412,13 +1454,14 @@ def cpu_fact(d: str, n: int) -> tuple[float, float, str] | None:
     return best[:3] if best else None
 
 
-def _warm_reserve(d: str, k: int, n: int, strict: bool = True) -> tuple[float, list]:
+def _warm_reserve(d: str, k: int, n: int, strict: bool = True, me: int | None = None) -> tuple[float, list]:
     """«В разгоне» (T-75) — ядра держателей (кроме слота k), которых окно ещё не видит, по заявке → (ядер, [пояснения]):
     держатель слота 1, ещё ждущий память/ядра, — заявка целиком (бронь, как в T-17); стартовал меньше HEAVY_SLOT_CPU_WARM с
     назад — заявка минус уже видимое окном (факт дерева × доля окна, которую он работает); замок без записи — CORES_DEFAULT
     (strict; новый держатель до записи или чужая проба — двое подряд иначе прошли бы по одному простою)."""
     now, w, ws = time.time(), cpu_window(), cpu_warm_s()
     total, parts = 0.0, []
+    me = os.getpid() if me is None else me
     for j in range(1, n + 1):
         if j == k or not is_held(j):
             continue
@@ -1427,6 +1470,8 @@ def _warm_reserve(d: str, k: int, n: int, strict: bool = True) -> tuple[float, l
             if strict:
                 total += CORES_DEFAULT
                 parts.append(f'слот {j} без записи {CORES_DEFAULT:g}')
+            continue
+        if _related(me, int(h.get('pid') or 0) if str(h.get('pid') or '0').isdigit() else 0):
             continue
         c = cores_of(h)
         if h.get('stage') != 'работает':

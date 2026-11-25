@@ -1396,6 +1396,47 @@ ok "следующий прошёл мимо замершей головы ($o1)
 unset HEAVY_SLOT_BEAT HEAVY_SLOT_BEAT_STALE
 mem 8
 
+# T-20261125-90/2 (живая проверка 25.11 16:33): служба держит warm-prep (8 ГБ) и сама же ждёт заказ класса 3 (8 ГБ) — брала собственную бронь против себя, голова «не проходила по памяти»,
+# защита головы открывалась (бронь долго держит — прогноз «не в окне»), и обычная задача (класс 0) обгоняла заказ. Бронь своего же процесса (тот же pid/предок/потомок) не считается против него.
+export HEAVY_SLOT_MEM_STUB="$T/memstub-902"
+: > "$HEAVY_SLOT_MEM_STUB"
+echo "sw-warm 0.2" >> "$HEAVY_SLOT_MEM_STUB"
+export HEAVY_SLOT_HEAD_ETA_MIN=0.03              # окно прогноза 1,8 с: warm-prep, державший дольше, «не в окне» — как служба держит часами
+mem 14
+python3 -c "
+import os, sys, time
+sys.path.insert(0, '$DIR'); import heavy_slot as H
+with H.heavy_slot('sw-warm', min_gb=8):
+    open('$T/sw.up', 'w').close()
+    time.sleep(4)
+    os.environ.pop('HEAVY_SLOT_HELD', None)           # поток службы звал слот сам, не как потомок под слотом
+    t = time.time()
+    with H.heavy_slot('sw-ord', min_gb=8, prio=3, timeout=20):
+        open('$T/sw.dt', 'w').write('%.2f' % (time.time() - t))
+        while not os.path.exists('$T/sw.go'):
+            time.sleep(0.05)
+" & psw=$!
+until_f "[ -e $T/sw.up ]"
+sleep 4.6
+"$S" sw-b --min-gb 2 -- sh -c "echo b >> $T/sw.b" & psb=$!
+until_f "[ -e $T/sw.dt ]"; got_dt=$?
+dt=$(cat "$T/sw.dt" 2>/dev/null || echo 99)
+touch "$T/sw.go"
+wait $psw $psb
+unset HEAVY_SLOT_MEM_STUB HEAVY_SLOT_HEAD_ETA_MIN
+ok "бронь своего процесса не считается против него: держатель A (warm-prep 8) сам ждёт заказ класса 3 (8) — берёт сразу ($dt с, не ждёт A), младший B (класс 0) его не обгоняет" \
+  "$(yes_if '[ $got_dt = 0 ] && awk -v x="$dt" "BEGIN{exit !(x < 2.0)}" && ! grep -q "sw-b .*обогнал голову sw-ord" "$HEAVY_SLOT_LOG"')"
+mem 8
+r=$(python3 -c "
+import sys; sys.path.insert(0, '$DIR'); import heavy_slot as H
+print(H.task_type('photo-render-abfc0fd5'), H.task_type('photo-render-76e91455'), H.task_type('t51-look'), H.task_type('pm5x-607839'))
+rows = [{'type': 'photo-render', 'hold_s': 1.2, 'peak_gb': 1.4}] * 3 + [{'type': 'other', 'hold_s': 1.2, 'peak_gb': 1.4}] * 3
+print(len(H._counted(rows, 'photo-render')), len(H._counted(rows, 'other')), round(H.eff_threshold('/x', 'photo-render', 8.0, rows)[0], 2))
+")
+ok "тип заказа без хеша, замер короткого шага засчитывается: «photo-render photo-render look pm5x», 3 замера photo-render по 1,4 ГБ → порог 2,1 из 8, чужой короткий тип не считается ($(tr '\n' '/' <<<"$r"))" \
+  "$(yes_if '[ "$r" = "photo-render photo-render look pm5x
+3 0 2.1" ]')"
+
 st=$("$S" --status)
 ok "после всех: очередь свободна, ожидающих нет" "$(yes_if 'grep -q "^СВОБОДНО" <<<"$st" && grep -q "^ЖДУТ: 0" <<<"$st"')"
 
