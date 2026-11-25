@@ -335,6 +335,22 @@ cen_o[fid_mid, 2] = 500.0                                                       
 rel_o = PM.face_reliability(ids_r, cos_r, cen_o, el_r, valid_r, 1.0, nF_r, RL)
 ok_o, _ = PM.reliable_faces(rel_o, RL)
 check(not bool(ok_o[fid_mid]) and not bool(ok_o[fid_mid + 1]), 'надёжность: разрыв по глубине между соседями (перекрытие) — обе стороны ненадёжны')
+# канавка ≠ край (комод 25.11): два разрыва в мире — узкая глубокая канавка (x 46..49) и широкая ступень (x ≥ 24); флаг снимает только первый
+cen_gr = cen_r.copy()
+for fi in range(nF_r):
+    tx_ = fi % (Hh // 8)
+    cen_gr[fi, 2] = 500.0 * (tx_ >= 3) + 500.0 * (tx_ >= 6)
+dep_gr = np.full((Hh, Hh), 100.0, np.float32)
+dep_gr[:, 24:] = 130.0
+dep_gr[:, 46:50] = 150.0
+fid_gv = 5 * (Hh // 8) + 5                                                                # плитка x 40..47 у канавки
+fid_st = 5 * (Hh // 8) + 2                                                                # плитка x 16..23 у широкой ступени
+d_off = PM.face_reliability(ids_r, cos_r, cen_gr, el_r, valid_r, 1.0, nF_r, RL, depth=dep_gr)['dist']
+d_on = PM.face_reliability(ids_r, cos_r, cen_gr, el_r, valid_r, 1.0, nF_r, dict(RL, groove_skip_px=3), depth=dep_gr)['dist']
+d_nd = PM.face_reliability(ids_r, cos_r, cen_gr, el_r, valid_r, 1.0, nF_r, dict(RL, groove_skip_px=3))['dist']
+check(d_off[fid_gv] <= 1.5 and d_off[fid_st] <= 1.5, 'канавка: флаг выкл — оба разрыва глубины считаются краем (плитки у них dist ≤ 1,5)')
+check(d_on[fid_gv] > 8.0 and d_on[fid_st] <= 1.5, 'канавка: флаг вкл — разрыв в узкой глубокой канавке не край, широкая ступень остаётся краем')
+check(bool(np.array_equal(d_nd, d_off)), 'канавка: флаг вкл, но глубины нет — как выкл (без падения)')
 rl_off = dict(RL, cos_min=0.0, edge_errs=0.0, thin_errs=0.0)
 ok_all, why_all = PM.reliable_faces(rel_g, rl_off)
 check(bool(ok_all[fid_edge]) and bool(ok_all[fid_thin]) and bool(ok_all[fid_mid]) and why_all['надёжна'] == why_all['видна'], 'надёжность: пороги 0 — правила выключены по одному, остаётся «видна в кадре» (растекание не берётся)')

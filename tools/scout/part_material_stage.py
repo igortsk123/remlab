@@ -229,7 +229,7 @@ def process(a, rules: dict, d: str, rep: dict) -> None:
         tri = Vv[Ff]
         cen = tri.mean(1)
         el = np.linalg.norm(tri - np.roll(tri, 1, axis=1), axis=-1).mean(1)
-        rel = PM.face_reliability(st['ids'], cosf, cen, el, valid, st['px_len'], nF, rl)
+        rel = PM.face_reliability(st['ids'], cosf, cen, el, valid, st['px_len'], nF, rl, depth=st['depth'])
         pe, pinfo = PM.pose_error_px(st['mask'], pmask, rl)                       # ошибка позы ЭТОГО товара (контур растра ↔ контур фото), px кадра
         rl_e = dict(rl, pose_err_px=pe) if rl.get('measure_pose_err') else rl
         if rl.get('local_pose_err'):                                              # Fable 25.11 17:20: ошибка позы МЕСТНАЯ (по участку контура растр↔фото рядом с гранью), запас края = edge_errs × местная

@@ -527,7 +527,7 @@ def uv_face_map(UV: np.ndarray, F: np.ndarray, T: int) -> np.ndarray:
     return m
 
 
-def face_reliability(ids: np.ndarray, cosf: np.ndarray, cen: np.ndarray, el: np.ndarray, valid: np.ndarray, px_len: float, nF: int, rl: dict) -> dict:
+def face_reliability(ids: np.ndarray, cosf: np.ndarray, cen: np.ndarray, el: np.ndarray, valid: np.ndarray, px_len: float, nF: int, rl: dict, depth: np.ndarray | None = None) -> dict:
     """Надёжность каждой грани как источника цвета ФОТО (стол 18286219715731135772, разбор Fable 25.11: пятна = лоскуты фото с ненадёжных мест).
     По пикселям кадра камеры фото (valid = объект ∩ фото): cos — средний cos угла грани к лучу; dist — наименьшее расстояние (px) от пикселя грани до края силуэта/фото или разрыва глубины
     (перекрытия: сосед ближе/дальше больше depth_jump_px·px_len); width — наибольшая ширина детали (2 × расстояние до края силуэта, px) на этой грани; cnt — число пикселей (0 — не видна).
@@ -557,6 +557,17 @@ def face_reliability(ids: np.ndarray, cosf: np.ndarray, cen: np.ndarray, el: np.
     bd[:-1, :] |= dy
     bd[:, 1:] |= dx
     bd[:, :-1] |= dx
+    gw = int(rl.get('groove_skip_px', 0) or 0)
+    if gw > 0 and depth is not None and bd.any():                                       # Fable 25.11 18:44 (комод): тонкая канавка между соседними панелями одной плоскости (щель между ящиками) — не край: разрыв глубины у неё есть, но детали фото по щели настоящие
+        dep = np.asarray(depth, np.float64)
+        dep = np.where(valid & (dep > 0), dep, np.nan)
+        fill = np.nanmax(dep) if np.isfinite(dep).any() else 0.0
+        dep = np.where(np.isfinite(dep), dep, fill)
+        k = 2 * gw + 1
+        op = ndi.grey_dilation(ndi.grey_erosion(dep, size=(k, k)), size=(k, k))          # открытие по глубине: узкие «впадины» (глубже соседей, уже k px) заменены уровнем панели
+        groove = valid & ((dep - op) > px_len * float(rl.get('groove_min_depth_px', 4.0)))
+        groove = ndi.binary_dilation(groove, iterations=int(rl.get('groove_margin_px', 2)))
+        bd &= ~groove                                                                      # разрывы глубины внутри канавки краем не считаем (силуэт и широкие перекрытия остаются)
     dist = edt.copy()
     if bd.any():
         dist = np.minimum(dist, ndi.distance_transform_edt(~bd))
