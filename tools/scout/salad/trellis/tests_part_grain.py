@@ -212,6 +212,23 @@ def main():
     o_fb_on = PG.apply_grain(tex, tx2, [dict(part(1), role='legs')], {1: np.ones(n, bool)}, fpt_all, pn, 100.0, (1, 0, 0), dict(base_r, axis_per_part=True), enabled=True, face_part=fpart2)[0]
     check(not np.array_equal(o_fb_off, o_fb_on), 'запасной путь (не плоскость): axis_per_part=true меняет текстуру')
 
+    # 10. круглая деталь (диск), запасной путь: оси деталь не имеет → ось ширины товара (X); без правила — случайная главная ось (чуть вытянутый по Z диск → Z)
+    cx, cz = (ij[:, 0] - 60.0), (ij[:, 1] - 30.0)
+    disc = (cx / 29.0) ** 2 + (cz / 30.0) ** 2 < 1.0                                       # эллипс 58×60 см: отношение осей ≈ 1,07 ≤ 1,1
+    tx3 = types.SimpleNamespace(ti=tx0.ti[disc], Q=tx0.Q[disc], N=tx0.N[disc], f=np.zeros(int(disc.sum()), np.int64))
+    fp3 = np.array([-1])
+    def disc_run(**k):
+        return PG.apply_grain(tex, tx3, [dict(part(1), role='legs')], {1: np.ones(int(disc.sum()), bool)}, fp3, pn, 100.0, (1, 0, 0), dict(base_r, **k), enabled=True, face_part=np.array([0]))[0]
+    def disc_aniso(o):
+        img = np.full((ny, nx), np.nan)
+        img[ij[disc][:, 1], ij[disc][:, 0]] = TC.rgb2lab(o.reshape(-1, 3)[tx3.ti])[:, 0]
+        dx = np.abs(np.diff(img, axis=1))
+        dz = np.abs(np.diff(img, axis=0))
+        return float(np.nanmean(dx) / max(float(np.nanmean(dz)), 1e-9))                  # изменение вдоль X / вдоль Z
+    d_off, d_on = disc_run(axis_per_part=True, axis_per_part_roles=['legs'], axis_per_part_round_ratio=1.0), disc_run(axis_per_part=True, axis_per_part_roles=['legs'])
+    check(not np.array_equal(d_off, d_on), 'круглая деталь: порог axis_per_part_round_ratio меняет текстуру (ключ не «молчит»)')
+    check(disc_aniso(d_on) < disc_aniso(d_off), f'диск: ось = ширина товара X (изменение вдоль X / вдоль Z {disc_aniso(d_on):.2f} < {disc_aniso(d_off):.2f} при главной оси части)')
+
     bad_n = sum(1 for x in OK if not x)
     print(f'\n{len(OK) - bad_n}/{len(OK)} ok')
     sys.exit(1 if bad_n else 0)

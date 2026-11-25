@@ -261,6 +261,7 @@ def apply_grain(tex, tx, parts: list, masks: dict, face_plane, plane_normal, cm_
         # одно правило: ось зерна = ось ДЕТАЛИ (главная ось текселей самой части) во ВСЕХ путях — для ролей из rules.axis_per_part_roles (ножки/рама); по умолчанию выключено
         per_part = bool(rules.get('axis_per_part')) and face_part is not None and (p.get('role') in (rules.get('axis_per_part_roles') or ['legs', 'frame']))
         pp_min = int(rules.get('axis_per_part_min_texels', 200))
+        pp_round = float(rules.get('axis_per_part_round_ratio', 1.1))                     # «круглая деталь» — отношение главных осей (дисперсий) ≤ этого
         groups = [int(g) for g in np.unique(fpt[sel])]
         for g in groups:
             tgt = sel & (fpt == g)
@@ -277,7 +278,7 @@ def apply_grain(tex, tx, parts: list, masks: dict, face_plane, plane_normal, cm_
                     for pp in np.unique(fpl):
                         mm = fpl == pp
                         if int(mm.sum()) >= pp_min and int(mm.sum()) < len(fpl):
-                            e1, e2, _r2 = plane_axes(q[mm], plane_normal[g], width_axis, rules)
+                            e1, e2, _r2 = plane_axes(q[mm], plane_normal[g], width_axis, dict(rules, round_ratio=pp_round))
                             u_cm[mm], s_cm[mm] = q[mm] @ e1, q[mm] @ e2
                 key = g + 1
                 n_pl_groups += 1
@@ -291,6 +292,13 @@ def apply_grain(tex, tx, parts: list, masks: dict, face_plane, plane_normal, cm_
                     if int(mm.sum()) >= 3:
                         _w, _ev = np.linalg.eigh(np.cov((qq - qq.mean(0)).T))
                         b1, b2, b3 = _ev[:, 2], _ev[:, 1], _ev[:, 0]
+                        if width_axis is not None and float(_w[2]) / max(float(_w[1]), 1e-12) <= pp_round:
+                            # круглая деталь (диск, кольцо): длинной оси нет, главная ось — случайная → ось ширины товара в плоскости диска (как у круглой плиты в plane_axes)
+                            wa = np.asarray(width_axis, np.float64)
+                            e1 = wa - (wa @ b3) * b3
+                            if np.linalg.norm(e1) > 1e-6:
+                                b1 = e1 / np.linalg.norm(e1)
+                                b2 = np.cross(b3, b1)
                     else:
                         b1, b2, b3 = a1, a2, a3
                     dl[mm] = sample_pat(d['pat'], qq @ b1, np.where(np.abs(nn[mm] @ b2) < np.abs(nn[mm] @ b3), qq @ b2, qq @ b3), tile, 777 + int(pp), layers)
