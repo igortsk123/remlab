@@ -611,5 +611,68 @@ class Run(unittest.TestCase):
         self.assertIn('совпало с глазом: 1 из 2', t)
 
 
+def seat_stool(groove_cm: float):
+    """Табурет-«стул»: ножки 37 см, сиденье 40×40 см (верх на 43 см), спинка до 80 см; на верхе сиденья борозды глубиной groove_cm с шагом 6 см (0 — гладкий)."""
+    from trimesh.remesh import subdivide_to_size
+    seat = trimesh.creation.box(extents=(40, 6, 40))
+    seat.apply_translation((0, 40, 0))
+    back = trimesh.creation.box(extents=(40, 40, 3))
+    back.apply_translation((0, 60, -18.5))
+    legs = []
+    for x in (-17.0, 17.0):
+        for z in (-17.0, 17.0):
+            lg = trimesh.creation.box(extents=(4, 37, 4))
+            lg.apply_translation((x, 18.5, z))
+            legs.append(lg)
+    parts = []
+    for b in [seat, back] + legs:
+        v, f = subdivide_to_size(b.vertices, b.faces, max_edge=0.6)
+        parts.append(trimesh.Trimesh(v, f, process=True))
+    s = parts[0]
+    v = np.array(s.vertices)
+    top = v[:, 1] > 42.99
+    v[top, 1] -= groove_cm * np.maximum(0.0, np.sin(2 * np.pi * v[top, 0] / 6.0)) ** 2
+    s = trimesh.Trimesh(v, s.faces, process=False)
+    m = trimesh.util.concatenate([s] + parts[1:])
+    m.merge_vertices()
+    return m
+
+
+class StitchDepth(unittest.TestCase):
+    """T-20261124-57 (П1.160): мерка глубоких борозд стёжки — ± контроль на синтетике, тип и высота, режим OBSERVE."""
+
+    def test_grooved_seat_would_flag_smooth_not(self):
+        bad = by(FC.stitch_depth(seat_stool(0.9), 'стул', {'h': 80.0}, R), 'stitch_p95')
+        good = by(FC.stitch_depth(seat_stool(0.0), 'стул', {'h': 80.0}, R), 'stitch_p95')
+        self.assertTrue(bad['would_flag'], bad)
+        self.assertGreater(bad['value'], R['stitch_p95_cm'])
+        self.assertFalse(good['would_flag'], good)
+        self.assertLess(good['value'], 0.1)
+
+    def test_observe_flag_is_off(self):
+        self.assertFalse(R['stitch_flag'])
+        c = by(FC.stitch_depth(seat_stool(0.9), 'стул', {'h': 80.0}, R), 'stitch_p95')
+        self.assertFalse(c['flag'])
+        self.assertTrue(c['would_flag'])
+        c = by(FC.stitch_depth(seat_stool(0.9), 'стул', {'h': 80.0}, dict(R, stitch_flag=True)), 'stitch_p95')
+        self.assertTrue(c['flag'])
+
+    def test_not_applicable_type_and_missing_height(self):
+        m = seat_stool(0.9)
+        c = by(FC.stitch_depth(m, 'шкаф', {'h': 80.0}, R), 'stitch_p95')
+        self.assertIsNone(c['value'])
+        self.assertFalse(c['would_flag'] or c['flag'])
+        self.assertIn('не применима', c['note'])
+        c = by(FC.stitch_depth(m, 'кресло', None, R), 'stitch_p95')
+        self.assertIsNone(c['value'])
+        self.assertIn('высоты', c['note'])
+
+    def test_mesh_not_changed(self):
+        m = seat_stool(0.9)
+        before = np.array(m.vertices).copy()
+        FC.stitch_depth(m, 'стул', {'h': 80.0}, R)
+        self.assertTrue((before == np.array(m.vertices)).all())
+
+
 if __name__ == '__main__':
     unittest.main(verbosity=1)

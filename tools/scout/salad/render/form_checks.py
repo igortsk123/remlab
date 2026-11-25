@@ -337,6 +337,30 @@ def thin_checks(front: np.ndarray, photo: np.ndarray, R: dict, az: float = 0.0) 
 
 
 # ---------- задняя стенка по кадрам ----------
+def stitch_depth(m, role: str, card: dict | None, R: dict) -> list[dict]:
+    """Мерка «глубокие борозды стёжки на сиденье мягкой обивки» (T-20261124-57, П1.160, паспорт: T-156/1 р.6; код — `relief_checks.py`). Значение — p95 глубины борозд по зоне сиденья, см;
+    сработало бы при p95 > `stitch_p95_cm` ИЛИ доле площади глубже 0,5 см > `stitch_share05_max`. Только мягкие типы (`stitch_roles` — по префиксу роли каталога); высота — `card['h']` (см).
+    OBSERVE: `stitch_flag: false` → `flag` всегда false, `would_flag` — сработало бы; форму не меняет."""
+    thr = [R['stitch_p95_cm'], R['stitch_share05_max']]
+
+    def na(note):
+        return [dict(check('stitch_p95', None, thr, False, note), would_flag=False)]
+    if not any((role or '').startswith(x) for x in R['stitch_roles']):
+        return na('тип без мягкой обивки сиденья — мерка не применима')
+    h = (card or {}).get('h')
+    if not h or not float(h) > 0:
+        return na('нет высоты карточки — глубина в см не считается')
+    if HERE not in sys.path:
+        sys.path.append(HERE)
+    import relief_checks as RC
+    s = RC.seat_groove_stats(m, float(h), R)
+    if s['status'] != 'ok':
+        return na(s.get('why') or 'зона сиденья не найдена')
+    would = s['p95'] > R['stitch_p95_cm'] or s['share05'] > R['stitch_share05_max']
+    note = f"p95 {s['p95']} см, доля глубже 0,5 см {s['share05'] * 100:.1f} %, max {s['max']} см, зона {s['n']} вершин"
+    return [dict(check('stitch_p95', s['p95'], thr, would and bool(R['stitch_flag']), note), would_flag=bool(would), share05=s['share05'])]
+
+
 def back_dup(frames_dir: str, R: dict) -> list[dict]:
     """Кадр 0° и зеркальный кадр 180° (вид с другой стороны, тот же свет относительно камеры): продублированный фасад даёт почти одинаковый рельеф. Корреляция высокочастотной части
     в центральном окне; считается только если рельеф есть на обоих кадрах (энергия ≥ порога) — гладкая плита не даёт ложной «похожести»."""
@@ -611,6 +635,7 @@ def run_sku(sku: str, glb: str | None, photo: str | None, frames: str | None, ru
         if m is not None:
             rec['checks'] += [open_edges(m, R), detached(m, R)]
             rec['checks'] += body_skew(m, role, R)
+            rec['checks'] += stitch_depth(m, role, card, R)
             if card is not None:
                 rec['checks'] += dims_vs_card(m, card, R)
             rec['checks'] += pose_checks(sku, pose_roots or [])
