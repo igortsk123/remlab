@@ -104,6 +104,12 @@ def process(a, rules: dict, d: str, rep: dict) -> None:
         raise Abstain('ни одна роль не дала группу (unknown/conf < %s)' % rules['min_conf'])
     rep['groups'] = names
     n, area, _c = PM.face_geom(g['V'], g['F'])
+    vis0 = st['mask'] & (st['ids'] >= 0)                                    # «внутренность» (ниша, проём, низ): тень по форме — тон по ним не материал, грани группе не принадлежат
+    occl = PM.pixel_occlusion(st['depth'], vis0, st['cos'], st['px_len'], rules)
+    inner, oinfo = PM.interior_faces(np.clip(st['ids'], 0, nF - 1), occl, vis0, nF, rules)
+    inner = PM.grow_faces(g['V'], g['F'], inner, rules)
+    flab = np.where(inner, len(names), flab).astype(np.int16)
+    rep['interior'] = {**oinfo, 'граней_с_ростом': int(inner.sum()), 'доля_площади': round(float(area[inner].sum() / area.sum()), 4)}
     rep['area_share'] = {gn: round(float(area[flab == i].sum() / area.sum()), 4) for i, gn in enumerate(names)}
     P = np.asarray(Image.open(a.photo).convert('RGBA'))
     prgb, pmask = TV.photo_to_frame(P, st['P'], st['px'])
@@ -151,9 +157,27 @@ def process(a, rules: dict, d: str, rep: dict) -> None:
     tex, painted = PM.compose(ctl, texmap, names, alb, borrowed, keep)
     if not painted.any():
         raise Abstain('нечего красить: у групп нет ни своего тона, ни донора')
-    # итоговые кадры для мерки
+    kp0 = os.path.join(d, KEEP['known.png'])                                # известное фото (06): исходник, если шаг уже гонялся, иначе нынешний known.png
+    kp0 = kp0 if os.path.exists(kp0) else os.path.join(d, 'known.png')
+    kn0 = (np.asarray(Image.open(kp0).convert('L')) > 127) if os.path.exists(kp0) else np.zeros(painted.shape, bool)
+    if kn0.shape != painted.shape:
+        kn0 = np.zeros(painted.shape, bool)
+    tex, det = PM.keep_details(tex, ctl, texmap, painted, kn0, names, keep, rules)       # лицо = тон + мелкие детали фото (щели, кромки, зерно)
+    rep['details_texels'] = det
+    # итоговые кадры для мерки и ворот «лицо против фото» (кадр до шага — фото 06 на той же геометрии)
     PM.swap_tex_glb(base, tex, os.path.join(work, 'fin.glb'), rough=rules['unlit_roughness'])
-    PM.render_jobs([{'glb': os.path.join(work, 'fin.glb'), 'out': os.path.join(work, 'fin-cam.png'), 'orbit': orb_cam, 'size': S}, {'glb': os.path.join(work, 'fin.glb'), 'out': os.path.join(work, 'fin-top.png'), 'orbit': fit['top_orbit'], 'size': S}], rules, work)
+    PM.swap_tex_glb(base, ctl, os.path.join(work, 'ctl.glb'), rough=rules['unlit_roughness'])
+    PM.render_jobs([{'glb': os.path.join(work, 'fin.glb'), 'out': os.path.join(work, 'fin-cam.png'), 'orbit': orb_cam, 'size': S}, {'glb': os.path.join(work, 'fin.glb'), 'out': os.path.join(work, 'fin-top.png'), 'orbit': fit['top_orbit'], 'size': S},
+                    {'glb': os.path.join(work, 'ctl.glb'), 'out': os.path.join(work, 'ctl-cam.png'), 'orbit': orb_cam, 'size': S}], rules, work)
+    import cv2
+    pgs = [gi for gi, gn in enumerate(names) if gn not in keep and (gn in alb or borrowed.get(gn) in alb)]
+    region = np.isin(lm_cam, pgs)
+    if fit['erode_px']:
+        region = cv2.erode(region.astype(np.uint8), np.ones((2 * int(fit['erode_px']) + 1,) * 2, np.uint8)).astype(bool)
+    gate = PM.face_gate(np.asarray(Image.open(os.path.join(work, 'fin-cam.png')).convert('RGB')), np.asarray(Image.open(os.path.join(work, 'ctl-cam.png')).convert('RGB')), region, rules)
+    rep['gate'] = gate
+    if gate['fail']:
+        raise Abstain('ворота «лицо против фото»: ' + '; '.join(gate['fail']))
     met = {}
     for gi, gn in enumerate(names):
         t = tones[gn]
