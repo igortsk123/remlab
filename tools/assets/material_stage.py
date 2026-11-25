@@ -1157,6 +1157,16 @@ def run_stage(glb: str, run: str, sku: str, product: dict, parts_dir: str | None
     c = recipes["check"]
     fill_ok, fill_why, fill_note = fill_gate(stages_dir or os.path.join(run, ps.safe_name(sku)), c)
     color_same = colour_unchanged_outside(glb, out_glb, mask_all)
+    sys.path.insert(0, os.path.join(ROOT, "tools", "scout", "salad", "trellis"))
+    import stage_mask_gate as _smg                              # импорт вне try: нет модуля = отказ этапа
+    allowed_file = None
+    try:                                                       # контракт «маска разрешено менять» (T-20261124-23/в2): 08 красит только тон стекла / сдвиг цвета части — их маска `mask_all`; её нет — ничего менять нельзя (маска из нулей)
+        _bi = _base_image(*read_glb(out_glb))
+        _al = np.zeros((_bi.size[1], _bi.size[0]), bool) if mask_all is None else np.asarray(mask_all, bool)
+        allowed_file = _smg.write_allowed(sdir, [_al])[0]
+    except Exception as _e:  # noqa: BLE001 — маска не роняет этап: нет файла = «маска не заявлена» (ворота строгие)
+        allowed_file = None
+        tone_rep.append({"source": "changed-allowed", "error": f"{type(_e).__name__}: {_e}"[:200]})
     geom_same = geometry_sha(glb) == geometry_sha(out_glb)
     parts_rep = [{"id": pid, "role": next((p["role"] for p in parts if p["id"] == pid), None), "face_share": next((p["face_share"] for p in parts if p["id"] == pid), None),
                   "inherited_share": round(float(((part == pid) & inherited).sum()) / nf, 4), **r}
@@ -1189,7 +1199,7 @@ def run_stage(glb: str, run: str, sku: str, product: dict, parts_dir: str | None
                  **(_texel_metrics(texel_rep)),
                  "geometry_unchanged": {"value": bool(geom_same), "threshold": True, "op": "=="},
                  "seconds": {"value": round(time.time() - t0, 1), "threshold": c["max_seconds"], "op": "<="}, **plate_mt},
-        reason=reason, seconds=time.time() - t0, outputs=["material.glb"], frame=frame_name, plate=plate_rep, fill_stage=fill_note, texel_fill=texel_rep,
+        reason=reason, seconds=time.time() - t0, outputs=["material.glb"] + ([allowed_file] if allowed_file else []), frame=frame_name, plate=plate_rep, fill_stage=fill_note, texel_fill=texel_rep,
         faces=nf, parts_source=parts_source, shape=shape_rep, catalog_parts_not_located=not_located, unsure_parts=unsure_rep, product_class={"class": cls["class"], "stage": cls["stage"], "confidence": cls["confidence"], "reason": cls["reason"], "parts": cls.get("parts")},
         parts=parts_rep, classes=table, compound=cls.get("compound") or [], untouched_share=round(float(np.isin(part, [pid for pid, r in res.items() if r["class"] == "unknown"]).sum()) / nf, 4),
         painted_metal_share=round(float(np.isin(part, [pid for pid, r in res.items() if r.get("painted_from")]).sum()) / nf, 4),

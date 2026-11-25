@@ -132,6 +132,50 @@ def t_attach_chain():
     print('ok attach/chain')
 
 
+def t_allowed_contract():
+    """Контракт «маска разрешено менять» (T-20261124-23/в2): изменение внутри маски — ворота ok (даже в фото-тексель); вне маски — отказ; нет маски — строго по фото."""
+    tex, prov = base()
+    with tempfile.TemporaryDirectory() as tmp:
+        a = tex.copy()
+        a[10:12, 2:4] = (1, 2, 3)                       # фото-тексели prov 1 — этап заявит их изменяемыми (слабое фото)
+        b, af, vis = make(tmp, tex, a, prov)
+        m0 = G.measure(b, af, vis, R, front=(2, 1))
+        assert m0['mask'] == 'missing' and G.gate(m0, R)['ok'] is False        # маски нет — строго: фото тронуто
+        allowed = np.zeros((T, T), bool)
+        allowed[8:14, 0:8] = True
+        G.write_allowed(tmp, [allowed], R)
+        assert os.path.exists(os.path.join(tmp, 'changed-allowed.png'))
+        m1 = G.measure(b, af, vis, R, front=(2, 1))
+        g1 = G.gate(m1, R)
+        assert m1['mask'] == 'declared' and m1['undeclared_changed'] == 0 and m1['photo_changed'] == 4 and g1['ok'] is True, (m1, g1)
+        a[40, 40] = (7, 7, 7)                           # изменение вне маски (synth-полоса) — недекларированное
+        b, af, vis = make(tmp, tex, a, prov)
+        G.write_allowed(tmp, [allowed], R)
+        m2 = G.measure(b, af, vis, R, front=(2, 1))
+        g2 = G.gate(m2, R)
+        assert m2['undeclared_changed'] == 1 and m2['undeclared_photo_changed'] == 0 and g2['ok'] is False and 'undeclared_changed 1' in g2['violations'][0], (m2, g2)
+        assert 'недекл. 1' in G.table_md({'x' * 12: {'07': {'m': m2, 'gate': g2}}}, R)
+    print('ok allowed contract')
+
+
+def t_uncovered_allowed():
+    """Заливка непокрытых текселей (texel_pad) разрешена любому этапу: изменение в зазоре развёртки — не «недекларированное»; на покрытом вне маски — по-прежнему отказ."""
+    tex, prov = base()
+    a = tex.copy()
+    a[60:62, 60:62] = (5, 5, 5)                         # зазор развёртки (заливка соседей)
+    allowed = np.zeros((T, T), bool)
+    unc = np.zeros((T, T), bool)
+    unc[58:64, 58:64] = True
+    m = G.measure_arrays(tex, a, prov, None, R, allowed, unc)
+    assert m['undeclared_changed'] == 0 and R['uncovered_allowed'] is True, m
+    a[40, 40] = (7, 7, 7)                               # покрытый тексель вне маски
+    m = G.measure_arrays(tex, a, prov, None, R, allowed, unc)
+    assert m['undeclared_changed'] == 1, m
+    R2 = dict(R, uncovered_allowed=False)
+    assert G.measure_arrays(tex, a, prov, None, R2, allowed, unc)['undeclared_changed'] == 5, 'выкл — зазор считается'
+    print('ok uncovered allowed')
+
+
 def t_rules():
     assert R['max_changed']['photo'] == 0 and R['photo_prov'] == [1, 2, 3] and R['synth_prov'] == [4]
     assert [c['stage'] for c in R['chain']] == ['07', '07b', 'seam', '08']
@@ -143,4 +187,6 @@ if __name__ == '__main__':
     t_arrays()
     t_files()
     t_attach_chain()
+    t_allowed_contract()
+    t_uncovered_allowed()
     print('ВСЕ OK')

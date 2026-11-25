@@ -23,6 +23,7 @@ sys.path.insert(0, os.path.join(HERE, '..', '..'))
 import tex_coverage as TC  # noqa: E402
 import tex_fill as TF  # noqa: E402
 import paint_stage as PS  # noqa: E402
+import stage_mask_gate as SMG  # noqa: E402  (контракт «маска разрешено менять», T-20261124-23/в2)
 
 STAGE = '07-seam'
 
@@ -96,6 +97,7 @@ def run_seam(run: str, sku: str, fill_dir: str, visible: str, cfg: dict | None =
         mid_all += int(m.sum())
         mid_bad += int((outs[gi].reshape(-1, 3)[tx.ti[m]] != tex_in[gi].reshape(-1, 3)[tx.ti[m]]).sum())
     srep['texel_fill'] = TF.write_glb(geoms, outs, os.path.join(d, 'seam.glb'), pad=True)
+    SMG.write_allowed(d, [~np.asarray(k, bool) for k in kn_keep])        # шов обещает: середина фото (kn_keep после шва) байт в байт; менять можно остальное и поля островов
     a = TF.render_ortho(geoms, tex_in, 180.0)
     b = TF.render_ortho(geoms, outs, 180.0)
     Image.fromarray(np.concatenate([a, np.full((a.shape[0], 12, 3), 255, np.uint8), b], axis=1)).save(os.path.join(d, PS.FRAME))
@@ -136,7 +138,7 @@ def run_seam(run: str, sku: str, fill_dir: str, visible: str, cfg: dict | None =
                        'parts_note': parts_note}
     with open(os.path.join(d, 'report.json'), 'w', encoding='utf-8') as f:
         json.dump({'seam': srep}, f, ensure_ascii=False, indent=1, default=lambda o: o.item() if hasattr(o, 'item') else str(o))
-    check = PS.write_check(d, STAGE, sku, None, None, '', metrics=metrics, seconds=secs, outputs=['seam.glb', 'report.json'], frame=PS.FRAME, summary=srep['summary'])
+    check = PS.write_check(d, STAGE, sku, None, None, '', metrics=metrics, seconds=secs, outputs=['seam.glb', 'report.json', 'changed-allowed.png'], frame=PS.FRAME, summary=srep['summary'])
     return {'check': check, 'report': srep, 'dir': d}
 
 

@@ -56,6 +56,25 @@ def _load_map(visible: str, base: str, i: int, shape: tuple[int, int]) -> np.nda
     return np.asarray(a)
 
 
+def write_allowed(stage_dir: str, allowed: list, rules: dict | None = None) -> list[str]:
+    """Контракт этапа: пишет маски «разрешено менять» (bool H×W на геометрию; True — этап может менять тексель) → `<allowed_file>.png`, `<allowed_file>1.png`, …; возвращает имена файлов."""
+    from PIL import Image
+    base = (rules or load_rules())['allowed_file']
+    names = []
+    for i, a in enumerate(allowed):
+        nm = f'{base}.png' if i == 0 else f'{base}{i}.png'
+        Image.fromarray((np.asarray(a, bool) * 255).astype(np.uint8)).save(os.path.join(stage_dir, nm))
+        names.append(nm)
+    return names
+
+
+def load_allowed(stage_dir: str, i: int, shape: tuple[int, int], rules: dict | None = None) -> np.ndarray | None:
+    """Маска «разрешено менять» геометрии i в размер текстуры; нет файла — None (этап маску не заявил)."""
+    base = (rules or load_rules())['allowed_file']
+    m = _load_map(stage_dir, base, i, shape)
+    return None if m is None else m > 127
+
+
 def front_from_files(glb: str, check06: str | None) -> tuple[int, int] | None:
     """(ось 0|2, знак) лица из единого свидетеля front_axis; нет данных — None."""
     if not check06 or not os.path.exists(check06):
@@ -84,7 +103,16 @@ def pixel_normals_dot(g: dict, front: tuple[int, int], T: int) -> np.ndarray:
     return d.reshape(T, T)
 
 
-def measure_arrays(tex_b: np.ndarray, tex_a: np.ndarray, prov: np.ndarray | None, face_dot: np.ndarray | None, rules: dict) -> dict:
+def uncovered_mask(g: dict, T: int) -> np.ndarray:
+    """bool (T,T): центр тексела не попал ни в одну грань (зазоры между островами) — их заливает texel_pad (T-20261125-70) после последней покраски любого этапа; изменить их разрешено всем."""
+    import tex_coverage as TC
+    UV = np.asarray(g['UV'], np.float64)
+    xy = np.stack([UV[:, 0] * T, (1.0 - UV[:, 1]) * T], 1)
+    ids = np.asarray(TC.raster(xy, np.asarray(g['F'], np.int64), T)[0]).reshape(-1)
+    return (ids < 0).reshape(T, T)
+
+
+def measure_arrays(tex_b: np.ndarray, tex_a: np.ndarray, prov: np.ndarray | None, face_dot: np.ndarray | None, rules: dict, allowed: np.ndarray | None = None, uncovered: np.ndarray | None = None) -> dict:
     """Счётчики по одной геометрии; tex_* (H,W,3) uint8, prov (H,W) uint8 | None, face_dot (H,W) float | None (−2 — не занято)."""
     if tex_b.shape != tex_a.shape:
         return {'status': 'shape', 'why': f'размер карты изменился {tex_b.shape[:2]}→{tex_a.shape[:2]}'}
@@ -96,16 +124,22 @@ def measure_arrays(tex_b: np.ndarray, tex_a: np.ndarray, prov: np.ndarray | None
     other = ~photo & ~synth
     m = {'status': 'ok', 'photo_total': int(photo.sum()), 'photo_changed': int((photo & diff).sum()), 'synth_total': int(synth.sum()), 'synth_changed': int((synth & diff).sum()),
          'other_changed': int((other & diff).sum()), 'by_prov': {str(v): [int((prov == v).sum()), int(((prov == v) & diff).sum())] for v in range(5)}, 'face_total': None, 'face_changed': None, 'face_nonphoto_changed': None}
+    if allowed is not None:
+        if uncovered is not None and rules.get('uncovered_allowed'):
+            allowed = allowed | uncovered                 # заливка непокрытых текселей (texel_pad) — разрешена всем этапам
+        m['allowed_total'] = int(allowed.sum())
+        m['undeclared_changed'] = int((diff & ~allowed).sum())
+        m['undeclared_photo_changed'] = int((diff & ~allowed & photo).sum())
     if face_dot is not None:
         face = face_dot >= float(rules['face_cos'])
         m.update(face_total=int(face.sum()), face_changed=int((face & diff).sum()), face_nonphoto_changed=int((face & ~photo & diff).sum()))
     return m
 
 
-_SUM = ('photo_total', 'photo_changed', 'synth_total', 'synth_changed', 'other_changed', 'face_total', 'face_changed', 'face_nonphoto_changed')
+_SUM = ('allowed_total', 'undeclared_changed', 'undeclared_photo_changed', 'photo_total', 'photo_changed', 'synth_total', 'synth_changed', 'other_changed', 'face_total', 'face_changed', 'face_nonphoto_changed')
 
 
-def measure(before: str, after: str, visible: str, rules: dict | None = None, front: tuple[int, int] | None = None, check06: str | None = None) -> dict:
+def measure(before: str, after: str, visible: str, rules: dict | None = None, front: tuple[int, int] | None = None, check06: str | None = None, allowed_dir: str | None = None) -> dict:
     """Сравнение GLB до/после этапа по маскам этапа 6 → {'status': ok|unmeasured, 'why', 'geoms', счётчики…, 'front'}. Сбой чтения — unmeasured, не исключение."""
     R = rules or load_rules()
     try:
@@ -119,21 +153,28 @@ def measure(before: str, after: str, visible: str, rules: dict | None = None, fr
         front = front_from_files(after, check06 or os.path.join(visible, 'check.json'))
     tot = {k: None for k in _SUM}
     by_prov: dict = {}
+    adir = allowed_dir or os.path.dirname(os.path.abspath(after))
+    declared = []
     for i, (b, a) in enumerate(zip(gb, ga)):
         tb, ta = b['tex'], a['tex']
         T = tb.shape[0]
         prov = _load_map(visible, 'prov', i, tb.shape[:2])
         fd = pixel_normals_dot(b, front, T) if (front is not None and tb.shape[0] == tb.shape[1] and tb.shape == ta.shape) else None
-        m = measure_arrays(tb, ta, prov, fd, R)
+        al = load_allowed(adir, i, tb.shape[:2], R)
+        declared.append(al is not None)
+        unc = uncovered_mask(b, T) if (tb.shape[0] == tb.shape[1] and tb.shape == ta.shape) else None
+        m = measure_arrays(tb, ta, prov, fd, R, al, unc)
         if m['status'] != 'ok':
             return {'status': 'unmeasured', 'why': f'геометрия {i}: {m["why"]}', 'geoms': len(gb)}
         for v, (n_, c_) in m['by_prov'].items():
             by_prov[v] = [by_prov.get(v, [0, 0])[0] + n_, by_prov.get(v, [0, 0])[1] + c_]
         for k in _SUM:
-            if m[k] is None:
+            if m.get(k) is None:
                 continue
             tot[k] = (tot[k] or 0) + m[k]
-    res = {'status': 'ok', 'geoms': len(gb), 'front': None if front is None else list(front), 'by_prov': by_prov, **tot}
+    if any(declared) and not all(declared):
+        return {'status': 'unmeasured', 'why': 'маска «разрешено менять» заявлена не для всех геометрий', 'geoms': len(gb)}
+    res = {'status': 'ok', 'mask': 'declared' if declared and all(declared) else 'missing', 'geoms': len(gb), 'front': None if front is None else list(front), 'by_prov': by_prov, **tot}
     if front is None:
         res['face_note'] = 'нет оси лица — лицо не измерено'
     return res
@@ -145,10 +186,15 @@ def gate(m: dict, rules: dict | None = None) -> dict:
     if m.get('status') != 'ok':
         return {'ok': None, 'unmeasured': True, 'violations': [], 'why': m.get('why', 'не измерено')}
     v = []
-    lim = int(R['max_changed']['photo'])
-    if m['photo_changed'] > lim:
-        v.append(f"photo_changed {m['photo_changed']} > {lim} (из {m['photo_total']})")
-    return {'ok': not v, 'unmeasured': False, 'violations': v}
+    if m.get('mask') == 'declared':
+        lim = int(R['max_changed']['undeclared'])
+        if m['undeclared_changed'] > lim:
+            v.append(f"undeclared_changed {m['undeclared_changed']} > {lim} (фото среди них {m['undeclared_photo_changed']}; разрешено менять {m['allowed_total']})")
+    else:
+        lim = int(R['max_changed']['photo'])
+        if m['photo_changed'] > lim:
+            v.append(f"photo_changed {m['photo_changed']} > {lim} (из {m['photo_total']}); маска «разрешено менять» не заявлена")
+    return {'ok': not v, 'unmeasured': False, 'violations': v, 'mask': m.get('mask')}
 
 
 def attach(stage_dir: str, m: dict, g: dict) -> None:
@@ -207,7 +253,8 @@ def table_md(res: dict, rules: dict | None = None) -> str:
             else:
                 m = r['m']
                 f = '?' if m['face_changed'] is None else str(m['face_changed'])
-                cells.append(('❌ ' if r['gate']['ok'] is False else '') + f"{m['photo_changed']}/{m['photo_total']} · {m['synth_changed']}/{m['synth_total']} · {f}")
+                u = f" · недекл. {m['undeclared_changed']}" if m.get('mask') == 'declared' else ' · маски нет'
+                cells.append(('❌ ' if r['gate']['ok'] is False else '') + f"{m['photo_changed']}/{m['photo_total']} · {m['synth_changed']}/{m['synth_total']} · {f}{u}")
         lines.append(f'| …{sku[-10:]} | ' + ' | '.join(cells) + ' |')
     return '\n'.join(lines) + '\n'
 
