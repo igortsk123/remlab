@@ -8,8 +8,10 @@
 ЧТО УЖЕ БЫЛО (не дублируем, а замыкаем): копия цвета ближайшего покрытого тексела в `gutter` px — `tex_fill.fill` (cfg gutter, 8), `seam_stage`, `surface_passport` (gutter_px), `photo_project`.
 Почему не хватало: (1) они делаются ВНУТРИ своих этапов, а после них цвет покрытых текселей меняют ещё хуки 07 и этап 08 (сдвиг части, тон стекла) — отступ остаётся прежним цветом;
 (2) радиус 8 px: у части товаров зазор шире (до 21 px) — дальше старый цвет остаётся совсем; (3) отчёта о том, сколько текстуры не покрыто и каким цветом, не было.
-ЗДЕСЬ — один проход ПОСЛЕ последней покраски, перед записью файла: покрытое не меняется ни на единицу; непокрытое заливается средним по уже покрытым соседям (kernel×kernel), `passes` раз
-(за проход цвет уходит на 1 px вглубь зазора). Число проходов и ядро — только `tools/scout/rules/paint-fill.json` → `texel_fill` (в коде чисел нет).
+ЗДЕСЬ — один проход ПОСЛЕ последней покраски, перед записью файла: покрытое не меняется ни на единицу; прежний отступ (непокрытое в `keep_px` px от острова — его уже залил gutter этапа)
+считается покрытым и тоже НЕ перезаписывается (решение директора, T-70); дальше него непокрытое заливается средним по уже известным соседям (kernel×kernel), `passes` раз
+(за проход цвет уходит на 1 px вглубь зазора). Число проходов, ядро и keep_px — только `tools/scout/rules/paint-fill.json` → `texel_fill` (в коде чисел нет; keep_px = gutter этапа,
+тест `tests_texel_pad` сверяет с `tex_fill.FILL['gutter']`).
 
 «ПОКРЫТО» = центр тексела внутри грани (как у `tex_fill.Tex` и сторожа охвата: `tex_coverage.raster`) — то же определение, что у покраски.
 ОТЧЁТ (строка в проверку этапа): доля непокрытых, средний цвет непокрытых ДО заливки и покрытых; «чужой цвет» = ΔE76 среднего цвета полосы (до `passes` px от острова) до среднего цвета кромки острова —
@@ -34,11 +36,11 @@ def rules(path: str | None = None) -> dict:
         r = json.load(f).get('texel_fill')
     if not isinstance(r, dict):
         raise KeyError('rules/paint-fill.json: нет ключа texel_fill')
-    for k in ('passes', 'kernel', 'band_rim_dE_max'):
+    for k in ('passes', 'kernel', 'keep_px', 'band_rim_dE_max'):
         if k not in r:
             raise KeyError(f'rules/paint-fill.json: texel_fill.{k} не задан')
-    if int(r['kernel']) % 2 != 1 or int(r['kernel']) < 3 or int(r['passes']) < 0:
-        raise ValueError(f'texel_fill: kernel — нечётное ≥3, passes ≥0 (получено {r["kernel"]}, {r["passes"]})')
+    if int(r['kernel']) % 2 != 1 or int(r['kernel']) < 3 or int(r['passes']) < 0 or int(r['keep_px']) < 0:
+        raise ValueError(f'texel_fill: kernel — нечётное ≥3, passes ≥0, keep_px ≥0 (получено {r["kernel"]}, {r["passes"]}, {r["keep_px"]})')
     return r
 
 
@@ -94,25 +96,31 @@ def pad_texture(rgb: np.ndarray, cov: np.ndarray, cfg: dict | None = None) -> tu
     """Заливка одной текстуры + отчёт «до → после». `rgb` — (T,T,3|4) uint8; `cov` — покрытие (coverage_from_uv)."""
     from scipy.ndimage import distance_transform_edt
     c = cfg or rules()
-    passes, kernel = int(c['passes']), int(c['kernel'])
+    passes, kernel, keep_px = int(c['passes']), int(c['kernel']), int(c.get('keep_px', 0))
     a = np.asarray(rgb)
     cov = np.asarray(cov, bool)
     unc = ~cov
     n_unc = int(unc.sum())
-    rep: dict = {'size': int(a.shape[0]), 'uncovered_pct': round(100.0 * n_unc / cov.size, 2), 'passes': passes, 'kernel': kernel, 'changed_texels': 0, 'band_texels': 0, 'band_unfilled': 0,
-                 'band_vs_rim_dE_before': None, 'band_vs_rim_dE_after': None, 'unreached_pct': 0.0}
+    rep: dict = {'size': int(a.shape[0]), 'uncovered_pct': round(100.0 * n_unc / cov.size, 2), 'passes': passes, 'kernel': kernel, 'keep_px': keep_px, 'kept_texels': 0, 'keep_changed': 0,
+                 'changed_texels': 0, 'band_texels': 0, 'band_unfilled': 0, 'band_vs_rim_dE_before': None, 'band_vs_rim_dE_after': None, 'unreached_pct': 0.0}
     if not n_unc or not cov.any():
         return a.copy(), rep
-    dist = distance_transform_edt(unc)
-    band = unc & (dist <= passes)
     rep['uncovered_mean_rgb_before'] = [round(float(v), 1) for v in a[..., :3][unc].mean(axis=0)]
     rep['covered_mean_rgb'] = [round(float(v), 1) for v in a[..., :3][cov].mean(axis=0)]
-    out, reached = fill_uncovered(a, cov, passes, kernel)
+    keep = unc & (distance_transform_edt(unc) <= keep_px)        # отступ, который уже сделал этап (gutter): считается покрытым и не перезаписывается (решение директора, T-70)
+    known0 = cov | keep
+    rem = ~known0                                                 # непокрытое ДАЛЬШЕ отступа — только его заливаем
+    rep['kept_texels'] = int(keep.sum())
+    if not rem.any():
+        return a.copy(), rep
+    band = rem & (distance_transform_edt(rem) <= passes)
+    out, reached = fill_uncovered(a, known0, passes, kernel)
     rep['band_texels'] = int(band.sum())
     rep['band_unfilled'] = int((band & ~reached).sum())
     rep['changed_texels'] = int(np.any(out != a, axis=-1).sum())
-    rep['unreached_pct'] = round(100.0 * float((unc & ~reached).sum()) / n_unc, 2)
-    rim = cov & (distance_transform_edt(cov) <= passes)
+    rep['keep_changed'] = int(np.any(out != a, axis=-1)[keep].sum())
+    rep['unreached_pct'] = round(100.0 * float((rem & ~reached).sum()) / n_unc, 2)
+    rim = known0 & (distance_transform_edt(known0) <= passes)
     if band.any() and rim.any():
         tcm = _tc()
         lab_a = tcm.rgb2lab(a[..., :3].reshape(-1, 3).astype(np.uint8)).reshape(a.shape[0], a.shape[1], 3)
@@ -144,7 +152,7 @@ def summary(per: list[dict], cfg: dict) -> dict:
     tot = sum(w for w, _ in wts)
     mean_unc = [round(sum(w * r['uncovered_mean_rgb_before'][c] for w, r in wts) / tot, 1) for c in range(3)] if tot > 0 else None       # средний цвет непокрытых ДО заливки (вес — число текселей)
     mean_cov = [round(sum(w * r['covered_mean_rgb'][c] for w, r in wts) / tot, 1) for c in range(3)] if tot > 0 else None
-    return {'passes': int(cfg['passes']), 'kernel': int(cfg['kernel']), 'uncovered_pct': worst('uncovered_pct'), 'uncovered_mean_rgb_before': mean_unc, 'covered_mean_rgb': mean_cov, 'band_unfilled': int(sum(r['band_unfilled'] for r in per)),
+    return {'passes': int(cfg['passes']), 'kernel': int(cfg['kernel']), 'keep_px': int(cfg['keep_px']), 'kept_texels': int(sum(r['kept_texels'] for r in per)), 'keep_changed': int(sum(r['keep_changed'] for r in per)), 'uncovered_pct': worst('uncovered_pct'), 'uncovered_mean_rgb_before': mean_unc, 'covered_mean_rgb': mean_cov, 'band_unfilled': int(sum(r['band_unfilled'] for r in per)),
             'band_texels': int(sum(r['band_texels'] for r in per)), 'changed_texels': int(sum(r['changed_texels'] for r in per)), 'unreached_pct': worst('unreached_pct'),
             'band_vs_rim_dE_before': worst('band_vs_rim_dE_before'), 'band_vs_rim_dE_after': worst('band_vs_rim_dE_after'), 'geoms': per}
 
@@ -155,4 +163,5 @@ def check_metrics(rep: dict, cfg: dict | None = None) -> dict:
     c = cfg or rules()
     return {'texel_uncovered_pct': {'value': rep.get('uncovered_pct'), 'mean_rgb_before': rep.get('uncovered_mean_rgb_before'), 'covered_mean_rgb': rep.get('covered_mean_rgb'), 'ok': None},
             'texel_band_unfilled': {'value': rep['band_unfilled'], 'threshold': 0, 'op': '<=', 'ok': rep['band_unfilled'] <= 0},
+            'texel_keep_changed': {'value': rep['keep_changed'], 'threshold': 0, 'op': '<=', 'ok': rep['keep_changed'] <= 0, 'note': f'зона отступа ({rep.get("keep_px")} px, уже залита этапом) не тронута'},
             'texel_band_vs_rim_dE': {'value': rep.get('band_vs_rim_dE_after'), 'before': rep.get('band_vs_rim_dE_before'), 'hypothesis_threshold': c['band_rim_dE_max'], 'ok': None}}

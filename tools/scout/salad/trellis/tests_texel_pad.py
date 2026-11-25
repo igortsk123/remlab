@@ -11,6 +11,7 @@ HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, HERE)
 sys.path.insert(0, os.path.join(HERE, '..', '..'))
 import numpy as np
+from scipy.ndimage import distance_transform_edt
 import tex_fill as TF
 import texel_pad as TP
 
@@ -47,7 +48,7 @@ def main():
     ok(R['passes'] > 0 and R['kernel'] % 2 == 1 and R['band_rim_dE_max'] > 0, f'texel_fill прочитан: {R["passes"]} проходов, ядро {R["kernel"]}, цвет полосы против кромки ≤ {R["band_rim_dE_max"]}')
     with tempfile.TemporaryDirectory() as td:
         p = os.path.join(td, 'r.json')
-        json.dump({'texel_fill': {'passes': 3, 'kernel': 3}}, open(p, 'w'))
+        json.dump({'texel_fill': {'passes': 3, 'kernel': 3, 'keep_px': 8}}, open(p, 'w'))
         try:
             TP.rules(p)
             ok(False, 'нет band_rim_dE_max → KeyError')
@@ -59,7 +60,7 @@ def main():
             ok(False, 'нет texel_fill → KeyError')
         except KeyError:
             ok(True, 'нет texel_fill → KeyError')
-        json.dump({'texel_fill': {'passes': 3, 'kernel': 4, 'band_rim_dE_max': 1}}, open(p, 'w'))
+        json.dump({'texel_fill': {'passes': 3, 'kernel': 4, 'keep_px': 8, 'band_rim_dE_max': 1}}, open(p, 'w'))
         try:
             TP.rules(p)
             ok(False, 'чётное ядро → ValueError')
@@ -68,7 +69,7 @@ def main():
 
     print('остров + зазор:')
     rgb, cov = two_islands()
-    cfg = {'passes': 6, 'kernel': 3, 'band_rim_dE_max': 3.0}
+    cfg = {'passes': 6, 'kernel': 3, 'keep_px': 0, 'band_rim_dE_max': 3.0}
     out, rep = TP.pad_texture(rgb, cov, cfg)
     ok(np.array_equal(out[cov], rgb[cov]), 'покрытое не изменилось ни на единицу')
     ok(tuple(out[16, 25]) == tuple(A) and tuple(out[16, 29]) == tuple(A), 'зазор у острова A (1 и 5 px от края) = цвет острова')
@@ -84,6 +85,25 @@ def main():
     mid = o10[16, 32].astype(int)
     ok(mid[0] < 200 and mid[2] > 60 and tuple(o10[16, 26]) == tuple(A) and tuple(o10[16, 37]) == tuple(B), f'при 10 проходах фронты сходятся: стык — цвет ближайшего острова {mid.tolist()}, не заготовки; заливка не «течёт» через остров')
 
+    print('прежний отступ (keep_px) не перезаписывается; заливка — только дальше него:')
+    kcfg = dict(cfg, keep_px=4, passes=6)
+    rgb_k = rgb.copy()
+    rgb_k[8:24, 24:28] = A                                   # отступ 4 px после gutter этапа: копия цвета острова A
+    rgb_k[8:24, 36:40] = B
+    rgb_k[7, 8:24] = (10, 10, 10)                            # «стёртый» ряд над островом A (1 px): внутри отступа, цвет не такой, как у соседа — всё равно не трогаем
+    ko, kr = TP.pad_texture(rgb_k, cov, kcfg)
+    keepm = ~cov & (distance_transform_edt(~cov) <= 4)
+    ok(np.array_equal(ko[keepm], rgb_k[keepm]) and kr['keep_changed'] == 0 and kr['kept_texels'] == int(keepm.sum()), f'зона отступа (≤4 px от острова) байт в байт, изменено 0 из {kr["kept_texels"]}')
+    ok(np.array_equal(ko[cov], rgb_k[cov]), 'покрытое тоже байт в байт')
+    ok(tuple(ko[16, 29]) == tuple(A) and tuple(ko[16, 34]) == tuple(B), 'дальше отступа залито цветом отступа (зазор шире 4 px): 5 и 6 px от острова A, B')
+    ok(tuple(ko[16, 32]) in {tuple(A), tuple(B)}, 'фронты, пошедшие от края отступа, сошлись в середине зазора (4 + 6 проходов)')
+    ok(tuple(ko[40, 40]) == tuple(OLD), 'дальше keep_px + passes от острова — как было')
+    ok(kr['band_unfilled'] == 0 and kr['band_texels'] > 0, f'в полосе passes px от края отступа незалитых 0 (полоса {kr["band_texels"]})')
+    mk = TP.check_metrics(kr, kcfg)
+    ok(mk['texel_keep_changed']['ok'] is True and mk['texel_keep_changed']['value'] == 0, 'мерка texel_keep_changed = 0 (судит этап)')
+    ok(TP.check_metrics(dict(kr, keep_changed=3), kcfg)['texel_keep_changed']['ok'] is False, 'тронут отступ → мерка красная')
+    ok(R['keep_px'] == TF.FILL['gutter'], f'keep_px правила = gutter этапа ({R["keep_px"]} px): один отступ, не два разных числа')
+
     print('полный охват, пустое покрытие, альфа:')
     o2, r2 = TP.pad_texture(rgb, np.ones((64, 64), bool), cfg)
     ok(np.array_equal(o2, rgb) and r2['uncovered_pct'] == 0.0 and r2['band_unfilled'] == 0, 'всё покрыто — картинка та же, отчёт «0 % непокрыто»')
@@ -93,7 +113,7 @@ def main():
     rgba[~cov, 3] = 7
     o4, _ = TP.pad_texture(rgba, cov, cfg)
     ok(o4.shape[2] == 4 and (o4[..., 3] == rgba[..., 3]).all() and tuple(o4[16, 25, :3]) == tuple(A), 'RGBA: альфа не тронута, цвет залит')
-    o5, r5 = TP.pad_texture(rgb, cov, {'passes': 0, 'kernel': 3, 'band_rim_dE_max': 3.0})
+    o5, r5 = TP.pad_texture(rgb, cov, {'passes': 0, 'kernel': 3, 'keep_px': 0, 'band_rim_dE_max': 3.0})
     ok(np.array_equal(o5, rgb) and r5['changed_texels'] == 0, 'passes=0 — заливка выключена, ничего не меняется')
 
     print('мерки check.json:')
@@ -113,6 +133,9 @@ def main():
     tex = np.empty((n, n, 3), np.uint8)
     tex[:] = OLD
     tex[cv] = A
+    dcv = distance_transform_edt(~cv)
+    kp = R['keep_px']
+    tex[~cv & (dcv <= kp)] = A                         # как после gutter этапа: отступ keep_px = копия цвета острова
     g = {'V': V, 'F': F, 'UV': UV, 'name': 'q'}
     with tempfile.TemporaryDirectory() as td:
         import trimesh
@@ -126,8 +149,11 @@ def main():
             return np.asarray(next(iter(sc.geometry.values())).visual.material.baseColorTexture.convert('RGB'))
         a, b = tex_of(os.path.join(td, 'plain.glb')), tex_of(os.path.join(td, 'pad.glb'))
         ok(np.array_equal(a[cv], b[cv]), 'в файле покрытые тексели одинаковы с pad и без')
-        near = TP.fill_uncovered(tex, cv, 1, 3)[1]
-        ok((a[near] == OLD).all() and (b[near] == A).all(), 'в файле: зазор у острова без pad — цвет заготовки, с pad — цвет острова')
+        far = ~cv & (dcv > kp) & (dcv <= kp + 3)
+        keepz = ~cv & (dcv <= kp)
+        ok(far.any() and (a[far] == OLD).all() and (b[far] == A).all(), 'в файле: зазор дальше отступа без pad — цвет заготовки, с pad — цвет острова')
+        ok(keepz.any() and np.array_equal(a[keepz], b[keepz]), 'в файле: зона отступа байт в байт с pad и без')
+        ok(rp['keep_changed'] == 0 and rp['kept_texels'] > 0, f'отчёт: тексели отступа не тронуты (kept {rp["kept_texels"]}, изменено {rp["keep_changed"]})')
 
     print(f'ошибок {bad}')
     sys.exit(1 if bad else 0)
