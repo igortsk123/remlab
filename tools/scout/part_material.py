@@ -754,7 +754,7 @@ def keep_details(tex: np.ndarray,ctl: np.ndarray, texmap: np.ndarray, painted: n
     return out, done
 
 
-def face_gate(fin: np.ndarray, ctl: np.ndarray, region: np.ndarray, rules: dict, px_per_cm: float | None = None, pose_err: 'np.ndarray | float | None' = None) -> dict:
+def face_gate(fin: np.ndarray, ctl: np.ndarray, region: np.ndarray, rules: dict, px_per_cm: float | None = None, pose_err: 'np.ndarray | float | None' = None, transfer: 'np.ndarray | None' = None) -> dict:
     """Ворота «лицо против фото» (жёсткий отказ шага): кадры с ОДНОЙ камеры и тем же светом — после шага (fin) и до него (ctl: фото 06 на текстуре), только пиксели покрашенных групп (region).
     1) share_far — доля пикселей, ушедших от фото дальше de_px (ΔE2000); blob — крупнейшее связное пятно таких пикселей, доля региона;
     2) seam_ratio — «чёрная шляпа» по L (тонкие тёмные линии: щели, кромки) после шага / до шага на пикселях линий фото: потеря мелких деталей лица.
@@ -823,11 +823,25 @@ def face_gate(fin: np.ndarray, ctl: np.ndarray, region: np.ndarray, rules: dict,
         n_thin = 0
         info_sp = []
         thick_of = {}
+        tmin = float(gt.get('spot_transfer_min', 0) or 0)                   # директор 25.11 19:14: судим только то, что шаг МОЖЕТ перенести — пиксели граней «надёжно ∧ известно фото»; пятно, чья доля таких пикселей < N, — растяжка/нет фото, не судим (строкой «исключено N px и почему»)
+        tfm = None
+        if tmin > 0 and transfer is not None:
+            tfm = np.asarray(transfer, bool)
+            if tfm.shape != fin.shape[:2]:
+                tfm = cv2.resize(tfm.astype(np.uint8), (fin.shape[1], fin.shape[0]), interpolation=cv2.INTER_NEAREST).astype(bool)
+        n_untr, px_untr = 0, 0
         for i in range(1, k4):
             ar = float(st4[i, cv2.CC_STAT_AREA])
             ln = float(np.hypot(st4[i, cv2.CC_STAT_WIDTH], st4[i, cv2.CC_STAT_HEIGHT]))
             is_line = min_len > 0 and ln >= min_len and ar / ln <= float(gt['seam_max_thick'])
             ok_i = float(gt['spot_min_px_frac']) * h2 <= ar <= float(gt['spot_max_px_frac']) * h2 and not is_line
+            if ok_i and tfm is not None:
+                sh_tr = float(tfm[lab4 == i].mean())
+                if sh_tr < tmin:
+                    ok_i = False
+                    n_untr += 1
+                    px_untr += int(ar)
+                    info_sp.append({'исключено': 'фото не переносимо (грань ненадёжна или текселей без фото)', 'площадь': int(ar), 'доля_переносимых_px': round(sh_tr, 3), 'bbox': [int(st4[i, c]) for c in (cv2.CC_STAT_LEFT, cv2.CC_STAT_TOP, cv2.CC_STAT_WIDTH, cv2.CC_STAT_HEIGHT)]})
             if ok_i and pef is not None:
                 cm0 = lab4 == i
                 th = 2.0 * float(cv2.distanceTransform(cm0.astype(np.uint8), cv2.DIST_L2, 3).max())     # толщина пятна = 2 × наибольшее расстояние до края пятна
@@ -839,6 +853,7 @@ def face_gate(fin: np.ndarray, ctl: np.ndarray, region: np.ndarray, rules: dict,
                     info_sp.append({'исключено': 'тоньше ошибки позы', 'площадь': int(ar), 'толщина_px': round(th, 1), 'ошибка_позы_px': round(er, 1), 'bbox': [int(st4[i, cv2.CC_STAT_LEFT]), int(st4[i, cv2.CC_STAT_TOP]), int(st4[i, cv2.CC_STAT_WIDTH]), int(st4[i, cv2.CC_STAT_HEIGHT])]})
             keep4[i] = ok_i
         res['spot_thin_excluded'] = n_thin
+        res['spot_untransferable'] = {'пятен': n_untr, 'px': px_untr}
         res['spots_thin'] = info_sp
         spm = keep4[lab4]
         res['spot_px'], res['spot_n'] = int(spm.sum()), int(keep4.sum())

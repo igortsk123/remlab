@@ -283,7 +283,13 @@ def process(a, rules: dict, d: str, rep: dict) -> None:
     if h_cm and len(ys_) > 10:
         ppc = float(ys_.max() - ys_.min() + 1) / h_cm
         rep['px_per_cm'] = round(ppc, 3)
-    gate = PM.face_gate(np.asarray(Image.open(os.path.join(work, 'fin-cam-g.png')).convert('RGB')), ctl_g, region, rules, ppc, pose_err=gate_pose)
+    gate_transfer = None
+    if rl.get('enabled') and float(rules['gate'].get('spot_transfer_min', 0) or 0) > 0:                  # «перенесимо» = тексель известен (фото 06) ∧ грань надёжна: та же камера, текстура-маска, кадр ворот (директор 25.11 19:14)
+        trt = np.where(kn_det, 255, 0).astype(np.uint8)
+        PM.swap_tex_glb(base, np.repeat(trt[..., None], 3, axis=2), os.path.join(work, 'tr.glb'), unlit=True)
+        PM.render_jobs([{'glb': os.path.join(work, 'tr.glb'), 'out': os.path.join(work, 'tr-cam-g.png'), 'orbit': orb_cam, 'size': SG}], rules, work)
+        gate_transfer = np.asarray(Image.open(os.path.join(work, 'tr-cam-g.png')).convert('L')) > 127
+    gate = PM.face_gate(np.asarray(Image.open(os.path.join(work, 'fin-cam-g.png')).convert('RGB')), ctl_g, region, rules, ppc, pose_err=gate_pose, transfer=gate_transfer)
     rep['gate'] = gate
     met = {}
     for gi, gn in enumerate(names):

@@ -106,6 +106,11 @@ def main():
     pl = PG.plan_grain([part(1, photo_sigma=0.5), part(2, photo_sigma=None)], R)
     check(not pl[1]['apply'] and pl[1]['reason'] == 'no_photo_evidence' and not pl[2]['apply'], 'ни у кого рисунка на фото нет → зерна нет (no_photo_evidence)')
     check(pl[1]['pat'] is None, 'у отказа узор не хранится')
+    R_nn = dict(R, amp_from_neighbors=False)                                   # лазейка закрыта: свой σ ниже порога/нет фото → ровный тон, даже при соседях с рисунком
+    pl = PG.plan_grain([part(1, photo_sigma=2.0), part(2, photo_sigma=3.0), part(3, photo_sigma=0.5), part(4, photo_sigma=None)], R_nn)
+    check(pl[1]['apply'] and pl[1]['amp_source'] == 'photo' and pl[2]['apply'], 'лазейка закрыта: части с рисунком на фото — зерно по своему фото')
+    check(not pl[3]['apply'] and pl[3]['reason'] == 'no_photo_evidence' and pl[3]['pat'] is None and not pl[4]['apply'] and pl[4]['reason'] == 'no_photo_evidence', 'лазейка закрыта: σ ниже порога и нет фото — ровный тон (no_photo_evidence), амплитуду у соседей не берём')
+    check(PG.plan_grain([part(1, photo_sigma=2.0), part(3, photo_sigma=0.5)], R)[3]['amp_source'] == 'neighbors', 'флаг не задан — как раньше (соседи)')
 
     # 6. отказы с причинами
     pl = PG.plan_grain([part(1, is_wood=False), part(2, n_texels=100), part(3, tone_sigma=5.0), part(4, tone_lab=None), part(5, photo_sigma=2.0)], R)

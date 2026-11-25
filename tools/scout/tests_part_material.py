@@ -272,6 +272,18 @@ check(g_t1['spot_n'] == 0 and g_t1['spot_thin_excluded'] == 1 and g_t1['fail'] =
 check(g_t2['spot_n'] == 1 and g_t2['spot_thin_excluded'] == 0, 'ворота: ошибка позы мала (2 px) — деталь 3 px судится')
 check(g_t3['spot_n'] == 1 and g_t3['spot_thin_excluded'] == 0 and any('ручка' in x for x in g_t3['fail']), 'ворота: ручка (толще ошибки позы) исчезла — отказ остаётся при флаге')
 check(g_t4['spot_n'] == 1, 'ворота: флаг вкл, а ошибки позы нет — как выкл')
+# ворота: судим только перенесимое (spot_transfer_min, директор 25.11 19:14): пятно на гранях «ненадёжно / нет фото» не судим, строкой «исключено N px»
+R_tr = _js.loads(_js.dumps(R)); R_tr['gate']['spot_transfer_min'] = 0.5
+tr_none = np.zeros((400, 400), bool); tr_all = np.ones((400, 400), bool)
+tr_half = np.zeros((400, 400), bool); tr_half[:, :] = False                                         # ручка hand — по той же геометрии, что g_h
+g_r0 = PM.face_gate(hand_gone, hand, rg4, R, transfer=tr_none)
+g_r1 = PM.face_gate(hand_gone, hand, rg4, R_tr, transfer=tr_none)
+g_r2 = PM.face_gate(hand_gone, hand, rg4, R_tr, transfer=tr_all)
+g_r3 = PM.face_gate(hand_gone, hand, rg4, R_tr)
+check(g_r0['spot_n'] == 1 and any('ручка' in x for x in g_r0['fail']), 'ворота: флаг перенесимости выкл — судится как раньше (отказ)')
+check(g_r1['spot_n'] == 0 and g_r1['spot_untransferable']['пятен'] == 1 and g_r1['spot_untransferable']['px'] > 0 and g_r1['fail'] == [] and any('не переносимо' in x.get('исключено', '') for x in g_r1['spots_thin']), 'ворота: пятно вне перенесимого — не судим, исключено строкой (пятен и px)')
+check(g_r2['spot_n'] == 1 and g_r2['spot_untransferable']['пятен'] == 0 and any('ручка' in x for x in g_r2['fail']), 'ворота: ручка на перенесимых гранях исчезла — отказ остаётся при флаге')
+check(g_r3['spot_n'] == 1, 'ворота: флаг вкл, маски перенесимости нет — как выкл')
 # «чужой материал»: тёмная компактная ручка на светлой панели остаётся фото, щель (тонкая линия) и сама панель — красятся
 Tt = 1024
 ctl_f = np.full((Tt, Tt, 3), 225, np.uint8); ctl_f[400:440, 480:510] = 60; ctl_f[:, 160:162] = 80            # панель + ручка 40×30 + щель 2 текселя на всю высоту

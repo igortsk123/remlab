@@ -158,7 +158,7 @@ def plan_grain(parts: list, rules: dict | None = None) -> dict:
         if rec['pat'] is None or rec['reason'] is not None:
             continue
         if rec['amp_source'] is None:
-            if med is None:
+            if med is None or not rules.get('amp_from_neighbors', True):      # Fable 25.11 19:13: «зерно везде или нигде» — амплитуда у соседа не доказательство для этой части; нет СВОЕГО фото-доказательства → ровный тон (флаг amp_from_neighbors=false)
                 rec['reason'] = 'no_photo_evidence'
                 rec['pat'] = None
                 continue
