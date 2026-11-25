@@ -6,7 +6,7 @@
 
 Что делает: читает `<run>/<sku>/06-visible/{visible.glb, known.png, conf.png, check.json}`, роли областей (`--roles-dir` с roles.json + roles-faces.npz, иначе считает
 `parts_role_regions.build_roles` по `<run>/<sku>/03-parts`), камеру/кадр — этап 4 (`--pose-run`) и фото входа 06. Подбирает тон под светом сайта (model-viewer, кадр с камеры фото).
-Исходные `visible.glb`/`known.png`/`conf.png` сохраняются как `*.pre-partmaterial.*` (повторный запуск идёт от них); этап 7 читает новый visible.glb, покрашенные тексели без фото — в tone_only.png (known/conf не меняются)
+Исходные `visible.glb`/`known.png`/`conf.png` сохраняются как `*.pre-partmaterial.*` (повторный запуск идёт от них); этап 7 читает новый visible.glb, покрашенные тексели без фото — в tone_only.png (known/conf не меняются); для зерна — part_material_masks.npz
 (07 их не перезаливает). След — `06-visible/part_material.json`: решение, причина, тон групп (доля главного кластера), кого красим/кто «не уверен», ΔE2000 и сдвиг оттенка кадр↔фото.
 ВЫКЛЮЧЕНО (rules.enabled=false) — НИЧЕГО не пишет, код возврата 0: папка 06-visible байт в байт как без шага. Любая причина воздержаться (не тот тип, нет ролей/камеры/gltfpack,
 рендер упал) — след с причиной, 06/07 красят как раньше, код возврата 0.
@@ -216,6 +216,12 @@ def process(a, rules: dict, d: str, rep: dict) -> None:
     rep['materials'] = {gn: mid[i] for i, gn in enumerate(names)}
     fm = np.array(mid + [-1], np.int32)[np.asarray(flab)]
     np.savez_compressed(os.path.join(d, 'part_material_faces.npz'), face_material=fm)
+    gtone = []                                                       # вход для зерна (T-69): карта части по текселям + плоский тон каждой группы (sRGB, как в текстуре) + материал
+    for gi, gn in enumerate(names):
+        src = gn if gn in alb else borrowed.get(gn)
+        gtone.append(np.clip(PM.lin2srgb(alb[src]) + 0.5, 0, 255).astype(np.uint8) if (gn not in keep and src in alb) else np.array([0, 0, 0], np.uint8))
+    np.savez_compressed(os.path.join(d, 'part_material_masks.npz'), group_map=np.where(painted, texmap, -1).astype(np.int16), names=np.array(names), tone_srgb=np.array(gtone, np.uint8),
+                        painted_group=np.array([bool(gn not in keep and (gn in alb or borrowed.get(gn) in alb)) for gn in names]), material=np.array(mid, np.int32), face_group=np.asarray(flab, np.int16))
     rep['tone_only_texels'] = int((painted & ~kn).sum())
     rep['known_texels_painted_flat'] = int((painted & kn).sum())
     rep['seconds'] = round(time.time() - t0, 1)
