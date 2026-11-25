@@ -180,5 +180,92 @@ r = subprocess.run([sys.executable, os.path.join(HERE, 'part_material_stage.py')
 rep = json.load(open(os.path.join(tmp, 'x', '06-visible', 'part_material.json'), encoding='utf-8')) if os.path.exists(os.path.join(tmp, 'x', '06-visible', 'part_material.json')) else {}
 check(r.returncode == 0 and rep.get('abstain'), 'стадия ВКЛ без входов: воздержание со следом и причиной, rc 0 (06/07 красят как раньше)')
 
+# ── тень по форме: ниша в плоскости (круг 29, шкаф) — заслонена, плоскость вокруг — нет; косая плоскость не судится
+H = 200
+dep = np.full((H, H), 1.0, np.float32); dep[80:120, 80:120] = 1.1                    # ниша глубиной 100 длин пикселя
+vv = np.ones((H, H), bool)
+oc = PM.pixel_occlusion(dep, vv, np.ones((H, H), np.float32), 0.001, R)
+check(oc[100, 100] >= R['occlusion']['pixel_min'] and oc[20, 20] == 0 and oc[170, 30] == 0, 'заслонённость: дно ниши — да, плоскость вокруг — нет')
+oc2 = PM.pixel_occlusion(dep, vv, np.full((H, H), 0.3, np.float32), 0.001, R)
+check(float(oc2.max()) == 0.0, 'заслонённость: косая плоскость (cos < cos_min) не судится')
+yy_, xx_ = np.mgrid[0:H, 0:H]
+ids_ = ((yy_ // 10) * 20 + xx_ // 10).astype(np.int32)
+inn, info = PM.interior_faces(ids_, oc, vv, 400, R)
+check(bool(inn[(10 * 20 + 10)]) and not inn[0] and not inn[399] and info['граней_внутренность'] >= 4, 'грани внутренности: блоки на дне ниши — да, вокруг — нет')
+ids2 = ids_.copy(); ids2[80:120, 120:123] = 400                                     # тонкая боковая стенка рядом с нишей (3 px) — грань 400
+inn2 = np.zeros(401, bool)
+for rr_ in range(8, 12):
+    for cc_ in range(8, 12):
+        inn2[rr_ * 20 + cc_] = True
+rg2 = PM.ring_faces(ids2, vv, inn2, 401, R)
+check(bool(rg2[400]) and not rg2[8 * 20 + 13] and not rg2[0] and rg2[8 * 20 + 8], 'кольцо внутренности: тонкая стенка рядом — да, грань в 10 px от ниши и дальше — нет')
+Vc = np.array([[0, 0, 0], [1, 0, 0], [0, 1, 0], [1, 1, 0], [2, 0, 0], [2, 1, 0], [10, 10, 0], [11, 10, 0], [10, 11, 0], [30, 30, 0], [31, 30, 0], [30, 31, 0]], float)
+Fc = np.array([[0, 1, 2], [1, 3, 2], [1, 4, 3], [6, 7, 8], [9, 10, 11]])                   # связный кусок из 3 граней, одиночная грань (0,5 площади) и далёкая грань-фон
+Rc = json.loads(json.dumps(R)); Rc['occlusion']['min_area_frac'] = 0.3
+cc = PM.interior_clusters(Vc, Fc, np.array([True, True, True, True, False]), np.array([0.5, 0.5, 0.5, 0.5, 0.5]), Rc)
+check(cc.tolist() == [True, True, True, False, False], 'куски внутренности: связный кусок остаётся, одиночная грань (шум) отброшена')
+Vg = np.array([[0, 0, 0], [0.1, 0, 0], [0, 0.1, 0], [1, 0, 0], [1.1, 0, 0], [1, 0.1, 0], [5, 0, 0], [5.1, 0, 0], [5, 0.1, 0]], float)
+Fg = np.array([[0, 1, 2], [3, 4, 5], [6, 7, 8]])
+Rg = json.loads(json.dumps(R)); Rg['occlusion']['grow_frac'] = 0.25
+gr = PM.grow_faces(Vg, Fg, np.array([True, False, False]), Rg)
+check(gr.tolist() == [True, True, False], 'рост внутренности: соседняя грань (в пределах grow_frac диагонали) — да, дальняя — нет')
+
+# ── детали лица: линия-щель в группе остаётся, плавный градиент уходит в плоский тон, цвет — от тона
+Tt = 128
+ctl_d = np.full((Tt, Tt, 3), 180, np.uint8)
+ctl_d[:, 60:62] = 100                                                                 # тонкая тёмная линия (щель)
+gradr = np.linspace(0.85, 1.0, Tt)[None, :, None]
+ctl_g = np.clip(ctl_d * gradr, 0, 255).astype(np.uint8)                              # + плавная запечённая тень слева направо
+flat = np.full((Tt, Tt, 3), (200, 190, 180), np.uint8)
+mp = np.zeros((Tt, Tt), np.int16)
+allm = np.ones((Tt, Tt), bool)
+Rd = json.loads(json.dumps(R)); Rd['details']['sigma_frac'] = 0.04
+td, dn_ = PM.keep_details(flat, ctl_g, mp, allm, allm, ['a'], set(), Rd)
+line, side = td[:, 60:62].astype(float).mean(), td[:, 20:40].astype(float).mean()
+check(dn_.get('a') == Tt * Tt and line < 0.75 * side, 'детали лица: щель остаётся заметно темнее фона')
+check(abs(float(td[:, 100:120].mean()) - float(td[:, 10:30].mean())) < 6, 'детали лица: плавная тень (градиент) в плоский тон ушла')
+check(td[10, 10, 0] > td[10, 10, 2] and td[10, 10, 1] > td[10, 10, 2], 'детали лица: оттенок от тона материала (не от серого фото)')
+tk, dk = PM.keep_details(flat, ctl_g, mp, allm, np.zeros((Tt, Tt), bool), ['a'], set(), Rd)
+check(dk == {} and (tk == flat).all(), 'детали лица: нет известных текселей — плоский тон как есть')
+
+# ── ворота «лицо против фото»
+rg = np.zeros((200, 200), bool); rg[20:180, 20:180] = True
+fa = np.full((200, 200, 3), 190, np.uint8); fa[:, 100:102] = 110
+g_ok = PM.face_gate(fa, fa.copy(), rg, R)
+check(g_ok['fail'] == [] and g_ok['seam_ratio'] is not None and abs(g_ok['seam_ratio'] - 1) < 0.01, 'ворота: кадр как фото — проходит, щели 1,0')
+fb = np.full((200, 200, 3), 190, np.uint8)                                            # плоская заливка: щель стёрта
+g_seam = PM.face_gate(fb, fa, rg, R)
+check(any('щели' in x for x in g_seam['fail']) and g_seam['seam_ratio'] < 0.3, 'ворота: щель стёрта плоской заливкой — отказ')
+fc = fa.copy(); fc[40:140, 40:140] = (90, 50, 30)                                      # тёмное пятно вместо материала
+g_far = PM.face_gate(fc, fa, rg, R)
+check(any('пятно' in x for x in g_far['fail']) and any('доля' in x for x in g_far['fail']), 'ворота: тёмное пятно вместо материала — отказ (доля и пятно)')
+check(PM.face_gate(fa, fa, np.zeros((200, 200), bool), R).get('skipped') == 'мало пикселей региона', 'ворота: пустой регион — пропуск, не отказ')
+fo = np.zeros((200, 200, 3), np.uint8); fo[:] = (200, 90, 50)                           # оранжевое фото с плавным запечённым градиентом света
+grad = np.linspace(0.65, 1.0, 200)[None, :, None]
+fo_g = (fo * grad).astype(np.uint8)
+check(PM.face_gate(fo, fo_g, rg, R)['fail'] == [], 'ворота: снят плавный запечённый свет (тот же цвет) — проходит')
+fp = np.zeros((200, 200, 3), np.uint8); fp[:] = (230, 200, 190)                       # бледный верх вместо оранжевого
+check(any('доля' in x for x in PM.face_gate(fp, fo, rg, R)['fail']), 'ворота: цвет ушёл (оранжевый → бледный) — отказ даже при снятии света')
+
+# ── seed k-means: тон и доля воспроизводимы между вызовами
+rs = np.random.RandomState(5)
+pxs = np.concatenate([rs.normal((230, 230, 230), 6, (600, 3)), rs.normal((90, 60, 40), 8, (400, 3))]).clip(0, 255).astype(np.uint8)
+check(PM.main_cluster(pxs)[1] == PM.main_cluster(pxs)[1] == PM.main_cluster(pxs)[1], 'kmeans: доля главного кластера воспроизводима (seed фиксирован)')
+
+# ── обвязка: ВЫКЛ → шаг выпадает из плана (не берёт слот heavy-slot); ВКЛ → шаг в плане
+import paint_run_all as PRA  # noqa: E402
+rr = os.path.join(tmp, 'rules'); os.makedirs(rr)
+json.dump({'enabled': False}, open(os.path.join(rr, 'f.json'), 'w'))
+stg = {'steps': [{'argv': ['a']}, {'argv': ['b'], 'heavy': {'prio': 1}, 'enabled_by': {'file': 'rules/f.json', 'key': 'enabled'}}]}
+cx = {'root': tmp, 'pythons': {}, 'py': 'py'}
+check([s['argv'] for s in PRA.resolve_steps(stg, cx)] == [['a']], 'обвязка: флаг ВЫКЛ — шаг не в плане, слот heavy-slot не занимается')
+json.dump({'enabled': True}, open(os.path.join(rr, 'f.json'), 'w'))
+check([s['argv'] for s in PRA.resolve_steps(stg, cx)] == [['a'], ['b']], 'обвязка: флаг ВКЛ — шаг в плане')
+os.remove(os.path.join(rr, 'f.json'))
+check([s['argv'] for s in PRA.resolve_steps(stg, cx)] == [['a']], 'обвязка: файла правил нет — шаг не в плане')
+real = json.load(open(os.path.join(HERE, 'rules', 'paint-run-all.json'), encoding='utf-8'))
+pm_steps = [s for st in real['stages'].values() for s in st.get('steps', []) if any('part_material_stage' in t for t in s['argv'])]
+check(len(pm_steps) == 1 and pm_steps[0].get('enabled_by', {}).get('file') == 'tools/scout/rules/part-material.json', 'правила обвязки: шаг материала части условный (enabled_by → part-material.json)')
+
 print('\nИТОГО: %d провалов' % len(FAILS))
 sys.exit(1 if FAILS else 0)

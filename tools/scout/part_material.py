@@ -105,6 +105,7 @@ def main_cluster(px: np.ndarray, k: int = 3, sample: int = 40000) -> tuple[np.nd
     n = len(lb)
     sub = lb if n <= sample else lb[np.random.RandomState(0).choice(n, sample, replace=False)]
     k = max(1, min(k, len(sub)))
+    cv2.setRNGSeed(0)                                                           # инициализация kmeans++ — от генератора OpenCV: без seed доля главного плавала между запусками
     _, _, cen = cv2.kmeans(sub, k, None, (cv2.TERM_CRITERIA_EPS + cv2.TERM_CRITERIA_MAX_ITER, 30, 1e-3), 3, cv2.KMEANS_PP_CENTERS)
     idx = ((lb[:, None, :] - cen[None]) ** 2).sum(-1).argmin(1)
     cnt = np.bincount(idx, minlength=k)
@@ -170,6 +171,105 @@ def uv_label_map(UV: np.ndarray, F: np.ndarray, flab: np.ndarray, T: int) -> np.
         _, (iy, ix) = distance_transform_edt(miss, return_indices=True)
         m = m[iy, ix]
     return m
+
+
+# ───────────────────────────── заслонённость (тень по форме) ─────────────────────────────
+
+def pixel_occlusion(depth: np.ndarray, valid: np.ndarray, cosf: np.ndarray, px_len: float, rules: dict) -> np.ndarray:
+    """Заслонённость пикселя кадра по буферу глубины (как «ambient occlusion» в экранном пространстве): доля направлений, где на расстоянии R px
+    есть поверхность БЛИЖЕ к камере больше, чем объяснил бы наклон самой плоскости (ниша, проём, подполье, полка под столешницей).
+    depth (H,W) — расстояние до камеры (в тех же единицах, что px_len — длина пикселя), valid — пиксели объекта, cosf — cos угла к камере.
+    Радиусы — доли диагонали объекта (rules.occlusion.radii_frac), 8 направлений на радиус. → float (H,W) в [0,1]; вне объекта 0."""
+    occ = rules['occlusion']
+    H, W = depth.shape
+    ys, xs = np.nonzero(valid)
+    out = np.zeros((H, W), np.float32)
+    if len(ys) == 0:
+        return out
+    diag = float(np.hypot(ys.max() - ys.min() + 1, xs.max() - xs.min() + 1))
+    import cv2
+    sg = float(occ.get('cos_sigma_px', 5.0))
+    cs = cv2.GaussianBlur(np.where(valid, cosf, 0).astype(np.float32), (0, 0), sg) / np.maximum(cv2.GaussianBlur(valid.astype(np.float32), (0, 0), sg), 1e-3)
+    c = np.clip(cs[ys, xs].astype(np.float64), 0.2, 1.0)                        # cos угла к камере, сглаженный (пиксельный шум на косой плоскости даёт ложные «заслонения»)
+    tan = np.sqrt(1.0 - c * c) / c                                               # наклон плоскости: сосед вдоль уклона ближе на R·px_len·tan — это не заслонение
+    d0 = depth[ys, xs].astype(np.float64)
+    hit = np.zeros(len(ys)); tot = np.zeros(len(ys))
+    dirs = [(np.cos(a), np.sin(a)) for a in np.arange(8) * np.pi / 4]
+    for fr in occ['radii_frac']:
+        R = max(2.0, fr * diag)
+        for dx, dy in dirs:
+            yy = np.clip(np.round(ys + dy * R).astype(int), 0, H - 1)
+            xx = np.clip(np.round(xs + dx * R).astype(int), 0, W - 1)
+            ok = valid[yy, xx]
+            dn = depth[yy, xx].astype(np.float64)
+            closer = ok & (dn < d0 - R * px_len * (tan + float(occ['margin'])))
+            hit += closer
+            tot += 1
+    out[ys, xs] = (hit / np.maximum(tot, 1) * (c >= float(occ['cos_min']))).astype(np.float32)   # косую плоскость (cos < cos_min) не судим: наклон по глубине там даёт шум, а тон её и так берётся осторожно
+    return out
+
+
+def interior_faces(ids: np.ndarray, occl: np.ndarray, valid: np.ndarray, nF: int, rules: dict) -> tuple[np.ndarray, dict]:
+    """Грани «внутренности» (ниша, проём, низ): у грани видимых пикселей ≥ min_px и доля заслонённых (occl ≥ pixel_min) ≥ face_share. → (bool по граням, сводка).
+    Такие грани роль-группе не принадлежат: тон по ним — тень, а не материал; остаются как в 06/07."""
+    occ = rules['occlusion']
+    fid = ids[valid]
+    o = occl[valid] >= float(occ['pixel_min'])
+    cnt = np.bincount(fid, minlength=nF)
+    hit = np.bincount(fid, weights=o.astype(np.float64), minlength=nF)
+    inner = (cnt >= int(occ['face_min_px'])) & (hit >= float(occ['face_share']) * np.maximum(cnt, 1))
+    return inner, {'px_заслонённых_доля': round(float(o.mean()), 4) if len(o) else 0.0, 'граней_внутренность': int(inner.sum())}
+
+
+def interior_clusters(V: np.ndarray, F: np.ndarray, inner: np.ndarray, area: np.ndarray, rules: dict) -> np.ndarray:
+    """Одиночные «заслонённые» грани (край стыка, шов — шум по глубине) — не внутренность: оставляем только связные куски граней площадью ≥ min_area_frac площади меша (ниша — один большой кусок)."""
+    if not inner.any():
+        return inner
+    from scipy.sparse import coo_matrix
+    from scipy.sparse.csgraph import connected_components
+    ext = V.max(0) - V.min(0)
+    q = np.round(V / max(float(ext.max()) * 1e-5, 1e-12)).astype(np.int64)
+    _, inv = np.unique(q, axis=0, return_inverse=True)
+    Fw = inv[F[inner]]
+    nv = int(inv.max()) + 1
+    a = coo_matrix((np.ones(len(Fw) * 3), (np.r_[Fw[:, 0], Fw[:, 1], Fw[:, 2]], np.r_[Fw[:, 1], Fw[:, 2], Fw[:, 0]])), shape=(nv, nv))
+    _, lab_v = connected_components(a, directed=False)
+    fl = lab_v[Fw[:, 0]]
+    ar = np.bincount(fl, weights=area[inner])
+    ok_f = ar[fl] >= float(rules['occlusion']['min_area_frac']) * float(area.sum())
+    out = np.zeros(len(F), bool)
+    out[np.nonzero(inner)[0][ok_f]] = True
+    return out
+
+
+def ring_faces(ids: np.ndarray, valid: np.ndarray, inner: np.ndarray, nF: int, rules: dict) -> np.ndarray:
+    """Видимое кольцо вокруг внутренности: грани, большая часть пикселей которых (≥ ring_share) лежит в ring_frac × диагональ от пикселей внутренности. Боковая стенка ниши видна косо,
+    пикселей мало, заслонённость на косой плоскости не судится — но она рядом с дном ниши. Большая грань фасада (в кольце лишь малая часть пикселей) не берётся."""
+    import cv2
+    occ = rules['occlusion']
+    ys, xs = np.nonzero(valid)
+    if len(ys) == 0 or not inner.any():
+        return inner
+    diag = float(np.hypot(ys.max() - ys.min() + 1, xs.max() - xs.min() + 1))
+    r = max(1, int(round(float(occ['ring_frac']) * diag)))
+    core = valid & inner[np.clip(ids, 0, nF - 1)]
+    dil = cv2.dilate(core.astype(np.uint8), cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (2 * r + 1, 2 * r + 1))).astype(bool) & valid
+    fid = np.clip(ids, 0, nF - 1)
+    tot = np.bincount(fid[valid], minlength=nF)
+    inn = np.bincount(fid[dil], minlength=nF)
+    return inner | ((tot > 0) & (inn >= float(occ['ring_share']) * tot))
+
+
+def grow_faces(V: np.ndarray, F: np.ndarray, inner: np.ndarray, rules: dict) -> np.ndarray:
+    """Внутренность растёт на грани рядом (расстояние между центрами граней ≤ grow_frac × диагональ меша): боковые стенки и кромка ниши тонкие, своих пикселей у них почти нет,
+    и заливка тоном соседней группы красила бы их чужим цветом. Грани внутренности остаются как в 06/07."""
+    if not inner.any():
+        return inner
+    from scipy.spatial import cKDTree
+    cen = V[F].mean(1)
+    diag = float(np.linalg.norm(V.max(0) - V.min(0)))
+    d, _i = cKDTree(cen[inner]).query(cen, k=1, distance_upper_bound=float(rules['occlusion']['grow_frac']) * diag)
+    return inner | np.isfinite(d)
 
 
 # ───────────────────────────── тон группы ─────────────────────────────
@@ -339,6 +439,75 @@ def compose(ctl: np.ndarray, texmap: np.ndarray, names: list, alb: dict, borrowe
         tex[m] = col
         painted |= m
     return tex, painted
+
+
+def keep_details(tex: np.ndarray, ctl: np.ndarray, texmap: np.ndarray, painted: np.ndarray, known: np.ndarray, names: list, keep: set, rules: dict) -> tuple[np.ndarray, dict]:
+    """Лицо = тон материала + МЕЛКИЕ детали фото: на известных (фото) текселях покрашенной группы цвет = плоский тон × (яркость фото / её сглаживание по той же группе),
+    поправка в [lo, hi]. Щели, кромки, зерно остаются (мельче ~sigma), запечённые тени и блики (крупнее) уходят в ровный тон. Сглаживание — нормированное по маске
+    «известно и та же группа»: через границу материалов и край фото не размывается. → (текстура, {группа: число текселей с деталью})."""
+    import cv2
+    dt = rules['details']
+    out = tex.copy()
+    T = tex.shape[0]
+    sg = max(1.0, float(dt['sigma_frac']) * T)
+    lin = srgb2lin(ctl.astype(np.float64))
+    Y = (lin * np.array([0.2126, 0.7152, 0.0722])).sum(-1).astype(np.float32)
+    done = {}
+    for gi, gn in enumerate(names):
+        if gn in keep:
+            continue
+        m = (texmap == gi) & painted & known
+        if int(m.sum()) < int(dt['min_texels']):
+            continue
+        mf = m.astype(np.float32)
+        bl = cv2.GaussianBlur(Y * mf, (0, 0), sg) / np.maximum(cv2.GaussianBlur(mf, (0, 0), sg), 1e-4)
+        ratio = np.clip(Y / np.maximum(bl, 1e-4), float(dt['lo']), float(dt['hi']))
+        flat = srgb2lin(tex[m].astype(np.float64))
+        out[m] = np.clip(lin2srgb(flat * ratio[m][:, None]) + 0.5, 0, 255).astype(np.uint8)
+        done[gn] = int(m.sum())
+    return out, done
+
+
+def face_gate(fin: np.ndarray, ctl: np.ndarray, region: np.ndarray, rules: dict) -> dict:
+    """Ворота «лицо против фото» (жёсткий отказ шага): кадры с ОДНОЙ камеры и тем же светом — после шага (fin) и до него (ctl: фото 06 на текстуре), только пиксели покрашенных групп (region).
+    1) share_far — доля пикселей, ушедших от фото дальше de_px (ΔE2000); blob — крупнейшее связное пятно таких пикселей, доля региона;
+    2) seam_ratio — «чёрная шляпа» по L (тонкие тёмные линии: щели, кромки) после шага / до шага на пикселях линий фото: потеря мелких деталей лица.
+    → {share_far, blob, seam_ratio|None, seam_px, fail: [причины]}."""
+    import cv2
+    gt = rules['gate']
+    n = int(region.sum())
+    res = {'region_px': n, 'share_far': None, 'blob': None, 'seam_ratio': None, 'seam_px': 0, 'fail': []}
+    if n < int(gt['min_region_px']):
+        res['fail'] = []
+        res['skipped'] = 'мало пикселей региона'
+        return res
+    lf, lc = lab_of(fin.reshape(-1, 3)).reshape(fin.shape), lab_of(ctl.reshape(-1, 3)).reshape(ctl.shape)
+    sg = float(gt.get('l_sigma_frac', 0) or 0) * fin.shape[0]
+    if sg > 0:                                                              # шаг снимает запечённый свет сам: плавную (низкочастотную) разницу светлоты не судим; цветность и мелкие детали — строго
+        m = region.astype(np.float32)
+        dl = (lf[..., 0] - lc[..., 0]).astype(np.float32) * m
+        lowd = cv2.GaussianBlur(dl, (0, 0), sg) / np.maximum(cv2.GaussianBlur(m, (0, 0), sg), 1e-3)
+        lc = lc.copy()
+        lc[..., 0] = lc[..., 0] + np.where(region, lowd, 0)
+    de = de2000(lf.reshape(-1, 3), lc.reshape(-1, 3)).reshape(fin.shape[:2])
+    far = (de > float(gt['de_px'])) & region
+    res['share_far'] = round(float(far.sum() / n), 4)
+    k, lab, stt, _c = cv2.connectedComponentsWithStats(far.astype(np.uint8), connectivity=8)
+    res['blob'] = round(float(stt[1:, cv2.CC_STAT_AREA].max() / n), 4) if k > 1 else 0.0
+    ker = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (int(gt['seam_kernel']), int(gt['seam_kernel'])))
+    bh_c = cv2.morphologyEx(lc[..., 0].astype(np.float32), cv2.MORPH_BLACKHAT, ker)
+    bh_f = cv2.morphologyEx(lf[..., 0].astype(np.float32), cv2.MORPH_BLACKHAT, ker)
+    sm = (bh_c > float(gt['seam_min_dl'])) & region
+    res['seam_px'] = int(sm.sum())
+    if res['seam_px'] >= int(gt['seam_min_px']):
+        res['seam_ratio'] = round(float(bh_f[sm].mean() / max(float(bh_c[sm].mean()), 1e-6)), 3)
+    if res['share_far'] > float(gt['max_share_far']):
+        res['fail'].append('доля ушедших от фото %.1f %% > %.1f %%' % (100 * res['share_far'], 100 * float(gt['max_share_far'])))
+    if res['blob'] > float(gt['max_blob']):
+        res['fail'].append('пятно %.1f %% региона > %.1f %%' % (100 * res['blob'], 100 * float(gt['max_blob'])))
+    if res['seam_ratio'] is not None and res['seam_ratio'] < float(gt['min_seam_ratio']):
+        res['fail'].append('мелкие детали лица (щели/кромки) %.2f от фото < %.2f' % (res['seam_ratio'], float(gt['min_seam_ratio'])))
+    return res
 
 
 def fit_albedo(names: list, tones: dict, borrowed: dict, keep: set, texmap: np.ndarray, ctl: np.ndarray, render_cam, label_map: np.ndarray, rules: dict) -> tuple[dict, list]:

@@ -104,6 +104,22 @@ def process(a, rules: dict, d: str, rep: dict) -> None:
         raise Abstain('ни одна роль не дала группу (unknown/conf < %s)' % rules['min_conf'])
     rep['groups'] = names
     n, area, _c = PM.face_geom(g['V'], g['F'])
+    vis0 = st['mask'] & (st['ids'] >= 0)                                    # «внутренность» (ниша, проём, низ): тень по форме — тон по ним не материал, грани группе не принадлежат
+    occl = PM.pixel_occlusion(st['depth'], vis0, st['cos'], st['px_len'], rules)
+    inner, oinfo = PM.interior_faces(np.clip(st['ids'], 0, nF - 1), occl, vis0, nF, rules)
+    inner = PM.interior_clusters(g['V'], g['F'], inner, area, rules)
+    oinfo['граней_кусками'] = int(inner.sum())
+    inner = PM.ring_faces(st['ids'], vis0, inner, nF, rules)
+    inner = PM.grow_faces(g['V'], g['F'], inner, rules)
+    flab = np.where(inner, len(names), flab).astype(np.int16)
+    wk0 = os.path.join(d, '_partmaterial')
+    os.makedirs(wk0, exist_ok=True)
+    mp_ = np.full(st['ids'].shape + (3,), 255, np.uint8)                                # карта внутренности для просмотра (--keep-work): серое — группы, красное — внутренность, белое — вне объекта
+    fid0 = np.clip(st['ids'], 0, nF - 1)
+    mp_[vis0] = (200, 200, 200)
+    mp_[vis0 & inner[fid0]] = (230, 40, 40)
+    Image.fromarray(mp_).save(os.path.join(wk0, 'interior-map.png'))
+    rep['interior'] = {**oinfo, 'граней_с_ростом': int(inner.sum()), 'доля_площади': round(float(area[inner].sum() / area.sum()), 4)}
     rep['area_share'] = {gn: round(float(area[flab == i].sum() / area.sum()), 4) for i, gn in enumerate(names)}
     P = np.asarray(Image.open(a.photo).convert('RGBA'))
     prgb, pmask = TV.photo_to_frame(P, st['P'], st['px'])
@@ -125,6 +141,11 @@ def process(a, rules: dict, d: str, rep: dict) -> None:
     ctl = ctl[..., :3].astype(np.uint8)
     T = ctl.shape[0]
     texmap = PM.uv_label_map(g['UV'], g['F'], flab, T)
+    pad = int(rules['occlusion'].get('texel_pad', 0))
+    if pad and (texmap == len(names)).any():                                # край острова внутренности не красим на pad текселей: билинейная фильтрация и мипы тянут цвет соседа на косую стенку
+        import cv2
+        near = cv2.dilate((texmap == len(names)).astype(np.uint8), np.ones((2 * pad + 1, 2 * pad + 1), np.uint8)).astype(bool)
+        texmap = np.where(near, len(names), texmap).astype(np.int16)
     work = os.path.join(d, '_partmaterial')
     os.makedirs(work, exist_ok=True)
     fit, tl = rules['fit'], rules['tools']
@@ -138,6 +159,7 @@ def process(a, rules: dict, d: str, rep: dict) -> None:
     PM.swap_tex_glb(base, labtex, basel, unlit=True)
     orb_cam = '%.2fdeg %.2fdeg %s' % (st['camera']['az'] % 360, 90 - st['camera']['el'], fit['radius'])
     S = int(fit['frame_px'])
+    SG = int(rules['gate']['frame_px'])
     PM.render_jobs([{'glb': basel, 'out': os.path.join(work, 'm-cam.png'), 'orbit': orb_cam, 'size': S}, {'glb': basel, 'out': os.path.join(work, 'm-top.png'), 'orbit': fit['top_orbit'], 'size': S}], rules, work)
     lm_cam = PM.read_label_frame(np.asarray(Image.open(os.path.join(work, 'm-cam.png')).convert('RGB')), len(names), pal, fit['label_dist'])
     lm_top = PM.read_label_frame(np.asarray(Image.open(os.path.join(work, 'm-top.png')).convert('RGB')), len(names), pal, fit['label_dist'])
@@ -151,9 +173,31 @@ def process(a, rules: dict, d: str, rep: dict) -> None:
     tex, painted = PM.compose(ctl, texmap, names, alb, borrowed, keep)
     if not painted.any():
         raise Abstain('нечего красить: у групп нет ни своего тона, ни донора')
-    # итоговые кадры для мерки
+    kp0 = os.path.join(d, KEEP['known.png'])                                # известное фото (06): исходник, если шаг уже гонялся, иначе нынешний known.png
+    kp0 = kp0 if os.path.exists(kp0) else os.path.join(d, 'known.png')
+    kn0 = (np.asarray(Image.open(kp0).convert('L')) > 127) if os.path.exists(kp0) else np.zeros(painted.shape, bool)
+    if kn0.shape != painted.shape:
+        kn0 = np.zeros(painted.shape, bool)
+    tex, det = PM.keep_details(tex, ctl, texmap, painted, kn0, names, keep, rules)       # лицо = тон + мелкие детали фото (щели, кромки, зерно)
+    rep['details_texels'] = det
+    # итоговые кадры для мерки и ворот «лицо против фото» (кадр до шага — фото 06 на той же геометрии)
     PM.swap_tex_glb(base, tex, os.path.join(work, 'fin.glb'), rough=rules['unlit_roughness'])
-    PM.render_jobs([{'glb': os.path.join(work, 'fin.glb'), 'out': os.path.join(work, 'fin-cam.png'), 'orbit': orb_cam, 'size': S}, {'glb': os.path.join(work, 'fin.glb'), 'out': os.path.join(work, 'fin-top.png'), 'orbit': fit['top_orbit'], 'size': S}], rules, work)
+    PM.swap_tex_glb(base, ctl, os.path.join(work, 'ctl.glb'), rough=rules['unlit_roughness'])
+    PM.render_jobs([{'glb': os.path.join(work, 'fin.glb'), 'out': os.path.join(work, 'fin-cam.png'), 'orbit': orb_cam, 'size': S}, {'glb': os.path.join(work, 'fin.glb'), 'out': os.path.join(work, 'fin-top.png'), 'orbit': fit['top_orbit'], 'size': S},
+                    {'glb': os.path.join(work, 'ctl.glb'), 'out': os.path.join(work, 'ctl-cam.png'), 'orbit': orb_cam, 'size': S},
+                    {'glb': os.path.join(work, 'fin.glb'), 'out': os.path.join(work, 'fin-cam-g.png'), 'orbit': orb_cam, 'size': SG},
+                    {'glb': os.path.join(work, 'ctl.glb'), 'out': os.path.join(work, 'ctl-cam-g.png'), 'orbit': orb_cam, 'size': SG}], rules, work)
+    import cv2
+    pgs = [gi for gi, gn in enumerate(names) if gn not in keep and (gn in alb or borrowed.get(gn) in alb)]
+    gskip = set(rules['gate'].get('skip_groups', []))
+    region = np.isin(lm_cam, [gi for gi in pgs if names[gi] not in gskip])       # группы с намеренным отходом от фото (ножки — тон лучшей, TG 2703) не судим
+    if fit['erode_px']:
+        region = cv2.erode(region.astype(np.uint8), np.ones((2 * int(fit['erode_px']) + 1,) * 2, np.uint8)).astype(bool)
+    region = cv2.resize(region.astype(np.uint8), (SG, SG), interpolation=cv2.INTER_NEAREST).astype(bool)      # ворота — на кадре покрупнее: щели в 1–2 px на 420 не видны
+    gate = PM.face_gate(np.asarray(Image.open(os.path.join(work, 'fin-cam-g.png')).convert('RGB')), np.asarray(Image.open(os.path.join(work, 'ctl-cam-g.png')).convert('RGB')), region, rules)
+    rep['gate'] = gate
+    if gate['fail']:
+        raise Abstain('ворота «лицо против фото»: ' + '; '.join(gate['fail']))
     met = {}
     for gi, gn in enumerate(names):
         t = tones[gn]

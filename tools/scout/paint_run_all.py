@@ -167,6 +167,19 @@ def _subst(argv: list, ctx: dict) -> list:
     return out
 
 
+def _step_on(s: dict, ctx: dict) -> bool:
+    """Шаг с `enabled_by` ({file, key}: файл правил от корня репо, ключ верхнего уровня) выпадает из плана, пока флаг там не true:
+    выключенный шаг не берёт слот heavy-slot и не пишет ничего (T-63: ВЫКЛ = main)."""
+    e = s.get('enabled_by')
+    if not e:
+        return True
+    try:
+        with open(os.path.join(ctx['root'], e['file']), encoding='utf-8') as f:
+            return bool(json.load(f).get(e['key']))
+    except (OSError, ValueError):
+        return False                                                                # нет файла правил — шаг не нужен
+
+
 def resolve_steps(stage: dict, ctx: dict, extra: dict | None = None) -> list:
     """Шаги этапа с подставленными путями: [{argv, heavy, retry_extra}]. Пустое `{channels}`/`{product_role}` — соответствующие флаги выпадают (`optional`)."""
     steps = []
@@ -176,6 +189,8 @@ def resolve_steps(stage: dict, ctx: dict, extra: dict | None = None) -> list:
             raise KeyError(f"у этапа python {stage['python']!r}, а в правилах `pythons` его нет")
         ctx['py'] = ctx['pythons'][stage['python']]
     for s in stage.get('steps', []):
+        if not _step_on(s, ctx):
+            continue
         argv = []
         for tok in s['argv']:
             m = _PH.fullmatch(tok)
