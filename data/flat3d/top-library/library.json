@@ -785,6 +785,115 @@
    "pattern_class": "straight",
    "pattern_class_metric": "straight",
    "pattern_class_source": "метрика"
+  },
+  "Wood061": {
+   "lab": [
+    80.06,
+    6.29,
+    14.9
+   ],
+   "lab_std": [
+    4.41,
+    1.4,
+    2.44
+   ],
+   "grain_axis": "u",
+   "grain_strength": 0.374,
+   "tile_cm": [
+    0,
+    0
+   ],
+   "sha256_zip": "7dd9edc97d36f2cdb12fd698751e8f2705194c32bba2caa337da0e5506a6549c",
+   "path": "raw/Wood061",
+   "family": "wood",
+   "pattern_metrics": {
+    "swirl_share16": 0.005,
+    "n_blocks": 824
+   },
+   "pattern_class": "straight",
+   "pattern_class_metric": "straight",
+   "pattern_class_source": "метрика",
+   "license": "CC0 (ambientCG)",
+   "source_asset": "Wood061",
+   "added": "T-20261125-69/6"
+  },
+  "Wood017L": {
+   "lab": [
+    75.99,
+    1.52,
+    10.88
+   ],
+   "lab_std": [
+    1.55,
+    0.49,
+    0.74
+   ],
+   "grain_axis": "u",
+   "grain_strength": 0.82,
+   "tile_cm": [
+    0,
+    0
+   ],
+   "sha256_zip": "6224dd830f69f2bfa21ad89a679a64881df20c2a0ddff8b6b38e03b3d9c8fab9",
+   "path": "raw/Wood017",
+   "family": "wood",
+   "pattern_metrics": {
+    "swirl_share16": 0.008,
+    "n_blocks": 1018
+   },
+   "pattern_class": "straight",
+   "pattern_class_metric": "straight",
+   "pattern_class_source": "метрика",
+   "license": "CC0 (ambientCG)",
+   "source_asset": "Wood017",
+   "added": "T-20261125-69/6",
+   "derived_from": "Wood017",
+   "derive": {
+    "target_L": 76.0,
+    "target_a": 1.5,
+    "target_b": 11.0,
+    "chroma_var": 0.8
+   },
+   "derive_doc": "серый/выбеленный дуб: тонкое прямое волокно с годовыми кольцами Wood017 (L 65), осветлён до L 76, цвет почти нейтральный"
+  },
+  "Wood095L": {
+   "lab": [
+    79.01,
+    2.83,
+    14.16
+   ],
+   "lab_std": [
+    2.57,
+    0.54,
+    0.81
+   ],
+   "grain_axis": "u",
+   "grain_strength": 0.605,
+   "tile_cm": [
+    0,
+    0
+   ],
+   "sha256_zip": "04acff5a13e8ada6749b58ff5f6c49402692aadbfde87d65b06d35d70a9601d8",
+   "path": "raw/Wood095",
+   "family": "wood",
+   "pattern_metrics": {
+    "swirl_share16": 0.046,
+    "n_blocks": 992
+   },
+   "pattern_class": "straight",
+   "pattern_class_metric": "straight",
+   "pattern_class_source": "метрика",
+   "license": "CC0 (ambientCG)",
+   "source_asset": "Wood095",
+   "added": "T-20261125-69/6",
+   "derived_from": "Wood095",
+   "derive": {
+    "target_L": 79.0,
+    "target_a": 3.0,
+    "target_b": 14.0,
+    "chroma_var": 0.6
+   },
+   "derive_doc": "ясень/берёза: волокно Wood095 (L 68, b 31) осветлено до L 79 и обесцвечено"
   }
  }
 }

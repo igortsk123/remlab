@@ -3178,6 +3178,8 @@ def run_stage_once(run: str, sku: str, glb: str, known: list | None = None, part
             _new.append(ta_)
         tex_after = _new
         rep['legs_restored_texels'] = _lc                                   # сколько текселей ножек хуки успели изменить (и вернули)
+    if _gm:                                                                  # T-20261125-69/6: зерно шага part_grain лежит на «неизвестных» текселях, которые заливка/хуки перекрашивают сами — после ВСЕХ хуков вернуть тексель входа 06 (тон Ш4а + зерно)
+        tex_after, _gm_rep['final_restored_texels'] = grain_restore(tex_after, tex_before, _gm)
     _m = _hmark()
     pick['finish'](tex_after, None if sg_pas is None else SP.ref_maps(geoms, k_keep, sg_pas, sg_ctx))                                          # мерки — по ИТОГОВОЙ текстуре (после ref_zone_map, own_panel, top_prior), не по текстуре до хуков
     _hdone(hooks, 'finish_final', _m)

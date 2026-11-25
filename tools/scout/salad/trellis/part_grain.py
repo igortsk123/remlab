@@ -37,7 +37,7 @@ def load_rules(path: str = RULES_PATH) -> dict:
         r = json.load(fh)
     if not (0 < r['amp_min'] < r['amp_max'] <= 1.0):
         raise ValueError('part-grain.json: amp_min/amp_max вне пределов (0 < min < max ≤ 1)')
-    if not (0 < r['photo_sigma_min'] < 10) or not (0 < r['even_tone_sigma_max'] < 20) or r['min_texels'] < 1 or r['round_ratio'] < 1.0:
+    if not (0 <= r['photo_flat_max'] <= r['photo_sigma_min']) or not (0 < r['photo_sigma_min'] < 10) or not (0 < r['even_tone_sigma_max'] < 20) or r['min_texels'] < 1 or r['round_ratio'] < 1.0:
         raise ValueError('part-grain.json: пороги вне допустимых пределов')
     if len(r['tile_layers']) < 1 or len(r['no_tile_layers']) < 1:
         raise ValueError('part-grain.json: нужен хотя бы один слой шага')
@@ -145,6 +145,10 @@ def plan_grain(parts: list, rules: dict | None = None) -> dict:
             continue
         rec['pat'], rec['pat_std'] = pat, pstd
         ps = p.get('photo_sigma')
+        if ps is not None and float(ps) < rules['photo_flat_max']:      # T-69/6: рисунка на фото нет вовсе (плоская МДФ/лак) — зерно только вредит (замер 13 товаров), соседей не слушаем
+            rec['reason'] = 'flat_photo'
+            rec['pat'] = None
+            continue
         if ps is not None and float(ps) >= rules['photo_sigma_min']:
             amp = float(np.clip(float(ps) / max(pstd, 1e-6), rules['amp_min'], rules['amp_max']))
             rec.update(amp=amp, amp_source='photo')

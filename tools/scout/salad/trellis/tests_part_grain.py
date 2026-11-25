@@ -99,13 +99,21 @@ def main():
     check(R['amp_min'] <= pl[1]['amp'] <= R['amp_max'], 'амплитуда в [amp_min, amp_max]')
 
     # 5. предохранитель 2: σ фото < порога → медиана соседей с рисунком; соседей нет → зерна нет
-    pl = PG.plan_grain([part(1, photo_sigma=2.0), part(2, photo_sigma=3.0), part(3, photo_sigma=0.5), part(4, photo_sigma=None)], R)
+    pl = PG.plan_grain([part(1, photo_sigma=2.0), part(2, photo_sigma=3.0), part(3, photo_sigma=0.7), part(4, photo_sigma=None)], R)
     med = float(np.median([pl[1]['amp'], pl[2]['amp']]))
     check(pl[3]['apply'] and pl[3]['amp_source'] == 'neighbors' and abs(pl[3]['amp'] - med) < 1e-9, 'σ фото ниже порога → амплитуда = медиана соседей с рисунком')
     check(pl[4]['apply'] and pl[4]['amp_source'] == 'neighbors', 'фото нет → то же правило (соседи)')
-    pl = PG.plan_grain([part(1, photo_sigma=0.5), part(2, photo_sigma=None)], R)
+    pl = PG.plan_grain([part(1, photo_sigma=0.7), part(2, photo_sigma=None)], R)
     check(not pl[1]['apply'] and pl[1]['reason'] == 'no_photo_evidence' and not pl[2]['apply'], 'ни у кого рисунка на фото нет → зерна нет (no_photo_evidence)')
     check(pl[1]['pat'] is None, 'у отказа узор не хранится')
+
+    # 5б. T-69/6: плоское фото (σ < photo_flat_max) — зерна нет совсем, соседи не спасают; граница включительно вверх
+    pl = PG.plan_grain([part(1, photo_sigma=2.0), part(2, photo_sigma=0.12), part(3, photo_sigma=R['photo_flat_max'] - 0.01), part(4, photo_sigma=R['photo_flat_max'])], R)
+    check(not pl[2]['apply'] and pl[2]['reason'] == 'flat_photo' and pl[2]['pat'] is None, 'σ фото 0,12 (белая МДФ) → flat_photo, зерна нет, хотя у соседа рисунок есть')
+    check(pl[3]['reason'] == 'flat_photo' and pl[4]['apply'] and pl[4]['amp_source'] == 'neighbors', 'граница: чуть ниже photo_flat_max — нет зерна, на границе и выше (до photo_sigma_min) — амплитуда соседей')
+    check(pl[1]['apply'] and pl[1]['amp_source'] == 'photo', 'сосед с рисунком не затронут')
+    pl = PG.plan_grain([part(1, photo_sigma=0.1), part(2, photo_sigma=None)], R)
+    check(not pl[1]['apply'] and not pl[2]['apply'] and pl[2]['reason'] == 'no_photo_evidence', 'плоская группа не считается доказательством для соседей без фото')
 
     # 6. отказы с причинами
     pl = PG.plan_grain([part(1, is_wood=False), part(2, n_texels=100), part(3, tone_sigma=5.0), part(4, tone_lab=None), part(5, photo_sigma=2.0)], R)
