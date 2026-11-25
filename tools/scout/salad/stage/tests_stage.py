@@ -645,11 +645,12 @@ vs, fs = os.path.join(d08, 'vis_seam'), os.path.join(d08, 'fill_seam')
 os.makedirs(vs, exist_ok=True)
 os.makedirs(fs, exist_ok=True)
 open(os.path.join(fs, 'filled.glb'), 'wb').write(b'x')
+open(os.path.join(fs, 'report.json'), 'wb').write(b'{}')
 for n in ('known.png', 'conf.png', 'prov.png', 'prov1.png', 'known1.png', 'frame.png', 'visible.glb', 'check.json'):
     open(os.path.join(vs, n), 'wb').write(b'x')
 zs = sorted(zipfile.ZipFile(io.BytesIO(ST.input_zip_seam(vs, fs, b'TAR', None))).namelist())
-ok(all(f'06-visible/{n}' in zs for n in ('known.png', 'conf.png', 'prov.png', 'prov1.png', 'known1.png')) and '07-fill/filled.glb' in zs and '06-visible/visible.glb' not in zs and '06-visible/frame.png' not in zs,
-   f'input_zip_seam: known*/conf*/prov*.png + filled.glb, без visible.glb и кадра ({zs})')
+ok(all(f'06-visible/{n}' in zs for n in ('known.png', 'conf.png', 'prov.png', 'prov1.png', 'known1.png')) and '07-fill/filled.glb' in zs and '07-fill/report.json' in zs and '06-visible/visible.glb' not in zs and '06-visible/frame.png' not in zs,
+   f'input_zip_seam: known*/conf*/prov*.png + filled.glb + report.json (решение 07 о synth), без visible.glb и кадра ({zs})')
 need08 = ['product.json', '04-camera/check.json', '06-visible/check.json']
 ok(WS.missing_inputs('08', need08 + ['07-fill/filled.glb']) == [] and WS.missing_inputs('08', need08 + ['07-seam/seam.glb']) == [], 'вход 08: хватает шва ИЛИ filled.glb')
 ok(len(WS.missing_inputs('08', need08)) == 1 and 'product.json' in WS.missing_inputs('08', ['07-fill/filled.glb', '04-camera/check.json', '06-visible/check.json']), 'вход 08: без модели и без product.json — отказ с именами')
