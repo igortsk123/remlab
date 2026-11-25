@@ -3200,6 +3200,14 @@ def run_stage_once(run: str, sku: str, glb: str, known: list | None = None, part
     _m = _hmark()
     rep['texel_fill'] = write_glb(geoms, tex_after, os.path.join(d, 'filled.glb'), pad=True)
     _hdone(hooks, 'write_glb', _m)
+    import stage_mask_gate as _SMG                              # импорт вне try: нет модуля = отказ этапа (как у остальных зависимостей)
+    try:                                                       # контракт «маска разрешено менять» (T-20261124-23/в2): защищено = известное, что этап обещает не менять (k0 минус освобождённое слабое фото), и не «незакрашенное» (чёрное/магента)
+        _prot = [np.asarray(a, bool) & ~unpainted_mask(b) for a, b in zip((pick.get('keep') or known), tex_before)]
+        if _kn_released:
+            _prot = [p_ & ~np.asarray(r_, bool) for p_, r_ in zip(_prot, _kn_released)]
+        _SMG.write_allowed(d, [~p_ for p_ in _prot])
+    except Exception as _e:  # noqa: BLE001 — маска не должна ронять этап: нет файла = «маска не заявлена» (ворота строгие)
+        rep['changed_allowed_error'] = f'{type(_e).__name__}: {_e}'[:200]
     _m = _hmark()
     sides = side_azimuths(geoms, known)                        # зад — сторона без фото по known (не фиксированный 180: формы лежат передом в разные стороны)
     rep['frame_sides'] = sides
@@ -3250,7 +3258,7 @@ def run_stage_once(run: str, sku: str, glb: str, known: list | None = None, part
     with open(os.path.join(d, 'report.json'), 'w', encoding='utf-8') as f:
         json.dump(report, f, ensure_ascii=False, indent=1, default=lambda o: o.item() if hasattr(o, 'item') else str(o))
     check = PS.write_check(d, out_name or STAGE, sku, None, dict(metrics['empty_pct'], name='empty_pct'), '', metrics={k: v for k, v in metrics.items() if k != 'empty_pct'}, seconds=secs,
-                           outputs=['filled.glb', 'report.json'], frame=PS.FRAME, cpu_model=rep['cpu_model'], known_pct=rep['known_pct'], mirrored_pct=rep['mirrored_pct'], empty_before_pct=rep['unpainted_before_pct'], empty_by_view=rep['unpainted_by_view'], steps=rep['steps'], parts=parts_note, source_used=used, source_tried=tried, pattern_metric=rep['pattern_metric'], pattern_src=rep.get('pattern_src'), paint_policy=rep.get('paint_policy'), stage6=s6, quilt_rejected=rep.get('quilt_rejected'), rules=_dz_rules + _tp_rules + _sg_rules)
+                           outputs=['filled.glb', 'report.json'] + (['changed-allowed.png'] if os.path.exists(os.path.join(d, 'changed-allowed.png')) else []), frame=PS.FRAME, cpu_model=rep['cpu_model'], known_pct=rep['known_pct'], mirrored_pct=rep['mirrored_pct'], empty_before_pct=rep['unpainted_before_pct'], empty_by_view=rep['unpainted_by_view'], steps=rep['steps'], parts=parts_note, source_used=used, source_tried=tried, pattern_metric=rep['pattern_metric'], pattern_src=rep.get('pattern_src'), paint_policy=rep.get('paint_policy'), stage6=s6, quilt_rejected=rep.get('quilt_rejected'), rules=_dz_rules + _tp_rules + _sg_rules)
     _PD_TEX.update(key=None, txs=None)
     return {'check': check, 'report': rep, 'geoms': geoms, 'tex_before': tex_before, 'tex_after': tex_after, 'known': known, 'parts': parts, 'dir': d, 'deltaE': de, 'kback': kback}
 

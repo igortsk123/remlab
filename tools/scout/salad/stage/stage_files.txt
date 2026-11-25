@@ -29,6 +29,7 @@ tools/scout/salad/trellis/texture_synth.py
 tools/scout/salad/trellis/top_prior.py
 tools/scout/salad/trellis/tex_seam.py
 tools/scout/salad/trellis/seam_stage.py
+tools/scout/salad/trellis/stage_mask_gate.py
 tools/scout/salad/trellis/tex_visible.py
 tools/scout/salad/trellis/crease_mask.py
 tools/scout/salad/trellis/shadow_leak.py
@@ -39,6 +40,7 @@ tools/scout/rules/asset-strategies.json
 tools/scout/rules/mesh-type-passports.json
 tools/scout/rules/edge-sharpen.json
 tools/scout/rules/paint-fill.json
+tools/scout/rules/stage-mask-gate.json
 tools/scout/rules/ref-zone.json
 tools/scout/rules/top-prior.json
 tools/scout/rules/mesh-color-guard.json
