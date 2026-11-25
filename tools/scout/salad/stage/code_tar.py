@@ -34,7 +34,7 @@ SLICES = ('tools/scout/salad/trellis', 'tools/scout/rules',          # беру�
           'data/flat3d/material-part-rules.json', 'data/flat3d/parts-sam-rules.json')    # данные Ш3в в 07: узоры верха (pat512) + библиотека, правила класса материала и его код (T-187/7)
 ASSETS = 'tools/assets'                                                   # части граней (материал/ножки): tex_fill ленивo импортирует их из tools/assets (sys.path.insert внутри функции) — T-193/3
 DIRS = tuple(WS.CODE_DIRS) + (ASSETS,)                                    # где искать наши модули по имени (как sys.path этапа + tools/assets)
-FULL_EXTRA = ('tools/scout/paint_stage.py', 'tools/scout/salad/recolor_lp.py',
+FULL_EXTRA = ('tools/scout/paint_stage.py', 'tools/scout/part_grain_stage.py', 'tools/scout/salad/recolor_lp.py',      # part_grain_stage — шаг зерна после Ш4а (T-69/4): его импорты (part_grain → parts_role_planes → parts_role_cleanup) едут в срез
               'tools/assets/material_parts.py', 'tools/assets/parts_refine.py', 'tools/assets/parts_vote.py', 'tools/assets/part_shapes.py')   # кроме точек входа и trellis/**: учитываем и отложенные импорты (parts_refine: `from parts_vote import` внутри функции)
 DATA_FILES = ('data/flat3d/material-part-rules.json', 'data/flat3d/parts-sam-rules.json')   # правила модулей tools/assets (их RULES_PATH = ROOT/data/flat3d/…); едут в срезе вместе с модулями
 FRONT_AXIS_PY = 'tools/scout/front_axis.py'
