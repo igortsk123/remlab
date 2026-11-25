@@ -22,6 +22,7 @@ source: manual
 | Полный протокол план → «деплой» | `guides/agent-workflow.md` |
 | Стандарты кода; чеклист ревью | `guides/code-standards.md` · `guides/review-rules.md` |
 | Как писать правила `.claude/rules/` | `guides/how-to-write-rules.md` |
+| Перечни, форматы, процедуры, вынесенные из правил P-070/071/072/073/075 (правила ≤6 КБ) | `guides/rule-ref-p070.md` · `rule-ref-p071.md` · `rule-ref-p072.md` · `rule-ref-p073.md` · `rule-ref-p075.md` |
 | Как история попадает в память (слои, мост, хуки, гейты) | `guides/memory-automation.md` |
 | Расстановка: устройство прод-ядра | `guides/layout-engine-spec.md` |
 | Расстановка: правила из внешних источников (ProcTHOR, Infinigen, Holodeck) | `guides/layout-mined-rules.md` |
