@@ -134,6 +134,8 @@ jobs:
       - run: pip install numpy scipy pillow && python tools/assets/tests/test_sides_eval.py && python tools/scout/front_axis.py --selftest && python tools/scout/salad/trellis/silhouette_edge_angle.py --selftest && python tools/scout/tests/test_front_axis_witness.py
       # «фронт сплошной» (T-20261124-18, front_continuity.py): полосы чужого тона и пятна по фронту корпусных; пороги — data/flat3d/front-continuity.json
       - run: pip install numpy scipy pillow && python tools/assets/tests/test_front_continuity.py
+      # мерка «по поверхностям» без света сайта (tools/assets/surface_eval.py, T-20261124-65): перёд/бок/верх/зад модели против своей полосы на фото, синтетический ящик, без сети; пороги — data/flat3d/surface-eval.json
+      - run: pip install numpy scipy pillow trimesh opencv-python-headless && python tools/assets/tests/test_surface_eval.py
 
   plan-evidence:
     # Процент пункта плана — из доказательств (T-20261123-48/6): ручной ≥ 90 % без ev: или расхождение > 10 п. у пункта с ev печатаются предупреждением, сборку не валят
