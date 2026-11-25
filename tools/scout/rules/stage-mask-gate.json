@@ -1,0 +1,14 @@
+{
+  "_doc": "Ворота «этап красит только заявленную маску» (T-20261124-23/г, директор 24.11): сравнение карты цвета ДО и ПОСЛЕ этапа (этапы ≥06) по маскам этапа 6 — prov.png (1 direct, 2 splat, 3 hole = тексели по фото; 4 synth = тон с острого угла, не фото; 0 — не известно) и лицо по нормали к оси лица. Ворота: изменённых фото-текселей — не больше max_changed.photo (0, байт в байт). Остальные счётчики — справочные, пока для них не заявлена маска. Нет карты/оси/сбой чтения — «не измерено» = отказ, не тихий пропуск. Все пороги — гипотезы до таблицы по кругу.",
+  "enabled": true,
+  "photo_prov": [1, 2, 3],
+  "synth_prov": [4],
+  "face_cos": 0.7,
+  "max_changed": {"photo": 0},
+  "chain": [
+    {"stage": "07", "before": ["06-visible/visible.glb"], "after": ["07-fill/filled.glb"]},
+    {"stage": "07b", "before": ["07-fill/filled.glb"], "after": ["07b-body/filled.glb"]},
+    {"stage": "seam", "before": ["07b-body/filled.glb", "07-fill/filled.glb"], "after": ["07-seam/seam.glb"]},
+    {"stage": "08", "before": ["07-seam/seam.glb", "07b-body/filled.glb", "07-fill/filled.glb"], "after": ["08-material/material.glb"]}
+  ]
+}
