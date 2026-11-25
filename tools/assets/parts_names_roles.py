@@ -17,6 +17,8 @@
      Ножки/каркас/ручки/плафон, не подтверждённые геометрией, по-прежнему `unknown:name_geometry` (другой канал — подставлять корпус нельзя).
   ⑥ `name_relax` (T-20261124-64): имя назвало роль (legs), строгая геометрия группы не прошла, но часть стоит на полу и тонкая — ослабленная геометрия (`parts_roles.role_fit_relaxed`: те же условия группы без «касается тела» и потолка
      up_q90 ≤ 0,4, свой потолок 0,6) → роль с пометкой `relaxed`; только группы из таблицы (seating). Выключатель `enabled`.
+  ⑦ `no_rule_other_channel` (T-20261124-64): имя назвало роль другого канала (не main), у группы товара правила этой роли нет (рама лампы: у lamp только shade) → unknown:no_channel, а не name_geometry (геометрию не проверяли
+     — проверять нечего). Роли основного канала (top/facade) не затрагивает. Меняет причину и знаменатель мерки, не роль и не покраску.
 Режим — `mode` в таблице: `off` | `dry` (по умолчанию; роли только в отчёт) | `on` (поля пишутся в parts.json). Мерка — `parts_roles.known_role_area_share` ≥ `metric.min`,
 знаменатель без частей `unknown:no_channel` (у типа канала нет — не провал, отдельная строка; П-2).
 """
@@ -169,6 +171,11 @@ def bridge_roles(names: dict[int, str], feats: dict[int, dict], rules: dict, rol
                 out[p]["relaxed"] = True
         elif why == "no_channel":                                                  # у товара нет такого канала в каталоге (плафон без «shade»): не провал геометрии
             out[p] = {**_done(role_rules, "unknown", f"название «{name}» → {role}, но канала «{role}» у товара в каталоге нет", rc["unknown"], "no_channel"), "name": name}
+        elif (why == "no_rule" and (rules.get("no_rule_other_channel") or {}).get("enabled")
+              and pro.role_channel(role_rules, grp, role) != pro.role_channel(role_rules, grp, "body")):
+            # у группы правила роли НЕТ, и канал роли — не корпусной (ножки/каркас/ручки/плафон): типу такой канал не положен (рама лампы) — это не «геометрия не подтвердила»
+            out[p] = {**_done(role_rules, "unknown", f"название «{name}» → {role}, но у типа «{product_role}» такого канала материала нет (у группы нет правила роли)", rc["unknown"], "no_channel"), "name": name,
+                      "geometry_why": why}
         elif (gf_on and (gf.get("to_body") or {}).get("enabled") and _body_allowed(grp, product_role)
               and pro.role_channel(role_rules, grp, role) == pro.role_channel(role_rules, grp, "body")):
             # фасад/верх по имени, геометрия не подтвердила (самая крупная часть, фасад слит с корпусом, «ящик» с дном): канал каталога тот же, что у корпуса, — корпус, а не «нет роли»
