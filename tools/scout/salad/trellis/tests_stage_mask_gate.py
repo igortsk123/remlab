@@ -178,8 +178,43 @@ def t_uncovered_allowed():
 
 def t_rules():
     assert R['max_changed']['photo'] == 0 and R['photo_prov'] == [1, 2, 3] and R['synth_prov'] == [4]
-    assert [c['stage'] for c in R['chain']] == ['07', '07b', 'seam', '08']
+    assert [c['stage'] for c in R['chain']] == ['4a', '07', '07b', 'seam', '08']
     print('ok rules')
+
+
+def t_part_material_stage():
+    """Ш4а (T-20261124-63, п.8г): цепочка 4a = 06-visible/visible.pre-partmaterial.glb → visible.glb, маска `06-visible/changed-allowed.png`; запись вне маски — отказ, внутри — ok; без выхода Ш4а (воздержался) этапа в цепочке нет."""
+    from PIL import Image
+    tex, prov = base()
+    with tempfile.TemporaryDirectory() as tmp:
+        sd = os.path.join(tmp, 'sku1')
+        vis = os.path.join(sd, '06-visible')
+        os.makedirs(vis)
+        Image.fromarray(prov).save(os.path.join(vis, 'prov.png'))
+        box_glb(os.path.join(vis, 'visible.glb'), tex)
+        assert [p[0] for p in G.chain_pairs(sd, R)] == [], 'воздержался (нет visible.pre-partmaterial.glb) — этапа нет'
+        a = tex.copy()
+        a[8:14, 0:8] = (10, 20, 30)                       # Ш4а покрасил «лицо» (фото-тексели) внутри заявленной маски
+        box_glb(os.path.join(vis, 'visible.pre-partmaterial.glb'), tex)
+        box_glb(os.path.join(vis, 'visible.glb'), a)
+        allowed = np.zeros((T, T), bool)
+        allowed[8:14, 0:8] = True
+        G.write_allowed(vis, [allowed], R)
+        pairs = G.chain_pairs(sd, R)
+        assert [p[0] for p in pairs] == ['4a'], pairs
+        res = G.table(tmp, ['sku1'], R)
+        m = res['sku1']['4a']['m']
+        assert m['mask'] == 'declared' and m['undeclared_changed'] == 0 and m['photo_changed'] == 48 and res['sku1']['4a']['gate']['ok'] is True, m
+        a2 = a.copy()
+        a2[40, 40] = tex[40, 40] ^ 1                      # один байт вне маски — ворота обязаны отказать
+        box_glb(os.path.join(vis, 'visible.glb'), a2)
+        res = G.table(tmp, ['sku1'], R)
+        g = res['sku1']['4a']['gate']
+        assert res['sku1']['4a']['m']['undeclared_changed'] == 1 and g['ok'] is False and 'undeclared_changed 1' in g['violations'][0], res
+        os.remove(os.path.join(vis, 'changed-allowed.png'))
+        res = G.table(tmp, ['sku1'], R)
+        assert res['sku1']['4a']['m']['mask'] == 'missing' and res['sku1']['4a']['gate']['ok'] is False, 'маски нет — строго по фото'
+    print('ok part_material stage')
 
 
 if __name__ == '__main__':
@@ -189,4 +224,5 @@ if __name__ == '__main__':
     t_attach_chain()
     t_allowed_contract()
     t_uncovered_allowed()
+    t_part_material_stage()
     print('ВСЕ OK')

@@ -244,7 +244,19 @@ fo = np.zeros((200, 200, 3), np.uint8); fo[:] = (200, 90, 50)                   
 grad = np.linspace(0.65, 1.0, 200)[None, :, None]
 fo_g = (fo * grad).astype(np.uint8)
 check(PM.face_gate(fo, fo_g, rg, R)['fail'] == [], 'ворота: снят плавный запечённый свет (тот же цвет) — проходит')
-fp = np.zeros((200, 200, 3), np.uint8); fp[:] = (230, 200, 190)                       # бледный верх вместо оранжевого
+dots = np.full((400, 400, 3), 200, np.uint8); dots[::8, ::8] = 60; dots[1::8, ::8] = 60            # перфорация/сетка: тёмные точки, не щели
+rg4 = np.zeros((400, 400), bool); rg4[20:380, 20:380] = True
+gd = PM.face_gate(np.full((400, 400, 3), 200, np.uint8), dots, rg4, R)
+check(gd['seam_ratio'] is None and gd['seam_px'] == 0 and not any('щели' in x for x in gd['fail']), 'ворота: точки сетки не считаются щелями (нет «потери деталей» от узора)')
+hand = np.full((400, 400, 3), 225, np.uint8); hand[150:162, 200:208] = 90                       # ручка: тёмная компактная деталь на лице
+hand_gone = np.full((400, 400, 3), 225, np.uint8)
+g_h = PM.face_gate(hand_gone, hand, rg4, R)
+check(g_h['spot_ratio'] is not None and g_h['spot_ratio'] < 0.1 and any('ручки' in x for x in g_h['fail']), 'ворота: ручка стёрта плоской заливкой — отказ (пятна)')
+g_h2 = PM.face_gate(hand.copy(), hand, rg4, R)
+check(g_h2['spot_ratio'] is not None and abs(g_h2['spot_ratio'] - 1) < 0.02 and g_h2['fail'] == [], 'ворота: ручка сохранена — проходит, число 1,0')
+g_h3 = PM.face_gate(np.full((400, 400, 3), 200, np.uint8), dots, rg4, R)
+check(g_h3['spot_ratio'] is None, 'ворота: точки сетки не пятна (слишком малы)')
+fp = np.zeros((200, 200, 3), np.uint8); fp[:] = (230, 200, 190)                     # бледный верх вместо оранжевого
 check(any('доля' in x for x in PM.face_gate(fp, fo, rg, R)['fail']), 'ворота: цвет ушёл (оранжевый → бледный) — отказ даже при снятии света')
 
 # ── seed k-means: тон и доля воспроизводимы между вызовами

@@ -18,6 +18,15 @@
   },
   "chain": [
     {
+      "stage": "4a",
+      "before": [
+        "06-visible/visible.pre-partmaterial.glb"
+      ],
+      "after": [
+        "06-visible/visible.glb"
+      ]
+    },
+    {
       "stage": "07",
       "before": [
         "06-visible/visible.glb"

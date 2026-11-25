@@ -35,6 +35,7 @@ import part_material as PM  # noqa: E402
 VERSION = 1
 STAGE_DIR = '06-visible'
 OUT = 'part_material.json'
+ALLOWED = 'changed-allowed.png'            # имя — allowed_file из tools/scout/rules/stage-mask-gate.json
 KEEP = {'visible.glb': 'visible.pre-partmaterial.glb', 'known.png': 'known.pre-partmaterial.png', 'conf.png': 'conf.pre-partmaterial.png'}
 
 
@@ -76,6 +77,8 @@ def process(a, rules: dict, d: str, rep: dict) -> None:
     import tex_visible as TV
     from PIL import Image
     t0 = time.time()
+    if os.path.exists(os.path.join(d, ALLOWED)):                           # маска прошлого прогона не должна пережить воздержание
+        os.remove(os.path.join(d, ALLOWED))
     grp = PR.group_of(a.product_role or None)
     rep['group'] = grp
     if grp not in rules['groups']:
@@ -194,10 +197,9 @@ def process(a, rules: dict, d: str, rep: dict) -> None:
     if fit['erode_px']:
         region = cv2.erode(region.astype(np.uint8), np.ones((2 * int(fit['erode_px']) + 1,) * 2, np.uint8)).astype(bool)
     region = cv2.resize(region.astype(np.uint8), (SG, SG), interpolation=cv2.INTER_NEAREST).astype(bool)      # ворота — на кадре покрупнее: щели в 1–2 px на 420 не видны
+    Image.fromarray(region.astype(np.uint8) * 255).save(os.path.join(work, 'gate-region.png'))      # для разбора ворот на сохранённых кадрах
     gate = PM.face_gate(np.asarray(Image.open(os.path.join(work, 'fin-cam-g.png')).convert('RGB')), np.asarray(Image.open(os.path.join(work, 'ctl-cam-g.png')).convert('RGB')), region, rules)
     rep['gate'] = gate
-    if gate['fail']:
-        raise Abstain('ворота «лицо против фото»: ' + '; '.join(gate['fail']))
     met = {}
     for gi, gn in enumerate(names):
         t = tones[gn]
@@ -225,7 +227,9 @@ def process(a, rules: dict, d: str, rep: dict) -> None:
             e['кадр_' + vw] = m
         met[gn] = e
     rep['metrics'] = met
-    chg = (tex != ctl).any(-1)                              # правило этапа: красим только свою заявленную маску; вне её — байт в байт
+    if gate['fail']:                                         # отказ — после метрик: у воздержавшегося в отчёте те же числа (dL к фото по группам) для разбора
+        raise Abstain('ворота «лицо против фото»: ' + '; '.join(gate['fail']))
+    chg =(tex != ctl).any(-1)                              # правило этапа: красим только свою заявленную маску; вне её — байт в байт
     rep['changed_outside_mask_texels'] = int((chg & ~painted).sum())
     pv = os.path.join(d, KEEP['known.png'].replace('known', 'prov'))
     pv0 = os.path.join(d, 'prov.png')
@@ -245,6 +249,7 @@ def process(a, rules: dict, d: str, rep: dict) -> None:
         if os.path.exists(p) and not os.path.exists(os.path.join(d, keepname)):
             shutil.copy2(p, os.path.join(d, keepname))
     PM.swap_tex_glb(src_glb, tex, vis)
+    Image.fromarray((painted * 255).astype(np.uint8)).save(os.path.join(d, ALLOWED))      # контракт «разрешено менять» (п.8г, stage_mask_gate): 255 — тексели покрашенных групп, остальное — байт в байт
     # known/conf НЕ трогаем (фото-правда 06 как была: иначе 07 теряет «перёд/зад» по долям известного и красит поверх своего тона).
     # Покрашенные тексели БЕЗ фото — «тон-только» (tone_only.png, механизм 07 р.8): цвет остаётся как есть, 07 кладёт фактуру поверх, но не перекрашивает.
     kp = os.path.join(d, KEEP['known.png'])

@@ -487,9 +487,11 @@ def face_gate(fin: np.ndarray, ctl: np.ndarray, region: np.ndarray, rules: dict)
         m = region.astype(np.float32)
         dl = (lf[..., 0] - lc[..., 0]).astype(np.float32) * m
         lowd = cv2.GaussianBlur(dl, (0, 0), sg) / np.maximum(cv2.GaussianBlur(m, (0, 0), sg), 1e-3)
-        lc = lc.copy()
-        lc[..., 0] = lc[..., 0] + np.where(region, lowd, 0)
-    de = de2000(lf.reshape(-1, 3), lc.reshape(-1, 3)).reshape(fin.shape[:2])
+        lc_shift = lc.copy()                                                # сдвиг светлоты — только для ΔE; щели («чёрная шляпа») — по исходным кадрам (сдвиг даёт ложные края на границе региона)
+        lc_shift[..., 0] = lc[..., 0] + np.where(region, lowd, 0)
+    else:
+        lc_shift = lc
+    de = de2000(lf.reshape(-1, 3), lc_shift.reshape(-1, 3)).reshape(fin.shape[:2])
     far = (de > float(gt['de_px'])) & region
     res['share_far'] = round(float(far.sum() / n), 4)
     k, lab, stt, _c = cv2.connectedComponentsWithStats(far.astype(np.uint8), connectivity=8)
@@ -498,9 +500,40 @@ def face_gate(fin: np.ndarray, ctl: np.ndarray, region: np.ndarray, rules: dict)
     bh_c = cv2.morphologyEx(lc[..., 0].astype(np.float32), cv2.MORPH_BLACKHAT, ker)
     bh_f = cv2.morphologyEx(lf[..., 0].astype(np.float32), cv2.MORPH_BLACKHAT, ker)
     sm = (bh_c > float(gt['seam_min_dl'])) & region
+    min_len = float(gt.get('seam_min_len_frac', 0) or 0) * fin.shape[0]
+    if min_len > 0:                                                         # щель — ДЛИННАЯ тонкая линия; точки сетки/перфорации и пятнышки не щели (иначе метрика судит рисунок, а не потерю щелей)
+        k2, lab2, st2, _c2 = cv2.connectedComponentsWithStats(sm.astype(np.uint8), connectivity=8)
+        keep_c = np.zeros(k2, bool)
+        for i in range(1, k2):
+            ln = float(np.hypot(st2[i, cv2.CC_STAT_WIDTH], st2[i, cv2.CC_STAT_HEIGHT]))
+            keep_c[i] = ln >= min_len and st2[i, cv2.CC_STAT_AREA] / ln <= float(gt['seam_max_thick'])
+        sm = keep_c[lab2]
     res['seam_px'] = int(sm.sum())
     if res['seam_px'] >= int(gt['seam_min_px']):
         res['seam_ratio'] = round(float(bh_f[sm].mean() / max(float(bh_c[sm].mean()), 1e-6)), 3)
+    res['spot_px'], res['spot_n'], res['spot_ratio'] = 0, 0, None
+    if float(gt.get('spot_kernel_frac', 0) or 0) > 0:                       # пятна — компактные тёмные детали на лице (ручки, фурнитура, сучки): крупнее точки сетки, не длинная линия
+        kk = max(3, int(round(float(gt['spot_kernel_frac']) * fin.shape[0]))) | 1
+        k2e = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (kk, kk))
+        sc_ = cv2.morphologyEx(lc[..., 0].astype(np.float32), cv2.MORPH_BLACKHAT, k2e)
+        sf_ = cv2.morphologyEx(lf[..., 0].astype(np.float32), cv2.MORPH_BLACKHAT, k2e)
+        dk = 2 * int(round(float(gt.get('spot_dilate_frac', 0) or 0) * fin.shape[0])) + 1             # регион съеден эрозией; мелкая деталь (ручка) стоит на краю покрашенной грани — берём с запасом
+        reg_sp = cv2.dilate(region.astype(np.uint8), np.ones((dk, dk), np.uint8)).astype(bool) if dk > 1 else region
+        cand = (sc_ > float(gt['spot_min_dl'])) & reg_sp
+        k4, lab4, st4, _c4 = cv2.connectedComponentsWithStats(cand.astype(np.uint8), connectivity=8)
+        h2 = float(fin.shape[0]) ** 2
+        keep4 = np.zeros(k4, bool)
+        for i in range(1, k4):
+            ar = float(st4[i, cv2.CC_STAT_AREA])
+            ln = float(np.hypot(st4[i, cv2.CC_STAT_WIDTH], st4[i, cv2.CC_STAT_HEIGHT]))
+            is_line = min_len > 0 and ln >= min_len and ar / ln <= float(gt['seam_max_thick'])
+            keep4[i] = float(gt['spot_min_px_frac']) * h2 <= ar <= float(gt['spot_max_px_frac']) * h2 and not is_line
+        spm = keep4[lab4]
+        res['spot_px'], res['spot_n'] = int(spm.sum()), int(keep4.sum())
+        if res['spot_px'] >= int(gt['spot_min_total_px']):
+            res['spot_ratio'] = round(float(sf_[spm].sum() / max(float(sc_[spm].sum()), 1e-6)), 3)
+    if res['spot_ratio'] is not None and res['spot_ratio'] < float(gt['min_spot_ratio']):
+        res['fail'].append('мелкие тёмные детали лица (ручки/фурнитура) %.2f от фото < %.2f' % (res['spot_ratio'], float(gt['min_spot_ratio'])))
     if res['share_far'] > float(gt['max_share_far']):
         res['fail'].append('доля ушедших от фото %.1f %% > %.1f %%' % (100 * res['share_far'], 100 * float(gt['max_share_far'])))
     if res['blob'] > float(gt['max_blob']):
