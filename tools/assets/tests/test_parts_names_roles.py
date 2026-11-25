@@ -519,11 +519,13 @@ class NameRelax(unittest.TestCase):
         v, f, part = table()
         self.ft = feats(v, f, part, KINDS5)
         self.RR_ = RR
+        self.on = json.loads(json.dumps(TBL))
+        self.on["name_relax"]["enabled"] = True                                 # в rules выключено по умолчанию (решение директора 25.11): тесты включают явно
 
     def chair(self, over, product="стул", names=None, rules=None):
         ft = {p: dict(f) for p, f in self.ft.items()}
         ft[1] = {**ft[1], "kind": "thin", "floor_contact": True, "supports_body": False, "up_q90": 0.46, "obb": {**ft[1]["obb"], "thin_ratio": 0.15}, "area_share": 0.03, **over}
-        return ft, pn.bridge_roles(names_of(names or {0: "Seat", 1: "Leg", 2: "Leg", 3: "Leg", 4: "Leg"}), ft, rules or TBL, RR, product, {"legs"})
+        return ft, pn.bridge_roles(names_of(names or {0: "Seat", 1: "Leg", 2: "Leg", 3: "Leg", 4: "Leg"}), ft, rules or self.on, RR, product, {"legs"})
 
     def test_conical_chair_leg_gets_legs_relaxed(self):
         _, r = self.chair({})
@@ -546,11 +548,16 @@ class NameRelax(unittest.TestCase):
     def test_only_listed_groups_and_switch_off_is_as_before(self):
         _, r_case = self.chair({}, product="комод")
         self.assertEqual(r_case[1]["role"], "unknown")                          # группа case в name_relax не перечислена
-        off = json.loads(json.dumps(TBL))
+        off = json.loads(json.dumps(self.on))
         off["name_relax"]["enabled"] = False
         _, r_off = self.chair({}, rules=off)
         self.assertEqual(r_off[1]["role"], "unknown")                           # выключатель = как было
         self.assertEqual(r_off[1]["unknown_reason"], "name_geometry")
+
+    def test_default_rules_have_relax_disabled(self):
+        self.assertIs(TBL["name_relax"]["enabled"], False)                      # боевой 03 без замера по покраске роли стульев не меняет
+        _, r = self.chair({}, rules=TBL)
+        self.assertEqual(r[1]["role"], "unknown")
 
     def test_other_names_untouched(self):
         _, r2 = self.chair({}, names={0: "Seat", 1: "Backrest", 2: "Leg", 3: "Leg", 4: "Leg"})
