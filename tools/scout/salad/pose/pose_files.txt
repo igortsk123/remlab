@@ -31,3 +31,15 @@ tools/scout/remlab_tmp.py
 tools/scout/rules/camera-check.json
 tools/scout/rules/pose-rank.json
 tools/scout/rules/tex-coverage.json
+tools/scout/asset_strategy.py
+tools/scout/back_relief.py
+tools/scout/edge_sharpen.py
+tools/scout/front_by_relief.py
+tools/scout/mesh_front.py
+tools/scout/mesh_render.py
+tools/scout/mesh_type_passports.py
+tools/scout/plate_strip.py
+tools/scout/rules/edge-sharpen.json
+tools/scout/rules/asset-strategies.json
+tools/scout/rules/mesh-type-passports.json
+tools/scout/rules/plate-strip.json

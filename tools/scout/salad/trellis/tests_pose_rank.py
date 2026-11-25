@@ -261,5 +261,79 @@ src_pr = inspect.getsource(PR.flip_pick) + inspect.getsource(PR.flip_decision) +
 import re  # noqa: E402
 check('код разворота: ID товаров и числа порогов не вшиты (пороги — в rules/pose-rank.json, edge_ref — из camera-check.json)', not re.search(r'\d{8,}', src_pr) and 'edge_ref' in inspect.signature(PR.flip_pick).parameters)
 
+# ---- П1.158 (T-88): «перёд всегда» для типов с перёдом, решение голосами; флаг по умолчанию ВЫКЛ ----
+FA = R['flip_always']
+check('правила: flip_always выключено по умолчанию, роли заданы, нужно 2 голоса', FA['enabled'] is False and FA['need_votes'] == 2 and 'шкаф' in FA['roles_corpus'] and 'диван' in FA['roles_soft'] and 0 < FA['mesh_front_cam_deg'] < 90)
+on = {**R, 'flip_always': {**FA, 'enabled': True}}
+check('front_kind: выкл → None у любой роли; вкл → корпусная/мягкая/симметричная (стол, ваза — None), кресло-кровать — мягкая',
+      PR.front_kind('шкаф', R) is None and PR.front_kind('диван', R) is None and PR.front_kind('шкаф', on) == 'corpus' and PR.front_kind('Комод', on) == 'corpus' and PR.front_kind('тв-тумба', on) == 'corpus'
+      and PR.front_kind('диван', on) == 'soft' and PR.front_kind('кресло-кровать', on) == 'soft' and PR.front_kind('стул', on) == 'soft'
+      and PR.front_kind('стол обеденный', on) is None and PR.front_kind('ваза', on) is None and PR.front_kind('', on) is None and PR.front_kind(None, on) is None)
+os.environ['POSE_FLIP_ALWAYS'] = '1'
+try:
+    check('front_kind: env POSE_FLIP_ALWAYS=1 включает при выкл правиле', PR.front_kind('шкаф', R) == 'corpus')
+    os.environ['POSE_FLIP_ALWAYS'] = '0'
+    check('front_kind: env 0 выключает при вкл правиле', PR.front_kind('шкаф', on) is None)
+finally:
+    os.environ.pop('POSE_FLIP_ALWAYS', None)
+# флаг выкл + роль корпусной → как раньше: кромки выше порога — дорогая часть не вызвана
+out, info = PR.flip_pick(Boom(), {}, pk, None, None, 64, None, None, {}, None, 0.5, R=R, role='шкаф')
+check('flip_pick: флаг выкл, роль есть → как раньше (поза не тронута, не вызвано)', out is pk and info['triggered'] is False and 'always' not in info)
+out, info = PR.flip_pick(Boom(), {}, pk, None, None, 64, None, None, {}, None, 0.5, R=on, role='стол обеденный')
+check('flip_pick: флаг вкл, симметричный тип → как раньше (поза не тронута, не вызвано)', out is pk and info['triggered'] is False and 'always' not in info)
+
+_orig2 = (PR.flip_hypothesis, PR.flip_signals, PR.front_form_votes)
+PR.flip_hypothesis = lambda PF_, geo, cam, *a, **k: {'cam': cams['b'], 'iou': 0.98, 'iou_sil': 0.96, 'edge': {'agree': 0.6}, 'steps': 5}
+PR.flip_signals = lambda PF_, geo, cam, *a, **k: sigs[id(cam)]
+try:
+    sigs[id(cams['a'])] = sg(0.89, 0.70, 6.0, 1.0)                    # кромки выбранной позы высокие (0,70) — старый триггер молчит
+    sigs[id(cams['b'])] = sg(0.90, 0.83, 2.0, 1.2)                    # перевёрнутая: кромки +0,13, цвет лучше; рельеф затенения ~
+    pkA = {'cam': cams['a'], 'score': 0.89, 'iou': 0.97, 'edge': {'agree': 0.7, 'no_edges': False}}
+    PR.front_form_votes = lambda geo, cam, kind, R_: ({'relief_form': 'за'}, {'relief_form': {'verdict': 'opposite'}})
+    out, info = PR.flip_pick(object(), {}, pkA, None, None, 64, None, None, {}, None, 0.5, log=lambda *a: None, R=on, role='комод')
+    check('«всегда»: кромки высокие, голоса за (кромки, цвет, рельеф формы), против нет → развёрнут; вердикт и голоса в info.front', info['applied'] and out['cam'] is cams['b'] and out['cam_before_flip'] is cams['a'] and info['front']['verdict'] == 'развёрнут' and info['front']['pro'] >= 2 and info['front']['con'] == 0 and info['front']['kind'] == 'corpus')
+    PR.front_form_votes = lambda geo, cam, kind, R_: ({'relief_form': 'против'}, {})
+    out, info = PR.flip_pick(object(), {}, pkA, None, None, 64, None, None, {}, None, 0.5, log=lambda *a: None, R=on, role='комод')
+    check('«всегда»: рельеф формы против → не разворачиваем (вето), «перёд не определён» (за есть, против есть), поза не тронута', not info['applied'] and out is pkA and info['front']['verdict'] == 'перёд не определён' and info['front']['con'] == 1)
+    sigs[id(cams['b'])] = sg(0.89, 0.70, 6.0, 1.0)                    # перевёрнутая не лучше
+    PR.front_form_votes = lambda geo, cam, kind, R_: ({'relief_form': 'против', 'mesh_front': 'против'}, {})
+    out, info = PR.flip_pick(object(), {}, pkA, None, None, 64, None, None, {}, None, 0.5, log=lambda *a: None, R=on, role='диван')
+    check('«всегда»: мягкая, голоса форме против, за нет → «перёд верный», поза не тронута', not info['applied'] and out is pkA and info['front']['verdict'] == 'перёд верный' and info['front']['kind'] == 'soft' and info['front']['con'] == 2)
+    PR.front_form_votes = lambda geo, cam, kind, R_: ({'relief_form': '—'}, {})
+    out, info = PR.flip_pick(object(), {}, pkA, None, None, 64, None, None, {}, None, 0.5, log=lambda *a: None, R=on, role='шкаф')
+    check('«всегда»: голосов нет (рельеф неоднозначен, остальное без разницы) → «перёд не определён», поза не тронута', not info['applied'] and out is pkA and info['front']['verdict'] == 'перёд не определён' and info['front']['pro'] == 0 and info['front']['con'] == 0)
+    sigs[id(cams['b'])] = sg(0.89 - FR['sil_drop_max'] - 0.02, 0.9, 1.0, 5.0)    # голоса за, но силуэт перевёрнутой заметно хуже
+    PR.front_form_votes = lambda geo, cam, kind, R_: ({'relief_form': 'за'}, {})
+    out, info = PR.flip_pick(object(), {}, pkA, None, None, 64, None, None, {}, None, 0.5, log=lambda *a: None, R=on, role='шкаф')
+    check('«всегда»: силуэт перевёрнутой хуже порога → не разворачиваем при любых голосах', not info['applied'] and out is pkA)
+finally:
+    PR.flip_hypothesis, PR.flip_signals, PR.front_form_votes = _orig2
+
+# голоса формы: mesh_front — перёд рядом с камерой → против, далеко → за, нет уверенности → нет; на синтетическом «диване» (спинка у −Z, перёд +Z)
+def _sofa():
+    def box(x0, x1, y0, y1, z0, z1):
+        V = np.array([[x, y, z] for x in (x0, x1) for y in (y0, y1) for z in (z0, z1)], float)
+        Fq = [(0, 1, 3), (0, 3, 2), (4, 6, 7), (4, 7, 5), (0, 4, 5), (0, 5, 1), (2, 3, 7), (2, 7, 6), (0, 2, 6), (0, 6, 4), (1, 5, 7), (1, 7, 3)]
+        return V, np.array(Fq, int)
+    parts = [box(-0.5, 0.5, 0.0, 0.15, -0.3, 0.3), box(-0.5, 0.5, 0.15, 0.4, -0.3, 0.3), box(-0.5, 0.5, 0.4, 0.9, -0.3, -0.2)]     # низ, сиденье, спинка у −Z
+    Vs, Fs, o = [], [], 0
+    for V, Fq in parts:
+        Vs.append(V)
+        Fs.append(Fq + o)
+        o += len(V)
+    return {'V': np.vstack(Vs), 'F': np.vstack(Fs)}
+
+
+try:
+    sofa = _sofa()
+    v_front, inf = PR.front_form_votes(sofa, {'az': 10.0, 'el': 5.0}, 'soft', on)
+    v_back, _i = PR.front_form_votes(sofa, {'az': 190.0, 'el': 5.0}, 'soft', on)
+    check('front_form_votes: диван, камера у перёда → mesh_front «против», камера сзади → «за»; рельеф формы не падает', inf['mesh_front'].get('status') in ('confident', 'ambiguous', 'no_seat') and (inf['mesh_front'].get('status') != 'confident' or (v_front['mesh_front'] == 'против' and v_back['mesh_front'] == 'за')) and 'relief_form' in v_front)
+except Exception as e:                                                # noqa: BLE001
+    check(f'front_form_votes на синтетическом диване упал: {type(e).__name__}: {e}', False)
+
+src_fa = inspect.getsource(PR.front_kind) + inspect.getsource(PR.front_form_votes) + inspect.getsource(PR.front_decision) + inspect.getsource(PR._flip_always)
+check('код «перёд всегда»: ID товаров не вшиты', not re.search(r'\d{8,}', src_fa))
+
 print('all ok' if not bad else f'FAILED: {bad}')
 sys.exit(1 if bad else 0)
