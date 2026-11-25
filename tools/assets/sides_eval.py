@@ -211,20 +211,41 @@ def f_patches(lab_s, m_s, lab_p, m_p, R, ctx) -> tuple:
     return r, {'foreign': round(foreign, 3), 'within': round(w_s, 3), 'within_photo': round(w_p, 3), 'edges': e_s, 'edges_photo': e_p}
 
 
-def lap_energy(lab: np.ndarray, mask: np.ndarray) -> float:
+LAP_ERODE = 2                                                      # отступ от края маски (px) у первого замера чёткости; повторы отступают дальше на shift_px
+
+
+def lap_energy(lab: np.ndarray, mask: np.ndarray, erode: int = LAP_ERODE) -> float:
     lap = ndi.laplace(ndi.gaussian_filter(lab[..., 0], 0.7))
-    inner = ndi.binary_erosion(mask, iterations=2)
+    inner = ndi.binary_erosion(mask, iterations=int(erode))
     return float((lap[inner] ** 2).mean()) if inner.any() else 0.0
 
 
+def sharp_ratio(lab_s, m_s, lab_p, m_p, erode: int = LAP_ERODE) -> float | None:
+    """Энергия Лапласа стороны / фото при заданном отступе от края маски; None — на таком отступе у фото нет деталей (энергия 0)."""
+    e_p = lap_energy(lab_p, m_p, erode)
+    return None if e_p <= 0 else lap_energy(lab_s, m_s, erode) / e_p
+
+
 def f_sharpness(lab_s, m_s, lab_p, m_p, R, ctx) -> tuple:
+    """Чёткость лица. ratio ≥ ratio_min — да; ratio < ratio_min·(1−tol) — нет; между («у порога», шум света/шейдинга) — `repeats` независимых замеров с другим отступом от края маски
+    (+shift_px, +2·shift_px…), решение по среднему из всех замеров. Одно правило для всех товаров; числа — только `sharpness` в sides-eval.json. Итог несёт `repeats` — сколько повторов было."""
     p = R['sharpness']
     e_p = lap_energy(lab_p, m_p)
     if e_p < p['photo_energy_min']:
         return None, {'energy_photo': round(e_p, 4), 'why': 'фото без деталей (энергия кромок ниже порога sharpness.photo_energy_min)', 'inapplicable': True}
     e_s = lap_energy(lab_s, m_s)
     ratio = e_s / e_p
-    return p['ratio_min'] / max(ratio, 1e-6), {'ratio': round(ratio, 2)}
+    lo, hi = p['ratio_min'] * (1.0 - p.get('tol', 0.0)), p['ratio_min']
+    det = {'ratio': round(ratio, 2), 'repeats': 0}
+    if lo <= ratio < hi and int(p.get('repeats', 0)) > 0:             # у порога — пересчёт
+        rs = [ratio]
+        for k in range(1, int(p['repeats']) + 1):
+            rk = sharp_ratio(lab_s, m_s, lab_p, m_p, LAP_ERODE + k * int(p['shift_px']))
+            if rk is not None:
+                rs.append(rk)
+        ratio = float(np.mean(rs))
+        det.update({'repeats': len(rs) - 1, 'near_threshold': True, 'ratio_first': det['ratio'], 'ratios': [round(x, 3) for x in rs], 'ratio': round(ratio, 2)})
+    return p['ratio_min'] / max(ratio, 1e-6), det
 
 
 def group_sigma(lab, gm, sigma):
