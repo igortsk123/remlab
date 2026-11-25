@@ -60,6 +60,24 @@ def part_is_wood(name: str, card: dict | None, rules: dict, role: str | None = N
     return any(w in t for w in rules['wood_words'])
 
 
+def card_grain_guard(role: str | None, card: dict | None, rules: dict) -> bool | None:
+    """Сторож «слово карточки» (T-69/6): False — карточка запрещает зерно (крашеное/эмаль/краска в любом «Материал …», плёнка ПВХ/принт в ключах роли); True — слово дерева (шпон/массив/дуб…) в ключах роли;
+    None — слов нет, решает признак по фото. Только запрещает: True зерно не создаёт."""
+    cg = rules.get('card_guard')
+    card = card or {}
+    if not cg or not card:
+        return None
+    low = {str(k).lower(): str(v).lower() for k, v in card.items()}
+    mat = ' '.join(v for k, v in low.items() if 'материал' in k)
+    if any(w in mat for w in cg['deny_any_words']):
+        return False
+    keys = cg['role_keys'].get(role or '', cg['role_keys']['default'])
+    t = ' '.join(v for k, v in low.items() if any(s_ in k for s_ in keys))
+    if any(w in t for w in cg['deny_role_words']):
+        return False
+    return True if any(w in t for w in cg['allow_words']) else None
+
+
 # ------------------------------------------------------------------ фото: высокочастотная σL ------------------------------------------------------
 def photo_hf_sigma(L_frame, mask, rules: dict):
     """σL «зерна» на фото части: из L вычтено сглаживание по маске части (окно photo_hf_window_px) — плавный свет/тень рисунком не считается. → float | None (мало пикселей).
@@ -418,7 +436,7 @@ def parts_from_masks(npz, tx, tex, card: dict | None = None, photo_sigma: dict |
         lab = TC.rgb2lab(np.clip(np.round(tone[g]), 0, 255).astype(np.uint8).reshape(1, 3))[0]
         sig = float(TC.rgb2lab(flat[m])[:, 0].std()) if n >= 20 else None
         parts.append({'id': g, 'name': names[g], 'is_wood': part_is_wood(names[g], card, rules, roles[g] if g < len(roles) else None), 'tone_lab': [float(x) for x in lab], 'tone_sigma': sig,
-                      'n_texels': n, 'photo_sigma': (photo_sigma or {}).get(g), 'photo_grain': (photo_grain or {}).get(g), 'card': card})
+                      'n_texels': n, 'photo_sigma': (photo_sigma or {}).get(g), 'photo_grain': (False if card_grain_guard(roles[g] if g < len(roles) else None, card, rules) is False else (photo_grain or {}).get(g)), 'card_guard': card_grain_guard(roles[g] if g < len(roles) else None, card, rules), 'card': card})
         masks[g] = m
     return parts, masks
 

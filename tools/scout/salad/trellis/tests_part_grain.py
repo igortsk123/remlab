@@ -136,6 +136,16 @@ def main():
     check(f3['has'] is False, f'шум в одном углу → зерна нет (R {f3["R"]}, плитки {f3["tile_share"]})')
     check(f4['has'] is None and f4['reason'] == 'few_px', 'пустая маска → судить нельзя (None), соседи')
 
+    # 5г. T-69/6: сторож «слово карточки» — только запрещает
+    cg = PG.card_grain_guard
+    check(cg('facade', {'Материал фасада': 'МДФ 16 мм в пленке ПВХ', 'Материал корпуса': 'ЛДСП 16 мм'}, R) is False, 'плёнка ПВХ на фасаде → запрет')
+    check(cg('body', {'Материал фасада': 'МДФ 16 мм в пленке ПВХ', 'Материал корпуса': 'ЛДСП 16 мм', 'Цвет шкафа: Цвет корпуса': 'Дуб Барбера'}, R) is True, 'корпус ЛДСП «Дуб» при ПВХ-фасаде — допуск (запрет роли фасада на корпус не переносится)')
+    check(cg('top', {'Материал фасада': 'крашеный МДФ', 'Материал корпуса': 'МДФ'}, R) is False, '«крашеный» в любом материале → запрет всем частям')
+    check(cg('top', {'Материал столешницы': 'Шпон МДФ'}, R) is True and cg('legs', {'Материал ножек': 'Массив бука'}, R) is True, 'шпон / массив → допуск')
+    check(cg('facade', {'Материал фасада': 'ЛДСП 16 мм'}, R) is None and cg('facade', None, R) is None and cg(None, {}, R) is None, 'слов нет / карточки нет → None, решает признак')
+    pl = PG.plan_grain([part(1, photo_sigma=2.0, photo_grain=True), part(2, photo_sigma=2.0, photo_grain=False)], R)
+    check(pl[1]['apply'] and not pl[2]['apply'], 'запрет сторожа (photo_grain=False) → зерна нет')
+
     # 6. отказы с причинами
     pl = PG.plan_grain([part(1, is_wood=False), part(2, n_texels=100), part(3, tone_sigma=5.0), part(4, tone_lab=None), part(5, photo_sigma=2.0)], R)
     check(pl[1]['reason'] == 'not_wood' and pl[2]['reason'] == 'too_small' and pl[3]['reason'] == 'tone_not_even' and pl[4]['reason'] == 'no_tone', 'причины отказа: не дерево / мало текселей / градиент / нет тона')
