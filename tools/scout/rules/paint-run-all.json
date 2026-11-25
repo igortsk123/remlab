@@ -315,7 +315,7 @@
         {"file": "07-fill/filled.glb", "consumers": [{"stage": "08", "via": "argv"}]},
         {"file": "07-fill/report.json", "report_only": "отчёт этапа (tex_fill.py:3272): ни один этап run-all его не читает; читает упаковщик шва stage_trial.py:259 (Salad-путь, вне run-all)"},
         {"file": "07-fill/zones.json", "report_only": "отчёт зон деталей этапа 07 (фурнитура фасада, рельеф двери: applied/why/status/texels/protect_texels): результат уже в filled.glb, решений для следующих этапов в файле нет; пишет tex_fill.py:3212 (директор, T-82)"},
-        {"file": "07-fill/surface-passport.json", "consumers": []},
+        {"file": "07-fill/surface-passport.json", "report_only": "полная запись группировки 07, применена в filled.glb; урезанная копия в report.json (решение директора, T-82). Двойная группировка с Ш4а — отдельный вопрос, см. report.md"},
         {"file": "07-fill/frame-photo.png", "report_only": "отчётный кадр, брать запрещено (loop5.py:267: запасным фото не берётся, у корпусных — боковой кадр-рендер)"},
         {"file": "07-fill/frame.png", "report_only": "контрольный кадр этапа для человека (paint_stage.FRAME), ни один этап его не читает"},
         {"file": "07-fill/check.json", "consumers": [{"stage": "08", "via": "needs"}, {"stage": "09", "via": "code", "script": "tools/scout/paint_check.py", "code": "tools/scout/rules/paint-check.json", "pattern": "07-fill"}]}
