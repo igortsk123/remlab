@@ -169,6 +169,82 @@ r_real, d_real = _run(_r0 / (1.0 - _tol / 2))
 ok(d_real['repeats'] == 2 and len(d_real['ratios']) == 3 and d_real['near_threshold'], 'чёткость: настоящие повторы на синтетике (без подмены) отдают 2 повтора')
 ok(SE.eval_sheet(sheet(photo_fn=fine, view_fns={'перед': blur}), R, SR)['views']['перед']['sharpness']['repeats'] == 0, 'чёткость: явно размытое лицо — повторов нет, вердикт прежний')
 
+# 7в. второй НАСТОЯЩИЙ рендер вида «перед» у порога (T-71/2): в полосе — ровно один раз на товар; вне полосы — не вызывается; решает среднее двух рендеров
+import tempfile  # noqa: E402
+from PIL import Image  # noqa: E402
+
+_td = tempfile.mkdtemp(prefix='sides2-')
+os.makedirs(os.path.join(_td, 'sheets'))
+_glb = os.path.join(_td, 'x.glb')
+open(_glb, 'w').close()
+_ID = 'item1'
+_sd1 = 10.0                                                                  # шум лица на первом рендере (на фото 18): ratio ≈ (10/18)²
+_sheet1 = sheet(photo_fn=fine, view_fns={'перед': lambda c: c + RNG.normal(0, _sd1, (S, S, 1))})
+Image.fromarray(_sheet1).save(os.path.join(_td, 'sheets', _ID + '.png'))
+_ratio0 = SE.eval_sheet(_sheet1, R, SR)['views']['перед']['sharpness']['ratio_raw']
+_items = {_ID: {'id': _ID, 'glb': _glb, 'photo': None, 'az': 10.0}}
+_shift = R['sharpness']['second_render']['az_shift_deg']
+
+
+def _rules2(ratio_min):
+    r = json.loads(json.dumps(R))
+    r['sharpness']['ratio_min'] = ratio_min
+    return r
+
+
+def _stub(sd, rec, fail=False):
+    """Подмена Chromium: пишет кадр вида («перед» — единственный вид второго листа) с шумом sd; rec — в какие азимуты просили снять."""
+    def fn(sp):
+        spec = json.load(open(sp, encoding='utf-8'))
+        rep = {}
+        for it in spec['items']:
+            rec.append((it['id'], it['orbits'][0]['orbit'], len(it['orbits']), os.path.dirname(spec['out'])))
+            if fail:
+                continue
+            os.makedirs(os.path.join(spec['out'], it['id']), exist_ok=True)
+            cell = put(np.full((S, S, 3), 255, np.uint8), (170, 140, 100), blob_mask(), lambda c: c + RNG.normal(0, sd, (S, S, 1)))
+            Image.fromarray(cell).save(os.path.join(spec['out'], it['id'], '0.png'))
+            rep[it['id']] = {'ok': True, 'seconds': 0, 'tags': ['0'], 'notes': []}
+        json.dump(rep, open(os.path.join(spec['out'], 'items.json'), 'w'))
+        return type('P', (), {'stdout': '', 'stderr': ''})()
+    return fn
+
+
+def _run2(ratio_min, sd, second=True, fail=False):
+    rec = []
+    out = os.path.join(_td, f'out{len(os.listdir(_td))}')
+    res = SE.batch(os.path.join(_td, 'sheets'), out, rules=_rules2(ratio_min), items=_items, second_render=second, render_fn=_stub(sd, rec, fail))
+    return res, rec, res['eval'][_ID]['views']['перед']['sharpness']
+
+
+_band = _ratio0 / (1.0 - R['sharpness']['tol'] / 2)                             # ratio первого рендера — внутри полосы под порогом
+res_a, rec_a, sh_a = _run2(_band, 18.0)
+ok(len(rec_a) == 1 and rec_a[0][0] == _ID and rec_a[0][2] == 1, 'второй рендер: в полосе снимается ровно один раз, один вид («перед»)')
+ok(rec_a[0][1].startswith(f'{(10.0 + _shift) % 360:.1f}deg'), f'второй рендер: камера сдвинута по азимуту на {_shift}° из правил')
+ok(sh_a['renders'] == 2 and abs(sh_a['ratio_raw'] - (sh_a['ratio_render1'] + sh_a['ratio_render2']) / 2) < 1e-3 and sh_a['ok'] is True and sh_a['status'] == 'ok',
+   'второй рендер: резкий второй кадр → среднее двух выше порога → «да», в eval.json renders=2 и оба ratio')
+ok(res_a['summary']['second_render']['ids'] == [_ID] and not res_a['summary']['second_render']['failed'], 'второй рендер: в сводке — какие товары и сколько секунд')
+res_b, rec_b, sh_b = _run2(_band, _sd1)
+ok(len(rec_b) == 1 and sh_b['renders'] == 2 and sh_b['ok'] is False and res_b['eval'][_ID]['ok'] is False, 'второй рендер: второй кадр такой же мутный → среднее ниже порога → «нет», вердикт товара пересчитан')
+res_c, rec_c, sh_c = _run2(_ratio0 / 1.5, 18.0)
+ok(not rec_c and sh_c['renders'] == 1 and sh_c['ok'] is True, 'второй рендер: ratio выше порога — не вызывается')
+res_d, rec_d, sh_d = _run2(_ratio0 / (1.0 - 2 * R['sharpness']['tol']), 18.0)
+ok(not rec_d and sh_d['renders'] == 1 and sh_d['ok'] is False, 'второй рендер: явно ниже полосы — не вызывается, «нет»')
+res_e, rec_e, sh_e = _run2(_band, 18.0, second=False)
+ok(not rec_e and sh_e['renders'] == 1 and sh_e.get('near_threshold'), 'второй рендер: выключен (second_render=False) — как T-71: повторы каймы, без съёмки')
+res_f, rec_f, sh_f = _run2(_band, 18.0, fail=True)
+ok(len(rec_f) == 1 and sh_f['renders'] == 1 and 'second_render_failed' in sh_f and list(res_f['summary']['second_render']['failed']) == [_ID],
+   'второй рендер: съёмка не вышла — вердикт первого рендера, причина видна (не «не измерено» и не тихий проход)')
+_rules_off = _rules2(_band)
+_rules_off['sharpness']['second_render']['enabled'] = False
+_rec_g = []
+SE.batch(os.path.join(_td, 'sheets'), os.path.join(_td, 'outg'), rules=_rules_off, items=_items, render_fn=_stub(18.0, _rec_g))
+ok(not _rec_g, 'второй рендер: enabled=false в правилах — не вызывается')
+_rec_h = []
+SE.batch(os.path.join(_td, 'sheets'), os.path.join(_td, 'outh'), rules=_rules2(_band), items=None, render_fn=_stub(18.0, _rec_h))
+ok(not _rec_h, 'второй рендер: нет items (glb/азимут) — не вызывается, оценка как раньше')
+ok(os.path.basename(rec_a[0][3]).startswith('sides2-') and not os.path.exists(rec_a[0][3]), 'второй рендер: временная папка листа (REMLAB_TMP, sides2-…) убрана кодом после оценки')
+
 # 8. тень формы: градиент яркости на стороне — без глины он путается с тоном, с глиной — нет
 def shade(c):
     g = np.linspace(0.45, 1.0, S)[None, :, None]

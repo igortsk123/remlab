@@ -15,6 +15,7 @@ import hashlib
 import json
 import os
 import sys
+import time
 
 import numpy as np
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), '..', 'scout'))   # общий свидетель «перёда»
@@ -236,15 +237,18 @@ def f_sharpness(lab_s, m_s, lab_p, m_p, R, ctx) -> tuple:
     e_s = lap_energy(lab_s, m_s)
     ratio = e_s / e_p
     lo, hi = p['ratio_min'] * (1.0 - p.get('tol', 0.0)), p['ratio_min']
-    det = {'ratio': round(ratio, 2), 'repeats': 0}
-    if lo <= ratio < hi and int(p.get('repeats', 0)) > 0:             # у порога — пересчёт
+    det = {'ratio': round(ratio, 2), 'repeats': 0, 'renders': 1}
+    if lo <= ratio < hi:                                              # у порога: повторы каймы (T-71) и — вызывающим кодом — второй рендер (T-71/2)
+        det.update({'near_threshold': True, 'ratio_first': det['ratio']})
         rs = [ratio]
-        for k in range(1, int(p['repeats']) + 1):
+        for k in range(1, int(p.get('repeats', 0)) + 1):
             rk = sharp_ratio(lab_s, m_s, lab_p, m_p, LAP_ERODE + k * int(p['shift_px']))
             if rk is not None:
                 rs.append(rk)
-        ratio = float(np.mean(rs))
-        det.update({'repeats': len(rs) - 1, 'near_threshold': True, 'ratio_first': det['ratio'], 'ratios': [round(x, 3) for x in rs], 'ratio': round(ratio, 2)})
+        if len(rs) > 1:
+            ratio = float(np.mean(rs))
+            det.update({'repeats': len(rs) - 1, 'ratios': [round(x, 3) for x in rs], 'ratio': round(ratio, 2)})
+    det['ratio_raw'] = round(float(ratio), 4)                         # без округления до сотых — для среднего двух рендеров (second_render_merge)
     return p['ratio_min'] / max(ratio, 1e-6), det
 
 
@@ -551,13 +555,19 @@ def eval_view(view_rgb: np.ndarray, photo_rgb: np.ndarray, photo_mask: np.ndarra
         if feat == 'sharpness' and name not in R['sharpness']['views']:
             continue
         r, det = FUNCS[feat](lab_r if feat in ('sharpness', 'pattern') else lab_s, m, lab_p, p_m, R, ctx)
-        out[feat] = {'r': None if r is None else round(float(r), 3), 'score': score_of(r), 'ok': None if r is None else bool(r <= 1.0), **det}
-        if r is not None and R.get(feat, {}).get('enforce') is False:                 # «наблюдение» (enforce=false в правилах): r и подробности пишутся, но ни ok, ни оценка не считаются — признак ещё не откалиброван
-            out[feat].update({'ok': None, 'score': None, 'observe': True, 'would_fail': bool(r > 1.0)})
-        out[feat]['status'] = feat_status(out[feat], R.get(feat, {}).get('enforce') is False)
-        if out[feat]['status'] == 'unmeasured':
-            out[feat].setdefault('why', 'признак не посчитан (нет данных)')
+        out[feat] = feature_entry(feat, r, det, R)
     return out
+
+
+def feature_entry(feat: str, r: float | None, det: dict, R: dict) -> dict:
+    """Запись признака на стороне из r и подробностей: r, оценка, ok, status (одно место для eval_view и для среднего двух рендеров)."""
+    e = {'r': None if r is None else round(float(r), 3), 'score': score_of(r), 'ok': None if r is None else bool(r <= 1.0), **det}
+    if r is not None and R.get(feat, {}).get('enforce') is False:                 # «наблюдение» (enforce=false в правилах): r и подробности пишутся, но ни ok, ни оценка не считаются — признак ещё не откалиброван
+        e.update({'ok': None, 'score': None, 'observe': True, 'would_fail': bool(r > 1.0)})
+    e['status'] = feat_status(e, R.get(feat, {}).get('enforce') is False)
+    if e['status'] == 'unmeasured':
+        e.setdefault('why', 'признак не посчитан (нет данных)')
+    return e
 
 
 def front_shares(V, F, UV, known, az_deg, R, names=None) -> dict:
@@ -606,6 +616,12 @@ def eval_sheet(sheet_rgb: np.ndarray, R: dict, sheet_rules: dict | None = None, 
         tone = [lin_srgb(a * scale) for a in alb]
     memo: dict = {}
     views = {n: eval_view(cells[i + 1], p_rgb, p_m, n, R, tone[i], memo, hidden_pattern) for i, n in enumerate(names)}
+    return {'views': views, 'albedo_scale': None if scale is None else round(float(scale), 3), **summarize_views(views),
+            'photo_ok': bool(p_m.sum() >= R['geometry']['min_px']), 'flipped': bool(flip)}
+
+
+def summarize_views(views: dict) -> dict:
+    """Вердикт товара по видам: ok, score, worst, status, counts, unmeasured (одно место для eval_sheet и для пересчёта после второго рендера)."""
     worst, scores = None, []
     cnt = {'ok': 0, 'fail': 0, 'unmeasured': 0, 'na': 0, 'observe': 0, 'na_views': 0}
     unmeasured = []
@@ -624,8 +640,8 @@ def eval_sheet(sheet_rgb: np.ndarray, R: dict, sheet_rules: dict | None = None, 
             if worst is None or d['score'] < worst[2]:
                 worst = (n, f, d['score'])
     ok, status = verdict_of(cnt)
-    return {'views': views, 'albedo_scale': None if scale is None else round(float(scale), 3), 'ok': ok, 'score': min(scores) if scores else None, 'worst': None if worst is None else {'view': worst[0], 'feature': worst[1], 'score': worst[2]},
-            'photo_ok': bool(p_m.sum() >= R['geometry']['min_px']), 'flipped': bool(flip), 'status': status, 'counts': cnt, 'unmeasured': unmeasured}
+    return {'ok': ok, 'score': min(scores) if scores else None, 'worst': None if worst is None else {'view': worst[0], 'feature': worst[1], 'score': worst[2]},
+            'status': status, 'counts': cnt, 'unmeasured': unmeasured}
 
 
 def known_shares_of(item: dict, R: dict) -> dict | None:
@@ -753,13 +769,94 @@ def add_front(sheets: str, res: dict, R: dict) -> dict:
     return out
 
 
+def near_views(r: dict, R: dict) -> list:
+    """Виды из sharpness.views, где чёткость «у порога» (near_threshold) и второго рендера ещё не было."""
+    out = []
+    for n in R['sharpness']['views']:
+        d = ((r.get('views') or {}).get(n) or {}).get('sharpness')
+        if d and d.get('near_threshold') and int(d.get('renders', 1)) < 2:
+            out.append(n)
+    return out
+
+
+def second_render_merge(r: dict, sheet_rgb: np.ndarray, fronts: dict, R: dict, sr: dict | None = None) -> dict:
+    """Среднее двух рендеров (T-71/2): fronts — {вид: клетка второго рендера}. ratio итога = среднее ratio первого рендера (с повторами каймы) и второго (по тому же правилу, без
+    нового рендера); r/ok/оценка признака и вердикт товара пересчитываются. Не вышло измерить — вердикт первого рендера остаётся, причина — в `second_render_failed`."""
+    sr = sr or load_sheet_rules()
+    S, hp = int(sr['size']), int(sr['header_px'])
+    cfg = R['sharpness']['second_render']
+    p_rgb, p_m = photo_cell(sheet_rgb[hp: hp + S, 0:S], R['geometry'])
+    memo: dict = {}
+    for n, cell in fronts.items():
+        d1 = r['views'][n]['sharpness']
+        e2 = eval_view(cell, p_rgb, p_m, n, R, None, memo, r.get('hidden_pattern')).get('sharpness')
+        if not e2 or e2.get('r') is None:
+            d1['second_render_failed'] = 'на втором рендере нет предмета или фото без деталей'
+            continue
+        ratio = (d1['ratio_raw'] + e2['ratio_raw']) / 2.0
+        det = {k: v for k, v in d1.items() if k not in ('r', 'score', 'ok', 'status', 'observe', 'would_fail', 'why', 'second_render_failed')}
+        det.update({'renders': 2, 'ratio_render1': d1['ratio_raw'], 'ratio_render2': e2['ratio_raw'], 'ratio': round(ratio, 2), 'ratio_raw': round(ratio, 4),
+                    'az_shift_deg': cfg['az_shift_deg'], 'repeats_render2': e2.get('repeats', 0)})
+        r['views'][n]['sharpness'] = feature_entry('sharpness', R['sharpness']['ratio_min'] / max(ratio, 1e-6), det, R)
+    r.update(summarize_views(r['views']))
+    return r
+
+
+def second_render_pass(sheets: str, res: dict, items: dict | None, R: dict, render_fn=None, node: str = 'node') -> dict:
+    """Второй НАСТОЯЩИЙ рендер вида «перед» у порога (T-71/2): повтор по тем же пикселям шум освещения/шейдинга не усредняет. Только товары, у которых чёткость в полосе «у порога»; камера
+    сдвинута по азимуту на sharpness.second_render.az_shift_deg; один Chromium на всех таких; лист пишется во временную папку (REMLAB_TMP) и убирается кодом. Итог — статистика прохода."""
+    cfg = (R.get('sharpness') or {}).get('second_render') or {}
+    stat = {'enabled': bool(cfg.get('enabled')), 'ids': [], 'failed': {}, 'seconds': 0.0}
+    todo = {i: near_views(v, R) for i, v in res.items()} if stat['enabled'] and items else {}
+    todo = {i: v for i, v in todo.items() if v and items.get(i)}
+    if not todo:
+        return stat
+    from PIL import Image
+    if HERE not in sys.path:
+        sys.path.insert(0, HERE)                                                            # -I (изолированный запуск): соседний модуль не виден сам
+    import sides_sheet as SS
+    import remlab_tmp as RTMP
+    sr = load_sheet_rules()
+    S, hp = int(sr['size']), int(sr['header_px'])
+    sr2 = dict(sr, views=[v for v in sr['views'] if v['name'] in R['sharpness']['views']])
+    names2 = [v['name'] for v in sr2['views']]
+    its = []
+    for i in sorted(todo):
+        az = SS.az_of(items[i])
+        if az is None:
+            stat['failed'][i] = 'нет азимута камеры фото'
+            continue
+        if res[i].get('flipped'):
+            az += 180.0                                                                      # ракурс листа развёрнут: «перед» оценки — вид с азимутом +180°
+        its.append({'id': i, 'glb': items[i]['glb'], 'photo': items[i].get('photo'), 'az': az + float(cfg['az_shift_deg'])})
+    t0 = time.time()
+    with RTMP.tmpdir('sides2-') as d:
+        times = SS.batch(its, d, node, rules=sr2, render_fn=render_fn) if its else {}
+        for it in its:
+            i = it['id']
+            p = os.path.join(d, i + '.png')
+            if not (times.get(i, {}).get('ok') and os.path.exists(p)):
+                stat['failed'][i] = '; '.join(times.get(i, {}).get('notes') or ['второй рендер не вышел'])
+                continue
+            sheet2 = np.asarray(Image.open(p).convert('RGB'))
+            fronts = {n: sheet2[hp: hp + S, (k + 1) * S: (k + 2) * S] for k, n in enumerate(names2) if n in todo[i]}
+            second_render_merge(res[i], np.asarray(Image.open(os.path.join(sheets, i + '.png')).convert('RGB')), fronts, R, sr)
+            stat['ids'].append(i)
+    for i, why in stat['failed'].items():                                                    # не вышло — вердикт первого рендера, но видно почему
+        for n in todo[i]:
+            res[i]['views'][n]['sharpness']['second_render_failed'] = why
+    stat['seconds'] = round(time.time() - t0, 1)
+    return stat
+
+
 def _eval_job(a: tuple) -> dict:
     return eval_one(*a)
 
 
 def batch(sheets: str, out: str, only: list | None = None, rules: dict | None = None, clay_dir: str | None = None, items: dict | None = None,
-          workers: int = 1, cache_dir: str | None = None) -> dict:
-    """workers > 1 — товары параллельно (пул процессов; число = ядра по heavy-slot, `HEAVY_SLOT_CORES`); результат тот же, порядок — по id. cache_dir — кэш оценки по sha входов."""
+          workers: int = 1, cache_dir: str | None = None, second_render: bool = True, render_fn=None, node: str = 'node') -> dict:
+    """workers > 1 — товары параллельно (пул процессов; число = ядра по heavy-slot, `HEAVY_SLOT_CORES`); результат тот же, порядок — по id. cache_dir — кэш оценки по sha входов.
+    second_render — у порога чёткости (при items с glb и азимутом) настоящий второй рендер «перед» и среднее двух (T-71/2); False — как T-71 (замер «до»). render_fn — подмена съёмки в тестах."""
     R = load_rules(rules)
     ids = sorted(f[:-4] for f in os.listdir(sheets) if f.endswith('.png') and not f.endswith('.clay.png'))
     if only:
@@ -775,6 +872,7 @@ def batch(sheets: str, out: str, only: list | None = None, rules: dict | None = 
     else:
         outs = [_eval_job(j) for j in jobs]
     res = dict(zip(ids, outs))
+    second = second_render_pass(sheets, res, items, R, render_fn, node) if second_render else {'enabled': False, 'ids': [], 'failed': {}, 'seconds': 0.0}
     front_ids = add_front(sheets, res, R)                                              # «фронт сплошной» (T-20261124-18): отдельная строка, вердикты 5 признаков не меняет
     unc = sorted(k for k, v in res.items() if v.get('uncertain'))                  # «не измерено» целиком (маска фото мала)
     meas = [k for k in res if k not in unc]
@@ -797,7 +895,7 @@ def batch(sheets: str, out: str, only: list | None = None, rules: dict | None = 
                     k_ = str(d_.get('why') or 'без причины').split(' (')[0]
                     na_by_reason[k_] = na_by_reason.get(k_, 0) + 1
     flipped = sorted(k for k, v in res.items() if v.get('flipped'))
-    summary = {'front_continuity': front_ids, 'items': len(res), 'measured': len(meas), 'uncertain': unc, 'flipped': len(flipped), 'flipped_ids': flipped, 'passed_all': n_ok,
+    summary = {'front_continuity': front_ids, 'second_render': second, 'items': len(res), 'measured': len(meas), 'uncertain': unc, 'flipped': len(flipped), 'flipped_ids': flipped, 'passed_all': n_ok,
                'passed_all_pct': round(100.0 * n_ok / len(res), 1) if res else None,        # от ВСЕХ товаров: «не измерено» в знаменателе, не прячется
                'failed': len(failed_ids), 'with_unmeasured': len(unm_ids), 'failed_ids': failed_ids, 'unmeasured_ids': unm_ids,
                'na_features': na_feat, 'na_views': na_view, 'na_by_reason': dict(sorted(na_by_reason.items())),
@@ -820,10 +918,15 @@ def main(argv: list) -> int:
     b.add_argument('--clay-dir', default='', help='папка с <id>.clay.png (по умолчанию — рядом с листами)')
     b.add_argument('--workers', type=int, default=int(os.environ.get('HEAVY_SLOT_CORES') or 1), help='товаров параллельно (по умолчанию — ядра heavy-slot)')
     b.add_argument('--cache', default='', help='папка кэша оценки по sha входов (лист, глина, правила, код)')
+    b.add_argument('--no-second-render', action='store_true', help='без второго рендера у порога чёткости (как до T-71/2; для замера «до»)')
+    b.add_argument('--node', default='node')
     a = ap.parse_args(argv)
     items = {x['id']: x for x in json.load(open(a.items, encoding='utf-8'))} if a.items else None
-    r = batch(a.sheets, a.out, [x for x in a.only.split(',') if x] or None, clay_dir=a.clay_dir or None, items=items, workers=a.workers, cache_dir=a.cache or None)
+    r = batch(a.sheets, a.out, [x for x in a.only.split(',') if x] or None, clay_dir=a.clay_dir or None, items=items, workers=a.workers, cache_dir=a.cache or None,
+              second_render=not a.no_second_render, node=a.node)
     s = r['summary']
+    sr_ = s['second_render']
+    print(f"второй рендер «перед» у порога чёткости: {len(sr_['ids'])} товаров {sr_['ids']}, не вышло {len(sr_['failed'])} {sr_['failed']}, {sr_['seconds']} с")
     f_ = s['front_continuity']
     print(f"фронт сплошной (корпусные): применимо {f_['applicable']} · прошли {f_['passed']} · не прошли {f_['failed']} {f_['failed_ids']} · не измерено {f_['unmeasured']}")
     print(f"товаров {s['items']}: прошли ВСЁ (всё измерено) {s['passed_all']} ({s['passed_all_pct']} %) · есть «не измерено» {s['with_unmeasured']} · не прошли {s['failed']} · неприменимо {s['na_features']} признаков и {s['na_views']} видов; ракурс развёрнут: {s['flipped']}")
