@@ -95,7 +95,7 @@ def run_seam(run: str, sku: str, fill_dir: str, visible: str, cfg: dict | None =
         m = kn_keep[gi].reshape(-1)[tx.ti]
         mid_all += int(m.sum())
         mid_bad += int((outs[gi].reshape(-1, 3)[tx.ti[m]] != tex_in[gi].reshape(-1, 3)[tx.ti[m]]).sum())
-    TF.write_glb(geoms, outs, os.path.join(d, 'seam.glb'))
+    srep['texel_fill'] = TF.write_glb(geoms, outs, os.path.join(d, 'seam.glb'), pad=True)
     a = TF.render_ortho(geoms, tex_in, 180.0)
     b = TF.render_ortho(geoms, outs, 180.0)
     Image.fromarray(np.concatenate([a, np.full((a.shape[0], 12, 3), 255, np.uint8), b], axis=1)).save(os.path.join(d, PS.FRAME))
@@ -127,8 +127,11 @@ def run_seam(run: str, sku: str, fill_dir: str, visible: str, cfg: dict | None =
         'photo_middle_changed_texels': {'value': mid_bad, 'threshold': 0, 'op': '<='},
         'cpu_s': {'value': cpu_s, 'threshold': cpu_lim, 'op': '<=', 'note': f'время процессора (не стена): cpu_s_per_variant_geom={seam_c.get("cpu_s_per_variant_geom")} × геометрий {len(g0)} × вариантов {n_var}'},
     }
+    import texel_pad as TP
+    metrics.update(TP.check_metrics(srep['texel_fill'], TP.rules(TF.RULES_PATH)))      # непокрытые тексели: доля, утечка до → после (T-20261125-70)
     for m in metrics.values():
-        m['ok'] = None if m['value'] is None or m['threshold'] is None else PS.judge(m['value'], m['op'], m['threshold'])
+        if 'ok' not in m:
+            m['ok'] = None if m['value'] is None or m['threshold'] is None else PS.judge(m['value'], m['op'], m['threshold'])
     srep['summary'] = {'dE00_median': [medb, meda], 'dE00_p95': [p95b, p95a], 'rough_rms_mm': [rb, ra], 'cpu_s': cpu_s, 'wall_s': round(secs, 1), 'step_ratio': [stb, sta], 'texture_dev': [txb, txa], 'changed_texels': changed, 'photo_middle_texels': mid_all, 'photo_middle_changed': mid_bad,
                        'parts_note': parts_note}
     with open(os.path.join(d, 'report.json'), 'w', encoding='utf-8') as f:

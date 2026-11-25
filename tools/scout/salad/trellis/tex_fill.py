@@ -2588,9 +2588,14 @@ def pattern_metrics(geoms: list, parts, known: list, tex_after: list, rep: dict,
     return out
 
 
-def write_glb(geoms: list, texs: list, dst: str) -> None:
-    """Та же форма и развёртка, текстура — заполненная (выход этапа для следующих)."""
+def write_glb(geoms: list, texs: list, dst: str, pad: bool = False) -> dict | None:
+    """Та же форма и развёртка, текстура — заполненная (выход этапа для следующих). `pad=True` (итоговые выходы 07 и шва) — перед записью непокрытые тексели заливаются цветом соседей
+    (`texel_pad`, правило paint-fill.json → texel_fill; T-20261125-70), покрытые не меняются; → отчёт заливки (в check этапа), без pad — None."""
     import trimesh
+    rep = None
+    if pad:
+        import texel_pad as TP
+        texs, rep = TP.pad_geoms(geoms, texs, TP.rules(RULES_PATH))
     from PIL import Image
     from trimesh.visual import TextureVisuals
     from trimesh.visual.material import PBRMaterial
@@ -2600,6 +2605,7 @@ def write_glb(geoms: list, texs: list, dst: str) -> None:
         mesh.visual = TextureVisuals(uv=np.asarray(g['UV']), material=PBRMaterial(baseColorTexture=Image.fromarray(np.asarray(t)), metallicFactor=0.0, roughnessFactor=1.0))
         sc.add_geometry(mesh, geom_name=str(g.get('name') or 'mesh'))
     sc.export(dst)
+    return rep
 
 
 def known_changed_share(known: list, before: list, after: list, de_min: float) -> dict:
@@ -3192,7 +3198,7 @@ def run_stage_once(run: str, sku: str, glb: str, known: list | None = None, part
     with open(os.path.join(d, 'zones.json'), 'w', encoding='utf-8') as f_:
         json.dump(_dz_doc, f_, ensure_ascii=False, indent=1, default=lambda o: o.item() if hasattr(o, 'item') else str(o))
     _m = _hmark()
-    write_glb(geoms, tex_after, os.path.join(d, 'filled.glb'))
+    rep['texel_fill'] = write_glb(geoms, tex_after, os.path.join(d, 'filled.glb'), pad=True)
     _hdone(hooks, 'write_glb', _m)
     _m = _hmark()
     sides = side_azimuths(geoms, known)                        # зад — сторона без фото по known (не фиксированный 180: формы лежат передом в разные стороны)
@@ -3223,6 +3229,8 @@ def run_stage_once(run: str, sku: str, glb: str, known: list | None = None, part
     }
     for k_, m in metrics.items():
         m['ok'] = True if (k_ == 'front_on_back_corr' and m['value'] is None) else PS.judge(m['value'], m['op'], m['threshold'])
+    import texel_pad as _TP
+    metrics.update(_TP.check_metrics(rep['texel_fill'], _TP.rules(RULES_PATH)))      # непокрытые тексели: доля, утечка цвета до → после, незалитая полоса (T-20261125-70)
     _sga = (rep.get('surface_groups') or {}).get('after')
     if _sga:                                                            # мерки групп материала: пороги — гипотеза пилота; gate=false → справочные (без порога), true → судят passed
         _sgth = sg_cfg['thresholds']

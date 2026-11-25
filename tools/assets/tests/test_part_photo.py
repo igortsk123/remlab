@@ -136,8 +136,16 @@ with tempfile.TemporaryDirectory() as d:
     med = np.median(A1[isl0][:, :3], axis=0)
     ok(np.linalg.norm(MS.rgb_to_lab(np.array([med], dtype=float))[0] - MS.rgb_to_lab(np.array([BRASS], dtype=float))[0]) < 6.0, f"остров части 0 сдвинут к цвету фото (медиана {med.astype(int).tolist()})")
     ok((A1[isl1] == A0[isl1]).all(), "утечка в соседнюю часть = 0: остров части 1 байт в байт (у неё нет данных)")
-    outside = ~isl0
-    ok((A1[outside] == A0[outside]).all(), "вне острова части 0 карта байт в байт (поля, зазор, чужие тексели не тронуты)")
+    import texel_pad as TP                      # путь к tools/scout добавил material_stage (pad_base_color)
+    from scipy.ndimage import distance_transform_edt
+    cov = TP.coverage_from_uv(uv, faces, A0.shape[0])
+    keep_px = TP.rules()["keep_px"]
+    zone = ~cov & (distance_transform_edt(~cov) <= keep_px)             # отступ этапа (gutter): считается покрытым, заливка его не трогает
+    outside = ~isl0 & (cov | zone)
+    ok((A1[outside] == A0[outside]).all(), "вне острова части 0 карта байт в байт (поля, зазор отступа, чужие тексели не тронуты)")
+    mt2 = doc2["metrics"]
+    ok(mt2["texel_band_unfilled"]["ok"] is True and mt2["texel_band_unfilled"]["value"] == 0 and mt2["texel_keep_changed"]["value"] == 0 and doc2["extra"]["texel_fill"]["uncovered_pct"] > 0, "check.json 08: texel_band_unfilled = 0 и texel_keep_changed = 0, отчёт texel_fill с долей непокрытых")
+    ok(zone.any(), "в карте есть зона отступа (зазор и поля ≤ keep_px) — проверка «байт в байт» выше не пустая; заливка дальше отступа — tests_texel_pad (T-20261125-70)")
     ok(doc2["metrics"]["color_unchanged"]["value"] is True and doc2["metrics"]["geometry_unchanged"]["ok"], "метрики этапа: цвет вне маски не тронут, форма не тронута")
     ok((A0[..., 3] == A1[..., 3]).all(), "альфа карты не тронута")
     doc3 = None
