@@ -209,6 +209,66 @@ class T(unittest.TestCase):
         # 10 и больше чужих → 0 (отказ)
         self.assertEqual(L.cap_machines(r, 6, '1', live(*[run(f'x{i}', 'running', 2) for i in range(6)]))[0], 0)
 
+    def test_retry_sizes_nodes_anew_through_the_gate(self):
+        """T-20261125-58/4: повтор упавших считает ноды заново (живой счёт Salad + оставшиеся товары), а не берёт урезанное при старте machines; потолок смотрит до создания групп."""
+        run = lambda name, st, n=None: {'name': name, 'current_state': {'status': st, 'instance_status_counts': {'running_count': n or 0}}}   # noqa: E731
+        live = lambda *rows: (lambda: list(rows))                                              # noqa: E731
+        others = lambda k: [run(f'x{i}', 'running', 1) for i in range(k)]                      # noqa: E731
+        r = {**L.load_rules(), 'machines': 6, 'salad_ceiling': 10, 'warm': {'enabled': False}, 'queue': {'enabled': True}}
+        said = []
+        # заход 0: 8 чужих → из 6 нод можно 2 (rules.machines урезан до 2, но machines_cfg = 6 запомнен ДО урезания)
+        self.assertEqual(L.cap_machines(r, 6, '1', live(*others(8)))[0], 2)
+        r['machines'] = 2
+        todo = [f'112923_{i}' for i in range(10)]
+        # к повтору место освободилось (3 чужих): хотим min(10 товаров, 6) = 6, можно 10−3 = 7 → 6 нод, а не прежние 2
+        ok = L.prepare_retry(r, 6, todo, '1', live(*others(3)), said.append)
+        self.assertTrue(ok)
+        self.assertEqual(r['machines'], 6)
+        self.assertIn('нод 6 из 6', said[-1])
+        # чужие снова заняли место: 8 живых → 2 ноды (повтор не выходит за потолок)
+        r['machines'] = 6
+        self.assertTrue(L.prepare_retry(r, 6, todo, '1', live(*others(8)), said.append))
+        self.assertEqual(r['machines'], 2)
+        # повторять осталось 1 товар → одна нода, лишних не поднимаем
+        r['machines'] = 6
+        self.assertTrue(L.prepare_retry(r, 6, todo[:1], '1', live(*others(3)), said.append))
+        self.assertEqual(r['machines'], 1)
+        # --machines 3 на запуске — это и потолок повтора (machines_cfg = 3)
+        r['machines'] = 3
+        self.assertTrue(L.prepare_retry(r, 3, todo, '1', live(*others(0)), said.append))
+        self.assertEqual(r['machines'], 3)
+        # потолок исчерпан: повтор НЕ стартует, rules не трогаем, причина в лог
+        r['machines'] = 2
+        n = len(said)
+        self.assertFalse(L.prepare_retry(r, 6, todo, '1', live(*others(10)), said.append))
+        self.assertEqual(r['machines'], 2)
+        self.assertEqual(len(said), n + 1)
+        self.assertIn('потолок 10', said[-1])
+        self.assertIn('исчерпан', said[-1])
+        # не-тёплый повтор: прежние группы заходa 0 (даже не погашенные) занимают место — их считает живой счёт
+        prev = L.GROUP_PREFIX + L.suffix_of(r, '1', 0)
+        self.assertFalse(L.prepare_retry(r, 6, todo, '1', live(run(prev, 'running', 1), *others(9)), said.append))
+        # счёт Salad не прочитан → не стартуем, молчаливого запуска нет
+        def boom():
+            raise RuntimeError('нет сети')
+        r['machines'] = 2
+        self.assertFalse(L.prepare_retry(r, 6, todo, '1', boom, said.append))
+        self.assertIn('не прочитан', said[-1])
+        self.assertEqual(r['machines'], 2)
+        # тёплые ноды: имя постоянное, повтор берёт свои же — их место возвращается (10 живых = 4 чужих + 6 своих тёплых → повтор на 6 нод можно)
+        rw = {**r, 'machines': 6, 'warm': {'enabled': True}}
+        mine = [run(L.GROUP_PREFIX + L.suffix_of(rw, '1', i), 'running', 1) for i in range(6)]
+        self.assertTrue(L.prepare_retry(rw, 6, todo, '1', live(*mine, *others(4)), said.append))
+        self.assertEqual(rw['machines'], 6)
+        # …но сверх своих не растём: 2 свои тёплые + 8 чужих = 10 → повтор на 6 хочет, можно только 2 (свои)
+        rw['machines'] = 6
+        self.assertTrue(L.prepare_retry(rw, 6, todo, '1', live(*mine[:2], *others(8)), said.append))
+        self.assertEqual(rw['machines'], 2)
+        # ноды считаются от machines_cfg и в режиме без очереди (товары делятся заранее): 4 товара → 4 группы, а не 6
+        rn = {**r, 'machines': 2, 'queue': {'enabled': False}}
+        self.assertTrue(L.prepare_retry(rn, 6, todo[:4], '1', live(*others(0)), said.append))
+        self.assertEqual(rn['machines'], 4)
+
     def test_cli_refuses_when_ceiling_exhausted_and_when_count_unreadable(self):
         with tempfile.TemporaryDirectory() as tmp:
             r, _ = make_base(tmp, with_fill=True)

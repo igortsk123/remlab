@@ -286,6 +286,40 @@ def cap_machines(rules: dict, wanted: int, run_id: str, fetch=None) -> tuple[int
     return max(0, min(wanted, ceiling - total)), total, mine_live
 
 
+def retry_nodes(rules: dict, machines_cfg: int, n_todo: int, run_id: str, fetch=None) -> tuple[int, int, int]:
+    """Сколько нод на ПОВТОР упавших (T-20261125-58/4): считается заново по живому счёту Salad и числу оставшихся товаров, а не берётся из первого захода.
+    Раньше повтор шёл с `rules['machines']`, уже урезанным при старте (пример 24.11, круг 26 товаров: 8 чужих → 2 ноды, повтор 10 товаров тоже на 2, хотя к тому часу место освободилось;
+    а если чужие заняли место за это время — повтор не смотрел потолок до самого создания группы). Теперь: хотим `node_count(machines_cfg, n_todo)` (machines_cfg — число ДО урезания по потолку),
+    можно — по тем же воротам счёта (`cap_machines`): потолок 10 минус живые всего. Свои тёплые ноды (warm) повтор берёт те же (имя постоянное) — они не новые, их место возвращается;
+    у не-тёплых повтор — новая группа `…r<заход>`, прежние (даже не погашенные) занимают место.
+    → (нод можно, живых всего, нод хотели). 0 нод — повтор не стартуем (причину пишет вызывающий)."""
+    base = dict(rules, machines=int(machines_cfg))
+    want = node_count(base, n_todo)
+    can, total, mine_live = cap_machines(base, want, run_id, fetch)
+    reuse = len(mine_live) if warm_on(rules) else 0
+    if reuse:
+        can = max(0, min(want, int(rules.get('salad_ceiling', 10)) - total + reuse))
+    return can, total, want
+
+
+def prepare_retry(rules: dict, machines_cfg: int, todo: list, run_id: str, fetch=None, say_fn=None) -> bool:
+    """Перед заходом-повтором: пересчитать ноды (`retry_nodes`) и записать в `rules['machines']`. False — повтор не стартуем (потолок исчерпан или счёт не прочитан: на деньгах молча не идём);
+    причина — строкой в лог, упавшие остаются без результата (их видно в итоге «не измерено/нет»)."""
+    say_fn = say_fn or say
+    ceil = rules.get('salad_ceiling', 10)
+    try:
+        can, live, want = retry_nodes(rules, machines_cfg, len(todo), run_id, fetch)
+    except (RuntimeError, OSError, ValueError, subprocess.SubprocessError) as exc:
+        say_fn(f'❗ повтор не стартую: живой счёт Salad не прочитан ({exc}) — на деньгах молча не идём; упавших осталось {len(todo)}')
+        return False
+    if can <= 0:
+        say_fn(f'❗ повтор не стартую: потолок {ceil} живых машин Salad исчерпан (живых всего {live}) — упавших осталось {len(todo)}, повторить позже')
+        return False
+    say_fn(f'повтор: нод {can} из {want} (товаров {len(todo)}, живых Salad всего {live}, потолок {ceil}; в прошлом заходе было {rules["machines"]})')
+    rules['machines'] = can
+    return True
+
+
 def free_gb(path: str) -> float:
     import shutil
     os.makedirs(path, exist_ok=True)
@@ -707,6 +741,7 @@ def main(argv=None) -> int:
         rules['machines'] = min(a.machines, int(rules['machines']))
     if a.no_warm:
         rules.setdefault('warm', {})['enabled'] = False
+    machines_cfg = int(rules['machines'])                                          # сколько нод по правилу/--machines ДО урезания по потолку: повтор считает от него заново (retry_nodes)
     if a.warm_from:
         rules.setdefault('warm', {})['name_owner'] = a.warm_from
     if a.warm_sweep:
@@ -770,6 +805,8 @@ def main(argv=None) -> int:
     todo = list(skus)
     for rnd in range(int(rules.get('retry_rounds', 1)) + 1):
         if not todo:
+            break
+        if rnd > 0 and not prepare_retry(rules, machines_cfg, todo, a.run_id):      # повтор: ноды — заново по живому счёту и оставшимся товарам, через те же ворота (T-20261125-58/4)
             break
         procs, groups = run_round(rules, sha, a.start, todo, run_dir, a.run_id, base, base_tree, not a.dry, rnd)
         if rnd == 0 and not a.dry:
