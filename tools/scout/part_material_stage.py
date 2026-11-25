@@ -223,13 +223,17 @@ def process(a, rules: dict, d: str, rep: dict) -> None:
         Image.fromarray((fg * 255).astype(np.uint8)).save(os.path.join(os.path.join(d, '_partmaterial'), 'foreign-map.png'))
     rl = rules.get('reliability') or {}
     kn_det = kn0
+    gate_pose = None                                                              # местная ошибка позы (поле px кадра) — для ворот: пятна тоньше её не судим (gate.spot_thin_errs)
     if rl.get('enabled') or a.keep_work:                                          # надёжность граней как источника фото: считаем всегда при --keep-work (разбор), применяем только по флагу
         fm = TV.face_maps(st, nF)
         Vv, Ff = np.asarray(g['V'], np.float64), np.asarray(g['F'], np.int64)
         tri = Vv[Ff]
         cen = tri.mean(1)
         el = np.linalg.norm(tri - np.roll(tri, 1, axis=1), axis=-1).mean(1)
-        rel = PM.face_reliability(st['ids'], cosf, cen, el, valid, st['px_len'], nF, rl, depth=st['depth'])
+        nrm = np.cross(tri[:, 1] - tri[:, 0], tri[:, 2] - tri[:, 0])
+        nrm = nrm / np.maximum(np.linalg.norm(nrm, axis=-1, keepdims=True), 1e-12)
+        prod_w = float(np.ptp(Vv, axis=0).max())                                  # ширина товара (наибольший габарит) — единица «малого сдвига по нормали» для канавки
+        rel = PM.face_reliability(st['ids'], cosf, cen, el, valid, st['px_len'], nF, rl, depth=st['depth'], nrm=nrm, prod_w=prod_w)
         pe, pinfo = PM.pose_error_px(st['mask'], pmask, rl)                       # ошибка позы ЭТОГО товара (контур растра ↔ контур фото), px кадра
         rl_e = dict(rl, pose_err_px=pe) if rl.get('measure_pose_err') else rl
         if rl.get('local_pose_err'):                                              # Fable 25.11 17:20: ошибка позы МЕСТНАЯ (по участку контура растр↔фото рядом с гранью), запас края = edge_errs × местная
@@ -241,8 +245,10 @@ def process(a, rules: dict, d: str, rep: dict) -> None:
             ef = np.where(cnt_ > 0, ef, float(np.median(ef[cnt_ > 0])) if (cnt_ > 0).any() else pe)
             rl_e = dict(rl, pose_err_arr=ef, pose_err_px=float(np.median(ef[cnt_ > 0])) if (cnt_ > 0).any() else pe)
             pinfo = dict(pinfo, местная=linfo)
+            gate_pose = fld
         rok, rwhy = PM.reliable_faces(rel, rl_e)
         fidmap = PM.uv_face_map(g['UV'], g['F'], T)
+        rep['разрывы_канавки'] = {'снято_px': int(rel.get('groove_px', 0)), **(rel.get('groove_diag') or {})}
         rep['reliability'] = {**rwhy, 'применено': bool(rl.get('enabled')), 'ошибка_позы_px': round(float(rl_e['pose_err_px']), 2), 'ошибка_позы_замер': pinfo}
         if a.keep_work:
             fr_ = TV.fit_registration(P, st["P"], st["mask"])                     # та же подгонка сдвига, что у 06 (REG_FIT): фото в кадре 06 сдвинуто на (dx, dy) ≤ 3 px
@@ -277,7 +283,7 @@ def process(a, rules: dict, d: str, rep: dict) -> None:
     if h_cm and len(ys_) > 10:
         ppc = float(ys_.max() - ys_.min() + 1) / h_cm
         rep['px_per_cm'] = round(ppc, 3)
-    gate = PM.face_gate(np.asarray(Image.open(os.path.join(work, 'fin-cam-g.png')).convert('RGB')), ctl_g, region, rules, ppc)
+    gate = PM.face_gate(np.asarray(Image.open(os.path.join(work, 'fin-cam-g.png')).convert('RGB')), ctl_g, region, rules, ppc, pose_err=gate_pose)
     rep['gate'] = gate
     met = {}
     for gi, gn in enumerate(names):

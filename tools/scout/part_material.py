@@ -527,7 +527,7 @@ def uv_face_map(UV: np.ndarray, F: np.ndarray, T: int) -> np.ndarray:
     return m
 
 
-def face_reliability(ids: np.ndarray, cosf: np.ndarray, cen: np.ndarray, el: np.ndarray, valid: np.ndarray, px_len: float, nF: int, rl: dict, depth: np.ndarray | None = None) -> dict:
+def face_reliability(ids: np.ndarray, cosf: np.ndarray, cen: np.ndarray, el: np.ndarray, valid: np.ndarray, px_len: float, nF: int, rl: dict, depth: np.ndarray | None = None, nrm: np.ndarray | None = None, prod_w: float | None = None) -> dict:
     """Надёжность каждой грани как источника цвета ФОТО (стол 18286219715731135772, разбор Fable 25.11: пятна = лоскуты фото с ненадёжных мест).
     По пикселям кадра камеры фото (valid = объект ∩ фото): cos — средний cos угла грани к лучу; dist — наименьшее расстояние (px) от пикселя грани до края силуэта/фото или разрыва глубины
     (перекрытия: сосед ближе/дальше больше depth_jump_px·px_len); width — наибольшая ширина детали (2 × расстояние до края силуэта, px) на этой грани; cnt — число пикселей (0 — не видна).
@@ -545,29 +545,98 @@ def face_reliability(ids: np.ndarray, cosf: np.ndarray, cen: np.ndarray, el: np.
     el = np.asarray(el, np.float64)
     ids_c = np.clip(ids, 0, nF - 1)
 
+    gdeg = float(rl.get('groove_parallel_deg', 0) or 0)
+    nrm_ok = gdeg > 0 and nrm is not None and prod_w and prod_w > 0
+    cos_par = float(np.cos(np.radians(gdeg))) if nrm_ok else 2.0
+    off_max = float(rl.get('groove_offset_frac', 0.02)) * float(prod_w or 0.0)
+
+    diag = {'brk': 0, 'par': 0, 'cosang': [], 'off_frac': []}                           # разбор разрывов (для отчёта): сколько, у скольких параллельные нормали, распределение угла и сдвига по нормали / ширина товара
+
     def _brk(a, b, ta, tb, va, vb):
         d = np.linalg.norm(cen[a] - cen[b], axis=-1)
         thr = el[a] + el[b] + px_len * (np.maximum(ta, tb) + jump)
-        return (d > thr) & va & vb & (a != b)
+        brk = (d > thr) & va & vb & (a != b)
+        if nrm is not None and prod_w:
+            na_, nb_ = nrm[a][brk], nrm[b][brk]
+            ca = np.abs((na_ * nb_).sum(-1))
+            nn_ = na_ + np.sign((na_ * nb_).sum(-1, keepdims=True) + 1e-12) * nb_
+            nn_ = nn_ / np.maximum(np.linalg.norm(nn_, axis=-1, keepdims=True), 1e-9)
+            of_ = np.abs(((cen[a][brk] - cen[b][brk]) * nn_).sum(-1)) / float(prod_w)
+            diag['brk'] += int(brk.sum())
+            diag['cosang'].append(ca)
+            diag['off_frac'].append(of_)
+        return brk
+
+    span = int(rl.get('groove_span_px', 6) or 6)
+
+    def _pair_ok(ia, ib):                                                                 # панели одной плоскости лица: нормали параллельны в допуске угла и малый сдвиг по нормали
+        na, nb = nrm[ia], nrm[ib]
+        dt = (na * nb).sum(-1)
+        nn = na + np.sign(dt[:, None] + 1e-12) * nb
+        nn = nn / np.maximum(np.linalg.norm(nn, axis=-1, keepdims=True), 1e-9)
+        off = np.abs(((cen[ia] - cen[ib]) * nn).sum(-1))
+        return (np.abs(dt) >= cos_par) & (off <= off_max)
+
+    def _groove_h(brk, ids_, val_):
+        """brk (H, W−1): пара (r,c)-(r,c+1) — разрыв. Канавка: пиксели p < … ≤ q = p + s (s ≤ groove_span_px) по строке, ОБЕ крайние точки — разные грани одной плоскости лица (канавка/щель — её дно и стенки между ними
+        в кадре 1–4 px; стенки с нормалью «вбок» пару «грань | стенка» параллельной не делают, поэтому смотрим ЧЕРЕЗ канавку). Разрыв внутри такого окна — не край."""
+        rr, cc = np.nonzero(brk)
+        ex = np.zeros(len(rr), bool)
+        Wd = ids_.shape[1]
+        for s_ in range(2, span + 1):
+            for j in range(0, s_):
+                p, q = cc - j, cc - j + s_
+                ok = (p >= 0) & (q < Wd)
+                if not ok.any():
+                    continue
+                pi, qi, ri = p[ok], q[ok], rr[ok]
+                ia, ib = ids_[ri, pi], ids_[ri, qi]
+                m = val_[ri, pi] & val_[ri, qi] & (ia != ib)
+                if m.any():
+                    good = np.zeros(len(ri), bool)
+                    good[m] = _pair_ok(ia[m], ib[m])
+                    ex[np.nonzero(ok)[0][good]] = True
+        out = np.zeros_like(brk)
+        out[rr[ex], cc[ex]] = True
+        return out
     ay, by = ids_c[1:, :], ids_c[:-1, :]
     ax, bx = ids_c[:, 1:], ids_c[:, :-1]
     dy = _brk(ay, by, tn[1:, :], tn[:-1, :], valid[1:, :], valid[:-1, :])
     dx = _brk(ax, bx, tn[:, 1:], tn[:, :-1], valid[:, 1:], valid[:, :-1])
-    bd[1:, :] |= dy
-    bd[:-1, :] |= dy
-    bd[:, 1:] |= dx
-    bd[:, :-1] |= dx
-    gw = int(rl.get('groove_skip_px', 0) or 0)
-    if gw > 0 and depth is not None and bd.any():                                       # Fable 25.11 18:44 (комод): тонкая канавка между соседними панелями одной плоскости (щель между ящиками) — не край: разрыв глубины у неё есть, но детали фото по щели настоящие
-        dep = np.asarray(depth, np.float64)
-        dep = np.where(valid & (dep > 0), dep, np.nan)
-        fill = np.nanmax(dep) if np.isfinite(dep).any() else 0.0
-        dep = np.where(np.isfinite(dep), dep, fill)
-        k = 2 * gw + 1
-        op = ndi.grey_dilation(ndi.grey_erosion(dep, size=(k, k)), size=(k, k))          # открытие по глубине: узкие «впадины» (глубже соседей, уже k px) заменены уровнем панели
-        groove = valid & ((dep - op) > px_len * float(rl.get('groove_min_depth_px', 4.0)))
-        groove = ndi.binary_dilation(groove, iterations=int(rl.get('groove_margin_px', 2)))
-        bd &= ~groove                                                                      # разрывы глубины внутри канавки краем не считаем (силуэт и широкие перекрытия остаются)
+    gy = gx = None
+    if nrm_ok:
+        gx = _groove_h(dx, ids_c, valid)
+        gy = _groove_h(dy.T, ids_c.T, valid.T).T
+    n_groove = 0                                                                          # пикселей кадра, снятых с «края» как канавка
+    if nrm_ok:
+        ey, ex = dy & ~gy, dx & ~gx                                                       # настоящие разрывы (перекрытие / другая плоскость / большой сдвиг)
+        bg = np.zeros((H, W), bool)
+        bg[1:, :] |= gy
+        bg[:-1, :] |= gy
+        bg[:, 1:] |= gx
+        bg[:, :-1] |= gx
+        keep_g = np.zeros((H, W), bool)                                                    # пиксели «канавок», оставленные краем предохранителем
+        gmax = int(rl.get('groove_max_px', 0) or 0)
+        if gmax > 0 and depth is not None:                                                # вторичный предохранитель: канавка — узкая (≤ groove_max_px) и глубже соседей; широкий уступ краем остаётся
+            dep = np.asarray(depth, np.float64)
+            dep = np.where(valid & (dep > 0), dep, np.nan)
+            dep = np.where(np.isfinite(dep), dep, np.nanmax(dep) if np.isfinite(dep).any() else 0.0)
+            kk_ = 2 * gmax + 1
+            op = ndi.grey_dilation(ndi.grey_erosion(dep, size=(kk_, kk_)), size=(kk_, kk_))
+            narrow = ndi.binary_dilation(valid & ((dep - op) > px_len * float(rl.get('groove_min_depth_px', 4.0))), iterations=int(rl.get('groove_margin_px', 2)))
+            keep_g = bg & ~narrow                                                           # не узкая канавка — остаётся краем
+        be = np.zeros((H, W), bool)
+        be[1:, :] |= ey
+        be[:-1, :] |= ey
+        be[:, 1:] |= ex
+        be[:, :-1] |= ex
+        bd = be | keep_g                                                                    # канавки (bg) краем не считаются
+        n_groove = int((bg & ~bd).sum())
+    else:
+        bd[1:, :] |= dy
+        bd[:-1, :] |= dy
+        bd[:, 1:] |= dx
+        bd[:, :-1] |= dx
     dist = edt.copy()
     if bd.any():
         dist = np.minimum(dist, ndi.distance_transform_edt(~bd))
@@ -579,7 +648,15 @@ def face_reliability(ids: np.ndarray, cosf: np.ndarray, cen: np.ndarray, el: np.
     np.minimum.at(dmin, f, dist[ys, xs])
     wmax = np.zeros(nF)
     np.maximum.at(wmax, f, 2.0 * edt[ys, xs])
-    return {'cos': cs, 'dist': np.where(cnt > 0, dmin, 0.0), 'width': wmax, 'cnt': cnt}
+    gd = None
+    if diag['cosang']:
+        ca, of_ = np.concatenate(diag['cosang']), np.concatenate(diag['off_frac'])
+        if len(ca):
+            deg = np.degrees(np.arccos(np.clip(ca, 0, 1)))
+            gd = {'разрывов_пар': int(len(ca)), 'угол_нормалей_p50_p90_град': [round(float(np.percentile(deg, 50)), 1), round(float(np.percentile(deg, 90)), 1)],
+                  'доля_параллельных_10град': round(float((deg <= 10).mean()), 3), 'сдвиг_по_нормали_доля_ширины_p10_p50_p90': [round(float(np.percentile(of_, q)), 4) for q in (10, 50, 90)],
+                  'параллельных_и_сдвиг_до_2%': round(float(((deg <= 10) & (of_ <= 0.02)).mean()), 3)}
+    return {'cos': cs, 'dist': np.where(cnt > 0, dmin, 0.0), 'width': wmax, 'cnt': cnt, 'groove_px': n_groove, 'groove_diag': gd}
 
 
 def reliable_faces(rel: dict, rl: dict) -> tuple[np.ndarray, dict]:
@@ -677,7 +754,7 @@ def keep_details(tex: np.ndarray,ctl: np.ndarray, texmap: np.ndarray, painted: n
     return out, done
 
 
-def face_gate(fin: np.ndarray, ctl: np.ndarray, region: np.ndarray, rules: dict, px_per_cm: float | None = None) -> dict:
+def face_gate(fin: np.ndarray, ctl: np.ndarray, region: np.ndarray, rules: dict, px_per_cm: float | None = None, pose_err: 'np.ndarray | float | None' = None) -> dict:
     """Ворота «лицо против фото» (жёсткий отказ шага): кадры с ОДНОЙ камеры и тем же светом — после шага (fin) и до него (ctl: фото 06 на текстуре), только пиксели покрашенных групп (region).
     1) share_far — доля пикселей, ушедших от фото дальше de_px (ΔE2000); blob — крупнейшее связное пятно таких пикселей, доля региона;
     2) seam_ratio — «чёрная шляпа» по L (тонкие тёмные линии: щели, кромки) после шага / до шага на пикселях линий фото: потеря мелких деталей лица.
@@ -735,21 +812,47 @@ def face_gate(fin: np.ndarray, ctl: np.ndarray, region: np.ndarray, rules: dict,
         k4, lab4, st4, _c4 = cv2.connectedComponentsWithStats(cand.astype(np.uint8), connectivity=8)
         h2 = float(fin.shape[0]) ** 2
         keep4 = np.zeros(k4, bool)
+        te = float(gt.get('spot_thin_errs', 0) or 0)                        # директор 25.11 18:5x: линию тоньше МЕСТНОЙ ошибки позы с фото перенести нельзя в принципе — ворота такие детали не судят (строкой «исключено»)
+        pef = None
+        if pose_err is not None:
+            pef = np.asarray(pose_err, np.float64)
+            if pef.ndim == 2:
+                pef = cv2.resize(pef.astype(np.float32), (fin.shape[1], fin.shape[0]), interpolation=cv2.INTER_LINEAR).astype(np.float64) * (fin.shape[0] / float(np.asarray(pose_err).shape[0]))
+            else:
+                pef = float(pef) * (fin.shape[0] / float(gt.get('pose_err_frame_px', fin.shape[0])))
+        n_thin = 0
+        info_sp = []
+        thick_of = {}
         for i in range(1, k4):
             ar = float(st4[i, cv2.CC_STAT_AREA])
             ln = float(np.hypot(st4[i, cv2.CC_STAT_WIDTH], st4[i, cv2.CC_STAT_HEIGHT]))
             is_line = min_len > 0 and ln >= min_len and ar / ln <= float(gt['seam_max_thick'])
-            keep4[i] = float(gt['spot_min_px_frac']) * h2 <= ar <= float(gt['spot_max_px_frac']) * h2 and not is_line
+            ok_i = float(gt['spot_min_px_frac']) * h2 <= ar <= float(gt['spot_max_px_frac']) * h2 and not is_line
+            if ok_i and pef is not None:
+                cm0 = lab4 == i
+                th = 2.0 * float(cv2.distanceTransform(cm0.astype(np.uint8), cv2.DIST_L2, 3).max())     # толщина пятна = 2 × наибольшее расстояние до края пятна
+                er = float(np.median(pef[cm0])) if isinstance(pef, np.ndarray) else float(pef)
+                thick_of[i] = (round(th, 1), round(er, 1))
+                if te > 0 and th < te * er:
+                    ok_i = False
+                    n_thin += 1
+                    info_sp.append({'исключено': 'тоньше ошибки позы', 'площадь': int(ar), 'толщина_px': round(th, 1), 'ошибка_позы_px': round(er, 1), 'bbox': [int(st4[i, cv2.CC_STAT_LEFT]), int(st4[i, cv2.CC_STAT_TOP]), int(st4[i, cv2.CC_STAT_WIDTH]), int(st4[i, cv2.CC_STAT_HEIGHT])]})
+            keep4[i] = ok_i
+        res['spot_thin_excluded'] = n_thin
+        res['spots_thin'] = info_sp
         spm = keep4[lab4]
         res['spot_px'], res['spot_n'] = int(spm.sum()), int(keep4.sum())
         if res['spot_px'] >= int(gt['spot_min_total_px']):
             res['spot_ratio'] = round(float(sf_[spm].sum() / max(float(sc_[spm].sum()), 1e-6)), 3)
             per = []                                                        # КАЖДОЕ пятно отдельно: одна ручка в норме не прячет исчезнувшую соседнюю (директор 25.11, 09366429)
+            allsp = []
             for i in np.where(keep4)[0]:
                 cm_ = lab4 == i
                 den = float(sc_[cm_].sum())
                 if den > 0:
                     per.append(float(sf_[cm_].sum()) / den)
+                    allsp.append({'доля': round(per[-1], 3), 'площадь': int(st4[i, cv2.CC_STAT_AREA]), 'bbox': [int(st4[i, c]) for c in (cv2.CC_STAT_LEFT, cv2.CC_STAT_TOP, cv2.CC_STAT_WIDTH, cv2.CC_STAT_HEIGHT)], 'толщина_и_ошибка_позы_px': thick_of.get(i)})
+            res['spots_all'] = sorted(allsp, key=lambda x: x['доля'])[:10]
             if per:
                 res['spot_min'] = round(min(per), 3)
                 res['spot_ratios'] = [round(x, 2) for x in sorted(per)[:8]]

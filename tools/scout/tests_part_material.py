@@ -257,6 +257,21 @@ two = np.full((400, 400, 3), 225, np.uint8); two[150:162, 100:108] = 90; two[150
 two_after = two.copy(); two_after[150:162, 100:108] = 225
 g_two = PM.face_gate(two_after, two, rg4, R)
 check(g_two['spot_n'] == 2 and g_two['spot_min'] is not None and g_two['spot_min'] < 0.1 and g_two['spot_ratio'] > 0.4 and any('ручка' in x for x in g_two['fail']), 'ворота: одна ручка исчезла, другая цела — отказ по худшему пятну (сумма 0,5 не прячет)')
+# ворота: деталь тоньше МЕСТНОЙ ошибки позы с фото не перенести — не судим (spot_thin_errs, директор 25.11), строкой «исключено»
+import json as _js
+R_th = _js.loads(_js.dumps(R)); R_th['gate']['spot_thin_errs'] = 1.0
+thin = np.full((400, 400, 3), 225, np.uint8); thin[100:103, 150:164] = 90                          # тонкая тёмная деталь 3 px × 14
+thin_gone = np.full((400, 400, 3), 225, np.uint8)
+g_t0 = PM.face_gate(thin_gone, thin, rg4, R, pose_err=4.0)
+g_t1 = PM.face_gate(thin_gone, thin, rg4, R_th, pose_err=4.0)
+g_t2 = PM.face_gate(thin_gone, thin, rg4, R_th, pose_err=2.0)
+g_t3 = PM.face_gate(hand_gone, hand, rg4, R_th, pose_err=4.0)
+g_t4 = PM.face_gate(thin_gone, thin, rg4, R_th)
+check(g_t0['spot_n'] == 1 and any('ручка' in x for x in g_t0['fail']), 'ворота: тонкая деталь, флаг выкл — судится как раньше (отказ)')
+check(g_t1['spot_n'] == 0 and g_t1['spot_thin_excluded'] == 1 and g_t1['fail'] == [], 'ворота: тоньше ошибки позы (3 px < 4 px) — не судим, исключено 1')
+check(g_t2['spot_n'] == 1 and g_t2['spot_thin_excluded'] == 0, 'ворота: ошибка позы мала (2 px) — деталь 3 px судится')
+check(g_t3['spot_n'] == 1 and g_t3['spot_thin_excluded'] == 0 and any('ручка' in x for x in g_t3['fail']), 'ворота: ручка (толще ошибки позы) исчезла — отказ остаётся при флаге')
+check(g_t4['spot_n'] == 1, 'ворота: флаг вкл, а ошибки позы нет — как выкл')
 # «чужой материал»: тёмная компактная ручка на светлой панели остаётся фото, щель (тонкая линия) и сама панель — красятся
 Tt = 1024
 ctl_f = np.full((Tt, Tt, 3), 225, np.uint8); ctl_f[400:440, 480:510] = 60; ctl_f[:, 160:162] = 80            # панель + ручка 40×30 + щель 2 текселя на всю высоту
@@ -335,22 +350,46 @@ cen_o[fid_mid, 2] = 500.0                                                       
 rel_o = PM.face_reliability(ids_r, cos_r, cen_o, el_r, valid_r, 1.0, nF_r, RL)
 ok_o, _ = PM.reliable_faces(rel_o, RL)
 check(not bool(ok_o[fid_mid]) and not bool(ok_o[fid_mid + 1]), 'надёжность: разрыв по глубине между соседями (перекрытие) — обе стороны ненадёжны')
-# канавка ≠ край (комод 25.11): два разрыва в мире — узкая глубокая канавка (x 46..49) и широкая ступень (x ≥ 24); флаг снимает только первый
-cen_gr = cen_r.copy()
-for fi in range(nF_r):
-    tx_ = fi % (Hh // 8)
-    cen_gr[fi, 2] = 500.0 * (tx_ >= 3) + 500.0 * (tx_ >= 6)
-dep_gr = np.full((Hh, Hh), 100.0, np.float32)
-dep_gr[:, 24:] = 130.0
-dep_gr[:, 46:50] = 150.0
-fid_gv = 5 * (Hh // 8) + 5                                                                # плитка x 40..47 у канавки
-fid_st = 5 * (Hh // 8) + 2                                                                # плитка x 16..23 у широкой ступени
-d_off = PM.face_reliability(ids_r, cos_r, cen_gr, el_r, valid_r, 1.0, nF_r, RL, depth=dep_gr)['dist']
-d_on = PM.face_reliability(ids_r, cos_r, cen_gr, el_r, valid_r, 1.0, nF_r, dict(RL, groove_skip_px=3), depth=dep_gr)['dist']
-d_nd = PM.face_reliability(ids_r, cos_r, cen_gr, el_r, valid_r, 1.0, nF_r, dict(RL, groove_skip_px=3))['dist']
-check(d_off[fid_gv] <= 1.5 and d_off[fid_st] <= 1.5, 'канавка: флаг выкл — оба разрыва глубины считаются краем (плитки у них dist ≤ 1,5)')
-check(d_on[fid_gv] > 8.0 and d_on[fid_st] <= 1.5, 'канавка: флаг вкл — разрыв в узкой глубокой канавке не край, широкая ступень остаётся краем')
-check(bool(np.array_equal(d_nd, d_off)), 'канавка: флаг вкл, но глубины нет — как выкл (без падения)')
+# канавка ≠ край (комод 25.11, геометрия по Fable/директору): разрывы в мире — (а) малый сдвиг по нормали (20 при ширине товара 1000) у параллельных панелей — канавка;
+# (б) сдвиг 500 — перекрытие; (в) малый сдвиг, но нормаль повёрнута на 45° — другая плоскость. Флаг снимает только (а).
+ids_g = ids_r.copy()
+ids_g[8:88, 46:48] = 0                                                                    # канавка 2 px: стенка — грань 0 (нормаль «вбок», центр далеко): пары «панель | стенка» перпендикулярны, как на комоде
+def _gr_case(shift_g, tilt_deg=0.0):
+    cen_g = cen_r.copy()
+    nr = np.tile(np.array([0.0, 0.0, 1.0]), (nF_r, 1))
+    nr[0] = [1.0, 0.0, 0.0]
+    for fi in range(nF_r):
+        tx_ = fi % (Hh // 8)
+        cen_g[fi, 2] = 500.0 * (tx_ >= 3) + shift_g * (tx_ >= 6)
+        if tx_ >= 6 and tilt_deg:
+            nr[fi] = [np.sin(np.radians(tilt_deg)), 0.0, np.cos(np.radians(tilt_deg))]
+    cen_g[0] = [0.0, 0.0, 0.0]
+    nr[0] = [1.0, 0.0, 0.0]
+    return cen_g, nr
+fid_gv = 5 * (Hh // 8) + 5                                                                # плитка x 40..47 у разрыва с плиткой x ≥ 48
+fid_st = 5 * (Hh // 8) + 2                                                                # плитка x 16..23 у разрыва «перекрытие» (сдвиг 500)
+RLg = dict(RL, groove_parallel_deg=10.0, groove_offset_frac=0.02)
+cen_a, nr_a = _gr_case(19.0)
+d_off = PM.face_reliability(ids_g, cos_r, cen_a, el_r, valid_r, 1.0, nF_r, RL, nrm=nr_a, prod_w=1000.0)
+d_on = PM.face_reliability(ids_g, cos_r, cen_a, el_r, valid_r, 1.0, nF_r, RLg, nrm=nr_a, prod_w=1000.0)
+check(d_off['dist'][fid_gv] <= 1.5 and d_off['dist'][fid_st] <= 1.5 and d_off['groove_px'] == 0, 'канавка: флаг выкл — оба разрыва глубины считаются краем')
+check(d_on['dist'][fid_gv] > 8.0 and d_on['dist'][fid_st] <= 1.5 and d_on['groove_px'] > 0, 'канавка: параллельные панели + малый сдвиг по нормали — не край; перекрытие (сдвиг 500) остаётся краем')
+cen_b, nr_b = _gr_case(19.0, tilt_deg=45.0)
+d_tilt = PM.face_reliability(ids_g, cos_r, cen_b, el_r, valid_r, 1.0, nF_r, RLg, nrm=nr_b, prod_w=1000.0)
+check(d_tilt['dist'][fid_gv] <= 1.5, 'канавка: нормали не параллельны (45°) — другая плоскость, край')
+cen_c, nr_c = _gr_case(60.0)
+d_big = PM.face_reliability(ids_g, cos_r, cen_c, el_r, valid_r, 1.0, nF_r, RLg, nrm=nr_c, prod_w=1000.0)
+check(d_big['dist'][fid_gv] <= 1.5, 'канавка: сдвиг по нормали 60 > 2 % ширины товара — край')
+d_nn = PM.face_reliability(ids_g, cos_r, cen_a, el_r, valid_r, 1.0, nF_r, RLg)
+check(bool(np.array_equal(d_nn['dist'], d_off['dist'])), 'канавка: нормалей нет — как выкл (без падения)')
+dep_n = np.full((Hh, Hh), 100.0, np.float32)
+dep_n[:, 46:50] = 150.0                                                                   # узкая (4 px) глубокая канавка
+dep_w = np.full((Hh, Hh), 100.0, np.float32)
+dep_w[:, 46:70] = 150.0                                                                   # широкий уступ (24 px)
+RLm = dict(RLg, groove_max_px=3)
+d_gn = PM.face_reliability(ids_g, cos_r, cen_a, el_r, valid_r, 1.0, nF_r, RLm, depth=dep_n, nrm=nr_a, prod_w=1000.0)['dist'][fid_gv]
+d_gw = PM.face_reliability(ids_g, cos_r, cen_a, el_r, valid_r, 1.0, nF_r, RLm, depth=dep_w, nrm=nr_a, prod_w=1000.0)['dist'][fid_gv]
+check(d_gn > 8.0 and d_gw <= 1.5, 'канавка: предохранитель groove_max_px — узкая канавка снимается, широкий уступ остаётся краем')
 rl_off = dict(RL, cos_min=0.0, edge_errs=0.0, thin_errs=0.0)
 ok_all, why_all = PM.reliable_faces(rel_g, rl_off)
 check(bool(ok_all[fid_edge]) and bool(ok_all[fid_thin]) and bool(ok_all[fid_mid]) and why_all['надёжна'] == why_all['видна'], 'надёжность: пороги 0 — правила выключены по одному, остаётся «видна в кадре» (растекание не берётся)')
