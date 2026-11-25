@@ -674,5 +674,57 @@ class StitchDepth(unittest.TestCase):
         self.assertTrue((before == np.array(m.vertices)).all())
 
 
+def chair_sil(wave_amp_px: float = 0.0, period: float = 70.0, bow_px: float = 0.0, w: int = 30, legs_n: int = 2) -> np.ndarray:
+    """Силуэт «сбоку»: корпус-сиденье 300×60 px сверху, под ним `legs_n` ножек шириной w и длиной 300 px; край одной ножки идёт синусоидой (wave_amp_px, период в строках) и/или дугой (bow_px)."""
+    H, Wd = 400, 320
+    m = np.zeros((H, Wd), bool)
+    m[0:60, 10:310] = True
+    xs = [30, 250] if legs_n == 2 else [30]
+    yy = np.arange(60, 360)
+    for k, x0 in enumerate(xs):
+        for y in yy:
+            off = 0.0
+            if k == 0:
+                off = wave_amp_px * np.sin(2 * np.pi * (y - 60) / period) + bow_px * (1 - ((y - 210) / 150.0) ** 2)
+            a = int(round(x0 + off))
+            m[y, a:a + w] = True
+    return m
+
+
+class LegWave(unittest.TestCase):
+    """T-20261124-57 (П1.160): мерка волнистой ножки — прямая и дуга не срабатывают, длинная волна срабатывает; тип без ножек — None; OBSERVE."""
+
+    def test_wavy_leg_would_flag_straight_and_arc_not(self):
+        bad = by(FC.leg_wave(chair_sil(wave_amp_px=3.0), R), 'leg_wave')
+        straight = by(FC.leg_wave(chair_sil(), R), 'leg_wave')
+        arc = by(FC.leg_wave(chair_sil(bow_px=6.0), R), 'leg_wave')
+        self.assertTrue(bad['would_flag'], bad)
+        self.assertGreaterEqual(bad['value'], R['lw_amp'])
+        self.assertFalse(straight['would_flag'], straight)
+        self.assertFalse(arc['would_flag'], arc)                         # плавная дуга — законная форма ножки (сабля), не волна
+
+    def test_observe_flag_off(self):
+        self.assertFalse(R['leg_wave_flag'])
+        c = by(FC.leg_wave(chair_sil(wave_amp_px=3.0), R), 'leg_wave')
+        self.assertFalse(c['flag'])
+        self.assertTrue(c['would_flag'])
+        c = by(FC.leg_wave(chair_sil(wave_amp_px=3.0), dict(R, leg_wave_flag=True)), 'leg_wave')
+        self.assertTrue(c['flag'])
+
+    def test_no_legs_is_none(self):
+        m = np.zeros((300, 300), bool)
+        m[50:250, 20:280] = True                                         # плита/шкаф без ножек
+        c = by(FC.leg_wave(m, R), 'leg_wave')
+        self.assertIsNone(c['value'])
+        self.assertFalse(c['would_flag'] or c['flag'])
+        self.assertIn('ножек', c['note'])
+
+    def test_input_not_changed(self):
+        m = chair_sil(wave_amp_px=3.0)
+        before = m.copy()
+        FC.leg_wave(m, R)
+        self.assertTrue((before == m).all())
+
+
 if __name__ == '__main__':
     unittest.main(verbosity=1)
