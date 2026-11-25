@@ -221,7 +221,7 @@ def process(a, rules: dict, d: str, rep: dict) -> None:
         src = gn if gn in alb else borrowed.get(gn)
         gtone.append(np.clip(PM.lin2srgb(alb[src]) + 0.5, 0, 255).astype(np.uint8) if (gn not in keep and src in alb) else np.array([0, 0, 0], np.uint8))
     np.savez_compressed(os.path.join(d, 'part_material_masks.npz'), group_map=np.where(painted, texmap, -1).astype(np.int16), names=np.array(names), tone_srgb=np.array(gtone, np.uint8),
-                        painted_group=np.array([bool(gn not in keep and (gn in alb or borrowed.get(gn) in alb)) for gn in names]), material=np.array(mid, np.int32), face_group=np.asarray(flab, np.int16))
+                        roles=np.array([next((r for r, gg in rules['role_group'].items() if gg == gn), '') for gn in names]), texture_size=np.int32(painted.shape[0]), painted_group=np.array([bool(gn not in keep and (gn in alb or borrowed.get(gn) in alb)) for gn in names]), material=np.array(mid, np.int32), face_group=np.asarray(flab, np.int16))
     rep['tone_only_texels'] = int((painted & ~kn).sum())
     rep['known_texels_painted_flat'] = int((painted & kn).sum())
     rep['seconds'] = round(time.time() - t0, 1)
