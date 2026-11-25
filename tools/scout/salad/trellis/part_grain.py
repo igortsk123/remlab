@@ -45,10 +45,14 @@ def load_rules(path: str = RULES_PATH) -> dict:
 
 
 # ------------------------------------------------------------------ материал части ----------------------------------------------------------------
-def part_is_wood(name: str, card: dict | None, rules: dict) -> bool:
+def part_is_wood(name: str, card: dict | None, rules: dict, role: str | None = None) -> bool:
     """Дерево ли часть по карточке и имени части (для Ш4а, если у него нет своего решения). Ножки/стойки — по «Материал ножек»; обивка/ручки/лампа/клавиши — не дерево; корпус/фасад/столешница — по их словам."""
     n = (name or '').lower()
     card = card or {}
+    if role:                                   # роль р.1 (top/legs/facade/side/back/body — выход Ш4а): ножки — по «Материал ножек», остальное — корпус/фасад/столешница
+        keys = rules['leg_card_keys'] if role == 'legs' else rules['wood_card_keys']
+        t = ' '.join(str(v).lower() for k, v in card.items() if any(s_ in k.lower() for s_ in keys))
+        return any(w in t for w in rules['wood_words'])
     txt = lambda keys: ' '.join(str(v).lower() for k, v in card.items() if any(s in k.lower() for s in keys))  # noqa: E731
     if any(w in n for w in rules['non_wood_part_words']):
         return False
@@ -288,7 +292,7 @@ def planes_for(V, F):
 # ------------------------------------------------------------------ вход от Ш4а (part_material, р.3) -------------------------------------------------------
 def parts_from_masks(npz, tx, tex, card: dict | None = None, photo_sigma: dict | None = None, rules: dict | None = None):
     """Выход Ш4а `06-visible/part_material_masks.npz` → (parts для plan_grain, masks по текселям tx). Ключи npz: group_map (T×T int16, группа по текселю, −1 = не красили), names (имя группы),
-    tone_srgb (плоский тон группы, (G,3), 0..255 или 0..1), painted_group (bool: группу красил Ш4а). Берутся только painted_group. Дерево — по карточке и имени (`part_is_wood`; номер материала Ш4а —
+    tone_srgb (плоский тон группы, (G,3), 0..255 или 0..1), painted_group (bool: группу красил Ш4а), roles (английский ключ роли р.1 на группу: top/legs/facade/side/back/body; names — русские имена групп), texture_size. Берутся только painted_group. Дерево — по карточке и имени (`part_is_wood`; номер материала Ш4а —
     «один материал = один тон», классов он не несёт). Ровность тона (`tone_sigma`) — σL текстуры под маской группы (Ш4а кладёт плоский тон → ≈0; градиент → отказ tone_not_even).
     photo_sigma — {id группы: σL фото (`photo_hf_sigma`)}; нет — None (предохранитель 2 берёт соседей)."""
     rules = rules or load_rules()
@@ -297,7 +301,10 @@ def parts_from_masks(npz, tx, tex, card: dict | None = None, photo_sigma: dict |
     if gm.size != np.asarray(tex).shape[0] * np.asarray(tex).shape[1]:
         raise ValueError(f'group_map {np.asarray(z["group_map"]).shape} не совпадает с текстурой {np.asarray(tex).shape[:2]}')
     gt = gm[tx.ti]
+    if 'texture_size' in z and int(np.asarray(z['texture_size']).reshape(-1)[0]) != int(np.asarray(tex).shape[0]):
+        raise ValueError('texture_size в npz не совпадает с текстурой')
     names = [str(x) for x in np.asarray(z['names']).reshape(-1)]
+    roles = [str(x) for x in np.asarray(z['roles']).reshape(-1)] if 'roles' in z else [None] * len(names)
     tone = np.asarray(z['tone_srgb'], np.float64).reshape(-1, 3)
     if tone.size and tone.max() <= 1.5:
         tone = tone * 255.0
@@ -311,7 +318,7 @@ def parts_from_masks(npz, tx, tex, card: dict | None = None, photo_sigma: dict |
         n = int(m.sum())
         lab = TC.rgb2lab(np.clip(np.round(tone[g]), 0, 255).astype(np.uint8).reshape(1, 3))[0]
         sig = float(TC.rgb2lab(flat[m])[:, 0].std()) if n >= 20 else None
-        parts.append({'id': g, 'name': names[g], 'is_wood': part_is_wood(names[g], card, rules), 'tone_lab': [float(x) for x in lab], 'tone_sigma': sig,
+        parts.append({'id': g, 'name': names[g], 'is_wood': part_is_wood(names[g], card, rules, roles[g] if g < len(roles) else None), 'tone_lab': [float(x) for x in lab], 'tone_sigma': sig,
                       'n_texels': n, 'photo_sigma': (photo_sigma or {}).get(g), 'card': card})
         masks[g] = m
     return parts, masks

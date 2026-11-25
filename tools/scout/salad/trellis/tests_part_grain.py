@@ -172,6 +172,14 @@ def main():
     out3, rep3 = PG.apply_grain(tex, tx, pp, mm, fp, pn, 100.0, (1, 0, 0), R, enabled=True)
     rest = out3.reshape(-1, 3)[tx.ti][n // 2:]
     check(rep3['applied'] == 1 and np.array_equal(rest, tex.reshape(-1, 3)[tx.ti][n // 2:]), 'вход Ш4а → зерно только на группе 0, группа 1 нетронута')
+    npz_r = dict(npz, names=np.array(['верх', 'ножки']), roles=np.array(['top', 'legs']), texture_size=np.array(T), painted_group=np.array([True, True]))
+    pr, _m = PG.parts_from_masks(npz_r, tx, tex, {'Материал столешницы': 'дерево', 'Материал ножек': 'металл'}, None, R)
+    check([x['is_wood'] for x in pr] == [True, False], 'роли Ш4а: верх — по столешнице (дерево), ножки — по «Материал ножек» (металл → не дерево)')
+    try:
+        PG.parts_from_masks(dict(npz_r, texture_size=np.array(T + 1)), tx, tex, card, None, R)
+        check(False, 'texture_size не совпал — отказ')
+    except ValueError:
+        check(True, 'texture_size не совпал — отказ')
     bad_npz = dict(npz, group_map=np.full((T // 2, T), -1, np.int16))
     try:
         PG.parts_from_masks(bad_npz, tx, tex, card, None, R)
