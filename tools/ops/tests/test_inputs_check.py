@@ -160,3 +160,25 @@ def test_json_output_and_real_rules_file_parses():
     s = rules['sets']['set29']
     assert rules['root'] == '~/remlab-inputs' and s['expect'] == 29 and s['lists'] and s['manifest'] == 'set29/MANIFEST.tsv'
     assert any(a['kind'] == 'other' and 'другая версия' in a['note'] for a in s['also'])
+
+
+def test_set_inputs_returns_main_paths_and_raises_when_unreadable(world, capsys):
+    tmp, logs, runs, sdir = world
+    with pytest.raises(ic.InputsError, match='MANIFEST'):
+        ic.set_inputs('s3')                                                  # копий ещё нет
+    build_ok(capsys)
+    got = ic.set_inputs('s3')
+    assert set(got) == set(SKUS) and set(got[SKUS[0]]) == {'photo', 'card', 'glb'}          # «другая версия» (other) в основные входы не попадает
+    assert got[SKUS[0]]['photo'] == str(sdir / 'photo' / f'{SKUS[0]}.hd.rgba.png') and os.path.isfile(got[SKUS[0]]['glb'])
+    os.remove(sdir / 'card' / f'{SKUS[1]}.card.json')
+    with pytest.raises(ic.InputsError, match='нет файла входа'):
+        ic.set_inputs('s3')
+    with pytest.raises(ic.InputsError, match='не описан'):
+        ic.set_inputs('нет-такого')
+
+
+def test_set_photo_dirs_lists_existing_photo_dirs_only(world, capsys):
+    tmp, logs, runs, sdir = world
+    assert ic.set_photo_dirs() == []                                          # набор ещё не собран
+    build_ok(capsys)
+    assert ic.set_photo_dirs() == [str(sdir / 'photo')]

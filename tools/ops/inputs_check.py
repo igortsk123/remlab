@@ -232,6 +232,45 @@ def build_set(name: str, cfg: dict, root: str) -> tuple[list, list]:
     return probs, msgs
 
 
+class InputsError(Exception):
+    """Вход набора не прочитать (нет набора/MANIFEST/файла) — строитель списка круга останавливается, а не берёт путь из ~/remlab-logs."""
+
+
+def set_inputs(name: str) -> dict:
+    """{sku: {'photo': путь, 'card': путь, 'glb': путь}} — ОСНОВНЫЕ входы набора из MANIFEST (абсолютные пути копий в ~/remlab-inputs).
+    Для строителей списков круга (loop5.py, make_inputs_07.py): новые круги на 29 берут входы ОТСЮДА, а не из папок логов (T-20261125-75/3).
+    Нет набора в правилах / MANIFEST / файла копии — InputsError (тихого отката на логи нет: из-за него 24.11 вход комода пропал из кругов)."""
+    try:
+        r = rules()
+    except (OSError, ValueError) as e:
+        raise InputsError(f'правила наборов не прочитать: {e}')
+    if name not in r['sets']:
+        raise InputsError(f'набор {name!r} не описан в {RULES_PATH}')
+    cfg = r['sets'][name]
+    sdir = os.path.join(r['root'], name)
+    rows, bad = read_manifest(os.path.join(r['root'], cfg.get('manifest') or f'{name}/MANIFEST.tsv'))
+    if bad or not rows:
+        raise InputsError(f'набор {name}: ' + ('; '.join(bad) or 'MANIFEST пуст') + ' — python3 tools/ops/inputs_check.py --build ' + name)
+    out: dict = {}
+    for row in rows:
+        if row['kind'] not in KINDS:
+            continue
+        f = os.path.normpath(os.path.join(sdir, row['file']))
+        if not (f.startswith(sdir + os.sep) and os.path.isfile(f)):
+            raise InputsError(f'набор {name}: нет файла входа {row["sku"]} {row["kind"]}: {f} — python3 tools/ops/inputs_check.py --set {name}')
+        out.setdefault(row['sku'], {})[row['kind']] = f
+    return out
+
+
+def set_photo_dirs() -> list:
+    """Папки `<набор>/photo` (файлы `<sku>.hd.rgba.png`) всех наборов из правил — первыми в поиске фото входа 07 (make_inputs_07.py)."""
+    try:
+        r = rules()
+    except (OSError, ValueError):
+        return []
+    return [d for d in (os.path.join(r['root'], n, 'photo') for n in r['sets']) if os.path.isdir(d)]
+
+
 def main(argv: list) -> int:
     try:
         r = rules()

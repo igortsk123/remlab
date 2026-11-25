@@ -14,7 +14,10 @@ import sys
 
 B = os.path.expanduser('~/remlab-logs')
 S7 = f'{B}/t187-1122/salad07'
-PHOTO_DIRS = [f'{B}/t178-forms-1122/forms-inputs', f'{B}/t172-1121/inputs', f'{B}/t172-1121/inputs30']        # где лежит <sku>.hd.rgba.png (маска — альфа)
+sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), '..', '..', '..', 'ops'))
+import inputs_check as IC  # noqa: E402
+# где лежит <sku>.hd.rgba.png (маска — альфа): СНАЧАЛА копии входов наборов (~/remlab-inputs/<набор>/photo, пути — input-sets.json; T-20261125-75/3), потом прежние папки логов (товары вне набора)
+PHOTO_DIRS = IC.set_photo_dirs() + [f'{B}/t178-forms-1122/forms-inputs', f'{B}/t172-1121/inputs', f'{B}/t172-1121/inputs30']
 CARD_ARGS = ('--card-json', '@in/card.json')
 PHOTO_ARGS = ('--photo', '@in/photo.png')
 UT_ARGS = ('--ut-glb', '@in/ut.glb')

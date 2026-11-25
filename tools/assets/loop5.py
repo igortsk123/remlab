@@ -111,12 +111,44 @@ def keep_photo(src: str, keep_dir: str, sku: str) -> str:
     raise SystemExit(f'нет фото товара {sku}: {src or "(пусто)"} — исходник пропал, копии в прогоне нет')
 
 
+def load_rows(rules: dict) -> dict[str, dict]:
+    """Строки входа всех товаров пакета (`shard_inputs_glob`) с подменой входов набора (`rules.input_set`, T-20261125-75/3): у товара из набора glb, photo, extra_in.photo.png и
+    extra_in.card.json (последние два — если ключ в строке уже есть) берутся из ~/remlab-inputs/<набор> по MANIFEST (пути из tools/scout/rules/input-sets.json, не руками); товары вне набора
+    и круг без `input_set` — как раньше. Нет набора/MANIFEST/файла — остановка (тихого отката на ~/remlab-logs нет: 24.11 вход комода пропал вместе с папкой логов, товар выпал из кругов)."""
+    allv: dict[str, dict] = {}
+    for f in sorted(glob.glob(ex(rules['shard_inputs_glob']))):
+        with open(f, encoding='utf-8') as fh:
+            allv.update(json.load(fh))
+    name = rules.get('input_set')
+    if not name:
+        return allv
+    sys.path.insert(0, os.path.join(ROOT, 'tools', 'ops'))
+    import inputs_check as IC
+    try:
+        inp = IC.set_inputs(name)
+    except IC.InputsError as e:
+        raise SystemExit(f'входы набора {name}: {e}')
+    for sku, v in allv.items():
+        s = inp.get(sku)
+        if not s:
+            continue
+        if 'glb' in s:
+            v['glb'] = s['glb']
+        if 'photo' in s:
+            v['photo'] = s['photo']
+        ei = v.get('extra_in')
+        if isinstance(ei, dict):
+            if 'photo.png' in ei and 'photo' in s:
+                ei['photo.png'] = s['photo']
+            if 'card.json' in ei and 'card' in s:
+                ei['card.json'] = s['card']
+    return allv
+
+
 def shard_inputs(rules: dict, skus: list[str], start: str, base: dict[str, str], keep_dir: str | None = None) -> dict[str, dict]:
     """Строки входа stage_trial для товаров (06 и 07 — из пакета 29; для 07 добавляется vis = 06-visible «до»).
     keep_dir — фото копируются туда и в входе стоит путь копии (см. keep_photo)."""
-    allv: dict[str, dict] = {}
-    for f in sorted(glob.glob(ex(rules['shard_inputs_glob']))):
-        allv.update(json.load(open(f, encoding='utf-8')))
+    allv = load_rows(rules)
     miss = [s for s in skus if s not in allv]
     if miss:
         raise SystemExit(f'нет строки входа в {rules["shard_inputs_glob"]}: {miss}')
@@ -219,10 +251,7 @@ def sweep_warm(timeout: int = 300) -> bool:
 
 def photos(rules: dict, keep_dir: str | None = None) -> dict[str, str]:
     """Настоящее фото товара для листа (вырезка из входов пакета 29: `photo`); frame-photo.png 07 у шкафа — боковой кадр (р.2, 23.11)."""
-    out = {}
-    for f in sorted(glob.glob(ex(rules['shard_inputs_glob']))):
-        with open(f, encoding='utf-8') as fh:
-            out.update({s: v.get('photo') or '' for s, v in json.load(fh).items()})
+    out = {s: v.get('photo') or '' for s, v in load_rows(rules).items()}
     if keep_dir:                                           # копия в прогоне надёжнее исходника
         for s in list(out):
             c = glob.glob(os.path.join(keep_dir, s + '.*'))

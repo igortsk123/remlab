@@ -8,6 +8,8 @@
   "112923_14584833429474696250"
  ],
  "_golden_about": "золотые 5 (директор, 23.11): список — только здесь; «до» берётся из base_root.",
+ "input_set": "set29",
+ "_input_set_about": "T-20261125-75/3: набор входов (tools/scout/rules/input-sets.json → ~/remlab-inputs/<набор>/MANIFEST.tsv). Товары набора берут glb, photo, extra_in.photo.png и extra_in.card.json ОТТУДА (loop5.load_rows), а не из строк shard_inputs_glob / папок логов; вне набора — как раньше. Пусто/нет ключа — старое поведение. Нет набора, MANIFEST или файла — круг останавливается (без тихого отката). Старые списки (inputs-q*.json прошлых кругов) не трогаем.",
  "base_root": "~/remlab-logs/t220-1123/out-batch2",
  "_base_root_about": "выход пакета 29 (T-20): <base_root>/sh*/<товар>/{06-visible,07-fill,07-seam,08-material}; это «до» и вход для шагов до выбранного.",
  "shard_inputs_glob": "~/remlab-logs/t220-1123/shards/sh*.json",
