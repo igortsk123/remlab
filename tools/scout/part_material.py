@@ -328,7 +328,9 @@ def same_material(a: np.ndarray, b: np.ndarray, sm: dict) -> tuple[bool, str]:
         rc = abs(ra - rb) / max(rb, 1e-3)
         return bool(dh < sm['hue_deg'] and rc < sm['ratio_tol']), 'оттенок %.0f°' % dh
     dl = float(a[0] - b[0])
-    return bool(abs(dl) <= sm['neutral_dl'] and max(ca, cb) <= sm['neutral_c']), 'нейтральные, ΔL %.1f' % dl
+    dab = float(np.hypot(a[1] - b[1], a[2] - b[2]))                  # малая насыщенность: угол оттенка шумит — расстояние по (a, b); мятный и дуб оба «светлые нейтральные» по ΔL, но разнятся по a,b
+    ok = abs(dl) <= sm['neutral_dl'] and max(ca, cb) <= sm['neutral_c'] and (not sm.get('neutral_ab') or dab <= sm['neutral_ab'])
+    return bool(ok), 'нейтральные, ΔL %.1f, Δab %.1f' % (dl, dab)
 
 
 def pick_sources(tones: dict, rules: dict, area_share: dict | None = None) -> tuple[set, dict, dict]:
@@ -348,19 +350,19 @@ def pick_sources(tones: dict, rules: dict, area_share: dict | None = None) -> tu
         return tones[g]['n_all'] / max(float(ash.get(g, 1.0)), 1e-6)
     big = max([vis(g) for g in tones if tones[g]['own']] or [0])
     weak = float(rules['pixels'].get('weak_share', 0))
-    for gn, srcs in lad.items():
+    for gn, srcs in sorted(lad.items(), key=lambda kv: kv[0] == 'зад'):      # зад — последним: его доноры (бок, корпус) к этому моменту сами уже взяли тон у своих
         if gn not in tones:
             continue
         is_weak = bool(tones[gn]['own'] and srcs and vis(gn) < weak * big and any(s in tones and tones[s]['own'] and vis(s) >= weak * big and s not in keep for s in srcs))
         if is_weak:
             tones[gn]['weak'] = True                              # своих пикселей мизер против главной группы: тон по ним ненадёжен — донор
         if (not tones[gn]['own']) or gn == 'зад' or is_weak:
-            for s in srcs:
-                if s in tones and tones[s]['own'] and s not in borrowed and s not in keep:
-                    borrowed[gn] = s
-                    break
+            cand = [s for s in srcs if s in tones and (tones[s]['own'] or borrowed.get(s)) and s != gn and s not in keep]       # донор может сам брать тон (зад ← бок ← фасад) — цепочка раскрывается ниже
+            if cand:
+                borrowed[gn] = max(cand, key=vis)                       # лучше видимый донор (по пикселям на площадь), а не первый по списку: у верха Шелтона 700 px — ненадёжен
     if 'бок' in tones and 'фасад' in tones and tones['бок']['own'] and tones['фасад']['own'] and 'бок' not in borrowed:
         ok, why = same_material(tones['бок']['lab'], tones['фасад']['lab'], rules['same_material'])
+        ok, why = _unify_dl(ok, why, tones['бок']['lab'], tones['фасад']['lab'], rules)
         same['бок'] = {'same': ok, 'why': why}
         if ok and 'фасад' not in keep:
             borrowed['бок'] = 'фасад'
@@ -372,6 +374,7 @@ def pick_sources(tones: dict, rules: dict, area_share: dict | None = None) -> tu
             if g == ref:
                 continue
             ok, why = same_material(tones[g]['lab'], tones[ref]['lab'], rules['same_material'])
+            ok, why = _unify_dl(ok, why, tones[g]['lab'], tones[ref]['lab'], rules)
             same[g] = {'same': ok, 'why': why, 'ref': ref}
             if ok:
                 borrowed[g] = ref
@@ -384,15 +387,27 @@ def pick_sources(tones: dict, rules: dict, area_share: dict | None = None) -> tu
             s, hops = borrowed[s], hops + 1
         borrowed[gn] = s
     gate = rules.get('ladder_gate') or {}
-    refs = [g for g in ('фасад', 'верх', 'корпус') if g in tones and tones[g]['own'] and g not in borrowed and g not in keep]
-    for gn, s in list(borrowed.items()):                        # ворота: тон донора далеко от лица/верха того же материала → не красим, «не уверен»
-        if s is None or not refs or s in refs or 'max_de00' not in gate:
+    refs = [g for g in ('фасад', 'верх', 'корпус') if g in tones and tones[g]['own'] and g not in borrowed]
+    for gn, s in list(borrowed.items()):                        # ворота: тон донора далеко от ВСЕХ лиц/верха/корпуса (ни одно не близко и не «тот же материал») → не красим, «не уверен»
+        rr = [r for r in refs if r != gn]
+        if s is None or not rr or s in rr or 'max_de00' not in gate:
             continue
-        de = float(de2000(tones[s]['lab'][None], tones[refs[0]]['lab'][None])[0])
-        if de > float(gate['max_de00']) and not same_material(tones[s]['lab'], tones[refs[0]]['lab'], rules['same_material'])[0]:
-            same['gate:' + gn] = {'donor': s, 'ref': refs[0], 'dE2000': round(de, 1), 'порог': gate['max_de00']}
+        des = [(float(de2000(tones[s]['lab'][None], tones[r]['lab'][None])[0]), r) for r in rr]
+        if min(d for d, _ in des) > float(gate['max_de00']) and not any(same_material(tones[s]['lab'], tones[r]['lab'], rules['same_material'])[0] for r in rr):
+            de, r0 = min(des)
+            same['gate:' + gn] = {'donor': s, 'ref': r0, 'dE2000': round(de, 1), 'порог': gate['max_de00']}
             borrowed[gn] = None
     return keep, borrowed, same
+
+
+def _unify_dl(ok: bool, why: str, lab_a, lab_b, rules: dict) -> tuple:
+    """Видимая часть берёт тон другой только если светлота близка (|ΔL| ≤ unify_max_dl): иначе разница на фото — настоящая (тёмный бок, свет сверху), своё лицо красим своим тоном, а не чужим (иначе ΔL к фото > ворот)."""
+    mx = float(rules.get('unify_max_dl', 0) or 0)
+    if ok and mx > 0:
+        d = abs(float(lab_a[0]) - float(lab_b[0]))
+        if d > mx:
+            return False, 'светлота разная: ΔL %.1f > %.1f (разница на фото настоящая, тон свой)' % (d, mx)
+    return ok, why
 
 
 def material_ids(names: list, tones: dict, borrowed: dict, rules: dict) -> list:
@@ -407,6 +422,12 @@ def material_ids(names: list, tones: dict, borrowed: dict, rules: dict) -> list:
     for g, s in borrowed.items():
         if s is not None and g in par and s in par:
             par[find(g)] = find(s)
+    lh = float(rules['same_material'].get('legs_hue_deg', 0) or 0)       # ножки и верх/фасад одного дерева: цвет по ОДНОМУ оттенку (ножка не светится как верх — C/L не сравниваем), только при очень близком оттенке
+    if lh and 'ножки' in par and tones['ножки']['own']:
+        for g in par:
+            if g != 'ножки' and tones[g]['own'] and chroma(tones[g]['lab']) > rules['same_material']['c_min'] and chroma(tones['ножки']['lab']) > rules['same_material']['c_min'] \
+                    and abs(hue_diff(hue_of(tones[g]['lab']), hue_of(tones['ножки']['lab']))) < lh:
+                par[find('ножки')] = find(g)
     ug = [g for g in rules.get('unify_groups', []) if g in par and tones[g]['own']]
     for i, a in enumerate(ug):
         for b in ug[i + 1:]:
@@ -441,7 +462,56 @@ def compose(ctl: np.ndarray, texmap: np.ndarray, names: list, alb: dict, borrowe
     return tex, painted
 
 
-def keep_details(tex: np.ndarray, ctl: np.ndarray, texmap: np.ndarray, painted: np.ndarray, known: np.ndarray, names: list, keep: set, rules: dict) -> tuple[np.ndarray, dict]:
+def foreign_texels(ctl: np.ndarray, texmap: np.ndarray, painted: np.ndarray, known: np.ndarray, names: list, alb: dict, borrowed: dict, tones: dict, rules: dict, dbg: dict | None = None) -> tuple[np.ndarray, dict]:
+    """«Чужой материал» на панели (ручки, накладки, стекло, вставки) — ОДНО правило: перекрашиваем только тексели, ПОХОЖИЕ на тон панели (ΔE2000 до тона группы ≤ de_max).
+    Непохожее и КОМПАКТНОЕ (связный кусок в текстуре: площадь ≥ min_area_frac·T², толщина = площадь/диагональ ≥ min_thick_frac·T; длинная тонкая линия — щель, не чужой материал) в тон не входит
+    и остаётся фото. Судим только известные (фото) тексели покрашенных групп: у текселей без фото цвета нет. → (маска «оставить фото», {группа: текселей})."""
+    import cv2
+    fm = rules['foreign']
+    T = ctl.shape[0]
+    out = np.zeros(texmap.shape, bool)
+    info = {}
+    lab = None
+    for gi, gn in enumerate(names):
+        src = gn if gn in alb else borrowed.get(gn)
+        if src is None or src not in alb or not tones[src]['own'] or gn in rules['pixels'].get('best_leg_groups', []) or gn not in fm['groups']:      # ножка — один тон целиком (TG 2703): чужого материала на ней нет
+            continue
+        m = (texmap == gi) & painted & known
+        if int(m.sum()) < int(fm['min_group_texels']):
+            continue
+        if lab is None:
+            lab = lab_of(ctl.reshape(-1, 3)).reshape(T, T, 3)
+        de = np.zeros((T, T), np.float32)
+        de[m] = de2000(lab[m], tones[src]['lab'][None]).astype(np.float32)
+        far = (de > float(fm['de_max'])) & m
+        if float(fm.get('de_local', 0) or 0) > 0:                            # и непохожее на СВОЁ окружение (светло-серая ручка на белой панели далека от окружения, но близка к тону панели; плавная тень — нет)
+            mf = m.astype(np.float32)
+            sg = max(1.0, float(fm['local_sigma_frac']) * T)
+            w = np.maximum(cv2.GaussianBlur(mf, (0, 0), sg), 1e-4)
+            bg = np.stack([cv2.GaussianBlur(lab[..., c].astype(np.float32) * mf, (0, 0), sg) / w for c in range(3)], -1)
+            dl_ = np.zeros((T, T), np.float32)
+            dl_[m] = de2000(lab[m], bg[m]).astype(np.float32)
+            far |= (dl_ > float(fm['de_local'])) & m
+        if dbg is not None:
+            dbg[gn] = np.maximum(de, dl_ if float(fm.get('de_local', 0) or 0) > 0 else 0)
+        far = far.astype(np.uint8)
+        k, lb, st, _c = cv2.connectedComponentsWithStats(far, connectivity=8)
+        keepc = np.zeros(k, bool)
+        for i in range(1, k):
+            ar = float(st[i, cv2.CC_STAT_AREA])
+            ln = float(np.hypot(st[i, cv2.CC_STAT_WIDTH], st[i, cv2.CC_STAT_HEIGHT]))
+            keepc[i] = float(fm['min_area_frac']) * T * T <= ar <= float(fm['max_area_frac']) * T * T and ar / max(ln, 1.0) >= float(fm['min_thick_frac']) * T         # крупное — не ручка, а свойство панели (рисунок, тень, срез)
+        fg = keepc[lb]
+        pad = int(fm.get('pad_px', 0))
+        if pad and fg.any():
+            fg = cv2.dilate(fg.astype(np.uint8), np.ones((2 * pad + 1, 2 * pad + 1), np.uint8)).astype(bool) & m
+        if fg.any():
+            out |= fg
+            info[gn] = int(fg.sum())
+    return out, info
+
+
+def keep_details(tex: np.ndarray,ctl: np.ndarray, texmap: np.ndarray, painted: np.ndarray, known: np.ndarray, names: list, keep: set, rules: dict) -> tuple[np.ndarray, dict]:
     """Лицо = тон материала + МЕЛКИЕ детали фото: на известных (фото) текселях покрашенной группы цвет = плоский тон × (яркость фото / её сглаживание по той же группе),
     поправка в [lo, hi]. Щели, кромки, зерно остаются (мельче ~sigma), запечённые тени и блики (крупнее) уходят в ровный тон. Сглаживание — нормированное по маске
     «известно и та же группа»: через границу материалов и край фото не размывается. → (текстура, {группа: число текселей с деталью})."""
@@ -468,7 +538,7 @@ def keep_details(tex: np.ndarray, ctl: np.ndarray, texmap: np.ndarray, painted: 
     return out, done
 
 
-def face_gate(fin: np.ndarray, ctl: np.ndarray, region: np.ndarray, rules: dict) -> dict:
+def face_gate(fin: np.ndarray, ctl: np.ndarray, region: np.ndarray, rules: dict, px_per_cm: float | None = None) -> dict:
     """Ворота «лицо против фото» (жёсткий отказ шага): кадры с ОДНОЙ камеры и тем же светом — после шага (fin) и до него (ctl: фото 06 на текстуре), только пиксели покрашенных групп (region).
     1) share_far — доля пикселей, ушедших от фото дальше de_px (ΔE2000); blob — крупнейшее связное пятно таких пикселей, доля региона;
     2) seam_ratio — «чёрная шляпа» по L (тонкие тёмные линии: щели, кромки) после шага / до шага на пикселях линий фото: потеря мелких деталей лица.
@@ -501,6 +571,9 @@ def face_gate(fin: np.ndarray, ctl: np.ndarray, region: np.ndarray, rules: dict)
     bh_f = cv2.morphologyEx(lf[..., 0].astype(np.float32), cv2.MORPH_BLACKHAT, ker)
     sm = (bh_c > float(gt['seam_min_dl'])) & region
     min_len = float(gt.get('seam_min_len_frac', 0) or 0) * fin.shape[0]
+    if px_per_cm and float(gt.get('seam_min_len_cm', 0) or 0) > 0:          # щель — линия не короче N см товара (по карточке), а не доли кадра: у малого товара/ящика короткая щель не пропадает
+        min_len = max(float(gt.get('seam_min_len_px_floor', 12)), float(gt['seam_min_len_cm']) * float(px_per_cm))
+    res['seam_min_len_px'] = round(float(min_len), 1)
     if min_len > 0:                                                         # щель — ДЛИННАЯ тонкая линия; точки сетки/перфорации и пятнышки не щели (иначе метрика судит рисунок, а не потерю щелей)
         k2, lab2, st2, _c2 = cv2.connectedComponentsWithStats(sm.astype(np.uint8), connectivity=8)
         keep_c = np.zeros(k2, bool)
@@ -532,8 +605,17 @@ def face_gate(fin: np.ndarray, ctl: np.ndarray, region: np.ndarray, rules: dict)
         res['spot_px'], res['spot_n'] = int(spm.sum()), int(keep4.sum())
         if res['spot_px'] >= int(gt['spot_min_total_px']):
             res['spot_ratio'] = round(float(sf_[spm].sum() / max(float(sc_[spm].sum()), 1e-6)), 3)
-    if res['spot_ratio'] is not None and res['spot_ratio'] < float(gt['min_spot_ratio']):
-        res['fail'].append('мелкие тёмные детали лица (ручки/фурнитура) %.2f от фото < %.2f' % (res['spot_ratio'], float(gt['min_spot_ratio'])))
+            per = []                                                        # КАЖДОЕ пятно отдельно: одна ручка в норме не прячет исчезнувшую соседнюю (директор 25.11, 09366429)
+            for i in np.where(keep4)[0]:
+                cm_ = lab4 == i
+                den = float(sc_[cm_].sum())
+                if den > 0:
+                    per.append(float(sf_[cm_].sum()) / den)
+            if per:
+                res['spot_min'] = round(min(per), 3)
+                res['spot_ratios'] = [round(x, 2) for x in sorted(per)[:8]]
+    if res.get('spot_min') is not None and res['spot_min'] < float(gt['min_spot_ratio']):
+        res['fail'].append('мелкая тёмная деталь лица (ручка/фурнитура) осталась %.2f от фото < %.2f (по худшему пятну из %d)' % (res['spot_min'], float(gt['min_spot_ratio']), res['spot_n']))
     if res['share_far'] > float(gt['max_share_far']):
         res['fail'].append('доля ушедших от фото %.1f %% > %.1f %%' % (100 * res['share_far'], 100 * float(gt['max_share_far'])))
     if res['blob'] > float(gt['max_blob']):

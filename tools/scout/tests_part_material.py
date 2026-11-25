@@ -37,6 +37,7 @@ def rgb_img(h, w, rgb):
 
 
 R = PM.load_rules()
+RU = dict(R, unify_max_dl=0)   # лесенка и unify — без ворот светлоты (они отдельно, _unify_dl)
 
 # ── выключено по умолчанию, числа и ID
 check(R['enabled'] is False, 'правило выключено по умолчанию (enabled=false)')
@@ -95,25 +96,25 @@ def tone(L, a_, b_, own=True, ab_minor=0.0):
     return {'own': own, 'n_all': 1000 if own else 0, 'share': 0.9, 'ab_minor': ab_minor, 'lab': lab, 'lin': PM.srgb2lin(np.array([128, 128, 128]))} if own else {'own': False, 'n_all': 0, 'share': None, 'ab_minor': None}
 
 t = {'фасад': tone(90, 0, 1), 'бок': tone(76, 0, 1), 'верх': tone(0, 0, 0, own=False), 'зад': tone(0, 0, 0, own=False)}
-keep, bor, same = PM.pick_sources(t, R)
+keep, bor, same = PM.pick_sources(t, RU)
 check(bor.get('зад') in ('бок', 'фасад'), 'зад берёт тон бока (через цепочку — итоговый тон бока)')
 check(bor.get('бок') == 'фасад' and same['бок']['same'], 'бок того же материала, что фасад → тон фасада (студийная тень не красится в серое)')
 check(bor.get('верх') == 'бок' or bor.get('верх') == 'фасад', 'верх без пикселей → донор по лесенке (бок), а не родной цвет')
 t = {'фасад': tone(70, 20, 25, ab_minor=0.3), 'бок': tone(0, 0, 0, own=False), 'зад': tone(0, 0, 0, own=False), 'верх': tone(0, 0, 0, own=False)}
-keep, bor, same = PM.pick_sources(t, R)
+keep, bor, same = PM.pick_sources(t, RU)
 check('фасад' in keep, 'фасад с рисунком (другой оттенок на >2 %) — фото 06 остаётся')
 check(bor.get('бок') != 'фасад' and bor.get('зад') is None, 'донор — не группа с рисунком: бок/зад не берут тон узорного фасада (нечем красить → «не уверен»)')
 t = {'фасад': tone(70, 20, 25), 'ножки': tone(0, 0, 0, own=False)}
-keep, bor, same = PM.pick_sources(t, R)
+keep, bor, same = PM.pick_sources(t, RU)
 check(bor.get('ножки', 'x') is None, 'ножки без пикселей: донора нет (ножки — своя группа) → не красим, «не уверен»')
 
 t = {'фасад': tone(90, 0, 1), 'бок': tone(76, 0, 1), 'зад': tone(0, 0, 0, own=False)}
-keep, bor, same = PM.pick_sources(t, R)
+keep, bor, same = PM.pick_sources(t, RU)
 check(bor.get('зад') == 'фасад', 'цепочка донора: зад ← бок ← фасад → итоговый тон фасада (а не тон теневого бока)')
 t = {'фасад': tone(90, 0, 1), 'бок': tone(0, 0, 0, own=False), 'зад': tone(40, 0, 0, own=False), 'верх': tone(30, 40, 40)}
-keep, bor, same = PM.pick_sources(t, R)
+keep, bor, same = PM.pick_sources(t, RU)
 t2 = {'фасад': tone(90, 0, 1), 'бок': tone(30, 40, 40), 'зад': tone(0, 0, 0, own=False)}
-keep, bor, same = PM.pick_sources(t2, R)
+keep, bor, same = PM.pick_sources(t2, RU)
 check(bor.get('зад') is None and 'gate:зад' in same, 'ворота: донор (бок) далеко от лица (ΔE2000 > порога) и не тот же материал → зад не красим, «не уверен»')
 
 tw = {'фасад': tone(90, 0, 1), 'корпус': tone(60, 3, 3)}
@@ -127,7 +128,7 @@ check(bor.get('корпус') == 'фасад' and tw['корпус'].get('weak')
 tu = {'верх': tone(76, 0, 2), 'бок': tone(79, 1, 2), 'корпус': tone(64, 3, 3), 'фасад': tone(73, 3, 3, ab_minor=0.3)}
 for g_, n_ in (('верх', 200000), ('бок', 13000), ('корпус', 6000)):
     tu[g_]['n_all'] = n_
-keep, bor, same = PM.pick_sources(tu, R, {'верх': 1.0, 'бок': 1.0, 'корпус': 1.0, 'фасад': 1.0})
+keep, bor, same = PM.pick_sources(tu, RU, {'верх': 1.0, 'бок': 1.0, 'корпус': 1.0, 'фасад': 1.0})
 check('фасад' in keep and bor.get('верх') == 'бок' and bor.get('корпус') == 'бок', 'один материал — один тон: верх и корпус берут тон опорной части (бок; верх опорной не бывает — виден скользяще), фасад с рисунком — фото 06')
 mids = PM.material_ids(['верх', 'бок', 'корпус', 'фасад'], tu, bor, R)
 check(len(set(mids)) == 1 and mids[0] >= 0, 'карта материалов: части одного материала — один номер')
@@ -253,7 +254,19 @@ check(gd['seam_ratio'] is None and gd['seam_px'] == 0 and not any('щели' in 
 hand = np.full((400, 400, 3), 225, np.uint8); hand[150:162, 200:208] = 90                       # ручка: тёмная компактная деталь на лице
 hand_gone = np.full((400, 400, 3), 225, np.uint8)
 g_h = PM.face_gate(hand_gone, hand, rg4, R)
-check(g_h['spot_ratio'] is not None and g_h['spot_ratio'] < 0.1 and any('ручки' in x for x in g_h['fail']), 'ворота: ручка стёрта плоской заливкой — отказ (пятна)')
+check(g_h['spot_ratio'] is not None and g_h['spot_ratio'] < 0.1 and any('ручка' in x for x in g_h['fail']), 'ворота: ручка стёрта плоской заливкой — отказ (пятна)')
+two = np.full((400, 400, 3), 225, np.uint8); two[150:162, 100:108] = 90; two[150:162, 300:308] = 90             # две ручки: одна на месте, другая исчезла — по КАЖДОМУ пятну, не по сумме
+two_after = two.copy(); two_after[150:162, 100:108] = 225
+g_two = PM.face_gate(two_after, two, rg4, R)
+check(g_two['spot_n'] == 2 and g_two['spot_min'] is not None and g_two['spot_min'] < 0.1 and g_two['spot_ratio'] > 0.4 and any('ручка' in x for x in g_two['fail']), 'ворота: одна ручка исчезла, другая цела — отказ по худшему пятну (сумма 0,5 не прячет)')
+# «чужой материал»: тёмная компактная ручка на светлой панели остаётся фото, щель (тонкая линия) и сама панель — красятся
+Tt = 1024
+ctl_f = np.full((Tt, Tt, 3), 225, np.uint8); ctl_f[400:440, 480:510] = 60; ctl_f[:, 160:162] = 80            # панель + ручка 40×30 + щель 2 текселя на всю высоту
+tmap = np.zeros((Tt, Tt), np.int16); known_f = np.ones((Tt, Tt), bool)
+tones_f = {'фасад': {'own': True, 'lab': PM.lab_of(np.array([225, 225, 225], np.uint8)[None])[0]}}
+fg_f, fi_f = PM.foreign_texels(ctl_f, tmap, np.ones((Tt, Tt), bool), known_f, ['фасад'], {'фасад': 1}, {}, tones_f, R)
+check(fg_f[430, 500] and not fg_f[600, 161] and not fg_f[10, 10], 'чужой материал: ручка остаётся фото, щель-линия и панель — нет')
+check(PM.face_gate(hand.copy(), hand, rg4, R, 4.0)['seam_min_len_px'] == 40.0 and PM.face_gate(hand.copy(), hand, rg4, R, 0.5)['seam_min_len_px'] == 12.0, 'ворота: щель меряется в см по карточке (10 см × px/см, не короче 12 px)')
 g_h2 = PM.face_gate(hand.copy(), hand, rg4, R)
 check(g_h2['spot_ratio'] is not None and abs(g_h2['spot_ratio'] - 1) < 0.02 and g_h2['fail'] == [], 'ворота: ручка сохранена — проходит, число 1,0')
 g_h3 = PM.face_gate(np.full((400, 400, 3), 200, np.uint8), dots, rg4, R)
@@ -267,6 +280,14 @@ pxs = np.concatenate([rs.normal((230, 230, 230), 6, (600, 3)), rs.normal((90, 60
 check(PM.main_cluster(pxs)[1] == PM.main_cluster(pxs)[1] == PM.main_cluster(pxs)[1], 'kmeans: доля главного кластера воспроизводима (seed фиксирован)')
 
 # ── обвязка: ВЫКЛ → шаг выпадает из плана (не берёт слот heavy-slot); ВКЛ → шаг в плане
+smx = R['same_material']
+L_ = lambda L, a_, b_: np.array([L, a_, b_], float)   # noqa: E731
+check(not PM.same_material(L_(74.1, -2.1, -0.7), L_(72.2, -1.8, 7.3), smx)[0], 'материал: мятный и дуб (оба светлые «нейтральные», разница по a,b 8) — не один материал')
+check(not PM.same_material(L_(95.8, 0.0, 0.0), L_(56.5, 8.0, 22.5), smx)[0], 'материал: белый верх и деревянные ножки — не сливать')
+check(PM.same_material(L_(45.7, 0.0, 1.3), L_(43.0, 0.0, 1.0), smx)[0], 'материал: графит у фасада и у бока чуть темнее (Δab 0,3) — один')
+check(PM.same_material(L_(60.0, 8.0, 22.0), L_(42.0, 5.6, 15.4), smx)[0], 'материал: те же ножки в тени (тот же оттенок, C/L как у света) — слить')
+_r = {'unify_max_dl': 3}
+check(PM._unify_dl(True, 'x', [45.7, 0, 0], [47.0, 0, 0], _r)[0] is True and PM._unify_dl(True, 'x', [41.6, 0, 0], [45.7, 0, 0], _r)[0] is False and PM._unify_dl(True, 'x', [41.6, 0, 0], [45.7, 0, 0], {})[0] is True, 'тон: часть берёт чужой тон только при |ΔL| ≤ unify_max_dl (настоящая разница светлоты — свой тон)')
 import paint_run_all as PRA  # noqa: E402
 rr = os.path.join(tmp, 'rules'); os.makedirs(rr)
 json.dump({'enabled': False}, open(os.path.join(rr, 'f.json'), 'w'))
