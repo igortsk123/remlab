@@ -98,6 +98,7 @@ open(fake, 'w').write(f'#!/bin/sh\nexec {sys.executable} {os.path.join(TMP, "fak
 os.chmod(fake, os.stat(fake).st_mode | stat.S_IXUSR)
 fh = types.ModuleType('heavy_slot')
 fh.heavy_slot = lambda *a, **k: contextlib.nullcontext({'waited_s': 0})      # общая очередь тяжёлых прогонов в тестах не нужна
+fh.order_class = lambda: 3      # класс заказа покупателя (T-20261125-90; в проде — из rules/heavy-slot.json)
 sys.modules['heavy_slot'] = fh
 
 

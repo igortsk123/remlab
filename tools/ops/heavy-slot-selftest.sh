@@ -31,6 +31,7 @@
 # T-116/доп (урок 703): удалённый платный драйвер (класс ≥ 2, порог ≤ 1 ГБ, ядер ≤ 1) — допуск по ФАКТУ свободной памяти без вычета
 # заявок держателей (и при закрытой защите головы); класс 1, порог > 1 ГБ, > 1 ядра и нехватка факта — по прежнему правилу.
 # T-20261124-19: лёгкий держатель (удалённый платный драйвер) слот не занимает — 8 лёгких + тяжёлая 9 ГБ → тяжёлая входит.
+# T-20261125-90: голова класса ≥ 1 не обгоняется младшими (тот же класс обгоняет как прежде, правило выключается), заказ покупателя — класс 3, --status: ДРАЙВЕР С ТЯЖЁЛОЙ БРОНЬЮ.
 # T-162: отсчёт ожидания головы — от прихода в очередь (не от момента, как билет стал первым): пришёл старший класс, ушёл — голова
 # снова первая, окно обгона не открывается заново, мелкий за ней не обгоняет.
 # Временная папка — в REMLAB_TMP на диске (T-20261107-13: в /tmp их скопилось 25); успех — удаляется, провал или
@@ -316,8 +317,8 @@ ok "waiting(1) считает только ждущих класса ≥ 1 (пр
 
 "$S" bad-prio --prio 5 -- true 2>"$T/bad-prio.err"; rc=$?
 pv() { HEAVY_SLOT_PRIO="$1" python3 -c "import sys; sys.path.insert(0, '$DIR'); from heavy_slot import prio_env; print(prio_env())"; }
-ok "класс вне 0…2: --prio 5 → rc 2 с подсказкой; HEAVY_SLOT_PRIO=abc → 0, 9 → 2, -1 → 0" \
-  "$(yes_if '[ $rc = 2 ] && grep -q "нужно 0…2" "$T/bad-prio.err" && [ "$(pv abc) $(pv 9) $(pv -1)" = "0 2 0" ]')"
+ok "класс вне 0…3: --prio 5 → rc 2 с подсказкой; HEAVY_SLOT_PRIO=abc → 0, 9 → 3, -1 → 0 (T-20261125-90: 3 — заказ покупателя)" \
+  "$(yes_if '[ $rc = 2 ] && grep -q "нужно 0…3" "$T/bad-prio.err" && [ "$(pv abc) $(pv 9) $(pv -1)" = "0 3 0" ]')"
 
 # T-20261124-19/2: раньше ждущий приходил через `sleep 0.3` после старта цикла — под нагрузкой (питон стартует дольше) цикл успевал снова
 # встать первым: loop0|loop1|w. Теперь первый шаг цикла держит слот, пока ждущий не встал в очередь (метка) — порядок не зависит от тайминга.
@@ -1223,7 +1224,8 @@ until_f '"$S" --status | grep -q "^  1\. rh-a "'
 sleep 1.4                                          # голова ждёт дольше окна обгона
 "$S" rh-b --min-gb 6 --prio 2 --timeout 1 -- true; rc_b=$?     # старший класс встал первым и ушёл по таймауту: голова rh-a снова первая
 "$S" rh-t --min-gb 2 -- sh -c "$(hold3 b rhs)" & prt=$!
-until_f 'grep -q "rh-t .*обгон закрыт: голова rh-a ждёт" "$HEAVY_SLOT_LOG"'; closed=$?
+# T-20261125-90: голова класса 1 — младшие её не обгоняют и до окна, отказ пишется строкой «не обгоняю голову» (после hold_max_wait_min — прежняя «обгон закрыт»)
+until_f 'grep -qE "rh-t .*(обгон закрыт: голова rh-a ждёт|не обгоняю голову rh-a)" "$HEAVY_SLOT_LOG"'; closed=$?
 t_early=$([ -e "$T/up-rhs-b" ] && echo 1 || echo 0)
 "$S" --status > "$T/rhs.st"
 touch "$T/go-rhs"
@@ -1232,6 +1234,93 @@ unset HEAVY_SLOT_BACKFILL_MIN HEAVY_SLOT_MEM_STUB
 o=$(tr '\n' '|' < "$T/rhs")
 ok "голова не голодает: ждала дольше окна, старший класс пришёл и ушёл — счётчик не обнулился, мелкий не обгоняет, голова идёт первой ($o)" \
   "$(yes_if '[ $rc_b = 124 ] && [ $closed = 0 ] && [ $t_early = 0 ] && [ "$o" = "sh|eh|sa|sb|eb|" ] && ! grep -q "rh-t .*обогнал" "$HEAVY_SLOT_LOG"')"
+mem 8
+
+# T-20261125-90: голова старшего класса не обгоняется младшими; заказ покупателя — класс 3; драйвер с тяжёлой бронью — предупреждение в --status.
+# (25.11 заказы «Фото по кнопке» — класс 1, 8 ГБ — ждали 20+ мин: обычные по 1–3 ГБ брали освободившуюся память.)
+export HEAVY_SLOT_MEM_STUB="$T/memstub-90"
+: > "$HEAVY_SLOT_MEM_STUB"
+echo "hp-h 2" >> "$HEAVY_SLOT_MEM_STUB"           # держатель 4 ГБ взял 2: место мелкому 8 − (4 − 2) − 1,5 = 4,5, голове 6 — нет
+mem 8
+"$S" hp-h --min-gb 4 -- sh -c "$(hold3 h hps)" & prh=$!
+until_f "[ -e $T/up-hps-h ]"
+"$S" hp-a --min-gb 6 --prio 1 -- sh -c "echo sa >> $T/hps" & pra=$!
+until_f '"$S" --status | grep -q "^  1\. hp-a "'
+"$S" hp-t --min-gb 2 -- sh -c "$(hold3 b hps)" & prt=$!
+until_f 'grep -q "hp-t .*не обгоняю голову hp-a" "$HEAVY_SLOT_LOG"'; hold_say=$?
+t_early=$([ -e "$T/up-hps-b" ] && echo 1 || echo 0)
+"$S" --status > "$T/hps.st"
+touch "$T/go-hps"
+wait $prh $pra $prt
+o=$(tr '\n' '|' < "$T/hps")
+ok "голова класса 1 (порог 6, не проходит): обычный (порог 2, проходит) её НЕ обгоняет, идёт после неё ($o); в журнале «не обгоняю голову», в --status строка ГОЛОВА СТАРШЕГО КЛАССА" \
+  "$(yes_if '[ $hold_say = 0 ] && [ $t_early = 0 ] && [ "$o" = "sh|eh|sa|sb|eb|" ] && ! grep -q "hp-t .*обогнал" "$HEAVY_SLOT_LOG" && grep -q "^ГОЛОВА СТАРШЕГО КЛАССА: hp-a (класс 1)" "$T/hps.st"')"
+
+: > "$HEAVY_SLOT_MEM_STUB"
+echo "hq-h 2" >> "$HEAVY_SLOT_MEM_STUB"
+"$S" hq-h --min-gb 4 -- sh -c "$(hold3 h hqs)" & prh=$!
+until_f "[ -e $T/up-hqs-h ]"
+"$S" hq-a --min-gb 6 --prio 1 -- sh -c "echo sa >> $T/hqs" & pra=$!
+until_f '"$S" --status | grep -q "^  1\. hq-a "'
+"$S" hq-t --min-gb 2 --prio 1 -- sh -c "$(hold3 b hqs)" & prt=$!
+until_f "[ -e $T/up-hqs-b ]"; same_up=$?
+touch "$T/go-hqs"
+wait $prh $pra $prt
+ok "тот же класс обгоняет, как прежде: хвост класса 1 (порог 2) идёт рядом с держателем, не дожидаясь головы ($same_up)" \
+  "$(yes_if '[ $same_up = 0 ] && grep -q "hq-t .*обогнал голову hq-a" "$HEAVY_SLOT_LOG"')"
+
+: > "$HEAVY_SLOT_MEM_STUB"
+echo "hr-h 2" >> "$HEAVY_SLOT_MEM_STUB"
+HEAVY_SLOT_HOLD_PRIO=0 "$S" hr-h --min-gb 4 -- sh -c "$(hold3 h hrs)" & prh=$!
+until_f "[ -e $T/up-hrs-h ]"
+HEAVY_SLOT_HOLD_PRIO=0 "$S" hr-a --min-gb 6 --prio 1 -- sh -c "echo sa >> $T/hrs" & pra=$!
+until_f '"$S" --status | grep -q "^  1\. hr-a "'
+HEAVY_SLOT_HOLD_PRIO=0 "$S" hr-t --min-gb 2 -- sh -c "$(hold3 b hrs)" & prt=$!
+until_f "[ -e $T/up-hrs-b ]"; off_up=$?
+touch "$T/go-hrs"
+wait $prh $pra $prt
+unset HEAVY_SLOT_MEM_STUB
+ok "правило выключается (hold_min_prio 0 / HEAVY_SLOT_HOLD_PRIO=0): обычный обгоняет голову класса 1, как до T-90 ($off_up)" \
+  "$(yes_if '[ $off_up = 0 ] && grep -q "hr-t .*обогнал голову hr-a" "$HEAVY_SLOT_LOG"')"
+mem 8
+
+"$S" oc-hold -- sh -c "$(gate oc-go)" & pch=$!
+until_held
+nt0=0; nt0=$(nt)
+"$S" oc-2 --prio 2 -- sh -c "echo p2 >> $T/order-oc" & pc2=$!; until_f '[ $(nt) -ge 1 ]'
+"$S" oc-3 --prio 3 -- sh -c "echo p3 >> $T/order-oc" & pc3=$!; until_f '[ $(nt) -ge 2 ]'
+touch "$T/oc-go"
+wait $pch $pc2 $pc3
+o=$(tr '\n' '|' < "$T/order-oc")
+oc=$(python3 -c "import sys; sys.path.insert(0, '$DIR'); import heavy_slot as h; print(h.order_class())")
+ok "заказ покупателя (класс $oc из правил) идёт раньше «Обустроить» (2), пришедшего раньше ($o)" "$(yes_if '[ "$oc" = 3 ] && [ "$o" = "p3|p2|" ]')"
+
+fn=$(python3 - "$DIR" <<'PYEOF'
+import sys, time
+sys.path.insert(0, sys.argv[1])
+import heavy_slot as h
+old = {"prio": "0", "since": str(time.time() - 99999)}
+t = [(1, "x", {"pid": "5", "min_gb": "2", "prio": "0", "since": str(time.time())}), (2, "y", {"pid": "6", "min_gb": "2", "prio": "1", "since": str(time.time())})]
+h._tickets = lambda d, clean=False: t
+print(h._cls(old, time.time(), 60.0), h._fits_now("d", 99, 4.5)["pid"], h._fits_now("d", 99, 4.5, min_cls=1)["pid"], h._fits_now("d", 99, 4.5, min_cls=2))
+PYEOF
+)
+ok "старение поднимает только до 2: ждущий обычный не становится заказом (3); _fits_now: младший класс не в счёт при min_cls ($fn)" "$(yes_if '[ "$fn" = "2 5 6 None" ]')"
+
+export HEAVY_SLOT_DRIVER_WARN_S=0
+"$S" dr-h --min-gb 6 --cores 1 -- sh -c "$(gate dr-go)" & pdr=$!
+until_f '"$S" --status | grep -q "ДРАЙВЕР С ТЯЖЁЛОЙ БРОНЬЮ: заявка 6 ГБ"'; dr_warn=$?
+touch "$T/dr-go"
+wait $pdr
+"$S" dr-c --min-gb 6 --cores 2 -- sh -c "$(gate dr-go2)" & pdc=$!
+until_f '"$S" --status | grep -q "^ДЕРЖИТ: dr-c .* работает"'; dr_up=$?
+sleep 0.3
+dr_ctl=$("$S" --status | grep -c "ДРАЙВЕР С ТЯЖЁЛОЙ БРОНЬЮ")
+touch "$T/dr-go2"
+wait $pdc
+unset HEAVY_SLOT_DRIVER_WARN_S
+ok "--status: драйвер (1 ядро, факт < 1 ГБ) с заявкой 6 ГБ — строка ДРАЙВЕР С ТЯЖЁЛОЙ БРОНЬЮ с --rebook; та же заявка при 2 ядрах (как photo-render) — без неё ($dr_warn/$dr_up/$dr_ctl)" \
+  "$(yes_if '[ $dr_warn = 0 ] && [ $dr_up = 0 ] && [ "$dr_ctl" = 0 ]')"
 mem 8
 
 # T-20261120-162: команда оставила осиротевшего потомка (так Xvfb от xvfb-run держал слот часами) — после ЕЁ нормального конца слот
