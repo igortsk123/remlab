@@ -19,6 +19,12 @@
     "files": ["06-visible/visible.glb", "06-visible/check.json", "06-visible/known.png", "07-fill/filled.glb", "07-fill/frame-photo.png", "08-material/material.glb"],
     "need": ["06-visible/visible.glb", "06-visible/check.json"]
    },
+   "copy_pose": {
+    "dest": "pose",
+    "files": ["stage_loss.json", "pose.json", "stages/manifest.json", "stages/render_view0/ids.npz", "stages/render_view0/uv.npz", "stages/render_view0/depth.npz", "stages/render_view0/aoi_cos16.png", "stages/render_view0/mask.png", "04-camera/check.json"],
+    "need": ["stage_loss.json", "stages/render_view0/ids.npz", "stages/render_view0/uv.npz", "stages/render_view0/depth.npz", "stages/render_view0/aoi_cos16.png", "stages/render_view0/mask.png", "04-camera/check.json"]
+   },
+   "_copy_pose_why": "T-20261125-75/5: pose_run (камера этапа 4) каждого товара — копия ТОЛЬКО файлов, что читает круг: tex_visible.load_stage (stage_loss.json + render_view0 ids/uv/depth/aoi_cos16/mask), stage_trial camera_body_only и 08 (04-camera/check.json), back_panel_stage (pose.json), stages/manifest.json; логи, наложения, кадры не берём (260 МБ → ~малая доля). loop5.load_rows ставит pose_run на копию, списки не меняются",
    "_copy_base_why": "«до» круга (loop5 base_dirs/before_glb/need_files): файлы этапов 06/07/08 пакета 29 (t220 out-batch2, 24.11 папка ушла на HDD) — копии в set29/base/<шард>/<товар>/…, loop5.json base_root смотрит туда. Берутся только нужные кругу файлы (файлы из `files`, что есть у товара), а не весь 1,7 ГБ",
    "also": [
     {"sku": "112923_13224664101879413845", "kind": "other", "dest": "other/112923_13224664101879413845.hd.rgba.t94-1119.png",

@@ -276,3 +276,78 @@ def test_check_catches_changed_list_unpinned_list_and_missing_base(world, capsys
     assert 'lists/c1/inputs-q0.json' in out and 'sha256 не совпал' in out
     assert 'inputs-q9.json лежит в наборе, но его нет в MANIFEST' in out
     assert '06-visible/check.json' in out and f'{SKUS[2]}: нет «до» 06-visible/visible.glb в MANIFEST' in out
+
+
+POSE_FILES = ['stage_loss.json', 'pose.json', 'stages/render_view0/ids.npz', '04-camera/check.json', 'check.log']
+POSE_NEED = ['stage_loss.json', 'stages/render_view0/ids.npz', '04-camera/check.json']
+
+
+def with_pose(world, need=tuple(POSE_NEED), skip_file=None):
+    """В правила — copy_pose; у товаров в logs/pose/<sku> лежат файлы позы (check.log — лишний, в files его нет)."""
+    tmp, logs, runs, sdir = world
+    for sku in SKUS:
+        for rel in POSE_FILES:
+            if skip_file and (sku, rel) == skip_file:
+                continue
+            f = logs / 'pose' / sku / rel
+            f.parent.mkdir(parents=True, exist_ok=True)
+            f.write_bytes(('P' + sku + rel).encode())
+    rp = Path(os.environ['INPUTS_CHECK_RULES'])
+    r = json.loads(rp.read_text())
+    r['sets']['s3']['copy_pose'] = {'dest': 'pose', 'files': POSE_FILES[:4], 'need': list(need)}
+    rp.write_text(json.dumps(r))
+
+
+def test_build_copies_only_needed_pose_files_and_set_pose_points_at_copy(world, capsys):
+    tmp, logs, runs, sdir = world
+    with_pose(world)
+    assert ic.main(['--build', 's3']) == 0
+    capsys.readouterr()
+    for sku in SKUS:
+        assert (sdir / 'pose' / sku / 'stages' / 'render_view0' / 'ids.npz').is_file()
+        assert (sdir / 'pose' / sku / '04-camera' / 'check.json').read_bytes() == (logs / 'pose' / sku / '04-camera' / 'check.json').read_bytes()
+        assert not (sdir / 'pose' / sku / 'check.log').exists()                       # лишнее (логи) не копируем
+    rows, bad = ic.read_manifest(str(sdir / 'MANIFEST.tsv'))
+    assert not bad and sum(1 for r in rows if r['kind'] == 'pose') == 4 * 3
+    assert ic.main([]) == 0
+    assert 'чисто' in capsys.readouterr().out
+    assert ic.set_pose('s3') == {sku: str(sdir / 'pose' / sku) for sku in SKUS}
+    assert ic.set_inputs('s3')[SKUS[0]].keys() == {'photo', 'card', 'glb'}            # поза в основные входы не попадает
+
+
+def test_set_pose_is_empty_without_copy_pose_and_raises_when_file_gone(world, capsys):
+    tmp, logs, runs, sdir = world
+    build_ok(capsys)
+    assert ic.set_pose('s3') == {}                                                    # у набора нет copy_pose — подмены нет
+    with_pose(world)
+    assert ic.main(['--build', 's3']) == 0                                            # MANIFEST дополнен строками позы
+    capsys.readouterr()
+    os.remove(sdir / 'pose' / SKUS[1] / 'stage_loss.json')
+    with pytest.raises(ic.InputsError, match='нет позы'):
+        ic.set_pose('s3')
+    assert ic.main([]) == 1                                                           # и проверка видит пропажу
+    out = capsys.readouterr().out
+    assert 'нет файла pose/' in out and 'stage_loss.json' in out
+
+
+def test_build_reports_missing_pose_run_or_need_file(world, capsys):
+    tmp, logs, runs, sdir = world
+    with_pose(world, skip_file=(SKUS[2], 'stages/render_view0/ids.npz'))
+    assert ic.main(['--build', 's3']) == 1
+    out = capsys.readouterr().out
+    assert f'{SKUS[2]}: поза stages/render_view0/ids.npz нет' in out and not (sdir / 'MANIFEST.tsv').exists()
+    os.rename(logs / 'pose' / SKUS[0], logs / 'pose' / 'ушла')                          # папки pose_run нет совсем
+    assert ic.main(['--build', 's3']) == 1
+    assert f'{SKUS[0]}: pose_run нет папкой' in capsys.readouterr().out
+
+
+def test_check_catches_missing_pose_rows_in_manifest(world, capsys):
+    tmp, logs, runs, sdir = world
+    with_pose(world)
+    assert ic.main(['--build', 's3']) == 0
+    capsys.readouterr()
+    rows = (sdir / 'MANIFEST.tsv').read_text().splitlines()
+    keep = [ln for ln in rows if not (ln.split('\t')[1] == 'pose' and ln.split('\t')[0] == SKUS[0] and '04-camera' in ln)]
+    (sdir / 'MANIFEST.tsv').write_text('\n'.join(keep) + '\n')
+    assert ic.main([]) == 1
+    assert f'{SKUS[0]}: нет позы 04-camera/check.json в MANIFEST (kind pose)' in capsys.readouterr().out

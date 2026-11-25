@@ -126,6 +126,7 @@ def load_rows(rules: dict) -> dict[str, dict]:
     import inputs_check as IC
     try:
         inp = IC.set_inputs(name)
+        pose = IC.set_pose(name)
     except IC.InputsError as e:
         raise SystemExit(f'входы набора {name}: {e}')
     for sku, v in allv.items():
@@ -137,6 +138,8 @@ def load_rows(rules: dict) -> dict[str, dict]:
         if 'photo' in s:
             v['photo'] = s['photo']
         ei = v.get('extra_in')
+        if 'pose_run' in v and sku in pose:                  # камера этапа 4 — копия в наборе (T-75/5), не папка логов
+            v['pose_run'] = pose[sku]
         if isinstance(ei, dict):
             if 'photo.png' in ei and 'photo' in s:
                 ei['photo.png'] = s['photo']

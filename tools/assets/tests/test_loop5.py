@@ -223,6 +223,30 @@ class T(unittest.TestCase):
             self.assertEqual(L.photos(rs)[SK[0]], sx(f'photo/{SK[0]}.hd.rgba.png'))          # лист «до | после»: фото тоже из набора
             self.assertEqual(L.photos(r)[SK[0]], f'/p/{SK[0]}.png')                          # без input_set — прежнее поведение
 
+    def test_input_set_replaces_pose_run_with_copy_in_set(self):
+        """T-20261125-75/5: pose_run товара набора — на копию позы в наборе; без copy_pose у набора — как в строке пакета; файла копии нет — стоп."""
+        with tempfile.TemporaryDirectory() as tmp:
+            r, root = make_base(tmp)
+            root_in = self._mk_set(tmp, [SK[0]])
+            b = {s: os.path.join(root, 'sh0', s) for s in SK}
+            rs = {**r, 'input_set': 'sx'}
+            self.assertEqual(L.shard_inputs(rs, SK[:1], '06', b)[SK[0]]['pose_run'], f'/pose/{SK[0]}')      # у набора нет copy_pose
+            rp = os.environ['INPUTS_CHECK_RULES']
+            cfg = json.load(open(rp))
+            cfg['sets']['sx']['copy_pose'] = {'dest': 'pose', 'need': ['stage_loss.json']}
+            json.dump(cfg, open(rp, 'w'))
+            mp = os.path.join(root_in, 'sx', 'MANIFEST.tsv')
+            open(mp, 'a', encoding='utf-8').write(f'{SK[0]}\tpose\tpose/{SK[0]}/stage_loss.json\t0\t/src\t\n')
+            os.makedirs(os.path.join(root_in, 'sx', 'pose', SK[0]))
+            open(os.path.join(root_in, 'sx', 'pose', SK[0], 'stage_loss.json'), 'w').write('{}')
+            got = L.shard_inputs(rs, SK[:2], '06', b)
+            self.assertEqual(got[SK[0]]['pose_run'], os.path.join(root_in, 'sx', 'pose', SK[0]))            # на копию
+            self.assertEqual(got[SK[1]]['pose_run'], f'/pose/{SK[1]}')                                      # товар вне набора — как было
+            os.remove(os.path.join(root_in, 'sx', 'pose', SK[0], 'stage_loss.json'))
+            with self.assertRaises(SystemExit) as c:
+                L.shard_inputs(rs, SK[:1], '06', b)
+            self.assertIn('нет позы', str(c.exception))
+
     def test_input_set_stops_instead_of_silent_fallback(self):
         with tempfile.TemporaryDirectory() as tmp:
             r, root = make_base(tmp)

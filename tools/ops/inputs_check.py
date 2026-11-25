@@ -19,6 +19,8 @@ glb/<sku>-hd.glb (форма из этапа 02), other/… (другие вер
 СПИСКИ СТРОК КРУГА И «ДО» (T-20261125-75/4): `copy_lists` — списки `inputs-q*.json` круга копируются в `<набор>/lists/<круг>/` (loop5.json `shard_inputs_glob` смотрит туда, а не в ~/remlab-logs);
 `copy_base` — файлы «до» (06-visible, 07-fill, 08-material) каждого товара копируются в `<набор>/base/<шард>/<товар>/…` (loop5.json `base_root` смотрит туда). Всё — строками MANIFEST (kind list / base),
 sha проверяется; `lists` правила — это КОПИИ (по ним проверка путей); список копии не закреплён в MANIFEST — ❗; у товара нет файла из `copy_base.need` — ❗.
+ПОЗА (T-20261125-75/5): `copy_pose` — из `pose_run` каждого товара списка копируются только файлы камеры этапа 4, что читает круг (`files`), в `<набор>/pose/<товар>/…` (kind pose); loop5.load_rows
+подставляет `pose_run` на эту копию (списки не меняются); у товара нет файла из `copy_pose.need` — ❗.
 Новый круг: добавить его список в `copy_lists` (и `lists`) правила (иначе проверка его не видит). Правила — в json, не в коде; env: INPUTS_CHECK_RULES (другой файл правил), INPUTS_ROOT (другой корень — тесты).
 Без чтения секретов, без сети, без платного."""
 from __future__ import annotations
@@ -163,12 +165,13 @@ def check_set(name: str, cfg: dict, root: str) -> tuple[list, dict]:
         for f in sorted(glob.glob(_x(pat))):
             if os.path.normpath(f).startswith(sdir + os.sep) and os.path.normpath(f) not in mfiles:
                 probs.append(f'список {os.path.relpath(f, sdir)} лежит в наборе, но его нет в MANIFEST (sha не закреплён)')
-    need = (cfg.get('copy_base') or {}).get('need') or []
-    if rows and need:
-        for sku in sorted(main):
-            for rel in need:
-                if not any(r['kind'] == 'base' and r['sku'] == sku and r['file'].endswith(f'/{sku}/{rel}') for r in rows):
-                    probs.append(f'{sku}: нет «до» {rel} в MANIFEST (kind base)')
+    for kind, key, what in (('base', 'copy_base', '«до»'), ('pose', 'copy_pose', 'позы')):
+        need = (cfg.get(key) or {}).get('need') or []
+        if rows and need:
+            for sku in sorted(main):
+                for rel in need:
+                    if not any(r['kind'] == kind and r['sku'] == sku and r['file'].endswith(f'/{sku}/{rel}') for r in rows):
+                        probs.append(f'{sku}: нет {what} {rel} в MANIFEST (kind {kind})')
     npaths = 0
     for sku, lst in sorted(entries.items()):
         if rows and sku not in main:
@@ -227,6 +230,21 @@ def build_set(name: str, cfg: dict, root: str) -> tuple[list, list]:
                 for rel in cb.get('need') or []:
                     if rel not in got:
                         probs.append(f'{sku}: «до» {rel} нет в {root_b}')
+    cp = cfg.get('copy_pose')
+    if cp:
+        for sku in sorted(entries):
+            pr = _x(entries[sku][-1][1].get('pose_run') or '')
+            if not os.path.isdir(pr):
+                probs.append(f'{sku}: pose_run нет папкой — {pr or "(пусто)"}')
+                continue
+            got = set()
+            for rel in cp['files']:
+                if os.path.isfile(os.path.join(pr, rel)):
+                    got.add(rel)
+                    plan.append((sku, 'pose', f"{cp['dest'].rstrip('/')}/{sku}/{rel}", os.path.join(pr, rel), f'поза: {pr}'))
+            for rel in cp.get('need') or []:
+                if rel not in got:
+                    probs.append(f'{sku}: поза {rel} нет в {pr}')
     for a in cfg.get('also') or []:
         plan.append((a['sku'], a.get('kind') or 'other', a['dest'], a['path'], a.get('note') or 'другая версия'))
     out_rows = []
@@ -312,6 +330,32 @@ def set_inputs(name: str) -> dict:
         if not (f.startswith(sdir + os.sep) and os.path.isfile(f)):
             raise InputsError(f'набор {name}: нет файла входа {row["sku"]} {row["kind"]}: {f} — python3 tools/ops/inputs_check.py --set {name}')
         out.setdefault(row['sku'], {})[row['kind']] = f
+    return out
+
+
+def set_pose(name: str) -> dict:
+    """{sku: папка позы} — копии `pose_run` в наборе (`<набор>/pose/<товар>`), если у набора есть `copy_pose`; нет — {} (подмены нет).
+    Нет файла из `copy_pose.need` у товара из MANIFEST — InputsError (тихого отката на ~/remlab-logs нет)."""
+    try:
+        r = rules()
+    except (OSError, ValueError) as e:
+        raise InputsError(f'правила наборов не прочитать: {e}')
+    cfg = r['sets'].get(name) or {}
+    cp = cfg.get('copy_pose')
+    if not cp:
+        return {}
+    sdir = os.path.join(r['root'], name)
+    rows, bad = read_manifest(os.path.join(r['root'], cfg.get('manifest') or f'{name}/MANIFEST.tsv'))
+    if bad or not rows:
+        raise InputsError(f'набор {name}: ' + ('; '.join(bad) or 'MANIFEST пуст'))
+    out: dict = {}
+    for row in rows:
+        if row['kind'] == 'pose':
+            out[row['sku']] = os.path.join(sdir, cp['dest'].rstrip('/'), row['sku'])
+    for sku, d in out.items():
+        miss = [rel for rel in cp.get('need') or [] if not os.path.isfile(os.path.join(d, rel))]
+        if miss:
+            raise InputsError(f'набор {name}: у {sku} нет позы {", ".join(miss)} в {d} — python3 tools/ops/inputs_check.py --set {name}')
     return out
 
 
