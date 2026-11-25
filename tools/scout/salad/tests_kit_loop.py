@@ -749,5 +749,101 @@ with tempfile.TemporaryDirectory() as tmp:                        # 4. прав�
     check(not swaps and sm.get('stopped_by') == 'done' and len(sm.get('post_timeouts', [])) == 1, f'node_series_max=0: пересадок нет, один requeue как раньше ({swaps}, {sm.get("stopped_by")})')
 
 
+# ---- T-20261125-58/5: группа стоит в deploying без ноды дольше N мин (из правила) → стоп и повторный старт через те же ворота; общий сторож для всех драйверов
+check(not KD.DeployGuard(0, 2, 0.0).step(10000.0, 'deploying', [], None), 'сторож deploying: after_min 0 — выключен')
+check(not KD.DeployGuard.from_rules({}, 0.0).step(10000.0, 'deploying', [], None), 'сторож deploying: нет правила — выключен')
+_g = KD.DeployGuard(15, 2, 100.0)
+check(not _g.step(100.0 + 14 * 60, 'deploying', [], None) and _g.step(100.0 + 15 * 60, 'deploying', [], None), 'сторож deploying: срок ровно after_min от /start')
+check(not _g.step(100.0 + 99 * 60, 'running', [], None) and not _g.step(100.0 + 99 * 60, 'deploying', [{'state': 'creating'}], None) and not _g.step(100.0 + 99 * 60, 'deploying', [], 5.0),
+      'сторож deploying: группа не в deploying / экземпляр уже есть / был running — не трогаем')
+_g = KD.DeployGuard(15, 2, 0.0)
+_g.restarted(1000.0)
+check(not _g.step(1000.0 + 14 * 60, 'deploying', [], None) and _g.step(1000.0 + 15 * 60, 'deploying', [], None), 'сторож deploying: после пересоздания срок — от пересоздания')
+_g.restarted(5000.0)
+check(_g.restarts == 2 and not _g.step(5000.0 + 99 * 60, 'deploying', [], None), 'сторож deploying: max_restarts исчерпан — больше не пересоздаём')
+check(KD.salad_rules('deploy_guard').get('after_min', 0) > 0 and KD.salad_rules('deploy_guard').get('max_restarts', 0) > 0, 'правило deploy_guard есть в salad-groups.json (число — только там)')
+
+
+class DeployBR(BR):
+    """После /start группа в deploying без экземпляров `delays[n]` секунд (n-й старт), потом running; /stop гасит группу."""
+    def __init__(self, clock, delays):
+        super().__init__(clock, running_after=0.0)
+        self.delays, self.starts = list(delays), 0
+
+    def _up(self):
+        return self.t0 is not None and self.clock() - self.t0 >= self.delays[min(self.starts, len(self.delays)) - 1]
+
+    def group_state(self, name):
+        return 200, ('stopped' if self.t0 is None else ('running' if self._up() else 'deploying')), 1
+
+    def instances(self, name):
+        return 200, ([{'id': 'inst-0123456789', 'state': 'running', 'started': True}] if self._up() else [])
+
+    def stop_and_verify(self, name):
+        self.stopped += 1
+        self.t0 = None
+        return True
+
+
+def drive_deploy(tmp, delays, rules, running_min=30, refuse_second=None, stop_ok=True):
+    clock = Clock()
+    mg, br = MG(), DeployBR(clock, delays)
+    KD.gpu_class = lambda MG_, name, tier, fetch=None: ('cls', 0.6)
+    orig = mg.api
+
+    def api(path, method='GET', body=None):
+        if method == 'POST' and path.endswith('/start'):
+            if refuse_second is not None and br.starts >= 1:
+                return refuse_second, {'error': 'x'}
+            br.t0, br.starts = clock(), br.starts + 1
+        return orig(path, method, body)
+    mg.api = api
+    if not stop_ok:
+        br.stop_and_verify = lambda name: False
+    real_rules = KD.salad_rules
+    KD.salad_rules = lambda key: rules if key == 'deploy_guard' else real_rules(key)
+    a = argparse.Namespace(image='x@sha256:1', suffix='t', tier='low', apply=True, cap=4.0, probe_cap=1.0, max_min=600, running_min=running_min, start_min=20, health_min=8, ready_min=30,
+                           stall_min=5, stall_gb=0.05, job_min=0, out=os.path.join(tmp, 'out'), pull_guard=False)
+    buf = io.StringIO()
+    try:
+        with contextlib.redirect_stdout(buf):
+            rc = KD.run_probe(a, mg, br, make_spec('a'), gw_factory=lambda base, key: GW(clock, 100.0), sleep=clock.sleep, clock=clock, slot_check=lambda: None,
+                              image_check=lambda *x, **k: (True, 'ok', 1.0), ledger=lambda rec: LEDGER.append(rec))
+    finally:
+        KD.salad_rules = real_rules
+    pth = os.path.join(tmp, 'out', 'summary-kit-loop-t.json')
+    return rc, (json.load(open(pth)) if os.path.exists(pth) else {}), buf.getvalue(), br
+
+
+R15 = {'after_min': 15, 'max_restarts': 2}
+with tempfile.TemporaryDirectory() as tmp:
+    rc, sm, out, br = drive_deploy(tmp, [40 * 60, 2 * 60], R15)
+    check(sm.get('deploy_restarts') == 1 and sm.get('stopped_by') == 'done' and sm['jobs']['a']['status'] == 'done' and br.starts == 2,
+          f'цикл: первая нода не выдана 40 мин → на 15-й минуте стоп и второй старт, замена выдана за 2 мин, проба готова (рестартов {sm.get("deploy_restarts")}, стартов {br.starts}, {sm.get("stopped_by")})')
+    check(br.stopped == 2 and sm.get('stop_verified'), f'стопы: один при пересоздании + один итоговый ({br.stopped})')
+    check(sm.get('deploy_waits_min') == [15.0] and 'deploying, Salad не выдал машину' in out, f'в итоге и журнале видно, сколько ждали ({sm.get("deploy_waits_min")})')
+
+with tempfile.TemporaryDirectory() as tmp:
+    rc, sm, out, br = drive_deploy(tmp, [40 * 60, 40 * 60, 40 * 60], {'after_min': 15, 'max_restarts': 1})
+    check(sm.get('deploy_restarts') == 1 and sm.get('stopped_by') == 'no_machine' and br.starts == 2 and sm.get('stop_verified'),
+          f'цикл: max_restarts 1 — одно пересоздание, дальше обычный no_machine от второго старта, группа погашена ({sm.get("stopped_by")}, стартов {br.starts})')
+
+with tempfile.TemporaryDirectory() as tmp:
+    rc, sm, out, br = drive_deploy(tmp, [40 * 60], {'after_min': 0, 'max_restarts': 2})
+    check('deploy_restarts' not in sm and sm.get('stopped_by') == 'no_machine' and br.starts == 1, 'цикл: сторож выключен (after_min 0) — как раньше, no_machine без пересозданий')
+
+with tempfile.TemporaryDirectory() as tmp:
+    rc, sm, out, br = drive_deploy(tmp, [40 * 60, 2 * 60], R15, refuse_second=403)
+    check(sm.get('deploy_restarts') == 1 and str(sm.get('stopped_by', '')).startswith('start_http_403') and br.starts == 1 and sm.get('stop_verified'),
+          f'цикл: повторный старт отказан (ворота/Salad) — не продолжаем, группа погашена ({sm.get("stopped_by")})')
+
+with tempfile.TemporaryDirectory() as tmp:
+    rc, sm, out, br = drive_deploy(tmp, [40 * 60, 2 * 60], R15, stop_ok=False)
+    check(sm.get('stopped_by') == 'deploy_stop_unverified' and br.starts == 1, f'цикл: остановка не подтверждена — повторный старт не делаем поверх ({sm.get("stopped_by")})')
+
+with tempfile.TemporaryDirectory() as tmp:
+    rc, sm, out, br = drive_deploy(tmp, [3 * 60], R15)
+    check('deploy_restarts' not in sm and sm.get('stopped_by') == 'done' and br.starts == 1, 'цикл: нода выдана за 3 мин — сторож молчит')
+
 print('\nИТОГ:', 'ВСЁ ЗЕЛЁНОЕ' if not FAILS else f'ПАДЕНИЙ {len(FAILS)}')
 sys.exit(1 if FAILS else 0)
