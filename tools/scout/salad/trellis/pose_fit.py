@@ -843,10 +843,10 @@ def fit_pose(glb: str, photo_path: str, out_run: str, yaw: float = 0.0, px: int 
         jn_info = None
         import junction as JN
         _R_jn = {**JN.DEFAULTS, **((CC0.load_rules().get('junction')) or {}), 'miss_bottom_max': CC0.load_rules()['miss_bottom_max'], 'extra_bottom_max': CC0.load_rules()['extra_bottom_max']}
-        _env_jn = os.environ.get('POSE_JUNCTION')                      # '1' — применить, 'probe' — вхолостую (только info), '0' — выкл.; нет — по правилу junction.enabled
-        _mode_jn = 'apply' if _env_jn == '1' else ('probe' if _env_jn == 'probe' else (None if _env_jn == '0' else ('apply' if _R_jn['enabled'] else None)))
+        _env_jn = os.environ.get('POSE_JUNCTION')                      # '1' — применить, 'probe' — вхолостую (только info), '0' — выкл.; нет — по правилу junction.enabled (с 25.11 ВКЛ)
+        _mode_jn = JN.mode(_env_jn, _R_jn)
         form_box = {'lo': [round(float(x), 5) for x in geo['V'].min(0)], 'hi': [round(float(x), 5) for x in geo['V'].max(0)]}       # габарит формы в кубе: check 04 меряет стык по нему без GLB
-        if _mode_jn:                                                   # стык «фронт|бок» (T-20261124-18, TG 2571): спасатель только при зазоре > active_gap_px; по умолчанию выкл.
+        if _mode_jn:                                                   # стык «фронт|бок» (T-20261124-18, TG 2571): спасатель только при зазоре > active_gap_px; по умолчанию ВКЛ (правило, T-20261125-72/2)
             _box = JN.box_geometry(form_box['lo'], form_box['hi'], _R_jn)
             pick, jn_info = JN.rescue(sys.modules[__name__], geo['V'], pick, cands, _box, JN.photo_targets(photo, _R_jn), Mp, n, cv, _R_jn, log=log, apply=(_mode_jn == 'apply'))
             if jn_info['applied']:

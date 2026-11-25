@@ -227,6 +227,24 @@ def test_az_sigma_real_box_small():
     assert r['applicable'] and len(r['deltas_deg']) == 6 and r['value'] >= 2.0 and r['sigma_raw_deg'] < 6.0, r
 
 
+def test_junction_on_by_default_rule():
+    """T-20261125-72/2: спасатель стыка включён правилом (не env); остальные флаги позы выключены."""
+    import camera_check as CC
+    R = CC.load_rules()
+    assert R['junction']['enabled'] is True and R['junction']['enforce'] is False, R['junction']
+    assert J.mode(None, {**J.DEFAULTS, **R['junction']}) == 'apply'
+    assert (R.get('vertical_axis') or {}).get('enabled') is False
+    assert (((R.get('edge_angle') or {}).get('fit')) or {}).get('enabled', False) is False
+    assert (R.get('az_sigma') or {}).get('enabled') is False
+
+
+def test_junction_mode_env_priority():
+    on, off = {'enabled': True}, {'enabled': False}
+    assert J.mode(None, on) == 'apply' and J.mode(None, off) is None
+    assert J.mode('0', on) is None and J.mode('1', off) == 'apply' and J.mode('probe', off) == 'probe'
+    assert J.mode('', on) == 'apply'
+
+
 if __name__ == '__main__':
     for n, f in sorted(globals().items()):
         if n.startswith('test_') and callable(f):
