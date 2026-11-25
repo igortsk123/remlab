@@ -337,6 +337,47 @@ def thin_checks(front: np.ndarray, photo: np.ndarray, R: dict, az: float = 0.0) 
 
 
 # ---------- задняя стенка по кадрам ----------
+def stitch_depth(m, role: str, card: dict | None, R: dict) -> list[dict]:
+    """Мерка «глубокие борозды стёжки на сиденье мягкой обивки» (T-20261124-57, П1.160, паспорт: T-156/1 р.6; код — `relief_checks.py`). Значение — p95 глубины борозд по зоне сиденья, см;
+    сработало бы при p95 > `stitch_p95_cm` ИЛИ доле площади глубже 0,5 см > `stitch_share05_max`. Только мягкие типы (`stitch_roles` — по префиксу роли каталога); высота — `card['h']` (см).
+    OBSERVE: `stitch_flag: false` → `flag` всегда false, `would_flag` — сработало бы; форму не меняет."""
+    thr = [R['stitch_p95_cm'], R['stitch_share05_max']]
+
+    def na(note):
+        return [dict(check('stitch_p95', None, thr, False, note), would_flag=False)]
+    if not any((role or '').startswith(x) for x in R['stitch_roles']):
+        return na('тип без мягкой обивки сиденья — мерка не применима')
+    h = (card or {}).get('h')
+    if not h or not float(h) > 0:
+        return na('нет высоты карточки — глубина в см не считается')
+    if HERE not in sys.path:
+        sys.path.append(HERE)
+    import relief_checks as RC
+    s = RC.seat_groove_stats(m, float(h), R)
+    if s['status'] != 'ok':
+        return na(s.get('why') or 'зона сиденья не найдена')
+    would = s['p95'] > R['stitch_p95_cm'] or s['share05'] > R['stitch_share05_max']
+    note = f"p95 {s['p95']} см, доля глубже 0,5 см {s['share05'] * 100:.1f} %, max {s['max']} см, зона {s['n']} вершин"
+    return [dict(check('stitch_p95', s['p95'], thr, would and bool(R['stitch_flag']), note), would_flag=bool(would), share05=s['share05'])]
+
+
+def leg_wave(sil: np.ndarray, R: dict) -> list[dict]:
+    """Мерка «волнистый контур ножки» (T-20261124-57, П1.160, паспорт класс 1б; код — `leg_wave.py`): силуэт формы (тот же, что у `thin_checks`) → ножки ниже корпуса → профиль каждого края минус плавная кривая.
+    Значение — наибольшая амплитуда волны ÷ толщина ножки среди ножек с ≥ `lw_min_ext` горбами (0 — волны нет); сработало бы при ≥ `lw_amp`. Ножек нет (стол-плита, шкаф-цоколь) — значение None.
+    OBSERVE: `leg_wave_flag: false` → `flag` всегда false, `would_flag` — сработало бы; форму не меняет."""
+    if HERE not in sys.path:
+        sys.path.append(HERE)
+    import leg_wave as LW
+    st = LW.leg_wave_stats(sil, R)
+    thr = [R['lw_amp'], R['lw_min_ext']]
+    if st['status'] != 'ok':
+        return [dict(check('leg_wave', None, thr, False, st['why']), would_flag=False)]
+    would = st['value'] >= R['lw_amp']
+    bad = [l for l in st['legs'] if l['wavy'] and l['amp'] >= R['lw_amp']]
+    note = f"ножек {st['n_legs']}, волнистых {len(bad)}" + (': ' + ', '.join(f"x={l['x']} амплитуда {l['amp']}, горбов {l['n_ext']}" for l in bad) if bad else '')
+    return [dict(check('leg_wave', st['value'], thr, bool(would) and bool(R['leg_wave_flag']), note), would_flag=bool(would), legs=st['legs'])]
+
+
 def back_dup(frames_dir: str, R: dict) -> list[dict]:
     """Кадр 0° и зеркальный кадр 180° (вид с другой стороны, тот же свет относительно камеры): продублированный фасад даёт почти одинаковый рельеф. Корреляция высокочастотной части
     в центральном окне; считается только если рельеф есть на обоих кадрах (энергия ≥ порога) — гладкая плита не даёт ложной «похожести»."""
@@ -611,6 +652,7 @@ def run_sku(sku: str, glb: str | None, photo: str | None, frames: str | None, ru
         if m is not None:
             rec['checks'] += [open_edges(m, R), detached(m, R)]
             rec['checks'] += body_skew(m, role, R)
+            rec['checks'] += stitch_depth(m, role, card, R)
             if card is not None:
                 rec['checks'] += dims_vs_card(m, card, R)
             rec['checks'] += pose_checks(sku, pose_roots or [])
@@ -619,7 +661,9 @@ def run_sku(sku: str, glb: str | None, photo: str | None, frames: str | None, ru
                 pm = photo_mask(photo)
                 fs, az = best_front(surface_points(m, int(R['sil_points'])), pm, R)
                 rec['checks'] += sil_checks(fs, pm, R, az)
-                rec['checks'] += thin_checks(sil_at(surface_points(m, int(R['thin_points']), seed=3), az, int(R['thin_grid'])), pm, R, az)
+                sil_thin = sil_at(surface_points(m, int(R['thin_points']), seed=3), az, int(R['thin_grid']))
+                rec['checks'] += thin_checks(sil_thin, pm, R, az)
+                rec['checks'] += leg_wave(sil_thin, R)
             else:
                 rec['checks'].append(check('sil_extra~', None, R['sil_extra'], False, 'нет маски фото — приближённые силуэтные проверки пропущены'))
                 rec['checks'].append(dict(check('thin_width', None, [R['thin_w_lo'], R['thin_w_hi']], False, 'нет маски фото — мерка тонких частей пропущена'), would_flag=False))

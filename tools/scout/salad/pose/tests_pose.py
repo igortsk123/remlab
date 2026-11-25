@@ -269,6 +269,29 @@ class PureTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             PT.safe_extract(buf.getvalue(), tempfile.mkdtemp(prefix='tests_pose_zip_'))
 
+    def test_role_goes_to_job_and_to_camera_check_only_when_known(self):
+        """T-20261124-57: роль каталога → тело задания → `--role` у camera_check; нет роли — тело и аргументы как раньше (метка white_plate не применима)."""
+        class A:
+            px = n_fit = topk = None
+        a = A()
+        b0 = PT.job_body(a, 's1', 'j', GLB, PNG)
+        self.assertEqual(sorted(b0), ['glb_z', 'job_id', 'n_fit', 'photo_b64', 'px', 'topk'])         # без каталога тело то же, что было
+        a.roles = {'s1': 'стол обеденный'}
+        self.assertEqual(PT.job_body(a, 's1', 'j', GLB, PNG)['role'], 'стол обеденный')
+        self.assertNotIn('role', PT.job_body(a, 's2', 'j', GLB, PNG))                                   # товара нет в каталоге — роли нет
+        self.assertEqual(WP.check_args('o', 'p.png', {}), ['--run', 'o', '--photo', 'p.png'])
+        self.assertEqual(WP.check_args('o', 'p.png', {'role': None}), ['--run', 'o', '--photo', 'p.png'])
+        self.assertEqual(WP.check_args('o', 'p.png', {'role': 'стол обеденный'}), ['--run', 'o', '--photo', 'p.png', '--role', 'стол обеденный'])
+        self.assertEqual(WP.check_args('o', 'p.png', {'role': 'x\ny'}), ['--run', 'o', '--photo', 'p.png'])   # управляющие символы — не пропускаем
+        self.assertEqual(WP.check_args('o', 'p.png', {'role': 'я' * 61}), ['--run', 'o', '--photo', 'p.png'])
+        import tempfile
+        with tempfile.TemporaryDirectory() as t:
+            f = os.path.join(t, 'c.json')
+            json.dump([{'sid': 's1', 'role': 'стол'}, {'sid': 's3'}, {'name': 'без sid', 'role': 'х'}], open(f, 'w', encoding='utf-8'), ensure_ascii=False)
+            self.assertEqual(PT.roles_from_catalog(f), {'s1': 'стол'})
+            self.assertEqual(PT.roles_from_catalog(os.path.join(t, 'нет.json')), {})
+        self.assertEqual(PT.roles_from_catalog(''), {})
+
     def test_job_id_changes_with_input_and_params(self):
         class A:
             px = n_fit = topk = None

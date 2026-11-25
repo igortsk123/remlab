@@ -147,6 +147,46 @@ def bottom_mask_quality(rgb: np.ndarray, A: np.ndarray, strip_rows) -> dict:
     return {'thin_share': round(float(sub.sum()) / area, 4), 'contrast': round(abs(fg - bg) / 255.0, 4)}
 
 
+def white_plate(photo: np.ndarray, role: str, rules: dict) -> dict:
+    """Метка ТИПА «белая плита стола на светлом фоне» (T-20261124-57, П1.160; паспорт «Таргет 80×80»): маска фото у такой плиты слабая, IoU 04 падает не из-за брака верха. Считается по RGBA фото (без позы и формы),
+    всегда, прошёл 04 или нет. Применима только к ролям `white_plate.roles` (префикс роли каталога). Верхняя зона = верхние `zone_frac` высоты маски. `value` — доля почти белых пикселей маски в зоне (яркость ≥ lum_min,
+    цветность ≤ chroma_max); `weak_edge` — доля границы маски в зоне, где |яркость внутри − снаружи| (окно win) < weak_contrast·255. would_flag: value ≥ share_min И weak_edge ≥ weak_min. Пишет только запись.
+    → {applicable, would_flag, value, weak_edge, thr, why}."""
+    from scipy import ndimage
+    wp = rules.get('white_plate') or {}
+    thr = [wp.get('share_min'), wp.get('weak_min')]
+
+    def out(applicable: bool, why: str, value=None, weak=None, would=False) -> dict:
+        return {'applicable': applicable, 'would_flag': bool(would), 'value': value, 'weak_edge': weak, 'thr': thr, 'why': why}
+    if not any((role or '').startswith(x) for x in (wp.get('roles') or [])):
+        return out(False, 'тип без плиты-столешницы (или роль не передана) — не применима')
+    a = np.asarray(photo)
+    m = a[..., 3] > 127
+    if not m.any():
+        return out(False, 'маска фото пуста')
+    rgb = a[..., :3].astype(np.float32)
+    lum = 0.299 * rgb[..., 0] + 0.587 * rgb[..., 1] + 0.114 * rgb[..., 2]
+    chroma = rgb.max(-1) - rgb.min(-1)
+    ys = np.nonzero(m.any(axis=1))[0]
+    y0, y1 = int(ys[0]), int(ys[-1])
+    zone = np.zeros_like(m)
+    zone[y0:y0 + max(int((y1 - y0 + 1) * float(wp['zone_frac'])), 1)] = True
+    mz = m & zone
+    if not mz.any():
+        return out(False, 'верхняя зона маски пуста')
+    value = float((mz & (lum >= float(wp['lum_min'])) & (chroma <= float(wp['chroma_max']))).sum() / mz.sum())
+    bw = (ndimage.binary_dilation(m, iterations=2) & ~ndimage.binary_erosion(m, iterations=2)) & zone
+    if not bw.any():
+        return out(True, 'граница верха не найдена', round(value, 3), None, False)
+    win = int(wp['win'])
+    mf, nf = m.astype(np.float32), (~m).astype(np.float32)
+    li = ndimage.uniform_filter(np.where(m, lum, 0.0), win) / np.maximum(ndimage.uniform_filter(mf, win), 1e-3)
+    lo = ndimage.uniform_filter(np.where(~m, lum, 0.0), win) / np.maximum(ndimage.uniform_filter(nf, win), 1e-3)
+    weak = float((np.abs(li - lo)[bw] < float(wp['weak_contrast']) * 255.0).mean())
+    would = value >= float(wp['share_min']) and weak >= float(wp['weak_min'])
+    return out(True, ('белая плита на светлом фоне: белое %.2f, слабая граница %.2f' % (value, weak)) if would else '', round(value, 3), round(weak, 3), would)
+
+
 def prep_plate_unreliable(root: str, sku: str) -> tuple[bool, str]:
     """02-prep: plate_found=true без среза (нет выходного файла и report.written ложно) → камера по такой форме ненадёжна (форма с плитой; IoU по силуэту плиту не видит).
     Нет check.json этапа 02-prep — не знаем, не флажим (False, '')."""
@@ -246,6 +286,7 @@ def main() -> int:
     ap.add_argument('--photo', required=True)
     ap.add_argument('--view0', default=None)
     ap.add_argument('--yaw', type=float, default=None)
+    ap.add_argument('--role', default='', help='роль каталога (для метки white_plate; пусто — метка не применима)')
     a = ap.parse_args()
     import time
     t0 = time.time()
@@ -299,6 +340,7 @@ def main() -> int:
     if (rules.get('junction') or {}).get('enforce', False) and fedge.get('over'):
         reason = ('стык фронта: ребро формы ↔ кромка фото %s px (порог %s) — на фронте будет разрыв узора; ' % (fedge['dx_px'], fedge['threshold_px'])) + reason if not ok else ('стык фронта: ребро формы ↔ кромка фото %s px (порог %s); ' % (fedge['dx_px'], fedge['threshold_px'])) + reason
         ok = False
+    wpl = white_plate(photo, a.role, rules) if (rules.get('white_plate') or {}).get('enabled', False) else None          # метка типа «белая плита» (T-20261124-57): только запись, passed не меняет; выключено — ключа в check.json нет
     legs = LC.legs_report(S, pa)                                    # ножки формы против фото (T-191/3): пишется в extra, passed не меняет — решение «ножкам фото не верим» принимает этап 06
     bsm = bottom_shape_mismatch(shares, coarse, rules) and not thin_rescue
     if bsm:
@@ -330,7 +372,7 @@ def main() -> int:
                          reason=reason if not ok else '', seconds=round(time.time() - t0, 1), outputs=['frame.png'] + (['junction.png'] if os.path.isfile(os.path.join(out, 'junction.png')) else []), frame='frame.png',
                          edge_ref_min=rules['edge_ref'], edge_below_ref=bool(edge is not None and edge < rules['edge_ref']), no_edges=no_edges, note=reason if ok else '', strip_rows=shares['strip_rows'], strip_frac=rules['strip_frac'],
                          bottom_mask_coarse=coarse, edge_angle=edge_angle, vertical_convergence=vconv, front_edge=fedge, az_sigma=pose.get('az_sigma') or {'applicable': None, 'value': None, 'reason': 'не считалась (rules az_sigma.enabled=false / POSE_AZ_SIGMA)'}, front_edge_dx_px=(fedge.get('dx_px') if fedge.get('measured') else None), bottom_mask=bq, bottom_shape_mismatch=bsm, **LC.extra_fields(legs), **fv, shape_mismatch=shm, shape_corridor=shm_info, regen_form=bool(shm), iou_top=None if shares['iou_top'] is None else round(shares['iou_top'], 4),
-                         bottom_top_iou_min=rules.get('bottom_top_iou_min', rules['iou_min']), thin=tm, thin_rescue=thin_rescue, unreliable=bool(unrel), unreliable_reason=unrel_why, rules_file='tools/scout/rules/camera-check.json',
+                         **({'white_plate': wpl} if wpl is not None else {}), bottom_top_iou_min=rules.get('bottom_top_iou_min', rules['iou_min']), thin=tm, thin_rescue=thin_rescue, unreliable=bool(unrel), unreliable_reason=unrel_why, rules_file='tools/scout/rules/camera-check.json',
                          camera=pose['camera'], yaw=a.yaw if a.yaw is not None else pose.get('yaw'), pairs=None, photo=a.photo, method=reg.get('method'),
                          textured=pose.get('textured'), frame_note='фото 50 % + рендер 50 %; красный контур — рендер формы, зелёный — фото')
     print(f"{'OK ' if res['passed'] else 'НЕТ'} IoU {iou:.3f} miss {shares['miss']:.3f}/{shares['miss_bottom']:.3f} extra {shares['extra']:.3f}/{shares['extra_bottom']:.3f} (всё/низ) кромки {'нет' if edge is None else format(edge, '.3f')} — {reason}")

@@ -68,6 +68,26 @@ def job_id(sku: str, a, glb: bytes, photo: bytes) -> str:
     return f'{sku}-{h}'.replace('_', '-')[:150]
 
 
+def roles_from_catalog(path: str) -> dict[str, str]:
+    """sid → роль из выгрузки каталога [{sid,name,role,params}] (тот же источник, что у `stage_trial --catalog`); нет файла/поля — пусто (роль в задание не кладётся)."""
+    if not path:
+        return {}
+    try:
+        rows = json.load(open(path, encoding='utf-8'))
+    except (OSError, ValueError):
+        return {}
+    return {str(r.get('sid')): str(r['role'])[:60] for r in rows if isinstance(r, dict) and r.get('sid') and r.get('role')}
+
+
+def job_body(a, sku: str, jid: str, glb: bytes, photo: bytes) -> dict:
+    """Тело POST /jobs. `role` (T-20261124-57: метка типа 04 white_plate, только запись) — лишь если известна из `--catalog`; нет роли — тело как раньше."""
+    body = {'job_id': jid, 'glb_z': base64.b64encode(zlib.compress(glb, 6)).decode(), 'photo_b64': base64.b64encode(photo).decode(), 'px': a.px, 'n_fit': a.n_fit, 'topk': a.topk}
+    role = (getattr(a, 'roles', None) or {}).get(sku)
+    if role:
+        body['role'] = role
+    return body
+
+
 def submit_pack(gw, a, skus: list[str], t: float) -> tuple[dict | None, dict]:
     """Отправить все товары пакета (POST /jobs по одному, GLB — zlib+base64). Любой не принят → отказ пакета с причиной."""
     ids: dict[str, str] = {}
@@ -75,7 +95,7 @@ def submit_pack(gw, a, skus: list[str], t: float) -> tuple[dict | None, dict]:
         gp, pp = paths(a, sku)
         glb, photo = open(gp, 'rb').read(), open(pp, 'rb').read()
         jid = job_id(sku, a, glb, photo)
-        body = {'job_id': jid, 'glb_z': base64.b64encode(zlib.compress(glb, 6)).decode(), 'photo_b64': base64.b64encode(photo).decode(), 'px': a.px, 'n_fit': a.n_fit, 'topk': a.topk}
+        body = job_body(a, sku, jid, glb, photo)
         c, r, _tinfo = KD.post_job(gw, '/jobs', body, f'/jobs/{jid}', say_fn=say)         # общий вход набора: таймаут по размеру тела, «нет ответа» → спросить воркера
         if c == -1:                                                                       # воркер задания не видит; job_id идемпотентен — один повтор, дубля не будет
             say(f'товар {sku}: POST без ответа, воркер задания не видит — повтор один раз')
@@ -278,12 +298,14 @@ def main() -> int:
     ap.add_argument('--worker-from-image', action='store_true')
     ap.add_argument('--suffix', default=time.strftime('%m%d%H%M', time.gmtime()))
     ap.add_argument('--flags', default='', help='флаги подгонки в подпроцесс воркера: POSE_JUNCTION=1,POSE_VERT_AXIS=1 (по умолчанию нет; T-20261124-18)')
+    ap.add_argument('--catalog', default='', help='выгрузка каталога [{sid,name,role,params}] (catalog_all.json): роль товара уходит в задание для метки типа 04 (white_plate, только запись)')
     ap.add_argument('--apply', action='store_true')
     ap.add_argument('--stop-only', action='store_true')
     ap.add_argument('--local', action='store_true', help='бесплатная сверка: воркер на этой машине')
     ap.add_argument('--code', default='', help='--local: папка кода как в образе (stage_pose_code.py)')
     ap.add_argument('--python', default=sys.executable, help='--local: интерпретатор воркера (venv с теми же версиями библиотек)')
     a = ap.parse_args()
+    a.roles = roles_from_catalog(a.catalog)
     if a.local:
         if not a.skus or not a.code:
             sys.exit('--local: нужны --skus и --code')

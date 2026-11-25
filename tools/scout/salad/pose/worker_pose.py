@@ -6,7 +6,7 @@
 
 HTTP (порт $PORT, 8000; сервер на `::` — kit_worker.make_server):
   GET  /health                 → {"phase": weights|loading|ready|broken, ...}; прогрев — секунды (веса не нужны), в `health` версии библиотек, модель CPU, число ядер
-  POST /jobs                   {"job_id","glb_z"(zlib→base64 GLB),"photo_b64"(RGBA PNG),"yaw","px","n_fit","topk"} → 202 (повтор того же job_id не дублирует работу)
+  POST /jobs                   {"job_id","glb_z"(zlib→base64 GLB),"photo_b64"(RGBA PNG),"yaw","px","n_fit","topk","role"(необязательно: роль каталога для метки типа 04)} → 202 (повтор того же job_id не дублирует работу)
   GET  /jobs/<id>              → {"status": queued|running|done|failed, "step", "metrics", "error", "sha256", "bytes"}
   GET  /jobs/<id>/result       → zip папки прогона (pose.json, stage_loss.json, pose_overlay.png, stages/…, 04-camera/…, логи); только при done
   POST /shutdown               → процесс завершается
@@ -267,7 +267,7 @@ class Pool:
                 j['error'] = j['error'] or f"pose_fit rc={rc}: {tail(os.path.join(d, 'fit.log'), 300)}"
                 raise RuntimeError(j['error'])
             j['step'] = 'camera_check'
-            rc, j['check_s'] = self._exec(j, 'check', self._cmd('camera_check.py', ['--run', out, '--photo', os.path.join(d, 'in.png')]), self.c['check_timeout'])
+            rc, j['check_s'] = self._exec(j, 'check', self._cmd('camera_check.py', check_args(out, os.path.join(d, 'in.png'), p)), self.c['check_timeout'])
             if rc != 0:
                 j['error'] = j['error'] or f"camera_check rc={rc}: {tail(os.path.join(d, 'check.log'), 300)}"
                 raise RuntimeError(j['error'])
@@ -336,10 +336,19 @@ class PoseHandler(KW.KitHandler):
         if not glb[:4] == b'glTF' or not photo[:8] == b'\x89PNG\r\n\x1a\n':
             self.send_json(400, {'error': 'вход не GLB/PNG'})
             return True
-        params = {k: b.get(k) for k in ('yaw', 'px', 'n_fit', 'topk')}
+        params = {k: b.get(k) for k in ('yaw', 'px', 'n_fit', 'topk', 'role')}
         j = self.pool.submit(jid, glb, photo, params)
         self.send_json(202, {'job_id': jid, 'status': j['status']})
         return True
+
+
+def check_args(out: str, photo: str, p: dict) -> list[str]:
+    """Аргументы camera_check.py. `--role` (T-20261124-57: метка типа white_plate, только запись; без неё и при enabled=false метка не пишется) — если роль пришла в задании: короткая строка без управляющих символов."""
+    args = ['--run', out, '--photo', photo]
+    role = p.get('role')
+    if isinstance(role, str) and role.strip() and len(role) <= 60 and role.isprintable():
+        args += ['--role', role.strip()]
+    return args
 
 
 def selfcheck(c: dict) -> dict:

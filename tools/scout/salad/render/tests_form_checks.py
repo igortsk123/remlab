@@ -611,5 +611,135 @@ class Run(unittest.TestCase):
         self.assertIn('совпало с глазом: 1 из 2', t)
 
 
+def seat_stool(groove_cm: float):
+    """Табурет-«стул»: ножки 37 см, сиденье 40×40 см (верх на 43 см), спинка до 80 см; на верхе сиденья борозды глубиной groove_cm с шагом 6 см (0 — гладкий)."""
+    from trimesh.remesh import subdivide_to_size
+    seat = trimesh.creation.box(extents=(40, 6, 40))
+    seat.apply_translation((0, 40, 0))
+    back = trimesh.creation.box(extents=(40, 40, 3))
+    back.apply_translation((0, 60, -18.5))
+    legs = []
+    for x in (-17.0, 17.0):
+        for z in (-17.0, 17.0):
+            lg = trimesh.creation.box(extents=(4, 37, 4))
+            lg.apply_translation((x, 18.5, z))
+            legs.append(lg)
+    parts = []
+    for b in [seat, back] + legs:
+        v, f = subdivide_to_size(b.vertices, b.faces, max_edge=0.6)
+        parts.append(trimesh.Trimesh(v, f, process=True))
+    s = parts[0]
+    v = np.array(s.vertices)
+    top = v[:, 1] > 42.99
+    v[top, 1] -= groove_cm * np.maximum(0.0, np.sin(2 * np.pi * v[top, 0] / 6.0)) ** 2
+    s = trimesh.Trimesh(v, s.faces, process=False)
+    m = trimesh.util.concatenate([s] + parts[1:])
+    m.merge_vertices()
+    return m
+
+
+class StitchDepth(unittest.TestCase):
+    """T-20261124-57 (П1.160): мерка глубоких борозд стёжки — ± контроль на синтетике, тип и высота, режим OBSERVE."""
+
+    def test_grooved_seat_would_flag_smooth_not(self):
+        bad = by(FC.stitch_depth(seat_stool(0.9), 'стул', {'h': 80.0}, R), 'stitch_p95')
+        good = by(FC.stitch_depth(seat_stool(0.0), 'стул', {'h': 80.0}, R), 'stitch_p95')
+        self.assertTrue(bad['would_flag'], bad)
+        self.assertGreater(bad['value'], R['stitch_p95_cm'])
+        self.assertFalse(good['would_flag'], good)
+        self.assertLess(good['value'], 0.1)
+
+    def test_observe_flag_is_off(self):
+        self.assertFalse(R['stitch_flag'])
+        c = by(FC.stitch_depth(seat_stool(0.9), 'стул', {'h': 80.0}, R), 'stitch_p95')
+        self.assertFalse(c['flag'])
+        self.assertTrue(c['would_flag'])
+        c = by(FC.stitch_depth(seat_stool(0.9), 'стул', {'h': 80.0}, dict(R, stitch_flag=True)), 'stitch_p95')
+        self.assertTrue(c['flag'])
+
+    def test_not_applicable_type_and_missing_height(self):
+        m = seat_stool(0.9)
+        c = by(FC.stitch_depth(m, 'шкаф', {'h': 80.0}, R), 'stitch_p95')
+        self.assertIsNone(c['value'])
+        self.assertFalse(c['would_flag'] or c['flag'])
+        self.assertIn('не применима', c['note'])
+        c = by(FC.stitch_depth(m, 'кресло', None, R), 'stitch_p95')
+        self.assertIsNone(c['value'])
+        self.assertIn('высоты', c['note'])
+
+    def test_mesh_not_changed(self):
+        m = seat_stool(0.9)
+        before = np.array(m.vertices).copy()
+        FC.stitch_depth(m, 'стул', {'h': 80.0}, R)
+        self.assertTrue((before == np.array(m.vertices)).all())
+
+
+def chair_sil(wave_amp_px: float = 0.0, period: float = 70.0, bow_px: float = 0.0, w: int = 30, legs_n: int = 2) -> np.ndarray:
+    """Силуэт «сбоку»: корпус-сиденье 300×60 px сверху, под ним `legs_n` ножек шириной w и длиной 300 px; край одной ножки идёт синусоидой (wave_amp_px, период в строках) и/или дугой (bow_px)."""
+    H, Wd = 400, 320
+    m = np.zeros((H, Wd), bool)
+    m[0:60, 10:310] = True
+    xs = [30, 250] if legs_n == 2 else [30]
+    yy = np.arange(60, 360)
+    for k, x0 in enumerate(xs):
+        for y in yy:
+            off = 0.0
+            if k == 0:
+                off = wave_amp_px * np.sin(2 * np.pi * (y - 60) / period) + bow_px * (1 - ((y - 210) / 150.0) ** 2)
+            a = int(round(x0 + off))
+            m[y, a:a + w] = True
+    return m
+
+
+class LegWave(unittest.TestCase):
+    """T-20261124-57 (П1.160): мерка волнистой ножки — прямая и дуга не срабатывают, длинная волна срабатывает; тип без ножек — None; OBSERVE."""
+
+    def test_wavy_leg_would_flag_straight_and_arc_not(self):
+        bad = by(FC.leg_wave(chair_sil(wave_amp_px=3.0), R), 'leg_wave')
+        straight = by(FC.leg_wave(chair_sil(), R), 'leg_wave')
+        arc = by(FC.leg_wave(chair_sil(bow_px=6.0), R), 'leg_wave')
+        self.assertTrue(bad['would_flag'], bad)
+        self.assertGreaterEqual(bad['value'], R['lw_amp'])
+        self.assertFalse(straight['would_flag'], straight)
+        self.assertFalse(arc['would_flag'], arc)                         # плавная дуга — законная форма ножки (сабля), не волна
+
+    def test_two_humps_with_big_amplitude_not_flagged_only_by_hump_count(self):
+        """Запас мерки (директор, T-57/2–3): ножка с амплитудой выше порога, но всего ДВА горба, не метится — её держит именно правило «≥ lw_min_ext горбов» (на 29: контроль с амплитудой 0,081 при 2 горбах)."""
+        c = by(FC.leg_wave(chair_sil(wave_amp_px=4.0, period=160.0), R), 'leg_wave')
+        lg = max(c['legs'], key=lambda l: l['amp'])
+        self.assertGreaterEqual(lg['amp'], R['lw_amp'], c)              # амплитуда сама по себе выше порога
+        self.assertLess(lg['n_ext'], R['lw_min_ext'], c)                # но горбов меньше трёх
+        self.assertFalse(lg['wavy'] or c['would_flag'], c)
+        self.assertEqual(c['value'], 0.0, c)
+        c3 = by(FC.leg_wave(chair_sil(wave_amp_px=4.0, period=70.0), R), 'leg_wave')
+        lg3 = max(c3['legs'], key=lambda l: l['amp'])
+        self.assertGreaterEqual(lg3['n_ext'], R['lw_min_ext'], c3)      # та же амплитуда при трёх и более горбах — метка
+        self.assertTrue(c3['would_flag'], c3)
+        c_off = by(FC.leg_wave(chair_sil(wave_amp_px=4.0, period=160.0), dict(R, lw_min_ext=2)), 'leg_wave')
+        self.assertTrue(c_off['would_flag'], c_off)                     # снять правило горбов — метка появилась бы: держит именно оно
+
+    def test_observe_flag_off(self):
+        self.assertFalse(R['leg_wave_flag'])
+        c = by(FC.leg_wave(chair_sil(wave_amp_px=3.0), R), 'leg_wave')
+        self.assertFalse(c['flag'])
+        self.assertTrue(c['would_flag'])
+        c = by(FC.leg_wave(chair_sil(wave_amp_px=3.0), dict(R, leg_wave_flag=True)), 'leg_wave')
+        self.assertTrue(c['flag'])
+
+    def test_no_legs_is_none(self):
+        m = np.zeros((300, 300), bool)
+        m[50:250, 20:280] = True                                         # плита/шкаф без ножек
+        c = by(FC.leg_wave(m, R), 'leg_wave')
+        self.assertIsNone(c['value'])
+        self.assertFalse(c['would_flag'] or c['flag'])
+        self.assertIn('ножек', c['note'])
+
+    def test_input_not_changed(self):
+        m = chair_sil(wave_amp_px=3.0)
+        before = m.copy()
+        FC.leg_wave(m, R)
+        self.assertTrue((before == m).all())
+
+
 if __name__ == '__main__':
     unittest.main(verbosity=1)
