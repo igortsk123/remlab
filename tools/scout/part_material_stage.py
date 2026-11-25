@@ -72,6 +72,18 @@ def load_roles(a, glb: str, cam_az: float | None, nF: int) -> tuple[np.ndarray, 
     return np.asarray(res['face_role']).astype(str), np.asarray(res['face_conf'], float), '03-parts'
 
 
+def card_height_cm(path: str) -> float | None:
+    """Высота товара, см, из card.json («Размеры: Высота габаритная»: «190см»); нет карточки/поля — None."""
+    import re
+    c = _json(path) if path else {}
+    for k, v in c.items():
+        if 'Высота габаритная' in str(k):
+            m = re.search(r'(\d+(?:[.,]\d+)?)', str(v))
+            if m:
+                return float(m.group(1).replace(',', '.'))
+    return None
+
+
 def process(a, rules: dict, d: str, rep: dict) -> None:
     import parts_roles as PR
     import tex_visible as TV
@@ -114,7 +126,10 @@ def process(a, rules: dict, d: str, rep: dict) -> None:
     oinfo['граней_кусками'] = int(inner.sum())
     inner = PM.ring_faces(st['ids'], vis0, inner, nF, rules)
     inner = PM.grow_faces(g['V'], g['F'], inner, rules)
-    flab = np.where(inner, len(names), flab).astype(np.int16)
+    leg_ids = [i for i, gn in enumerate(names) if gn in rules['pixels'].get('best_leg_groups', [])]
+    if leg_ids and rules['occlusion'].get('legs_never_interior', True):      # ножка — ОДНА деталь с ОДНИМ тоном целиком: верх ножки под царгой/столешницей — тот же материал, не «ниша» (74696250: верх ножки оставался светлым 06, низ — тёмным)
+        inner = inner & ~np.isin(flab, leg_ids)
+    flab =np.where(inner, len(names), flab).astype(np.int16)
     wk0 = os.path.join(d, '_partmaterial')
     os.makedirs(wk0, exist_ok=True)
     mp_ = np.full(st['ids'].shape + (3,), 255, np.uint8)                                # карта внутренности для просмотра (--keep-work): серое — группы, красное — внутренность, белое — вне объекта
@@ -129,6 +144,10 @@ def process(a, rules: dict, d: str, rep: dict) -> None:
     ids, cosf = st['ids'], st['cos']
     valid = st['mask'] & pmask & (ids >= 0)
     fid = np.clip(ids, 0, nF - 1)
+    nich = valid & inner[fid]                                                  # тон «внутренности» (ниша, проём) на ФОТО в кадре камеры: L по пикселям (для сравнения сырое фото ↔ 05)
+    if int(nich.sum()) > 50:
+        Ln = PM.lab_of(prgb[nich])[:, 0]
+        rep['niche_photo'] = {'n': int(nich.sum()), 'L_med': round(float(np.median(Ln)), 1), 'L_p10': round(float(np.percentile(Ln, 10)), 1), 'L_p90': round(float(np.percentile(Ln, 90)), 1)}
     pp = np.where(valid, flab[fid], -1)
     comp_px = PM.components(g['V'], g['F'])[fid]
     tones = PM.group_tones(prgb, pp, names, cosf, rules, comp_px)
@@ -149,9 +168,19 @@ def process(a, rules: dict, d: str, rep: dict) -> None:
         import cv2
         near = cv2.dilate((texmap == len(names)).astype(np.uint8), np.ones((2 * pad + 1, 2 * pad + 1), np.uint8)).astype(bool)
         texmap = np.where(near, len(names), texmap).astype(np.int16)
+    import cv2
+    rep['texmap_holes'] = {}
+    for gi, gn in enumerate(names):                                          # «белые точки»: тексели внутри острова группы без метки грани (дырки растеризации) — красятся мимо тона. Меряем долю у всех групп, ножки (одна деталь — один тон) закрываем
+        mg = (texmap == gi).astype(np.uint8)
+        if not mg.any():
+            continue
+        holes = cv2.morphologyEx(mg, cv2.MORPH_CLOSE, np.ones((5, 5), np.uint8)).astype(bool) & (texmap < 0)
+        rep['texmap_holes'][gn] = {'texels': int(holes.sum()), 'share': round(float(holes.sum() / max(int(mg.sum()), 1)), 5)}
+        if gi in leg_ids and rules['occlusion'].get('fill_leg_holes', True):
+            texmap = np.where(holes, gi, texmap).astype(np.int16)
     work = os.path.join(d, '_partmaterial')
     os.makedirs(work, exist_ok=True)
-    fit, tl = rules['fit'], rules['tools']
+    fit, tl =rules['fit'], rules['tools']
     base, basel = os.path.join(work, 'base.glb'), os.path.join(work, 'basel.glb')
     if not PM.simplify(src_glb, base, rules):
         raise Abstain('нет gltfpack (%s) или он упал — кадры подбора не снять' % tl['gltfpack'])
@@ -181,6 +210,17 @@ def process(a, rules: dict, d: str, rep: dict) -> None:
     kn0 = (np.asarray(Image.open(kp0).convert('L')) > 127) if os.path.exists(kp0) else np.zeros(painted.shape, bool)
     if kn0.shape != painted.shape:
         kn0 = np.zeros(painted.shape, bool)
+    fdbg = {}
+    fg, finfo = PM.foreign_texels(ctl, texmap, painted, kn0, names, alb, borrowed, tones, rules, fdbg)      # ручки/накладки/стекло: непохожее на тон панели и компактное — остаётся фото
+    rep['foreign_texels'] = finfo
+    if a.keep_work:
+        for gn_, h_ in fdbg.items():
+            Image.fromarray(np.clip(h_ * 8, 0, 255).astype(np.uint8)).save(os.path.join(d, '_partmaterial', 'foreign-heat-%s.png' % gn_))
+        Image.fromarray(ctl).save(os.path.join(d, '_partmaterial', 'ctl-tex.png'))
+    if fg.any():
+        tex = np.where(fg[..., None], ctl, tex).astype(np.uint8)
+        painted = painted & ~fg
+        Image.fromarray((fg * 255).astype(np.uint8)).save(os.path.join(os.path.join(d, '_partmaterial'), 'foreign-map.png'))
     tex, det = PM.keep_details(tex, ctl, texmap, painted, kn0, names, keep, rules)       # лицо = тон + мелкие детали фото (щели, кромки, зерно)
     rep['details_texels'] = det
     # итоговые кадры для мерки и ворот «лицо против фото» (кадр до шага — фото 06 на той же геометрии)
@@ -198,7 +238,14 @@ def process(a, rules: dict, d: str, rep: dict) -> None:
         region = cv2.erode(region.astype(np.uint8), np.ones((2 * int(fit['erode_px']) + 1,) * 2, np.uint8)).astype(bool)
     region = cv2.resize(region.astype(np.uint8), (SG, SG), interpolation=cv2.INTER_NEAREST).astype(bool)      # ворота — на кадре покрупнее: щели в 1–2 px на 420 не видны
     Image.fromarray(region.astype(np.uint8) * 255).save(os.path.join(work, 'gate-region.png'))      # для разбора ворот на сохранённых кадрах
-    gate = PM.face_gate(np.asarray(Image.open(os.path.join(work, 'fin-cam-g.png')).convert('RGB')), np.asarray(Image.open(os.path.join(work, 'ctl-cam-g.png')).convert('RGB')), region, rules)
+    ctl_g = np.asarray(Image.open(os.path.join(work, 'ctl-cam-g.png')).convert('RGB'))
+    ppc = None                                                              # пикселей кадра ворот на сантиметр: высота товара в кадре / высота по карточке (щели меряем в см, не в долях кадра)
+    h_cm = card_height_cm(a.card)
+    ys_ = np.where((ctl_g.astype(int).sum(-1) < 740).any(1))[0]
+    if h_cm and len(ys_) > 10:
+        ppc = float(ys_.max() - ys_.min() + 1) / h_cm
+        rep['px_per_cm'] = round(ppc, 3)
+    gate = PM.face_gate(np.asarray(Image.open(os.path.join(work, 'fin-cam-g.png')).convert('RGB')), ctl_g, region, rules, ppc)
     rep['gate'] = gate
     met = {}
     for gi, gn in enumerate(names):
@@ -227,6 +274,25 @@ def process(a, rules: dict, d: str, rep: dict) -> None:
             e['кадр_' + vw] = m
         met[gn] = e
     rep['metrics'] = met
+    dlmax = float(rules['gate'].get('max_abs_dl', 0) or 0)                  # светлота лица против ФОТО (не против кадра до шага): гладкая разница по кадру прежде не судилась, но тон на деле темнее/светлее фото
+    if dlmax > 0:
+        bad = []
+        for gi in pgs:
+            gn = names[gi]
+            if gn in gskip:
+                continue
+            e = met.get(gn) or {}
+            v = (e.get('кадр_top') if gn == 'верх' and e.get('кадр_top') else e.get('кадр_cam')) or {}          # верх виден с камеры скользяще — его светлота по виду сверху
+            lim = float(rules['gate'].get('max_abs_dl_top', dlmax) or dlmax) if gn == 'верх' else dlmax                  # верх по виду сверху светлее/темнее фото законно (свет сверху, белое режется ~90 L) — свой, мягкий порог
+            if v.get('dL') is not None and abs(v['dL']) > lim:
+                bad.append('%s %+.1f' % (gn, v['dL']))
+        gate['dl_bad'] = bad
+        if bad:
+            gate['fail'].append('светлота лица против фото: %s L (порог ±%.1f, верх ±%.1f)' % (', '.join(bad), dlmax, float(rules['gate'].get('max_abs_dl_top', dlmax) or dlmax)))
+    mid = PM.material_ids(names, tones, borrowed, rules)             # материал по граням (группировка, 07 читает её под флагом): пишем ДО отказа ворот — группы от того, красим ли тон, не зависят
+    rep['materials'] = {gn: mid[i] for i, gn in enumerate(names)}
+    fm = np.array(mid + [-1], np.int32)[np.asarray(flab)]
+    np.savez_compressed(os.path.join(d, 'part_material_faces.npz'), face_material=fm)
     if gate['fail']:                                         # отказ — после метрик: у воздержавшегося в отчёте те же числа (dL к фото по группам) для разбора
         raise Abstain('ворота «лицо против фото»: ' + '; '.join(gate['fail']))
     chg =(tex != ctl).any(-1)                              # правило этапа: красим только свою заявленную маску; вне её — байт в байт
@@ -261,10 +327,6 @@ def process(a, rules: dict, d: str, rep: dict) -> None:
     t0m = (np.asarray(Image.open(base_to).convert('L')) > 127) if os.path.exists(base_to) else np.zeros(painted.shape, bool)
     tone_only = t0m | (painted & ~kn)
     Image.fromarray((tone_only * 255).astype(np.uint8)).save(to_p)
-    mid = PM.material_ids(names, tones, borrowed, rules)             # материал по граням для мерки «ступени» 07: граница разных материалов — не скачок
-    rep['materials'] = {gn: mid[i] for i, gn in enumerate(names)}
-    fm = np.array(mid + [-1], np.int32)[np.asarray(flab)]
-    np.savez_compressed(os.path.join(d, 'part_material_faces.npz'), face_material=fm)
     gtone = []                                                       # вход для зерна (T-69): карта части по текселям + плоский тон каждой группы (sRGB, как в текстуре) + материал
     for gi, gn in enumerate(names):
         src = gn if gn in alb else borrowed.get(gn)
@@ -289,6 +351,7 @@ def main(argv: list | None = None) -> int:
     ap.add_argument('--channel-classes', default='')
     ap.add_argument('--rules', default='')
     ap.add_argument('--out-dir', default='', help='папка 06-visible для пробы вместо <run>/<sku>/06-visible')
+    ap.add_argument('--card', default='', help='card.json товара: «Размеры: Высота габаритная» (см) → масштаб кадра для ворот щелей; нет — щели по доле кадра')
     ap.add_argument('--keep-work', action='store_true')
     a = ap.parse_args(argv)
     rules = PM.load_rules(a.rules or None)
