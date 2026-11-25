@@ -236,6 +236,36 @@ ok(r5['status'] == 'na' and 'px' in r5['why'], 'cold_spots: белого мал�
 r6 = P.cold_spots('/нет/glb', None, None, R)
 ok(r6['status'] == 'na' and not r6['would_flag'], 'cold_spots: нет фото → na')
 
+# 7в. холодные пятна в ЗАЛИТЫХ текселях (вторая мерка, 25.11): атлас, известное с фото и залитое; кадровая мерка (7б) фото копирует и этого не видит
+H = W = 120
+alb_f = np.full((H, W, 3), (236, 236, 234), np.uint8)                               # всё белое нейтральное
+occ_f = np.ones((H, W), bool)
+known_f = np.zeros((H, W), bool)
+known_f[:, :60] = True                                                              # левая половина — с фото, правая — залита этапом 7
+r7 = P.cold_fill_stats(alb_f, occ_f, known_f, CS, THR)
+ok(r7['status'] == 'ok' and not r7['would_flag'] and r7['cold_share'] == 0.0 and r7['fill_px'] == 7200, f'cold_fill: залитое белое как известное → не метка ({r7})')
+alb_c = alb_f.copy()
+alb_c[:, 60:] = (222, 232, 244)                                                     # залитая половина голубоватая
+r8 = P.cold_fill_stats(alb_c, occ_f, known_f, CS, THR)
+ok(r8['would_flag'] and r8['db_median'] < -CS['db_max'] and r8['cold_share'] > 0.99, f'cold_fill: залитое голубое при белом известном → метка (Δb {r8["db_median"]})')
+alb_p = alb_f.copy()
+alb_p[:20, 60:] = (222, 232, 244)                                                   # голубые пятна на ~17 % залитого
+r9 = P.cold_fill_stats(alb_p, occ_f, known_f, CS, THR)
+ok(r9['would_flag'] and abs(r9['db_median']) <= CS['db_max'] and r9['cold_share'] > CS['cold_share_max'], f'cold_fill: пятна на части залитого ловит доля ({r9["cold_share"]})')
+alb_k = alb_c.copy()
+alb_k[:, :60] = (200, 160, 110)                                                     # известное — дерево: белого эталона нет
+r10 = P.cold_fill_stats(alb_k, occ_f, known_f, CS, THR)
+ok(r10['status'] == 'na' and not r10['would_flag'] and 'эталон' in r10['why'], 'cold_fill: белого известного нет → na (голубое залитое без эталона не метим)')
+alb_d = alb_f.copy()
+alb_d[:, 60:] = (60, 60, 64)                                                        # залитое тёмное: не область белого
+r11 = P.cold_fill_stats(alb_d, occ_f, known_f, CS, THR)
+ok(r11['status'] == 'na' and 'светлых' in r11['why'], 'cold_fill: залитое тёмное — не область проверки (na)')
+ok(P.cold_fill('/нет/glb', None, R)['status'] == 'na', 'cold_fill: нет known.png → na')
+alb_w = alb_f.copy()
+alb_w[:, 60:] = (236, 226, 206)                                                     # залитое тёплое бежевое при белом известном: не «холодное пятно»
+r12 = P.cold_fill_stats(alb_w, occ_f, known_f, CS, THR)
+ok(r12['status'] == 'ok' and not r12['would_flag'] and r12['db_median'] > CS['db_max'] and r12['warm_share'] > 0.99 and r12['cold_share'] == 0.0, f'cold_fill: тёплое залитое (Δb {r12["db_median"]}) — не метка, пишется warm_share')
+
 # 8. настоящие правила: пороги в данных, у каждой мерки есть порог и операция, ID товаров в правилах нет
 ok(all(len(R[k]['threshold']) == 2 for k in ('top_vs_photo', 'group_bleed', 'empty_flat')), 'у трёх мерок есть (op, порог)')
 txt = open(P.RULES, encoding='utf-8').read()

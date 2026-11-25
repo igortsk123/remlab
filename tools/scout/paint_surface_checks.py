@@ -497,6 +497,45 @@ def cold_stats(photo_rgb, after_rgb, c: dict, thr: dict) -> dict:
 
 
 
+def cold_fill_stats(alb, occ, known, c: dict, thr: dict) -> dict:
+    """Мерка «холодные пятна» по АТЛАСУ итоговой текстуры (T-20261124-57, вторая мерка директора 25.11: кадр этапа 6 копирует пиксели фото — Δb к фото там ≈ 0 по построению, дефект сидит в ЗАЛИТЫХ текселях).
+    alb (H,W,3) uint8, occ (H,W) bool — занятые текселы, known (H,W) bool — текселы, взятые с фото этапом 6. Эталон белого — медиана Lab b у ИЗВЕСТНЫХ белых нейтральных текселов
+    (L ≥ white_L_min, |a|,|b| ≤ ab_max; их меньше fill_ref_min_px — na). Область проверки — ЗАЛИТЫЕ (occ & ~known) тексели светлее white_L_min (холодное пятно светлое: L ≈ 89).
+    Значение: медиана Δb (залитое − эталон) и доля текселов с Δb < −cold_db. Метка — только ХОЛОДНАЯ сторона (дефект паспорта — голубо-серое): медиана Δb < −db_max ИЛИ доля холодных > cold_share_max; тёплое залитое пишется `warm_share` и не метится. Залитых светлых мало (< fill_min_px) — na."""
+    lab = lab_of(np.asarray(alb, np.uint8).reshape(-1, 3)).reshape(np.asarray(alb).shape[:2] + (3,))
+    kn = np.asarray(known, bool) & np.asarray(occ, bool)
+    ref_m = kn & (lab[..., 0] >= float(c['white_L_min'])) & (np.abs(lab[..., 1]) <= float(c['ab_max'])) & (np.abs(lab[..., 2]) <= float(c['ab_max']))
+    n_ref = int(ref_m.sum())
+    if n_ref < int(c['fill_ref_min_px']):
+        return {'status': 'na', 'why': f'известного белого эталона {n_ref} текселов < {int(c["fill_ref_min_px"])}', 'ref_px': n_ref, 'would_flag': False, 'thr': thr}
+    ref_b = float(np.median(lab[..., 2][ref_m]))
+    fl = np.asarray(occ, bool) & ~np.asarray(known, bool) & (lab[..., 0] >= float(c['white_L_min']))
+    n = int(fl.sum())
+    if n < int(c['fill_min_px']):
+        return {'status': 'na', 'why': f'светлых залитых текселов {n} < {int(c["fill_min_px"])}', 'fill_px': n, 'ref_px': n_ref, 'would_flag': False, 'thr': thr}
+    db = lab[..., 2][fl] - ref_b
+    med = float(np.median(db))
+    share = float((db < -float(c['cold_db'])).mean())
+    warm = float((db > float(c['db_max'])).mean())
+    would = med < -float(c['db_max']) or share > float(c['cold_share_max'])            # ТОЛЬКО холодная сторона: тёплое залитое — не «холодное пятно» (бежевая ваза: эталон — блики, залитое теплее на +6,6 — ложная метка по |Δb|); доля тёплого пишется числом
+    return {'status': 'ok', 'db_median': round(med, 2), 'cold_share': round(share, 4), 'warm_share': round(warm, 4), 'fill_px': n, 'ref_px': n_ref, 'ref_b': round(ref_b, 2), 'would_flag': bool(would), 'thr': thr, 'why': ''}
+
+
+def cold_fill(glb: str, known_png: str | None, R: dict) -> dict:
+    """Обёртка `cold_fill_stats` по файлам: GLB (залитый этапом 7 / итог) + known.png этапа 6; занятые тексели — растр развёртки. Только запись; пороги — rules `cold_spots`."""
+    c = R['cold_spots']
+    thr = {'db_max': c['db_max'], 'cold_share_max': c['cold_share_max']}
+    if not known_png or not os.path.exists(known_png):
+        return {'status': 'na', 'why': 'нет known.png этапа 6', 'would_flag': False, 'thr': thr}
+    import mesh_grey_top as G
+    M = load_model(glb)
+    alb_w, _sc = _scale(M['albedo'], int(c['fill_work_px']))
+    h, w = alb_w.shape[:2]
+    occ = G._raster(M['UV'], M['F'], w, h)
+    known = _fit_mask(load_known(known_png, 127), alb_w.shape)
+    return cold_fill_stats(alb_w, occ, known, c, thr)
+
+
 # ---------------------------------------------------------------------------------------------- всё вместе ---
 def frames(glb: str, known_png: str | None, parts_path: str | None, out_dir: str, R: dict | None = None, size: int | None = None) -> dict:
     """Кадры срабатываний (атлас итоговой текстуры с подсветкой): `surface-top.jpg` — верх (красная заливка), взятое с фото (зелёная кромка); `surface-bleed.jpg` — затёк (пурпур — в залитых
