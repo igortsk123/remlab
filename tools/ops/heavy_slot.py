@@ -10,6 +10,7 @@
       -- <команда…>                                                                       # rc команды наружу
   tools/ops/heavy-slot.sh --status                                                       # кто держит, кто ждёт, память
   tools/ops/heavy-slot.sh --cancel <метка|pid|номер билета>                              # снять СВОЙ билет (T-20261125-74)
+  tools/ops/heavy-slot.sh --rebook [--apply]                                             # держатели перезаявляют бронь по живому пику (T-20261125-76)
   from heavy_slot import heavy_slot                                                       # из питона — на ОДИН шаг:
   with heavy_slot('t51-look', min_gb=6):                                                  #   длинный цикл берёт слот на
       обработать_одну_модель()                                                            #   шаг, другие встают между
@@ -2087,6 +2088,100 @@ def cancel(target: str, out=sys.stdout) -> int:
     return 0 if done else (3 if refused else 1)
 
 
+def rebook(apply: bool = False, out=sys.stdout) -> int:
+    """`--rebook [--apply]` (T-20261125-76): держатели ПЕРЕЗАЯВЛЯЮТ бронь по живому пику — штатно, без kill и без ручной правки файлов. ЗАЧЕМ: ожидающие ОЧЕРЕДИ СТАРОГО КОДА (до T-74)
+    считают долю держателя по заявке (`eff_gb` его записи) и не знают про живой пик (`live_share`): 25.11 четыре шарда по 3 ГБ держали 0,3–0,65, «бронь» 10,8 ГБ стояла против головы 88 мин,
+    хотя новый код (`--status`) видел место. Команда пишет в запись такого держателя ту же эффективную заявку, что считает новый код: max(factor × живой пик, floor_gb) — но только держателю,
+    который держит ≥ live_share.min_s, ЖДЁТ НЕ память (`работает`) и чья новая заявка ниже прежней; повышать не умеет. Живой пик — максимум из `lpeak`/`peak_gb` записи и нескольких замеров
+    PSS дерева подряд (HEAVY_SLOT_REBOOK_SAMPLES, шаг HEAVY_SLOT_REBOOK_GAP, с). Без `--apply` — сухо: что и кому было бы записано. С `--apply` — под замком очереди, атомарно (`rename`),
+    в записи остаётся `rebook=<прежняя заявка>`; держатель время от времени перезаписывает свою запись (замер) и мог стереть правку — после записи проверяю через
+    HEAVY_SLOT_REBOOK_VERIFY_S (с) и при необходимости пишу снова (до 3 раз). Если держатель потом вырастет — старое правило «превышение» (T-91: пик или память сейчас выше заявки) возвращает
+    долю к max(объявленное, пик) само, повторять не надо. → 0."""
+    pr = lambda s: print(s, file=out)  # noqa: E731
+    d = os.path.dirname(_lock_file())
+    cfg = live_cfg()
+    now = time.time()
+    rows, cand = [], []
+    for k in range(1, all_slots() + 1):
+        if not is_held(k):
+            continue
+        h = _read_kv(_holder_file(d, k)) or {}
+        label = h.get('label', '?')
+        try:
+            cur = float(h.get('eff_gb') or h['min_gb'])
+            pid = int(h.get('pid', ''))
+        except (KeyError, ValueError):
+            rows.append(f'  слот {k} · {label}: оставлен — заявка или pid в записи не читаются')
+            continue
+        if h.get('stage') != 'работает':
+            rows.append(f'  слот {k} · {label}: оставлен — ждёт {h.get("stage", "?")}, не выполняет команду')
+            continue
+        try:
+            held = now - float(h.get('run_t') or h.get('since') or now)
+        except ValueError:
+            held = 0.0
+        if cfg['min_s'] <= 0:
+            rows.append(f'  слот {k} · {label}: оставлен — живой пик выключен (live_share.min_s ≤ 0)')
+            continue
+        if held < cfg['min_s']:
+            rows.append(f'  слот {k} · {label}: оставлен — держит {held:.0f} с < {cfg["min_s"]:g} с (live_share.min_s)')
+            continue
+        cand.append((k, h, label, cur, pid, held))
+    peak: dict = {}
+    for k, h, label, cur, pid, held in cand:
+        p = 0.0
+        for key in ('lpeak', 'peak_gb'):
+            with contextlib.suppress(ValueError):
+                p = max(p, float(h.get(key) or 0))
+        peak[k] = p
+    samples, gap = max(int(_env_f('HEAVY_SLOT_REBOOK_SAMPLES', 3)), 1), _env_f('HEAVY_SLOT_REBOOK_GAP', 1.0)
+    for i in range(samples):
+        for k, h, label, cur, pid, held in cand:
+            peak[k] = max(peak[k], tree_mem(pid, label)[0])
+        if i < samples - 1 and cand:
+            time.sleep(gap)
+    plan = []
+    for k, h, label, cur, pid, held in cand:
+        new = round(max(cfg['factor'] * peak[k], cfg['floor_gb']), 3)
+        if new >= cur - 0.05:
+            rows.append(f'  слот {k} · {label}: оставлен — заявка {cur:g} ГБ не выше, чем по живому пику ({peak[k]:.2f} → {new:g})')
+        else:
+            plan.append((k, label, cur, new, pid, peak[k], held))
+    tag = 'ЗАПИСАНО' if apply else 'БЫЛО БЫ ЗАПИСАНО (сухо; `--apply` — записать)'
+    for k, label, cur, new, pid, pk, held in plan:
+        rows.insert(0, f'  слот {k} · {label}: заявка {cur:g} → {new:g} ГБ (живой пик {pk:.2f}, держит {held / 60:.0f} мин)')
+    pr(f'REBOOK: держателей {len([k for k in range(1, all_slots() + 1) if is_held(k)])}, перезаявить {len(plan)} — {tag if plan else "нечего менять"}')
+    for ln in rows:
+        pr(ln)
+    if not apply or not plan:
+        return 0
+    wrote = {}
+    for attempt in range(3):
+        with _qlock(d):
+            for k, label, cur, new, pid, pk, held in plan:
+                h = _read_kv(_holder_file(d, k))
+                if not h or h.get('pid') != str(pid) or not is_held(k):
+                    wrote[k] = 'ушёл или сменился'
+                    continue
+                try:
+                    if abs(float(h.get('eff_gb') or h['min_gb']) - new) < 0.0005:
+                        wrote.setdefault(k, 'записано')
+                        continue
+                except (KeyError, ValueError):
+                    continue
+                h['rebook'] = f'{cur:g}'
+                h['eff_gb'] = f'{new:.3f}'
+                _write_kv(_holder_file(d, k), h)
+                wrote[k] = f'записано (попытка {attempt + 1})'
+        time.sleep(_env_f('HEAVY_SLOT_REBOOK_VERIFY_S', 1.0))
+    for k, label, cur, new, pid, pk, held in plan:
+        h = _read_kv(_holder_file(d, k)) or {}
+        okk = h.get('pid') == str(pid) and abs(float(h.get('eff_gb') or 0) - new) < 0.0005
+        pr(f'  итог слот {k} · {label}: ' + (f'eff_gb={new:g} закреплено' if okk else wrote.get(k) or '❗ держатель перезаписал запись — повторить --rebook --apply'))
+        log(label, f'--rebook: заявка {cur:g} → {new:g} ГБ по живому пику {pk:.2f} ({"ok" if okk else wrote.get(k, "не закреплено")})')
+    return 0
+
+
 def status(out=sys.stdout) -> int:
     n = all_slots()
     d = os.path.dirname(_lock_file())
@@ -2390,6 +2485,11 @@ def main(argv: list) -> int:
             print('heavy-slot: --cancel <метка|pid|номер билета>', file=sys.stderr)
             return 2
         return cancel(argv[1])
+    if argv[:1] == ['--rebook']:
+        if any(a != '--apply' for a in argv[1:]):
+            print('heavy-slot: --rebook [--apply]', file=sys.stderr)
+            return 2
+        return rebook('--apply' in argv)
     return run(argv)
 
 
