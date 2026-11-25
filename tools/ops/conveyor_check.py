@@ -14,6 +14,7 @@
 
     python3 tools/ops/conveyor_check.py              # проверка (CI scout-selftest; prepush — всегда)
     python3 tools/ops/conveyor_check.py --writers    # кто пишет каждый собранный файл (для заполнения реестра)
+    python3 tools/ops/stage_outputs.py --table       # этап → выход → кто читает (ORPHAN-OUTPUT, T-20261125-82)
     python3 tools/ops/conveyor_check.py --selftest
 """
 import os
@@ -290,8 +291,9 @@ def main(argv: list) -> int:
     import build_inputs as BI  # входы сборки витрины = список метки правил (T-20261112-121/2)
     import docker_context as DC  # код образа прода не импортирует выкинутое .dockerignore (T-20261112-121/3)
     import render_inputs as RIN  # чтения дампера рендера внутри входа ключа кадра (T-20261118-04/16/1)
+    import stage_outputs as SO  # выход этапа покраски без потребителя — предупреждение ORPHAN-OUTPUT (T-20261125-82)
     if '--selftest' in argv:
-        return _selftest() | BI._selftest() | DC._selftest() | RIN._selftest()
+        return _selftest() | BI._selftest() | DC._selftest() | RIN._selftest() | SO._selftest()
     root = argv[argv.index('--root') + 1] if '--root' in argv else ROOT_DEFAULT
     m = load(root)
     if '--writers' in argv:
@@ -317,6 +319,10 @@ def main(argv: list) -> int:
     rin = RIN.check(root)
     for f in rin:
         print('FAIL ' + f)
+    # выход этапа покраски без потребителя (05-delight строился неделю, а читали сырое фото): только предупреждение, код выхода не меняет (`stage_outputs.py`)
+    for w in SO.check(root):
+        print('WARN ' + w)
+    print(SO.summary(root))
     return 1 if fails or bi or dc or rin else 0
 
 

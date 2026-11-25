@@ -179,6 +179,8 @@ rp = os.path.join(tmp, 'on.json'); R3 = json.loads(json.dumps(R)); R3['enabled']
 r = subprocess.run([sys.executable, os.path.join(HERE, 'part_material_stage.py'), '--run', tmp, '--sku', 'x', '--glb', 'g.glb', '--photo', 'p.png', '--pose-run', tmp, '--rules', rp, '--product-role', 'шкаф'], capture_output=True, text=True, timeout=120)
 rep = json.load(open(os.path.join(tmp, 'x', '06-visible', 'part_material.json'), encoding='utf-8')) if os.path.exists(os.path.join(tmp, 'x', '06-visible', 'part_material.json')) else {}
 check(r.returncode == 0 and rep.get('abstain'), 'стадия ВКЛ без входов: воздержание со следом и причиной, rc 0 (06/07 красят как раньше)')
+pin = rep.get('photo_input') or {}
+check(pin.get('kind') in ('delight', 'raw', 'other') and 'path' in pin and 'md5' in pin, 'стадия ВКЛ: в part_material.json записано photo_input {kind, path, md5} — какое фото ушло в стадию (T-20261125-82)')
 
 # ── тень по форме: ниша в плоскости (круг 29, шкаф) — заслонена, плоскость вокруг — нет; косая плоскость не судится
 H = 200

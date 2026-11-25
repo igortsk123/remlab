@@ -1343,7 +1343,7 @@ def run(glb: str, photo: str, pose_run: str, run_dir: str, sku: str, cos_min: fl
         d = PS.stage_dir(run_dir, sku, '06-visible')
         why = f'{type(e).__name__}: {e}'[:400]
         PS.write_check(d, '06-visible', sku, passed=False, metric={'name': 'silhouette_iou', 'value': 0.0, 'threshold': GATE['silhouette_iou'][0], 'op': '>='},
-                       reason=f'этап 6 не выполнен: {why}', seconds=round(time.time() - t0, 1), needs_qwen=False, stage_error=why, pose_run=pose_run)
+                       reason=f'этап 6 не выполнен: {why}', seconds=round(time.time() - t0, 1), needs_qwen=False, stage_error=why, pose_run=pose_run, photo_input=PS.photo_input(photo, pose_run))
         return {'sku': sku, 'passed': False, 'reason': 'error', 'why': [why], 'dir': d}
 
 
@@ -1482,12 +1482,13 @@ def body_cut(pose_run: str):
 def _run(glb: str, photo: str, pose_run: str, run_dir: str, sku: str, cos_min: float = COS_MIN, body_only: bool = False, role: str = '') -> dict:
     t0 = time.time()
     d = PS.stage_dir(run_dir, sku, '06-visible')
+    pin = PS.photo_input(photo, pose_run)                                 # какое фото подано (delight|raw|other): только запись в check.json (T-20261125-82)
     cg, cg_why = camera_gate(pose_run)
     bc = body_cut(pose_run) if (cg is False and body_only) else None
     lc = legs_cut(pose_run) if (body_only and bc is None) else None      # ножки не совпали (T-191/3): фото на них не переносим, кроме прошедших сверку; камера при этом прошла
     if cg is False and bc is None:                                   # вход не прошёл прежний гейт — этап его не берёт
         PS.write_check(d, '06-visible', sku, passed=False, reason=cg_why + ' — этап 6 вход не берёт, перенос не делался', seconds=round(time.time() - t0, 1),
-                       needs_qwen=False, camera_failed=True, camera_gate='failed', pose_run=pose_run)
+                       needs_qwen=False, camera_failed=True, camera_gate='failed', pose_run=pose_run, photo_input=pin)
         return {'sku': sku, 'passed': False, 'reason': 'camera_gate', 'why': [cg_why]}
     geoms = load_shape(glb)
     st = load_stage(pose_run)
@@ -1516,7 +1517,7 @@ def _run(glb: str, photo: str, pose_run: str, run_dir: str, sku: str, cos_min: f
     if iou_here < GATE['silhouette_iou'][0] and not thin_pass:        # камере не верим: перенос не делаем (fail-closed)
         PS.write_check(d, '06-visible', sku, passed=False, metric={'name': 'silhouette_iou', 'value': round(iou_here, 4), 'threshold': GATE['silhouette_iou'][0], 'op': '>='},
                        reason=f'камера фото не легла по силуэту (IoU {iou_here:.3f}) — перенос не делался', seconds=round(time.time() - t0, 1), needs_qwen=False, camera_failed=True,
-                       camera=st['camera'], pose_run=pose_run)
+                       camera=st['camera'], pose_run=pose_run, photo_input=pin)
         return {'sku': sku, 'passed': False, 'reason': 'camera', 'iou': iou_here}
     reg = {'applied': False, 'dx': 0.0, 'dy': 0.0, 'gain': 0.0}
     if REG_FIT:                                                      # подпиксельная подгонка регистрации по силуэту (T-197/2); гейт и сверка IoU выше — по матрице камеры, не по подгонке
@@ -1536,7 +1537,7 @@ def _run(glb: str, photo: str, pose_run: str, run_dir: str, sku: str, cos_min: f
     fchk = front_check(geoms, tr, st['camera'], pose_run)
     if fchk['state'] == 'flipped':                                   # фото на стороне, противоположной перёду, камере не верим: красить нечего (до 07)
         PS.write_check(d, '06-visible', sku, passed=False, reason='front_flipped: ' + fchk['why'], seconds=round(time.time() - t0, 1), needs_qwen=False, camera_failed=True,
-                       camera_gate='front_flipped', camera=st['camera'], pose_run=pose_run, front_check=fchk)
+                       camera_gate='front_flipped', camera=st['camera'], pose_run=pose_run, front_check=fchk, photo_input=pin)
         return {'sku': sku, 'passed': False, 'reason': 'front_flipped', 'why': [fchk['why']], 'front_check': fchk}
     dst = os.path.join(d, 'visible.glb')
     write_glb(geoms, tr['tex'], dst)
@@ -1569,7 +1570,7 @@ def _run(glb: str, photo: str, pose_run: str, run_dir: str, sku: str, cos_min: f
     ok = not why
     PS.write_check(d, '06-visible', sku, passed=ok, metric={'name': 'silhouette_iou', **{k: main[k] for k in ('value', 'threshold', 'op')}}, metrics=mm,
                    reason='' if ok else '; '.join(why), seconds=round(time.time() - t0, 1), outputs=['visible.glb', 'known.png', 'conf.png', 'frame.png'] + leak_out, frame='frame.png',
-                   needs_qwen=(not ok), cos_min=cos_min, camera=st['camera'], side_views=side_views, pose_run=pose_run, crease_shadow=crease_info, stats=tr['stats'], front_check=fchk, depth_band_share=tr['depth_band_share'], body_only=(cut_row is not None), form_defect=(None if bc is None else {'kind': 'bottom_shape_mismatch', 'about': 'ножки формы (этап 2) не совпали с фото (число/длина/наклон): камера годна только по корпусу, фото на ножки не переносилось', 'iou_top': round(bc['iou_top'], 4), 'row': cut_row}), registration_fit=reg, cut_row=cut_row, legs_block=(None if lc is None else {'why': lc['why'], 'trusted_legs': len(lc['boxes']), 'row': cut_row}), legs_left_to_stage8=(cut_row is not None), z_buffer=zbuf_info, shadow_leak=sl['info'], extra_metrics={k: v for k, v in m.items() if k not in GATE})
+                   needs_qwen=(not ok), cos_min=cos_min, camera=st['camera'], side_views=side_views, pose_run=pose_run, crease_shadow=crease_info, stats=tr['stats'], front_check=fchk, depth_band_share=tr['depth_band_share'], body_only=(cut_row is not None), form_defect=(None if bc is None else {'kind': 'bottom_shape_mismatch', 'about': 'ножки формы (этап 2) не совпали с фото (число/длина/наклон): камера годна только по корпусу, фото на ножки не переносилось', 'iou_top': round(bc['iou_top'], 4), 'row': cut_row}), registration_fit=reg, cut_row=cut_row, legs_block=(None if lc is None else {'why': lc['why'], 'trusted_legs': len(lc['boxes']), 'row': cut_row}), legs_left_to_stage8=(cut_row is not None), z_buffer=zbuf_info, shadow_leak=sl['info'], extra_metrics={k: v for k, v in m.items() if k not in GATE}, photo_input=pin)
     return {'sku': sku, 'passed': ok, 'metrics': m, 'why': why, 'dir': d}
 
 

@@ -107,6 +107,48 @@ def read_check(stage_dir_: str) -> dict | None:
         return None
 
 
+def _md5(path: str) -> str | None:
+    import hashlib
+    try:
+        h = hashlib.md5()
+        with open(path, 'rb') as f:
+            for blk in iter(lambda: f.read(1 << 20), b''):
+                h.update(blk)
+        return h.hexdigest()
+    except OSError:
+        return None
+
+
+def photo_input(photo: str, pose_run: str | None = None) -> dict:
+    """Какое фото реально подано этапу (T-20261125-82): `{kind, path, md5}`, ТОЛЬКО ЗАПИСЬ в check.json/отчёт — поведение этапа не меняет, ошибка не бросается.
+    kind: `delight` — файл лежит в папке `05-delight/` или его md5 равен `<pose_run>/05-delight/delight.rgba.png`; `raw` — md5 равен фото, на котором шла камера 04
+    (`<pose_run>/04-camera/check.json` extra.photo); иначе `other` (в т.ч. файл не читается, нет check.json камеры — путь и причина всё равно записаны).
+    Зачем: колонка «вход: 05 / сырое» в любой таблице сама, и на ручных прогонах мимо обвязки paint_run_all."""
+    try:
+        path = os.path.abspath(photo)
+        md5 = _md5(path)
+        out = {'kind': 'other', 'path': path, 'md5': md5}
+        if md5 is None:
+            out['why'] = 'файл не читается'
+            return out
+        if os.path.basename(os.path.dirname(path)) == '05-delight':
+            out['kind'] = 'delight'
+            return out
+        if pose_run:
+            if md5 == _md5(os.path.join(pose_run, '05-delight', 'delight.rgba.png')):
+                out['kind'] = 'delight'
+                return out
+            cam = read_check(os.path.join(pose_run, '04-camera')) or {}
+            cp = (cam.get('extra') or {}).get('photo')
+            if cp and md5 == _md5(cp):
+                out['kind'] = 'raw'
+            elif not cam:
+                out['why'] = 'нет check.json камеры 04 — сырое фото не с чем сверить'
+        return out
+    except Exception as e:  # noqa: BLE001 — только запись: сбой метки не должен ронять этап
+        return {'kind': 'other', 'path': str(photo), 'md5': None, 'why': f'{type(e).__name__}: {e}'[:200]}
+
+
 def gate(run: str, sku: str, stages: list) -> tuple[bool, str]:
     """Можно ли товару идти дальше: все этапы `stages` (имена папок) имеют `check.json` с passed. → (да/нет, первая причина)."""
     for st in stages:
@@ -173,6 +215,21 @@ def selftest() -> int:
         g, why = gate(run, '114667:838', ['07-fill', '02-prep'])
         ok(not g and why.startswith('02-prep'), 'gate: не прошёл этап — стоп с причиной')
         ok(not gate(run, '114667:838', ['09-qa'])[0], 'gate: нет check.json — стоп')
+        sd = os.path.join(run, 'pi_sku')
+        for sub in ('04-camera', '05-delight'):
+            os.makedirs(os.path.join(sd, sub))
+        raw, dl, other = os.path.join(sd, 'raw.png'), os.path.join(sd, '05-delight', 'delight.rgba.png'), os.path.join(sd, 'other.png')
+        copy = os.path.join(sd, 'copy-of-delight.png')
+        for p, b in ((raw, b'RAW'), (dl, b'DELIGHT'), (other, b'OTHER'), (copy, b'DELIGHT')):
+            open(p, 'wb').write(b)
+        write_check(os.path.join(sd, '04-camera'), '04-camera', 'pi_sku', True, None, photo=raw)
+        pin = photo_input(dl, sd)
+        ok(pin['kind'] == 'delight' and set(pin) == {'kind', 'path', 'md5'} and pin['path'] == os.path.abspath(dl), 'photo_input: файл в 05-delight/ → delight, поля kind/path/md5')
+        ok(photo_input(copy, sd)['kind'] == 'delight', 'photo_input: копия снятого фото вне папки (тот же md5) → delight')
+        ok(photo_input(raw, sd)['kind'] == 'raw', 'photo_input: фото камеры 04 → raw')
+        ok(photo_input(other, sd)['kind'] == 'other', 'photo_input: чужое фото → other')
+        ok(photo_input(raw)['kind'] == 'other', 'photo_input: без pose_run сверить не с чем → other')
+        ok(photo_input(os.path.join(sd, 'нет.png'), sd)['kind'] == 'other' and photo_input(os.path.join(sd, 'нет.png'), sd)['md5'] is None, 'photo_input: файла нет → other без исключения')
         t = summary(run)
         ok('✓' in t and '✗' in t and '07-fill' in t, 'сводная таблица товар × этап')
         try:

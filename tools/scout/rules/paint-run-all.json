@@ -1,5 +1,6 @@
 {
   "_about": "ЧТО запускать на каждом этапе пути покраски (T-20261121-169/4). Код обвязки paint_run_all.py ничего не знает про этапы: порядок, команды, зависимости (`needs` — этапы, чей статус отказ/нет блокирует этот), служебные файлы — здесь. Подстановки {…}: py, blender, root, run, sku, sku_dir, work, prep_glb, native, photo, product_role, channels, cam_az_args. Пустые {product_role}/{channels} выпадают вместе со своим флагом.",
+  "_outputs_about": "T-20261125-82: у каждого этапа outputs — файлы выхода и КТО их читает (consumers: stage + via needs|dynamic|argv|alias|code) либо terminal/report_only с причиной; проверка — tools/ops/stage_outputs.py (в conveyor_check.py, предупреждение ORPHAN-OUTPUT): потребитель подтверждается по argv/dynamic/коду, а не по слову. Новый выход этапа — сразу строка здесь. Пути — от папки товара; pose.json, stage_loss.json, stages/ лежат в корне папки товара (их пишет pose_fit этапа 04).",
   "_unverified": "Команды собраны по шапкам/CLI скриптов на ветках, НЕ запускались. Сомнительное до первого запуска: (1) этап 7 — ветка paint-fill-1120 (f137a675) должна быть влита; (2) запись каталога (`--catalog`): сопоставление sid == sku точное; (3) порядок 04 до 03 — роли берут азимут камеры только при passed 4; (4) parts.npz этапа 3 и GLB этапа 6 — одно число граней (проверено на 3 формах out30-v3: 149999 = 149999, одна геометрия; для многогеометрийных этап 7 сам даст ValueError → rc 2).",
   "heavy_slot": "tools/ops/heavy-slot.sh",
   "pythons": {"scout": "venvs/scout/bin/python", "delight": "venvs/delight/bin/python"},
@@ -22,6 +23,14 @@
       "produces": [
         "01-trellis",
         "02-prep"
+      ],
+      "outputs": [
+        {"file": "01-trellis/model.glb", "terminal": "след входной формы: этапы берут форму из {native} (аргумент прогона), по пути 01-trellis в argv не обращаются (sg_color_transfer.py stages читает папку внутри этапа 01-02)"},
+        {"file": "01-trellis/frame.png", "report_only": "контрольный кадр этапа для человека (paint_stage.FRAME), ни один этап его не читает"},
+        {"file": "01-trellis/check.json", "consumers": [{"stage": "09", "via": "code", "script": "tools/scout/paint_check.py", "code": "tools/scout/rules/paint-check.json", "pattern": "01-trellis"}]},
+        {"file": "02-prep/shape.glb", "consumers": [{"stage": "04", "via": "alias", "alias": "prep_glb"}, {"stage": "03", "via": "alias", "alias": "prep_glb"}, {"stage": "06", "via": "alias", "alias": "prep_glb"}]},
+        {"file": "02-prep/frame.png", "report_only": "контрольный кадр этапа для человека (paint_stage.FRAME), ни один этап его не читает"},
+        {"file": "02-prep/check.json", "consumers": [{"stage": "04", "via": "needs"}, {"stage": "03", "via": "needs"}, {"stage": "06", "via": "needs"}, {"stage": "09", "via": "code", "script": "tools/scout/paint_check.py", "code": "tools/scout/rules/paint-check.json", "pattern": "02-prep"}]}
       ],
       "needs": [],
       "steps": [
@@ -76,6 +85,12 @@
       "produces": [
         "04-camera"
       ],
+      "outputs": [
+        {"file": "04-camera/check.json", "consumers": [{"stage": "05", "via": "needs"}, {"stage": "06", "via": "needs"}, {"stage": "09", "via": "code", "script": "tools/scout/paint_check.py", "code": "tools/scout/rules/paint-check.json", "pattern": "04-camera"}]},
+        {"file": "pose.json", "consumers": [{"stage": "06", "via": "code", "script": "tools/scout/salad/trellis/tex_visible.py", "pattern": "pose.json"}]},
+        {"file": "stage_loss.json", "consumers": [{"stage": "06", "via": "code", "script": "tools/scout/salad/trellis/tex_visible.py", "pattern": "stage_loss.json"}]},
+        {"file": "stages/", "consumers": [{"stage": "06", "via": "code", "script": "tools/scout/salad/trellis/tex_visible.py", "pattern": "render_view0"}]}
+      ],
       "needs": [
         "02-prep"
       ],
@@ -112,6 +127,11 @@
     "03": {
       "produces": [
         "03-parts"
+      ],
+      "outputs": [
+        {"file": "03-parts/parts.npz", "consumers": [{"stage": "07", "via": "dynamic", "key": "parts_args"}, {"stage": "08", "via": "code", "script": "tools/assets/material_stage.py", "pattern": "parts.npz"}]},
+        {"file": "03-parts/parts.json", "consumers": [{"stage": "08", "via": "code", "script": "tools/assets/material_stage.py", "pattern": "parts.json"}]},
+        {"file": "03-parts/check.json", "consumers": [{"stage": "08", "via": "needs"}, {"stage": "09", "via": "code", "script": "tools/scout/paint_check.py", "code": "tools/scout/rules/paint-check.json", "pattern": "03-parts"}]}
       ],
       "needs": [
         "02-prep"
@@ -168,6 +188,12 @@
       "produces": [
         "05-delight"
       ],
+      "outputs": [
+        {"file": "05-delight/delight.rgba.png", "consumers": [{"stage": "06", "via": "dynamic", "key": "photo_vis"}]},
+        {"file": "05-delight/albedo-iid-v11.png", "terminal": "внутренний кэш этапа 05 (paint_delight.py:198): повтор берёт его сам, следующим этапам не нужен"},
+        {"file": "05-delight/frame.png", "report_only": "контрольный кадр этапа для человека (paint_stage.FRAME), ни один этап его не читает"},
+        {"file": "05-delight/check.json", "consumers": [{"stage": "06", "via": "needs"}, {"stage": "09", "via": "code", "script": "tools/scout/paint_check.py", "code": "tools/scout/rules/paint-check.json", "pattern": "05-delight"}]}
+      ],
       "needs": [
         "04-camera"
       ],
@@ -204,6 +230,14 @@
     "06": {
       "produces": [
         "06-visible"
+      ],
+      "outputs": [
+        {"file": "06-visible/visible.glb", "consumers": [{"stage": "07", "via": "code", "script": "tools/scout/salad/trellis/tex_fill.py", "pattern": "visible.glb"}]},
+        {"file": "06-visible/known.png", "consumers": [{"stage": "07", "via": "code", "script": "tools/scout/salad/trellis/tex_fill.py", "pattern": "known.png"}]},
+        {"file": "06-visible/conf.png", "consumers": [{"stage": "07", "via": "code", "script": "tools/scout/salad/trellis/tex_fill.py", "pattern": "conf.png"}]},
+        {"file": "06-visible/prov.png", "consumers": [{"stage": "07", "via": "code", "script": "tools/scout/salad/trellis/tex_fill.py", "pattern": "prov.png"}]},
+        {"file": "06-visible/frame.png", "report_only": "контрольный кадр этапа для человека (paint_stage.FRAME), ни один этап его не читает"},
+        {"file": "06-visible/check.json", "consumers": [{"stage": "07", "via": "needs"}, {"stage": "09", "via": "code", "script": "tools/scout/paint_check.py", "code": "tools/scout/rules/paint-check.json", "pattern": "06-visible"}]}
       ],
       "needs": [
         "02-prep",
@@ -277,6 +311,15 @@
       "produces": [
         "07-fill"
       ],
+      "outputs": [
+        {"file": "07-fill/filled.glb", "consumers": [{"stage": "08", "via": "argv"}]},
+        {"file": "07-fill/report.json", "report_only": "отчёт этапа (tex_fill.py:3272): ни один этап run-all его не читает; читает упаковщик шва stage_trial.py:259 (Salad-путь, вне run-all)"},
+        {"file": "07-fill/zones.json", "consumers": []},
+        {"file": "07-fill/surface-passport.json", "consumers": []},
+        {"file": "07-fill/frame-photo.png", "consumers": []},
+        {"file": "07-fill/frame.png", "report_only": "контрольный кадр этапа для человека (paint_stage.FRAME), ни один этап его не читает"},
+        {"file": "07-fill/check.json", "consumers": [{"stage": "08", "via": "needs"}, {"stage": "09", "via": "code", "script": "tools/scout/paint_check.py", "code": "tools/scout/rules/paint-check.json", "pattern": "07-fill"}]}
+      ],
       "needs": [
         "06-visible"
       ],
@@ -303,6 +346,12 @@
     "08": {
       "produces": [
         "08-material"
+      ],
+      "outputs": [
+        {"file": "08-material/material.glb", "terminal": "итог конвейера покраски: меш забирают приёмка и листы (loop5.py:81, :696) и публикация вне run-all; следующего этапа покраски нет"},
+        {"file": "08-material/parts08.npz", "consumers": [{"stage": "09", "via": "code", "script": "tools/scout/paint_check.py", "pattern": "parts08.npz"}]},
+        {"file": "08-material/frame.png", "report_only": "контрольный кадр этапа для человека (paint_stage.FRAME), ни один этап его не читает"},
+        {"file": "08-material/check.json", "consumers": [{"stage": "09", "via": "code", "script": "tools/scout/paint_check.py", "code": "tools/scout/rules/paint-check.json", "pattern": "08-material"}]}
       ],
       "needs": [
         "03-parts",
@@ -342,6 +391,10 @@
     "09": {
       "produces": [
         "09-check"
+      ],
+      "outputs": [
+        {"file": "09-check/check.json", "terminal": "итоговый вердикт конвейера: читает человек и сводка (paint_stage.py table)"},
+        {"file": "09-check/frame.png", "report_only": "контрольный кадр этапа для человека (paint_stage.FRAME), ни один этап его не читает"}
       ],
       "needs": [],
       "steps": [

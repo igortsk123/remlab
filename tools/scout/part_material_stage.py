@@ -31,6 +31,7 @@ sys.path.insert(0, HERE)
 sys.path.insert(0, os.path.join(HERE, 'salad', 'trellis'))
 sys.path.insert(0, os.path.join(HERE, '..', 'assets'))
 import part_material as PM  # noqa: E402
+import paint_stage as PS  # noqa: E402
 
 VERSION = 1
 STAGE_DIR = '06-visible'
@@ -297,7 +298,8 @@ def main(argv: list | None = None) -> int:
         return 0
     d = a.out_dir or os.path.join(a.run, a.sku, STAGE_DIR)
     os.makedirs(d, exist_ok=True)
-    rep = {'version': VERSION, 'rule': 'R-PART-MATERIAL', 'sku': a.sku, 'product_role': a.product_role, 'abstain': None}
+    rep = {'version': VERSION, 'rule': 'R-PART-MATERIAL', 'sku': a.sku, 'product_role': a.product_role, 'abstain': None,
+           'photo_input': PS.photo_input(a.photo, a.pose_run)}                    # какое фото подано (delight|raw|other): только запись (T-20261125-82)
     try:
         process(a, rules, d, rep)
     except Abstain as e:
