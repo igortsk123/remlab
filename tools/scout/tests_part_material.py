@@ -192,6 +192,13 @@ yy_, xx_ = np.mgrid[0:H, 0:H]
 ids_ = ((yy_ // 10) * 20 + xx_ // 10).astype(np.int32)
 inn, info = PM.interior_faces(ids_, oc, vv, 400, R)
 check(bool(inn[(10 * 20 + 10)]) and not inn[0] and not inn[399] and info['граней_внутренность'] >= 4, 'грани внутренности: блоки на дне ниши — да, вокруг — нет')
+ids2 = ids_.copy(); ids2[80:120, 120:123] = 400                                     # тонкая боковая стенка рядом с нишей (3 px) — грань 400
+inn2 = np.zeros(401, bool)
+for rr_ in range(8, 12):
+    for cc_ in range(8, 12):
+        inn2[rr_ * 20 + cc_] = True
+rg2 = PM.ring_faces(ids2, vv, inn2, 401, R)
+check(bool(rg2[400]) and not rg2[8 * 20 + 13] and not rg2[0] and rg2[8 * 20 + 8], 'кольцо внутренности: тонкая стенка рядом — да, грань в 10 px от ниши и дальше — нет')
 Vc = np.array([[0, 0, 0], [1, 0, 0], [0, 1, 0], [1, 1, 0], [2, 0, 0], [2, 1, 0], [10, 10, 0], [11, 10, 0], [10, 11, 0], [30, 30, 0], [31, 30, 0], [30, 31, 0]], float)
 Fc = np.array([[0, 1, 2], [1, 3, 2], [1, 4, 3], [6, 7, 8], [9, 10, 11]])                   # связный кусок из 3 граней, одиночная грань (0,5 площади) и далёкая грань-фон
 Rc = json.loads(json.dumps(R)); Rc['occlusion']['min_area_frac'] = 0.3

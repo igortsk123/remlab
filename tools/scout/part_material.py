@@ -242,6 +242,24 @@ def interior_clusters(V: np.ndarray, F: np.ndarray, inner: np.ndarray, area: np.
     return out
 
 
+def ring_faces(ids: np.ndarray, valid: np.ndarray, inner: np.ndarray, nF: int, rules: dict) -> np.ndarray:
+    """Видимое кольцо вокруг внутренности: грани, большая часть пикселей которых (≥ ring_share) лежит в ring_frac × диагональ от пикселей внутренности. Боковая стенка ниши видна косо,
+    пикселей мало, заслонённость на косой плоскости не судится — но она рядом с дном ниши. Большая грань фасада (в кольце лишь малая часть пикселей) не берётся."""
+    import cv2
+    occ = rules['occlusion']
+    ys, xs = np.nonzero(valid)
+    if len(ys) == 0 or not inner.any():
+        return inner
+    diag = float(np.hypot(ys.max() - ys.min() + 1, xs.max() - xs.min() + 1))
+    r = max(1, int(round(float(occ['ring_frac']) * diag)))
+    core = valid & inner[np.clip(ids, 0, nF - 1)]
+    dil = cv2.dilate(core.astype(np.uint8), cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (2 * r + 1, 2 * r + 1))).astype(bool) & valid
+    fid = np.clip(ids, 0, nF - 1)
+    tot = np.bincount(fid[valid], minlength=nF)
+    inn = np.bincount(fid[dil], minlength=nF)
+    return inner | ((tot > 0) & (inn >= float(occ['ring_share']) * tot))
+
+
 def grow_faces(V: np.ndarray, F: np.ndarray, inner: np.ndarray, rules: dict) -> np.ndarray:
     """Внутренность растёт на грани рядом (расстояние между центрами граней ≤ grow_frac × диагональ меша): боковые стенки и кромка ниши тонкие, своих пикселей у них почти нет,
     и заливка тоном соседней группы красила бы их чужим цветом. Грани внутренности остаются как в 06/07."""
