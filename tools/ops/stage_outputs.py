@@ -7,7 +7,7 @@
   {"file": "05-delight/frame.png", "report_only": "контрольный кадр этапа для человека"}   # либо "terminal": "итог конвейера, забирают вне run-all …"
 Потребитель обязан быть НЕ ДО производителя по `order` и ПОДТВЕРЖДЁН по описанию/коду (описанию на слово не верим):
   via needs   — у потребителя в `needs`/`needs_tolerate` стоит папка производителя (только для check.json: гейт по статусу);
-  via dynamic — `dynamic[key]` ссылается на файл (file_if_ok [папка, файл] / from_extra [папка, …]) и `{key}` стоит в argv шага потребителя;
+  via dynamic — `dynamic[key]` ссылается на файл (file_if_ok [папка, файл] / if_stage_ok {stage, file} / from_extra [папка, …]) и `{key}` стоит в argv шага потребителя;
   via argv    — путь файла (`07-fill/filled.glb`) стоит в argv шага потребителя;
   via alias   — `{alias}` (например prep_glb) стоит и в argv производителя, и в argv потребителя;
   via code    — скрипт из argv потребителя (`{root}/tools/…py`) существует и содержит `pattern` (по умолчанию имя файла); `code` — другой файл-доказательство
@@ -79,7 +79,8 @@ def evidence(root: str, rules: dict, prod: str, out: dict, cons: dict) -> tuple:
     if via == 'dynamic':
         key = cons.get('key')
         d = (rules.get('dynamic') or {}).get(key) or {}
-        ref = d.get('file_if_ok') or d.get('from_extra')
+        ios = d.get('if_stage_ok') or {}
+        ref = d.get('file_if_ok') or d.get('from_extra') or ([ios['stage'], ios['file']] if ios.get('stage') and ios.get('file') else None)
         hit = bool(ref) and ref[0] == folder and (len(ref) < 2 or ref[1] == f.split('/', 1)[-1] or d.get('from_extra'))
         if not hit:
             return False, f'dynamic.{key} не ссылается на {f}'
@@ -141,10 +142,10 @@ def analyse(root: str, rules: dict) -> list:
             if 'status' not in row:
                 if not cons:
                     row.update(status='orphan', why='нет потребителя и не помечен terminal/report_only')
-                elif any(c[2] for c in row['consumers']):
+                elif all(c[2] for c in row['consumers']):
                     row.update(status='ok', why='')
                 else:
-                    row.update(status='unconfirmed', why='; '.join(f'{c[0]} ({c[1]}): {c[3]}' for c in row['consumers']))
+                    row.update(status='unconfirmed', why='; '.join(f'{c[0]} ({c[1]}): {c[3]}' for c in row['consumers'] if not c[2]))
             rows.append(row)
     return rows
 
@@ -203,6 +204,7 @@ def _selftest() -> int:
                          {'file': 'a-out/claimed.png', 'consumers': [{'stage': 'b', 'via': 'argv'}]},
                          {'file': 'a-out/back.png', 'consumers': [{'stage': 'a', 'via': 'argv'}]},
                          {'file': 'a-out/check.json', 'consumers': [{'stage': 'c', 'via': 'needs'}]},
+                         {'file': 'a-out/half.png', 'consumers': [{'stage': 'b', 'via': 'code', 'script': 'tools/x/reader.py', 'pattern': 'mask.png'}, {'stage': 'c', 'via': 'argv'}]},
                          {'file': 'a-out/glb.glb', 'consumers': [{'stage': 'b', 'via': 'alias', 'alias': 'glb_a'}]}]},
                      'b': {'produces': ['b-out'], 'needs': [], 'steps': [{'argv': ['{py}', '{root}/tools/x/reader.py', '{pic}', '{glb_a}']}], 'outputs': []},
                      'c': {'produces': [], 'needs': ['a-out'], 'steps': [{'argv': ['{py}', 'z']}]}}}
@@ -218,7 +220,8 @@ def _selftest() -> int:
         ok(rows['a-out/glb.glb']['status'] == 'ok', 'via alias: {glb_a} в argv обоих этапов')
         ok(rows['b-out/']['status'] == 'no-outputs', 'папка produces без описанных выходов — находка')
         got = check(d, rules)
-        ok(sum(1 for x in got if x.startswith('ORPHAN-OUTPUT')) == len(got) == 5, 'check(): ровно 5 предупреждений (dangling, nored, claimed, back, b-out)', str(got))
+        ok(sum(1 for x in got if x.startswith('ORPHAN-OUTPUT')) == len(got) == 6, 'check(): ровно 6 предупреждений (dangling, nored, claimed, back, half, b-out)', str(got))
+        ok(rows['a-out/half.png']['status'] == 'unconfirmed', 'два потребителя, один заявлен на словах — находка (подтверждённый другой её не гасит)')
         rules['stages']['a']['outputs'][1]['report_only'] = 'внутренний кэш'
         ok(not any('dangling' in x for x in check(d, rules)), 'после честной пометки report_only находка уходит (без исключений в коде)')
         open(os.path.join(d, 'tools/x/reader.py'), 'w').write('pass\n')
