@@ -26,6 +26,17 @@ def rules(R: dict | None = None) -> dict:
     return {**DEFAULTS, **(R or {})}
 
 
+def mode(env: str | None, R: dict | None = None) -> str | None:
+    """Режим спасателя стыка: env POSE_JUNCTION: '1' — применять, 'probe' — вхолостую (только info), '0' — выкл. (приоритет у env); нет env — по правилу junction.enabled (по умолчанию ВКЛ с 25.11, T-20261125-72/2)."""
+    if env == '1':
+        return 'apply'
+    if env == 'probe':
+        return 'probe'
+    if env == '0':
+        return None
+    return 'apply' if rules(R)['enabled'] else None
+
+
 def box_geometry(lo, hi, R: dict | None = None) -> dict:
     p = rules(R)
     lo, hi = np.asarray(lo, float), np.asarray(hi, float)
