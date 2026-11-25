@@ -417,5 +417,36 @@ if have_pil:
     except SystemExit:
         ok('предел веса картинок срабатывает', True)
 
+# ——— T-20261125-79: родная покраска TRELLIS.2 на 512, форма на каждый товар ———
+print('[T79] tex_resolution и карта форм')
+import importlib.util  # noqa: E402
+_sp = importlib.util.spec_from_file_location('worker_trellis_t79', os.path.join(HERE, 'worker_trellis.py'))
+WT = importlib.util.module_from_spec(_sp)
+_sp.loader.exec_module(WT)
+ok('tex_resolution: нет ключа — 1024 (как было)', WT.tex_resolution_of({}) == 1024 and WT.tex_resolution_of({'tex_resolution': None}) == 1024)
+ok('tex_resolution: 512 и "512" проходят, 1024 тоже', WT.tex_resolution_of({'tex_resolution': 512}) == 512 and WT.tex_resolution_of({'tex_resolution': '512'}) == 512 and WT.tex_resolution_of({'tex_resolution': 1024}) == 1024)
+for bad_v in (256, 768, 1536, 'x'):
+    try:
+        WT.tex_resolution_of({'tex_resolution': bad_v})
+        ok(f'tex_resolution {bad_v!r} отвергается до GPU', False)
+    except ValueError:
+        ok(f'tex_resolution {bad_v!r} отвергается до GPU', True)
+with tempfile.TemporaryDirectory() as _d:
+    g1, g2, bad_f = os.path.join(_d, 'a.glb'), os.path.join(_d, 'b.glb'), os.path.join(_d, 'c.txt')
+    open(g1, 'wb').write(b'glTF' + b'1' * 20)
+    open(g2, 'wb').write(b'glTF' + b'2' * 20)
+    open(bad_f, 'wb').write(b'not a glb')
+    mp = os.path.join(_d, 'm.json')
+    json.dump({'s1': g1, 's2': g2, 's3': bad_f}, open(mp, 'w'))
+    m = T.load_texture_meshes(mp, ['s1', 's2'])
+    ok('карта форм: форма на каждый товар, base64 разные', set(m) == {'s1', 's2'} and m['s1'] != m['s2'])
+    ok('один GLB без JSON: один товар', set(T.load_texture_meshes(g1, ['s1'])) == {'s1'})
+    for what, spec, sk in (('один GLB на двоих', g1, ['s1', 's2']), ('нет формы товара в карте', mp, ['s1', 'нет']), ('не GLB', mp, ['s3']), ('нет файла', os.path.join(_d, 'нет.glb'), ['s1'])):
+        try:
+            T.load_texture_meshes(spec, sk)
+            ok(f'формы: {what} — отказ до группы', False)
+        except ValueError:
+            ok(f'формы: {what} — отказ до группы', True)
+
 print('ИТОГО: ' + ('всё в норме' if not bad else f'провалов {bad}'))
 sys.exit(1 if bad else 0)

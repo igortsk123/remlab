@@ -1,0 +1,84 @@
+# СБОРКА ТОНКОГО СЛОЯ «покраска TRELLIS.2 на 512» НА GITHUB ACTIONS (T-20261125-79) — поверх образа trellis2-fast (веса внутри), не на pakardev.
+# Запускается ТОЛЬКО пушем в ветку `trial/trellis2-texpaint512` (на main и остальные ветки не срабатывает) или вручную из этой же ветки.
+# Что делает: тянет основу `…:trellis2-fast`, сверяет её digest (ждём 77133e85…) → кладёт новый `worker_trellis.py` одним слоем → печатает digest и размер → пушит тег `trellis2-texpaint512`.
+# Боевые группы закреплены по digest и тег trellis2-fast не затрагивают. Деплоя нет.
+name: build-trellis2-texpaint-trial
+
+on:
+  push:
+    branches: ['trial/trellis2-texpaint512']
+    paths:
+      - 'tools/scout/salad/trellis/Dockerfile.trellis2-texpaint'
+      - 'tools/scout/salad/trellis/worker_trellis.py'
+      - '.github/workflows/build-trellis2-texpaint-trial.yml'
+  workflow_dispatch:
+
+concurrency:
+  group: build-trellis2-texpaint-trial
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+  packages: write
+
+env:
+  BASE: ghcr.io/${{ github.repository_owner }}/mesh-pixal3d-trial:trellis2-fast
+  TARGET: ghcr.io/${{ github.repository_owner }}/mesh-pixal3d-trial:trellis2-texpaint512
+  BASE_DIGEST_PREFIX: sha256:77133e85
+  CTX: tools/scout/salad/trellis
+
+jobs:
+  build:
+    if: github.ref == 'refs/heads/trial/trellis2-texpaint512'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Освободить диск сборщика
+        run: |
+          sudo rm -rf /usr/local/lib/android /usr/share/dotnet /opt/ghc /usr/local/.ghcup /opt/hostedtoolcache/CodeQL /usr/local/share/boost \
+                      /usr/share/swift /usr/local/share/powershell /usr/local/julia* || true
+          sudo docker system prune -af || true
+          df -h /
+          FREE_GB=$(df -BG --output=avail / | tail -1 | tr -dc 0-9)
+          [ "$FREE_GB" -ge 55 ] || { echo "::error::после очистки меньше 55 ГБ — основа может не поместиться"; exit 1; }
+
+      - name: Вход в GHCR
+        run: echo "${{ secrets.GITHUB_TOKEN }}" | docker login ghcr.io -u "${{ github.actor }}" --password-stdin
+
+      - name: Основа — тянем и сверяем digest
+        run: |
+          docker pull "$BASE"
+          D=$(docker inspect --format '{{index .RepoDigests 0}}' "$BASE")
+          echo "основа: $D"
+          case "$D" in
+            *"@${BASE_DIGEST_PREFIX}"*) echo "digest основы совпал с ожидаемым ${BASE_DIGEST_PREFIX}…";;
+            *) echo "::error::digest основы $D не начинается с ${BASE_DIGEST_PREFIX} — тег trellis2-fast сдвинулся, слой не собираю"; exit 1;;
+          esac
+          echo "base_ref=$D" >> "$GITHUB_ENV"
+
+      - name: Сборка тонкого слоя
+        run: docker build --progress=plain -f "$CTX/Dockerfile.trellis2-texpaint" --build-arg "BASE=${base_ref}" -t "$TARGET" "$CTX"
+
+      - name: "Проверка — воркер в образе = воркер ветки, веса на месте"
+        run: |
+          docker run --rm --entrypoint sh "$TARGET" -c 'ls /opt/weights/TRELLIS.2-4B/texturing_pipeline.json /opt/weights/TRELLIS.2-4B/ckpts/slat_flow_imgshape2tex_dit_1_3B_512_bf16.safetensors && grep -c tex_resolution_of /app/worker_trellis.py && tail -2 /opt/BUILD_INFO_PIXAL3D_BW.txt'
+          docker run --rm --entrypoint cat "$TARGET" /app/worker_trellis.py | sha256sum
+          sha256sum "$CTX/worker_trellis.py"
+
+      - name: Публикация в GHCR
+        run: |
+          docker push "$TARGET"
+          DIGEST=$(docker inspect --format '{{index .RepoDigests 0}}' "$TARGET")
+          COMPRESSED=$(docker manifest inspect "$DIGEST" 2>/dev/null | python3 -c 'import json,sys; m=json.load(sys.stdin); print(sum(l["size"] for l in m.get("layers",[])))' || echo 0)
+          GB=$(python3 -c "print(round($COMPRESSED/2**30,2))")
+          {
+            echo "### Тонкий слой «покраска TRELLIS.2 на 512» (T-20261125-79) — тег trellis2-texpaint512; trellis2-fast не тронут"
+            echo "- адрес: \`$TARGET\`"
+            echo "- digest: \`$DIGEST\`"
+            echo "- основа: \`${base_ref}\`"
+            echo "- сжатый размер в реестре: **${GB} ГБ** (лимит Salad 35, наш порог 30)"
+            echo "- коммит: \`${GITHUB_SHA}\`"
+          } | tee -a "$GITHUB_STEP_SUMMARY"
+          python3 -c "import sys; sys.exit(1 if $COMPRESSED/2**30 > 30 else 0)" || { echo "::error::образ больше 30 ГБ"; exit 1; }

@@ -1,0 +1,8 @@
+# ТОНКИЙ СЛОЙ КОДА поверх образа TRELLIS.2 с весами внутри (`trellis2-fast`) — T-20261125-79: проба «своя покраска TRELLIS.2 на 512».
+# Веса и расширения — те же байты (digest основы проверяет сборка: ждём 77133e85…), меняется ТОЛЬКО `worker_trellis.py` (параметр `tex_resolution` 512|1024 у режима texture_only;
+# форма — на каждое задание). Dockerfile.code по смыслу: правка одной строки воркера не должна означать повторное скачивание весов.
+# Откат — прежний образ `…:trellis2-fast` не тронут. Тег — `ghcr.io/<владелец>/mesh-pixal3d-trial:trellis2-texpaint512`.
+ARG BASE=ghcr.io/igortsk123/mesh-pixal3d-trial:trellis2-fast
+FROM ${BASE}
+COPY worker_trellis.py /app/worker_trellis.py
+RUN { echo "T-20261125-79: worker_trellis.py с tex_resolution поверх ${BASE}"; } >> /opt/BUILD_INFO_PIXAL3D_BW.txt

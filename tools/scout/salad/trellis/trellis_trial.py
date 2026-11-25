@@ -82,6 +82,30 @@ def build_jobs(skus: list[str], plan: list[dict], inputs: dict, seed: int = 42) 
     return jobs
 
 
+def load_texture_meshes(spec: str, skus: list[str]) -> dict:
+    """`--texture-mesh`: путь к одному GLB (один товар в --skus, как раньше) ИЛИ к JSON `{товар: путь к GLB}` — своя форма на каждый товар (T-20261125-79: пачка на одной прогретой ноде).
+    → {товар: base64 GLB}. Нет формы на товар из --skus / файла нет / не GLB → ValueError ДО группы и денег."""
+    spec = os.path.expanduser(spec)
+    if spec.endswith('.json'):
+        m = json.load(open(spec, encoding='utf-8'))
+        paths = {k: os.path.expanduser(v) for k, v in m.items()}
+    else:
+        if len(skus) != 1:
+            raise ValueError('--texture-mesh <один GLB>: ровно один товар в --skus (для нескольких — JSON {товар: GLB})')
+        paths = {skus[0]: spec}
+    out = {}
+    for sku in skus:
+        if sku not in paths:
+            raise ValueError(f'{sku}: в --texture-mesh нет формы этого товара')
+        if not os.path.isfile(paths[sku]):
+            raise ValueError(f'{sku}: нет файла формы {paths[sku]}')
+        raw = open(paths[sku], 'rb').read()
+        if raw[:4] != b'glTF':
+            raise ValueError(f'{sku}: {paths[sku]} — не GLB (нет метки glTF)')
+        out[sku] = base64.b64encode(raw).decode()
+    return out
+
+
 def parse_tex_variant(tok: str) -> dict | None:
     """pixal3d-tex: вариант прогона `<align>[+g<сила>][+s<повторов>][+f<процент>]`: `fit+g3` — подгонка фото и сила направляющей 3 (по умолчанию 1), `fit+s40` — латент формы по копии,
     сглаженной 40 проходами Тобина (краска ложится на настоящую форму), `fit+f75` — форма вписана в 75 % куба (T-20261119-92: активных вокселей ≈ 56 % от прежнего,
@@ -341,8 +365,12 @@ def run(a, MG, BR, gw_factory=Gateway, sleep=time.sleep, clock=time.time, hf_hea
     if os.path.exists(sp):
         meta = {c['sku']: c for c in json.load(open(sp, encoding='utf-8'))}                       # роль и габариты (нужны контролю Hunyuan)
     tex_mesh_b64 = None
-    if getattr(a, 'texture_mesh', None):                  # контроль перекраски: одна готовая форма (GLB) уходит в задание, id задания с суффиксом -tex
-        tex_mesh_b64 = base64.b64encode(open(os.path.expanduser(a.texture_mesh), 'rb').read()).decode()
+    tex_meshes = {}
+    if getattr(a, 'texture_mesh', None):                  # контроль перекраски: готовая форма (GLB) уходит в задание, id задания с суффиксом -tex
+        tex_meshes = load_texture_meshes(a.texture_mesh, skus)
+        if len(tex_meshes) == 1 and not str(a.texture_mesh).endswith('.json'):
+            tex_mesh_b64 = tex_meshes[skus[0]]            # прежний режим: один GLB на всё (один товар в --skus)
+            tex_meshes = {}
         for j in jobs:
             j['job_id'] += '-tex'
     if a.model == 'pixal3d-tex':                          # варианты кадрирования фото (fit — подгонка по силуэту формы, official — как в апстриме): по заданию на вариант, id с суффиксом
@@ -511,7 +539,7 @@ def run(a, MG, BR, gw_factory=Gateway, sleep=time.sleep, clock=time.time, hf_hea
                     j = pending.pop(0)
                     png = open(os.path.join(a.inputs, f'{j["sku"].replace(":", "_")}.{"hd." if j.get("input") == "hd" else ""}rgba.png'), 'rb').read()
                     pl = {'job_id': j['job_id'], 'image_b64': base64.b64encode(png).decode(), 'pipeline_type': pipeline_type(j['res']), 'seed': j['seed'],
-                          'decimation_target': a.decimation, 'texture_size': a.texture, 'detail': getattr(a, 'detail', None), 'texture_mesh_b64': tex_mesh_b64, 'role': j.get('role'), 'dims_cm': j.get('dims_cm'), 'align': j.get('align'), 'tex_guidance': j.get('tex_guidance'), 'shape_smooth': j.get('shape_smooth'), 'shape_fill': j.get('shape_fill'), **(j.get('worker_params') or {})}
+                          'decimation_target': a.decimation, 'texture_size': a.texture, 'detail': getattr(a, 'detail', None), 'texture_mesh_b64': tex_meshes.get(j['sku'], tex_mesh_b64), 'tex_resolution': getattr(a, 'tex_resolution', None), 'role': j.get('role'), 'dims_cm': j.get('dims_cm'), 'align': j.get('align'), 'tex_guidance': j.get('tex_guidance'), 'shape_smooth': j.get('shape_smooth'), 'shape_fill': j.get('shape_fill'), **(j.get('worker_params') or {})}
                     c, r = gw.call('POST', '/generate', pl, timeout=90)
                     inflight = {**j, 'submitted': t, 'http': c}
                     say('задание', j['job_id'], '→ HTTP', c)
@@ -616,6 +644,7 @@ def main() -> int:
     ap.add_argument('--card', default=CARD['class_name'], help='класс карты по полному имени ("RTX 4060 Ti (16 GB)" для localmesh)')
     ap.add_argument('--detail', default='high', choices=['draft', 'standard', 'high', 'max'], help='localmesh: ярус качества (high = форма 1024, 16 шагов, 250 тыс. граней)')
     ap.add_argument('--ladder', default=None, help='trellis2: JSON со ступенями лесенки формы (имя, input cur|hd, res, шаги/rescale формы, max_num_tokens, export_raw) — по заданию на ступень на товар; HD-фото — `<товар>.hd.rgba.png` в --inputs')
+    ap.add_argument('--tex-resolution', type=int, default=None, choices=[512, 1024], help='trellis2 + --texture-mesh: разрешение родной покраски TRELLIS.2 (512 или 1024; по умолчанию воркер берёт 1024)')
     ap.add_argument('--texture-mesh', default=None, help='контроль: готовая форма (GLB) — TRELLIS.2 только перекрасит её по фото (один товар в --skus)')
     ap.add_argument('--tex-align', default='fit', help='pixal3d-tex: варианты через запятую, по заданию на вариант: fit (подгонка фото по силуэту формы), official (как в апстриме Pixal3D); добавки: +g<сила направляющей, по умолчанию 1>, +s<проходов сглаживания формы для латента>; пример: fit,official,fit+g3,fit+s60')
     ap.add_argument('--hold-after', type=int, default=0, help='пауза на тёплой ноде: после N готовых заданий (проба) не слать следующие, пока не появится файл --hold-file (разрешение партии); 0 — без паузы')

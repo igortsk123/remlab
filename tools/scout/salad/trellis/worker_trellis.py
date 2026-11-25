@@ -139,6 +139,17 @@ def patch_trellis2_sdpa(trellis_dir: str) -> list[str]:
     return done
 
 
+def tex_resolution_of(params: dict) -> int:
+    """Разрешение покраски TRELLIS.2 (`Trellis2TexturingPipeline.run(resolution=…)`): только 512 или 1024; нет ключа — 1024 (как было). Иное → ValueError (до GPU)."""
+    v = params.get('tex_resolution')
+    if v in (None, ''):
+        return 1024
+    v = int(v)
+    if v not in (512, 1024):
+        raise ValueError(f'tex_resolution {v}: допустимо 512 или 1024')
+    return v
+
+
 class Trellis2Backend:
     """TRELLIS.2-4B (MIT): `Trellis2ImageTo3DPipeline` → `o_voxel.postprocess.to_glb` (BaseColor/Metallic/Roughness/Alpha).
     Фон не удаляем: вход — наша вырезка с настоящей альфой (`preprocess_image` берёт её как есть), а модуль вырезки фона
@@ -207,11 +218,13 @@ class Trellis2Backend:
         stage['load_texturing'] = round(time.time() - t, 2)
         t = time.time()
         mesh = trimesh.load(os.path.join(JOBS_DIR, params['job_id'] + '.mesh.glb'), force='mesh')
-        out = self.tex_pipe.run(mesh, image, seed=int(params.get('seed', 42)), resolution=1024, texture_size=int(params.get('texture_size', 2048)))
+        res = tex_resolution_of(params)                                 # T-20261125-79: 512 или 1024 (апстрим: для 512 — модель покраски 512 и кондишен 512); по умолчанию прежние 1024
+        out = self.tex_pipe.run(mesh, image, seed=int(params.get('seed', 42)), resolution=res, texture_size=int(params.get('texture_size', 2048)))
         torch.cuda.synchronize()
         stage['run'] = round(time.time() - t, 2)
         out.export(path, extension_webp=bool(int(os.environ.get('EXPORT_WEBP', '0'))))
-        return {'mode': 'texture_only', 'stage_s': stage, 'peak_vram_gb': round(torch.cuda.max_memory_allocated() / 2 ** 30, 2), 'mesh_tris': int(len(mesh.faces))}
+        return {'mode': 'texture_only', 'tex_resolution': res, 'texture_size': int(params.get('texture_size', 2048)), 'stage_s': stage, 'peak_vram_gb': round(torch.cuda.max_memory_allocated() / 2 ** 30, 2),
+                'peak_reserved_gb': round(torch.cuda.max_memory_reserved() / 2 ** 30, 2), 'mesh_tris': int(len(mesh.faces)), 'mesh_verts': int(len(mesh.vertices))}
 
     def generate(self, image, params: dict, path: str) -> dict:
         import o_voxel
