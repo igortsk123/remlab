@@ -237,7 +237,15 @@
         {"file": "06-visible/conf.png", "consumers": [{"stage": "07", "via": "code", "script": "tools/scout/salad/trellis/tex_fill.py", "pattern": "conf.png"}]},
         {"file": "06-visible/prov.png", "consumers": [{"stage": "07", "via": "code", "script": "tools/scout/salad/trellis/tex_fill.py", "pattern": "prov.png"}]},
         {"file": "06-visible/frame.png", "report_only": "контрольный кадр этапа для человека (paint_stage.FRAME), ни один этап его не читает"},
-        {"file": "06-visible/check.json", "consumers": [{"stage": "07", "via": "needs"}, {"stage": "09", "via": "code", "script": "tools/scout/paint_check.py", "code": "tools/scout/rules/paint-check.json", "pattern": "06-visible"}]}
+        {"file": "06-visible/check.json", "consumers": [{"stage": "07", "via": "needs"}, {"stage": "09", "via": "code", "script": "tools/scout/paint_check.py", "code": "tools/scout/rules/paint-check.json", "pattern": "06-visible"}]},
+        {"file": "06-visible/part_material_faces.npz", "consumers": [{"stage": "07", "via": "code", "script": "tools/scout/salad/trellis/tex_fill.py", "pattern": "part_material_faces.npz"}], "_about": "Ш4а (выкл по умолчанию): материал по граням меша 06 (face_material, −1 = не красим); 07 читает для границы материалов в ступенях и (surface_groups.source=part_material) для групп паспорта; пишется только при part-material.enabled"},
+        {"file": "06-visible/part_material_masks.npz", "report_only": "Ш4а: маски покрашенных текселей по группам; читает ТОЛЬКО part_grain_stage.py (зерно дерева, T-69/4, выкл), а он в paint-run-all не включён (в argv этапов его нет, запускается вручную) — в конвейере файл никто не читает (T-84, находка)"},
+        {"file": "06-visible/tone_only.png", "consumers": [{"stage": "07", "via": "code", "script": "tools/scout/salad/trellis/tex_fill.py", "pattern": "tone_only.png"}], "_about": "Ш4а: покрашенные тексели без фото — «тон-только» (цвет оставить, фактуру положить поверх, р.8)"},
+        {"file": "06-visible/part_material.json", "report_only": "отчёт Ш4а (группы, материалы, воздержание с причиной): для человека и замера, ни один этап его не читает"},
+        {"file": "06-visible/visible.pre-partmaterial.glb", "report_only": "копия входа Ш4а: повторный запуск Ш4а идёт от неё (part_material_stage.KEEP), другие этапы не читают"},
+        {"file": "06-visible/known.pre-partmaterial.png", "report_only": "копия входа Ш4а: повторный запуск Ш4а идёт от неё (part_material_stage.KEEP), другие этапы не читают"},
+        {"file": "06-visible/conf.pre-partmaterial.png", "report_only": "копия входа Ш4а: повторный запуск Ш4а идёт от неё (part_material_stage.KEEP), другие этапы не читают"},
+        {"file": "06-visible/tone_only.pre-partmaterial.png", "report_only": "копия входа Ш4а: повторный запуск Ш4а идёт от неё (part_material_stage.KEEP), другие этапы не читают"}
       ],
       "needs": [
         "02-prep",

@@ -252,6 +252,103 @@ def _bimodal(h: np.ndarray, R: dict) -> dict:
     return {'bimodal': bool(ok), 'gap_L': round(gap, 2), 'ashman_D': round(D, 2), 'minor_share': round(share, 3)}
 
 
+def _read_json_safe(path: str):
+    try:
+        import json as _json
+        with open(path, encoding='utf-8') as f_:
+            return _json.load(f_)
+    except Exception:  # noqa: BLE001
+        return None
+
+
+def source_decision(face_mat, prev_dir: str | None, R_pm: dict) -> dict:
+    """T-20261125-84 (П1.147, свод п.20): брать ли группы паспорта из Ш4а — решение на ТОВАР ЦЕЛИКОМ, не по граням. Уверенность: доля граней «не красим» у Ш4а, IoU силуэта позы 04 (check.json шага 04 и 06),
+    совпадение контура 06 (edge_corr). Ниже порога (rules surface_groups.part_material) → весь товар по паспорту 07 (как на main). → {'use': bool, 'why': str, 'unpainted_share', 'iou', 'edge_corr'}."""
+    out = {'use': False, 'why': '', 'unpainted_share': None, 'iou': None, 'edge_corr': None}
+    if face_mat is None or len(face_mat) == 0:
+        out['why'] = 'нет part_material_faces.npz (Ш4а выключен или воздержался) — паспорт 07'
+        return out
+    fm = np.asarray(face_mat)
+    out['unpainted_share'] = round(float((fm < 0).mean()), 4)
+    if prev_dir:
+        ious = []
+        c4 = _read_json_safe(os.path.join(os.path.dirname(os.path.normpath(prev_dir)), '04-camera', 'check.json')) or {}
+        c6 = _read_json_safe(os.path.join(prev_dir, 'check.json')) or {}
+        for c in (c4, c6):
+            m = c.get('metric') or {}
+            if m.get('name') in ('iou_silhouette', 'silhouette_iou') and isinstance(m.get('value'), (int, float)):
+                ious.append(float(m['value']))
+            for k in ('iou_silhouette', 'silhouette_iou'):
+                v = ((c.get('metrics') or {}).get(k) or {}).get('value')
+                if isinstance(v, (int, float)):
+                    ious.append(float(v))
+        if ious:
+            out['iou'] = round(min(ious), 4)
+        ec = ((c6.get('metrics') or {}).get('edge_corr') or {}).get('value')
+        if isinstance(ec, (int, float)):
+            out['edge_corr'] = round(float(ec), 4)
+    if out['unpainted_share'] > float(R_pm['max_unpainted_share']):
+        out['why'] = f'Ш4а не красит {out["unpainted_share"]:.0%} граней > {R_pm["max_unpainted_share"]:.0%} — паспорт 07'
+    elif out['iou'] is not None and out['iou'] < float(R_pm['min_iou']):
+        out['why'] = f'IoU позы {out["iou"]} < {R_pm["min_iou"]} — паспорт 07'
+    elif out['edge_corr'] is not None and out['edge_corr'] < float(R_pm['min_edge_corr']):
+        out['why'] = f'edge_corr 06 {out["edge_corr"]} < {R_pm["min_edge_corr"]} — паспорт 07'
+    else:
+        out['use'] = True
+        out['why'] = 'уверенность достаточна — группы по материалам Ш4а'
+    return out
+
+
+def relabel_parts_by_material(parts: list, face_mat, roles: dict | None, max_labels: int = 24) -> tuple:
+    """Части для паспорта = (часть 03 × материал Ш4а). Материал грани — `face_material` из 06-visible/part_material_faces.npz (один массив на все грани GLB, −1 = Ш4а не красит).
+    Главный материал части (по числу граней) оставляет её номер; каждый другой материал той же части получает новый номер (max+1…). Грани −1 остаются с номером части 03 — в «материал −1» не склеиваются.
+    Мелкие группы НЕ сливаются (свод п.20): им запрещается быть донором тона (см. build, R['donor_min_share']). Потолок `max_labels` — только страховка (лишние самые мелкие куски остаются в части).
+    Роли новых номеров = роль исходной части. → (parts', roles', info); не совпало число граней / нечего делить — parts без изменений."""
+    n = sum(len(p) for p in parts)
+    fm = None if face_mat is None else np.asarray(face_mat).astype(np.int64).reshape(-1)
+    info = {'applied': False, 'why': '', 'labels_before': 0, 'labels_after': 0, 'splits': [], 'capped': 0, 'part_material': {}}
+    if fm is None or len(fm) != n:
+        info['why'] = 'число граней карты материалов не совпало с GLB' if fm is not None else 'нет карты материалов'
+        return parts, roles, info
+    flat = np.concatenate([np.asarray(p, np.int64) for p in parts]) if parts else np.zeros(0, np.int64)
+    labels = sorted(int(p) for p in np.unique(flat))
+    info['labels_before'] = len(labels)
+    valid = fm >= 0
+    main_mat, cand = {}, []
+    for p in labels:
+        sel = (flat == p) & valid
+        if not sel.any():
+            continue
+        mats, cnt = np.unique(fm[sel], return_counts=True)
+        order = sorted(zip(mats.tolist(), cnt.tolist()), key=lambda t: (-t[1], t[0]))
+        main_mat[p] = order[0][0]
+        info['part_material'][str(p)] = order[0][0]
+        cand += [(c_, p, m_) for m_, c_ in order[1:]]
+    cand.sort(key=lambda t: (-t[0], t[1], t[2]))
+    room = max(int(max_labels) - len(labels), 0)
+    keep, info['capped'] = cand[:room], max(len(cand) - room, 0)
+    keep.sort(key=lambda t: (t[1], t[2]))
+    new_flat, new_roles, nxt = flat.copy(), dict(roles or {}), (int(flat.max()) + 1 if len(flat) else 0)
+    for c_, p, m_ in keep:
+        new_flat[(flat == p) & (fm == m_)] = nxt
+        r_ = (roles or {}).get(p, (roles or {}).get(str(p)))
+        if r_ is not None:
+            new_roles[nxt] = r_
+        info['splits'].append({'part': p, 'material': m_, 'new_id': nxt, 'faces': int(c_), 'share': round(c_ / max(n, 1), 4)})
+        info['part_material'][str(nxt)] = m_
+        nxt += 1
+    info['applied'] = True
+    info['labels_after'] = len(labels) + len(keep)
+    if not keep:
+        info['why'] = 'ни одна часть не содержит двух материалов Ш4а — группы как у паспорта'
+        return parts, roles, info
+    out, o = [], 0
+    for p in parts:
+        out.append(new_flat[o:o + len(p)].astype(np.int32))
+        o += len(p)
+    return out, new_roles, info
+
+
 def build(geoms: list, tex_rgb: list, known: list, parts: list, roles: dict | None, R: dict, fill_cfg: dict, tf, maps: Maps | None = None) -> tuple:
     """Паспорт поверхностей. geoms/tex_rgb — геометрия и текстуры (видимое — как с фото); known — маски «взято с фото» (T×T bool); parts — части граней по геометриям; roles — {часть: роль этапа 3};
     R — rules surface_groups; fill_cfg — FILL (пороги узора); tf — модуль tex_fill (rgb2lab, choose_tone_sources, unpainted_mask, _grid). → (passport dict, ctx для apply/measure)."""
@@ -313,6 +410,8 @@ def build(geoms: list, tex_rgb: list, known: list, parts: list, roles: dict | No
     log = {'merged': [], 'refused': []}
     sep = set(R['separate_roles'])
     role_of = lambda p: roles.get(p, roles.get(str(p)))  # noqa: E731
+    mat_of = {int(k): v for k, v in (R.get('part_material_of') or {}).items()}                  # T-84: материал части по Ш4а (source=part_material); пусто = как на main
+    other_mat = lambda a, b: mat_of.get(a) is not None and mat_of.get(b) is not None and mat_of[a] != mat_of[b]  # noqa: E731
 
     def regroup_tone(a, b):
         ra, rb = uf.find(a), uf.find(b)
@@ -337,6 +436,9 @@ def build(geoms: list, tex_rgb: list, known: list, parts: list, roles: dict | No
         if ra in sep or rb in sep:
             log['refused'].append(dict(rec, why=f'роль «{ra if ra in sep else rb}» — отдельный материал'))
             continue
+        if other_mat(a, b):
+            log['refused'].append(dict(rec, why='разные материалы Ш4а — другой материал, не сливаем'))
+            continue
         if not (reliable[a] and reliable[b]):
             continue                                                         # без своего тона — по choose_tone_sources ниже
         de = float(_de(gtone[uf.find(a)], gtone[uf.find(b)])[0])
@@ -347,11 +449,13 @@ def build(geoms: list, tex_rgb: list, known: list, parts: list, roles: dict | No
             regroup_tone(a, b)
         else:
             log['refused'].append(dict(rec, de00=round(de, 2), limit=lim, why='контрастные тона — другой материал'))
+    _dmin = float(R.get('donor_min_share') or 0.0)                                     # T-84 (свод п.20): мелкие части (ручки, ножки) — не доноры тона; 0 = как на main
+    forbid = {p for p in all_parts if total[p] < _dmin * max(sum(total.values()), 1)} if _dmin > 0 else set()
     # части без своего видимого тона: донор по choose_tone_sources (та же роль, самая длинная общая граница, совместимый тон)
     need = [p for p in all_parts if not reliable[p]]
     donors = {}
     if need:
-        c = dict(fill_cfg, min_known=int(R['min_part_texels']), no_role_global='skip', catalog_tone=None)
+        c = dict(fill_cfg, min_known=int(R['min_part_texels']), no_role_global='skip', catalog_tone=None, donor_forbidden=forbid, donor_material_of=mat_of)
         by_n = {p: samp[p]['n'] for p in all_parts}
         ch = tf.choose_tone_sources(all_parts, roles, by_n, total, {p: not reliable[p] for p in all_parts}, {p: tones[p] for p in all_parts}, {k: v['n'] for k, v in borders.items()}, c)
         for p in need:
@@ -377,7 +481,7 @@ def build(geoms: list, tex_rgb: list, known: list, parts: list, roles: dict | No
             own = wmedian3(samp[p]['lab'], samp[p]['w']) if len(samp[p]['lab']) >= int(AO['evidence_texels']) else None   # свой (малый) видимый тон — доказательство «другого материала»
 
             def usable(q):
-                if not reliable[q] or role_of(q) in sep:
+                if not reliable[q] or role_of(q) in sep or q in forbid or other_mat(p, q):
                     return False
                 if rp is not None and role_of(q) is not None and rp != role_of(q):          # разные роли/каналы материала — не сливаем
                     return False

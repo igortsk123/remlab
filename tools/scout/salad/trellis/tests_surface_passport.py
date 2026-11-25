@@ -839,8 +839,129 @@ def test_facade_axis():
     ok(i0 == SP.facade_axis([box], w(0.0, (2, 1))), 'чистая функция: повтор даёт тот же ответ (детерминированная выборка заполнения)')
 
 
+def _scene_one_part_two_materials():
+    """Два четырёхугольника ОДНОЙ части 03 (как у шкафа: фасад и корпус в одной «части»); слева светлый (мятный), справа тёмный (дуб); Ш4а: грани 1-го — материал 0, 2-го — материал 1."""
+    q = Quads()
+    q.quad([[-1, 0, 0], [0, 0, 0], [0, 1, 0], [-1, 1, 0]], (0, 0, .5, 1), part=0, sub=10)
+    q.quad([[0, 0, 0], [1, 0, 0], [1, 1, 0], [0, 1, 0]], (.5, 0, 1, 1), part=0, sub=10)
+    tex = np.zeros((T, T, 3), np.uint8)
+    xs = np.arange(T)[None, :].repeat(T, 0)
+    known = ((xs < 70) | ((xs >= 128) & (xs < 200)))
+    tex[xs < 128] = lab_rgb(70.0, -6.0, 3.0)
+    tex[xs >= 128] = lab_rgb(40.0, 4.0, 12.0)
+    g = q.geom(tex)
+    fm = np.array([0] * 200 + [1] * 200, np.int32)
+    return g, tex, known, [np.array(q.part, np.int32)], fm, xs
+
+
+def test_source_part_material_splits_part():
+    print('источник групп = материалы Ш4а: одна часть 03 с двумя материалами → две группы паспорта, а не один «материал-донор»:')
+    g, tex, known, parts, fm, xs = _scene_one_part_two_materials()
+    pas0, _, out0, _, _ = run(g, tex, known, parts)
+    ok(len([x for x in pas0['groups'] if x.get('applied')]) <= 1, 'без флага: одна часть = одна группа (как на main)')
+    parts2, roles2, info = SP.relabel_parts_by_material(parts, fm, {0: 'body'})
+    ok(info['applied'] and info['labels_before'] == 1 and info['labels_after'] == 2 and len(info['splits']) == 1, f'1 часть → 2 метки: {info["splits"]}')
+    ok(roles2.get(1) == 'body' and roles2.get(0) == 'body', 'роль новой метки = роль исходной части')
+    ok(not np.array_equal(parts2[0], parts[0]) and set(np.unique(parts2[0]).tolist()) == {0, 1}, 'метки граней разделены по материалам')
+    ok(np.array_equal(parts2[0][:200], np.zeros(200, np.int32)) or np.array_equal(parts2[0][200:], np.zeros(200, np.int32)), 'главный материал сохранил номер части')
+    pas1, ctx1, out1, rep1, k1 = run(g, tex, known, parts2, roles=roles2)
+    grp = [x for x in pas1['groups'] if x.get('applied')]
+    ok(len(grp) == 2, f'две группы (светлая и тёмная): {[(x["parts"], x.get("tone_lab")) for x in pas1["groups"]]}')
+    dark_unk = (~known) & (xs >= 128) & (xs > 215)
+    light_unk = (~known) & (xs < 128) & (xs > 90)
+    ok(float(np.median(lab_L(out1[0], light_unk))) - float(np.median(lab_L(out1[0], dark_unk))) > 20.0, 'невидимое светлого и тёмного материала разного тона (не один общий)')
+    ok(np.array_equal(out1[0][known], tex[known]), 'известное не изменилось (побайтно)')
+
+
+def test_source_relabel_guards():
+    print('перемётка частей: −1 не склеивается, число граней не то — без изменений, нечего делить — без изменений, потолок:')
+    g, tex, known, parts, fm, xs = _scene_one_part_two_materials()
+    p3, r3, i3 = SP.relabel_parts_by_material(parts, np.array([0] * 100 + [-1] * 100 + [1] * 200, np.int32), None)
+    ok(i3['applied'] and len(i3['splits']) == 1 and (p3[0][100:200] == 0).all(), 'грани −1 остались с номером части 03 (не отдельный «материал −1»)')
+    p4, r4, i4 = SP.relabel_parts_by_material(parts, fm[:-1], None)
+    ok(not i4['applied'] and p4 is parts, 'число граней не совпало → части без изменений')
+    p5, r5, i5 = SP.relabel_parts_by_material(parts, np.zeros(400, np.int32), None)
+    ok(p5 is parts and i5['applied'] and not i5['splits'], 'один материал на часть → части без изменений')
+    p6, r6, i6 = SP.relabel_parts_by_material(parts, fm, None, max_labels=1)
+    ok(p6 is parts and i6['capped'] == 1, f'потолок меток: лишний кусок остаётся в части (capped={i6["capped"]})')
+    p7, r7, i7 = SP.relabel_parts_by_material(parts, fm, None)
+    p8, r8, i8 = SP.relabel_parts_by_material(parts, fm, None)
+    ok(np.array_equal(p7[0], p8[0]) and i7 == i8, 'детерминированно: повтор даёт те же метки')
+    ok(sum(len(p) for p in parts) == 400 and parts[0].dtype == np.int32 and (parts[0] == 0).all(), 'исходные части не изменены на месте')
+
+
+def test_source_decision():
+    print('решение «брать Ш4а» — на товар целиком, пороги из rules:')
+    import json
+    import tempfile
+    pm = dict(TF.RULES['surface_groups']['part_material'])
+    ok(TF.RULES['surface_groups']['source'] == 'passport', 'по умолчанию источник — passport (флаг выкл, как на main)')
+    d0 = SP.source_decision(None, None, pm)
+    ok(not d0['use'] and 'нет part_material_faces' in d0['why'], 'нет карты Ш4а (выкл/воздержался) → паспорт 07')
+    fm = np.array([0] * 70 + [1] * 30, np.int32)
+    ok(SP.source_decision(fm, None, pm)['use'], 'карта есть, не-красим 0 %, метрик нет → источник Ш4а')
+    fm2 = np.array([0] * 50 + [-1] * 50, np.int32)
+    d2 = SP.source_decision(fm2, None, pm)
+    ok(not d2['use'] and d2['unpainted_share'] == 0.5, f'не красим 50 % > порога → весь товар по паспорту: {d2["why"]}')
+    with tempfile.TemporaryDirectory() as tmp:
+        d6 = os.path.join(tmp, '06-visible')
+        d4 = os.path.join(tmp, '04-camera')
+        os.makedirs(d6)
+        os.makedirs(d4)
+        with open(os.path.join(d6, 'check.json'), 'w', encoding='utf-8') as f:
+            json.dump({'metrics': {'edge_corr': {'value': 0.95}}}, f)
+        with open(os.path.join(d4, 'check.json'), 'w', encoding='utf-8') as f:
+            json.dump({'metric': {'name': 'iou_silhouette', 'value': 0.5}}, f)
+        d3 = SP.source_decision(fm, d6, pm)
+        ok(not d3['use'] and d3['iou'] == 0.5 and 'IoU' in d3['why'], f'IoU позы 04 ниже порога → паспорт 07: {d3["why"]}')
+        with open(os.path.join(d4, 'check.json'), 'w', encoding='utf-8') as f:
+            json.dump({'metric': {'name': 'iou_silhouette', 'value': 0.93}}, f)
+        with open(os.path.join(d6, 'check.json'), 'w', encoding='utf-8') as f:
+            json.dump({'metrics': {'edge_corr': {'value': 0.7}}}, f)
+        d5 = SP.source_decision(fm, d6, pm)
+        ok(not d5['use'] and 'edge_corr' in d5['why'], f'edge_corr 06 ниже порога → паспорт 07: {d5["why"]}')
+        with open(os.path.join(d6, 'check.json'), 'w', encoding='utf-8') as f:
+            json.dump({'metrics': {'edge_corr': {'value': 0.95}}}, f)
+        ok(SP.source_decision(fm, d6, pm)['use'], 'IoU и edge_corr в норме → источник Ш4а')
+
+
+def test_small_part_not_donor():
+    print('мелкая часть (ручки, ножки) не донор тона (donor_min_share); без флага — как на main:')
+    g, tex, known, parts, base = scene_plane_two_parts()
+    xs = np.arange(T)[None, :].repeat(T, 0)
+    known2 = known & (xs < 128)
+    tex2 = tex.copy()
+    tex2[xs >= 128] = lab_rgb(75.0, 0.0, 0.0)
+    R0 = dict(TF.RULES['surface_groups'], _card_role='шкаф')
+    pas0, _ = SP.build([g], [tex2], [known2], parts, None, R0, TF.FILL, TF)
+    ok(any(sorted(x['parts']) == [0, 1] for x in pas0['groups']), 'без флага: сирота берёт донора (как на main)')
+    R1 = dict(R0, donor_min_share=0.9)
+    pas1, _ = SP.build([g], [tex2], [known2], parts, None, R1, TF.FILL, TF)
+    ok(not any(sorted(x['parts']) == [0, 1] for x in pas1['groups']) and not pas1['donors'], f'донор мельче {R1["donor_min_share"]:.0%} текселей запрещён: доноров {pas1["donors"]}')
+
+
+def test_material_boundary_no_merge():
+    print('граница материалов Ш4а: части разных материалов с близким тоном не сливаются, сирота не берёт донора другого материала:')
+    g, tex, known, parts, base = scene_plane_two_parts()
+    R0 = dict(TF.RULES['surface_groups'], _card_role='шкаф')
+    pas0, _ = SP.build([g], [tex], [known], parts, None, R0, TF.FILL, TF)
+    ok(any(sorted(x['parts']) == [0, 1] for x in pas0['groups']), 'без материалов: плоскость двух частей сливается (как на main)')
+    R1 = dict(R0, part_material_of={'0': 0, '1': 1})
+    pas1, _ = SP.build([g], [tex], [known], parts, None, R1, TF.FILL, TF)
+    ok(not any(sorted(x['parts']) == [0, 1] for x in pas1['groups']), f'материалы 0 и 1 — две группы: {[x["parts"] for x in pas1["groups"]]}')
+    ok(any('Ш4а' in r.get('why', '') for r in pas1['refusals']), 'причина отказа записана (разные материалы Ш4а)')
+    xs = np.arange(T)[None, :].repeat(T, 0)
+    known2 = known & (xs < 128)
+    tex2 = tex.copy()
+    tex2[xs >= 128] = lab_rgb(75.0, 0.0, 0.0)
+    pas2, _ = SP.build([g], [tex2], [known2], parts, None, dict(R0, part_material_of={'0': 0, '1': 1}), TF.FILL, TF)
+    ok(not pas2['donors'] and not any(sorted(x['parts']) == [0, 1] for x in pas2['groups']), f'донор другого материала запрещён: доноров {pas2["donors"]}')
+    pas3, _ = SP.build([g], [tex2], [known2], parts, None, dict(R0, part_material_of={'0': 0, '1': 0}), TF.FILL, TF)
+    ok(any(sorted(x['parts']) == [0, 1] for x in pas3['groups']), 'тот же материал Ш4а — донор и слияние работают как раньше')
+
+
 def main() -> int:
-    for f in (test_carcass_library, test_carcass_library_modes,test_new_rules_only_body_type, test_rule_entries_body, test_rule_entries_not_body, test_blur_caches, test_split_plane_one_tone, test_contrast_door_own_group, test_gray_pattern_not_flattened, test_back_is_body_not_facade, test_back_not_tiny_contrast, test_top_follows_group, test_edge_body_tone, test_light_floor, test_rebuild_body_gates, test_type_allows_body, test_body_override_only_for_body_type, test_facade_relief_and_release_weak, test_grain_no_dark_seams, test_gradient_continues, test_outlier_replaced, test_orphan_attached, test_orphan_guards, test_orphan_keeps_hook_tone, test_hook_keep_top, test_ultratex_switch_off, test_hidden_pattern_by_type, test_facade_axis):
+    for f in (test_source_part_material_splits_part, test_source_relabel_guards, test_source_decision, test_small_part_not_donor, test_material_boundary_no_merge, test_carcass_library, test_carcass_library_modes,test_new_rules_only_body_type, test_rule_entries_body, test_rule_entries_not_body, test_blur_caches, test_split_plane_one_tone, test_contrast_door_own_group, test_gray_pattern_not_flattened, test_back_is_body_not_facade, test_back_not_tiny_contrast, test_top_follows_group, test_edge_body_tone, test_light_floor, test_rebuild_body_gates, test_type_allows_body, test_body_override_only_for_body_type, test_facade_relief_and_release_weak, test_grain_no_dark_seams, test_gradient_continues, test_outlier_replaced, test_orphan_attached, test_orphan_guards, test_orphan_keeps_hook_tone, test_hook_keep_top, test_ultratex_switch_off, test_hidden_pattern_by_type, test_facade_axis):
         f()
     print(f'tests_surface_passport: ошибок {bad}')
     return 1 if bad else 0
