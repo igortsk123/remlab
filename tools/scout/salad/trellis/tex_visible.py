@@ -60,6 +60,7 @@ EDGE_BG_MEASURE = float(R.get('edge_bg_measure_px', 6.0))
 EDGE_BG_DL = float(R.get('edge_bg_dL', 6.0))
 EDGE_BG_LOCAL = os.environ.get('EDGE_BG_LOCAL', str(R.get('edge_bg_local', False))).lower() in ('1', 'true', 'yes')   # T-20261124-10/2: опора каймы — цвет БЛИЖАЙШЕГО ядра, а не одна медиана на товар
 EDGE_BG_INWARD = os.environ.get('EDGE_BG_INWARD', str(R.get('edge_bg_inward', False))).lower() in ('1', 'true', 'yes')   # T-85 хвост (вариант В), ТОЛЬКО МЕРКА edge_bg_share (правило каймы/перенос от флага не зависят — текстура 06 неизменна): опора — цвет товара на INWARD_LO..INWARD_HI px вглубь от края фото (кайма вырезки тоньше, чем рама/ножка/кант), не медиана и не роль
+EDGE_BG_RULE_INWARD = os.environ.get('EDGE_BG_RULE_INWARD', str(R.get('edge_bg_rule_inward', False))).lower() in ('1', 'true', 'yes')   # T-85 (Б): ПРАВИЛО каймы (edge_bg_fringe → перенос → текстура 06) на опоре «вглубь»; ВЫКЛ — правило на медиане/local, текстура как в main
 EDGE_BG_REACH = float(R.get('edge_bg_reject_px', 8.0))   # T-85/В: под флагом inward мерка смотрит только на пиксели ≤ этого от края фото (кайма вырезки по определению у края; светлая деталь глубже — не кайма)
 INWARD_LO, INWARD_HI = float(R.get('edge_bg_inward_lo_px', 8.0)), float(R.get('edge_bg_inward_hi_px', 14.0))
 EDGE_BG_REF_SIGMA = float(R.get('edge_bg_ref_sigma_px', 6.0))     # сглаживание опорного цвета ядра (px кадра)
@@ -392,7 +393,7 @@ def edge_bg_fringe(st: dict, prgb: np.ndarray, pmask: np.ndarray) -> np.ndarray:
     med = core_median(st, prgb, pmask)
     if med[0] > EDGE_BG_WHITE_L:                       # белая ткань (по всему товару): «светлее фона» — сама ткань
         return np.zeros(pmask.shape, bool)
-    return bg_like(_lab(prgb), fringe_reference(st, prgb, pmask) if EDGE_BG_LOCAL else med) & (distance_transform_edt(pmask) <= EDGE_BG_PX) & pmask
+    return bg_like(_lab(prgb), fringe_reference(st, prgb, pmask, inward=EDGE_BG_RULE_INWARD) if (EDGE_BG_LOCAL or EDGE_BG_RULE_INWARD) else med) & (distance_transform_edt(pmask) <= EDGE_BG_PX) & pmask
 
 
 def known_px(geoms: list, st: dict, tr: dict) -> np.ndarray:

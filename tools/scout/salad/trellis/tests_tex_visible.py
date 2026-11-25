@@ -464,6 +464,25 @@ class TestTexVisible(unittest.TestCase):
         finally:
             TV.EDGE_BG_INWARD, TV.EDGE_BG_LOCAL = old
 
+    def test_edge_bg_rule_inward_flag_changes_only_the_rule_and_keeps_wood_and_halo(self):
+        """(Б) ключ edge_bg_rule_inward: ВЫКЛ — маска правила прежняя; ВКЛ — правило на опоре вглубь: ореол на ткани режется, светлое дерево рядом с синим — нет (как local, без одной медианы)."""
+        old = (TV.EDGE_BG_RULE_INWARD, TV.EDGE_BG_INWARD, TV.EDGE_BG_LOCAL)
+        try:
+            n, pm, blue, wood, prgb, st = self._two_material_photo(halo=True)
+            TV.EDGE_BG_LOCAL = False; TV.EDGE_BG_INWARD = False
+            TV.EDGE_BG_RULE_INWARD = False
+            off = TV.edge_bg_fringe(st, prgb, pm)
+            TV.EDGE_BG_RULE_INWARD = True
+            on = TV.edge_bg_fringe(st, prgb, pm)
+            halo = blue & ~binary_erosion(blue, iterations=3)
+            self.assertTrue(off[wood].sum() > 100)                                          # прежнее правило режет дерево
+            self.assertEqual(int(on[wood].sum()), 0)                                        # правило вглубь — нет
+            self.assertTrue(on[halo].mean() > 0.95)                                         # ореол на ткани режется
+            self.assertFalse(on[blue & ~halo].any())                                        # сама обивка цела
+            self.assertFalse(bool(TV.R.get('edge_bg_rule_inward', False)))                  # по умолчанию выкл.
+        finally:
+            TV.EDGE_BG_RULE_INWARD, TV.EDGE_BG_INWARD, TV.EDGE_BG_LOCAL = old
+
     def test_edge_bg_reach_limits_measure_to_photo_edge_band(self):
         """Под флагом inward мерка смотрит на пиксели ≤ EDGE_BG_REACH (8 px) от края фото: кайма у края — внутри, светлая деталь на 12 px — снаружи области."""
         n = 200
