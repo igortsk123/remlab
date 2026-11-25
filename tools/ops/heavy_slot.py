@@ -6,7 +6,7 @@
 `remlab-render` (живое демо). Здесь — одна очередь: замок `flock` (держит процесс; умер — ядро отпускает само), взявший
 очередь ждёт порога памяти и только потом стартует; кто держит и кто ждёт — `--status`, журнал — `~/remlab-logs/heavy-slot.log`.
 
-  tools/ops/heavy-slot.sh <метка> [--min-gb N] [--cores N] [--long|--short] [--timeout S] [--prio 0|1|2] [--no-slot] \
+  tools/ops/heavy-slot.sh <метка> [--min-gb N] [--cores N] [--long|--short] [--timeout S] [--prio 0|1|2|3] [--no-slot] \
       -- <команда…>                                                                       # rc команды наружу
   tools/ops/heavy-slot.sh --status                                                       # кто держит, кто ждёт, память
   tools/ops/heavy-slot.sh --cancel <метка|pid|номер билета>                              # снять СВОЙ билет (T-20261125-74)
@@ -64,6 +64,10 @@
     `head` под `queue.lock`; считать от прихода нельзя — задача, простоявшая в хвосте, закрывала бы обгон сразу, ровно в
     заторе 06.11), а у держателя слота 1, ждущего память, — с начала ожидания памяти. Голова ждёт не дольше
     HEAVY_SLOT_BACKFILL_MIN + оставшееся держание тех, кто уже идёт.
+  * ГОЛОВА СТАРШЕГО КЛАССА И ЗАКАЗ ПОКУПАТЕЛЯ (T-20261125-90; `rules/heavy-slot.json` → `priority`): 25.11 заказы «Фото по кнопке» (класс 1, 8 ГБ) ждали 20+ мин: голова не проходила по памяти,
+    а обгон (T-79) пускал за неё обычных по 1–3 ГБ — освободившаяся память уходила им. Теперь голова класса ≥ hold_min_prio (1) младшими классами не обгоняется (обгон и уступка слота 1),
+    пока она по замерам пройдёт в окно и ждёт ≤ hold_max_wait_min (30); тот же класс обгоняет как прежде. Заказ покупателя — класс order_class (3, `heavy_slot.order_class()`, ставит `render_exec`),
+    выше «Обустроить» (2); старение поднимает только до 2. `--status`: строка ГОЛОВА СТАРШЕГО КЛАССА и ДРАЙВЕР С ТЯЖЁЛОЙ БРОНЬЮ (ядер ≤ 1, факт ≤ 1 ГБ при заявке > 1 ГБ, держит ≥ driver_warn_s) → `--rebook`.
   * ПРИОРИТЕТ ИНТЕРАКТИВНЫХ (T-20261109-31): у билета класс `prio` — `--prio N` / `heavy_slot(prio=N)` / переменная
     HEAVY_SLOT_PRIO (её ставит воркер пробы стадиям): 0 — обычный (тесты, меши, сборки), 1 — загрузка тура (человек ждёт
     страницу), 2 — «Обустроить» (агент нажал и смотрит на «подбираем…»). Порядок выдачи — по классу, внутри класса — по
@@ -673,7 +677,8 @@ def _mark_cancel(d: str, pid: int) -> None:
     _write_kv(_cancel_mark(d, pid), {'pid': pid, 'start': _starttime(pid), 'by': os.getpid(), 'at': int(time.time())})
 
 
-PRIO_MAX = 2                                     # 0 обычный · 1 загрузка тура · 2 «Обустроить» (T-20261109-31)
+PRIO_MAX = 3                                     # 0 обычный · 1 загрузка тура · 2 «Обустроить» (T-20261109-31) · 3 заказ покупателя «Фото по кнопке» (T-20261125-90)
+AGE_CLASS = 2                                    # старение (защита от голодания) поднимает до 2, как до T-90: заказ покупателя (3) старением не становится
 
 
 def prio_clamp(x) -> int:
@@ -698,10 +703,10 @@ def _cls(kv: dict, now: float, age: float) -> int:
     """Действующий класс записи: `prio`; ждёт дольше `age` — старший (по `since` — начало ожидания всего вызова: уступка
     и новый билет срок не обнуляют)."""
     p = prio_clamp(kv.get('prio') or 0)
-    if age > 0 and p < PRIO_MAX:
+    if age > 0 and p < AGE_CLASS:
         with contextlib.suppress(TypeError, ValueError):
             if now - float(kv.get('since') or now) >= age:
-                p = PRIO_MAX
+                p = AGE_CLASS
     return p
 
 
@@ -822,12 +827,16 @@ def _my_turn(d: str, ticket: str) -> bool:
     return bool(live) and live[0][1] == ticket
 
 
-def _fits_now(d: str, ticket_pid: int, room: float, croom: float = float('inf')) -> dict | None:
+def _fits_now(d: str, ticket_pid: int, room: float, croom: float = float('inf'), min_cls: int = 0) -> dict | None:
     """Ожидающий (не я), которому памяти хватает уже сейчас (его порог ≤ room — свободно минус доля других держателей и
     запас, без других — просто свободно; я — держатель слота 1 — уступаю и не считаюсь), — ради него держатель уступает.
-    Ядра (T-20261111-17): его ядра ≤ croom (бюджет минус ядра других держателей), класс ≥ 1 бюджет ядер не ждёт."""
+    Ядра (T-20261111-17): его ядра ≤ croom (бюджет минус ядра других держателей), класс ≥ 1 бюджет ядер не ждёт.
+    min_cls (T-20261125-90): ожидающий класса ниже — не в счёт (держатель старшего класса не уступает младшему)."""
+    now, age = time.time(), prio_age_s()
     for _, _, kv in _tickets(d):
         try:
+            if _cls(kv, now, age) < min_cls:
+                continue
             if (int(kv['pid']) != ticket_pid and float(kv.get('eff_gb') or kv.get('min_gb', 1e9)) <= room
                     and (cores_of(kv) <= croom or prio_clamp(kv.get('prio') or 0) >= 1)):
                 return kv
@@ -1051,6 +1060,7 @@ RULES_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)), '..', 'sco
 
 LIVE_DEFAULTS = {'min_s': 600.0, 'factor': 2.0, 'floor_gb': 0.5}
 HEAD_DEFAULTS = {'by_eta': 1.0, 'eta_max_min': 20.0}
+PRIO_DEFAULTS = {'order_class': 3.0, 'hold_min_prio': 1.0, 'hold_max_wait_min': 30.0, 'driver_warn_s': 60.0}
 
 
 def _rules_section(name: str, defaults: dict) -> dict:
@@ -1078,6 +1088,30 @@ def head_cfg() -> dict:
     cfg['by_eta'] = _env_f('HEAVY_SLOT_HEAD_ETA', cfg['by_eta'])
     cfg['eta_max_min'] = _env_f('HEAVY_SLOT_HEAD_ETA_MIN', cfg['eta_max_min'])
     return cfg
+
+
+def prio_cfg() -> dict:
+    """ПРИОРИТЕТ ЗАКАЗА И ГОЛОВА СТАРШЕГО КЛАССА (T-20261125-90) — `rules/heavy-slot.json` → `priority`: order_class — класс заказа покупателя («Фото по кнопке»);
+    hold_min_prio — голова этого класса и выше не обгоняется младшими (0 — выключено); hold_max_wait_min — сколько держим обгон закрытым; driver_warn_s — с какого держания
+    предупреждать о драйвере с тяжёлой бронью. Перебивают: HEAVY_SLOT_ORDER_CLASS, HEAVY_SLOT_HOLD_PRIO, HEAVY_SLOT_HOLD_MAX_MIN, HEAVY_SLOT_DRIVER_WARN_S."""
+    cfg = _rules_section('priority', PRIO_DEFAULTS)
+    for key, env in (('order_class', 'HEAVY_SLOT_ORDER_CLASS'), ('hold_min_prio', 'HEAVY_SLOT_HOLD_PRIO'),
+                     ('hold_max_wait_min', 'HEAVY_SLOT_HOLD_MAX_MIN'), ('driver_warn_s', 'HEAVY_SLOT_DRIVER_WARN_S')):
+        cfg[key] = _env_f(env, cfg[key])
+    return cfg
+
+
+def order_class() -> int:
+    """Класс заказа покупателя (`rules/heavy-slot.json` → `priority.order_class`, 3): его ставит `render_exec` вместо литерала — число живёт в правилах."""
+    return prio_clamp(int(prio_cfg()['order_class']))
+
+
+def _head_kv(d: str, live: list, who: str) -> dict:
+    """Запись головы: держатель слота 1, ждущий память (метка `who`), иначе первый живой билет."""
+    h1 = _read_kv(_holder_file(d, 1)) or {}
+    if h1.get('stage') == 'память' and h1.get('label') == who and is_held(1):
+        return h1
+    return live[0][2] if live else {}
 
 
 def overrun_cfg() -> dict:
@@ -1641,7 +1675,7 @@ def heavy_slot(label: str, min_gb: float = 6.0, timeout: float | None = None, no
     me = {'label': label, 'pid': os.getpid(), 'since': int(t0), 'min_gb': min_gb, 'eff_gb': round(own, 3), 'type': typ,
           'bf': 1, 'cmd': cmd[:300], 'prio': pr, 'cores': f'{cores:g}', 'long': int(bool(long)),
           'v': 75, 'beat': 1}                         # v — видит слоты сверх legacy_top() (T-75); beat — понимает --cancel и бьёт билет (T-20261125-74)
-    got, ticket, yields, t_lock, extra_why, said_closed, said_open = False, None, 0, 0.0, '', False, False
+    got, ticket, yields, t_lock, extra_why, said_closed, said_open, said_hold = False, None, 0, 0.0, '', False, False, False
     keep = None                                       # номер билета, с которым вернуться после уступки старшему классу
     refused = ['', 0.0]                               # чего ждал при последнем отказе в дополнительном слоте и когда писал
 
@@ -1709,7 +1743,7 @@ def heavy_slot(label: str, min_gb: float = 6.0, timeout: float | None = None, no
         HEAVY_SLOT_BACKFILL_MIN, и пока свободен слот 1 (его берёт голова). РЕЗЕРВ ПРОБЫ (T-20261110-29): свободен только резерв —
         он не слот впереди стоящих обычных (их не ждём, защита головы его не закрывает); ждём только впереди стоящих класса ≥ 1.
         → номер слота или 0."""
-        nonlocal extra_why, said_closed, said_open
+        nonlocal extra_why, said_closed, said_open, said_hold
         lim = backfill_s()
         if not is_held(1):
             return 0
@@ -1733,6 +1767,16 @@ def heavy_slot(label: str, min_gb: float = 6.0, timeout: float | None = None, no
                     return 0
                 res_only = all(k in res_ids for k in free_k)
             who, waited = _head_wait(d, live)
+            # T-20261125-90 (25.11 заказы «Фото по кнопке» стояли 20+ мин — мелкие обычные их обгоняли, освобождённая память уходила им): голова класса ≥ hold_min_prio
+            # не обгоняется младшими, пока по замерам пройдёт в окно (_head_eta не None) и ждёт не дольше hold_max_wait_min; память копится под неё. Тот же класс — как прежде.
+            pc = prio_cfg()
+            hcls, mcls = _cls(_head_kv(d, live, who), time.time(), prio_age_s()), _cls(me, time.time(), prio_age_s())
+            if (pc['hold_min_prio'] > 0 and hcls >= pc['hold_min_prio'] and mcls < hcls and waited < pc['hold_max_wait_min'] * 60
+                    and _head_eta(d, n, live, who)[0] is not None):
+                if not said_hold:
+                    note(f'не обгоняю голову {who} (класс {hcls} старше моего {mcls}, ждёт {waited / 60:.0f} мин из {pc["hold_max_wait_min"]:g}): память копится под неё')
+                    said_hold = True
+                return 0
             eta = _head_eta(d, n, live, who) if waited >= lim and not res_only else (0.0, '')
             if waited >= lim and not res_only and eta[0] is None:   # Б (T-20261125-74): голова по замерам не пройдёт в окно — закрывать нечем, мелкие идут
                 if not said_open:
@@ -1863,7 +1907,10 @@ def heavy_slot(label: str, min_gb: float = 6.0, timeout: float | None = None, no
                 if time.time() - t_mem >= yield_s:
                     oth, _, any_h = _holders_need(d, 1, n)
                     croom = _core_room(d, 1, n)[0]
-                    w = (_fits_now(d, os.getpid(), free - oth - reserve_gb() if any_h else free, croom)
+                    hold_p = prio_cfg()['hold_min_prio']
+                    my_c = _cls(me, time.time(), prio_age_s())
+                    w = (_fits_now(d, os.getpid(), free - oth - reserve_gb() if any_h else free, croom,
+                                   my_c if hold_p > 0 and my_c >= hold_p else 0)
                          if yields < max_y else None)
                     if w:
                         yields += 1
@@ -2226,6 +2273,14 @@ def status(out=sys.stdout) -> int:
                 if ov:
                     pr(f"  ПЕРЕБОР ×{ov[0]:.1f}: заявил {decl:g} ГБ, пик {max(float(h.get('over_peak') or 0), a):.1f} ГБ — рекомендую --min-gb {ov[1]:g}"
                        + (f" · из-за доли по факту ждут: {len(waiters)}" if waiters else ''))
+            with contextlib.suppress(ValueError):
+                # T-20261125-90: удалённый драйвер платной машины (ядер ≤ 1, факт памяти ≤ порога лёгкого) с заявкой выше порога лёгкого — бронь против головы очереди
+                rgb, decl2 = _env_f('HEAVY_SLOT_REMOTE_GB', 1.0), float(h.get('eff_gb') or h.get('min_gb') or 0)
+                held_s = time.time() - float(h.get('run_t') or h.get('since') or time.time())
+                if (h.get('stage') == 'работает' and decl2 > rgb and a <= rgb and cores_of(h) <= _env_f('HEAVY_SLOT_REMOTE_CORES', 1.0)
+                        and held_s >= prio_cfg()['driver_warn_s']):
+                    pr(f"  ДРАЙВЕР С ТЯЖЁЛОЙ БРОНЬЮ: заявка {decl2:g} ГБ при факте {a:.2f} ГБ, ядер {cores_of(h):g} — место держит впустую; "
+                       f"`--rebook --apply` перезаявит по живому пику (после live_share.min_s), в следующий раз `--min-gb 1` (лёгкий держатель)")
             if h.get('cmd'):
                 pr(f"  команда: {h['cmd']}")
         elif held:
@@ -2267,6 +2322,11 @@ def status(out=sys.stdout) -> int:
         elif who:
             pr(f'ОБГОН: открыт — голова {who} ждёт {w / 60:.0f} мин из {lim / 60:g}; не проходит по памяти или ядрам — свободный '
                'дополнительный слот берёт следующий, кто проходит')
+        if who:
+            pcs, hcl = prio_cfg(), _cls(_head_kv(d, live, who), time.time(), prio_age_s())
+            if pcs['hold_min_prio'] > 0 and hcl >= pcs['hold_min_prio']:
+                pr(f'ГОЛОВА СТАРШЕГО КЛАССА: {who} (класс {hcl}) — младшие её не обгоняют до {pcs["hold_max_wait_min"]:g} мин ожидания, память копится под неё '
+                   '(`rules/heavy-slot.json` → priority)')
     try:
         pr(f'ПАМЯТЬ: свободно {mem_available_gb():.1f} ГБ')
     except (OSError, RuntimeError) as e:
@@ -2385,10 +2445,10 @@ def thread_env(env: dict, cores) -> dict:
 
 
 def run(argv: list) -> int:
-    """`<метка> [--min-gb N] [--cores N] [--long|--short] [--timeout S] [--prio 0|1|2] [--no-slot] -- <команда…>` → rc
+    """`<метка> [--min-gb N] [--cores N] [--long|--short] [--timeout S] [--prio 0|1|2|3] [--no-slot] -- <команда…>` → rc
     команды (124 — не дождался). Долгая (`--long` или по признаку в команде — `long_auto`; `--short` — признак не брать)
     запускается с nice +HEAVY_SLOT_LONG_NICE (10): обёртка понижает себя после взятия слота, команда наследует."""
-    use = ('<метка> [--min-gb N] [--cores N] [--long|--short] [--timeout S] [--prio 0|1|2] [--no-slot] -- <команда…> '
+    use = ('<метка> [--min-gb N] [--cores N] [--long|--short] [--timeout S] [--prio 0|1|2|3] [--no-slot] -- <команда…> '
            '| --status | --stats | --cancel <метка|pid|билет>')
     if '--' not in argv or argv.index('--') < 1 or argv.index('--') == len(argv) - 1:
         print(f'heavy-slot: {use}', file=sys.stderr)

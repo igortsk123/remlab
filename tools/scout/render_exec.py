@@ -1187,7 +1187,7 @@ class LocalCpuExecutor(SceneExecutor):
         os.makedirs(job)
         log = os.path.join(job, 'run.log')
         t0, timing = time.time(), {}
-        with HS.heavy_slot('photo-render-' + snap['scene_hash'][:8], min_gb=pr['min_gb'], cores=pr['cores'], prio=1) as hs:
+        with HS.heavy_slot('photo-render-' + snap['scene_hash'][:8], min_gb=pr['min_gb'], cores=pr['cores'], prio=HS.order_class()) as hs:
             timing['slot_wait'] = round(float(hs.get('waited_s', 0)), 1) if isinstance(hs, dict) else 0
             dump = self._prepare(snap, job, log, pr, progress, timing)
             if qa_gate_on():          # ворота (шаг 5): ошибка предпроверки — Blender не запускаем
@@ -1481,12 +1481,12 @@ class SaladGpuExecutor(SceneExecutor):
         """Заготовка кадров (T-20261118-07) берётся, только пока машина годна (прогрета); выключена — заготовка ждёт, процессор DEV не занимает."""
         return self.available()
 
-    def _slot(self, label: str, pr: dict, prio: int = 1):
-        """Общая очередь тяжёлых прогонов — только на сборку сцены на DEV (ожидание машины рендера процессор DEV не занимает). `prio` 1 — заказ человека;
+    def _slot(self, label: str, pr: dict, prio: int | None = None):
+        """Общая очередь тяжёлых прогонов — только на сборку сцены на DEV (ожидание машины рендера процессор DEV не занимает). `prio` по умолчанию — класс заказа покупателя (`heavy_slot.order_class()`, правила heavy-slot.json → priority);
         фоновые шаги (подогрев витрины, `render_gpu/showcase_assets.py`) берут 0 и уступают заказам."""
         sys.path.insert(0, os.path.join(REPO, 'tools', 'ops'))
         import heavy_slot as HS
-        return HS.heavy_slot(label, min_gb=pr['min_gb'], cores=2, prio=prio, no_slot=os.environ.get('RENDER_SLOT') == '0')   # `RENDER_SLOT=0` — только платные пробы на машине: очередь чужих прогонов её не держит
+        return HS.heavy_slot(label, min_gb=pr['min_gb'], cores=2, prio=HS.order_class() if prio is None else prio, no_slot=os.environ.get('RENDER_SLOT') == '0')   # `RENDER_SLOT=0` — только платные пробы на машине: очередь чужих прогонов её не держит
 
     def _gpu_unavailable(self, code: str) -> ExecutorUnavailable:
         return ExecutorUnavailable(code, *GPU_FAILED)
