@@ -59,9 +59,6 @@ EDGE_BG_PX = float(os.environ.get('EDGE_BG_PX', R.get('edge_bg_reject_px', 8.0))
 EDGE_BG_MEASURE = float(R.get('edge_bg_measure_px', 6.0))
 EDGE_BG_DL = float(R.get('edge_bg_dL', 6.0))
 EDGE_BG_LOCAL = os.environ.get('EDGE_BG_LOCAL', str(R.get('edge_bg_local', False))).lower() in ('1', 'true', 'yes')   # T-20261124-10/2: опора каймы — цвет БЛИЖАЙШЕГО ядра, а не одна медиана на товар
-EDGE_BG_GROUP = os.environ.get('EDGE_BG_GROUP', str(R.get('edge_bg_group', False))).lower() in ('1', 'true', 'yes')   # T-85 хвост (вариант А): опора мерки/каймы — медиана ядра СВОЕЙ группы материала Ш4а (роль-часть: верх/ножки/фасад/бок/корпус), а не одна на товар; выкл = как main
-EDGE_BG_ROLES_DIR = os.environ.get('EDGE_BG_ROLES_DIR', str(R.get('edge_bg_roles_dir', '')))                         # папка с roles-faces.npz товара (роли граней, как у part_material_stage --roles-dir); нет файла — опора прежняя (медиана), причина в check.json
-_FG_CACHE: dict = {}
 EDGE_BG_INWARD = os.environ.get('EDGE_BG_INWARD', str(R.get('edge_bg_inward', False))).lower() in ('1', 'true', 'yes')   # T-85 хвост (вариант В): опора каймы — цвет товара на INWARD_LO..INWARD_HI px вглубь от края фото (кайма вырезки тоньше, чем рама/ножка/кант), не медиана и не роль
 INWARD_LO, INWARD_HI = float(R.get('edge_bg_inward_lo_px', 8.0)), float(R.get('edge_bg_inward_hi_px', 14.0))
 EDGE_BG_REF_SIGMA = float(R.get('edge_bg_ref_sigma_px', 6.0))     # сглаживание опорного цвета ядра (px кадра)
@@ -303,23 +300,6 @@ def core_median(st: dict, prgb: np.ndarray, pmask: np.ndarray) -> np.ndarray:
 TV_FALLBACK_COS = 0.5
 
 
-def face_group_labels() -> np.ndarray | None:
-    """Метка группы материала Ш4а по граням (part_material.role_groups по roles-faces.npz); len(names) = «роль вне таблицы / conf ниже порога». Нет папки/файла — None."""
-    key = EDGE_BG_ROLES_DIR
-    if key in _FG_CACHE:
-        return _FG_CACHE[key]
-    out = None
-    f = os.path.join(key, 'roles-faces.npz') if key else ''
-    if f and os.path.isfile(f):
-        import part_material as PMT
-        z = np.load(f, allow_pickle=True)
-        lab, names = PMT.role_groups(np.asarray(z['role']).astype(str), np.asarray(z['conf'], float), PMT.load_rules())
-        out = np.asarray(lab, np.int16)
-        out = np.concatenate([out, [len(names)]]).astype(np.int16)     # последний элемент — метка «роль вне таблицы» (len(names)); грани — fl[:-1]
-    _FG_CACHE[key] = out
-    return out
-
-
 _INWARD_REP: dict = {}
 
 
@@ -376,48 +356,11 @@ def inward_reference(st: dict, prgb: np.ndarray, pmask: np.ndarray) -> np.ndarra
     return ref
 
 
-def group_reference(st: dict, prgb: np.ndarray, pmask: np.ndarray, fl: np.ndarray) -> tuple[np.ndarray, dict]:
-    """Lab-опора по пикселю (H,W,3): медиана ядра СВОЕЙ группы материала (метка группы грани под пикселем). Ядро группы — как core_median (cos >= 0.8, глубже 12 px от краёв фото и силуэта);
-    < 100 px — мягче (cos >= TV_FALLBACK_COS); совсем нет — медиана всего товара (честно: группа без ядра). Пиксели без группы (роль вне таблицы) — тоже медиана товара. → (опора, отчёт по группам)."""
-    from scipy.ndimage import distance_transform_edt
-    ids = st['ids']
-    ng, fl = int(fl[-1]), fl[:-1]                                  # ng = метка «не красим»
-    gl = np.full(ids.shape, -1, np.int32)
-    ok = (ids >= 0) & (ids < len(fl))
-    gl[ok] = fl[ids[ok]]
-    lab = _lab(prgb)
-    glob = core_median(st, prgb, pmask)
-    base = st['mask'] & pmask
-    strict = base & (st['cos'] >= 0.8) & (distance_transform_edt(pmask) > 12) & (distance_transform_edt(st['mask']) > 12)
-    soft = base & (st['cos'] >= TV_FALLBACK_COS)
-    ref = np.broadcast_to(glob, prgb.shape).astype(np.float32).copy()
-    rep = {}
-    for g in sorted(set(np.unique(gl).tolist()) - {-1}):
-        if g == ng:
-            continue                                               # роль вне таблицы — опора товара
-        sel = gl == g
-        core = sel & strict
-        how = 'cos>=0.8'
-        if core.sum() < 100:
-            core, how = sel & soft, 'cos>=%g' % TV_FALLBACK_COS
-        if core.sum() < 100:
-            rep[int(g)] = {'core_px': int(core.sum()), 'ref': 'товар (нет ядра группы)'}
-            continue
-        m = np.median(lab[core], axis=0)
-        ref[sel] = m
-        rep[int(g)] = {'core_px': int(core.sum()), 'ref': how, 'lab': [round(float(x), 1) for x in m]}
-    return ref, rep
-
-
 def fringe_reference(st: dict, prgb: np.ndarray, pmask: np.ndarray) -> np.ndarray:
     """Опорный цвет «ткани» для каймы/мерки края (T-20261124-10/2): флаг edge_bg_local ВЫКЛ — одна медиана ядра на весь товар (core_median, как раньше); ВКЛ — local_reference по пикселю.
     Одна медиана на товар из двух материалов (синяя обивка + светлое дерево) принимала дерево за «фон вырезки» (Марти-2: 4416 из 4416 пикселей на ножках, edge_bg_share 0,258)."""
     if EDGE_BG_INWARD:
         return inward_reference(st, prgb, pmask)
-    if EDGE_BG_GROUP:
-        fl = face_group_labels()
-        if fl is not None and int(st['ids'].max()) < len(fl) - 1:
-            return group_reference(st, prgb, pmask, fl)[0]
     return local_reference(st, prgb, pmask) if EDGE_BG_LOCAL else core_median(st, prgb, pmask)
 
 
@@ -448,7 +391,7 @@ def edge_bg_fringe(st: dict, prgb: np.ndarray, pmask: np.ndarray) -> np.ndarray:
     med = core_median(st, prgb, pmask)
     if med[0] > EDGE_BG_WHITE_L:                       # белая ткань (по всему товару): «светлее фона» — сама ткань
         return np.zeros(pmask.shape, bool)
-    return bg_like(_lab(prgb), fringe_reference(st, prgb, pmask) if (EDGE_BG_LOCAL or EDGE_BG_GROUP or EDGE_BG_INWARD) else med) & (distance_transform_edt(pmask) <= EDGE_BG_PX) & pmask
+    return bg_like(_lab(prgb), fringe_reference(st, prgb, pmask) if (EDGE_BG_LOCAL or EDGE_BG_INWARD) else med) & (distance_transform_edt(pmask) <= EDGE_BG_PX) & pmask
 
 
 def known_px(geoms: list, st: dict, tr: dict) -> np.ndarray:
@@ -496,27 +439,13 @@ def edge_bg_share(geoms: list, st: dict, prgb: np.ndarray, pmask: np.ndarray, tr
     med = core_median(st, prgb, pmask)
     if med[0] > EDGE_BG_WHITE_L:
         return {'edge_bg_share': None, 'edge_known_px': int(near.sum()), 'edge_bg_px': 0, 'edge_bg_na': f'N/A: белая ткань (медиана ядра L* {med[0]:.1f} > {EDGE_BG_WHITE_L:g}), мерка слепа'}
-    bg = bg_like(_lab(after), fringe_reference(st, prgb, pmask) if (EDGE_BG_LOCAL or EDGE_BG_GROUP or EDGE_BG_INWARD) else med) & near
+    bg = bg_like(_lab(after), fringe_reference(st, prgb, pmask) if (EDGE_BG_LOCAL or EDGE_BG_INWARD) else med) & near
     n = int(near.sum())
     if os.environ.get('EDGE_BG_DEBUG'):                                  # отладка (только по env): что мерка видит у края — для разбора слепоты опоры
-        _rf = fringe_reference(st, prgb, pmask) if (EDGE_BG_LOCAL or EDGE_BG_GROUP or EDGE_BG_INWARD) else med
+        _rf = fringe_reference(st, prgb, pmask) if (EDGE_BG_LOCAL or EDGE_BG_INWARD) else med
         np.savez_compressed(os.environ['EDGE_BG_DEBUG'], near=near, bg=bg, bg_med=bg_like(_lab(after), med) & near, lab=_lab(after).astype(np.float16), ref=np.broadcast_to(np.asarray(_rf), prgb.shape).astype(np.float16), pmask=pmask, mask=mask)
     ref_kind = 'inward' if EDGE_BG_INWARD else ('local' if EDGE_BG_LOCAL else 'median')
     out = {}
-    if EDGE_BG_GROUP:
-        fl = face_group_labels()
-        tot = sum(len(g['F']) for g in geoms)
-        if fl is not None and len(fl) - 1 == tot and int(st['ids'].max()) < tot:
-            ref_kind = 'group'
-            out['edge_bg_groups'] = rep_g = group_reference(st, prgb, pmask, fl)[1]
-            ids_ = st['ids']
-            gl_ = np.full(ids_.shape, -1, np.int32)
-            okg = (ids_ >= 0) & (ids_ < len(fl) - 1)
-            gl_[okg] = fl[:-1][ids_[okg]]
-            for g_, r_ in rep_g.items():                            # где именно красное: по группам — взятых у края и «как фон»
-                r_['edge_px'], r_['bg_px'] = int((near & (gl_ == g_)).sum()), int((bg & (gl_ == g_)).sum())
-        else:
-            ref_kind = 'median (нет ролей: %s)' % ('нет roles-faces.npz' if fl is None else 'граней %d, ролей %d' % (tot, len(fl) - 1))
     if EDGE_BG_INWARD and _INWARD_REP:
         out['edge_bg_inward'] = dict(_INWARD_REP)
     out.update({'edge_bg_share': None if n < 200 else round(float(bg.sum() / n), 4), 'edge_known_px': n, 'edge_bg_px': int(bg.sum()), 'edge_bg_ref': ref_kind})
