@@ -474,6 +474,33 @@ try:
 except CT.CodeTarError as exc:
     ok(False, f'срез HEAD не собран: {exc}')
 
+# ---- T-20261124-23/в3 (п.16): каждый файл правил/данных, на который ссылается код среза по имени, есть в code.tar (вход этапа на ноде = всё, что этап читает на ядрах).
+# Проверено и динамически (strace 07/шов/08 на 2 товарах: 21 обращение к дереву, все в срезе); здесь — статически, чтобы новый правила-файл не выпал молча.
+try:
+    import re as _re
+    _real = CT.build(ROOT, 'HEAD')
+    with tarfile.open(fileobj=io.BytesIO(_real['tar'])) as _tf:
+        _names = set(_tf.getnames())
+    _known = {}
+    for _d in ('tools/scout/rules', 'data/flat3d'):
+        for _dp, _dn, _fn in os.walk(os.path.join(ROOT, _d)):
+            for _f in _fn:
+                if _f.endswith('.json'):
+                    _known.setdefault(_f, []).append(os.path.relpath(os.path.join(_dp, _f), ROOT))
+    _OFFLINE = {'data/flat3d/material-class-assign.json', 'data/flat3d/material-part-assign.json'}      # выходы офлайн-сборки `build` (по id меша каталога): этапы 06/07/шов/08 их не читают (strace 25.11), в срез не нужны
+    _lost = set()
+    for _f in _real['files']:
+        if not _f.endswith('.py'):
+            continue
+        _src = open(os.path.join(ROOT, _f), encoding='utf-8').read()
+        for _lit in set(_re.findall(r"""['"]([A-Za-z0-9_\-]+\.json)['"]""", _src)):
+            for _rel in _known.get(_lit, []):
+                if not (_rel in _names or CT.packed_name(_rel) in _names) and not _rel.startswith('data/flat3d/top-library') and _rel not in _OFFLINE:
+                    _lost.add((os.path.basename(_f), _rel))
+    ok(not _lost, f'срез HEAD: каждый файл правил (rules/*.json, data/flat3d/*.json), названный в коде среза, лежит в code.tar: нет {sorted(_lost)}')
+except CT.CodeTarError as exc:
+    ok(False, f'срез HEAD не собран: {exc}')
+
 # ---- T-193/3 (22.11): на Salad 07 считался БЕЗ частей — модулей tools/assets (материал/ножки) не было в срезе, а «частей нет (ModuleNotFoundError)» глоталось заметкой
 PARTS_PY = {'tools/assets/material_parts.py', 'tools/assets/parts_refine.py', 'tools/assets/parts_vote.py', 'tools/assets/part_shapes.py'}
 try:
