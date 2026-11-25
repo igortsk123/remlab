@@ -58,7 +58,8 @@ HERE = os.path.dirname(os.path.abspath(__file__))
 ROOT = os.path.abspath(os.path.join(HERE, '..', '..'))
 RULES_PATH = os.path.join(ROOT, 'tools', 'scout', 'rules', 'dev-disk.json')
 GB = 1024 ** 3
-DEFAULTS = {'src': '~/remlab-logs', 'dst': '/mnt/hdd/remlab-logs-arhiv', 'days': 5, 'min_hdd_free_gb': 50, 'never': [], 'worktrees_block': True, 'refs_exclude': [], 'adaptive': [], 'refs_scope': None, 'memory_paths': None, 'hdd_prune': {'days': 14}, 'protected': []}
+DEFAULTS = {'src': '~/remlab-logs', 'dst': '/mnt/hdd/remlab-logs-arhiv', 'days': 5, 'min_hdd_free_gb': 50, 'never': [], 'worktrees_block': True, 'refs_exclude': [], 'adaptive': [], 'refs_scope': None, 'memory_paths': None, 'hdd_prune': {'days': 14}, 'protected': [],
+            'monitor_max_h': None, 'grow_alert_gb': None, 'grow_window_h': None, 'grow_top': None, 'grow_alert_every_h': None, 'forecast_window_h': None, 'forecast_warn_h': None}   # T-89: нет ключа в rules — наблюдатели держат как прежде, сторож роста выключен (чисел порогов в коде нет — они в dev-disk.json)
 PROTECTED_DEFAULT = ['~/remlab-inputs']   # входы наборов (T-20261125-75/2): не переносить, не удалять; правило `archive.protected` только ДОБАВЛЯЕТ папки
 
 
@@ -204,34 +205,154 @@ def worktree_paths(repo: str) -> set:
     return {os.path.realpath(ln.split(' ', 1)[1]) for ln in r.stdout.splitlines() if ln.startswith('worktree ')}
 
 
-def busy_by(path: str, proc_root: str = '/proc') -> str:
-    """Что держит папку: процесс с cwd/открытым файлом внутри или её именем в командной строке (свои процессы тоже). '' — никто."""
-    real = os.path.realpath(path)
-    pref = real.rstrip('/') + '/'
+# ───────────── забытые наблюдатели (T-20261125-89, владелец TG 2769) ─────────────
+# `tail -F x.log | grep …` с позавчера держал папку как «живой прогон»: открытый файл/путь в командной строке. Наблюдатель старше `archive.monitor_max_h` часов папку НЕ держит
+# (процесс не убиваем; в отчёт — строка «наблюдатель старше N ч — не держит»). Порог — только из rules (None — выключено: держит, как раньше).
+MONITOR_MAX_H = None                                   # ставит main() из rules; параметр monitor_max_h функций перекрывает
+MONITOR_NOTES: list = []                               # строки «наблюдатель … не держит» за этот запуск (main печатает)
+MONITOR_PIPE = ('grep', 'egrep', 'fgrep', 'awk', 'sed', 'stdbuf', 'head', 'cut', 'tr')   # что может стоять в трубе после tail
+_TAIL_FOLLOW = re.compile(r'^(-(?!-)[A-Za-z0-9]*[fF][A-Za-z0-9]*|--follow(=.*)?)$')
+
+
+def is_monitor_cmd(args: list) -> bool:
+    """Командная строка — ТОЛЬКО `tail -f|-F …` (в `bash -c` — вся строка) и, возможно, труба в grep/awk/sed/…: чистый наблюдатель, ничего не пишет и не считает.
+    Любое `;` `&&` `$(` `` ` `` `>` (кроме `2>&1`) — не наблюдатель (осторожно: такой процесс держит как прежде)."""
+    if not args:
+        return False
+    if os.path.basename(args[0]) in ('bash', 'sh', 'dash', 'zsh'):
+        ci = next((k for k, a in enumerate(args[1:], 1) if re.fullmatch(r'-[a-z]*c[a-z]*', a)), None)
+        if ci is None or ci + 1 >= len(args):
+            return False
+        line = args[ci + 1]
+    else:
+        line = ' '.join(shlex.quote(a) for a in args)
+    line = line.replace('2>&1', ' ')
+    if re.search(r'[;&><`]|\$\(', line):
+        return False
+    try:
+        lex = shlex.shlex(line, posix=True, punctuation_chars='|')
+        lex.whitespace_split = True
+        toks = list(lex)
+    except ValueError:
+        return False
+    segs: list = [[]]
+    for t in toks:
+        if t == '|':
+            segs.append([])
+        elif set(t) == {'|'}:
+            return False                                   # `||` — не труба
+        else:
+            segs[-1].append(t)
+    if any(not s for s in segs):
+        return False
+    for i, s in enumerate(segs):
+        k = 0
+        while k < len(s) and (os.path.basename(s[k]) == 'stdbuf' or (k and s[k - 1] == 'stdbuf' and s[k].startswith('-'))):
+            k += 1                                         # `stdbuf -oL tail -F …`
+        if k >= len(s):
+            return False
+        exe = os.path.basename(s[k])
+        if i == 0:
+            if exe != 'tail' or not any(_TAIL_FOLLOW.match(a) for a in s[k + 1:]):
+                return False
+        elif exe not in MONITOR_PIPE:
+            return False
+    return True
+
+
+def proc_age_h(pid: str, proc_root: str = '/proc', now: float | None = None) -> float | None:
+    """Возраст процесса в часах (starttime из /proc/<pid>/stat + btime из /proc/stat); не прочитать — None (тогда процесс считается свежим)."""
+    try:
+        st = open(f'{proc_root}/{pid}/stat', encoding='utf-8', errors='replace').read()
+        rest = st[st.rindex(')') + 2:].split()
+        start_ticks = int(rest[19])
+        btime = next(int(ln.split()[1]) for ln in open(f'{proc_root}/stat', encoding='utf-8') if ln.startswith('btime '))
+        return ((time.time() if now is None else now) - (btime + start_ticks / os.sysconf('SC_CLK_TCK'))) / 3600
+    except (OSError, ValueError, IndexError, StopIteration):
+        return None
+
+
+def stale_monitor(pid: str, args: list, proc_root: str = '/proc', monitor_max_h: float | None = None) -> str:
+    """'' — не наблюдатель или ещё свежий; иначе строка-пояснение «наблюдатель старше N ч — не держит» (и в MONITOR_NOTES, один раз на pid)."""
+    mh = MONITOR_MAX_H if monitor_max_h is None else monitor_max_h
+    if mh is None or not is_monitor_cmd(args):
+        return ''
+    age = proc_age_h(pid, proc_root)
+    if age is None or age <= float(mh):
+        return ''
+    line = f'наблюдатель старше {float(mh):g} ч — не держит: pid {pid} ({age:.0f} ч): {" ".join(args)[:90]}'
+    if not any(f'pid {pid} ' in n for n in MONITOR_NOTES):
+        MONITOR_NOTES.append(line)
+    return line
+
+
+def proc_snapshot(proc_root: str = '/proc', monitor_max_h: float | None = None, holders: bool = False, heavy_dir: str | None = None) -> list:
+    """ОДНА реализация «что держит папки» (T-89: busy_by и worktree_prune — это она): [{pid, cwd, cmd, fds, pypath, holder}] по всем видимым процессам (кроме себя и забытых
+    наблюдателей tail старше monitor_max_h): cwd, командная строка, открытые файлы, PYTHONPATH из /proc/<pid>/environ (виден только свой пользователь); holders=True добавляет
+    живых держателей heavy-slot (их cmd=). Один обход /proc на любое число папок."""
+    snap: list = []
     me = os.getpid()
     try:
         pids = [p for p in os.listdir(proc_root) if p.isdigit() and int(p) != me]
     except OSError:
-        return ''
+        pids = []
     for p in pids:
         base = f'{proc_root}/{p}'
         try:
-            cwd = os.readlink(f'{base}/cwd')
-            if cwd == real or cwd.startswith(pref):
-                return f'pid {p}: cwd внутри'
-            cmd = open(f'{base}/cmdline', 'rb').read().replace(b'\0', b' ').decode('utf-8', 'replace')
-            if pref in cmd or cmd.rstrip().endswith(real):
-                return f'pid {p}: в командной строке'
+            raw = open(f'{base}/cmdline', 'rb').read()
+        except OSError:
+            raw = b''
+        if raw and stale_monitor(p, [a.decode('utf-8', 'replace') for a in raw.split(b'\0') if a], proc_root, monitor_max_h):
+            continue                                            # забытый наблюдатель не держит
+        e = {'pid': p, 'cwd': '', 'cmd': raw.replace(b'\0', b' ').decode('utf-8', 'replace'), 'fds': [], 'pypath': [], 'holder': ''}
+        try:
+            e['cwd'] = os.readlink(f'{base}/cwd')
+        except OSError:
+            pass
+        try:
             for fd in os.listdir(f'{base}/fd'):
                 try:
                     t = os.readlink(f'{base}/fd/{fd}')
                 except OSError:
                     continue
-                if t == real or t.startswith(pref):
-                    return f'pid {p}: открыт файл внутри'
+                if t.startswith('/'):
+                    e['fds'].append(t)
         except OSError:
-            continue
+            pass
+        try:
+            for kv in open(f'{base}/environ', 'rb').read().split(b'\0'):
+                if kv.startswith(b'PYTHONPATH='):
+                    e['pypath'] = [x for x in kv[11:].decode('utf-8', 'replace').split(':') if x.startswith('/')]
+        except OSError:
+            pass
+        snap.append(e)
+    if holders:
+        for pid, label, args in holder_cmds(proc_root, heavy_dir):
+            snap.append({'pid': pid, 'cwd': '', 'cmd': ' '.join(args), 'fds': [], 'pypath': [], 'holder': label})
+    return snap
+
+
+def held_in(path: str, snap: list) -> str:
+    """Что из снимка держит папку: cwd внутри, её путь в командной строке, открытый файл внутри, PYTHONPATH внутри (код грузится из этой копии). '' — никто."""
+    for real in {os.path.realpath(path), os.path.abspath(path)}:
+        pref = real.rstrip('/') + '/'
+        for e in snap:
+            who = (f'держатель heavy-slot «{e["holder"]}»' if e['holder'] else f'pid {e["pid"]}')
+            if e['cwd'] == real or e['cwd'].startswith(pref):
+                return f'{who}: cwd внутри'
+            if pref in e['cmd'] or e['cmd'].rstrip().endswith(real):
+                return f'{who}: в командной строке'
+            if any(t == real or t.startswith(pref) for t in e['fds']):
+                return f'{who}: открыт файл внутри'
+            if any(x == real or x.startswith(pref) for x in e['pypath']):
+                return f'{who}: PYTHONPATH внутри'
     return ''
+
+
+def busy_by(path: str, proc_root: str = '/proc', monitor_max_h: float | None = None) -> str:
+    """Что держит папку: процесс с cwd/открытым файлом внутри, её именем в командной строке или PYTHONPATH внутри (свои процессы тоже). '' — никто.
+    Забытый наблюдатель (`tail -F … | grep`, старше monitor_max_h) не держит."""
+    return held_in(path, proc_snapshot(proc_root, monitor_max_h))
 
 
 def memory_mentions(names: list, repo: str, paths: list | None = None) -> dict:
@@ -308,7 +429,7 @@ def _file_refs(path: str, rx: re.Pattern, out: dict, why: str, seen: set, depth:
             _file_refs(q, rx, out, why + ' → ' + os.path.basename(q), seen, depth - 1)
 
 
-def live_refs(src: str, proc_root: str = '/proc', heavy_dir: str | None = None) -> dict:
+def live_refs(src: str, proc_root: str = '/proc', heavy_dir: str | None = None, monitor_max_h: float | None = None) -> dict:
     """{имя папки или шаблон: причина} — что сейчас вход/выход живого прогона. Источники: командная строка КАЖДОГО живого процесса (в том числе держателя heavy-slot и
     процесса из реестра групп Salad — это те же процессы), строка `cmd=` в `holder*` heavy-slot, файлы, названные в этих командных строках (правила `--rules x.json`, списки
     входов): любая строка-путь на src внутри (out_root, base_root, shard_inputs_glob, parts_root, catalog …) — и файлы, на которые они ссылаются. Ничего не читает вне этого."""
@@ -342,17 +463,27 @@ def live_refs(src: str, proc_root: str = '/proc', heavy_dir: str | None = None) 
         args = [a.decode('utf-8', 'replace') for a in raw.split(b'\0') if a]
         if not args:
             continue
+        if stale_monitor(pid, args, proc_root, monitor_max_h):      # забытый `tail -F … | grep` старше monitor_max_h: не вход и не выход прогона
+            continue
         try:
             cwd = os.readlink(f'{proc_root}/{pid}/cwd')
         except OSError:
             cwd = ''
         scan(pid, args, cwd, 'процесс')
+    for pid, label, args in holder_cmds(proc_root, heavy_dir):     # держатели heavy-slot: их cmd= (запись живёт, пока жив держатель)
+        scan(pid, args, '', f'держатель heavy-slot «{label}»')
+    return out
+
+
+def holder_cmds(proc_root: str = '/proc', heavy_dir: str | None = None) -> list:
+    """[(pid, label, args)] живых держателей heavy-slot (файлы `holder*` в HEAVY_SLOT_DIR: pid=, label=, cmd=). Общий источник для live_refs и worktree_prune."""
     hd = heavy_dir if heavy_dir is not None else os.path.expanduser(os.environ.get('HEAVY_SLOT_DIR') or '~/.cache/remlab-heavy-slot')
     try:
         files = sorted(f for f in os.listdir(hd) if f.startswith('holder') and '.tmp' not in f)
     except OSError:
         files = []
-    for f in files:                                           # держатели heavy-slot: их cmd= (запись живёт, пока жив держатель)
+    res = []
+    for f in files:
         kv: dict = {}
         try:
             for ln in open(os.path.join(hd, f), encoding='utf-8', errors='replace'):
@@ -366,8 +497,8 @@ def live_refs(src: str, proc_root: str = '/proc', heavy_dir: str | None = None) 
                 args = shlex.split(cmd)
             except ValueError:
                 args = cmd.split()
-            scan(pid, args, '', f'держатель heavy-slot «{kv.get("label", "")}»')
-    return out
+            res.append((pid, kv.get('label', ''), args))
+    return res
 
 
 # ───────────── удаление со второго диска (T-20261124-67) ─────────────
@@ -762,9 +893,134 @@ def alert(text: str) -> None:
         pass
 
 
+# ───────────── сторож роста (T-20261125-89, владелец TG 2769) ─────────────
+# 25.11 прогоны писали ≈45 ГБ за сутки (полные меши и кадры на каждый вариант), архив берёт только старше суток — диск упал до 11 ГБ. Раз в час снимок размеров папок src; за окно
+# `grow_window_h` суммарный РОСТ (сумма положительных приростов по папкам: перенос/удаление других папок рост не скрывают) больше `grow_alert_gb` — WARN:disk_grow с тремя самыми
+# растущими папками (имя задачи). Повтор тревоги — не чаще `grow_alert_every_h`. Пороги — только из rules (`archive.grow_*`); нет `grow_alert_gb` — сторож выключен.
+def growth_state_path() -> str:
+    return os.environ.get('LOGS_GROWTH_STATE') or os.path.expanduser('~/.cache/remlab-logs-growth/snap.json')
+
+
+def du_children(src: str, timeout: int = 1800) -> dict:
+    """{имя папки: байт} — размеры папок первого уровня src (ссылки на HDD не раскрываем, скрытые не считаем). Один `du`: жёсткая ссылка между папками считается один раз."""
+    try:
+        names = sorted(n for n in os.listdir(src) if not n.startswith('.') and os.path.isdir(os.path.join(src, n)) and not os.path.islink(os.path.join(src, n)))
+    except OSError:
+        return {}
+    out: dict = {}
+    for i in range(0, len(names), 200):
+        chunk = names[i:i + 200]
+        try:
+            res = subprocess.run(['du', '-sB1', '--', *chunk], cwd=src, capture_output=True, text=True, timeout=timeout)
+        except (OSError, subprocess.SubprocessError):
+            continue
+        for ln in res.stdout.splitlines():
+            sz, _, nm = ln.partition('\t')
+            if sz.isdigit() and nm in chunk:
+                out[nm] = int(sz)
+    return out
+
+
+def hdd_mounted(dst: str) -> str:
+    """Точка монтирования, на которой лежит dst (не «/»), если dst существует; иначе ''. `git worktree prune` без HDD стёр бы записи копий, лежащих на нём (ссылки повисли бы)."""
+    p = os.path.realpath(os.path.expanduser(dst))
+    if not os.path.exists(p):
+        return ''
+    while True:
+        if os.path.ismount(p):
+            return p if p != os.sep else ''
+        q = os.path.dirname(p)
+        if q == p:
+            return ''
+        p = q
+
+
+def hours_to_stop(free_gb_now: float, stop_gb: float, gross_gb: float, span_h: float) -> float | None:
+    """Прогноз: часов до стопа (свободно упадёт до stop_gb) при скорости роста gross_gb за span_h часов; роста нет — None."""
+    if span_h <= 0 or gross_gb <= 0:
+        return None
+    return max(free_gb_now - stop_gb, 0.0) / (gross_gb / span_h)
+
+
+def growth_check(r: dict, now: float | None = None, du=None, state_path: str | None = None, free: float | None = None, stop_gb: float | None = None) -> tuple[str, str]:
+    """(строка отчёта, WARN или ''). Снимок размеров → файл состояния; сравнение со снимком не новее grow_window_h часов назад (самый старый в окне + 30 мин допуск).
+    Меньше часа истории — только снимок, вердикта нет. Прогноз «часов до стопа» (T-89 п.6, Fable): (свободно − stop_gb) ÷ скорость роста за forecast_window_h часов;
+    меньше forecast_warn_h — WARN:disk_stop с тремя самыми растущими папками (stop_gb — dev-disk.json start_min_free_gb, ниже него старты прогонов закрыты)."""
+    thr, win = r.get('grow_alert_gb'), r.get('grow_window_h')
+    if thr is None or win is None:
+        return '', ''
+    now = time.time() if now is None else now
+    sp = state_path or growth_state_path()
+    try:
+        st = json.load(open(sp, encoding='utf-8'))
+        snaps = [s for s in st.get('snaps', []) if isinstance(s, dict) and 't' in s and 'sizes' in s]
+        alerted = float(st.get('alerted_t', 0))
+        alerted_stop = float(st.get('alerted_stop_t', 0))
+    except (OSError, ValueError, AttributeError):
+        snaps, alerted, alerted_stop = [], 0.0, 0.0
+    cur = (du or du_children)(r['src'])
+    keep_s = float(win) * 2 * 3600 + 7200
+    snaps = [s for s in snaps if now - s['t'] <= keep_s] + [{'t': now, 'sizes': cur}]
+    ref = next((s for s in snaps[:-1] if now - s['t'] <= float(win) * 3600 + 1800), None)
+    msg, warn = '', ''
+    if ref is None or now - ref['t'] < 3600:
+        msg = 'рост логов: снимок записан, истории меньше часа — вердикта нет'
+    else:
+        d = {n: v - ref['sizes'].get(n, 0) for n, v in cur.items()}
+        gross = sum(x for x in d.values() if x > 0)
+        top = sorted(((x, n) for n, x in d.items() if x > 0), reverse=True)[:int(r.get('grow_top') or 3)]
+        span = (now - ref['t']) / 3600
+        msg = f'рост логов за {span:.0f} ч: +{gross / GB:.1f} ГБ (порог {float(thr):g})'
+        if gross / GB > float(thr):
+            warn = f'WARN:disk_grow: ~/remlab-logs вырос на {gross / GB:.0f} ГБ за {span:.0f} ч (порог {float(thr):g}); больше всех: ' + '; '.join(f'{n} +{x / GB:.1f} ГБ' for x, n in top)
+            msg += ' — ТРЕВОГА'
+    send = bool(warn) and now - alerted >= float(r.get('grow_alert_every_h') or 0) * 3600
+    fw, fh = r.get('forecast_window_h'), r.get('forecast_warn_h')
+    stop_warn = ''
+    if fw is not None and fh is not None and free is not None and stop_gb is not None:
+        fref = next((s for s in snaps[:-1] if now - s['t'] <= float(fw) * 3600 + 1800), None)
+        if fref is not None and now - fref['t'] >= 3600:
+            fd = {n: v - fref['sizes'].get(n, 0) for n, v in cur.items()}
+            fgross = sum(x for x in fd.values() if x > 0) / GB
+            fspan = (now - fref['t']) / 3600
+            h = hours_to_stop(free, float(stop_gb), fgross, fspan)
+            if h is None:
+                msg += f'; прогноз: рост за {fspan:.0f} ч нет — до стопа не дойдём'
+            else:
+                msg += f'; прогноз: свободно {free:.1f} ГБ, рост {fgross / fspan:.1f} ГБ/ч за {fspan:.0f} ч → до стопа ({float(stop_gb):g} ГБ) ≈ {h:.1f} ч'
+                if h < float(fh):
+                    ftop = sorted(((x, n) for n, x in fd.items() if x > 0), reverse=True)[:int(r.get('grow_top') or 3)]
+                    stop_warn = (f'WARN:disk_stop: свободно {free:.0f} ГБ, логи растут {fgross / fspan:.1f} ГБ/ч (за {fspan:.0f} ч) → до стопа ({float(stop_gb):g} ГБ) ≈ {h:.0f} ч (порог {float(fh):g}); растут: '
+                                 + '; '.join(f'{n} +{x / GB:.1f} ГБ' for x, n in ftop))
+    send_stop = bool(stop_warn) and now - alerted_stop >= float(r.get('grow_alert_every_h') or 0) * 3600
+    try:
+        os.makedirs(os.path.dirname(sp), exist_ok=True)
+        json.dump({'snaps': snaps, 'alerted_t': now if send else alerted, 'alerted_stop_t': now if send_stop else alerted_stop}, open(sp, 'w', encoding='utf-8'))
+    except OSError:
+        pass
+    if send:
+        alert('❗ ' + warn)
+    if send_stop:
+        alert('❗ ' + stop_warn)
+    return msg, '\n'.join(x for x in (warn, stop_warn) if x)
+
+
 def main(argv: list) -> int:
     apply_ = '--apply' in argv
     r = rules()
+    global MONITOR_MAX_H
+    MONITOR_MAX_H = r.get('monitor_max_h')                    # забытые наблюдатели tail -F старше порога папку не держат (T-89)
+    if '--growth' in argv:                                    # сторож роста: до --if-low (часовой запуск считает рост и при свободном месте)
+        try:
+            gfree = free_gb(r['src'])
+            gstop = json.load(open(os.environ.get('LOGS_ARCHIVE_RULES') or RULES_PATH, encoding='utf-8')).get('start_min_free_gb')   # граница «стоп»: старты прогонов закрыты (один источник)
+        except (OSError, ValueError):
+            gfree, gstop = None, None
+        gmsg, gwarn = growth_check(r, free=gfree, stop_gb=gstop)
+        if gmsg:
+            print(gmsg)
+        if gwarn:
+            print(gwarn)
     for what, path in (('src', r['src']), ('dst', r['dst'])):
         hit = protected_by(path, r)
         if hit:
@@ -813,6 +1069,8 @@ def main(argv: list) -> int:
         print(f'  {"перенесу" if not apply_ else "переношу"} {c["name"]}  {c["total"] / GB:.2f} ГБ, освободит {c["freed"] / GB:.2f} ГБ, возраст {c["age_d"]} сут' + (f', упомянута в {c["docs"]} доках' if c.get('docs') else ''))
     for n, why in skipped:
         print(f'  оставляю {n}: {why}')
+    for ln in MONITOR_NOTES:                                  # T-89: забытые наблюдатели, которые папку не держат (процесс не убит)
+        print(f'  {ln}')
     hp_days = float((r.get('hdd_prune') or {}).get('days', 14))
     if hdd_todo or hdd_skipped or '--prune-hdd' in argv:
         ht = sum(c['total'] for c in hdd_todo)

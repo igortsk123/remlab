@@ -387,7 +387,7 @@ def test_effective_days_never_raises_above_rule_and_order_independent():
 def test_rules_file_has_adaptive_steps_matching_director_spec():
     r = la.rules()
     assert sorted((s['free_lt_gb'], s['days']) for s in r['adaptive']) == [(20, 1), (25, 2)]
-    assert r['worktrees_block'] is True and r['days'] == 5
+    assert r['worktrees_block'] is False and r['days'] == 5   # T-89 п.5: папки с копиями кода тоже уезжают (ссылка на месте)
 
 
 def _main_env(monkeypatch, world, tmp_path, free):

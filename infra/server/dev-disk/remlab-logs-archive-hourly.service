@@ -7,8 +7,10 @@ Type=oneshot
 # DISK_GUARD=0: перенос сам освобождает место, сторож старта ему мешать не должен
 Environment=DISK_GUARD=0
 WorkingDirectory=%h/igor/remlab
+# T-89: сперва worktree_prune --apply (снимает чистые копии кода; `-` — сбой не отменяет перенос), потом перенос; --growth — часовой снимок размеров и сторож роста/прогноз «часов до стопа» (WARN:disk_grow / WARN:disk_stop)
 # --if-low: свободно ≥ верхней адаптивной ступени (rules dev-disk.json archive.adaptive) — выходит сразу, ничего не сканирует
-ExecStart=/usr/bin/python3 %h/igor/remlab/tools/ops/logs_archive.py --apply --digest --if-low
+ExecStart=-/usr/bin/python3 %h/igor/remlab/tools/ops/worktree_prune.py --apply
+ExecStart=/usr/bin/python3 %h/igor/remlab/tools/ops/logs_archive.py --apply --digest --if-low --growth
 Nice=15
 IOSchedulingClass=idle
 TimeoutStartSec=3h
