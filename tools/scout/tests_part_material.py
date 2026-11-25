@@ -192,6 +192,11 @@ yy_, xx_ = np.mgrid[0:H, 0:H]
 ids_ = ((yy_ // 10) * 20 + xx_ // 10).astype(np.int32)
 inn, info = PM.interior_faces(ids_, oc, vv, 400, R)
 check(bool(inn[(10 * 20 + 10)]) and not inn[0] and not inn[399] and info['граней_внутренность'] >= 4, 'грани внутренности: блоки на дне ниши — да, вокруг — нет')
+Vc = np.array([[0, 0, 0], [1, 0, 0], [0, 1, 0], [1, 1, 0], [2, 0, 0], [2, 1, 0], [10, 10, 0], [11, 10, 0], [10, 11, 0], [30, 30, 0], [31, 30, 0], [30, 31, 0]], float)
+Fc = np.array([[0, 1, 2], [1, 3, 2], [1, 4, 3], [6, 7, 8], [9, 10, 11]])                   # связный кусок из 3 граней, одиночная грань (0,5 площади) и далёкая грань-фон
+Rc = json.loads(json.dumps(R)); Rc['occlusion']['min_area_frac'] = 0.3
+cc = PM.interior_clusters(Vc, Fc, np.array([True, True, True, True, False]), np.array([0.5, 0.5, 0.5, 0.5, 0.5]), Rc)
+check(cc.tolist() == [True, True, True, False, False], 'куски внутренности: связный кусок остаётся, одиночная грань (шум) отброшена')
 Vg = np.array([[0, 0, 0], [0.1, 0, 0], [0, 0.1, 0], [1, 0, 0], [1.1, 0, 0], [1, 0.1, 0], [5, 0, 0], [5.1, 0, 0], [5, 0.1, 0]], float)
 Fg = np.array([[0, 1, 2], [3, 4, 5], [6, 7, 8]])
 Rg = json.loads(json.dumps(R)); Rg['occlusion']['grow_frac'] = 0.25

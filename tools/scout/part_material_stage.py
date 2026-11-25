@@ -107,6 +107,8 @@ def process(a, rules: dict, d: str, rep: dict) -> None:
     vis0 = st['mask'] & (st['ids'] >= 0)                                    # «внутренность» (ниша, проём, низ): тень по форме — тон по ним не материал, грани группе не принадлежат
     occl = PM.pixel_occlusion(st['depth'], vis0, st['cos'], st['px_len'], rules)
     inner, oinfo = PM.interior_faces(np.clip(st['ids'], 0, nF - 1), occl, vis0, nF, rules)
+    inner = PM.interior_clusters(g['V'], g['F'], inner, area, rules)
+    oinfo['граней_кусками'] = int(inner.sum())
     inner = PM.grow_faces(g['V'], g['F'], inner, rules)
     flab = np.where(inner, len(names), flab).astype(np.int16)
     rep['interior'] = {**oinfo, 'граней_с_ростом': int(inner.sum()), 'доля_площади': round(float(area[inner].sum() / area.sum()), 4)}

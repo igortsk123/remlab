@@ -221,6 +221,27 @@ def interior_faces(ids: np.ndarray, occl: np.ndarray, valid: np.ndarray, nF: int
     return inner, {'px_заслонённых_доля': round(float(o.mean()), 4) if len(o) else 0.0, 'граней_внутренность': int(inner.sum())}
 
 
+def interior_clusters(V: np.ndarray, F: np.ndarray, inner: np.ndarray, area: np.ndarray, rules: dict) -> np.ndarray:
+    """Одиночные «заслонённые» грани (край стыка, шов — шум по глубине) — не внутренность: оставляем только связные куски граней площадью ≥ min_area_frac площади меша (ниша — один большой кусок)."""
+    if not inner.any():
+        return inner
+    from scipy.sparse import coo_matrix
+    from scipy.sparse.csgraph import connected_components
+    ext = V.max(0) - V.min(0)
+    q = np.round(V / max(float(ext.max()) * 1e-5, 1e-12)).astype(np.int64)
+    _, inv = np.unique(q, axis=0, return_inverse=True)
+    Fw = inv[F[inner]]
+    nv = int(inv.max()) + 1
+    a = coo_matrix((np.ones(len(Fw) * 3), (np.r_[Fw[:, 0], Fw[:, 1], Fw[:, 2]], np.r_[Fw[:, 1], Fw[:, 2], Fw[:, 0]])), shape=(nv, nv))
+    _, lab_v = connected_components(a, directed=False)
+    fl = lab_v[Fw[:, 0]]
+    ar = np.bincount(fl, weights=area[inner])
+    ok_f = ar[fl] >= float(rules['occlusion']['min_area_frac']) * float(area.sum())
+    out = np.zeros(len(F), bool)
+    out[np.nonzero(inner)[0][ok_f]] = True
+    return out
+
+
 def grow_faces(V: np.ndarray, F: np.ndarray, inner: np.ndarray, rules: dict) -> np.ndarray:
     """Внутренность растёт на грани рядом (расстояние между центрами граней ≤ grow_frac × диагональ меша): боковые стенки и кромка ниши тонкие, своих пикселей у них почти нет,
     и заливка тоном соседней группы красила бы их чужим цветом. Грани внутренности остаются как в 06/07."""
