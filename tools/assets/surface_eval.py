@@ -4,7 +4,8 @@
 Что ловит. Главный брак корпусной мебели — «чужой цвет на боку» (Fable 24.11: 6 из 11 корпусных): бок виден на фото узкой полосой, а красится тоном фасада/ниши/«корпуса». Прежняя автооценка
 меряла «рисунок», а чужой материал на боку как таковой не ловила.
 Как. БЕЗ света сайта. Для каждой поверхности — перёд / бок / верх / зад — цвет ВСЕЙ поверхности модели (прямо из текстуры, то есть из того, чем её покрасили) сравнивается с цветом её ПОЛОСЫ на фото
-(пиксели фото, где в кадре камеры фото видна именно эта поверхность; кромка в `erode_px` отступа). Результат по поверхности: ΔE (Lab, ΔE76), ΔL, ΔC и ЧИСЛО ПИКСЕЛЕЙ в полосе.
+(пиксели фото, где в кадре камеры фото видна именно эта поверхность; кромка в `erode_px` отступа). Результат по поверхности: ΔE_ab (цветность a, b без яркости — по нему ⚑, T-20261125-73), ΔE (Lab, ΔE76), ΔL, ΔC
+и ЧИСЛО ПИКСЕЛЕЙ в полосе. Яркость в ⚑ не входит: на боку фото тень (или свет), модель без света.
   • Поверхность = нормаль граней относительно камеры фото: перёд — смотрит в камеру фото, зад — от неё, бок A/B — вбок (по знаку), верх — вверх. У сеток TRELLIS порядок обхода граней «наружу» не гарантирован,
     поэтому нормаль ориентируется по тому, откуда грань видна: кадр камеры фото (`pose_fit.render_persp`) и кадры модели с пяти сторон (перёд, зад, два бока, верх — камера почти без перспективы).
   • Нет полосы (< min_px) — «не измерено» с причиной; у «зад» (его на фото не бывает) сравнение идёт с полосой бока — правило Fable «зад — тон бока», помечено ref.
@@ -13,7 +14,8 @@
 
   surface_eval.py batch --items items.json --out ПАПКА [--only id,id] [--repeat 2]
   items.json: [{"id", "glb": «material.glb» (с текстурой), "photo": «фото RGBA», "check06": «06-visible/check.json» (extra.camera), "role": «роль каталога» (для типа в таблице)}]
-  → ПАПКА/run<k>/{surface-eval.json (по товарам), summary.json}, ПАПКА/table.md (товар × поверхности: ΔE (px) ⚑), ПАПКА/spread.json (разброс повтора).
+  → ПАПКА/run<k>/{surface-eval.json (по товарам), summary.json}, ПАПКА/table.md (товар × поверхности: ΔE_ab / ΔE (px) ⚑ + ΔL для сведения), ПАПКА/spread.json (разброс повтора).
+  surface_eval.py frames --items items.json --only id,id --out ПАПКА [--surface бок]   — кадры калибровки: фото | модель в той же камере | образцы цвета и числа.
 """
 from __future__ import annotations
 
@@ -137,9 +139,21 @@ def lab_med(rgb: np.ndarray, w: np.ndarray | None = None) -> np.ndarray:
     return np.array(out)
 
 
+def lab_to_rgb(lab: list) -> tuple:
+    """Lab (D65, как sides_eval.rgb_to_lab) → sRGB (r, g, b) 0..255 — для образцов цвета на кадрах."""
+    fy = (lab[0] + 16) / 116.0
+    f = np.array([fy + lab[1] / 500.0, fy, fy - lab[2] / 200.0])
+    xyz = np.where(f ** 3 > 216 / 24389, f ** 3, (116 * f - 16) / (24389 / 27)) * np.array([0.95047, 1.0, 1.08883])
+    m = np.array([[0.4124564, 0.3575761, 0.1804375], [0.2126729, 0.7151522, 0.0721750], [0.0193339, 0.1191920, 0.9503041]])
+    c = np.clip(np.linalg.solve(m, xyz), 0.0, 1.0)
+    c = np.where(c > 0.0031308, 1.055 * np.power(c, 1 / 2.4) - 0.055, 12.92 * c)
+    return tuple(int(round(v * 255)) for v in c)
+
+
 def delta(a: np.ndarray, b: np.ndarray) -> dict:
-    return {'dE': round(float(np.linalg.norm(a - b)), 2), 'dL': round(float(a[0] - b[0]), 2),
-            'dC': round(float(math.hypot(a[1], a[2]) - math.hypot(b[1], b[2])), 2)}
+    """ΔE76 (с яркостью), ΔE_ab (только цветность a, b — по нему ⚑: тень на боку фото меняет L, а не цвет), ΔL и ΔC — для сведения."""
+    return {'dE': round(float(np.linalg.norm(a - b)), 2), 'dEab': round(float(math.hypot(a[1] - b[1], a[2] - b[2])), 2),
+            'dL': round(float(a[0] - b[0]), 2), 'dC': round(float(math.hypot(a[1], a[2]) - math.hypot(b[1], b[2])), 2)}
 
 
 # ---------- кадры ----------
@@ -177,8 +191,8 @@ def model_colours(geo: dict, cam: dict, R: dict) -> tuple:
     return lab, cnt
 
 
-def measure_item(it: dict, R: dict) -> dict:
-    """Одна вещь: полосы поверхностей на фото против цвета поверхностей модели."""
+def measure_item(it: dict, R: dict, keep: dict | None = None) -> dict:
+    """Одна вещь: полосы поверхностей на фото против цвета поверхностей модели. keep — словарь, куда складываются кадры и маски полос (для кадра калибровки)."""
     import pose_fit as PF
     cam = json.load(open(it['check06'], encoding='utf-8'))['extra']['camera']
     cam = {k: float(cam[k]) for k in ('az', 'el', 'd', 'f', 'cx', 'cy')}
@@ -209,6 +223,8 @@ def measure_item(it: dict, R: dict) -> dict:
             s['photo_lab'] = lab_med(ph_rgb[m])
             s['model_vis_lab'] = lab_med(mod_rgb[m])
         strip[c] = s
+        if keep is not None:
+            s['mask'] = m
     sideA, sideB = strip[2], strip[3]
     vis_side = 2 if sideA['n'] >= sideB['n'] else 3                   # «бок» — тот, у которого на фото полоса больше
     names = {0: 'верх', 1: 'перёд', 4: 'зад', vis_side: 'бок', (5 - vis_side): 'бок-2'}
@@ -228,7 +244,7 @@ def measure_item(it: dict, R: dict) -> dict:
                   'model_px': cnt_all.get(c), 'photo_lab': [round(float(x), 1) for x in strip[src]['photo_lab']], 'model_lab': [round(float(x), 1) for x in lab_all[c]]})
         if own:
             d['dE_vis'] = delta(strip[c]['model_vis_lab'], strip[c]['photo_lab'])['dE']          # модель в тех же пикселях полосы (как нарисовано) против фото
-        d['flag'] = bool(d['dE'] >= R['flags']['dE'])
+        d['flag'] = bool(d['dEab'] >= R['flags']['dE_ab'])
         out['surfaces'][name] = d
 
     back_ref = vis_side if strip[vis_side].get('photo_lab') is not None else None
@@ -237,6 +253,8 @@ def measure_item(it: dict, R: dict) -> dict:
     fill(5 - vis_side, vis_side, 'бок')
     fill(0, None, '')
     fill(4, back_ref, R['back_ref'])
+    if keep is not None:
+        keep.update({'photo': ph_rgb, 'photo_a': ph_a, 'model': mod_rgb, 'sil': sil, 'cls': cl_img, 'strip': strip, 'names': names})
     return out
 
 
@@ -286,21 +304,26 @@ def summary(res: dict, R: dict) -> dict:
                 if d['flag']:
                     copy_s['flagged'].append(f'{sid}:{name}')
                 continue
-            e = by_s.setdefault(name, {'measured': 0, 'flagged': [], 'dE': []})
+            e = by_s.setdefault(name, {'measured': 0, 'flagged': [], 'dE': [], 'dEab': [], 'dL': []})
             e['measured'] += 1
             e['dE'].append(d['dE'])
+            e['dEab'].append(d['dEab'])
+            e['dL'].append(d['dL'])
             if d['flag']:
                 e['flagged'].append(sid)
         for u in v.get('unmeasured', []):
             unm.setdefault(u['what'], []).append(sid)
     for name, e in by_s.items():
+        e['dEab_median'] = round(float(np.median(e['dEab'])), 2)
+        e['dEab_p90'] = round(float(np.quantile(e['dEab'], 0.9)), 2)
         e['dE_median'] = round(float(np.median(e['dE'])), 2)
         e['dE_p90'] = round(float(np.quantile(e['dE'], 0.9)), 2)
+        e['dL_median'] = round(float(np.median(e['dL'])), 2)
         e['n_flagged'] = len(e['flagged'])
-        del e['dE']
+        del e['dE'], e['dEab'], e['dL']
     copy_s['n_flagged'] = len(copy_s['flagged'])
     return {'items': len(res), 'by_surface': by_s, 'copy_of_side': copy_s, 'unmeasured_by_surface': {k: len(v) for k, v in sorted(unm.items())},
-            'unmeasured_ids': {k: v for k, v in sorted(unm.items())}, 'flag_dE': R['flags']['dE']}
+            'unmeasured_ids': {k: v for k, v in sorted(unm.items())}, 'flag_dE_ab': R['flags']['dE_ab']}
 
 
 def spread(a: dict, b: dict) -> dict:
@@ -308,7 +331,7 @@ def spread(a: dict, b: dict) -> dict:
     mx, per = 0.0, {}
     for sid in sorted(set(a) & set(b)):
         sa, sb = a[sid].get('surfaces', {}), b[sid].get('surfaces', {})
-        row = {n: round(abs(sa[n]['dE'] - sb[n]['dE']), 3) for n in sa if n in sb}
+        row = {n: round(max(abs(sa[n]['dE'] - sb[n]['dE']), abs(sa[n]['dEab'] - sb[n]['dEab'])), 3) for n in sa if n in sb}
         if row:
             per[sid] = row
             mx = max(mx, max(row.values()))
@@ -316,29 +339,98 @@ def spread(a: dict, b: dict) -> dict:
 
 
 def table_md(res: dict, R: dict, sp: dict | None = None) -> str:
-    """Таблица товар × поверхности: «ΔE (px полосы)», ⚑ — ΔE ≥ порога; «= бок (копия)» — своей полосы нет, поверхность сравнена с полосой бока: не отдельная мерка, в ⚑ свода не входит; «—» с причиной — не измерено."""
+    """Таблица товар × поверхности: «ΔE_ab / ΔE (px полосы)», ⚑ — ΔE_ab ≥ порога (цветность без яркости); «= бок (копия)» — своей полосы нет, поверхность сравнена с полосой бока: не отдельная мерка,
+    в ⚑ свода не входит; «—» с причиной — не измерено. Вторая таблица — ΔL по поверхностям «для сведения» (тень/свет на фото, в ⚑ не участвует)."""
     cols = R['table_surfaces']
+    names = cols + ['бок-2']
+
+    def cell(v: dict, name: str, what: str) -> str:
+        d = v.get('surfaces', {}).get(name)
+        if not d:
+            return '—'
+        if d['ref'] != 'сама':
+            return f"= {d['ref']} (копия)"
+        if what == 'dL':
+            return f"{d['dL']:+.1f}"
+        return f"{d['dEab']:.1f} / {d['dE']:.1f} ({d['n_strip']})" + (' ⚑' if d['flag'] else '')
+
     lines = ['| товар | тип | IoU | ' + ' | '.join(cols) + ' | бок-2 (скрытый) | не измерено |', '|' + '---|' * (len(cols) + 4)]
     for sid, v in res.items():
-        def cell(name: str) -> str:
-            d = v.get('surfaces', {}).get(name)
-            if not d:
-                return '—'
-            return f"{d['dE']:.1f} ({d['n_strip']})" + (' ⚑' if d['flag'] else '') if d['ref'] == 'сама' else f"= {d['ref']} (копия)"
         un = '; '.join(f"{u['what']}: {u['reason'][:60]}" for u in v.get('unmeasured', []))
         iou = (v.get('registration') or {}).get('iou')
-        lines.append(f"| …{sid[-8:]} | {v.get('type') or '?'} | {iou if iou is not None else '—'} | " + ' | '.join(cell(c) for c in cols) + f' | {cell("бок-2")} | {un} |')
+        lines.append(f"| …{sid[-8:]} | {v.get('type') or '?'} | {iou if iou is not None else '—'} | " + ' | '.join(cell(v, c, 'dE') for c in names) + f' | {un} |')
+    lines += ['', 'ΔL (модель − фото) по поверхностям — для сведения, в ⚑ не участвует:', '', '| товар | ' + ' | '.join(names) + ' |', '|' + '---|' * (len(names) + 1)]
+    for sid, v in res.items():
+        lines.append(f"| …{sid[-8:]} | " + ' | '.join(cell(v, c, 'dL') for c in names) + ' |')
     sm = summary(res, R)
-    lines += ['', '| поверхность | измерено | ΔE мед. | ΔE p90 | ⚑ |', '|---|---|---|---|---|']
+    lines += ['', f"⚑ при ΔE_ab ≥ {R['flags']['dE_ab']}", '', '| поверхность | измерено | ΔE_ab мед. | ΔE_ab p90 | ΔE мед. | ΔL мед. | ⚑ |', '|---|---|---|---|---|---|---|']
     for name in R['surfaces']:
         e = sm['by_surface'].get(name)
         if e:
-            lines.append(f"| {name} | {e['measured']} | {e['dE_median']} | {e['dE_p90']} | {e['n_flagged']} |")
+            lines.append(f"| {name} | {e['measured']} | {e['dEab_median']} | {e['dEab_p90']} | {e['dE_median']} | {e['dL_median']:+.1f} | {e['n_flagged']} |")
     c = sm['copy_of_side']
-    lines.append(f"| копия бока (зад, бок-2 без своей полосы) | {c['measured']} | — | — | {c['n_flagged']} (не отдельные) |")
+    lines.append(f"| копия бока (зад, бок-2 без своей полосы) | {c['measured']} | — | — | — | — | {c['n_flagged']} (не отдельные) |")
     if sp:
         lines += ['', f"Разброс повтора: макс. |разность| ΔE двух прогонов = {sp['max_dE']}."]
     return '\n'.join(lines)
+
+
+def cal_frame(it: dict, R: dict, surface: str, path: str, title: str) -> dict:
+    """Кадр калибровки: слева — фото, справа — модель в той же камере; вне полосы поверхности кадр притемнён (видно, какие пиксели мерились). Третья часть — два образца цвета
+    (поверхность на фото / вся поверхность модели) и числа ΔE_ab, ΔE, ΔL, px, ⚑. Возвращает измерение поверхности."""
+    from PIL import Image, ImageDraw, ImageFont
+    keep: dict = {}
+    got = measure_item(it, R, keep)
+    d = got['surfaces'].get(surface)
+    if not d or d['ref'] != 'сама':
+        raise ValueError(f'поверхность «{surface}» не измерена по своей полосе: {got["unmeasured"]}')
+    cid = next(c for c, nm in keep['names'].items() if nm == surface)
+    strip = keep['strip'][cid]['mask']
+    ys, xs = np.nonzero(keep['sil'] | keep['photo_a'])
+    pad = 12
+    y0, y1, x0, x1 = max(ys.min() - pad, 0), ys.max() + pad, max(xs.min() - pad, 0), xs.max() + pad
+    bg = np.array([236, 236, 236], np.uint8)
+
+    def panel(rgb: np.ndarray, alpha: np.ndarray) -> Image.Image:
+        o = np.where(alpha[..., None], rgb, bg).astype(np.float32)
+        o = np.where(strip[..., None], o, o * 0.35 + bg * 0.15)
+        edge = erode(strip, 1) ^ strip
+        o[edge] = (255, 0, 160)
+        return Image.fromarray(o.clip(0, 255).astype(np.uint8)[y0:y1, x0:x1])
+
+    pa, pb = panel(keep['photo'], keep['photo_a']), panel(keep['model'], keep['sil'])
+    H = 420
+    sc = H / pa.height
+    pa, pb = (p.resize((int(p.width * sc), H), Image.BILINEAR) for p in (pa, pb))
+    W3 = 330
+    canvas = Image.new('RGB', (pa.width + pb.width + W3 + 40, H + 60), (255, 255, 255))
+    canvas.paste(pa, (10, 50))
+    canvas.paste(pb, (pa.width + 20, 50))
+    dr = ImageDraw.Draw(canvas)
+    try:
+        f1 = ImageFont.truetype('/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf', 15)
+        f2 = ImageFont.truetype('/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf', 16)
+    except OSError:
+        f1 = f2 = ImageFont.load_default()
+
+    def sw(lab: list, x: int, y: int, cap: str) -> None:
+        rgb = lab_to_rgb(lab)
+        dr.rectangle([x, y, x + 140, y + 90], fill=rgb, outline=(0, 0, 0))
+        dr.text((x, y + 94), cap, fill=(0, 0, 0), font=f1)
+        dr.text((x, y + 114), f"L {lab[0]:.0f}  a {lab[1]:+.0f}  b {lab[2]:+.0f}", fill=(60, 60, 60), font=f1)
+
+    dr.text((10, 8), f"{title} — {surface}: фото (слева) | модель в той же камере | образцы цвета", fill=(0, 0, 0), font=f2)
+    dr.text((10, 30), 'розовый контур — полоса, по которой меряем; остальное притемнено', fill=(90, 90, 90), font=f1)
+    X = pa.width + pb.width + 40
+    sw(d['photo_lab'], X, 50, 'фото: полоса')
+    sw(d['model_lab'], X + 160, 50, 'модель: вся поверхность')
+    y = 200
+    for line, fnt in ((f"ΔE_ab {d['dEab']:.1f}   (порог ⚑ {R['flags']['dE_ab']})", f2), (f"ΔE {d['dE']:.1f}", f1), (f"ΔL {d['dL']:+.1f} (модель − фото)", f1),
+                      (f"ΔC {d['dC']:+.1f}", f1), (f"полоса {d['n_strip']} px", f1), ('⚑' if d['flag'] else 'без ⚑', f2)):
+        dr.text((X, y), line, fill=(0, 0, 0), font=fnt)
+        y += 26
+    canvas.save(path)
+    return d
 
 
 def main(argv: list) -> int:
@@ -349,12 +441,23 @@ def main(argv: list) -> int:
     b.add_argument('--out', required=True)
     b.add_argument('--only', default='')
     b.add_argument('--repeat', type=int, default=1, help='сколько раз прогнать те же входы (2 — разброс повтора)')
+    fr = sub.add_parser('frames', help='кадры калибровки: полоса поверхности на фото | та же поверхность модели | образцы и числа')
+    fr.add_argument('--items', required=True)
+    fr.add_argument('--out', required=True)
+    fr.add_argument('--only', required=True)
+    fr.add_argument('--surface', default='бок')
     a = ap.parse_args(argv)
     R = load_rules()
     items = json.load(open(a.items, encoding='utf-8'))
     only = {x for x in a.only.split(',') if x}
     if only:
         items = [x for x in items if x['id'] in only]
+    if a.cmd == 'frames':
+        os.makedirs(a.out, exist_ok=True)
+        for it in items:
+            d = cal_frame(it, R, a.surface, os.path.join(a.out, f"{it['id']}.png" if a.surface == 'бок' else f"{it['id']}-{a.surface}.png"), '…' + it['id'][-8:])
+            print(f"…{it['id'][-8:]} {a.surface}: ΔE_ab {d['dEab']} ΔE {d['dE']} ΔL {d['dL']} px {d['n_strip']} ⚑ {d['flag']}")
+        return 0
     runs = []
     for k in range(1, a.repeat + 1):
         runs.append(run_once(items, os.path.join(a.out, f'run{k}'), R))
