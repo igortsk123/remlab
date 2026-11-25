@@ -2,6 +2,7 @@
 # Путь — от корня репозитория. Копирует `stage_pose_code.py` (то же и локально, и в сборке образа) — единый список, дубля нет. Тест `tests_pose.py` сверяет список с import-замыканием.
 tools/scout/salad/trellis/pose_fit.py
 tools/scout/salad/trellis/junction.py
+tools/scout/salad/trellis/form_verdict.py
 tools/scout/salad/trellis/pose_rank.py
 tools/scout/salad/trellis/camera_check.py
 tools/scout/salad/trellis/silhouette_edge_angle.py
