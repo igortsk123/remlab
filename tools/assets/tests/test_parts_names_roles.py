@@ -574,5 +574,46 @@ class NameRelax(unittest.TestCase):
             pn.load_rules(path)
 
 
+class NoRuleOtherChannel(unittest.TestCase):
+    """T-20261124-64: имя назвало роль чужого канала, у группы правила роли нет (рама лампы) → unknown:no_channel, а не name_geometry; роли основного канала и группы с правилом — как прежде."""
+
+    def setUp(self):
+        v, f, part = table()
+        self.ft = feats(v, f, part, KINDS5)
+
+    def run_b(self, names, product, channels, rules=None):
+        return pn.bridge_roles(names_of(names), self.ft, rules or TBL, RR, product, set(channels))
+
+    def test_lamp_other_frame_is_no_channel(self):
+        r = self.run_b({0: "Other Frame", 1: "Bulb", 2: "Bulb", 3: "Bulb", 4: "Bulb"}, "лампа", {"shade"})
+        self.assertEqual(r[0]["role"], "unknown")
+        self.assertEqual(r[0]["unknown_reason"], "no_channel")
+        self.assertEqual(r[0]["geometry_why"], "no_rule")                         # причина — в отчёте: у группы нет правила роли
+        self.assertEqual(pn.summarize(self.ft, r, TBL)["known_role_area_share"], 0.0)   # знаменатель без no_channel пуст: роль не появилась, мерка не «выросла» на площади
+
+    def test_switch_off_is_as_before(self):
+        off = json.loads(json.dumps(TBL))
+        off["no_rule_other_channel"]["enabled"] = False
+        r = self.run_b({0: "Other Frame", 1: "Bulb", 2: "Bulb", 3: "Bulb", 4: "Bulb"}, "лампа", {"shade"}, rules=off)
+        self.assertEqual(r[0]["unknown_reason"], "name_geometry")
+
+    def test_main_channel_roles_are_not_touched(self):
+        r = self.run_b({0: "Top Panel", 1: "Leg", 2: "Leg", 3: "Leg", 4: "Leg"}, "диван", {"legs"})   # у seating нет правила top, но top — основной канал: геометрию «не подтвердили» как прежде
+        self.assertEqual(r[0]["unknown_reason"], "name_geometry")
+
+    def test_group_with_rule_is_not_touched(self):
+        r = self.run_b({0: "Frame", 1: "Leg", 2: "Leg", 3: "Leg", 4: "Leg"}, "стол обеденный", {"legs"})   # у table правило frame есть: решает геометрия
+        self.assertNotEqual(r[0].get("geometry_why"), "no_rule")
+        if r[0]["role"] == "unknown":
+            self.assertNotEqual(r[0]["unknown_reason"], "no_channel")
+
+    def test_case_frame_has_no_channel_too(self):
+        r = self.run_b({0: "Frame", 1: "Handle", 2: "Handle", 3: "Handle", 4: "Handle"}, "комод", {"legs", "handles"})   # корпусной мебели «каркас» каталог не называет — то же правило
+        self.assertEqual(r[0]["unknown_reason"], "no_channel")
+
+    def test_rule_is_on_by_default(self):
+        self.assertIs(TBL["no_rule_other_channel"]["enabled"], True)
+
+
 if __name__ == "__main__":
     unittest.main()
