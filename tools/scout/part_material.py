@@ -746,7 +746,7 @@ def keep_details(tex: np.ndarray,ctl: np.ndarray, texmap: np.ndarray, painted: n
             slow = cv2.GaussianBlur(lr * mf, (0, 0), sz) / np.maximum(cv2.GaussianBlur(mf, (0, 0), sz), 1e-4)
             rr = max(1, int(round(float(fade.get('radius_frac', 0.004)) * T)))
             er = cv2.erode(m.astype(np.uint8), cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (2 * rr + 1, 2 * rr + 1))).astype(np.float32)
-            w = cv2.GaussianBlur(er, (0, 0), max(1.0, float(fade.get('sigma_frac', 0.004)) * T))
+            w = cv2.GaussianBlur(er, (0, 0), max(1.0, float(fade.get('sigma_frac', 0.004)) * T)) if fade.get('edge_fade', True) else np.ones_like(er)       # edge_fade=false (T-63 25.11): без затухания у границы маски — узкая линия (щель, кромка) вся стоит у границы надёжной зоны (её соседи — дыры) и затухание съедало до ⅔ глубины; ступеньки тона нет — деталь и так с нулевым средним (slow)
             ratio = np.exp((lr - slow) * w)
         flat = srgb2lin(tex[m].astype(np.float64))
         out[m] = np.clip(lin2srgb(flat * ratio[m][:, None]) + 0.5, 0, 255).astype(np.uint8)

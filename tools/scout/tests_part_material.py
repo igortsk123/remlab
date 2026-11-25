@@ -226,6 +226,16 @@ line, side = td[:, 60:62].astype(float).mean(), td[:, 20:40].astype(float).mean(
 check(dn_.get('a') == Tt * Tt and line < 0.75 * side, 'детали лица: щель остаётся заметно темнее фона')
 check(abs(float(td[:, 100:120].mean()) - float(td[:, 10:30].mean())) < 6, 'детали лица: плавная тень (градиент) в плоский тон ушла')
 check(td[10, 10, 0] > td[10, 10, 2] and td[10, 10, 1] > td[10, 10, 2], 'детали лица: оттенок от тона материала (не от серого фото)')
+# затухание у границы маски (fade) гасит узкую линию, стоящую впритык к дырам; edge_fade=false — линия остаётся (T-63 25.11), стол/заморозка — флаг по умолчанию true = как раньше
+kh = allm.copy(); kh[:, 56:60] = False; kh[:, 62:66] = False                         # известно, но дыры по обе стороны линии (60–61)
+fd1 = {'enabled': True, 'zero_mean_sigma_frac': 0.1, 'radius_frac': 0.004, 'sigma_frac': 0.004}
+fd0 = dict(fd1, edge_fade=False)
+t_f1, _ = PM.keep_details(flat, ctl_g, mp, allm, kh, ['a'], set(), Rd, fade=fd1)
+t_f0, _ = PM.keep_details(flat, ctl_g, mp, allm, kh, ['a'], set(), Rd, fade=fd0)
+t_fd, _ = PM.keep_details(flat, ctl_g, mp, allm, kh, ['a'], set(), Rd, fade=dict(fd1, edge_fade=True))
+check(t_f1[:, 60:62].astype(float).mean() > 0.95 * flat[:, 60:62].astype(float).mean(), 'fade: узкая линия у дыр затухла (поведение заморозки)')
+check(t_f0[:, 60:62].astype(float).mean() < 0.75 * t_f0[:, 20:40].astype(float).mean(), 'fade edge_fade=false: узкая линия у дыр осталась заметно темнее фона')
+check((t_f1 == t_fd).all(), 'fade: edge_fade=true — как не заданный ключ (заморозка не меняется)')
 tk, dk = PM.keep_details(flat, ctl_g, mp, allm, np.zeros((Tt, Tt), bool), ['a'], set(), Rd)
 check(dk == {} and (tk == flat).all(), 'детали лица: нет известных текселей — плоский тон как есть')
 
