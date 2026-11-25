@@ -712,6 +712,50 @@ ok "живой пик: держатель 3 ГБ держит 0,3 уже ≥ 1 �
 unset HEAVY_SLOT_SAMPLE
 mem 7
 
+# --- T-20261125-76: --rebook — держатель перезаявляет бронь по живому пику; ожидающий СТАРОГО кода (живой пик выключен: HEAVY_SLOT_LIVE_MIN_S=0 — доля по заявке) после этого проходит
+mem 6
+export HEAVY_SLOT_SAMPLE=0.1 HEAVY_SLOT_REBOOK_GAP=0.05 HEAVY_SLOT_REBOOK_VERIFY_S=0.3
+printf 'rbk-h 0.3\nrbg-h 0.3\n' >> "$HEAVY_SLOT_MEM_STUB"
+"$S" rbk-h --min-gb 3 -- sh -c "$(hold3 h rbk)" & prbh=$!
+until_f "[ -e $T/up-rbk-h ]"
+sleep 1.3                                                                     # держит ≥ 1 с (HEAVY_SLOT_LIVE_MIN_S=1 у команды)
+HEAVY_SLOT_LIVE_MIN_S=0 "$S" rbk-x --min-gb 4 --timeout 40 -- sh -c "echo sx >> $T/rbkx" & prbx=$!
+sleep 1.5
+x_early=$([ -e "$T/rbkx" ] && echo 1 || echo 0)
+dry=$(HEAVY_SLOT_LIVE_MIN_S=1 "$S" --rebook)
+still=$(grep -cE '^eff_gb=3(\.0+)?$' "$HEAVY_SLOT_DIR/holder")
+x_dry=$([ -e "$T/rbkx" ] && echo 1 || echo 0)
+ok "--rebook без --apply — сухо: показывает «заявка 3 → 0.6», запись держателя не тронута, старый ждущий (4) по-прежнему стоит" \
+  "$(yes_if '[ $x_early = 0 ] && [ $x_dry = 0 ] && [ $still = 1 ] && grep -q "слот 1 · rbk-h: заявка 3 → 0.6 ГБ (живой пик 0.30" <<<"$dry" && grep -q "БЫЛО БЫ ЗАПИСАНО" <<<"$dry" && ! grep -q "^rebook=" "$HEAVY_SLOT_DIR/holder"')"
+app=$(HEAVY_SLOT_LIVE_MIN_S=1 "$S" --rebook --apply)
+until_f "[ -e $T/rbkx ]"; x_up=$?
+h_alive=$([ ! -e "$T/go-rbk" ] && kill -0 $prbh 2>/dev/null && echo 1 || echo 0)
+touch "$T/go-rbk"
+wait $prbh $prbx
+ok "--rebook --apply: в записи держателя eff_gb 0.6 и rebook=3, старый ждущий (4) проходит при живом держателе, не дожидаясь его ухода" \
+  "$(yes_if '[ $x_up = 0 ] && [ $h_alive = 1 ] && grep -q "ЗАПИСАНО" <<<"$app" && grep -q "итог слот 1 · rbk-h: eff_gb=0.6 закреплено" <<<"$app" && grep -q "rbk-h pid=[0-9]* --rebook: заявка 3 → 0.6 ГБ по живому пику" "$HEAVY_SLOT_LOG" && grep -q "rbk-x .*rbk-h 0.6−0.3=0.3" "$HEAVY_SLOT_LOG"')"
+# держатель потом вырос — доля вернулась к заявке (T-91 «превышение»), не к урезанной
+"$S" rbg-h --min-gb 3 -- sh -c "$(hold3 h rbg)" & prgh=$!
+until_f "[ -e $T/up-rbg-h ]"
+sleep 1.3
+HEAVY_SLOT_LIVE_MIN_S=1 "$S" --rebook --apply > "$T/rbg.app"
+printf 'rbg-h 2.9\n' >> "$HEAVY_SLOT_MEM_STUB"                                   # держатель вырос с 0,3 до 2,9 ГБ
+HEAVY_SLOT_LIVE_MIN_S=0 "$S" rbg-x --min-gb 4 --timeout 40 -- sh -c "echo sx >> $T/rbgx" & prgx=$!
+until_f "[ -e $T/rbgx ]"; gx_up=$?
+touch "$T/go-rbg"
+wait $prgh $prgx
+ok "после --rebook держатель вырос до 2,9 ГБ — ждущий считает его долю по заявке 3 (3−2.9=0.1, «превысил»), а не по урезанным 0.6" \
+  "$(yes_if '[ $gx_up = 0 ] && grep -q "итог слот 1 · rbg-h: eff_gb=0.6 закреплено" "$T/rbg.app" && grep -q "rbg-x .*rbg-h(превысил: пик 2.9) 3−2.9=0.1" "$HEAVY_SLOT_LOG"')"
+# недержавшим дольше min_s и ждущим память — не трогаем; повышать не умеет (заявка не выше живого пика — «оставлен»)
+"$S" rbn-h --min-gb 3 -- sh -c "$(hold3 h rbn)" & prnh=$!
+until_f "[ -e $T/up-rbn-h ]"
+nrb=$(HEAVY_SLOT_LIVE_MIN_S=600 "$S" --rebook)
+touch "$T/go-rbn"
+wait $prnh
+ok "держит меньше live_share.min_s (600 с) — «оставлен», записать нечего" "$(yes_if 'grep -q "rbn-h: оставлен — держит" <<<"$nrb" && grep -q "нечего менять" <<<"$nrb"')"
+unset HEAVY_SLOT_SAMPLE HEAVY_SLOT_REBOOK_GAP HEAVY_SLOT_REBOOK_VERIFY_S
+mem 7
+
 # --- T-20261125-74 (Б): защита головы закрывает обгон, только если голова пройдёт в окно (по замерам / по возрасту держателей)
 export HEAVY_SLOT_BACKFILL_MIN=0.0002 HEAVY_SLOT_HEAD_ETA_MIN=0.0002     # голова ждёт дольше окна сразу; окно прогноза 12 мс — держатель его уже пережил
 bf_case bfe
