@@ -240,6 +240,30 @@
             "{product_role}"
           ],
           "_about": "T-43/❓2: зад корпусной после 06 — только тип с политикой body+active (rules/edge-sharpen.json: back_panel.paint_gate); иначе воздержание с причиной в 06-visible/back_panel.json; rc 0 всегда"
+        },
+        {
+          "argv": [
+            "{py}",
+            "{root}/tools/scout/part_material_stage.py",
+            "--run",
+            "{run}",
+            "--sku",
+            "{sku}",
+            "--glb",
+            "{prep_glb}",
+            "--photo",
+            "{photo_vis}",
+            "--pose-run",
+            "{sku_dir}",
+            "--product-role",
+            "{product_role}",
+            "--channels",
+            "{channels}",
+            "--channel-classes",
+            "{channel_classes}"
+          ],
+          "heavy": {"prio": 1, "min_gb": 4, "cores": 2},
+          "_about": "T-63 Ш4а: материал части — ровный тон роль-части («цвет большинства», подбор светом сайта) после 06 и back_panel; rules/part-material.json, ВЫКЛ по умолчанию: пока enabled=false шаг ничего не пишет (06-visible байт в байт). Нет ролей/камеры/gltfpack — воздержание с причиной в 06-visible/part_material.json, rc 0 всегда."
         }
       ],
       "needs_tolerate": {
