@@ -1429,12 +1429,14 @@ ok "бронь своего процесса не считается проти�
 mem 8
 r=$(python3 -c "
 import sys; sys.path.insert(0, '$DIR'); import heavy_slot as H
-print(H.task_type('photo-render-abfc0fd5'), H.task_type('photo-render-76e91455'), H.task_type('t51-look'), H.task_type('pm5x-607839'))
+print(H.task_type('photo-render-abfc0fd5'), H.task_type('photo-render-76e91455'), H.task_type('t51-look'), H.task_type('pm5x-135772'))
+print(H.task_type('t2485-06G-off-366429'), H.task_type('t2487-C5-06-455399389'), H.task_type('t2487-big6-C2'), H.task_type('t2485-06H-iw-604609'))
 rows = [{'type': 'photo-render', 'hold_s': 1.2, 'peak_gb': 1.4}] * 3 + [{'type': 'other', 'hold_s': 1.2, 'peak_gb': 1.4}] * 3
 print(len(H._counted(rows, 'photo-render')), len(H._counted(rows, 'other')), round(H.eff_threshold('/x', 'photo-render', 8.0, rows)[0], 2))
 ")
-ok "тип заказа без хеша, замер короткого шага засчитывается: «photo-render photo-render look pm5x», 3 замера photo-render по 1,4 ГБ → порог 2,1 из 8, чужой короткий тип не считается ($(tr '\n' '/' <<<"$r"))" \
+ok "тип заказа без хеша, замер короткого шага засчитывается: «photo-render photo-render look pm5x»; хвост снимается один раз (t2487-C5-06-455399389 → c5-06, t2487-big6-C2 → big6-c, как до правки); 3 замера photo-render по 1,4 ГБ → порог 2,1 из 8, чужой короткий тип не считается ($(tr '\n' '/' <<<"$r"))" \
   "$(yes_if '[ "$r" = "photo-render photo-render look pm5x
+06g-off c5-06 big6-c 06h-iw
 3 0 2.1" ]')"
 
 st=$("$S" --status)
