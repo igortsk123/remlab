@@ -140,20 +140,92 @@ Ab2[200:215, 100:150] = np.clip(Ab2[200:215, 100:150].astype(np.int16) - 45, 0, 
 r = PS.measure(Ab2, Pb, vb, np.zeros((300, 300), np.int32))
 check('настоящее пятно на дереве при двух цветах в части — «пятно», не «граница»', r['n_bad'] >= 1 and r['verdict'] == 'брак')
 
+# --- T-92/4 п.1: контраст фото в той же точке вычитается и в классе 2 (шов/щель/строчка есть на фото)
+A, P, valid, grp = _scene(amp=6.0, seed=3)
+vis = np.zeros_like(valid)
+vis[20:-20, 20:-20] = True
+valid = vis.copy()
+valid[:, 240:] = False
+pho = vis.copy()                                                # фото в ненадёжной полосе «хоть как-то есть» (вскользь), по тону не судья
+Pl = _patch(P, 250, 100, 254, 190, -45)                         # тёмная линия 4×90 есть на фото
+Al = _patch(A, 250, 100, 254, 190, -45)                         # и в альбедо
+r_no = PS.measure(Al, Pl, valid, grp, vis=vis)
+r_ph = PS.measure(Al, Pl, valid, grp, vis=vis, pho=pho)
+check('п.1: линия есть и на фото (там же) → класс 2 её не бракует (балл %.1f против %.1f без фото)' % (r_ph['worst_z_unreliable'], r_no['worst_z_unreliable']),
+      r_no['n_bad_unreliable'] >= 1 and r_ph['n_bad_unreliable'] == 0 and r_ph['worst_z_unreliable'] < r_no['worst_z_unreliable'])
+Al2 = _patch(A, 250, 100, 254, 190, -45)                        # на фото линии нет → по-прежнему деталь
+r_ph2 = PS.measure(Al2, P, valid, grp, vis=vis, pho=pho)
+check('п.1: линии на фото нет → деталь на ненадёжном остаётся браком', r_ph2['n_bad_unreliable'] >= 1)
+Pm = P.copy()
+Pm[100:190, 250:254] = np.clip(Pm[100:190, 250:254].astype(np.int16) - 45, 0, 255).astype(np.uint8)
+Al3 = _patch(A, 258, 100, 262, 190, -45)                        # линия в альбедо сдвинута на 8 px от фото (дальше допуска) → не одна и та же
+r_sh = PS.measure(Al3, Pm, valid, grp, vis=vis, pho=pho)
+check('п.1: линия смещена от линии фото дальше допуска → брак (вычитание не прячет чужое место)', r_sh['n_bad_unreliable'] >= 1)
+
+# --- п.2: зернистость фото группы входит в σ класса 2 (порог не ниже разброса контраста фото)
+Ag, Pg, valid_g, grp_g = _scene(amp=20.0, seed=7)
+vg = np.zeros_like(valid_g)
+vg[20:-20, 20:-20] = True
+valid_g = vg.copy()
+valid_g[:, 240:] = False
+r_gr = PS.measure(Ag, Pg, valid_g, grp_g, vis=vg, pho=vg)
+gstat = list(r_gr['unreliable_groups'].values())[0]
+check('п.2: σ класса 2 не ниже зернистости фото группы (σ_использ %.2f ≥ σ_фото %.2f ≥ 0)' % (gstat['sigma_used'], gstat['sigma_photo_grain']), gstat['sigma_used'] >= gstat['sigma_photo_grain'] - 1e-6 and gstat['sigma_used'] >= gstat['sigma_albedo'] - 1e-6)
+Au = _patch(Ag, 250, 100, 264, 160, -25)
+z_on = PS.measure(Au, Pg, valid_g, grp_g, {'grain_gain': 1.0}, vis=vg, pho=vg)['worst_z_unreliable']
+z_off = PS.measure(Au, Pg, valid_g, grp_g, {'grain_gain': 0.0}, vis=vg, pho=vg)['worst_z_unreliable']
+check('п.2: зернистость поднимает порог — тот же балл не выше, чем без неё (%.2f ≤ %.2f)' % (z_on, z_off), z_on <= z_off + 1e-6)
+
+# --- п.3: крупная область тона (> 3 % видимого кадра) — отдельная «зона тона», а не одно место
+A, P, valid, grp = _scene(amp=6.0, seed=3)
+vis = np.zeros_like(valid)
+vis[20:-20, 20:-20] = True
+valid = vis.copy()
+valid[:, 240:] = False
+Az = _patch(A, 245, 40, 275, 250, -30)                          # ровная зона другого тона 30×210 = 6300 px ≈ 9 % кадра на ненадёжной полосе
+rz = PS.measure(Az, P, valid, grp, vis=vis, pho=vis)
+check('п.3: большая область другого тона на ненадёжном → «зона тона» отдельной строкой (зон %d, %d px)' % (rz['n_tone_zone'], rz['tone_zone_area_px']),
+      rz['n_tone_zone'] >= 1 and rz['tone_zones'][0]['area_frac'] > PS.R['zone_frac'] and rz['tone_zones'][0]['bbox'][0] <= 255)
+check('п.3: зона тона не считается «местом» (ни одно место класса 2 не больше зоны_frac кадра)', all(s['area_px'] <= PS.R['zone_frac'] * float(vis.sum()) for s in rz['spots_unreliable']))
+Ap_ = _patch(A, 250, 100, 264, 160, -45)                        # малая деталь — по-прежнему место, а не зона
+rp = PS.measure(Ap_, P, valid, grp, vis=vis, pho=vis)
+check('п.3: малая деталь — место класса 2, зон тона нет', rp['n_bad_unreliable'] >= 1 and rp['n_tone_zone'] == 0)
+
+# --- п.4: «рваный стык групп» — крошки на стыке белое/дерево по фото: свой класс, в брак
+rng = np.random.default_rng(4)
+Pj4 = np.zeros((300, 300, 3), np.uint8)
+Pj4[:150] = 250
+Pj4[150:] = _tex((150, 300, 3), rng, (180, 150, 120), 8.0, 2.0)
+vj = np.zeros((300, 300), bool)
+vj[20:-20, 20:-20] = True
+Aj = Pj4.copy()
+Aj[151:157, 100:140] = np.clip(Aj[151:157, 100:140].astype(np.int16) - 55, 0, 255).astype(np.uint8)     # тёмная крошка на деревянной стороне, вплотную к стыку
+rj = PS.measure(Aj, Pj4, vj, np.zeros((300, 300), np.int32))
+check('п.4: крошка вплотную к стыку белое/дерево → класс «рваный стык групп» (мест %d), в вердикт «брак»' % rj['n_joint'], rj['n_joint'] >= 1 and rj['verdict'] == 'брак' and rj['n_bad'] == 0)
+check('п.4: у «рваного стыка» своё поле joint_share ≥ порога и он не в «границе групп»', rj['spots_joint'][0]['joint_share'] >= PS.R['joint_share'] and not any(s['peak_z'] >= PS.R['k'] for s in rj['spots_boundary']))
+Aj2 = Pj4.copy()
+Aj2[200:215, 100:150] = np.clip(Aj2[200:215, 100:150].astype(np.int16) - 45, 0, 255).astype(np.uint8)    # настоящее пятно вдали от стыка
+rj2 = PS.measure(Aj2, Pj4, vj, np.zeros((300, 300), np.int32))
+check('п.4: пятно вдали от стыка — класс 1, не «рваный стык»', rj2['n_bad'] >= 1 and rj2['n_joint'] == 0)
+rjn = PS.measure(Pj4.copy(), Pj4, vj, np.zeros((300, 300), np.int32))
+check('п.4: стык без крошек (альбедо = фото) → «чисто», рваного стыка нет', rjn['verdict'] == 'чисто' and rjn['n_joint'] == 0)
+
 # --- стол r0/r1 (фикстура: Pf — только на надёжном, A — на всём видимом)
 FX = os.path.join(HERE, '..', '..', 'tests', 'fixtures', 'paint_spots_table.npz')
 f = np.load(FX)
 K = PS.R['k']
-grp_t, valid_t, vis_t, Pf_t = f['grp'].astype(np.int32), f['valid'], f['vis'], f['Pf']
-r0 = PS.measure(f['A0'], Pf_t, valid_t, grp_t, vis=vis_t)
-r1 = PS.measure(f['A1'], Pf_t, valid_t, grp_t, vis=vis_t)
+grp_t, valid_t, vis_t, Pf_t, pho_t = f['grp'].astype(np.int32), f['valid'], f['vis'], f['Pf'], f['pho']
+r0 = PS.measure(f['A0'], Pf_t, valid_t, grp_t, vis=vis_t, pho=pho_t)
+r1 = PS.measure(f['A1'], Pf_t, valid_t, grp_t, vis=vis_t, pho=pho_t)
 share = float(valid_t.sum()) / float(vis_t.sum())
 check('столешница (группа 2.1): надёжных текселей < 40 %% — тон «не проверен» (tone_checked False), а не «чисто»', r1['unreliable_groups']['2.1']['tone_checked'] is False)
 check('доля надёжного у стола (%.0f %% видимого): ненадёжного больше трети — мерка это заявляет, не молчит' % (100 * share), 0.3 < share < 0.7 and r0['unreliable_px'] == int((vis_t & ~valid_t).sum()))
 check('стол r0 (забракован глазом): «брак» классом 1 (пятно против фото, балл %.1f)' % r0['worst_z'], r0['verdict'] == 'брак' and r0['n_bad'] >= 1 and r0['worst_z'] >= K)
 check('стол r0: и классом 2 (деталь на ненадёжном, балл %.1f, мест %d)' % (r0['worst_z_unreliable'], r0['n_bad_unreliable']), r0['n_bad_unreliable'] >= 1)
 check('стол r1 (забракован глазом): «брак» (класс 2: балл %.1f, мест %d)' % (r1['worst_z_unreliable'], r1['n_bad_unreliable']), r1['verdict'] == 'брак' and r1['n_bad_unreliable'] >= 1)
-check('r1: верх ножек у царги/столешницы (y 225–265) — отдельный класс «граница групп» (стык белого низа столешницы и дерева), в брак пятен/деталей не смешан', any(s['peak_z'] >= K and 225 <= (s['bbox'][1] + s['bbox'][3]) // 2 <= 265 for s in r1['spots_boundary']) and not any(225 <= (s['bbox'][1] + s['bbox'][3]) // 2 <= 265 for s in r1['spots_unreliable'] if s['peak_z'] >= K))
+check('r1: верх ножек у царги/столешницы (y 225–265) — стык белого низа столешницы и дерева есть на фото; после вычитания контраста фото (п.1 T-92/4) он числится только в «границе групп» (балл %.1f, не в браке), в брак пятен/деталей/стыка не смешан' % max([s['peak_z'] for s in r1['spots_boundary'] if 225 <= (s['bbox'][1] + s['bbox'][3]) // 2 <= 265] or [0]),
+      any(0.5 * K <= s['peak_z'] and 225 <= (s['bbox'][1] + s['bbox'][3]) // 2 <= 265 for s in r1['spots_boundary'])
+      and not any(s['peak_z'] >= K and 225 <= (s['bbox'][1] + s['bbox'][3]) // 2 <= 265 for k_ in ('spots', 'spots_unreliable', 'spots_joint') for s in r1[k_]))
 check('r1: низ ближней ножки (x 520–600, y ≥ 1100) — деталь на ненадёжном, класс 2 (тёмный ровный блок тона; пятно владельца)', any(s['peak_z'] >= K and s['area_px'] >= PS.R['min_area_px'] and s['bbox'][1] >= 1100 and 520 <= s['bbox'][0] <= 600 for s in r1['spots_unreliable']))
 z0 = np.maximum(r0['maps']['z'], r0['maps']['zu'])
 z1 = np.maximum(r1['maps']['z'], r1['maps']['zu'])
@@ -172,8 +244,8 @@ def _max_blob(z):
 check('белая столешница (ненадёжное, класс 2): нет места ≥ порога площадью ≥ %d px ни у r0 (%d), ни у r1 (%d)' % (PS.R['min_area_px'], _max_blob(z0), _max_blob(z1)),
       _max_blob(z0) < PS.R['min_area_px'] and _max_blob(z1) < PS.R['min_area_px'])
 check('порог не подогнан: r0 — брак при k=3, 4, 6; r1 — брак при k=3 и 4 (при k=6 его единственный брак — деталь z 4,2 — уходит: так и сказано в отчёте)',
-      all(PS.measure(f['A0'], Pf_t, valid_t, grp_t, {'k': kk}, vis=vis_t)['verdict'] == 'брак' for kk in (3.0, 4.0, 6.0))
-      and all(PS.measure(f['A1'], Pf_t, valid_t, grp_t, {'k': kk}, vis=vis_t)['verdict'] == 'брак' for kk in (3.0, 4.0)))
+      all(PS.measure(f['A0'], Pf_t, valid_t, grp_t, {'k': kk}, vis=vis_t, pho=pho_t)['verdict'] == 'брак' for kk in (3.0, 4.0, 6.0))
+      and all(PS.measure(f['A1'], Pf_t, valid_t, grp_t, {'k': kk}, vis=vis_t, pho=pho_t)['verdict'] == 'брак' for kk in (3.0, 4.0)))
 
 # ID товаров в коде и правилах не вшиты
 src = open(os.path.join(HERE, 'paint_spots.py'), encoding='utf-8').read() + open(os.path.join(HERE, '..', '..', 'rules', 'paint-spots.json'), encoding='utf-8').read()
