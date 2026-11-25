@@ -45,8 +45,33 @@ rgb = np.array([[200, 60, 60]] * 90 + [[10, 10, 10]] * 10, np.uint8)
 lab_a = SU.lab_med(rgb, np.ones(100))
 lab_b = SU.lab_med(np.array([[200, 60, 60]] * 5, np.uint8))
 ok(SU.delta(lab_a, lab_b)['dE'] < 1.0, 'медиана — не среднее: 10 % тёмных пикселей цвет поверхности не меняют')
-ok(SU.delta(SU.lab_med(np.array([[200, 60, 60]], np.uint8)), SU.lab_med(np.array([[60, 60, 60]], np.uint8)))['dEab'] > R['flags']['dE_ab'], 'красный против серого — ΔE_ab выше порога метки')
 red = SU.lab_med(np.array([[200, 60, 60]], np.uint8))
+V = R['verdict']
+
+
+def lch(L, C, h):
+    return np.array([L, C * math.cos(math.radians(h)), C * math.sin(math.radians(h))])
+
+
+# вердикт по оттенку (чистая арифметика Lab, без ящика)
+dv = SU.decide(lch(75, 28, 60), lch(75, 14, 60), lch(75, 28, 60), V)
+ok(not dv['flag'] and dv['kind'] == 'цвет' and dv['dh'] < 1.0 and abs(dv['dC_rel'] - 0.5) < 0.02, f'тот же оттенок, вдвое насыщеннее бледного: нет ⚑ (Δh {dv["dh"]}°, ΔC/C {dv["dC_rel"]})')
+dv = SU.decide(lch(70, 30, 60 + V['dh_deg'] + 40), lch(70, 30, 60), lch(70, 30, 60 + V['dh_deg'] + 40), V)
+ok(dv['flag'] and dv['kind'] == 'цвет' and abs(dv['dh'] - (V['dh_deg'] + 40)) < 0.5, f'другой оттенок (Δh {dv["dh"]}° > порога {V["dh_deg"]}°) при C > C_min: ⚑')
+dv = SU.decide(lch(45, 2, 200), lch(60, 2, 10), lch(45, 2, 200), V)
+ok(not dv['flag'] and dv['kind'] == 'нейтр.' and dv['dh'] is None, 'нейтральный серый против серого другой яркости (и «оттенка» другого — шум): нет ⚑')
+dv = SU.decide(lch(40, 13, 60), lch(40, 6, 60), lch(40, 13, 60), V)
+ok(not dv['flag'] and dv['kind'] == 'цвет↔нейтр.', 'чуть цветной (C ниже c_clear) против нейтрального: нет ⚑')
+dv = SU.decide(lch(60, 30, 355), lch(60, 30, 5), lch(60, 30, 355), V)
+ok(abs(dv['dh'] - 10.0) < 0.5 and not dv['flag'], f'угол через 0°: 355° и 5° — Δh {dv["dh"]}°, не 350°')
+dv = SU.decide(lch(19, 0.7, 10), lch(40, 18, 105), lch(40, 18, 105), V)                  # вся поверхность — тёмная рама, полоса — сиденье, и модель в пикселях полосы верна
+ok(dv['mismatch_whole'] and not dv['mismatch_vis'] and not dv['flag'], 'поверхность из двух деталей, пиксели полосы верные: по всей поверхности расходится, ⚑ нет')
+dv = SU.decide(lch(54, 76, 40), lch(76, 8, 40), lch(54, 76, 40), V)
+ok(dv['mismatch_whole'] and dv['mismatch_vis'] and dv['gloss'] and not dv['flag'], 'блик на фото (светлее, C полосы ≪ C модели): «глянец?» вместо ⚑')
+dv = SU.decide(lch(70, 76, 40), lch(76, 8, 40), lch(70, 76, 40), V)
+ok(dv['flag'] and not dv['gloss'], 'фото светлее лишь немного — это не блик, ⚑ остаётся')
+dv = SU.decide(lch(60, 30, 20), lch(60, 30, 20), None, V)
+ok(not dv['flag'] and 'mismatch_vis' not in dv, 'копия бока (пикселей полосы нет): решает вся поверхность, ключей полосы нет')
 rt = SU.lab_med(np.array([SU.lab_to_rgb(red)], np.uint8))
 ok(SU.delta(red, rt)['dE'] < 1.5, f'Lab → sRGB → Lab возвращает цвет (образцы на кадрах не врут): ΔE {SU.delta(red, rt)["dE"]}')
 dd = SU.delta(red - np.array([15.0, 0, 0]), red)
@@ -107,11 +132,11 @@ ok({'перёд', 'бок', 'верх'} <= set(s), f'у ящика под угл
 ok(all(d['dE'] < 3.0 for k, d in s.items() if k != 'зад'), f"та же раскраска — ΔE малые (зад не берём: у ящика он синий, а правило сравнивает его с полосой бока): {({k: d['dE'] for k, d in s.items()})}")
 ok(all(d['n_strip'] > R['regions']['min_px'] for d in s.values()), 'число пикселей полосы возвращается и больше порога')
 sb = bad['surfaces']
-ok(sb['бок']['dEab'] > R['flags']['dE_ab'] and sb['бок']['flag'], f"чужой цвет на боку: ΔE_ab бока {sb['бок']['dEab']} ≥ {R['flags']['dE_ab']}, метка есть")
+ok(sb['бок']['flag'] and sb['бок']['kind'] == 'цвет↔нейтр.' and sb['бок']['mismatch_whole'], f"чужой цвет на боку (серый вместо красного): метка есть, {sb['бок']['kind']}, C {sb['бок']['C_photo']} → {sb['бок']['C_model']}")
 ok(sb['перёд']['dE'] < 3.0 and sb['верх']['dE'] < 3.0 and not sb['перёд']['flag'] and not sb['верх']['flag'], 'перёд и верх при этом не тронуты')
-ok(sb['бок']['dE_vis'] > R['flags']['dE_ab'], f"«в тех же пикселях полосы» тоже видно: dE_vis {sb['бок']['dE_vis']}")
+ok(sb['бок']['mismatch_vis'] and sb['бок']['dE_vis'] > sb['бок']['dEab'] / 2, f"«в тех же пикселях полосы» тоже видно: dE_vis {sb['бок']['dE_vis']}")
 
-# T-20261125-73: ⚑ — по цветности (ΔE_ab), яркость в метку не входит
+# T-20261125-73 и /2: ⚑ — по оттенку (Δh), яркость и насыщенность в метку не входят
 red_lab = SU.lab_med(np.array([[200, 60, 60]], np.uint8))
 dark_rgb = SU.lab_to_rgb(red_lab - np.array([15.0, 0, 0]))                  # тот же цвет, темнее на 15 L (тень на боку фото)
 grey_rgb = SU.lab_to_rgb(np.array([red_lab[0], 0.0, 0.0]))                  # серый той же яркости, другая цветность («чужой цвет»)
@@ -120,10 +145,31 @@ box_glb(gc, [dark_rgb, A[1], A[2]])
 box_glb(gd, [grey_rgb, A[1], A[2]])
 dark = SU.measure_item({'glb': gc, 'photo': photo, 'check06': chk}, R)['surfaces']['бок']
 grey = SU.measure_item({'glb': gd, 'photo': photo, 'check06': chk}, R)['surfaces']['бок']
-ok(not dark['flag'] and dark['dEab'] < R['flags']['dE_ab'] / 2 and 12.0 < -dark['dL'] < 18.0 and dark['dE'] >= 12.0,
-   f"тот же цвет темнее на 15 L: без ⚑ (ΔE_ab {dark['dEab']}, ΔL {dark['dL']}; по прежнему правилу «ΔE ≥ 12» был бы ⚑: ΔE {dark['dE']})")
-ok(grey['flag'] and grey['dEab'] >= R['flags']['dE_ab'] and abs(grey['dL']) < 3.0,
-   f"серый бок той же яркости, другая цветность: ⚑ (ΔE_ab {grey['dEab']}, ΔL {grey['dL']})")
+ok(not dark['flag'] and dark['dh'] < V['dh_deg'] / 4 and 12.0 < -dark['dL'] < 18.0 and dark['dE'] >= 12.0,
+   f"тот же цвет темнее на 15 L: без ⚑ (Δh {dark['dh']}°, ΔL {dark['dL']}; по прежнему правилу «ΔE ≥ 12» был бы ⚑: ΔE {dark['dE']})")
+ok(grey['flag'] and grey['kind'] == 'цвет↔нейтр.' and abs(grey['dL']) < 3.0,
+   f"серый бок той же яркости, другая цветность: ⚑ ({grey['kind']}, ΔE_ab {grey['dEab']}, ΔL {grey['dL']})")
+
+
+def side_case(photo_side, model_side):
+    """Ящик-«фото» с боком photo_side (Lab) и ящик-модель с боком model_side; остальные грани те же. → измерение «бока»."""
+    gp, gm = os.path.join(TMPD, 'surf-p.glb'), os.path.join(TMPD, 'surf-m.glb')
+    ph, ck = os.path.join(TMPD, 'surf-pp.png'), os.path.join(TMPD, 'surf-pc.json')
+    box_glb(gp, [SU.lab_to_rgb(photo_side), A[1], A[2]])
+    box_glb(gm, [SU.lab_to_rgb(model_side), A[1], A[2]])
+    photo_of(gp, cam, ph, ck)
+    got = SU.measure_item({'glb': gm, 'photo': ph, 'check06': ck}, R)['surfaces']['бок']
+    for p in (gp, gm, ph, ck):
+        os.remove(p)
+    return got
+
+
+t = side_case(lch(75, 14, 60), lch(75, 28, 60))
+ok(not t['flag'] and t['kind'] == 'цвет' and t['dC_rel'] > 0.3 and t['dh'] < V['dh_deg'] / 2, f"ящик: тот же оттенок, вдвое насыщеннее бледного — нет ⚑ (Δh {t['dh']}°, ΔC/C {t['dC_rel']}, ΔE_ab {t['dEab']})")
+t = side_case(lch(70, 30, 40), lch(70, 30, 40 + V['dh_deg'] + 50))
+ok(t['flag'] and t['dh'] >= V['dh_deg'], f"ящик: другой оттенок — ⚑ (Δh {t['dh']}°)")
+t = side_case(lch(60, 1, 90), lch(45, 1, 270))
+ok(not t['flag'] and t['kind'] == 'нейтр.' and t['dL'] < -10, f"ящик: серый против серого другой яркости — нет ⚑ ({t['kind']}, ΔL {t['dL']})")
 cf = os.path.join(TMPD, 'surf-frame.png')
 fd = SU.cal_frame({'glb': gd, 'photo': photo, 'check06': chk}, R, 'бок', cf, 'тест')
 ok(os.path.getsize(cf) > 2000 and fd['flag'] and Image.open(cf).size[0] > 600, 'кадр калибровки (фото | модель | образцы) рисуется и совпадает с измерением')
@@ -146,8 +192,8 @@ ev = {'abc12345': dict(bad, id='abc12345', type='шкаф'), 'def67890': dict(fr
 sm = SU.summary(ev, R)
 ok(sm['by_surface']['бок']['n_flagged'] == 1 and sm['unmeasured_by_surface'].get('бок') == 1, f"свод: флагов бока {sm['by_surface']['бок']['n_flagged']}, не измерено {sm['unmeasured_by_surface'].get('бок')}")
 tb = SU.table_md(ev, R, SU.spread(ev, json.loads(json.dumps(ev))))
-ok('abc12345' in tb and '⚑' in tb and 'нет полосы' in tb and 'Разброс повтора' in tb, 'таблица: ΔE_ab / ΔE (px) ⚑, причины «не измерено», разброс')
-ok('ΔL' in tb and 'ΔE_ab мед.' in tb and sm['by_surface']['бок']['dEab_median'] > 0, 'таблица: ΔL отдельной таблицей «для сведения», свод с ΔE_ab')
+ok('abc12345' in tb and '⚑' in tb and 'нет полосы' in tb and 'Разброс повтора' in tb, 'таблица: Δh · ΔC/C · ΔE_ab (px) ⚑, причины «не измерено», разброс')
+ok('ΔL' in tb and 'Δh мед.' in tb and 'ΔC/C' in tb and sm['by_surface']['бок']['dEab_median'] > 0 and sm['by_surface']['бок']['n_gloss'] == 0, 'таблица: ΔL отдельной таблицей «для сведения», свод с Δh, ΔC/C, ΔE_ab, глянцем')
 cp = sm['copy_of_side']
 ok(cp['measured'] >= 1 and cp['n_flagged'] >= 1 and 'зад' not in sm['by_surface'], f"свод: зад/бок-2 с ref:бок — отдельной строкой «копия бока» ({cp['measured']}), не в своих ⚑")
 ok('копия' in tb, 'таблица помечает копии бока')
@@ -158,7 +204,7 @@ for p in (ga, gb, photo, chk, photo0, chk0):
 # 4. правила: ID товаров и числа порогов в коде нет
 src = open(os.path.join(ASSETS, 'surface_eval.py'), encoding='utf-8').read()
 ok(not re.search(r'\b\d{5,6}_\d{10,}\b', src), 'в коде мерки нет ID товаров')
-ok(R['flags']['dE_ab'] > 0 and 'dE' not in R['flags'] and R['regions']['min_px'] > 0 and R['registration']['iou_min'] > 0, 'пороги — в data/flat3d/surface-eval.json')
+ok(V['dh_deg'] > 0 and V['c_min'] > 0 and V['c_clear'] >= V['c_min'] and 'flags' not in R and R['regions']['min_px'] > 0 and R['registration']['iou_min'] > 0, 'пороги — в data/flat3d/surface-eval.json')
 
 print('FAIL', FAIL)
 sys.exit(1 if FAIL else 0)
