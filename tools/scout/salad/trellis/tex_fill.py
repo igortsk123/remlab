@@ -2132,7 +2132,7 @@ def load_rules(path: str | None = None) -> dict:
             raise KeyError(f'rules/paint-fill.json: seam.{k} не задан')
     if 'enabled' not in (r.get('ultratex') or {}):
         raise KeyError("rules/paint-fill.json: нет ultratex.enabled (выключатель UltraTex)")
-    for k in ('enabled', 'merge_de_plane', 'merge_de_edge', 'thresholds', 'measure', 'seam_px', 'pattern_ac_peak', 'separate_roles', 'gate'):
+    for k in ('enabled', 'merge_de_plane', 'merge_de_edge', 'thresholds', 'measure', 'seam_px', 'pattern_ac_peak', 'separate_roles', 'gate', 'source', 'part_material'):
         if k not in (r.get('surface_groups') or {}):
             raise KeyError(f'rules/paint-fill.json: surface_groups.{k} не задан')
     for k in ('gain_max', 'clip_k', 'patch_frac', 'patch_dl', 'dilate_px', 'part_max_share', 'band_lo', 'band_hi', 'sigma_lo_min', 'sigma_lo_max', 'sigma_hi_max', 'far_w', 'p95_cap',
@@ -2391,7 +2391,10 @@ def choose_tone_sources(part_ids, roles: dict, known_cnt: dict, total: dict, fro
         cands = sorted(((n, (b if a == p else a)) for (a, b), n in borders.items() if p in (a, b) and role_of(b if a == p else a) == role), reverse=True)
         picked, rej = None, []
         for n, q in cands:
-            if not reliable[q]:
+            if not reliable[q] or q in (c.get('donor_forbidden') or ()):
+                continue
+            _mo = c.get('donor_material_of') or {}
+            if _mo.get(p) is not None and _mo.get(q) is not None and _mo[p] != _mo[q]:                 # T-84: донор — только того же материала Ш4а
                 continue
             de = None
             if not from_global[p] and known_cnt[p] >= int(c.get('tone_compat_min_known', 1500)):          # свой видимый тон достаточно надёжен, чтобы проверить совместимость
@@ -2957,12 +2960,30 @@ def run_stage_once(run: str, sku: str, glb: str, known: list | None = None, part
     if _dz_eff is not None:
         k_keep = [k_ & ~z_ for k_, z_ in zip(k_keep, _dz_eff['protect'])]                         # деталь — не опора для тона групп материала
     pp_pol = paint_policy_for(cfg)                      # политика покраски невидимых сторон по ТИПУ товара — читается ДО паспорта поверхностей (type-rules-code-01 А2); в check.json: тип, политика, digest, применено
+    _pmf = None                                                                          # Ш4а: материал по граням (паспорт 07 при source=part_material + граница материалов не ступень); нет файла — как раньше
+    if prev_dir and os.path.isfile(os.path.join(prev_dir, 'part_material_faces.npz')):
+        try:
+            _pmf = np.load(os.path.join(prev_dir, 'part_material_faces.npz'))['face_material'].astype(np.int32)
+        except Exception:
+            _pmf = None
+    parts_sg, roles_sg = parts, (cfg or {}).get('part_role')
+    sg_rep['source'] = 'passport'                                                        # T-84: колонка «источник групп» — passport | part_material; решение на товар целиком
+    if sg_cfg['enabled'] and sg_cfg.get('source') == 'part_material':
+        import surface_passport as _SPm
+        _dec = _SPm.source_decision(_pmf, prev_dir, sg_cfg['part_material'])
+        sg_rep['source_check'] = _dec
+        if _dec['use']:
+            parts_sg, roles_sg, _inf = _SPm.relabel_parts_by_material(parts, _pmf, roles_sg, int(sg_cfg['part_material']['max_labels']))
+            sg_rep['source_info'] = _inf
+            if _inf['applied']:
+                sg_rep['source'] = 'part_material'
+                sg_cfg = dict(sg_cfg, donor_min_share=float(sg_cfg['part_material']['donor_min_share']), part_material_of=_inf['part_material'])
     if sg_cfg['enabled']:
         _t_sg = time.process_time()
         _m_sg = _hmark()
         import surface_passport as SP                                  # ВНЕ try: нет модуля в срезе кода = отказ этапа, не тихое «без групп» (Salad ≠ локально, T-193/4)
         try:
-            sg_pas, sg_ctx = SP.build(geoms, [np.asarray(t_)[..., :3] for t_ in tex_before], known if _dz_eff is None else [np.asarray(k_, bool) & ~z_ for k_, z_ in zip(known, _dz_eff['protect'])], parts, (cfg or {}).get('part_role'), sg_cfg, FILL, sys.modules[__name__])
+            sg_pas, sg_ctx = SP.build(geoms, [np.asarray(t_)[..., :3] for t_ in tex_before], known if _dz_eff is None else [np.asarray(k_, bool) & ~z_ for k_, z_ in zip(known, _dz_eff['protect'])], parts_sg, roles_sg, sg_cfg, FILL, sys.modules[__name__])
             sg_ctx['paint_policy'] = pp_pol
             sg_rep['passport'] = {'groups': [{k_: g_.get(k_) for k_ in ('id', 'parts', 'class', 'tone_lab', 'sigma_grain_L', 'ac_peak', 'known_share', 'why_not_applied')} for g_ in sg_pas['groups']], 'merges': len(sg_pas['merges']), 'refusals': len(sg_pas['refusals'])}
             with open(os.path.join(d, 'surface-passport.json'), 'w', encoding='utf-8') as f_:
@@ -2993,12 +3014,6 @@ def run_stage_once(run: str, sku: str, glb: str, known: list | None = None, part
     _hdone(hooks, 'known_from_photo_back', _m)
     _to = load_tone_only_png(prev_dir) if (prev_dir and (cfg or {}).get('tone_only_use', True)) else None      # тон-слой этапа 6 (р.8): цвет оставить, фактуру положить поверх
 
-    _pmf = None                                                                          # Ш4а: материал по граням (граница разных материалов — не ступень); нет файла — как раньше
-    if prev_dir and os.path.isfile(os.path.join(prev_dir, 'part_material_faces.npz')):
-        try:
-            _pmf = np.load(os.path.join(prev_dir, 'part_material_faces.npz'))['face_material'].astype(np.int32)
-        except Exception:
-            _pmf = None
     _cf = load_conf_png(prev_dir) if prev_dir else None                                  # доверие к фото-текселю (этап 6, р.3) — нет файла: запасное от границы известного
     _gm = load_grain_png(prev_dir) if (prev_dir and (cfg or {}).get('part_grain_mask_use', True)) else None            # зерно шага part_grain (T-69/4): одна деталь — один источник фактуры
     _dz_eff, _gm, _gm_rep = grain_mask_merge(geoms, _dz_eff, _gm)
