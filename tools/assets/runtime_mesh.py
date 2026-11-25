@@ -390,6 +390,9 @@ def weight_rule(path: str | None = None) -> dict:
             raise ValueError(f"{p}: material.stage_mark — {{key: строка, value: строка}} (отметка этапа 08 в asset.extras GLB) или блока нет")
     elif any("mat_size" in s for s in r.get("ladder") or []):
         raise ValueError(f"{p}: в лестнице есть mat_size, а блока material нет")
+    nm = r.get("normals")
+    if nm is not None and (not isinstance(nm, dict) or not isinstance(nm.get("max_faces"), int) or isinstance(nm.get("max_faces"), bool) or nm["max_faces"] <= 0):
+        raise ValueError(f"{p}: normals — {{max_faces: целое > 0}} (нормали копии остаются только у копий реже этого числа граней) или блока нет")
     r["fingerprint"] = hashlib.sha256(raw).hexdigest()[:8]
     return r
 
@@ -398,6 +401,35 @@ def material_tag(rule: dict) -> str:
     """Метка правила карт материала для отпечатка копии (`src_sha`): пусто, если карты не хранятся (keep=false или блока нет)."""
     m = rule.get("material") or {}
     return "" if not m.get("keep") else "mat=" + hashlib.sha256(json.dumps(m, sort_keys=True).encode()).hexdigest()[:8]
+
+
+# ——— НОРМАЛИ КОПИИ (T-64/3; замер порога — `rules/rt-weight.json:normals`) ———
+# Исходник 08 с 24.11 (489cf1a5b) несёт NORMAL: без них three.js красит грани плоско. На густой сетке (~0,5 млн граней) плоское затенение глазом
+# не отличить от гладкого, а нормали стоят ~9 % веса и съедают запас до 5 МБ. Поэтому у копии нормали остаются только там, где их видно, —
+# по числу граней копии (после упрощения шага лестницы). Порог — данные правила, в коде числа нет; блока нет — нормали остаются, как раньше.
+def has_normals(js: dict) -> bool:
+    return any("NORMAL" in (pr.get("attributes") or {}) for m in js.get("meshes", []) for pr in m.get("primitives", []))
+
+
+def strip_normals(data: bytes) -> bytes:
+    """GLB без ссылок на NORMAL (только JSON-чанк; осиротевшие данные акцессоров gltfpack при упаковке выбрасывает)."""
+    js, b = parse_glb(data)
+    for m in js.get("meshes", []):
+        for pr in m.get("primitives", []):
+            (pr.get("attributes") or {}).pop("NORMAL", None)
+    return write_glb(js, b)
+
+
+def normals_dropped(rule: dict, faces: int) -> bool:
+    """Нормали у копии с `faces` граней убрать: правило `normals.max_faces` есть и граней не меньше порога."""
+    nm = rule.get("normals")
+    return bool(nm) and faces >= int(nm["max_faces"])
+
+
+def normals_tag(rule: dict) -> str:
+    """Метка правила нормалей для отпечатка копии: пусто, если блока нет."""
+    nm = rule.get("normals")
+    return "" if not nm else f"nrm<{int(nm['max_faces'])}"
 
 
 def keeps_material_maps(src: bytes, rule: dict) -> bool:
@@ -416,7 +448,15 @@ def recipe_for(src: bytes, recipe: str, rule: dict) -> str:
     """Рецепт для отпечатка ЭТОГО исходника: метка карт материала добавляется ТОЛЬКО если у исходника такие карты есть. Копии моделей без карт
     (почти вся галерея — один цвет) остаются «свежими»: перевыпуск нужен тем, у кого результат изменился."""
     tag = material_tag(rule)
-    return f"{recipe};{tag}" if tag and keeps_material_maps(src, rule) else recipe
+    out = f"{recipe};{tag}" if tag and keeps_material_maps(src, rule) else recipe
+    ntag = normals_tag(rule)
+    if ntag:                                              # метка нормалей — только у исходника, где они есть: прочие копии остаются «свежими»
+        try:
+            if has_normals(parse_glb(src)[0]):
+                out = f"{out};{ntag}"
+        except (ValueError, struct.error):
+            pass
+    return out
 
 
 def _src_recipe(src: bytes, recipe: str, rule: dict) -> tuple[bytes, str]:
@@ -464,7 +504,9 @@ def build_light(src: bytes, dst: str, size: int, quality: int, simplify: float, 
     res: dict = {"ok": False, "kind": "weight", "packed": False, "how": "", "probs": [], "bytes": 0, "stats": {}, "tried": tried}
     material = rule.get("material") or {"keep": False}     # блока в правиле нет — карты не хранятся, как раньше
     prev: tuple[int, int | None] | None = None
+    nn_cache: dict[tuple[int, int | None], str] = {}       # исходник без NORMAL по ключу (сторона цвета, сторона карт) — для густых копий
     try:
+        src_normals = bool(rule.get("normals")) and has_normals(parse_glb(src)[0])
         for label, sz, simp, mat in ladder_steps(rule, size, simplify):
             if prev is not None and mat is not None and prev[1] is not None and mat < prev[1] and sz == prev[0]:
                 # шаг только уменьшает карты материала: у модели без карт, или когда они и так не больше этой стороны, копия не изменится — шаг не делаем
@@ -485,13 +527,22 @@ def build_light(src: bytes, dst: str, size: int, quality: int, simplify: float, 
             if simp and min_tri and stats["triangles"] * simp < min_tri:
                 tried.append({"step": label, "size": sz, "simplify": simp, "skip": f"граней {stats['triangles']}×{simp:g} < {min_tri}"})
                 break                                      # дальше упрощение только мельче — стоп (силуэт не едим)
-            packed, how, probs = build_copy(tmp, cand, simp, ktx2, stats["images_out"] > 0, tex_flags)
+            pack_src, nrm = tmp, None
+            if src_normals:                                # нормали есть у исходника: у густой копии (граней ≥ порога правила) их убираем — плоское затенение там не видно
+                nrm = "dropped" if normals_dropped(rule, int(stats["triangles"] * (simp or 1))) else "kept"
+                if nrm == "dropped":
+                    if key not in nn_cache:
+                        nn_cache[key] = dst[:-4] + ".nn" + tmp[len(dst) - 4:]       # «x.nn.src2048.glb»: имя по-прежнему кончается на «.srcN.glb»
+                        with open(nn_cache[key], "wb") as fh:
+                            fh.write(strip_normals(open(tmp, "rb").read()))
+                    pack_src = nn_cache[key]
+            packed, how, probs = build_copy(pack_src, cand, simp, ktx2, stats["images_out"] > 0, tex_flags)
             if probs:
                 tried.append({"step": label, "size": sz, "simplify": simp, "problems": probs[:2]})
                 res.update(kind="texture", probs=probs, stats=stats)
                 return res
             nbytes = os.path.getsize(cand)
-            tried.append({"step": label, "size": sz, "simplify": simp, "bytes": nbytes})
+            tried.append({"step": label, "size": sz, "simplify": simp, "bytes": nbytes, **({"normals": nrm} if nrm else {})})
             res.update(packed=packed, how=how, bytes=nbytes, stats=stats)
             if nbytes <= max_bytes:
                 os.replace(cand, dst)
@@ -500,7 +551,7 @@ def build_light(src: bytes, dst: str, size: int, quality: int, simplify: float, 
             os.remove(cand)
         return res
     finally:
-        for p in [cand, cand[:-4] + ".new.glb"] + [t for t, _s in cache.values()]:
+        for p in [cand, cand[:-4] + ".new.glb"] + [t for t, _s in cache.values()] + list(nn_cache.values()):
             if os.path.exists(p):
                 os.remove(p)
 
