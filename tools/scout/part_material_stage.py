@@ -221,7 +221,39 @@ def process(a, rules: dict, d: str, rep: dict) -> None:
         tex = np.where(fg[..., None], ctl, tex).astype(np.uint8)
         painted = painted & ~fg
         Image.fromarray((fg * 255).astype(np.uint8)).save(os.path.join(os.path.join(d, '_partmaterial'), 'foreign-map.png'))
-    tex, det = PM.keep_details(tex, ctl, texmap, painted, kn0, names, keep, rules)       # лицо = тон + мелкие детали фото (щели, кромки, зерно)
+    rl = rules.get('reliability') or {}
+    kn_det = kn0
+    if rl.get('enabled') or a.keep_work:                                          # надёжность граней как источника фото: считаем всегда при --keep-work (разбор), применяем только по флагу
+        fm = TV.face_maps(st, nF)
+        Vv, Ff = np.asarray(g['V'], np.float64), np.asarray(g['F'], np.int64)
+        tri = Vv[Ff]
+        cen = tri.mean(1)
+        el = np.linalg.norm(tri - np.roll(tri, 1, axis=1), axis=-1).mean(1)
+        rel = PM.face_reliability(st['ids'], cosf, cen, el, valid, st['px_len'], nF, rl)
+        pe, pinfo = PM.pose_error_px(st['mask'], pmask, rl)                       # ошибка позы ЭТОГО товара (контур растра ↔ контур фото), px кадра
+        rl_e = dict(rl, pose_err_px=pe) if rl.get('measure_pose_err') else rl
+        if rl.get('local_pose_err'):                                              # Fable 25.11 17:20: ошибка позы МЕСТНАЯ (по участку контура растр↔фото рядом с гранью), запас края = edge_errs × местная
+            fld, linfo = PM.pose_error_field(np.asarray(st['mask'], bool), np.asarray(pmask, bool), rl)
+            ys_, xs_ = np.nonzero(valid)
+            f_ = np.clip(st['ids'][ys_, xs_], 0, nF - 1).astype(np.int64)
+            cnt_ = np.bincount(f_, minlength=nF).astype(np.float64)
+            ef = np.bincount(f_, fld[ys_, xs_].astype(np.float64), nF) / np.maximum(cnt_, 1.0)
+            ef = np.where(cnt_ > 0, ef, float(np.median(ef[cnt_ > 0])) if (cnt_ > 0).any() else pe)
+            rl_e = dict(rl, pose_err_arr=ef, pose_err_px=float(np.median(ef[cnt_ > 0])) if (cnt_ > 0).any() else pe)
+            pinfo = dict(pinfo, местная=linfo)
+        rok, rwhy = PM.reliable_faces(rel, rl_e)
+        fidmap = PM.uv_face_map(g['UV'], g['F'], T)
+        rep['reliability'] = {**rwhy, 'применено': bool(rl.get('enabled')), 'ошибка_позы_px': round(float(rl_e['pose_err_px']), 2), 'ошибка_позы_замер': pinfo}
+        if a.keep_work:
+            fr_ = TV.fit_registration(P, st["P"], st["mask"])                     # та же подгонка сдвига, что у 06 (REG_FIT): фото в кадре 06 сдвинуто на (dx, dy) ≤ 3 px
+            prgb_reg = TV.photo_to_frame(P, fr_["P"], st["px"])[0] if (fr_["gain"] >= TV.REG_MIN_GAIN and (fr_["dx"] or fr_["dy"])) else prgb
+            np.savez_compressed(os.path.join(d, '_partmaterial', 'rel.npz'), fidmap=fidmap, texmap=texmap, names=np.array(names), known=kn0, rok=rok, cos=rel['cos'], dist=rel['dist'], width=rel['width'], cnt=rel['cnt'],
+                                depth=st['depth'], ids=st['ids'], cosf=cosf, px_len=np.float64(st['px_len']), fm_ok=fm['ok'], fm_mu=fm['mu'], fm_mv=fm['mv'], fm_mx=fm['mx'], fm_my=fm['my'], fm_ax=fm['ax'], fm_bx=fm['bx'], fm_ay=fm['ay'], fm_by=fm['by'], prgb=prgb, prgb_reg=prgb_reg, reg_dxdy=np.array([fr_["dx"], fr_["dy"]]), pmask=pmask, valid=valid, flab=flab)
+        if rl.get('enabled'):
+            kn_det = kn0 & rok[fidmap]                                            # детали фото — только с надёжных граней; остальное — ровный тон группы
+            rep['reliability']['текселей_известных'] = int(kn0.sum())
+            rep['reliability']['текселей_надёжных'] = int(kn_det.sum())
+    tex, det = PM.keep_details(tex, ctl, texmap, painted, kn_det, names, keep, rules, fade=(rl.get('fade') if rl.get('enabled') else None))       # лицо = тон + мелкие детали фото (щели, кромки, зерно)
     rep['details_texels'] = det
     # итоговые кадры для мерки и ворот «лицо против фото» (кадр до шага — фото 06 на той же геометрии)
     PM.swap_tex_glb(base, tex, os.path.join(work, 'fin.glb'), rough=rules['unlit_roughness'])
@@ -325,6 +357,12 @@ def process(a, rules: dict, d: str, rep: dict) -> None:
         shutil.copy2(to_p, os.path.join(d, 'tone_only.pre-partmaterial.png'))
     base_to = os.path.join(d, 'tone_only.pre-partmaterial.png')
     t0m = (np.asarray(Image.open(base_to).convert('L')) > 127) if os.path.exists(base_to) else np.zeros(painted.shape, bool)
+    if rl.get('enabled') and rl.get('donor_reliable_only'):         # Fable 16:38 п.3: донор заливки 07 — только надёжные тексели; ненадёжные «известные» → тон-только (цвет остаётся ровным тоном, фактуру 07 берёт у надёжных)
+        kn_new = kn & ~(painted & ~kn_det)
+        rep['reliability']['донор_убрано_известных'] = int((kn & ~kn_new).sum())
+        rep['reliability']['донор_известных_осталось'] = int(kn_new.sum())
+        kn = kn_new
+        Image.fromarray((kn * 255).astype(np.uint8)).save(os.path.join(d, 'known.png'))
     tone_only = t0m | (painted & ~kn)
     Image.fromarray((tone_only * 255).astype(np.uint8)).save(to_p)
     gtone = []                                                       # вход для зерна (T-69): карта части по текселям + плоский тон каждой группы (sRGB, как в текстуре) + материал

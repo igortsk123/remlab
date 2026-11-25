@@ -511,7 +511,121 @@ def foreign_texels(ctl: np.ndarray, texmap: np.ndarray, painted: np.ndarray, kno
     return out, info
 
 
-def keep_details(tex: np.ndarray,ctl: np.ndarray, texmap: np.ndarray, painted: np.ndarray, known: np.ndarray, names: list, keep: set, rules: dict) -> tuple[np.ndarray, dict]:
+def uv_face_map(UV: np.ndarray, F: np.ndarray, T: int) -> np.ndarray:
+    """Индекс грани на тексель развёртки T×T (int32; строка = (1 − uv_y)·T, как у текстуры 06); пропуски — ближайшей гранью. Нужен для «откуда тексель»: надёжность грани → тексель."""
+    import cv2
+    from scipy.ndimage import distance_transform_edt
+    m = np.full((T, T), -1, np.int32)
+    uv = np.stack([UV[F][..., 0] * T, (1.0 - UV[F][..., 1]) * T], -1)
+    pts = np.round(uv).astype(np.int32)
+    for i in range(len(F)):
+        cv2.fillConvexPoly(m, pts[i], int(i))
+    miss = m < 0
+    if miss.any() and (~miss).any():
+        _, (iy, ix) = distance_transform_edt(miss, return_indices=True)
+        m = m[iy, ix]
+    return m
+
+
+def face_reliability(ids: np.ndarray, cosf: np.ndarray, cen: np.ndarray, el: np.ndarray, valid: np.ndarray, px_len: float, nF: int, rl: dict) -> dict:
+    """Надёжность каждой грани как источника цвета ФОТО (стол 18286219715731135772, разбор Fable 25.11: пятна = лоскуты фото с ненадёжных мест).
+    По пикселям кадра камеры фото (valid = объект ∩ фото): cos — средний cos угла грани к лучу; dist — наименьшее расстояние (px) от пикселя грани до края силуэта/фото или разрыва глубины
+    (перекрытия: сосед ближе/дальше больше depth_jump_px·px_len); width — наибольшая ширина детали (2 × расстояние до края силуэта, px) на этой грани; cnt — число пикселей (0 — не видна).
+    Единица порогов — «ошибка позы» pose_err_px (px кадра)."""
+    from scipy import ndimage as ndi
+    H, W = ids.shape
+    edt = ndi.distance_transform_edt(valid)
+    bd = np.zeros((H, W), bool)
+    c = np.clip(cosf, 0.2, 1.0)
+    tn = np.sqrt(1.0 - c * c) / c                                                    # наклон плоскости: на косой грани сосед по кадру дальше на px_len·(1+tan) — это не перекрытие
+    jump = float(rl.get('depth_jump_px', 2.0))
+    # Глубина кадра этапа 4 — по средней глубине грани, без z-буфера (у стола шаг между соседними пикселями в сотни px_len, tex_visible.depth_mismatch) — для перекрытий не годится.
+    # Перекрытие = соседние пиксели кадра попали в грани, чьи центры в МИРЕ дальше, чем размер граней + шаг пикселя на косой плоскости (+ jump пикселей запаса): поверхность там не сплошная.
+    cen = np.asarray(cen, np.float64)
+    el = np.asarray(el, np.float64)
+    ids_c = np.clip(ids, 0, nF - 1)
+
+    def _brk(a, b, ta, tb, va, vb):
+        d = np.linalg.norm(cen[a] - cen[b], axis=-1)
+        thr = el[a] + el[b] + px_len * (np.maximum(ta, tb) + jump)
+        return (d > thr) & va & vb & (a != b)
+    ay, by = ids_c[1:, :], ids_c[:-1, :]
+    ax, bx = ids_c[:, 1:], ids_c[:, :-1]
+    dy = _brk(ay, by, tn[1:, :], tn[:-1, :], valid[1:, :], valid[:-1, :])
+    dx = _brk(ax, bx, tn[:, 1:], tn[:, :-1], valid[:, 1:], valid[:, :-1])
+    bd[1:, :] |= dy
+    bd[:-1, :] |= dy
+    bd[:, 1:] |= dx
+    bd[:, :-1] |= dx
+    dist = edt.copy()
+    if bd.any():
+        dist = np.minimum(dist, ndi.distance_transform_edt(~bd))
+    ys, xs = np.nonzero(valid)
+    f = np.clip(ids[ys, xs], 0, nF - 1).astype(np.int64)
+    cnt = np.bincount(f, minlength=nF).astype(np.float64)
+    cs = np.bincount(f, cosf[ys, xs].astype(np.float64), nF) / np.maximum(cnt, 1)
+    dmin = np.full(nF, 1e9)
+    np.minimum.at(dmin, f, dist[ys, xs])
+    wmax = np.zeros(nF)
+    np.maximum.at(wmax, f, 2.0 * edt[ys, xs])
+    return {'cos': cs, 'dist': np.where(cnt > 0, dmin, 0.0), 'width': wmax, 'cnt': cnt}
+
+
+def reliable_faces(rel: dict, rl: dict) -> tuple[np.ndarray, dict]:
+    """Грань — надёжный источник деталей фото: видна, cos не скользящий (≥ cos_min), от края силуэта/перекрытия не ближе edge_errs ошибок позы, деталь шире thin_errs ошибок. → (маска, счётчики причин отказа)."""
+    e = rl['pose_err_arr'] if rl.get('pose_err_arr') is not None else float(rl['pose_err_px'])      # массив по граням — местная ошибка позы (pose_error_field), иначе одно число
+    vis = rel['cnt'] > 0
+    c_ok = rel['cos'] >= float(rl['cos_min'])
+    d_ok = rel['dist'] >= float(rl['edge_errs']) * e
+    w_ok = rel['width'] >= float(rl['thin_errs']) * e
+    ok = vis & c_ok & d_ok & w_ok
+    why = {'видна': int(vis.sum()), 'скользящая': int((vis & ~c_ok).sum()), 'у_края_или_перекрытия': int((vis & ~d_ok).sum()), 'тонкая': int((vis & ~w_ok).sum()), 'надёжна': int(ok.sum())}
+    return ok, why
+
+
+def pose_error_px(mask_render: np.ndarray, mask_photo: np.ndarray, rl: dict) -> tuple[float, dict]:
+    """Ошибка позы ТОВАРА в px кадра (единица порогов надёжности): расстояние от контура растра формы до контура фото-силуэта (90-й процентиль по точкам контура растра), в [pose_err_min_px, pose_err_max_px].
+    Измерена у этого товара из того же кадра, а не одна константа на все: хорошо легшая камера — меньше запретная полоса у края, плохо легшая — больше. → (px, {измерено, p50, p90, взято})."""
+    import cv2
+    from scipy import ndimage as ndi
+    k = np.ones((3, 3), np.uint8)
+    br = mask_render & ~(cv2.erode(mask_render.astype(np.uint8), k) > 0)
+    bp = mask_photo & ~(cv2.erode(mask_photo.astype(np.uint8), k) > 0)
+    lo, hi = float(rl.get('pose_err_min_px', 1.5)), float(rl.get('pose_err_max_px', 6.0))
+    if not br.any() or not bp.any():
+        return float(rl.get('pose_err_px', 3.0)), {'измерено': False}
+    d_to_p = ndi.distance_transform_edt(~bp)[br]
+    p50, p90 = float(np.percentile(d_to_p, 50)), float(np.percentile(d_to_p, 90))
+    take = float(np.percentile(d_to_p, float(rl.get('pose_err_pct', 90))))
+    return float(np.clip(take, lo, hi)), {'измерено': True, 'p50_px': round(p50, 2), 'p90_px': round(p90, 2), 'перцентиль': float(rl.get('pose_err_pct', 90))}
+
+
+def pose_error_field(mask_render: np.ndarray, mask_photo: np.ndarray, rl: dict) -> tuple[np.ndarray, dict]:
+    """МЕСТНАЯ ошибка позы (Fable 25.11 17:20): в каждой точке кадра — расстояние контура растра до контура фото на ближайшем участке контура (окно по контуру: гауссово среднее по точкам контура, σ = local_window_px),
+    значения контура зажаты в [pose_err_min_px, pose_err_max_px]; где контура в окне нет (вес < 1e-3·…) — глобальная медиана. Без одного числа на товар: у слабо легшего конца ножки запас больше, у ровного участка — меньше.
+    → (поле H×W px, {p10/p50/p90 поля по пикселям объекта, медиана контура})."""
+    import cv2
+    from scipy import ndimage as ndi
+    k = np.ones((3, 3), np.uint8)
+    br = mask_render & ~(cv2.erode(mask_render.astype(np.uint8), k) > 0)
+    bp = mask_photo & ~(cv2.erode(mask_photo.astype(np.uint8), k) > 0)
+    lo, hi = float(rl.get('pose_err_min_px', 1.5)), float(rl.get('pose_err_max_px', 6.0))
+    H, W = mask_render.shape
+    if not br.any() or not bp.any():
+        return np.full((H, W), float(rl.get('pose_err_px', 3.0)), np.float32), {'измерено': False}
+    dist_p = ndi.distance_transform_edt(~bp)
+    v = np.clip(dist_p, lo, hi).astype(np.float32) * br
+    sg = float(rl.get('local_window_px', 40.0))
+    num = cv2.GaussianBlur(v, (0, 0), sg)
+    den = cv2.GaussianBlur(br.astype(np.float32), (0, 0), sg)
+    gmed = float(np.clip(np.median(dist_p[br]), lo, hi))
+    fld = np.where(den > 1e-4, num / np.maximum(den, 1e-9), gmed).astype(np.float32)
+    inside = mask_render
+    q = np.percentile(fld[inside], [10, 50, 90]) if inside.any() else [gmed] * 3
+    return fld, {'измерено': True, 'окно_px': sg, 'контур_медиана_px': round(float(np.median(dist_p[br])), 2), 'поле_p10_p50_p90': [round(float(x), 2) for x in q]}
+
+
+def keep_details(tex: np.ndarray,ctl: np.ndarray, texmap: np.ndarray, painted: np.ndarray, known: np.ndarray, names: list, keep: set, rules: dict, fade: dict | None = None) -> tuple[np.ndarray, dict]:
     """Лицо = тон материала + МЕЛКИЕ детали фото: на известных (фото) текселях покрашенной группы цвет = плоский тон × (яркость фото / её сглаживание по той же группе),
     поправка в [lo, hi]. Щели, кромки, зерно остаются (мельче ~sigma), запечённые тени и блики (крупнее) уходят в ровный тон. Сглаживание — нормированное по маске
     «известно и та же группа»: через границу материалов и край фото не размывается. → (текстура, {группа: число текселей с деталью})."""
@@ -526,12 +640,26 @@ def keep_details(tex: np.ndarray,ctl: np.ndarray, texmap: np.ndarray, painted: n
     for gi, gn in enumerate(names):
         if gn in keep:
             continue
+        if gn in set(dt.get('no_detail_groups') or []):                              # «зерно везде или нигде» (Fable 25.11 17:20): у группы нет деталей фото — ровный тон; зерно — одним источником (part_grain) по всей группе
+            continue
         m = (texmap == gi) & painted & known
         if int(m.sum()) < int(dt['min_texels']):
             continue
         mf = m.astype(np.float32)
         bl = cv2.GaussianBlur(Y * mf, (0, 0), sg) / np.maximum(cv2.GaussianBlur(mf, (0, 0), sg), 1e-4)
-        ratio = np.clip(Y / np.maximum(bl, 1e-4), float(dt['lo']), float(dt['hi']))
+        lo_g = float(dt['lo'])
+        oc = dt.get('outlier_clip') or {}
+        if oc.get('enabled') and gn in (oc.get('groups') or []):                   # ровная группа (дерево ножек): тёмные «крапинки» — выбросы фото, проекция под косым углом; волокно (в [lo_g, hi]) остаётся
+            lo_g = max(lo_g, float(oc['lo']))
+        ratio = np.clip(Y / np.maximum(bl, 1e-4), lo_g, float(dt['hi']))
+        if fade and fade.get('enabled'):                                          # шов «деталь | тон»: деталь = отклонение от тона группы со средним ноль (без медленного тона фото), амплитуда плавно → 0 к границе надёжной зоны
+            lr = np.log(ratio).astype(np.float32)
+            sz = max(1.0, float(fade.get('zero_mean_sigma_frac', 0.02)) * T)
+            slow = cv2.GaussianBlur(lr * mf, (0, 0), sz) / np.maximum(cv2.GaussianBlur(mf, (0, 0), sz), 1e-4)
+            rr = max(1, int(round(float(fade.get('radius_frac', 0.004)) * T)))
+            er = cv2.erode(m.astype(np.uint8), cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (2 * rr + 1, 2 * rr + 1))).astype(np.float32)
+            w = cv2.GaussianBlur(er, (0, 0), max(1.0, float(fade.get('sigma_frac', 0.004)) * T))
+            ratio = np.exp((lr - slow) * w)
         flat = srgb2lin(tex[m].astype(np.float64))
         out[m] = np.clip(lin2srgb(flat * ratio[m][:, None]) + 0.5, 0, 255).astype(np.uint8)
         done[gn] = int(m.sum())

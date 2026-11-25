@@ -300,5 +300,50 @@ real = json.load(open(os.path.join(HERE, 'rules', 'paint-run-all.json'), encodin
 pm_steps = [s for st in real['stages'].values() for s in st.get('steps', []) if any('part_material_stage' in t for t in s['argv'])]
 check(len(pm_steps) == 1 and pm_steps[0].get('enabled_by', {}).get('file') == 'tools/scout/rules/part-material.json', 'правила обвязки: шаг материала части условный (enabled_by → part-material.json)')
 
+# ── надёжность граней как источника деталей фото (reliability, круг 3 стола 25.11; флаг выкл по умолчанию) ──
+RL = R['reliability']
+check(RL['enabled'] is False, 'надёжность: по умолчанию ВЫКЛ (байт в байт как без правила)')
+Hh = 96
+ids_r = np.full((Hh, Hh), -1, np.int64)
+for ty in range(Hh // 8):
+    for tx in range(Hh // 8):
+        ids_r[ty * 8:(ty + 1) * 8, tx * 8:(tx + 1) * 8] = ty * (Hh // 8) + tx            # грань = плитка 8×8 px
+nF_r = (Hh // 8) ** 2
+valid_r = np.zeros((Hh, Hh), bool)
+valid_r[8:88, 8:88] = True                                                                # широкий блок 80×80
+valid_r[:, 0:2] = True                                                                     # тонкая полоска у левого края (2 px)
+cos_r = np.full((Hh, Hh), 0.9, np.float32)
+cen_r = np.zeros((nF_r, 3))
+for fi in range(nF_r):
+    cen_r[fi] = [(fi % (Hh // 8)) * 8.0, (fi // (Hh // 8)) * 8.0, 0.0]                    # плоскость: соседи на расстоянии одной плитки
+el_r = np.full(nF_r, 8.0)
+rel_r = PM.face_reliability(ids_r, cos_r, cen_r, el_r, valid_r, 1.0, nF_r, RL)
+ok_r, why_r = PM.reliable_faces(rel_r, RL)
+fid_mid = 5 * (Hh // 8) + 5                                                               # плитка в середине блока
+fid_edge = 1 * (Hh // 8) + 1                                                              # плитка у силуэта блока (кромка в 0 px)
+fid_thin = 5 * (Hh // 8) + 0                                                              # тонкая полоска
+check(bool(ok_r[fid_mid]), 'надёжность: середина широкого блока, прямо к камере — надёжна')
+check(not bool(ok_r[fid_edge]), 'надёжность: у края силуэта (< 2 ошибок позы) — ненадёжна')
+check(not bool(ok_r[fid_thin]), 'надёжность: тонкая деталь (< 4 ошибок позы шириной) — ненадёжна')
+cos_g = cos_r.copy()
+cos_g[ids_r == fid_mid] = 0.1
+rel_g = PM.face_reliability(ids_r, cos_g, cen_r, el_r, valid_r, 1.0, nF_r, RL)
+ok_g, _ = PM.reliable_faces(rel_g, RL)
+check(not bool(ok_g[fid_mid]), 'надёжность: скользящая грань (cos 0,1 < cos_min) — ненадёжна')
+cen_o = cen_r.copy()
+cen_o[fid_mid, 2] = 500.0                                                                 # грань далеко от соседей в мире — перекрытие
+rel_o = PM.face_reliability(ids_r, cos_r, cen_o, el_r, valid_r, 1.0, nF_r, RL)
+ok_o, _ = PM.reliable_faces(rel_o, RL)
+check(not bool(ok_o[fid_mid]) and not bool(ok_o[fid_mid + 1]), 'надёжность: разрыв по глубине между соседями (перекрытие) — обе стороны ненадёжны')
+rl_off = dict(RL, cos_min=0.0, edge_errs=0.0, thin_errs=0.0)
+ok_all, why_all = PM.reliable_faces(rel_g, rl_off)
+check(bool(ok_all[fid_edge]) and bool(ok_all[fid_thin]) and bool(ok_all[fid_mid]) and why_all['надёжна'] == why_all['видна'], 'надёжность: пороги 0 — правила выключены по одному, остаётся «видна в кадре» (растекание не берётся)')
+check(rel_r['cnt'][fid_mid] == 64.0 and rel_r['cnt'][nF_r - 1] == 0.0, 'надёжность: cnt — пиксели в кадре; вне предмета 0 (невидимая грань)')
+UVt = np.array([[0.1, 0.1], [0.4, 0.1], [0.1, 0.4], [0.6, 0.6], [0.9, 0.6], [0.6, 0.9]])
+Ft = np.array([[0, 1, 2], [3, 4, 5]])
+fm_t = PM.uv_face_map(UVt, Ft, 100)
+check(fm_t.shape == (100, 100) and fm_t[100 - 20, 20] == 0 and fm_t[100 - 70, 70] == 1, 'карта текселей: строка = (1 − v)·T, грань по текселю; пропуски — ближайшей гранью')
+check(int(fm_t.min()) >= 0, 'карта текселей: пропусков нет')
+
 print('\nИТОГО: %d провалов' % len(FAILS))
 sys.exit(1 if FAILS else 0)
