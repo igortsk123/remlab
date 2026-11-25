@@ -261,6 +261,11 @@ alb_d[:, 60:] = (60, 60, 64)                                                    
 r11 = P.cold_fill_stats(alb_d, occ_f, known_f, CS, THR)
 ok(r11['status'] == 'na' and 'светлых' in r11['why'], 'cold_fill: залитое тёмное — не область проверки (na)')
 ok(P.cold_fill('/нет/glb', None, R)['status'] == 'na', 'cold_fill: нет known.png → na')
+ok('cold_fill' not in P.measure(p('good.glb'), p('k_top.png'), p('parts_tone.npz')) and 'cold_spots' not in P.measure(p('good.glb'), p('k_top.png'), p('parts_tone.npz')), 'cold_fill/cold_spots выключены: в measure() ключей нет (побайтно как раньше)')
+RC = json.loads(json.dumps(R))
+RC['cold_spots']['enabled'] = True
+mc = P.measure(p('good.glb'), p('k_top.png'), p('parts_tone.npz'), RC)
+ok('cold_fill' in mc and mc['cold_fill']['status'] in ('ok', 'na', 'error') and mc['cold_fill']['would_flag'] is False and mc['cold_spots']['status'] == 'na', f'cold_fill/cold_spots включены: ключи есть, на пустых данных не метка ({mc["cold_fill"]["status"]})')
 alb_w = alb_f.copy()
 alb_w[:, 60:] = (236, 226, 206)                                                     # залитое тёплое бежевое при белом известном: не «холодное пятно»
 r12 = P.cold_fill_stats(alb_w, occ_f, known_f, CS, THR)

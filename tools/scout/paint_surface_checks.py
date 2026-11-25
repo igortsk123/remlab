@@ -795,6 +795,10 @@ def measure(glb: str, known_png: str | None = None, parts_path: str | None = Non
             res['cold_spots'] = cold_spots(glb, photo, pose_run, R)
         except Exception as e:  # noqa: BLE001 — не измерено: так и пишем
             res['cold_spots'] = {'status': 'error', 'why': f'{type(e).__name__}: {str(e)[:120]}', 'would_flag': False}
+        try:                                                              # вторая мерка: залитые тексели (атлас) против известного белого; кадровая выше фото копирует и дефекта не видит
+            res['cold_fill'] = cold_fill(glb, known_png, R)
+        except Exception as e:  # noqa: BLE001
+            res['cold_fill'] = {'status': 'error', 'why': f'{type(e).__name__}: {str(e)[:120]}', 'would_flag': False}
     res['timing_s'] = tm
     res['role_mismatch'] = role_mismatch(res['top_vs_photo'], role, R)
     res['seconds'] = round(time.time() - t0, 1)
