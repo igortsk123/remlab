@@ -233,7 +233,22 @@ def measure(A: np.ndarray, Pf: np.ndarray, valid: np.ndarray, grp: np.ndarray, c
                                           'z_q99': round(float(np.quantile(zu[un], 0.99)), 3), 'z_max': round(float(zu[un].max()), 3)}
         zus = cv2.GaussianBlur(zu, (0, 0), float(c['peak_sigma']))
         zus = np.where(unrel, zus, 0).astype(np.float32)
-        spots2 = _blobs(zus, float(c['list_frac']) * k, int(c['list_min_px']), G2, caU, None, None)
+        # стык частей: место класса 2 у границы двух частей (белый низ столешницы / дерево) — рассовмещение, а не деталь: уходит в «граница групп»
+        pe = np.zeros(valid.shape, np.uint8)
+        for dy, dx in ((0, 1), (1, 0)):
+            a_, b_ = G2[:G2.shape[0] - dy, :G2.shape[1] - dx], G2[dy:, dx:]
+            d_ = (a_ != b_) & vis2[:G2.shape[0] - dy, :G2.shape[1] - dx] & vis2[dy:, dx:]
+            pe[:G2.shape[0] - dy, :G2.shape[1] - dx] |= d_
+            pe[dy:, dx:] |= d_
+        near = cv2.dilate(pe, cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (2 * int(c['part_join_px']) + 1,) * 2)) > 0
+        all2 = _blobs(zus, float(c['list_frac']) * k, int(c['list_min_px']), G2, caU, None, near)
+        spots2 = [s for s in all2 if s['group_mismatch_share'] < bshare]
+        bound2 = [s for s in all2 if s['group_mismatch_share'] >= bshare]
+        for s in bound2:
+            s['where'] = 'стык частей (класс 2)'
+        bound = sorted(bound + bound2, key=lambda s: -s['peak_z'])
+        res['spots_boundary'] = bound[:nj]
+        res['n_boundary'] = len([s for s in bound if s['peak_z'] >= k])
         bad2, edge2 = _verdict(spots2, k, c)
         res.update({'spots_unreliable': spots2[:nj], 'n_bad_unreliable': len(bad2), 'n_edge_unreliable': len(edge2), 'unreliable_groups': stats2,
                     'worst_z_unreliable': spots2[0]['peak_z'] if spots2 else 0.0})

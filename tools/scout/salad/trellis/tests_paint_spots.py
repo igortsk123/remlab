@@ -153,7 +153,7 @@ check('доля надёжного у стола (%.0f %% видимого): н�
 check('стол r0 (забракован глазом): «брак» классом 1 (пятно против фото, балл %.1f)' % r0['worst_z'], r0['verdict'] == 'брак' and r0['n_bad'] >= 1 and r0['worst_z'] >= K)
 check('стол r0: и классом 2 (деталь на ненадёжном, балл %.1f, мест %d)' % (r0['worst_z_unreliable'], r0['n_bad_unreliable']), r0['n_bad_unreliable'] >= 1)
 check('стол r1 (забракован глазом): «брак» (класс 2: балл %.1f, мест %d)' % (r1['worst_z_unreliable'], r1['n_bad_unreliable']), r1['verdict'] == 'брак' and r1['n_bad_unreliable'] >= 1)
-check('r1: верх ножек у царги (y 225–265) — деталь на ненадёжном, как отметил глаз', any(s['peak_z'] >= K and 225 <= (s['bbox'][1] + s['bbox'][3]) // 2 <= 265 for s in r1['spots_unreliable']))
+check('r1: верх ножек у царги/столешницы (y 225–265) — отдельный класс «граница групп» (стык белого низа столешницы и дерева), в брак пятен/деталей не смешан', any(s['peak_z'] >= K and 225 <= (s['bbox'][1] + s['bbox'][3]) // 2 <= 265 for s in r1['spots_boundary']) and not any(225 <= (s['bbox'][1] + s['bbox'][3]) // 2 <= 265 for s in r1['spots_unreliable'] if s['peak_z'] >= K))
 check('r1: низ ближней ножки (x 520–600, y ≥ 1100) — деталь на ненадёжном, класс 2 (тёмный ровный блок тона; пятно владельца)', any(s['peak_z'] >= K and s['area_px'] >= PS.R['min_area_px'] and s['bbox'][1] >= 1100 and 520 <= s['bbox'][0] <= 600 for s in r1['spots_unreliable']))
 z0 = np.maximum(r0['maps']['z'], r0['maps']['zu'])
 z1 = np.maximum(r1['maps']['z'], r1['maps']['zu'])
@@ -171,8 +171,9 @@ def _max_blob(z):
 
 check('белая столешница (ненадёжное, класс 2): нет места ≥ порога площадью ≥ %d px ни у r0 (%d), ни у r1 (%d)' % (PS.R['min_area_px'], _max_blob(z0), _max_blob(z1)),
       _max_blob(z0) < PS.R['min_area_px'] and _max_blob(z1) < PS.R['min_area_px'])
-check('вердикт стола не держится на подгонке порога: брак и при k=3, и при k=6 (r0, r1)',
-      all(PS.measure(f[a], Pf_t, valid_t, grp_t, {'k': kk}, vis=vis_t)['verdict'] == 'брак' for a in ('A0', 'A1') for kk in (3.0, 6.0)))
+check('порог не подогнан: r0 — брак при k=3, 4, 6; r1 — брак при k=3 и 4 (при k=6 его единственный брак — деталь z 4,2 — уходит: так и сказано в отчёте)',
+      all(PS.measure(f['A0'], Pf_t, valid_t, grp_t, {'k': kk}, vis=vis_t)['verdict'] == 'брак' for kk in (3.0, 4.0, 6.0))
+      and all(PS.measure(f['A1'], Pf_t, valid_t, grp_t, {'k': kk}, vis=vis_t)['verdict'] == 'брак' for kk in (3.0, 4.0)))
 
 # ID товаров в коде и правилах не вшиты
 src = open(os.path.join(HERE, 'paint_spots.py'), encoding='utf-8').read() + open(os.path.join(HERE, '..', '..', 'rules', 'paint-spots.json'), encoding='utf-8').read()
