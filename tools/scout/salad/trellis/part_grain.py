@@ -322,3 +322,21 @@ def parts_from_masks(npz, tx, tex, card: dict | None = None, photo_sigma: dict |
                       'n_texels': n, 'photo_sigma': (photo_sigma or {}).get(g), 'card': card})
         masks[g] = m
     return parts, masks
+
+
+def cm_per_unit(ext_max_units: float, card: dict | None, rules: dict):
+    """Сантиметров на единицу меша: наибольший «габаритный» размер карточки (высота/длина/ширина, см) / наибольшая сторона габарита меша в тех же единицах. Нет карточки/размеров → None (вызывающий берёт fallback_length_cm)."""
+    if not card or not ext_max_units > 0:
+        return None
+    nums = []
+    for k, v in card.items():
+        kl = str(k).lower()
+        if 'габаритн' in kl and any(w in kl for w in ('высот', 'длин', 'ширин')):
+            s = ''.join(ch for ch in str(v).replace(',', '.') if ch.isdigit() or ch == '.')
+            try:
+                x = float(s)
+            except ValueError:
+                continue
+            if x > 0:
+                nums.append(x)
+    return (max(nums) / float(ext_max_units)) if nums else None
