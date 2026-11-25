@@ -351,5 +351,30 @@ with tempfile.TemporaryDirectory() as root:
         CC.load_rules = _lr
     check('e2e enabled=false в правилах: торшер снова брак (путь выключается правилом)', not r6['passed'] and r6['extra']['thin_rescue'] is False and r6['extra']['thin'] is None, r6['reason'])
 
+# ---------- метка «белая плита на светлом фоне» (T-20261124-57, П1.160) ----------
+def plate_photo(plate_rgb, bg=255, h=300, w=400):
+    """RGBA «стол»: плита (верх, широкая, толстая 40 px) + две ножки; фон `bg`; плита цвета plate_rgb, ножки тёмные."""
+    a = np.zeros((h, w, 4), np.uint8)
+    a[..., :3] = bg
+    a[40:80, 40:360, :3] = plate_rgb
+    a[40:80, 40:360, 3] = 255
+    for x0 in (60, 320):
+        a[80:280, x0:x0 + 18, :3] = (60, 50, 40)
+        a[80:280, x0:x0 + 18, 3] = 255
+    return a
+
+
+R_WP = dict(CC.load_rules(), white_plate=dict(CC.load_rules()['white_plate'], enabled=True))
+r_w = CC.white_plate(plate_photo((250, 250, 250)), 'стол обеденный', R_WP)
+r_d = CC.white_plate(plate_photo((110, 70, 40)), 'стол обеденный', R_WP)
+r_c = CC.white_plate(plate_photo((250, 250, 250)), 'шкаф', R_WP)
+r_n = CC.white_plate(np.zeros((50, 50, 4), np.uint8), 'стол', R_WP)
+check('white_plate: белая плита стола на белом фоне — would_flag', r_w['applicable'] and r_w['would_flag'], str(r_w))
+check('white_plate: тёмная плита на белом фоне — не метится (контроль)', r_d['applicable'] and not r_d['would_flag'] and r_d['value'] < 0.05, str(r_d))
+check('white_plate: шкаф с белым верхом — не применима (метка типа «стол»)', not r_c['applicable'] and not r_c['would_flag'], str(r_c))
+check('white_plate: пустая маска — не применима, не падает', not r_n['applicable'] and not r_n['would_flag'], str(r_n))
+check('white_plate: роль не передана — не применима', not CC.white_plate(plate_photo((250, 250, 250)), '', R_WP)['applicable'])
+check('white_plate: enabled=false по умолчанию (в check.json ключа нет)', CC.load_rules()['white_plate']['enabled'] is False)
+
 print('all ok' if not bad else f'FAILED: {bad}')
 sys.exit(1 if bad else 0)
