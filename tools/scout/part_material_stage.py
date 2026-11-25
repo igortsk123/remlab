@@ -212,6 +212,10 @@ def process(a, rules: dict, d: str, rep: dict) -> None:
     t0m = (np.asarray(Image.open(base_to).convert('L')) > 127) if os.path.exists(base_to) else np.zeros(painted.shape, bool)
     tone_only = t0m | (painted & ~kn)
     Image.fromarray((tone_only * 255).astype(np.uint8)).save(to_p)
+    mid = PM.material_ids(names, tones, borrowed, rules)             # материал по граням для мерки «ступени» 07: граница разных материалов — не скачок
+    rep['materials'] = {gn: mid[i] for i, gn in enumerate(names)}
+    fm = np.array(mid + [-1], np.int32)[np.asarray(flab)]
+    np.savez_compressed(os.path.join(d, 'part_material_faces.npz'), face_material=fm)
     rep['tone_only_texels'] = int((painted & ~kn).sum())
     rep['known_texels_painted_flat'] = int((painted & kn).sum())
     rep['seconds'] = round(time.time() - t0, 1)

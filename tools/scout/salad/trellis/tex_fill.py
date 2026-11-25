@@ -743,7 +743,7 @@ def concavity(tx, smooth: int = 2):
     return cv
 
 
-def step_stats(tx, rgb, thr: float, skip=None) -> dict:
+def step_stats(tx, rgb, thr: float, skip=None, face_mat=None) -> dict:
     """«Ступени» внутри части: резкий скачок цвета (ΔE00 > thr) между соседними гранями ОДНОЙ части вдоль поверхности (соседство — по склеенным вершинам). → доля граней со ступенью, доля пар,
     то же среди «достроенных» граней (больше половины их текселей неизвестны — передаётся в tx.unk_face)."""
     F, UV = tx.F, np.asarray(tx.UV)
@@ -767,6 +767,9 @@ def step_stats(tx, rgb, thr: float, skip=None) -> dict:
     if skip is not None:                                                 # шляпки гвоздей (nail_twins): настоящая деталь, а не шов — грани с ними в ступенях не считаются
         sk = np.asarray(skip, bool)[py, px]
         keep &= ~(sk[a] | sk[b])
+    if face_mat is not None and len(face_mat) == nf:                    # Ш4а (T-63): граница двух РАЗНЫХ материалов (карта 06-visible/part_material_faces.npz) — законный резкий край, не ступень
+        fm = np.asarray(face_mat)
+        keep &= ~((fm[a] >= 0) & (fm[b] >= 0) & (fm[a] != fm[b]))
     a, b = a[keep], b[keep]
     if len(a) == 0:
         return {'pairs': 0, 'faces_step_pct': 0.0, 'pairs_step_pct': 0.0, 'filled_faces_step_pct': None}
@@ -1940,9 +1943,9 @@ def fill(geoms: list, known: list, parts: list | None = None, cfg: dict | None =
             if nm_ is not None:
                 from scipy.ndimage import binary_dilation
                 nm_ = binary_dilation(nm_, iterations=1)
-            rep['geoms'][gi]['steps'] = {'before': step_stats(tx, tex_in[gi], c['step_de']), 'after': step_stats(tx, rgb, c['step_de'], nm_)}
+            rep['geoms'][gi]['steps'] = {'before': step_stats(tx, tex_in[gi], c['step_de'], None, c.get('pm_face_material')), 'after': step_stats(tx, rgb, c['step_de'], nm_, c.get('pm_face_material'))}
             if nm_ is not None:
-                rep['geoms'][gi]['steps']['after_with_nails'] = step_stats(tx, rgb, c['step_de'])
+                rep['geoms'][gi]['steps']['after_with_nails'] = step_stats(tx, rgb, c['step_de'], None, c.get('pm_face_material'))
         far = {'known': [], 'filled': []}
         rs = np.random.RandomState(11)
         for gi, tx in enumerate(txs):
@@ -2990,6 +2993,12 @@ def run_stage_once(run: str, sku: str, glb: str, known: list | None = None, part
     _hdone(hooks, 'known_from_photo_back', _m)
     _to = load_tone_only_png(prev_dir) if (prev_dir and (cfg or {}).get('tone_only_use', True)) else None      # тон-слой этапа 6 (р.8): цвет оставить, фактуру положить поверх
 
+    _pmf = None                                                                          # Ш4а: материал по граням (граница разных материалов — не ступень); нет файла — как раньше
+    if prev_dir and os.path.isfile(os.path.join(prev_dir, 'part_material_faces.npz')):
+        try:
+            _pmf = np.load(os.path.join(prev_dir, 'part_material_faces.npz'))['face_material'].astype(np.int32)
+        except Exception:
+            _pmf = None
     _cf = load_conf_png(prev_dir) if prev_dir else None                                  # доверие к фото-текселю (этап 6, р.3) — нет файла: запасное от границы известного
 
     _ut_early = None
@@ -3000,7 +3009,7 @@ def run_stage_once(run: str, sku: str, glb: str, known: list | None = None, part
 
     def one(cfg_, draft_):
         _m = _hmark()
-        r_ = fill(geoms, known, parts, cfg_, mirror, draft_, tone_only=_to, unobs_draft_fn=_unobs_fn if (cfg_ or {}).get('source', 'stat') == 'stat' else None, conf=_cf, detail_zones=_dz_eff)
+        r_ = fill(geoms, known, parts, (dict(cfg_ or {}, pm_face_material=_pmf) if _pmf is not None else cfg_), mirror, draft_, tone_only=_to, unobs_draft_fn=_unobs_fn if (cfg_ or {}).get('source', 'stat') == 'stat' else None, conf=_cf, detail_zones=_dz_eff)
         _hdone(hooks, 'fill', _m)
         rp, tx_ = r_['report'], r_['tex']
         _m = _hmark()

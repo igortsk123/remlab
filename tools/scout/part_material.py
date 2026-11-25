@@ -264,6 +264,17 @@ def pick_sources(tones: dict, rules: dict, area_share: dict | None = None) -> tu
         same['бок'] = {'same': ok, 'why': why}
         if ok and 'фасад' not in keep:
             borrowed['бок'] = 'фасад'
+    ug = [g for g in rules.get('unify_groups', []) if g in tones and tones[g]['own'] and g not in keep and g not in borrowed]
+    if len(ug) >= 2:                                             # части ОДНОГО материала — один тон (опорная = где больше видимых пикселей на площадь)
+        nr = set(rules.get('unify_no_ref', []))                     # верх видно скользяще: подбор по нему завышает альбедо (белый сверху) — опорной не берём
+        ref = max([g for g in ug if g not in nr] or ug, key=vis)
+        for g in ug:
+            if g == ref:
+                continue
+            ok, why = same_material(tones[g]['lab'], tones[ref]['lab'], rules['same_material'])
+            same[g] = {'same': ok, 'why': why, 'ref': ref}
+            if ok:
+                borrowed[g] = ref
     for gn in tones:
         if not tones[gn]['own'] and gn not in borrowed:
             borrowed[gn] = None
@@ -282,6 +293,33 @@ def pick_sources(tones: dict, rules: dict, area_share: dict | None = None) -> tu
             same['gate:' + gn] = {'donor': s, 'ref': refs[0], 'dE2000': round(de, 1), 'порог': gate['max_de00']}
             borrowed[gn] = None
     return keep, borrowed, same
+
+
+def material_ids(names: list, tones: dict, borrowed: dict, rules: dict) -> list:
+    """Материал по группе (для карты граней 07): группы одного материала — один номер; не красим (нет тона) — -1. Один материал = донор–получатель или «тот же материал» между своими тонами (unify_groups)."""
+    par = {g: g for g in names}
+
+    def find(x):
+        while par[x] != x:
+            par[x] = par[par[x]]
+            x = par[x]
+        return x
+    for g, s in borrowed.items():
+        if s is not None and g in par and s in par:
+            par[find(g)] = find(s)
+    ug = [g for g in rules.get('unify_groups', []) if g in par and tones[g]['own']]
+    for i, a in enumerate(ug):
+        for b in ug[i + 1:]:
+            if same_material(tones[a]['lab'], tones[b]['lab'], rules['same_material'])[0]:
+                par[find(a)] = find(b)
+    roots = {}
+    out = []
+    for g in names:
+        if not tones[g]['own'] and borrowed.get(g) is None:
+            out.append(-1)
+            continue
+        out.append(roots.setdefault(find(g), len(roots)))
+    return out
 
 
 # ───────────────────────────── текстура и подбор ─────────────────────────────
