@@ -248,6 +248,14 @@ def process(a, rules: dict, d: str, rep: dict) -> None:
             gate_pose = fld
         rok, rwhy = PM.reliable_faces(rel, rl_e)
         fidmap = PM.uv_face_map(g['UV'], g['F'], T)
+        fl = rl.get('fold') or {}                                                 # излом/уступ формы рядом: деталь фото у излома — свет (тень щели, блик кромки), в краску не идёт (Fable 25.11 20:13); флаг fold.enabled, по умолчанию выкл
+        fold_near = None
+        if fl.get('enabled') or a.keep_work:
+            e_f = np.asarray(rl_e['pose_err_arr'], np.float64) if rl_e.get('pose_err_arr') is not None else float(rl_e['pose_err_px'])
+            _tm, fold_near, finfo_ = PM.fold_near_mask(Vv, Ff, st['ids'], valid, e_f, fidmap=fidmap, deg=float(fl.get('dihedral_deg', 30.0)), errs=float(fl.get('errs', 2.0)), nrm=nrm)       # ОДНА общая функция (её зовёт и мерка рисунка T-93)
+            rep['fold'] = {**finfo_, 'из_видимых_надёжных': int((fold_near & rok).sum()), 'применено': bool(fl.get('enabled')), 'угол_град': float(fl.get('dihedral_deg', 30.0)), 'errs': float(fl.get('errs', 2.0))}
+            if a.keep_work:
+                np.savez_compressed(os.path.join(d, '_partmaterial', 'fold.npz'), fold_near=fold_near)
         rep['разрывы_канавки'] = {'снято_px': int(rel.get('groove_px', 0)), **(rel.get('groove_diag') or {})}
         rep['reliability'] = {**rwhy, 'применено': bool(rl.get('enabled')), 'ошибка_позы_px': round(float(rl_e['pose_err_px']), 2), 'ошибка_позы_замер': pinfo}
         if a.keep_work:
@@ -257,6 +265,11 @@ def process(a, rules: dict, d: str, rep: dict) -> None:
                                 depth=st['depth'], ids=st['ids'], cosf=cosf, px_len=np.float64(st['px_len']), fm_ok=fm['ok'], fm_mu=fm['mu'], fm_mv=fm['mv'], fm_mx=fm['mx'], fm_my=fm['my'], fm_ax=fm['ax'], fm_bx=fm['bx'], fm_ay=fm['ay'], fm_by=fm['by'], prgb=prgb, prgb_reg=prgb_reg, reg_dxdy=np.array([fr_["dx"], fr_["dy"]]), pmask=pmask, valid=valid, flab=flab)
         if rl.get('enabled'):
             kn_det = kn0 & rok[fidmap]                                            # детали фото — только с надёжных граней; остальное — ровный тон группы
+            if fl.get('enabled') and fold_near is not None:
+                kn_f = kn_det & ~fold_near[fidmap]                                 # ... и не у излома формы
+                rep['fold']['текселей_до'] = int(kn_det.sum())
+                rep['fold']['текселей_после'] = int(kn_f.sum())
+                kn_det = kn_f
             rep['reliability']['текселей_известных'] = int(kn0.sum())
             rep['reliability']['текселей_надёжных'] = int(kn_det.sum())
     tex, det = PM.keep_details(tex, ctl, texmap, painted, kn_det, names, keep, rules, fade=(rl.get('fade') if rl.get('enabled') else None))       # лицо = тон + мелкие детали фото (щели, кромки, зерно)

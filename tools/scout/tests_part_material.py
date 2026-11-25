@@ -422,5 +422,42 @@ fm_t = PM.uv_face_map(UVt, Ft, 100)
 check(fm_t.shape == (100, 100) and fm_t[100 - 20, 20] == 0 and fm_t[100 - 70, 70] == 1, 'карта текселей: строка = (1 − v)·T, грань по текселю; пропуски — ближайшей гранью')
 check(int(fm_t.min()) >= 0, 'карта текселей: пропусков нет')
 
+# ── излом формы рядом (T-63 круг 3 комода): crease_pairs + fold_distance
+Vc = np.array([[0, 0, 0], [1, 0, 0], [0, 1, 0], [1, 1, 0], [1, 0, 1], [1, 1, 1], [2, 0, 1], [2, 1, 1]], np.float64)       # плоскость z=0 (грани 0,1), стена x=1 (грани 2,3: излом 90°), плоскость z=1 (грани 4,5: ещё излом 90°)
+Fc = np.array([[0, 1, 2], [2, 1, 3], [1, 4, 3], [3, 4, 5], [4, 6, 5], [5, 6, 7]])
+Tc = Vc[Fc]
+Nc = np.cross(Tc[:, 1] - Tc[:, 0], Tc[:, 2] - Tc[:, 0])
+Nc = Nc / np.linalg.norm(Nc, axis=-1, keepdims=True)
+prs = PM.crease_pairs(Vc, Fc, Nc, 30.0)
+check(set(int(k) for k in prs) == {1 * 6 + 2, 3 * 6 + 4}, 'излом: пары граней с общим ребром и углом > 30° найдены (стена и полка)')
+check(0 * 6 + 1 not in set(int(k) for k in prs) and 2 * 6 + 3 not in set(int(k) for k in prs), 'излом: грани одной плоскости изломом не считаются')
+check(len(PM.crease_pairs(Vc, Fc, Nc, 100.0)) == 0, 'излом: порог угла 100° — изломов нет (90° не проходит)')
+Vw = np.concatenate([Vc, Vc[[1, 4, 3]]])                                                                     # шов развёртки режет вершины: грань 2 на дублях вершин — склейка по положению всё равно находит излом
+Fw = Fc.copy()
+Fw[2] = [len(Vc), len(Vc) + 1, len(Vc) + 2]
+check(set(int(k) for k in PM.crease_pairs(Vw, Fw, Nc, 30.0)) == {1 * 6 + 2, 3 * 6 + 4}, 'излом: дубли вершин (шов развёртки) склеены по положению')
+idm = np.zeros((20, 30), np.int64)
+idm[:, 10:20] = 1
+idm[:, 20:] = 2
+vm = np.ones((20, 30), bool)
+fd = PM.fold_distance(idm, vm, 3, np.array([0 * 3 + 1]))
+check(abs(fd[0]) < 1e-6 and abs(fd[1]) < 1e-6 and 9.5 < fd[2] < 11.5, 'излом: расстояние до линии излома в кадре — на линии 0, у третьей грани ≈ 10 px')
+check((PM.fold_distance(idm, vm, 3, np.array([], np.int64)) > 1e8).all(), 'излом: нет изломов — расстояние бесконечно (ничего не снимаем)')
+vm2 = vm.copy(); vm2[:, 10:20] = False
+check((PM.fold_distance(idm, vm2, 3, np.array([0 * 3 + 1])) > 1e8).all(), 'излом: линия не видна в кадре — граней «у излома» нет')
+
+Vq = np.array([[0, 0, 0], [1, 0, 0], [0, 1, 0], [1, 1, 0], [1, 0, 1], [1, 1, 1]], np.float64)
+Fq = np.array([[0, 1, 2], [2, 1, 3], [1, 4, 3]])                                                              # грани 0,1 — плоскость; грань 2 — стена (излом с гранью 1)
+idq = np.zeros((20, 30), np.int64)
+idq[:, :15] = 1
+idq[:, 15:] = 2
+tmq, fnq, inf_q = PM.fold_near_mask(Vq, Fq, idq, np.ones((20, 30), bool), 3.0, fidmap=np.array([[0, 1], [2, 2]]), deg=30.0, errs=2.0)
+check(fnq.tolist() == [False, True, True] and tmq.tolist() == [[False, True], [True, True]] and inf_q['пар_с_изломом'] == 1, 'fold_near_mask: у излома грани 1 и 2 (в кадре у линии), грань 0 — нет; маска текселей по карте граней')
+_, fnq2, _ = PM.fold_near_mask(Vq, Fq, idq, np.ones((20, 30), bool), 0.5, deg=30.0, errs=2.0)
+check(fnq2.tolist() == [False, True, True], 'fold_near_mask: линия излома — грани по обе стороны на расстоянии 0 → «у излома» при любой ошибке позы > 0')
+Fq2 = np.array([[0, 1, 2], [2, 1, 3], [0, 1, 2]])
+_, fnq3, inf_q3 = PM.fold_near_mask(Vq, Fq2, idq, np.ones((20, 30), bool), 3.0, deg=30.0)
+check(not fnq3.any() and inf_q3['пар_с_изломом'] == 0, 'fold_near_mask: в плоской форме излома нет — ничего не снимаем')
+
 print('\nИТОГО: %d провалов' % len(FAILS))
 sys.exit(1 if FAILS else 0)

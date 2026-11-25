@@ -659,6 +659,74 @@ def face_reliability(ids: np.ndarray, cosf: np.ndarray, cen: np.ndarray, el: np.
     return {'cos': cs, 'dist': np.where(cnt > 0, dmin, 0.0), 'width': wmax, 'cnt': cnt, 'groove_px': n_groove, 'groove_diag': gd}
 
 
+def crease_pairs(V: np.ndarray, F: np.ndarray, nrm: np.ndarray, deg: float, weld: float = 1e-5) -> np.ndarray:
+    """Пары граней с ОБЩИМ ребром, у которых двугранный угол (между нормалями) > deg: излом / уступ формы (T-63 круг 3 комода, Fable 25.11 20:13). Вершины склеены по положению (шов развёртки режет вершины, но не поверхность).
+    → ключи a*nF+b (a<b), отсортированные."""
+    nF = len(F)
+    q = np.round(np.asarray(V, np.float64) / max(weld, 1e-12)).astype(np.int64)
+    _, inv = np.unique(q, axis=0, return_inverse=True)
+    inv = np.asarray(inv).reshape(-1)
+    Fw = inv[np.asarray(F, np.int64)]
+    ed = np.concatenate([Fw[:, [0, 1]], Fw[:, [1, 2]], Fw[:, [2, 0]]], axis=0)
+    ed = np.sort(ed, axis=1)
+    fi = np.tile(np.arange(nF, dtype=np.int64), 3)
+    key = ed[:, 0] * (int(inv.max()) + 1) + ed[:, 1]
+    o = np.argsort(key, kind='stable')
+    ks, fs = key[o], fi[o]
+    same = (ks[1:] == ks[:-1]) & (fs[1:] != fs[:-1])
+    a, b = fs[:-1][same], fs[1:][same]
+    cosd = np.clip((nrm[a] * nrm[b]).sum(-1), -1.0, 1.0)
+    sel = cosd < float(np.cos(np.radians(deg)))
+    a, b = a[sel], b[sel]
+    lo, hi = np.minimum(a, b), np.maximum(a, b)
+    return np.unique(lo * nF + hi)
+
+
+def fold_distance(ids: np.ndarray, valid: np.ndarray, nF: int, pairs: np.ndarray) -> np.ndarray:
+    """Расстояние (px кадра фото) от каждой видимой грани до видимой линии излома: пиксели, где соседи по кадру — грани из crease_pairs. Нет излома в кадре / грань не видна — 1e9."""
+    from scipy import ndimage as ndi
+    H, W = ids.shape
+    out = np.full(nF, 1e9)
+    if len(pairs) == 0:
+        return out
+    ic = np.clip(ids, 0, nF - 1).astype(np.int64)
+    fold = np.zeros((H, W), bool)
+    for a_, b_, va, vb, sl_a, sl_b in ((ic[:, 1:], ic[:, :-1], valid[:, 1:], valid[:, :-1], (slice(None), slice(1, None)), (slice(None), slice(None, -1))),
+                                       (ic[1:, :], ic[:-1, :], valid[1:, :], valid[:-1, :], (slice(1, None), slice(None)), (slice(None, -1), slice(None)))):
+        m = va & vb & (a_ != b_)
+        k = np.minimum(a_, b_) * nF + np.maximum(a_, b_)
+        hit = m & np.isin(k, pairs)
+        fold[sl_a] |= hit
+        fold[sl_b] |= hit
+    if not fold.any():
+        return out
+    dist = ndi.distance_transform_edt(~fold)
+    ys, xs = np.nonzero(valid)
+    f = ic[ys, xs]
+    np.minimum.at(out, f, dist[ys, xs])
+    return out
+
+
+def fold_near_mask(V: np.ndarray, F: np.ndarray, ids: np.ndarray, valid: np.ndarray, pose_err, fidmap: np.ndarray | None = None, deg: float = 30.0, errs: float = 2.0, nrm: np.ndarray | None = None) -> tuple[np.ndarray, np.ndarray, dict]:
+    """ОБЩАЯ функция (комод р.3, T-63; зовёт и мерка рисунка по окнам T-93): «деталь фото у излома формы» — свет (тень щели, блик кромки), а не рисунок/материал.
+    Вход: меш V, F; кадр фото: ids (id грани на пиксель), valid (видимость); pose_err — ошибка позы в px кадра (число или массив по граням, местная); fidmap — карта текселей → грань (PM.uv_face_map), нет — маска текселей None;
+    deg — двугранный угол излома (по умолчанию 30°), errs — запас в ошибках позы (2.0, как у края); nrm — нормали граней (нет — считаются по V, F).
+    Выход: (маска текселей у излома | None, маска граней у излома [nF], отчёт {пар_с_изломом, граней_у_излома}). Грань «у излома» = в кадре ближе errs × pose_err к видимой линии излома. Грань не видна в кадре → не у излома (судить нечем)."""
+    V = np.asarray(V, np.float64)
+    F = np.asarray(F, np.int64)
+    nF = len(F)
+    if nrm is None:
+        t = V[F]
+        nrm = np.cross(t[:, 1] - t[:, 0], t[:, 2] - t[:, 0])
+        nrm = nrm / np.maximum(np.linalg.norm(nrm, axis=-1, keepdims=True), 1e-12)
+    prs = crease_pairs(V, F, nrm, deg)
+    fd = fold_distance(ids, valid, nF, prs)
+    e = np.asarray(pose_err, np.float64) if np.ndim(pose_err) else float(pose_err)
+    fn = fd < float(errs) * e
+    tm = fn[np.clip(fidmap, 0, nF - 1)] & (fidmap >= 0) if fidmap is not None else None
+    return tm, fn, {'пар_с_изломом': int(len(prs)), 'граней_у_излома': int(fn.sum())}
+
+
 def reliable_faces(rel: dict, rl: dict) -> tuple[np.ndarray, dict]:
     """Грань — надёжный источник деталей фото: видна, cos не скользящий (≥ cos_min), от края силуэта/перекрытия не ближе edge_errs ошибок позы, деталь шире thin_errs ошибок. → (маска, счётчики причин отказа)."""
     e = rl['pose_err_arr'] if rl.get('pose_err_arr') is not None else float(rl['pose_err_px'])      # массив по граням — местная ошибка позы (pose_error_field), иначе одно число
