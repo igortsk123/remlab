@@ -187,6 +187,82 @@ def main():
     except ValueError:
         check(True, 'group_map другого размера отвергается')
 
+    # ---------- проверка оси зерна верха (T-20261124-57/5): только отчёт ----------
+    AC = dict(R['axis_check'])
+    check(AC['enabled'] is False, 'axis_check: по умолчанию выключена')
+    yy = np.arange(200)[:, None] * np.ones((1, 200))
+    L_h = 50.0 + 20.0 * np.sin(2 * np.pi * yy / 6.0)                           # полосы вдоль оси X кадра: волокна идут горизонтально
+    L_v = L_h.T                                                                  # полосы вдоль Y кадра: волокна вертикальны
+    L_g = 50.0 + 0.1 * np.arange(200)[None, :] * np.ones((200, 1)) + 0.05 * yy                # плавный свет/тень без рисунка: градиент есть, волокон нет
+    L_n = np.random.RandomState(1).uniform(40, 60, (200, 200))                  # без рисунка: подсказки нет
+
+    NX, NZ = 6, 3                                                               # сетка граней плиты: у плоскости много граней, как у настоящего меша
+
+    def grid_mesh(half_x, half_z):
+        xs, zs = np.linspace(-half_x, half_x, NX + 1), np.linspace(-half_z, half_z, NZ + 1)
+        P = np.array([[x, 0.0, z] for z in zs for x in xs])
+        F = []
+        for j in range(NZ):
+            for i in range(NX):
+                a0 = j * (NX + 1) + i
+                F += [[a0, a0 + 1, a0 + NX + 2], [a0, a0 + NX + 2, a0 + NX + 1]]
+        return P, np.array(F)
+
+    def cell_face(x, z, half_x, half_z):
+        i = np.clip(((x + half_x) / (2 * half_x) * NX).astype(int), 0, NX - 1)
+        j = np.clip(((z + half_z) / (2 * half_z) * NZ).astype(int), 0, NZ - 1)
+        return 2 * (j * NX + i)
+
+    def ctx_for(Lx, half_x=0.6, half_z=0.3):
+        P, F = grid_mesh(half_x, half_z)
+        px = (np.arange(200)[None, :] - 100) / 100.0 * np.ones((200, 1))
+        pz = (np.arange(200)[:, None] - 100) / 100.0 * np.ones((1, 200))
+        ids = np.where((np.abs(px) < half_x) & (np.abs(pz) < half_z), cell_face(px, pz, half_x, half_z), -1)
+        return {'L': Lx, 'ids': ids, 'valid': ids >= 0, 'xy': P[:, [0, 2]] * 100 + 100, 'P': P, 'F': F}
+
+    def with_faces(tx_, half_x, half_z):
+        return types.SimpleNamespace(ti=tx_.ti, Q=tx_.Q, N=tx_.N, f=cell_face(tx_.Q[:, 0], tx_.Q[:, 2], half_x, half_z))
+
+    RA = copy.deepcopy(R)
+    RA['axis_check'] = dict(AC, enabled=True)
+    pt = part(1, name='верх')
+    txr0, texr = plate(nx=60, ny=60)
+    txr0.Q[:, 0] *= 0.5                                                          # квадрат 60×60 см: ось не из формы
+    txr = with_faces(txr0, 0.3, 0.3)
+    tx = with_faces(tx, 0.6, 0.3)
+    n_faces = len(grid_mesh(0.6, 0.3)[1])
+
+    def run_axis(rules, tx_, tex_, ctx, wa=(1, 0, 0)):
+        m_ = np.ones(len(tx_.ti), bool)
+        return PG.apply_grain(tex_, tx_, [pt], {1: m_}, fp, pn, 100.0, wa, rules, enabled=True, axis_ctx=ctx)
+
+    fp, pn = np.zeros(n_faces, np.int64), np.array([[0.0, 1.0, 0.0]])
+    out_off, rep_off = run_axis(R, tx, tex, ctx_for(L_h))
+    out_on, rep_on = run_axis(RA, tx, tex, ctx_for(L_h))
+    check('axis' not in rep_off['parts'][1], 'axis_check выключена: в отчёте части ключа axis нет')
+    check(np.array_equal(out_off, out_on), 'axis_check включена: текстура побайтно та же (только отчёт)')
+    a = rep_on['parts'][1]['axis'][0]
+    check(a['verdict'] == 'axis_ok_photo' and not a['would_flag'] and a['d_deg'] < 5 and not a['round_like'], f'вытянутая плита, волокна фото вдоль длинной оси → ось верна, не метка ({a})')
+    a = run_axis(RA, tx, tex, ctx_for(L_v))[1]['parts'][1]['axis'][0]
+    check(a['verdict'] == 'axis_off_photo' and a['would_flag'] and a['d_deg'] > 80, f'вытянутая плита, волокна фото поперёк выбранной оси → метка ({a})')
+    a = run_axis(RA, txr, texr, ctx_for(L_n, 0.3, 0.3))[1]['parts'][1]['axis'][0]
+    check(a['round_like'] and a['verdict'] == 'imposed_no_hint' and a['would_flag'], f'квадратная плита без подсказки на фото: рисунок навязан → метка ({a})')
+    a = run_axis(RA, txr, texr, ctx_for(L_h, 0.3, 0.3))[1]['parts'][1]['axis'][0]
+    check(a['round_like'] and a['verdict'] == 'axis_ok_photo' and not a['would_flag'], f'квадратная плита, ось ширины совпала с волокнами фото → не метка ({a})')
+    a = run_axis(RA, txr, texr, ctx_for(L_h, 0.3, 0.3), wa=(0, 0, 1))[1]['parts'][1]['axis'][0]
+    check(a['round_like'] and a['verdict'] == 'axis_off_photo' and a['would_flag'], f'квадратная плита, ось ширины ⟂ волокнам фото → метка ({a})')
+    a = run_axis(RA, tx, tex, ctx_for(L_n))[1]['parts'][1]['axis'][0]
+    check(a['verdict'] == 'long_side_no_hint' and not a['would_flag'], f'вытянутая плита без подсказки: ось по длинной стороне, не метка ({a})')
+    a = run_axis(RA, txr, texr, ctx_for(L_g, 0.3, 0.3))[1]['parts'][1]['axis'][0]
+    check(a['photo_coh'] is None and a['photo_hf'] < RA['photo_sigma_min'] and a['verdict'] == 'imposed_no_hint' and a['would_flag'], f'плавный свет на фото — не волокна: подсказки нет, квадрат → метка ({a})')
+    cx = ctx_for(L_h, 0.3, 0.3)
+    cx['valid'] = np.zeros((200, 200), bool)
+    a = run_axis(RA, txr, texr, cx)[1]['parts'][1]['axis'][0]
+    check(a['verdict'] == 'not_visible' and not a['would_flag'], f'плоскости на фото нет → not_visible, не метка ({a})')
+    rep_n = PG.apply_grain(tex, tx, [part(1, name='ножки')], {1: mask}, fp, pn, 100.0, (1, 0, 0), RA, enabled=True, axis_ctx=ctx_for(L_h))[1]
+    check('axis' not in rep_n['parts'][1], 'не-верх (имя без part_words) — проверка не считается')
+    check(PG.ang_diff180(10, 170) == 20 and PG.ang_diff180(0, 90) == 90 and PG.ang_diff180(179, 1) == 2, 'ang_diff180: ось — прямая, разница 0…90°')
+
     bad_n = sum(1 for x in OK if not x)
     print(f'\n{len(OK) - bad_n}/{len(OK)} ok')
     sys.exit(1 if bad_n else 0)

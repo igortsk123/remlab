@@ -210,6 +210,67 @@ ok(P.judge({'top_vs_photo': {'status': 'na'}, 'empty_flat': {'status': 'na'}, 'g
 ok(P.judge({'top_vs_photo': {'status': 'na'}, 'empty_flat': {'status': 'na'}, 'group_bleed': {'status': 'na'}, 'top_tone': {'status': 'unmeasured', 'why': 'x'}, 'back_tone': {'status': 'ok', 'dev_share_pct': 0.0, 'off_palette_pct': 0.0}}, R)['unmeasured'] == ['top_one_tone_pct', 'top_off_palette_pct'], 'большая сторона без измерения → не измерено')
 ok(all(k in R['tone'][s] for s in ('top', 'back') for k in ('one_tone_max_pct', 'off_palette_max_pct', 'min_texels')) and R['tone']['dev_dE00'] > 0, 'пороги тона — в rules (paint-surface-checks.json → tone)')
 
+# 7б. холодные пятна на белой опоре (T-20261124-57/4): ядро на массивах; в этой версии в кадрах круга 29 положительного примера нет — проверка держится на синтетике
+CS = R['cold_spots']
+THR = {'db_max': CS['db_max'], 'cold_share_max': CS['cold_share_max']}
+ok(CS['enabled'] is False, 'cold_spots: по умолчанию выключена')
+N = 6000
+white_photo = np.tile(np.array([[236, 236, 234]], np.uint8), (N, 1))
+r0 = P.cold_stats(white_photo, white_photo.copy(), CS, THR)
+ok(r0['status'] == 'ok' and not r0['would_flag'] and r0['cold_share'] == 0.0, 'cold_spots: белое осталось белым → не метка')
+cold = np.tile(np.array([[222, 232, 244]], np.uint8), (N, 1))                       # голубо-серое: b заметно ниже
+r1 = P.cold_stats(white_photo, cold, CS, THR)
+ok(r1['status'] == 'ok' and r1['would_flag'] and r1['db_median'] < -CS['db_max'], f'cold_spots: сплошь голубоватое на белой опоре → метка (Δb {r1["db_median"]})')
+patch = white_photo.copy()
+patch[: int(N * 0.12)] = cold[: int(N * 0.12)]                                        # пятна на 12 % белого: медиана ровная, доля холодных выше порога
+r2 = P.cold_stats(white_photo, patch, CS, THR)
+ok(r2['would_flag'] and abs(r2['db_median']) <= CS['db_max'] and r2['cold_share'] > CS['cold_share_max'], f'cold_spots: пятна на части белого ловит доля холодных ({r2["cold_share"]})')
+warm = np.tile(np.array([[240, 234, 222]], np.uint8), (N, 1))                       # теплее фото — не «холодные пятна», но Δb большой по модулю
+r3 = P.cold_stats(white_photo, warm, CS, THR)
+ok(r3['status'] == 'ok' and r3['db_median'] > 0 and r3['cold_share'] == 0.0, 'cold_spots: потепление не считается холодным пятном (доля 0; метка — только по |медиане|)')
+wood_photo = np.tile(np.array([[200, 160, 110]], np.uint8), (N, 1))
+r4 = P.cold_stats(wood_photo, cold, CS, THR)
+ok(r4['status'] == 'na' and not r4['would_flag'], 'cold_spots: на фото не белое (дерево) → na, не метка')
+r5 = P.cold_stats(white_photo[:500], cold[:500], CS, THR)
+ok(r5['status'] == 'na' and 'px' in r5['why'], 'cold_spots: белого мало → na с причиной')
+r6 = P.cold_spots('/нет/glb', None, None, R)
+ok(r6['status'] == 'na' and not r6['would_flag'], 'cold_spots: нет фото → na')
+
+# 7в. холодные пятна в ЗАЛИТЫХ текселях (вторая мерка, 25.11): атлас, известное с фото и залитое; кадровая мерка (7б) фото копирует и этого не видит
+H = W = 120
+alb_f = np.full((H, W, 3), (236, 236, 234), np.uint8)                               # всё белое нейтральное
+occ_f = np.ones((H, W), bool)
+known_f = np.zeros((H, W), bool)
+known_f[:, :60] = True                                                              # левая половина — с фото, правая — залита этапом 7
+r7 = P.cold_fill_stats(alb_f, occ_f, known_f, CS, THR)
+ok(r7['status'] == 'ok' and not r7['would_flag'] and r7['cold_share'] == 0.0 and r7['fill_px'] == 7200, f'cold_fill: залитое белое как известное → не метка ({r7})')
+alb_c = alb_f.copy()
+alb_c[:, 60:] = (222, 232, 244)                                                     # залитая половина голубоватая
+r8 = P.cold_fill_stats(alb_c, occ_f, known_f, CS, THR)
+ok(r8['would_flag'] and r8['db_median'] < -CS['db_max'] and r8['cold_share'] > 0.99, f'cold_fill: залитое голубое при белом известном → метка (Δb {r8["db_median"]})')
+alb_p = alb_f.copy()
+alb_p[:20, 60:] = (222, 232, 244)                                                   # голубые пятна на ~17 % залитого
+r9 = P.cold_fill_stats(alb_p, occ_f, known_f, CS, THR)
+ok(r9['would_flag'] and abs(r9['db_median']) <= CS['db_max'] and r9['cold_share'] > CS['cold_share_max'], f'cold_fill: пятна на части залитого ловит доля ({r9["cold_share"]})')
+alb_k = alb_c.copy()
+alb_k[:, :60] = (200, 160, 110)                                                     # известное — дерево: белого эталона нет
+r10 = P.cold_fill_stats(alb_k, occ_f, known_f, CS, THR)
+ok(r10['status'] == 'na' and not r10['would_flag'] and 'эталон' in r10['why'], 'cold_fill: белого известного нет → na (голубое залитое без эталона не метим)')
+alb_d = alb_f.copy()
+alb_d[:, 60:] = (60, 60, 64)                                                        # залитое тёмное: не область белого
+r11 = P.cold_fill_stats(alb_d, occ_f, known_f, CS, THR)
+ok(r11['status'] == 'na' and 'светлых' in r11['why'], 'cold_fill: залитое тёмное — не область проверки (na)')
+ok(P.cold_fill('/нет/glb', None, R)['status'] == 'na', 'cold_fill: нет known.png → na')
+ok('cold_fill' not in P.measure(p('good.glb'), p('k_top.png'), p('parts_tone.npz')) and 'cold_spots' not in P.measure(p('good.glb'), p('k_top.png'), p('parts_tone.npz')), 'cold_fill/cold_spots выключены: в measure() ключей нет (побайтно как раньше)')
+RC = json.loads(json.dumps(R))
+RC['cold_spots']['enabled'] = True
+mc = P.measure(p('good.glb'), p('k_top.png'), p('parts_tone.npz'), RC)
+ok('cold_fill' in mc and mc['cold_fill']['status'] in ('ok', 'na', 'error') and mc['cold_fill']['would_flag'] is False and mc['cold_spots']['status'] == 'na', f'cold_fill/cold_spots включены: ключи есть, на пустых данных не метка ({mc["cold_fill"]["status"]})')
+alb_w = alb_f.copy()
+alb_w[:, 60:] = (236, 226, 206)                                                     # залитое тёплое бежевое при белом известном: не «холодное пятно»
+r12 = P.cold_fill_stats(alb_w, occ_f, known_f, CS, THR)
+ok(r12['status'] == 'ok' and not r12['would_flag'] and r12['db_median'] > CS['db_max'] and r12['warm_share'] > 0.99 and r12['cold_share'] == 0.0, f'cold_fill: тёплое залитое (Δb {r12["db_median"]}) — не метка, пишется warm_share')
+
 # 8. настоящие правила: пороги в данных, у каждой мерки есть порог и операция, ID товаров в правилах нет
 ok(all(len(R[k]['threshold']) == 2 for k in ('top_vs_photo', 'group_bleed', 'empty_flat')), 'у трёх мерок есть (op, порог)')
 txt = open(P.RULES, encoding='utf-8').read()

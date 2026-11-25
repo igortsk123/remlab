@@ -143,7 +143,17 @@ def process(a, rules: dict, d: str, rep: dict) -> None:
     if not parts:
         raise Abstain('Ш4а не покрасил ни одной группы (painted_group пуст)')
     fp, pn = PG.planes_for(V, F)
-    new, r = PG.apply_grain(tex, tx, parts, masks, fp, pn, cpu, width, rules, enabled=True)
+    axis_ctx = None
+    ac = rules.get('axis_check') or {}
+    if ac.get('enabled'):                                                  # T-20261124-57/5: контекст проверки оси зерна (кадр 04, фото) — только отчёт
+        fr, _note = TV.cube_frame(geoms, st)
+        if fr is not None and fr['C'] is not None:
+            xs, ys, _Z = PF.project(fr['P'], fr['cam'])
+            n_px = int(st['px'])
+            axis_ctx = {'L': Lf, 'ids': st['ids'], 'valid': valid & (st['cos'] >= float(ac['cos_min'])), 'xy': np.stack([xs * n_px, ys * n_px], 1), 'P': P, 'F': F}
+        else:
+            rep['axis_check'] = 'нет перспективной камеры — проверка оси не считалась'
+    new, r = PG.apply_grain(tex, tx, parts, masks, fp, pn, cpu, width, rules, enabled=True, axis_ctx=axis_ctx)
     rep['groups'] = {str(k): dict(v, name=names[k]) for k, v in r['parts'].items()}
     rep.update(applied=r['applied'], skipped=r['skipped'], texels_changed=r['texels_changed'], planes=int(len(pn)))
     if r['applied'] == 0:

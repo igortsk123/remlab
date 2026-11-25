@@ -189,15 +189,20 @@ def _unit(v, fallback):
     return v / n if n > 1e-9 else np.asarray(fallback, np.float64)
 
 
-def plane_axes(q_cm, n_plane, width_axis, rules: dict):
-    """Оси зерна в плоскости с нормалью n_plane по текселям q_cm (N,3): c1 — вдоль волокна, c2 = n × c1. Вытянутая плоскость — длинная ось текселей; круглая/квадратная (отношение осей < round_ratio) —
-    ось ширины товара (width_axis), спроецированная в плоскость. → (c1, c2, round_like)."""
+def _plane_eig(q_cm, n_plane):
+    """Собственные числа/векторы разброса текселей в плоскости с нормалью n_plane (по возрастанию; наименьшее ≈ 0 — нормаль). → (n, w, ev)."""
     n = _unit(n_plane, (0, 1, 0))
     q = np.asarray(q_cm, np.float64)
     q = q - q.mean(0)
     qp = q - (q @ n)[:, None] * n
     w, ev = np.linalg.eigh(np.cov(qp.T) if len(qp) > 3 else np.eye(3))
-    # две большие оси в плоскости: собственные числа по возрастанию, наименьшее ≈ 0 (нормаль)
+    return n, w, ev
+
+
+def plane_axes(q_cm, n_plane, width_axis, rules: dict):
+    """Оси зерна в плоскости с нормалью n_plane по текселям q_cm (N,3): c1 — вдоль волокна, c2 = n × c1. Вытянутая плоскость — длинная ось текселей; круглая/квадратная (отношение осей < round_ratio) —
+    ось ширины товара (width_axis), спроецированная в плоскость. → (c1, c2, round_like)."""
+    n, w, ev = _plane_eig(q_cm, n_plane)
     big, mid = float(w[2]), float(max(w[1], 1e-12))
     round_like = big / mid < rules['round_ratio']
     if round_like:
@@ -216,7 +221,87 @@ def plane_axes(q_cm, n_plane, width_axis, rules: dict):
     return c1, c2, round_like
 
 
-def apply_grain(tex, tx, parts: list, masks: dict, face_plane, plane_normal, cm_per_unit: float | None, width_axis=None, rules: dict | None = None, enabled: bool | None = None, plan: dict | None = None):
+def ang_diff180(a: float, b: float) -> float:
+    """Разница направлений (без знака) в градусах, 0…90: ось — прямая, не стрелка."""
+    d = abs(float(a) - float(b)) % 180.0
+    return min(d, 180.0 - d)
+
+
+def photo_grain_dir(L, sel, ac: dict, rules: dict) -> dict:
+    """Направление волокон на фото по тензору структуры светлоты L в пикселях sel (кадр 04, y вниз). Края силуэта (erode_px) и мало пикселей — не берём.
+    → {'n_px','coh','deg','hf'}: hf — σL рисунка (`photo_hf_sigma`; меньше photo_sigma_min — рисунка не видно, coh/deg = None); deg ∈ [0,180) — направление ВДОЛЬ волокон в кадре (atan2(dy,dx)), coh 0…1 — насколько одно направление (0 — шум/без рисунка)."""
+    from scipy import ndimage as ndi
+    L = np.asarray(L, np.float64)
+    sel = ndi.binary_erosion(np.asarray(sel, bool), iterations=int(ac['erode_px']))
+    n = int(sel.sum())
+    if n < int(ac['min_px']):
+        return {'n_px': n, 'coh': None, 'deg': None}
+    hf = photo_hf_sigma(L, sel, rules)                                                         # то же «рисунок виден», что у самого зерна (photo_sigma_min): одно определение
+    if hf is None or hf < float(rules['photo_sigma_min']):
+        return {'n_px': n, 'coh': None, 'deg': None, 'hf': None if hf is None else round(hf, 2)}   # рисунка на фото не видно — подсказки нет
+    Ls = ndi.gaussian_filter(L, float(ac['sigma_px'])) - ndi.gaussian_filter(L, float(ac['dog_sigma_px']))      # направление — по масштабу рисунка: плавный свет и тень не волокна
+    gy, gx = np.gradient(Ls)
+    jxx, jyy, jxy = float((gx[sel] ** 2).mean()), float((gy[sel] ** 2).mean()), float((gx[sel] * gy[sel]).mean())
+    tr = jxx + jyy
+    if tr < 1e-9:
+        return {'n_px': n, 'coh': 0.0, 'deg': None}
+    coh = float(np.hypot(jxx - jyy, 2 * jxy) / tr)
+    phi = 0.5 * np.degrees(np.arctan2(2 * jxy, jxx - jyy))                 # направление градиента (поперёк волокон)
+    return {'n_px': n, 'coh': round(coh, 3), 'deg': round(float((phi + 90.0) % 180.0), 1), 'hf': round(hf, 2)}
+
+
+def plane_axis_img_deg(Pc, xy_c, w, c1) -> float | None:
+    """Куда в кадре смотрит ось c1 плоскости: наклон регрессии координат кадра (x, y) на положение точек вдоль c1 (центры граней плоскости Pc, веса w — их площади). → угол, ° ∈ [0,180)."""
+    Pc, xy_c, w = np.asarray(Pc, np.float64), np.asarray(xy_c, np.float64), np.asarray(w, np.float64)
+    if len(Pc) < 3 or float(w.sum()) <= 0:
+        return None
+    u = Pc @ np.asarray(c1, np.float64)
+    wu = w / w.sum()
+    um = float((wu * u).sum())
+    var = float((wu * (u - um) ** 2).sum())
+    if var < 1e-14:
+        return None
+    dx = float((wu * (u - um) * (xy_c[:, 0] - (wu * xy_c[:, 0]).sum())).sum() / var)
+    dy = float((wu * (u - um) * (xy_c[:, 1] - (wu * xy_c[:, 1]).sum())).sum() / var)
+    if abs(dx) + abs(dy) < 1e-12:
+        return None
+    return float(np.degrees(np.arctan2(dy, dx)) % 180.0)
+
+
+def axis_verdict(round_like: bool, photo: dict, axis_deg, ac: dict) -> dict:
+    """Решение проверки «ось зерна верха» (паспорт р. «круглая/квадратная плита»): подсказка фото есть (n_px ≥ min_px и coh ≥ coh_min) → ось должна совпасть с волокнами фото (≤ max_deg);
+    подсказки нет → круглая/квадратная плита (ось не из формы) получает навязанный рисунок = флаг; вытянутая плита — ось по длинной стороне, не флаг. → {'verdict','would_flag','d_deg'}."""
+    if int(photo.get('n_px') or 0) < int(ac['min_px']):
+        return {'verdict': 'not_visible', 'would_flag': False, 'd_deg': None}                  # плоскость на фото не видна (оборот, низ): подсказки нет и быть не может, зерно на неё — не по фото
+    hint = photo.get('coh') is not None and photo.get('deg') is not None and float(photo['coh']) >= float(ac['coh_min'])
+    if hint and axis_deg is not None:
+        d = ang_diff180(photo['deg'], axis_deg)
+        bad = d > float(ac['max_deg'])
+        return {'verdict': 'axis_off_photo' if bad else 'axis_ok_photo', 'would_flag': bool(bad), 'd_deg': round(d, 1)}
+    if round_like:
+        return {'verdict': 'imposed_no_hint', 'would_flag': True, 'd_deg': None}
+    return {'verdict': 'long_side_no_hint', 'would_flag': False, 'd_deg': None}
+
+
+def axis_check_plane(q, nn_plane, c1, round_like: bool, ctx: dict, faces, ac: dict, rules: dict) -> dict:
+    """Одна плоскость части: форма (отношение осей), подсказка фото, куда смотрит ось в кадре, решение. ctx — из `part_grain_stage` (L кадра, id граней растра, годные пиксели, xy вершин, P, F)."""
+    _n, w3, _ev = _plane_eig(q, nn_plane)
+    ratio = float(w3[2]) / float(max(w3[1], 1e-12))
+    fs = np.unique(np.asarray(faces))
+    F = np.asarray(ctx['F'], np.int64)[fs]
+    Pc = np.asarray(ctx['P'], np.float64)[F].mean(1)
+    xy = np.asarray(ctx['xy'], np.float64)[F].mean(1)
+    a, b, c = (np.asarray(ctx['P'], np.float64)[F[:, i]] for i in range(3))
+    area = np.linalg.norm(np.cross(b - a, c - a), axis=1)
+    pix = np.asarray(ctx['valid'], bool) & np.isin(np.asarray(ctx['ids']), fs)
+    photo = photo_grain_dir(ctx['L'], pix, ac, rules)
+    axis_deg = plane_axis_img_deg(Pc, xy, area, c1)
+    v = axis_verdict(round_like, photo, axis_deg, ac)
+    return {'ratio': round(ratio, 3), 'round_like': bool(round_like), 'photo_deg': photo['deg'], 'photo_coh': photo['coh'], 'photo_px': photo['n_px'],
+            'photo_hf': photo.get('hf'), 'axis_deg': None if axis_deg is None else round(axis_deg, 1), **v}
+
+
+def apply_grain(tex, tx, parts: list, masks: dict, face_plane, plane_normal, cm_per_unit: float | None, width_axis=None, rules: dict | None = None, enabled: bool | None = None, plan: dict | None = None, axis_ctx: dict | None = None):
     """Зерно на текстуру. tex — (H,W,3) uint8 после тона Ш4а; tx — растр развёртки (`tex_fill.Tex`: ti, Q, N, f); parts — как в `plan_grain` (+ 'id'); masks[id] — bool по текселям tx
     (какие тексели части красить: маска части ∩ «тон Ш4а лёг»); face_plane — (m,) id плоскости на грань (−1 — не плоскость), plane_normal — (k,3); cm_per_unit — см на единицу кадра;
     width_axis — ось ширины товара (кадр 04). → (новая текстура, отчёт). Выключено (rules.enabled / enabled=False) → (tex БЕЗ изменений, отчёт enabled=False)."""
@@ -264,6 +349,9 @@ def apply_grain(tex, tx, parts: list, masks: dict, face_plane, plane_normal, cm_
             nn = tx.N[tgt]
             if g >= 0 and int(tgt.sum()) >= rules['min_plane_texels']:
                 c1, c2, _rl = plane_axes(q, plane_normal[g], width_axis, rules)
+                ac = rules.get('axis_check') or {}
+                if ac.get('enabled') and axis_ctx is not None and any(w in str(p.get('name', '')).lower() for w in ac['part_words']):      # T-20261124-57/5: только отчёт — зерно и текстуру не меняет
+                    r.setdefault('axis', []).append(dict(plane=g, n_texels=int(tgt.sum()), **axis_check_plane(q, plane_normal[g], c1, _rl, axis_ctx, tx.f[tgt], ac, rules)))
                 u_cm, s_cm = q @ c1, q @ c2
                 key = g + 1
                 n_pl_groups += 1
