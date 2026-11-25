@@ -11,6 +11,8 @@ import numpy as np
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path[:0] = [os.path.join(HERE, 'salad', 'trellis'), HERE]
+import remlab_tmp  # noqa: E402  (временное — в общий каталог с чисткой)
+remlab_tmp.use('tests_part_grain_stage')
 import part_grain as PG  # noqa: E402
 import part_grain_stage as ST  # noqa: E402
 import tex_coverage as TC  # noqa: E402
