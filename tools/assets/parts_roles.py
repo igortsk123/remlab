@@ -283,6 +283,35 @@ def role_fit(f: dict, rules: dict, product_role: str | None, channels: set[str] 
     return (True, None) if ok else (False, why)
 
 
+def role_fit_relaxed(f: dict, rules: dict, product_role: str | None, channels: set[str] | None, role: str, relax: dict, classes: dict | None = None,
+                     catalog_classes: dict[str, str] | None = None) -> tuple[bool, str | None]:
+    """Ослабленная геометрия роли для части, которую ИМЯ уже назвало этой ролью (мост «Leg→legs», T-20261124-64): те же `require`/`alt_require`/`forbid` группы, но
+    без условий с ключами из `relax['drop']` (у ножек стула: «касается тела» supports_body и потолок up_q90 — коническая наклонная ножка выходит за 0,4), плюс `relax['extra_require']`
+    (стоит на полу, тонкая) и свой потолок `relax['max_up_q90']`. Только группы из `relax['groups']`. Канал каталога проверяется как в `role_fit`. → (да/нет, причина)."""
+    grp_name = group_of(product_role, classes)
+    if grp_name not in relax.get("groups", [grp_name]):
+        return False, None
+    r = rules["groups"][grp_name]["roles"].get(role)
+    if r is None:
+        return False, "no_rule"
+    if "only_if_catalog_channel" in r and r["only_if_catalog_channel"] not in (channels or set()):
+        return False, "no_channel"
+    ctx = {"product_role": product_role, "group": grp_name, "catalog_classes": catalog_classes or {}}
+    drop = set(relax.get("drop", []))
+    strip = lambda cs: [c for c in cs if c["f"] not in drop]
+    ok = _eval(strip(r["require"]), f, ctx)[0] or any(_eval(strip(alt), f, ctx)[0] for alt in r.get("alt_require", []))
+    if not ok:
+        return False, None
+    if not all(_eval([c], f, ctx)[0] for c in relax.get("extra_require", [])):
+        return False, None
+    cap = relax.get("max_up_q90")
+    if cap is not None and not (f.get("up_q90") is not None and f["up_q90"] <= cap):
+        return False, None
+    if any(_eval([c], f, ctx)[0] for c in r.get("forbid", [])):
+        return False, "forbid"
+    return True, None
+
+
 def _rule_apply(rule: dict, p: int, out: dict, name: str, new: dict) -> None:
     """Общий переключатель «включить / вхолостую» (P-062): enabled+mode!=dry — роль меняется; dry — роль прежняя, в `dry_hint` пишется, что было бы."""
     if not rule or not rule.get("enabled"):

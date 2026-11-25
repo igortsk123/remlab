@@ -15,6 +15,8 @@
      б) общее имя («Base», «Horizontal Panel») у типа без `body` (стол) → столешница/ножки по геометрии, если подходит ровно одна роль;
      в) имени нет вовсе (строка `""` с `geometry_fallback: unnamed`) → роль по геометрии, иначе объёмная часть = `body`.
      Ножки/каркас/ручки/плафон, не подтверждённые геометрией, по-прежнему `unknown:name_geometry` (другой канал — подставлять корпус нельзя).
+  ⑥ `name_relax` (T-20261124-64): имя назвало роль (legs), строгая геометрия группы не прошла, но часть стоит на полу и тонкая — ослабленная геометрия (`parts_roles.role_fit_relaxed`: те же условия группы без «касается тела» и потолка
+     up_q90 ≤ 0,4, свой потолок 0,6) → роль с пометкой `relaxed`; только группы из таблицы (seating). Выключатель `enabled`.
 Режим — `mode` в таблице: `off` | `dry` (по умолчанию; роли только в отчёт) | `on` (поля пишутся в parts.json). Мерка — `parts_roles.known_role_area_share` ≥ `metric.min`,
 знаменатель без частей `unknown:no_channel` (у типа канала нет — не провал, отдельная строка; П-2).
 """
@@ -52,6 +54,15 @@ def load_rules(path: str = RULES) -> dict:
         for r in (gf.get(blk) or {}).get("roles_order", []):
             if r not in roles:
                 raise ValueError(f"part-llm-roles.json: geometry_fallback.{blk}.roles_order: роли {r!r} нет в словаре ролей part-roles.json")
+    nr = t.get("name_relax") or {}
+    for role, cfg in nr.items():
+        if role in ("enabled",) or role.startswith("_"):
+            continue
+        if role not in roles:
+            raise ValueError(f"part-llm-roles.json: name_relax: роли {role!r} нет в словаре ролей part-roles.json")
+        for g in cfg.get("groups", []):
+            if g not in pro.load_rules()["groups"]:
+                raise ValueError(f"part-llm-roles.json: name_relax.{role}: группы {g!r} нет в part-roles.json")
     return t
 
 
@@ -144,11 +155,18 @@ def bridge_roles(names: dict[int, str], feats: dict[int, dict], rules: dict, rol
             continue
         ok, why = pro.role_fit(f, role_rules, product_role, channels, role, catalog_classes=catalog_classes)
         picked = role if ok else None
-        if not ok and e.get("else"):
+        relaxed = False
+        nr = (rules.get("name_relax") or {}).get(role) if (rules.get("name_relax") or {}).get("enabled") else None
+        if not ok and nr and why not in ("no_channel", "no_rule") and pro.role_fit_relaxed(f, role_rules, product_role, channels, role, nr, catalog_classes=catalog_classes)[0]:
+            picked, relaxed = role, True                                                   # имя «Leg» + стоит на полу + тонкая: коническая ножка стула проходит ослабленную геометрию (name_relax)
+        if not picked and e.get("else"):
             ok2, _ = pro.role_fit(f, role_rules, product_role, channels, e["else"], catalog_classes=catalog_classes)
             picked = e["else"] if ok2 else None
         if picked:
-            out[p] = {**_done(role_rules, picked, f"название «{name}» → {role}" + ("" if picked == role else f", геометрия — {picked}") + "; условия роли выполнены", rc["matched"], grp=grp), "name": name}
+            out[p] = {**_done(role_rules, picked, f"название «{name}» → {role}" + ("" if picked == role else f", геометрия — {picked}")
+                              + ("; строгая геометрия не прошла, ослабленная (name_relax: на полу, тонкая) — да" if relaxed else "; условия роли выполнены"), rc["matched"], grp=grp), "name": name}
+            if relaxed:
+                out[p]["relaxed"] = True
         elif why == "no_channel":                                                  # у товара нет такого канала в каталоге (плафон без «shade»): не провал геометрии
             out[p] = {**_done(role_rules, "unknown", f"название «{name}» → {role}, но канала «{role}» у товара в каталоге нет", rc["unknown"], "no_channel"), "name": name}
         elif (gf_on and (gf.get("to_body") or {}).get("enabled") and _body_allowed(grp, product_role)

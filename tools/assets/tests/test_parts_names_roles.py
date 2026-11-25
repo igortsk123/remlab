@@ -512,5 +512,60 @@ class GeometryEnemies(unittest.TestCase):
                 self.assertEqual(o["material_channel"], "legs")
 
 
+class NameRelax(unittest.TestCase):
+    """T-20261124-64: «Leg» стула — коническая наклонная ножка (up_q90 0,43–0,47, «касается тела» не всегда) → legs по ослабленной геометрии; не-ножки и другие группы не страдают."""
+
+    def setUp(self):
+        v, f, part = table()
+        self.ft = feats(v, f, part, KINDS5)
+        self.RR_ = RR
+
+    def chair(self, over, product="стул", names=None, rules=None):
+        ft = {p: dict(f) for p, f in self.ft.items()}
+        ft[1] = {**ft[1], "kind": "thin", "floor_contact": True, "supports_body": False, "up_q90": 0.46, "obb": {**ft[1]["obb"], "thin_ratio": 0.15}, "area_share": 0.03, **over}
+        return ft, pn.bridge_roles(names_of(names or {0: "Seat", 1: "Leg", 2: "Leg", 3: "Leg", 4: "Leg"}), ft, rules or TBL, RR, product, {"legs"})
+
+    def test_conical_chair_leg_gets_legs_relaxed(self):
+        _, r = self.chair({})
+        self.assertEqual(r[1]["role"], "legs")
+        self.assertTrue(r[1].get("relaxed"))
+        self.assertGreaterEqual(r[1]["role_conf"], RR["decision"]["role_conf"]["matched"])
+        self.assertIsNone(r[1]["unknown_reason"])
+
+    def test_strict_pass_is_not_marked_relaxed(self):
+        _, r = self.chair({"up_q90": 0.2, "supports_body": True})
+        self.assertEqual(r[1]["role"], "legs")
+        self.assertNotIn("relaxed", r[1])
+
+    def test_not_on_floor_or_not_thin_or_too_tilted_stays_unknown(self):
+        for over in ({"floor_contact": False}, {"kind": "body", "obb": {"thin_ratio": 0.8}}, {"up_q90": 0.7}, {"area_share": 0.3}):
+            _, r = self.chair(over)
+            self.assertEqual(r[1]["role"], "unknown", over)
+            self.assertEqual(r[1]["unknown_reason"], "name_geometry", over)
+
+    def test_only_listed_groups_and_switch_off_is_as_before(self):
+        _, r_case = self.chair({}, product="комод")
+        self.assertEqual(r_case[1]["role"], "unknown")                          # группа case в name_relax не перечислена
+        off = json.loads(json.dumps(TBL))
+        off["name_relax"]["enabled"] = False
+        _, r_off = self.chair({}, rules=off)
+        self.assertEqual(r_off[1]["role"], "unknown")                           # выключатель = как было
+        self.assertEqual(r_off[1]["unknown_reason"], "name_geometry")
+
+    def test_other_names_untouched(self):
+        _, r2 = self.chair({}, names={0: "Seat", 1: "Backrest", 2: "Leg", 3: "Leg", 4: "Leg"})
+        self.assertEqual(r2[1]["role"], "body")                                 # имя не «Leg» — решение прежнее, ослабление к нему не применяется
+        self.assertNotIn("relaxed", r2[1])
+
+    def test_bad_relax_rules_are_errors(self):
+        bad = json.loads(json.dumps(TBL))
+        bad["name_relax"]["nonexistent_role"] = {"groups": ["seating"]}
+        path = os.path.join(tempfile.mkdtemp(), "bad.json")
+        with open(path, "w", encoding="utf-8") as fh:
+            json.dump(bad, fh)
+        with self.assertRaises(ValueError):
+            pn.load_rules(path)
+
+
 if __name__ == "__main__":
     unittest.main()
