@@ -245,11 +245,13 @@ def input_zip_07(vis_dir: str, code_tar: bytes | None = None, v: dict | None = N
 
 
 def input_zip_seam(vis_dir: str, fill_dir: str, code_tar: bytes | None = None, v: dict | None = None) -> bytes:
-    """Вход шва (T-196/1): `06-visible/` (known*.png, conf*.png; visible.glb не нужен — не кладём) и `07-fill/filled.glb` (выход 07 того же товара)."""
+    """Вход шва (T-196/1): `06-visible/` (known*.png, conf*.png, prov*.png; visible.glb не нужен — не кладём) и `07-fill/filled.glb` (выход 07 того же товара).
+    `prov*.png` — карта провенанса этапа 6: по ней `load_known_png` убирает synth (prov 4) из «известного» (T-28/1); без неё шов на ноде считал synth фото, а локально — нет
+    (…0015317 в k29c: 522 165 / 214 567 против 101 026 / 95 611 при том же входе; T-20261124-23/в3)."""
     buf = io.BytesIO()
     with zipfile.ZipFile(buf, 'w', zipfile.ZIP_STORED) as z:
         for n in sorted(os.listdir(vis_dir)):
-            if n.endswith('.png') and (n.startswith('known') or n.startswith('conf')):
+            if n.endswith('.png') and (n.startswith('known') or n.startswith('conf') or n.startswith('prov')):
                 z.write(os.path.join(vis_dir, n), f'06-visible/{n}')
         z.write(os.path.join(fill_dir, 'filled.glb'), '07-fill/filled.glb')
         add_extras(z, v or {}, code_tar)

@@ -640,6 +640,16 @@ os.remove(os.path.join(d08, 'j', 'in', '03-parts', 'parts.json'))
 os.remove(os.path.join(d08, 'j', 'in', 'photo.png'))
 c8b, _o, _n = WS.stage_command(C, '08', os.path.join(d08, 'j'), 'sku1', False, False, '/tmp/w/j/peak', code_root='/tmp/w/j/code')
 ok(c8b[c8b.index('--glb') + 1].endswith('07-fill/filled.glb') and '--parts-dir' not in c8b and '--photo' not in c8b, 'команда 08: нет шва — filled.glb; нет parts.json/фото — без --parts-dir/--photo')
+# вход шва: prov*.png едет на ноду (T-20261124-23/в3) — без него шов считает synth известным, а локально (с prov) — нет
+vs, fs = os.path.join(d08, 'vis_seam'), os.path.join(d08, 'fill_seam')
+os.makedirs(vs, exist_ok=True)
+os.makedirs(fs, exist_ok=True)
+open(os.path.join(fs, 'filled.glb'), 'wb').write(b'x')
+for n in ('known.png', 'conf.png', 'prov.png', 'prov1.png', 'known1.png', 'frame.png', 'visible.glb', 'check.json'):
+    open(os.path.join(vs, n), 'wb').write(b'x')
+zs = sorted(zipfile.ZipFile(io.BytesIO(ST.input_zip_seam(vs, fs, b'TAR', None))).namelist())
+ok(all(f'06-visible/{n}' in zs for n in ('known.png', 'conf.png', 'prov.png', 'prov1.png', 'known1.png')) and '07-fill/filled.glb' in zs and '06-visible/visible.glb' not in zs and '06-visible/frame.png' not in zs,
+   f'input_zip_seam: known*/conf*/prov*.png + filled.glb, без visible.glb и кадра ({zs})')
 need08 = ['product.json', '04-camera/check.json', '06-visible/check.json']
 ok(WS.missing_inputs('08', need08 + ['07-fill/filled.glb']) == [] and WS.missing_inputs('08', need08 + ['07-seam/seam.glb']) == [], 'вход 08: хватает шва ИЛИ filled.glb')
 ok(len(WS.missing_inputs('08', need08)) == 1 and 'product.json' in WS.missing_inputs('08', ['07-fill/filled.glb', '04-camera/check.json', '06-visible/check.json']), 'вход 08: без модели и без product.json — отказ с именами')
