@@ -9,6 +9,7 @@
   tools/ops/heavy-slot.sh <метка> [--min-gb N] [--cores N] [--long|--short] [--timeout S] [--prio 0|1|2] [--no-slot] \
       -- <команда…>                                                                       # rc команды наружу
   tools/ops/heavy-slot.sh --status                                                       # кто держит, кто ждёт, память
+  tools/ops/heavy-slot.sh --cancel <метка|pid|номер билета>                              # снять СВОЙ билет (T-20261125-74)
   from heavy_slot import heavy_slot                                                       # из питона — на ОДИН шаг:
   with heavy_slot('t51-look', min_gb=6):                                                  #   длинный цикл берёт слот на
       обработать_одну_модель()                                                            #   шаг, другие встают между
@@ -141,6 +142,16 @@
     `--status`: у держателя «ядер N · факт X», строка «ЯДРА ПО ФАКТУ» — занято за окно, свободно по факту, в разгоне, сколько
     войдёт. Переходный период: ожидающий старой версии держателей слотов 7+ не видит (их память и ядра не считает) — пока
     есть его билет (без `v`) или он ждёт память в слоте 1, слоты 7+ не выдаются (`_legacy_waiting`), 1…6 — как прежде.
+  * ОТМЕНА СВОЕГО БИЛЕТА И СИРОТЫ (T-20261125-74, урок 875: билет, чей процесс остался жить без хозяина, 35–45 мин стоял головой, обгон
+    был закрыт, 8 ждущих стояли, а снять билет можно было только убив процесс). `--cancel <метка|pid|номер билета>` — билет СВОЕГО
+    пользователя снимается сразу (голова идёт дальше), на его процесс кладётся метка `cancel/<pid>`: ожидающий сам видит её (опрос
+    ≤ 1 с), чисто выходит (rc 125, команда не запускалась; для питона — SlotCancelled, наследник SlotTimeout) и убирает свои записи —
+    без kill. Держатель слота 1, который ещё ЖДЁТ ПАМЯТЬ (команду не стартовал), снимается так же; тот, кто уже ВЫПОЛНЯЕТ команду, —
+    нет (отказ с пояснением: остановка — своей командой). Чужой процесс (другой uid) и ожидающий старой версии без билета не снимаются.
+    АВТОСНЯТИЕ: ожидающий этой версии раз в HEAVY_SLOT_BEAT (с, 10) обновляет время файла билета (`beat=1`); билет с pid, который
+    жив, но НЕ бьётся дольше HEAVY_SLOT_BEAT_STALE (с, 120; 0 — не снимать) — процесс завис или остановлен, — для очереди мёртв и
+    убирается сам при первом разборе (умерший pid и подмена pid — как прежде, по pid + времени старта). Процесс, очнувшийся позже,
+    видит, что билета нет, и встаёт в конец заново (не вечно ждёт несуществующий билет). Старая версия без биения — по pid, как прежде.
 Переменные (для самопроверки и особых случаев): HEAVY_SLOT_DIR (замок и состояние, по умолчанию ~/.cache/remlab-heavy-slot —
 одинаково в кроне и в сессии, не в репо), HEAVY_SLOT_LOG, HEAVY_SLOT_MEMINFO (подмена /proc/meminfo), HEAVY_SLOT_POLL (с, 30),
 HEAVY_SLOT_REPORT (строка «ждёт» в журнал раз в N с, 300), HEAVY_SLOT_YIELD, HEAVY_SLOT_MAX_YIELDS, HEAVY_SLOT_SLOTS,
@@ -148,7 +159,7 @@ HEAVY_SLOT_RESERVE_GB, HEAVY_SLOT_HEAD_POLL, HEAVY_SLOT_SAMPLE, HEAVY_SLOT_LONG_
 HEAVY_SLOT_EFF_FLOOR_GB, HEAVY_SLOT_MEM_STUB (файл «метка ГБ» — подмена замера памяти дерева для самопроверки),
 HEAVY_SLOT_BACKFILL_MIN, HEAVY_SLOT_PRIO, HEAVY_SLOT_PRIO_AGE_MIN, HEAVY_SLOT_PRIO_SLOTS, HEAVY_SLOT_CORES_BUDGET,
 HEAVY_SLOT_LONG_NICE, HEAVY_SLOT_CPU_FACT, HEAVY_SLOT_CPU_WINDOW, HEAVY_SLOT_CPU_WARM, HEAVY_SLOT_CPU_MARGIN,
-HEAVY_SLOT_CORES_OVERCOMMIT, HEAVY_SLOT_MAX_SLOTS, HEAVY_SLOT_PROCSTAT (подмена /proc/stat), HEAVY_SLOT_CPU_STUB (файл «метка
+HEAVY_SLOT_BEAT, HEAVY_SLOT_BEAT_STALE, HEAVY_SLOT_CORES_OVERCOMMIT, HEAVY_SLOT_MAX_SLOTS, HEAVY_SLOT_PROCSTAT (подмена /proc/stat), HEAVY_SLOT_CPU_STUB (файл «метка
 ядер» — подмена факта CPU дерева), HEAVY_SLOT_STATUS_CPU_S (своё окно `--status`, когда держатели замер ещё не написали; 0 — не ждать, по умолчанию).
 """
 from __future__ import annotations
@@ -170,6 +181,14 @@ TIMEOUT_RC = 124
 
 class SlotTimeout(Exception):
     pass
+
+
+class SlotCancelled(SlotTimeout):
+    """Ожидающего штатно отменили (`--cancel`, T-20261125-74): команда не запускалась. Наследник SlotTimeout — прежние вызывающие
+    читают это как «слот не получен»."""
+
+
+CANCEL_RC = 125                                 # как у `timeout`-семейства: 124 — не дождался, 125 — отменён
 
 
 DISK_LOW_RC = 3                                   # T-20261123-35: свободно на / меньше порога (rules/dev-disk.json start_min_free_gb) — тяжёлое не стартует
@@ -586,7 +605,7 @@ def _take_ticket(d: str, me: dict, keep: int | None = None) -> str:
         _tickets(d, clean=True)                   # пришедшие раньше без билета — получают его до меня
         n = keep if keep else _next_seq(d)
         p = os.path.join(d, 'wait', f'{n:08d}-{os.getpid()}')
-        _write_kv(p, dict(me, ticket=n, start=_starttime(os.getpid()), stage='очередь'))
+        _write_kv(p, dict(me, ticket=n, start=_starttime(os.getpid()), stage='очередь', beat=1))
     return p
 
 
@@ -606,6 +625,42 @@ def _is_ticket(f: str) -> bool:
     """Имя билета: `<номер>-<pid>`, заместитель — `<номер>_<pid>` (версия T-57/2 имена без «-» пропускает, поэтому
     заместитель её ожидающих не держит: снять устаревший заместитель она не умеет)."""
     return '.tmp' not in f and f[:8].isdigit() and f[8:9] in ('-', '_')
+
+
+def beat_s() -> float:
+    """Как часто ожидающий обновляет время файла своего билета (HEAVY_SLOT_BEAT, с, 10)."""
+    return _env_f('HEAVY_SLOT_BEAT', 10)
+
+
+def beat_stale_s() -> float:
+    """Живой по pid, но не бьющийся дольше этого (HEAVY_SLOT_BEAT_STALE, с, 120) билет — мёртвый; ≤ 0 — не снимать."""
+    return _env_f('HEAVY_SLOT_BEAT_STALE', 120)
+
+
+def _beat_stale(path: str) -> bool:
+    lim = beat_stale_s()
+    if lim <= 0:
+        return False
+    try:
+        return time.time() - os.stat(path).st_mtime > lim
+    except OSError:
+        return False
+
+
+def _cancel_mark(d: str, pid) -> str:
+    return os.path.join(d, 'cancel', str(pid))
+
+
+def _cancelled(d: str, pid: int | None = None) -> bool:
+    """Меня отменили (`--cancel`)? Метка несёт время старта процесса — метка на прежнего владельца того же pid не считается."""
+    pid = pid or os.getpid()
+    kv = _read_kv(_cancel_mark(d, pid))
+    return bool(kv) and kv.get('start', '') in ('', _starttime(pid))
+
+
+def _mark_cancel(d: str, pid: int) -> None:
+    os.makedirs(os.path.join(d, 'cancel'), exist_ok=True)
+    _write_kv(_cancel_mark(d, pid), {'pid': pid, 'start': _starttime(pid), 'by': os.getpid(), 'at': int(time.time())})
 
 
 PRIO_MAX = 2                                     # 0 обычный · 1 загрузка тура · 2 «Обустроить» (T-20261109-31)
@@ -676,6 +731,8 @@ def _tickets(d: str, clean: bool = False) -> list:
         except ValueError:
             pid = 0
         alive = bool(kv and pid and _alive(pid) and kv.get('start', '') == _starttime(pid))
+        if alive and kv.get('beat') == '1' and _beat_stale(p):
+            alive = False                         # жив по pid, но не бьётся (завис/остановлен) — для очереди мёртв (T-20261125-74)
         if alive and kv.get('proxy') == '1':
             alive = pid in old and old[pid].get('since') == kv.get('since_old') and pid not in covered
         if alive:
@@ -1603,11 +1660,25 @@ def heavy_slot(label: str, min_gb: float = 6.0, timeout: float | None = None, no
             ticket = _take_ticket(d, dict(me, yields=yields), keep)
             my_n, keep = int(os.path.basename(ticket)[:8]), None
             said, head, t_chk, t_extra, t_bf = False, False, -1e9, -1e9, -1e9
+            t_cx, t_ut = -1e9, time.time()
             fact = fact_on()
             while True:
                 now = time.time()
                 if fact:
                     _CPU.sample()                     # своё окно занятости, пока жду (T-75; не чаще раза в 0,2 с)
+                if now - t_cx >= min(step, 0.5):  # T-20261125-74: отмена, биение билета, билет снят сторожем
+                    t_cx = now
+                    if _cancelled(d):
+                        note('отменён (--cancel): билет снят, команда не запускалась')
+                        raise SlotCancelled(label) from None
+                    if not os.path.exists(ticket):
+                        note('билет снят (нет биения дольше HEAVY_SLOT_BEAT_STALE) — встаю в конец очереди заново')
+                        ticket = _take_ticket(d, dict(me, yields=yields))
+                        my_n, said, head, t_chk = int(os.path.basename(ticket)[:8]), False, False, -1e9
+                    elif now - t_ut >= beat_s():
+                        t_ut = now
+                        with contextlib.suppress(OSError):
+                            os.utime(ticket, None)
                 if now - t_chk >= step:               # первого не сдвинуть (новые — в конец): сверка раз в step
                     head, t_chk = _my_turn(d, ticket), now
                 k = 0
@@ -1646,6 +1717,9 @@ def heavy_slot(label: str, min_gb: float = 6.0, timeout: float | None = None, no
             last, yielded, what0 = -1e9, False, ''
             ok, why, free, what = _need(d, 1, own, n, cores, pr)
             while not ok:
+                if _cancelled(d):                     # T-20261125-74: слот возвращает finally (запись и замок), команда не стартовала
+                    note('отменён (--cancel) во время ожидания памяти: слот возвращаю, команда не запускалась')
+                    raise SlotCancelled(label)
                 if time.time() - last >= report or what != what0:
                     note(f'держит очередь, ждёт {what}: {why} (опрос раз в {poll:g} с; '
                          + ('живое демо важнее)' if what == 'память' else 'без толкучки на процессоре)'))
@@ -1733,6 +1807,7 @@ def heavy_slot(label: str, min_gb: float = 6.0, timeout: float | None = None, no
     finally:
         if ticket:
             _unlink(ticket)
+        _unlink(_cancel_mark(d, os.getpid()))
         if got:
             h = _read_kv(holder_p) or {}
             if h.get('pid') == str(os.getpid()):
@@ -1800,6 +1875,80 @@ def waiting(min_prio: int = 0) -> int:
         old = sum(1 for f in os.listdir(w) if f.isdigit() and str(f) not in proxied and _alive(int(f)))
         return len(live) + old
     return sum(1 for _, _, kv in live if kv.get('proxy') != '1' and prio_clamp(kv.get('prio') or 0) >= min_prio)
+
+
+def _own_pid(pid: int) -> bool:
+    """Процесс принадлежит тому же пользователю, что и я (чужой билет не снимаем)."""
+    try:
+        return os.stat(f'/proc/{pid}').st_uid == os.getuid()
+    except OSError:
+        return False
+
+
+def cancel(target: str, out=sys.stdout) -> int:
+    """`--cancel <метка|pid|номер билета>` (T-20261125-74): снять СВОЙ билет без kill. Билет убирается сразу (голова идёт дальше), на
+    процесс кладётся метка `cancel/<pid>` — ожидающий сам выходит (rc 125). Держатель слота 1, ждущий память, — только метка. Идущий
+    с командой, чужой (другой uid) и ожидающий старой версии (заместитель) — отказ с причиной. → 0 снято, 1 не найдено, 3 отказ."""
+    pr = lambda s: print(s, file=out)  # noqa: E731
+    d = os.path.dirname(_lock_file())
+    target = str(target).strip()
+    if not target:
+        pr('heavy-slot: --cancel <метка|pid|номер билета>')
+        return 2
+    os.makedirs(os.path.join(d, 'wait'), exist_ok=True)
+
+    def hit(kv: dict, name: str = '') -> bool:
+        t = str(kv.get('ticket') or '')
+        return target in (kv.get('label'), str(kv.get('pid')), name, t, t.lstrip('0'), name[:8].lstrip('0'))
+    done, refused, marked = [], [], []
+    with _qlock(d):
+        live = _tickets(d, clean=True)                 # умершие и не бьющиеся уже убраны разбором
+        for _, path, kv in live:
+            if not hit(kv, os.path.basename(path)):
+                continue
+            who = f"{kv.get('label', '?')} pid={kv.get('pid')} билет {os.path.basename(path)}"
+            try:
+                pid = int(kv.get('pid', ''))
+            except ValueError:
+                continue
+            if kv.get('proxy') == '1':
+                refused.append(f'{who}: процесс старой версии без билета — отмену не понимает, снять нельзя')
+            elif not _own_pid(pid):
+                refused.append(f'{who}: чужой процесс (не мой пользователь) — не снимаю')
+            else:
+                _mark_cancel(d, pid)                    # метка раньше билета: ожидающий, не найдя билет, видит отмену, а не «снят сторожем»
+                _unlink(path)
+                done.append(f'{who} — снят, ожидающий выйдет сам (rc {CANCEL_RC})')
+                marked.append(pid)
+        for k in range(1, all_slots() + 1):
+            h = _read_kv(_holder_file(d, k))
+            if not h or not is_held(k) or not hit(h):
+                continue
+            who = f"{h.get('label', '?')} pid={h.get('pid')} слот {k}"
+            try:
+                pid = int(h.get('pid', ''))
+            except ValueError:
+                continue
+            if pid in marked:
+                continue
+            if h.get('stage') != 'память':
+                refused.append(f'{who}: уже ВЫПОЛНЯЕТ команду — отмена только у ожидающих; остановка — своей командой')
+            elif not _own_pid(pid):
+                refused.append(f'{who}: чужой процесс (не мой пользователь) — не снимаю')
+            else:
+                _mark_cancel(d, pid)
+                done.append(f'{who} (ждёт память) — отмена передана, слот вернётся сам (rc {CANCEL_RC})')
+    for ln in done:
+        pr('ОТМЕНЕНО: ' + ln)
+    for ln in refused:
+        pr('НЕ СНЯТО: ' + ln)
+    if not done and not refused:
+        pr(f'heavy-slot: «{target}» среди билетов и ждущих память не найден (метка, pid или номер билета; --status)')
+    for f in os.listdir(os.path.join(d, 'cancel')) if os.path.isdir(os.path.join(d, 'cancel')) else []:
+        if f.isdigit() and not _alive(int(f)):
+            _unlink(os.path.join(d, 'cancel', f))       # метки умерших процессов — прочь
+    log('cancel', f'--cancel {target}: снято {len(done)}, отказ {len(refused)}')
+    return 0 if done else (3 if refused else 1)
 
 
 def status(out=sys.stdout) -> int:
@@ -2009,7 +2158,7 @@ def run(argv: list) -> int:
     команды (124 — не дождался). Долгая (`--long` или по признаку в команде — `long_auto`; `--short` — признак не брать)
     запускается с nice +HEAVY_SLOT_LONG_NICE (10): обёртка понижает себя после взятия слота, команда наследует."""
     use = ('<метка> [--min-gb N] [--cores N] [--long|--short] [--timeout S] [--prio 0|1|2] [--no-slot] -- <команда…> '
-           '| --status | --stats')
+           '| --status | --stats | --cancel <метка|pid|билет>')
     if '--' not in argv or argv.index('--') < 1 or argv.index('--') == len(argv) - 1:
         print(f'heavy-slot: {use}', file=sys.stderr)
         return 2
@@ -2078,6 +2227,9 @@ def run(argv: list) -> int:
             rc = p.wait()
             log(label, f'команда завершилась rc={rc}')
             return 128 - rc if rc < 0 else rc
+    except SlotCancelled:
+        print(f'heavy-slot: {label} отменён (--cancel) — команда не запущена', file=sys.stderr)
+        return CANCEL_RC
     except SlotTimeout:
         print(f'heavy-slot: {label} не дождался очереди/памяти (--timeout) — команда не запущена', file=sys.stderr)
         return TIMEOUT_RC
@@ -2097,6 +2249,11 @@ def main(argv: list) -> int:
         return status()
     if argv[:1] == ['--stats']:
         return stats()
+    if argv[:1] == ['--cancel']:
+        if len(argv) != 2:
+            print('heavy-slot: --cancel <метка|pid|номер билета>', file=sys.stderr)
+            return 2
+        return cancel(argv[1])
     return run(argv)
 
 

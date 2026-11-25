@@ -1137,6 +1137,68 @@ ok "осиротевший потомок команды слот НЕ держ�
 ok "…и следующий задачу берёт сразу (rc 0, не 124)" "$(yes_if '[ $rc = 0 ]')"
 [ -n "$orph" ] && kill "$orph" 2>/dev/null; true
 
+# T-20261125-74 (урок 875): снять СВОЙ билет без kill; билет живого, но не бьющегося процесса очередь снимает сама
+# 1) держатель слота 1 ждёт ПАМЯТЬ → --cancel возвращает слот, rc 125, команда не стартовала
+mem 1
+"$S" cx-mem --min-gb 5 --timeout 30 -- sh -c "echo ran >> $T/cx.mem" &
+pcm=$!
+until_f 'grep -q "cx-mem .*держит очередь, ждёт память" "$HEAVY_SLOT_LOG"'
+out=$("$S" --cancel cx-mem); rc_c=$?
+wait $pcm; rc_m=$?
+ok "--cancel держателя, ждущего память: rc 0, процесс вышел сам с rc 125, команда не запускалась, слот свободен" \
+  "$(yes_if '[ $rc_c = 0 ] && [ $rc_m = 125 ] && [ ! -e $T/cx.mem ] && grep -q "^ОТМЕНЕНО: cx-mem .*ждёт память" <<<"$out" && "$S" --status | grep -q "^СВОБОДНО"')"
+mem 8
+# 2) ожидающий в очереди → билет снят сразу, голова идёт дальше; идущего с командой и неизвестного — отказ / не найден
+"$S" cx-hold -- sh -c "$(holdp 1 cx)" &
+pch=$!
+until_f "[ -e $T/cx.up-1 ]"
+"$S" cx-w1 --timeout 30 -- sh -c "echo w1 >> $T/cx.run" &
+pc1=$!
+until_f '"$S" --status | grep -q "^ЖДУТ: 1"'
+"$S" cx-w2 --timeout 30 -- sh -c "echo w2 >> $T/cx.run" &
+pc2=$!
+until_f '"$S" --status | grep -q "^ЖДУТ: 2"'
+out=$("$S" --cancel cx-hold); rc_h=$?
+ok "--cancel идущего с командой: отказ (rc 3, «ВЫПОЛНЯЕТ»), держатель не тронут" \
+  "$(yes_if '[ $rc_h = 3 ] && grep -q "ВЫПОЛНЯЕТ" <<<"$out" && kill -0 $pch 2>/dev/null')"
+"$S" --cancel нет-такого >/dev/null 2>&1; rc_n=$?
+ok "--cancel неизвестной метки: rc 1 (не найден)" "$(yes_if '[ $rc_n = 1 ]')"
+out=$("$S" --cancel cx-w1); rc_c=$?
+wait $pc1; rc_1=$?
+st=$("$S" --status)
+ok "--cancel ожидающего: билет снят сразу (ЖДУТ: 1), процесс вышел сам с rc 125, без kill" \
+  "$(yes_if '[ $rc_c = 0 ] && [ $rc_1 = 125 ] && grep -q "^ОТМЕНЕНО: cx-w1 " <<<"$out" && grep -q "^ЖДУТ: 1" <<<"$st" && [ ! -e $T/cx.run ]')"
+touch "$T/cx.go-1"
+wait $pch; wait $pc2; rc_2=$?
+o=$(tr '\n' '|' < "$T/cx.run")
+ok "после отмены следующий проходит, отменённый не запускался ($o)" "$(yes_if '[ $rc_2 = 0 ] && [ "$o" = "w2|" ]')"
+ok "метка отмены убрана вышедшим процессом" "$(yes_if '[ -z "$(ls $HEAVY_SLOT_DIR/cancel 2>/dev/null)" ]')"
+# 3) билет живого, но НЕ бьющегося процесса (остановлен) очередь снимает сама; очнувшийся встаёт в конец заново
+export HEAVY_SLOT_BEAT=0.1 HEAVY_SLOT_BEAT_STALE=2
+"$S" sb-hold -- sh -c "$(holdp 1 sb)" &
+psh=$!
+until_f "[ -e $T/sb.up-1 ]"
+"$S" sb-w1 --timeout 40 -- sh -c "echo w1 >> $T/sb.run" &
+ps1=$!
+until_f '"$S" --status | grep -q "^ЖДУТ: 1"'
+"$S" sb-w2 --timeout 40 -- sh -c "echo w2 >> $T/sb.run" &
+ps2=$!
+until_f '"$S" --status | grep -q "^ЖДУТ: 2"'
+kill -STOP $ps1
+sleep 3.2
+st=$("$S" --status)
+ok "живой, но не бьющийся ожидающий снят из очереди сам (ЖДУТ: 1), без kill" "$(yes_if 'grep -q "^ЖДУТ: 1" <<<"$st" && ! grep -q "sb-w1 · pid" <<<"$st"')"
+touch "$T/sb.go-1"
+until_f "[ -e $T/sb.run ]"
+o1=$(tr '\n' '|' < "$T/sb.run")
+kill -CONT $ps1
+wait $psh; wait $ps2; wait $ps1; rc_s1=$?
+o=$(tr '\n' '|' < "$T/sb.run")
+ok "следующий прошёл мимо замершей головы ($o1); очнувшаяся голова увидела, что билета нет, встала заново и выполнилась ($o)" \
+  "$(yes_if '[ "$o1" = "w2|" ] && [ "$o" = "w2|w1|" ] && [ $rc_s1 = 0 ] && grep -q "sb-w1 .*билет снят (нет биения" "$HEAVY_SLOT_LOG"')"
+unset HEAVY_SLOT_BEAT HEAVY_SLOT_BEAT_STALE
+mem 8
+
 st=$("$S" --status)
 ok "после всех: очередь свободна, ожидающих нет" "$(yes_if 'grep -q "^СВОБОДНО" <<<"$st" && grep -q "^ЖДУТ: 0" <<<"$st"')"
 
