@@ -153,7 +153,7 @@ def main():
         return {'id': pid, 'name': name, 'role': role, 'tone_lab': tone, 'card': card, 'measure': {'verdict': verdict, 'why': 'тест'}}
     card_b = {'Материал корпуса': 'ЛДСП 16 мм', 'Материал ножек (опор)': 'деревянные (сращенный массив)'}
     res = PGM.resolve_patterns([pt(1, 'fiber', [60, 5, 15]), pt(2, 'unseen', [62, 5, 15], card=card_b)], pm_on)
-    check(res[2]['decision'] == 'fiber' and res[2]['path'] == 'inherit' and res[2]['from'] == 1, 'не видно → наследует «есть» от группы того же товара с близким тоном (приоритет над карточкой ЛДСП)')
+    check(res[2]['decision'] == 'fiber' and res[2]['path'] == 'material' and res[2]['from'] == 1, 'не видно → материал товара: «есть» соседней группы того же тона решает (приоритет над карточкой ЛДСП)')
     res = PGM.resolve_patterns([pt(1, 'no', [60, 5, 15]), pt(2, 'unseen', [61, 5, 15], card={'Материал корпуса': 'массив дуба'})], pm_on)
     check(res[2]['decision'] == 'flat' and res[2]['path'] == 'inherit', 'не видно → наследует «нет» (ровный) даже при карточке «массив»')
     res = PGM.resolve_patterns([pt(1, 'pattern', [60, 5, 15]), pt(2, 'unseen', [61, 5, 15])], pm_on)
@@ -177,15 +177,79 @@ def main():
 
     # 4. plan_grain: ровный по мере/узору; волокно — как раньше
     base = {'name': 'Panel', 'is_wood': True, 'tone_lab': [67.4, 9.8, 15.9], 'tone_sigma': 0.3, 'n_texels': 7200, 'photo_sigma': 1.5, 'role': 'top', 'card': card_b}
-    plan = PG.plan_grain([dict(base, id=1, measure={'verdict': 'fiber', 'why': 'т'}), dict(base, id=2, measure={'verdict': 'pattern', 'why': 'т'}), dict(base, id=3, measure={'verdict': 'no', 'why': 'т'}),
+    plan = PG.plan_grain([dict(base, id=1, measure={'verdict': 'fiber', 'why': 'т'}), dict(base, id=2, measure={'verdict': 'pattern', 'why': 'т'}),
                           dict(base, id=4, measure={'verdict': 'unseen', 'why': 'т'}), dict(base, id=5, role='legs', measure={'verdict': 'unseen', 'why': 'т'})], pm_on)
     check(plan[1]['apply'] and plan[1]['measure']['path'] == 'measure', 'plan_grain: «есть» → волокно кладётся')
-    check(not plan[2]['apply'] and plan[2]['reason'] == 'measure_flat' and plan[2]['measure']['verdict'] == 'pattern', 'plan_grain: «узор» → библиотечное волокно не кладём')
-    check(not plan[3]['apply'] and plan[3]['reason'] == 'measure_flat', 'plan_grain: «нет» → ровный тон')
-    check(plan[4]['measure']['path'] == 'inherit' and plan[4]['apply'], 'plan_grain: «не видно» → наследует «есть» (тон тот же)')
+    check(not plan[2]['apply'] and plan[2]['reason'] == 'measure_flat' and plan[2]['measure']['verdict'] == 'pattern', 'plan_grain: «узор» → библиотечное волокно не кладём (даже рядом с «есть» того же материала)')
+    plan_no = PG.plan_grain([dict(base, id=3, measure={'verdict': 'no', 'why': 'т'})], pm_on)
+    check(not plan_no[3]['apply'] and plan_no[3]['reason'] == 'measure_flat', 'plan_grain: «нет» → ровный тон')
+    check(plan[4]['measure']['path'] == 'material' and plan[4]['apply'], 'plan_grain: «не видно» → материал товара: «есть» той же группы тона решает')
     check(plan[5]['measure']['path'] == 'card' and plan[5]['apply'], 'plan_grain: ножки «не видно» → карточка «массив» → волокно')
     nw = PG.plan_grain([dict(base, id=1, is_wood=False, measure={'verdict': 'fiber', 'why': 'т'})], pm_on)
     check(nw[1]['reason'] == 'not_wood' and 'measure' not in nw[1], 'не дерево по карточке — отказ not_wood раньше меры (мера только гасит, не включает)')
+
+    # 5. T-93/4 А: «нет» — только у группы шире 2 окон и с окон ≥ порога
+    flat = np.full((T, T), 60.0) + np.random.default_rng(3).normal(0, 0.25, (T, T))
+    gm_all = gmask_of(ff)
+    m = PGM.measure_group(flat, np.ones((T, T), bool), np.ones((T, T)), gm_all, PM, ff)
+    check(m['verdict'] == 'no' and m['width'] >= 2 * PM['window_px'] * (1 + PM['edge_frac']) and m['n_windows'] >= PM['no_windows_min'] * (1 + PM['edge_frac']),
+          f'А: широкая группа (ширина {m["width"]} px, окон {m["n_windows"]}) без рисунка → уверенное «нет»')
+    strip = np.zeros((T, T), bool)
+    strip[100:140, :] = True
+    strip &= gm_all
+    m = PGM.measure_group(flat, np.ones((T, T), bool), np.ones((T, T)), strip, PM, ff)
+    check(m['verdict'] == 'unseen' and 'слабое' in m['why'] and m['width'] < 2 * PM['window_px'], f'А: узкая полоса (ножка, ширина {m["width"]} px < 2 окон) без рисунка → «не видно», не «нет» ({m["why"]})')
+    few = np.zeros((T, T), bool)
+    few[80:190, 20:100] = True
+    few &= gm_all
+    m = PGM.measure_group(flat, np.ones((T, T), bool), np.ones((T, T)), few, PM, ff)
+    check(m['verdict'] == 'unseen' and m['n_windows'] < PM['no_windows_min'], f'А: широкая, но окон мало ({m["n_windows"]} < {PM["no_windows_min"]}) → «не видно» ({m["why"]})')
+    check(PGM.group_width(np.zeros((8, 8), bool)) == 0 and PGM.group_width(np.ones((40, 40), bool)) >= 38, 'group_width: пусто — 0; квадрат 40×40 — ≈40')
+
+    # Г: «на грани» — ближе edge_frac к порогу → «не видно» (повтор шага, направление)
+    m0 = measure(sine_img(90.0), ff)
+    a0 = m0['ac_peak']
+    pm_t = copy.deepcopy(PM)
+    pm_t['ac_pattern_min'] = a0                                    # значение РОВНО на пороге — внутри полосы
+    m = PGM.measure_group(sine_img(90.0), np.ones((T, T), bool), np.ones((T, T)), gm_all, pm_t, ff)
+    check(m['verdict'] == 'unseen' and 'на грани' in m['why'], f'Г: повтор шага на пороге (ac {a0}) → «не видно» ({m["why"]})')
+    pm_t['ac_pattern_min'] = a0 / (1 + PM['edge_frac']) / 1.05     # значение выше полосы → уверенный «узор»
+    m = PGM.measure_group(sine_img(90.0), np.ones((T, T), bool), np.ones((T, T)), gm_all, pm_t, ff)
+    check(m['verdict'] == 'pattern', f'Г: повтор шага выше полосы порога → «узор» ({m["why"]})')
+    pm_t['ac_pattern_min'] = a0 / (1 - PM['edge_frac']) * 1.05     # значение ниже полосы → не «узор»
+    m = PGM.measure_group(sine_img(90.0), np.ones((T, T), bool), np.ones((T, T)), gm_all, pm_t, ff)
+    check(m['verdict'] != 'pattern' and 'на грани' not in m['why'], f'Г: повтор шага ниже полосы порога → не «узор» ({m["verdict"]})')
+    check(PM['dev_unsure_deg'][0] < PM['dev_pattern_min_deg'] < PM['dev_unsure_deg'][1], 'Г: полоса направления вокруг порога 20°')
+    mid = 0.5 * (PM['dev_unsure_deg'][0] + PM['dev_unsure_deg'][1])
+    pm_d = copy.deepcopy(PM)
+    pm_d['ac_pattern_min'] = 9.0
+    m = PGM.measure_group(rot_irregular(mid), np.ones((T, T), bool), np.ones((T, T)), gm_all, pm_d, ff)
+    check(m['verdict'] == 'unseen' and 'направление' in m['why'], f'Г: направление {m["dev_med"]}° внутри полосы {PM["dev_unsure_deg"]} → «не видно» ({m["why"]})')
+
+    # 6. T-93/4 Б, В: материал товара
+    def pm_(pid, verdict, tone, role, name, card=None):
+        return {'id': pid, 'name': name, 'role': role, 'tone_lab': tone, 'card': card, 'measure': {'verdict': verdict, 'why': 'тест'}}
+    legs = [pm_(0, 'fiber', [60, 14, 24], 'legs', 'Leg'), pm_(8, 'unseen', [69, 13, 27], 'legs', 'Leg'), pm_(9, 'unseen', [72, 11, 23], 'legs', 'Leg')]
+    res = PGM.resolve_patterns(legs, pm_on)
+    check(all(res[i]['decision'] == 'fiber' for i in (0, 8, 9)) and res[8]['path'] == 'material' and res[9]['path'] == 'material' and res[9]['from'] == 0,
+          'Б: ножки товара — один материал: «есть» у одной (g0) решает за «не видно» остальных (ножки Крита; тон ΔE 10 не мешает)')
+    legs2 = [pm_(0, 'fiber', [60, 14, 24], 'legs', 'Leg'), pm_(8, 'no', [69, 13, 27], 'legs', 'Leg')]
+    res = PGM.resolve_patterns(legs2, pm_on)
+    check(res[8]['decision'] == 'fiber' and res[8]['path'] == 'material' and 'переопределено' in res[8]['why'], 'Б: уверенное «нет» той же семьи переопределяется «есть» материала (по слову: «есть» решает за все) — и помечается')
+    res = PGM.resolve_patterns([pm_(0, 'fiber', [60, 14, 24], 'legs', 'Leg'), pm_(1, 'pattern', [60, 14, 24], 'legs', 'Leg')], pm_on)
+    check(res[1]['decision'] == 'flat' and res[1]['path'] == 'measure', 'Б: «узор» — свойство поверхности, «есть» материала его не переопределяет')
+    res = PGM.resolve_patterns([pm_(0, 'fiber', [60, 14, 24], 'legs', 'Leg'), pm_(1, 'no', [60, 14, 24], 'body', 'Seat Cushion'), pm_(2, 'unseen', [60, 14, 24], 'body', 'Back Cushion', card={'Материал каркаса': 'массив'})], pm_on)
+    check(res[1]['decision'] == 'flat' and res[2]['decision'] == 'flat' and res[2]['path'] == 'card', 'Б: части с именем «не дерево» (подушки) в материал не входят: ни «есть» ножек, ни карточка «массив» им не подходят')
+    res = PGM.resolve_patterns([pm_(0, 'fiber', [60, 14, 24], 'unknown', 'Leg'), pm_(1, 'unseen', [60, 14, 24], None, 'Foot')], pm_on)
+    check(res[1]['decision'] == 'fiber' and res[1]['path'] == 'material', 'Б: роль не названа/unknown — ножки по имени (Leg/Foot) тоже один материал')
+    res = PGM.resolve_patterns([pm_(0, 'fiber', [60, 14, 24], 'frame', 'Support Structure'), pm_(1, 'unseen', [60, 14, 24], 'legs', 'Leg', card={'Материал ножек': 'Металл'})], pm_on)
+    check(res[1]['decision'] == 'flat' and res[1]['path'] == 'default', 'Б: рама с известной ролью frame — не ножки (слово support в имени не считается, когда роль названа)')
+    res = PGM.resolve_patterns([pm_(1, 'no', [60, 5, 15], 'top', 'Panel'), pm_(2, 'pattern', [62, 5, 15], 'body', 'Panel'), pm_(3, 'unseen', [64, 5, 15], 'body', 'Panel')], pm_on)
+    check(res[3]['from'] == 2 and res[3]['path'] == 'inherit', 'В: «не видно» наследует СНАЧАЛА от группы той же роли (body), хоть тон другой группы (top) ближе')
+    res = PGM.resolve_patterns([pm_(1, 'no', [60, 5, 15], 'top', 'Panel'), pm_(3, 'unseen', [64, 5, 15], 'body', 'Panel')], pm_on)
+    check(res[3]['from'] == 1 and res[3]['path'] == 'inherit', 'В: нет группы той же роли — берёт любую из того же материала')
+    res = PGM.resolve_patterns([pm_(1, 'no', [30, 5, 15], 'top', 'Panel'), pm_(3, 'unseen', [64, 5, 15], 'body', 'Panel', card={'Материал корпуса': 'массив'})], pm_on)
+    check(res[3]['path'] == 'card' and res[3]['decision'] == 'fiber', 'В: другой материал (тон дальше ΔE 6, не ножки) — не наследует, идёт по карточке')
 
     bad_n = sum(1 for x in OK if not x)
     print(f'\n{len(OK) - bad_n}/{len(OK)} ok')

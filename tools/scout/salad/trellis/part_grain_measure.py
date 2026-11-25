@@ -55,6 +55,14 @@ def largest_cc(rel) -> int:
     return int(np.bincount(lab.ravel())[1:].max()) if n else 0
 
 
+def group_width(rel) -> int:
+    """Ширина области группы в текселях: диаметр наибольшего вписанного круга (2 × максимум EDT). Узкая полоса (ножка, планка) — мало; 0 — области нет."""
+    from scipy import ndimage as ndi
+    if not rel.any():
+        return 0
+    return int(round(2.0 * float(ndi.distance_transform_edt(rel).max())))
+
+
 def window_stats(L, rel, pm: dict) -> list:
     """Окна window_px по надёжным (покрытие ≥ cover_min): [{'x','y','coh','angle','cover'}]; тензор структуры по полосе DoG σ(band_sigma) внутри окна (отступ 3 px от края надёжных)."""
     from scipy import ndimage as ndi
@@ -212,17 +220,41 @@ def measure_group(L, known, conf, gmask, pm: dict, ff: FaceFrame | None = None, 
             if d is not None:
                 devs.append(d)
     dev_med = float(np.median(devs)) if devs else None
-    by_ac = ac is not None and ac >= float(pm['ac_pattern_min'])
-    by_dev = len(devs) >= int(pm['dev_windows_min']) and dev_med >= float(pm['dev_pattern_min_deg'])
+    width = group_width(np.asarray(gmask, bool) & np.asarray(known, bool) & (np.asarray(conf, np.float64) >= float(pm['conf_min'])))      # ширина области, которую видело фото (не «надёжных» текселей: рельеф/швы дробят их на тонкие куски у широкого фасада)
+    edge = float(pm['edge_frac'])
+    ac_lo, ac_hi = float(pm['ac_pattern_min']) * (1 - edge), float(pm['ac_pattern_min']) * (1 + edge)
+    dv_lo, dv_hi = (float(x) for x in pm['dev_unsure_deg'])
+    by_ac = ac is not None and ac > ac_hi                                                        # уверенный повтор шага (выше полосы «на грани»)
+    by_dev = len(devs) >= int(pm['dev_windows_min']) and dev_med > dv_hi                         # уверенное диагональное направление
+    unsure = []                                                                                  # Г: значение ближе edge_frac к порогу — «не видно»
+    if ac is not None and ac_lo <= ac <= ac_hi:
+        unsure.append('повтор шага ac_peak %.2f на грани порога %.2f (%.2f–%.2f)' % (ac, float(pm['ac_pattern_min']), ac_lo, ac_hi))
+    if len(devs) >= int(pm['dev_windows_min']) and dv_lo <= dev_med <= dv_hi:
+        unsure.append('направление %.0f° на грани порога %.0f° (%.0f–%.0f°)' % (dev_med, float(pm['dev_pattern_min_deg']), dv_lo, dv_hi))
+    a_min = float(pm['area_min_px'])
+    if a_min * (1 - edge) <= area < a_min * (1 + edge):
+        unsure.append('площадь %d на грани порога %d' % (area, int(a_min)))
     if base == 'нет':
-        verdict, why = 'no', 'доля окон %.2f < %.2f' % (share, float(pm['p_no']))
+        # А: «нет» — только у группы шире 2 окон и с окон ≥ порога; узкая полоса / мало окон / значение на грани порога — «не видно»
+        w_min, n_min = 2.0 * float(pm['window_px']), float(pm['no_windows_min'])
+        weak = []
+        if width < w_min * (1 + edge):
+            weak.append('ширина %d px < 2 окон (%d px)%s' % (width, int(w_min), '' if width < w_min else ' (на грани)'))
+        if len(wins) < n_min * (1 + edge):
+            weak.append('окон %d < %d%s' % (len(wins), int(n_min), '' if len(wins) < n_min else ' (на грани)'))
+        if weak:
+            verdict, why = 'unseen', '«нет» слабое: ' + '; '.join(weak) + ' — узкая/малая деталь, решает материал'
+        else:
+            verdict, why = 'no', 'доля окон %.2f < %.2f' % (share, float(pm['p_no']))
     elif by_ac or by_dev:
-        verdict, why = 'pattern', ('повтор шага ac_peak %.2f ≥ %.2f' % (ac, float(pm['ac_pattern_min']))) if by_ac else ('направление %.0f° от осей панели ≥ %.0f° (окон с осью %d)' % (dev_med, float(pm['dev_pattern_min_deg']), len(devs)))
+        verdict, why = 'pattern', ('повтор шага ac_peak %.2f > %.2f' % (ac, ac_hi)) if by_ac else ('направление %.0f° от осей панели > %.0f° (окон с осью %d)' % (dev_med, dv_hi, len(devs)))
+    elif unsure:
+        verdict, why = 'unseen', 'на грани: ' + '; '.join(unsure)
     elif base == 'есть':
         verdict, why = 'fiber', 'доля окон %.2f ≥ %.2f, повтор и направление не «узор»' % (share, float(pm['p_yes']))
     else:
         verdict, why = 'unseen', 'не видно: окон %d, A %d, доля %s' % (len(wins), area, 'нет' if share is None else '%.2f' % share)
-    return {'verdict': verdict, 'why': why, 'share': None if share is None else round(share, 3), 'n_windows': len(wins), 'n_pass': len(ps), 'area': area,
+    return {'verdict': verdict, 'why': why, 'share': None if share is None else round(share, 3), 'n_windows': len(wins), 'n_pass': len(ps), 'area': area, 'width': width,
             'ac_peak': None if ac is None else round(ac, 3), 'n_dev': len(devs), 'dev_med': None if dev_med is None else round(dev_med, 1), 'base': base}
 
 
@@ -244,33 +276,93 @@ def card_decision(text: str, pm: dict) -> tuple:
     return 'flat', 'default', 'карточки нет или материал не назван — ровный тон'
 
 
-def resolve_patterns(parts: list, rules: dict) -> dict:
-    """{id части: {'decision': 'fiber'|'flat', 'path': 'measure'|'inherit'|'card'|'default', 'why', 'verdict', 'from'}}. parts[i]: id, name, role, tone_lab, card, measure (dict из `measure_group` | None)."""
+def _name_has(p: dict, words) -> bool:
+    n = (p.get('name') or '').lower()
+    return any(w in n for w in words)
+
+
+def is_legs(p: dict, rules: dict) -> bool:
+    """Семья «ножки/опоры»: роль legs; роль не названа/unknown — по словам имени (leg_part_words)."""
+    role = p.get('role')
+    if role in (None, '', 'unknown'):
+        return _name_has(p, rules['leg_part_words'])
+    return role == 'legs'
+
+
+def material_clusters(parts: list, rules: dict) -> dict:
+    """{id части: номер материала товара}. Ножки товара — ОДИН материал (в карточке один «Материал ножек»; ножки не соприкасаются, паспорт Ш4а их по границам не склеивает);
+    остальные группы — один материал, если их тона связаны цепочкой ΔE76 ≤ inherit_de76. Части с именем «не дерево» (подушка/сиденье/ручка…) в материалы не входят."""
     pm = rules['pattern_measure']
-    out, firm = {}, {}
+    mem = [p for p in parts if not _name_has(p, rules['non_wood_part_words'])]
+    par = {p['id']: p['id'] for p in mem}
+
+    def find(a):
+        while par[a] != a:
+            par[a] = par[par[a]]
+            a = par[a]
+        return a
+
+    legs = [p for p in mem if is_legs(p, rules)]
+    for p in legs[1:]:
+        par[find(p['id'])] = find(legs[0]['id'])
+    rest = [p for p in mem if not is_legs(p, rules)]
+    for i, a in enumerate(rest):
+        for b in rest[i + 1:]:
+            if a.get('tone_lab') is None or b.get('tone_lab') is None:
+                continue
+            if float(np.linalg.norm(np.asarray(a['tone_lab'], float) - np.asarray(b['tone_lab'], float))) <= float(pm['inherit_de76']):
+                par[find(a['id'])] = find(b['id'])
+    return {p['id']: find(p['id']) for p in mem}
+
+
+def _tone_d(a: dict, b: dict) -> float:
+    if a.get('tone_lab') is None or b.get('tone_lab') is None:
+        return 1e9
+    return float(np.linalg.norm(np.asarray(a['tone_lab'], float) - np.asarray(b['tone_lab'], float)))
+
+
+def resolve_patterns(parts: list, rules: dict) -> dict:
+    """{id части: {'decision': 'fiber'|'flat', 'path': 'measure'|'material'|'inherit'|'card'|'default', 'why', 'verdict', 'from'}}. parts[i]: id, name, role, tone_lab, card, measure (dict из `measure_group` | None).
+    Порядок (T-93/4): (1) своя мера — «есть»/«узор»/уверенное «нет» (слабое «нет» узкой детали = «не видно», см. measure_group);
+    (2) МАТЕРИАЛ товара: уверенное «есть» хотя бы у одной группы материала решает за все группы материала (кроме «узора»); (3) «не видно» наследует от уверенной группы материала, СНАЧАЛА с той же ролью, потом любой;
+    (4) карточка в узком смысле; (5) ровный. Части с именем «не дерево» — только своя мера/карточка (в материал не входят)."""
+    pm = rules['pattern_measure']
+    out = {}
+    mat = material_clusters(parts, rules)
+    by_id = {p['id']: p for p in parts}
     for p in parts:
         m = p.get('measure') or {}
         v = m.get('verdict')
         if v in ('fiber', 'pattern', 'no'):
             out[p['id']] = {'decision': 'fiber' if v == 'fiber' else 'flat', 'path': 'measure', 'why': m.get('why'), 'verdict': v, 'from': None}
-            firm[p['id']] = p
+    own = dict(out)                                                                              # решения по собственной мере (до материала)
+    # (2) материал: «есть» решает за все
+    for mid in sorted(set(mat.values())):
+        mem = [by_id[i] for i, c in mat.items() if c == mid]
+        yes = [p for p in mem if p['id'] in own and own[p['id']]['verdict'] == 'fiber']
+        if not yes:
+            continue
+        for p in mem:
+            o = own.get(p['id'])
+            if o is not None and o['verdict'] in ('fiber', 'pattern'):
+                continue
+            src = min(yes, key=lambda q: (0 if (q.get('role') == p.get('role')) else 1, _tone_d(p, q)))
+            out[p['id']] = {'decision': 'fiber', 'path': 'material', 'verdict': 'unseen' if o is None else o['verdict'], 'from': src['id'],
+                            'why': 'материал товара: у группы %s уверенное «есть» (%s) — решает за все группы материала%s' % (src['id'], (own[src['id']].get('why') or '')[:60], '' if o is None else '; своё «нет» было уверенным — переопределено')}
+    # (3) «не видно»: от уверенной (нет/узор) группы того же материала — роль, затем любая
+    for p in parts:
+        if p['id'] in out or p['id'] not in mat:
+            continue
+        cand = [by_id[i] for i, c in mat.items() if c == mat[p['id']] and i in own and own[i]['verdict'] in ('no', 'pattern')]
+        if cand:
+            q = min(cand, key=lambda q: (0 if (q.get('role') == p.get('role')) else 1, _tone_d(p, q)))
+            out[p['id']] = {'decision': 'flat', 'path': 'inherit', 'verdict': 'unseen', 'from': q['id'],
+                            'why': 'наследовано от группы %s материала (%s, решение «%s»)' % (q['id'], 'та же роль' if q.get('role') == p.get('role') else 'другая роль', own[q['id']]['verdict'])}
+    # (4–5) карточка / ровный
     for p in parts:
         if p['id'] in out:
             continue
-        legs = (p.get('role') == 'legs') if p.get('role') else any(w in (p.get('name') or '').lower() for w in rules['leg_part_words'])
-        best, bd = None, None
-        for q in firm.values():
-            ql = (q.get('role') == 'legs') if q.get('role') else any(w in (q.get('name') or '').lower() for w in rules['leg_part_words'])
-            if ql != legs or p.get('tone_lab') is None or q.get('tone_lab') is None:
-                continue
-            d = float(np.linalg.norm(np.asarray(p['tone_lab'], float) - np.asarray(q['tone_lab'], float)))
-            if d <= float(pm['inherit_de76']) and (bd is None or d < bd):
-                best, bd = q, d
-        if best is not None:
-            r = out[best['id']]
-            out[p['id']] = {'decision': r['decision'], 'path': 'inherit', 'why': 'наследовано от группы %s (тон Δ %.1f, решение «%s»)' % (best['id'], bd, r['verdict']), 'verdict': 'unseen', 'from': best['id']}
-            continue
-        if any(w in (p.get('name') or '').lower() for w in rules['non_wood_part_words']):      # явно недеревянное по имени (подушка, сиденье, ручка…): карточка корпуса к нему не относится
+        if _name_has(p, rules['non_wood_part_words']):                                          # явно недеревянное по имени (подушка, сиденье, ручка…): карточка корпуса к нему не относится
             out[p['id']] = {'decision': 'flat', 'path': 'card', 'why': 'имя части — не дерево (%s)' % p.get('name'), 'verdict': 'unseen', 'from': None}
             continue
         dec, path, why = card_decision(card_text(p.get('card'), p.get('role'), p.get('name', ''), rules), pm)
