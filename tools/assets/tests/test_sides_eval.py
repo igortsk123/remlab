@@ -128,6 +128,47 @@ def blur(c):
 sh = SE.eval_sheet(sheet(photo_fn=fine, view_fns={'перед': blur}), R, SR)
 ok(feats(sh, 'перед')['sharpness']['ok'] is False and 'sharpness' not in feats(sh, 'зад'), 'размытое лицо при резком фото: валит sharpness (только у перед)')
 
+# 7б. допуск у порога (T-71): полоса [ratio_min·(1−tol); ratio_min) → повторные замеры, решает среднее; ниже полосы — «нет» без повтора; выше — «да» без повтора
+_m = blob_mask()
+_white = np.full((S, S, 3), 255, np.uint8)
+_lab_p = SE.rgb_to_lab(put(_white, (170, 140, 100), _m, fine)[..., :3])
+_lab_s = SE.rgb_to_lab(put(_white, (170, 140, 100), _m, fine)[..., :3])
+_r0 = SE.sharp_ratio(_lab_s, _m, _lab_p, _m)
+_tol = R['sharpness']['tol']
+_calls = []
+_real = SE.sharp_ratio
+
+
+def _rule(ratio_min):
+    r = json.loads(json.dumps(R))
+    r['sharpness']['ratio_min'] = ratio_min
+    return r
+
+
+def _run(ratio_min, stub=None):
+    _calls.clear()
+    if stub is not None:
+        SE.sharp_ratio = lambda ls, ms, lp, mp, erode=SE.LAP_ERODE: (_calls.append(erode) or stub * ratio_min)
+    try:
+        return SE.f_sharpness(_lab_s, _m, _lab_p, _m, _rule(ratio_min), {})
+    finally:
+        SE.sharp_ratio = _real
+
+
+ok(R['sharpness']['repeats'] == 2 and 0 < _tol < 0.5 and R['sharpness']['shift_px'] >= 1, 'чёткость: tol, repeats=2 и shift_px заданы в правилах')
+r_hi, d_hi = _run(_r0 / 1.2, stub=9.0)
+ok(r_hi <= 1.0 and d_hi['repeats'] == 0 and not _calls, 'чёткость: ratio выше порога — «да» без повтора')
+r_lo, d_lo = _run(_r0 / (1.0 - 2 * _tol), stub=9.0)
+ok(r_lo > 1.0 and d_lo['repeats'] == 0 and not _calls, 'чёткость: явно ниже полосы — «нет» без повтора')
+r_in, d_in = _run(_r0 / (1.0 - _tol / 2), stub=1.2)
+ok(r_in <= 1.0 and d_in['repeats'] == 2 and len(_calls) == 2 and d_in['near_threshold'] and d_in['ratio_first'] < d_in['ratio'],'чёткость: чуть ниже порога, но в полосе → 2 повтора → среднее выше порога → «да»')
+ok(_calls == [R['sharpness']['shift_px'] + SE.LAP_ERODE, 2 * R['sharpness']['shift_px'] + SE.LAP_ERODE], 'чёткость: повторы — другой отступ от края маски (+shift_px, +2·shift_px)')
+r_bad, d_bad = _run(_r0 / (1.0 - _tol / 2), stub=0.5)
+ok(r_bad > 1.0 and d_bad['repeats'] == 2, 'чёткость: в полосе, повторы тоже низкие → после повторов «нет»')
+r_real, d_real = _run(_r0 / (1.0 - _tol / 2))
+ok(d_real['repeats'] == 2 and len(d_real['ratios']) == 3 and d_real['near_threshold'], 'чёткость: настоящие повторы на синтетике (без подмены) отдают 2 повтора')
+ok(SE.eval_sheet(sheet(photo_fn=fine, view_fns={'перед': blur}), R, SR)['views']['перед']['sharpness']['repeats'] == 0, 'чёткость: явно размытое лицо — повторов нет, вердикт прежний')
+
 # 8. тень формы: градиент яркости на стороне — без глины он путается с тоном, с глиной — нет
 def shade(c):
     g = np.linspace(0.45, 1.0, S)[None, :, None]
