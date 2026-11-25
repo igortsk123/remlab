@@ -651,6 +651,21 @@ for n in ('known.png', 'conf.png', 'prov.png', 'prov1.png', 'known1.png', 'frame
 zs = sorted(zipfile.ZipFile(io.BytesIO(ST.input_zip_seam(vs, fs, b'TAR', None))).namelist())
 ok(all(f'06-visible/{n}' in zs for n in ('known.png', 'conf.png', 'prov.png', 'prov1.png', 'known1.png')) and '07-fill/filled.glb' in zs and '07-fill/report.json' in zs and '06-visible/visible.glb' not in zs and '06-visible/frame.png' not in zs,
    f'input_zip_seam: known*/conf*/prov*.png + filled.glb + report.json (решение 07 о synth), без visible.glb и кадра ({zs})')
+# вход 07 с частями: attach_parts кладёт рядом с parts.npz и parts.json (роли для part_class/part_role; T-20261124-23/в3, п.16 «вход этапа = всё, что он читает на ядрах»)
+import tempfile
+_dp = tempfile.mkdtemp()
+for _n in ('parts.npz', 'parts.json'):
+    open(os.path.join(_dp, _n), 'wb').write(b'x')
+_pick0 = ST.PN.pick_parts
+ST.PN.pick_parts = lambda root, sku, glb, mode: (os.path.join(_dp, 'parts.npz'), 'ok')
+try:
+    _pin = {'s1': {'glb': os.path.join(_dp, 'parts.npz')}}
+    ST.attach_parts(_pin, _dp, _dp, 'parts')
+finally:
+    ST.PN.pick_parts = _pick0
+_vz = os.path.join(tempfile.mkdtemp(), '06-visible'); os.makedirs(_vz); open(os.path.join(_vz, 'visible.glb'), 'wb').write(b'x')
+_z7 = zipfile.ZipFile(io.BytesIO(ST.input_zip_07(_vz, b'TAR', _pin['s1'])))
+ok('parts.npz' in _z7.namelist() and 'parts.json' in _z7.namelist(), 'input_zip_07: parts.json едет рядом с parts.npz')
 need08 = ['product.json', '04-camera/check.json', '06-visible/check.json']
 ok(WS.missing_inputs('08', need08 + ['07-fill/filled.glb']) == [] and WS.missing_inputs('08', need08 + ['07-seam/seam.glb']) == [], 'вход 08: хватает шва ИЛИ filled.glb')
 ok(len(WS.missing_inputs('08', need08)) == 1 and 'product.json' in WS.missing_inputs('08', ['07-fill/filled.glb', '04-camera/check.json', '06-visible/check.json']), 'вход 08: без модели и без product.json — отказ с именами')

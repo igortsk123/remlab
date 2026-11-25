@@ -475,6 +475,9 @@ def attach_parts(inputs: dict, parts_root: str, vis_root: str, mode: str) -> dic
             npz, why = PN.pick_parts(parts_root, sku, face_glb, mode)
         if npz:
             v.setdefault('extra_in', {})['parts.npz'] = npz
+            pj = os.path.join(os.path.dirname(npz), 'parts.json')
+            if os.path.isfile(pj):                                           # роли частей (part_class/part_role) 07 читает из parts.json РЯДОМ с parts.npz; без него на ноде ролей нет (вход этапа = всё, что он читает на ядрах)
+                v['extra_in']['parts.json'] = pj
         out[sku] = {'source': 'parts' if npz else 'panels', 'reason': why}
     return out
 
