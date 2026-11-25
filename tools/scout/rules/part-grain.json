@@ -26,5 +26,11 @@
   "wood_card_keys": ["корпус", "фасад", "столешниц", "каркас", "основной материал"],
   "leg_card_keys": ["ножек"],
   "leg_part_words": ["leg", "foot", "pole", "rod", "support"],
-  "non_wood_part_words": ["cushion", "seat", "handle", "bulb", "socket", "key", "mouth", "lid", "shade"]
+  "non_wood_part_words": ["cushion", "seat", "handle", "bulb", "socket", "key", "mouth", "lid", "shade"],
+  "_axis_per_part_doc": "ОСЬ ЗЕРНА = ОСЬ ДЕТАЛИ (T-63 р.5): true — для частей ролей axis_per_part_roles ось зерна берётся по текселям САМОЙ детали (в плоскостном пути — подмножество текселей детали в плоскости, в запасном (не плоскость) — главная ось текселей детали), а не по плоскости/группе целиком: при склейке нескольких деталей в плоскость или в запасной путь ось группы шла вкось/поперёк (ёлочка, волокно поперёк перекладины). Круглая деталь (диск, кольцо; отношение главных осей ≤ axis_per_part_round_ratio) длинной оси не имеет → ось ширины товара. Включённый ключ обязан менять выход (tests_part_grain*.py).",
+  "axis_per_part": false,
+  "axis_per_part_roles": ["legs", "frame"],
+  "axis_per_part_min_texels": 200,
+  "axis_per_part_round_ratio": 1.1,
+  "fallback_axis_per_part": false
 }

@@ -187,6 +187,31 @@ def main():
     except ValueError:
         check(True, 'group_map другого размера отвергается')
 
+    # 9. ключи правил «ось детали» (T-63 р.5d): ВКЛЮЧЁННЫЙ ключ обязан менять выход (молча не включившийся флаг = красный тест)
+    nx, ny, T2 = 120, 60, 128
+    tx0, tex = plate(nx, ny, T2)
+    n = len(tx0.ti)
+    pn = np.array([[0.0, 1.0, 0.0]])
+    ij = np.array([(j, i) for i in range(ny) for j in range(nx)])
+    tx2 = types.SimpleNamespace(ti=tx0.ti, Q=tx0.Q, N=tx0.N, f=(ij[:, 0] >= 100).astype(np.int64))     # грань 0 — левые 100 см, грань 1 — полоса 20×60 вдоль Z
+    fp2, fpart2 = np.array([0, 0]), np.array([0, 1])
+    base_r = dict(copy.deepcopy(R), enabled=True)
+    run = lambda **k: PG.apply_grain(tex, tx2, [dict(part(1), role='legs')], {1: np.ones(n, bool)}, fp2, pn, 100.0, (1, 0, 0), dict(base_r, **k), enabled=True, face_part=fpart2)[0]
+    o_off = run()
+    o_on = run(axis_per_part=True, axis_per_part_roles=['legs'])
+    check(not np.array_equal(o_off, o_on), 'axis_per_part=true меняет текстуру (флаг не «молчит»)')
+    check(np.array_equal(o_off, run(axis_per_part=True, axis_per_part_roles=['top'])), 'axis_per_part: роль не из axis_per_part_roles → без изменений')
+    check(np.array_equal(o_off, PG.apply_grain(tex, tx2, [dict(part(1), role='legs')], {1: np.ones(n, bool)}, fp2, pn, 100.0, (1, 0, 0), dict(base_r, axis_per_part=True), enabled=True)[0]), 'axis_per_part без face_part → без изменений (нет данных о частях)')
+    strip = (ij[:, 0] >= 100)
+    def aniso(o):
+        L = TC.rgb2lab(o.reshape(-1, 3)[tx2.ti])[:, 0].reshape(ny, nx)[:, 100:]
+        return float(np.abs(np.diff(L, axis=0)).mean() / max(float(np.abs(np.diff(L, axis=1)).mean()), 1e-9))        # вдоль Z / поперёк (X)
+    check(aniso(o_on) < aniso(o_off), f'полоса вдоль Z: при axis_per_part волокно идёт вдоль неё (изменение вдоль/поперёк {aniso(o_on):.2f} < {aniso(o_off):.2f} без правила)')
+    fpt_all = np.full(2, -1)
+    o_fb_off = PG.apply_grain(tex, tx2, [dict(part(1), role='legs')], {1: np.ones(n, bool)}, fpt_all, pn, 100.0, (1, 0, 0), base_r, enabled=True, face_part=fpart2)[0]
+    o_fb_on = PG.apply_grain(tex, tx2, [dict(part(1), role='legs')], {1: np.ones(n, bool)}, fpt_all, pn, 100.0, (1, 0, 0), dict(base_r, axis_per_part=True), enabled=True, face_part=fpart2)[0]
+    check(not np.array_equal(o_fb_off, o_fb_on), 'запасной путь (не плоскость): axis_per_part=true меняет текстуру')
+
     bad_n = sum(1 for x in OK if not x)
     print(f'\n{len(OK) - bad_n}/{len(OK)} ok')
     sys.exit(1 if bad_n else 0)
