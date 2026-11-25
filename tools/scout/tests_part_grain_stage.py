@@ -106,6 +106,15 @@ def main():
         ST.main(args + ['--force'])
         t2 = np.asarray(TV.load_shape(vis)[0]['tex'])
         check(np.array_equal(t1, t2) and open(pre, 'rb').read() == b0, 'повторный запуск: тот же результат, исходник цел (зерно не накладывается дважды)')
+        # 3б. плоское фото (photo_grain False): зерна нет, текстура = исходник, но метка «фактуру не класть» стоит — 07 не кладёт своей на ровной МДФ (T-69/6)
+        n = 64
+        Image.fromarray(np.concatenate([np.full((n, n, 3), 150), np.full((n, n, 1), 255)], 2).astype(np.uint8)).save(os.path.join(tmp, 'photo.png'))
+        check(ST.main(args + ['--force']) == 0, 'плоское фото: шаг отработал')
+        rep = json.load(open(os.path.join(d, ST.OUT), encoding='utf-8'))
+        check(rep['abstain'] is None and rep['applied'] == 0 and rep['flat_groups'] == ['верх'] and rep['groups']["0"]["reason"] == "no_photo_grain", f'плоское фото: applied=0, flat_groups={rep.get("flat_groups")}, причина {rep["groups"]["0"]["reason"]}')
+        check(open(vis, 'rb').read() == b0, 'плоское фото: visible.glb = исходник (зерно прежнего прогона не осталось)')
+        mk = np.asarray(Image.open(mkp).convert('L')) > 127
+        check(np.array_equal(mk, top) and not (mk & leg).any(), 'плоское фото: метка стоит на тексельях «верха» (07 фактуру не кладёт), на металле — нет')
         # 4. нет npz Ш4а → воздержание с причиной, visible.glb не тронут
         os.remove(os.path.join(d, 'part_material_masks.npz'))
         before = open(vis, 'rb').read()

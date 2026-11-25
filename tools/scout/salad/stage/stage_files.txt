@@ -88,8 +88,11 @@ data/flat3d/top-library/pat512/Wood052.jpg
 data/flat3d/top-library/pat512/Wood055.jpg
 data/flat3d/top-library/pat512/Wood056.jpg
 data/flat3d/top-library/pat512/Wood057.jpg
+data/flat3d/top-library/pat512/Wood061.jpg
 data/flat3d/top-library/pat512/Wood069.jpg
 data/flat3d/top-library/pat512/Wood071.jpg
+data/flat3d/top-library/pat512/Wood017L.jpg
+data/flat3d/top-library/pat512/Wood095L.jpg
 data/flat3d/material-recipes.json
 data/flat3d/furniture.json
 tools/scout/rules/rule-registry.json
