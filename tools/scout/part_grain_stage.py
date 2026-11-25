@@ -29,6 +29,7 @@ sys.path[:0] = [TR, HERE]
 OUT = 'part_grain.json'
 STAGE_DIR = '06-visible'
 PRE = 'visible.pre-grain.glb'
+MASK = 'part_grain_mask.png'
 VERSION = 1
 
 
@@ -150,6 +151,11 @@ def process(a, rules: dict, d: str, rep: dict) -> None:
     if not os.path.exists(pre):
         shutil.copy2(vis, pre)                                       # исходник один раз; повторный запуск идёт от него
     swap_tex_glb(src, new, vis)
+    gmap = np.asarray(z['group_map'])
+    applied_g = [int(k) for k, v in r['parts'].items() if v.get('apply')]
+    mk = np.isin(gmap, applied_g)                                    # метка «зерно уже есть»: 07 (заливка и верх top_prior) на этих текселях своей фактуры не кладёт
+    Image.fromarray((mk * 255).astype(np.uint8)).save(os.path.join(d, MASK))
+    rep['mask_texels'] = int(mk.sum())
     rep['seconds'] = round(time.time() - t0, 1)
 
 
@@ -179,6 +185,8 @@ def main(argv: list | None = None) -> int:
     except Exception as e:  # noqa: BLE001 — шаг не роняет конвейер: 06/07 идут как раньше, причина в след
         rep['abstain'] = 'сбой: %s: %s' % (type(e).__name__, e)
         traceback.print_exc()
+    if rep['abstain'] and os.path.exists(os.path.join(d, MASK)):
+        os.remove(os.path.join(d, MASK))                              # воздержались — старой метки не оставляем (07 не должен пропускать фактуру там, где зерна нет)
     with open(os.path.join(d, OUT), 'w', encoding='utf-8') as fh:
         json.dump(rep, fh, ensure_ascii=False, indent=1, default=float)
     print('part_grain:', 'зерно на %s групп' % rep.get('applied') if not rep['abstain'] else 'воздержался — ' + rep['abstain'])

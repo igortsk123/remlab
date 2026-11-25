@@ -1791,6 +1791,38 @@ def test_top_prior_hook():
     ok(TF.top_prior_hook([g3], [tex3.copy()], allk, None, cfg, None)[1]['top_source'] == 'photo_top', 'весь верх с фото — top_source=photo_top, красить нечего')
 
 
+def test_grain_mask():
+    print('метка «зерно уже есть» (part_grain, T-69/4): одна деталь — один источник фактуры; нет метки — прежнее поведение:')
+    import tempfile
+    from PIL import Image
+    g, tex, kn = _top_scene()
+    card = {'role': 'стол обеденный', 'name': 'Стол обеденный из массива дуба', 'Материал столешницы': 'массив дуба'}
+    cfg = {'top_card': card}
+    top_px = tile_mask((0, .92, 1.0, 1.0))
+    with tempfile.TemporaryDirectory() as d:
+        ok(TF.load_grain_png(d) is None, 'нет part_grain_mask.png → None (прежнее поведение)')
+        Image.fromarray((top_px * 255).astype(np.uint8)).save(d + '/part_grain_mask.png')
+        gm = TF.load_grain_png(d)
+        ok(gm is not None and len(gm) == 1 and np.array_equal(gm[0], top_px), 'метка читается: белое = зерно')
+    dz, gm2, rp = TF.grain_mask_merge([g], None, None)
+    ok(dz is None and gm2 is None and rp['applied'] is False, 'нет метки: зон нет, отчёт applied=false')
+    dz, gm2, rp = TF.grain_mask_merge([g], None, [top_px])
+    ok(rp['applied'] and rp['texels'] == int(top_px.sum()) and np.array_equal(dz['texture_off'][0], top_px) and not dz['protect'][0].any(), 'метка → texture_off (protect пуст), счётчик текселей')
+    prev = {'protect': [np.zeros_like(top_px)], 'texture_off': [tile_mask((0, 0, .1, .1))]}
+    dz2, _g, _r = TF.grain_mask_merge([g], prev, [top_px])
+    ok(np.array_equal(dz2['texture_off'][0], top_px | prev['texture_off'][0]), 'свои зоны паспорта (texture_off) не теряются, метка добавляется')
+    dz3, gm3, rp3 = TF.grain_mask_merge([g], None, [np.zeros((8, 8), bool)])
+    ok(dz3 is None and gm3 is None and 'не совпал' in rp3.get('skipped', ''), 'метка другого размера → отброшена с причиной')
+    out, rep = TF.top_prior_hook([g], [tex.copy()], [kn], None, cfg, None)
+    ok(rep.get('applied') is True and (out[0][top_px] != tex[top_px]).any(), 'контроль: без метки верх top_prior красит (меняет тексели верха)')
+    back, kept = TF.grain_restore(out, [tex], [top_px])
+    ok(kept == int(top_px.sum()) and np.array_equal(back[0][top_px], tex[top_px]), f'с меткой: на текселях зерна верх как до хука ({kept} текселей)')
+    ok(np.array_equal(back[0][~top_px], out[0][~top_px]), 'вне метки — результат хука не тронут')
+    b2, k2 = TF.grain_restore(out, [tex], [np.zeros_like(top_px)])
+    ok(k2 == 0 and np.array_equal(b2[0], out[0]), 'пустая метка = прежнее поведение байт в байт')
+    zk = {'protect': [np.zeros_like(top_px)], 'texture_off': [np.zeros_like(top_px)]}
+
+
 def test_detail_zones_fill():
     print('зоны деталей (T-47/4): protect — вне тона части и как на входе; texture_off — тон без фактуры; паспорт не просит — зон нет:')
     g, parts, known, tl, col = scene_parts()
@@ -1969,7 +2001,7 @@ def test_cpu_model_in_check():
 
 
 def main() -> int:
-    for f in (test_cpu_model_in_check, test_part_deltas_same_as_reference, test_known_synth_by_type, test_known_synth_not_trusted, test_detail_zones_fill, test_check_on_final_texture, test_side_azimuths, test_top_prior_hook, test_mirror_off_by_default, test_shrink_layout, test_tie_picks_front_on_back, test_front_on_back, test_front_on_back_within_parts, test_front_on_back_unequal_parts, test_color, test_photo, test_parts, test_lighter_than_photo, test_no_known_part, test_mirror, test_texture, test_gutter_render, test_seam_steps_concavity, test_diffuse_quilt_far, test_draft_source, test_tone_mode_pattern, test_quilt_efros, test_quilt_holes, test_known_unchanged, test_render_pattern, test_outlier_blocks, test_dark_fabric, test_trellis_relief, test_part_roles_from_stage3, test_stage7_side_tone_smooth_rules, test_tone_from_neighbour, test_nail_twins, test_borrow_donors, test_tone_only, test_part_pattern_single_truth, test_pr_camera_and_winding, test_hidden_visible, test_stage6_gate, test_cli_run_stage, test_orphan_parts, test_cli_parts_flags, test_zones_fallback, test_brightness_target_median, test_run_stage_fallback, test_render_low, test_quilt_lattice, test_pattern_lattice, test_part_independence, test_unobserved_relief):
+    for f in (test_cpu_model_in_check, test_part_deltas_same_as_reference, test_known_synth_by_type, test_known_synth_not_trusted, test_grain_mask, test_detail_zones_fill, test_check_on_final_texture, test_side_azimuths, test_top_prior_hook, test_mirror_off_by_default, test_shrink_layout, test_tie_picks_front_on_back, test_front_on_back, test_front_on_back_within_parts, test_front_on_back_unequal_parts, test_color, test_photo, test_parts, test_lighter_than_photo, test_no_known_part, test_mirror, test_texture, test_gutter_render, test_seam_steps_concavity, test_diffuse_quilt_far, test_draft_source, test_tone_mode_pattern, test_quilt_efros, test_quilt_holes, test_known_unchanged, test_render_pattern, test_outlier_blocks, test_dark_fabric, test_trellis_relief, test_part_roles_from_stage3, test_stage7_side_tone_smooth_rules, test_tone_from_neighbour, test_nail_twins, test_borrow_donors, test_tone_only, test_part_pattern_single_truth, test_pr_camera_and_winding, test_hidden_visible, test_stage6_gate, test_cli_run_stage, test_orphan_parts, test_cli_parts_flags, test_zones_fallback, test_brightness_target_median, test_run_stage_fallback, test_render_low, test_quilt_lattice, test_pattern_lattice, test_part_independence, test_unobserved_relief):
         f()
     print(f'tests_tex_fill: ошибок {bad}')
     return 1 if bad else 0

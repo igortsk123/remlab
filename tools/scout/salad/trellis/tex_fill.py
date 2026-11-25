@@ -3000,6 +3000,8 @@ def run_stage_once(run: str, sku: str, glb: str, known: list | None = None, part
         except Exception:
             _pmf = None
     _cf = load_conf_png(prev_dir) if prev_dir else None                                  # доверие к фото-текселю (этап 6, р.3) — нет файла: запасное от границы известного
+    _gm = load_grain_png(prev_dir) if (prev_dir and (cfg or {}).get('part_grain_mask_use', True)) else None            # зерно шага part_grain (T-69/4): одна деталь — один источник фактуры
+    _dz_eff, _gm, _gm_rep = grain_mask_merge(geoms, _dz_eff, _gm)
 
     _ut_early = None
     if ut_glb and os.path.isfile(ut_glb) and (cfg or {}).get('source', 'stat') == 'stat':
@@ -3038,6 +3040,7 @@ def run_stage_once(run: str, sku: str, glb: str, known: list | None = None, part
     rep['relief_source'] = relief_src
     rep['paint_policy'] = pp_pol
     rep['detail_zones'] = _dz_doc
+    rep['part_grain'] = _gm_rep                                   # метка «зерно уже есть» (part_grain_mask.png): сколько текселей 07 не красит своей фактурой
     ut_g = None
     if ut_glb and os.path.isfile(ut_glb):
         _ug = TC.load_geoms(ut_glb)
@@ -3097,6 +3100,8 @@ def run_stage_once(run: str, sku: str, glb: str, known: list | None = None, part
     _sy_dir = (cfg or {}).get('synth_dir')                                  # T-28/1: маска «synth» этапа 6 (prov=4) + цвета 06 — кандидат тона верха без фото
     _synth_arg = (load_synth_png(_sy_dir), tex_before) if _sy_dir else None
     tex_after, rep['top_prior'] = top_prior_hook(geoms, tex_after, known, parts, cfg, None if relief_src == 'ultratex' else draft_glb, synth=_synth_arg)
+    if _gm:                                                                    # одна деталь — один источник фактуры: на текселях зерна верх top_prior остаётся как был (тон Ш4а + зерно)
+        tex_after, _gm_rep['top_prior_kept_texels'] = grain_restore(tex_after, _tex_pre_top, _gm)
     _hdone(hooks, 'top_prior', _m)
     if sg_pas is not None and rep['top_prior'].get('applied'):                  # T-28/1: верх без фото с тоном, далёким от однотонной группы, следует группе (хук откатывается, красит паспорт)
         _tf = SP.top_follows_group(rep['top_prior'], sg_pas, sg_cfg)
@@ -3330,6 +3335,46 @@ def load_tone_only_png(visible: str) -> list | None:
             break
         out.append(np.asarray(Image.open(fp).convert("L")) > 127)
     return out or None
+
+
+def load_grain_png(visible: str) -> list | None:
+    """Метка «зерно уже есть» (шаг part_grain, T-20261124-69/4): `part_grain_mask.png`, `part_grain_mask1.png`, … (белое = на тексель положен узор волокон поверх тона Ш4а). Правило «одна деталь — один источник фактуры»:
+    на этих текселях 07 (заливка и верх top_prior) своей фактуры не кладёт. Нет файла — None (прежнее поведение, байт в байт)."""
+    from PIL import Image
+    out = []
+    for i in range(64):
+        fp = os.path.join(visible, "part_grain_mask.png" if i == 0 else f"part_grain_mask{i}.png")
+        if not os.path.exists(fp):
+            break
+        out.append(np.asarray(Image.open(fp).convert("L")) > 127)
+    return out or None
+
+
+def grain_mask_merge(geoms: list, dz_eff: dict | None, gm: list | None) -> tuple:
+    """Метка зерна → зоны `texture_off` для `fill` (заливка: тон остаётся, фактура на зерно не ложится). → (dz_eff, gm | None, отчёт). Размер метки ≠ развёртке — метка отброшена с причиной (07 идёт как раньше)."""
+    if not gm:
+        return dz_eff, None, {'applied': False, 'texels': 0}
+    if len(gm) != len(geoms) or any(np.asarray(m_).shape != (_grid(g_), _grid(g_)) for m_, g_ in zip(gm, geoms)):
+        return dz_eff, None, {'applied': False, 'texels': 0, 'skipped': 'размер part_grain_mask.png не совпал с развёрткой'}
+    if dz_eff is None:
+        dz_eff = {'protect': [np.zeros((_grid(g_), _grid(g_)), bool) for g_ in geoms], 'texture_off': [np.zeros((_grid(g_), _grid(g_)), bool) for g_ in geoms]}
+    dz_eff = dict(dz_eff, texture_off=[np.asarray(t_, bool) | np.asarray(m_, bool) for t_, m_ in zip(dz_eff['texture_off'], gm)])
+    return dz_eff, gm, {'applied': True, 'texels': int(sum(int(np.asarray(m_).sum()) for m_ in gm))}
+
+
+def grain_restore(tex_after: list, tex_pre: list, gm: list) -> tuple:
+    """После хука верха: на текселях зерна вернуть текстуру «до хука» (верх top_prior своей фактуры не кладёт). → (текстуры, сколько текселей возвращено)."""
+    kept, outs = 0, []
+    for gi, t_ in enumerate(tex_after):
+        t_ = np.asarray(t_)
+        m_ = np.asarray(gm[gi], bool)
+        pre = np.asarray(tex_pre[gi])
+        if t_.shape[:2] == m_.shape and (t_[m_] != pre[m_]).any():
+            t_ = t_.copy()
+            t_[m_] = pre[m_]
+            kept += int(m_.sum())
+        outs.append(t_)
+    return outs, kept
 
 
 def load_conf_png(visible: str) -> list | None:

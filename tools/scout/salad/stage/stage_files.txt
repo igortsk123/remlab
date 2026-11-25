@@ -27,6 +27,8 @@ tools/scout/salad/trellis/ref_zone.py
 tools/scout/salad/trellis/surface_passport.py
 tools/scout/salad/trellis/texture_synth.py
 tools/scout/salad/trellis/top_prior.py
+tools/scout/salad/trellis/part_grain.py
+tools/scout/part_grain_stage.py
 tools/scout/salad/trellis/tex_seam.py
 tools/scout/salad/trellis/seam_stage.py
 tools/scout/salad/trellis/stage_mask_gate.py
@@ -43,6 +45,7 @@ tools/scout/rules/paint-fill.json
 tools/scout/rules/stage-mask-gate.json
 tools/scout/rules/ref-zone.json
 tools/scout/rules/top-prior.json
+tools/scout/rules/part-grain.json
 tools/scout/rules/mesh-color-guard.json
 data/flat3d/sides-eval.json
 data/flat3d/front-axis.json
@@ -51,6 +54,9 @@ tools/assets/material_stage.py
 tools/assets/part_shapes.py
 tools/assets/parts_refine.py
 tools/assets/parts_vote.py
+tools/assets/parts_role_planes.py
+tools/assets/parts_role_cleanup.py
+tools/scout/rules/part-role-planes.json
 data/flat3d/material-part-rules.json
 data/flat3d/parts-sam-rules.json
 tools/assets/material_class.py

@@ -97,6 +97,9 @@ def main():
         de = float(TC.de2000_v(np.median(lab, 0)[None], np.asarray([TONE]))[0])
         check(float(lab[:, 0].std()) > 0.3 and de < 1.0, f'зерно легло: σL {lab[:, 0].std():.2f}, тон держится ΔE00 {de:.2f}')
         check(np.array_equal(np.asarray(g0['V']), np.asarray(g1['V'])) and np.array_equal(np.asarray(g0['F']), np.asarray(g1['F'])) and np.allclose(np.asarray(g0['UV']), np.asarray(g1['UV'])), 'геометрия и UV те же')
+        mkp = os.path.join(d, ST.MASK)
+        mk = np.asarray(Image.open(mkp).convert('L')) > 127
+        check(mk.shape == gm.shape and np.array_equal(mk, top) and not (mk & leg).any(), 'метка part_grain_mask.png: ровно тексели группы-дерева, металл не помечен (07 там фактуру кладёт сам)')
         # 3. повтор идёт от исходника: результат тот же, исходник не перезаписан
         ST.main(args + ['--force'])
         t2 = np.asarray(TV.load_shape(vis)[0]['tex'])
@@ -106,6 +109,7 @@ def main():
         before = open(vis, 'rb').read()
         ST.main(args + ['--force'])
         rep = json.load(open(os.path.join(d, ST.OUT), encoding='utf-8'))
+        check(not os.path.exists(mkp), 'воздержание: старая метка зерна удалена (07 не пропускает фактуру там, где зерна нет)')
         check('part_material_masks' in (rep['abstain'] or '') and open(vis, 'rb').read() == before, f'нет npz → воздержание: «{rep["abstain"]}», visible.glb не тронут')
     # 5. σL по группам: верх — грани вверх, остальные — по cos
     n = 40
