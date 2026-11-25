@@ -112,6 +112,13 @@ def process(a, rules: dict, d: str, rep: dict) -> None:
     inner = PM.ring_faces(st['ids'], vis0, inner, nF, rules)
     inner = PM.grow_faces(g['V'], g['F'], inner, rules)
     flab = np.where(inner, len(names), flab).astype(np.int16)
+    wk0 = os.path.join(d, '_partmaterial')
+    os.makedirs(wk0, exist_ok=True)
+    mp_ = np.full(st['ids'].shape + (3,), 255, np.uint8)                                # карта внутренности для просмотра (--keep-work): серое — группы, красное — внутренность, белое — вне объекта
+    fid0 = np.clip(st['ids'], 0, nF - 1)
+    mp_[vis0] = (200, 200, 200)
+    mp_[vis0 & inner[fid0]] = (230, 40, 40)
+    Image.fromarray(mp_).save(os.path.join(wk0, 'interior-map.png'))
     rep['interior'] = {**oinfo, 'граней_с_ростом': int(inner.sum()), 'доля_площади': round(float(area[inner].sum() / area.sum()), 4)}
     rep['area_share'] = {gn: round(float(area[flab == i].sum() / area.sum()), 4) for i, gn in enumerate(names)}
     P = np.asarray(Image.open(a.photo).convert('RGBA'))
