@@ -703,6 +703,21 @@ class LegWave(unittest.TestCase):
         self.assertFalse(straight['would_flag'], straight)
         self.assertFalse(arc['would_flag'], arc)                         # плавная дуга — законная форма ножки (сабля), не волна
 
+    def test_two_humps_with_big_amplitude_not_flagged_only_by_hump_count(self):
+        """Запас мерки (директор, T-57/2–3): ножка с амплитудой выше порога, но всего ДВА горба, не метится — её держит именно правило «≥ lw_min_ext горбов» (на 29: контроль с амплитудой 0,081 при 2 горбах)."""
+        c = by(FC.leg_wave(chair_sil(wave_amp_px=4.0, period=160.0), R), 'leg_wave')
+        lg = max(c['legs'], key=lambda l: l['amp'])
+        self.assertGreaterEqual(lg['amp'], R['lw_amp'], c)              # амплитуда сама по себе выше порога
+        self.assertLess(lg['n_ext'], R['lw_min_ext'], c)                # но горбов меньше трёх
+        self.assertFalse(lg['wavy'] or c['would_flag'], c)
+        self.assertEqual(c['value'], 0.0, c)
+        c3 = by(FC.leg_wave(chair_sil(wave_amp_px=4.0, period=70.0), R), 'leg_wave')
+        lg3 = max(c3['legs'], key=lambda l: l['amp'])
+        self.assertGreaterEqual(lg3['n_ext'], R['lw_min_ext'], c3)      # та же амплитуда при трёх и более горбах — метка
+        self.assertTrue(c3['would_flag'], c3)
+        c_off = by(FC.leg_wave(chair_sil(wave_amp_px=4.0, period=160.0), dict(R, lw_min_ext=2)), 'leg_wave')
+        self.assertTrue(c_off['would_flag'], c_off)                     # снять правило горбов — метка появилась бы: держит именно оно
+
     def test_observe_flag_off(self):
         self.assertFalse(R['leg_wave_flag'])
         c = by(FC.leg_wave(chair_sil(wave_amp_px=3.0), R), 'leg_wave')

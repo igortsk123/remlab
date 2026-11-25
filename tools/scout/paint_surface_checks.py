@@ -453,6 +453,50 @@ def lighter_than_photo(glb: str, photo: str | None, pose_run: str | None, R: dic
     return {'status': 'ok', 'share_pct': r['share_pct'], 'inner_px': r['inner_px'], 'spot_px': r['spot_px'], 'threshold': [op, thr]}
 
 
+def cold_spots(glb: str, photo: str | None, pose_run: str | None, R: dict) -> dict:
+    """Холодные (голубо-серые) пятна на БЕЛЫХ поверхностях кадра этапа 6 (T-20261124-57, П1.160; паспорт «Тюлип 60»): в кадре камеры 04 среди пикселей предмета, где на фото белое нейтральное
+    (Lab L ≥ white_L_min, |a|,|b| ≤ ab_max; эрозия erode_px), сравниваем b итога (GLB этапа 6 по растру камеры) с b фото. → {status ok|na, db_median, cold_share, white_px, would_flag, thr, why}.
+    Только запись: статус этапа не меняет; пороги — rules `cold_spots` (ID товаров в коде нет)."""
+    c = R['cold_spots']
+    thr = {'db_max': c['db_max'], 'cold_share_max': c['cold_share_max']}
+    if not photo or not os.path.exists(photo):
+        return {'status': 'na', 'why': 'нет фото товара', 'would_flag': False, 'thr': thr}
+    if not pose_run or not os.path.exists(os.path.join(pose_run, 'stage_loss.json')):
+        return {'status': 'na', 'why': 'нет растра камеры этапа 4 (pose_run)', 'would_flag': False, 'thr': thr}
+    from PIL import Image
+    from scipy import ndimage
+    sys.path.insert(0, os.path.join(HERE, 'salad', 'trellis'))
+    import tex_visible as TV  # noqa: E402
+    st = TV.load_stage(pose_run)
+    geoms = TV.load_shape(glb)
+    same, frac = raster_matches(st, geoms)
+    if not same:
+        return {'status': 'na', 'why': f'растр камеры от другой формы (развёртка совпала у {frac:.0%} пикселей)', 'would_flag': False, 'thr': thr}
+    prgb, pmask = TV.photo_to_frame(np.asarray(Image.open(photo).convert('RGBA')), st['P'], st['px'])
+    after = TV.frame_from_tex(st, geoms, [g['tex'] for g in geoms])
+    inner = ndimage.binary_erosion(st['mask'] & pmask, iterations=int(c['erode_px']))
+    if not inner.any():
+        return {'status': 'na', 'why': 'предмет в кадре пуст', 'would_flag': False, 'thr': thr}
+    return cold_stats(np.asarray(prgb)[..., :3][inner], np.asarray(after)[inner], c, thr)
+
+
+def cold_stats(photo_rgb, after_rgb, c: dict, thr: dict) -> dict:
+    """Ядро проверки «холодные пятна» на массивах (N,3) uint8 — пиксели предмета в кадре: фото и итог этапа 6. Белое нейтральное на фото (L ≥ white_L_min, |a|,|b| ≤ ab_max) — область проверки;
+    на ней медиана Δb (итог − фото) и доля пикселей холоднее фото больше чем на cold_db. Белого мало (< min_px) — na. Метка: |медиана| > db_max ИЛИ доля > cold_share_max."""
+    pl = lab_of(photo_rgb)
+    white = (pl[:, 0] >= float(c['white_L_min'])) & (np.abs(pl[:, 1]) <= float(c['ab_max'])) & (np.abs(pl[:, 2]) <= float(c['ab_max']))
+    n = int(white.sum())
+    if n < int(c['min_px']):
+        return {'status': 'na', 'why': f'белой нейтральной области на фото {n} px < {int(c["min_px"])}', 'white_px': n, 'would_flag': False, 'thr': thr}
+    al = lab_of(after_rgb)
+    db = (al[:, 2] - pl[:, 2])[white]
+    med = float(np.median(db))
+    share = float((db < -float(c['cold_db'])).mean())
+    would = abs(med) > float(c['db_max']) or share > float(c['cold_share_max'])
+    return {'status': 'ok', 'db_median': round(med, 2), 'cold_share': round(share, 4), 'white_px': n, 'would_flag': bool(would), 'thr': thr, 'why': ''}
+
+
+
 # ---------------------------------------------------------------------------------------------- всё вместе ---
 def frames(glb: str, known_png: str | None, parts_path: str | None, out_dir: str, R: dict | None = None, size: int | None = None) -> dict:
     """Кадры срабатываний (атлас итоговой текстуры с подсветкой): `surface-top.jpg` — верх (красная заливка), взятое с фото (зелёная кромка); `surface-bleed.jpg` — затёк (пурпур — в залитых
@@ -707,6 +751,11 @@ def measure(glb: str, known_png: str | None = None, parts_path: str | None = Non
     except Exception as e:  # noqa: BLE001 — мерка не измерена: так и пишем, остальные идут
         res['lighter_than_photo'] = {'status': 'error', 'why': f'{type(e).__name__}: {str(e)[:120]}'}
     tm['lighter_than_photo'] = round(time.time() - t1, 2)
+    if (R.get('cold_spots') or {}).get('enabled', False):                  # T-20261124-57: холодные пятна на белом — только запись; выключено — мерка не считается и ключа нет
+        try:
+            res['cold_spots'] = cold_spots(glb, photo, pose_run, R)
+        except Exception as e:  # noqa: BLE001 — не измерено: так и пишем
+            res['cold_spots'] = {'status': 'error', 'why': f'{type(e).__name__}: {str(e)[:120]}', 'would_flag': False}
     res['timing_s'] = tm
     res['role_mismatch'] = role_mismatch(res['top_vs_photo'], role, R)
     res['seconds'] = round(time.time() - t0, 1)
