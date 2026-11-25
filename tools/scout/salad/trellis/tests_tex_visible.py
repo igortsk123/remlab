@@ -406,6 +406,53 @@ class TestTexVisible(unittest.TestCase):
         finally:
             TV.EDGE_BG_LOCAL = old_flag
 
+    def test_edge_bg_inward_reference_wood_is_wood_halo_is_caught_thin_part_falls_back(self):
+        """Вариант В (T-85 хвост): опора = цвет товара на 8–14 px вглубь. Дерево (широкая часть) сравнивается с деревом, ореол на ткани ловится, узкая часть (ножка 10 px) берёт кольцо ступенью внутри себя, а не с чужой стороны, совсем тонкая (< 8 px) — запасной путь (медиана ядра) с причиной и числом пикселей в отчёте; флаг выкл. — опора прежняя."""
+        old_flag = TV.EDGE_BG_INWARD
+        try:
+            n, pm, blue, wood, prgb, st = self._two_material_photo(halo=True)
+            lab = TV._lab(prgb)
+            ref = TV.inward_reference(st, prgb, pm)
+            self.assertEqual(ref.shape, (n, n, 3))
+            near_wood = wood & (distance_transform_edt(pm) <= 6)
+            self.assertEqual(int((TV.bg_like(lab, ref) & near_wood).sum()), 0)                  # дерево у края — не «фон»
+            halo = blue & ~binary_erosion(blue, iterations=3)
+            self.assertTrue(TV.bg_like(lab, ref)[halo].mean() > 0.95)                         # ореол 3 px на ткани ловится
+            self.assertFalse((TV.bg_like(lab, ref) & blue & ~halo).any())                        # сама обивка — нет
+            self.assertEqual(TV._INWARD_REP['tiers'][0]['lo'], 8.0)
+            # ножка 10 px рядом с синим блоком: кольцо ступенью 3 px лежит внутри ножки (дерево), синее рядом опорой не становится
+            n2 = 300
+            blue2 = np.zeros((n2, n2), bool); blue2[20:120, 20:280] = True
+            leg = np.zeros((n2, n2), bool); leg[125:280, 140:150] = True
+            rail = np.zeros((n2, n2), bool); rail[200:206, 40:100] = True                       # рейка 6 px — тоньше 8: кольца внутри нет → запасной путь
+            pm2 = blue2 | leg | rail
+            p2 = np.full((n2, n2, 3), 255, np.uint8); p2[blue2] = (30, 60, 120); p2[leg] = (205, 160, 110); p2[rail] = (205, 160, 110)
+            st2 = {'mask': pm2.copy(), 'cos': np.ones((n2, n2), np.float32)}
+            ref2 = TV.inward_reference(st2, p2, pm2)
+            rep = dict(TV._INWARD_REP)
+            lab2 = TV._lab(p2)
+            near_leg = leg & (distance_transform_edt(pm2) <= 6)
+            self.assertEqual(int((TV.bg_like(lab2, ref2) & near_leg).sum()), 0)                  # ножка у края — не «фон» (опора — её же дерево)
+            self.assertTrue(float(ref2[leg][:, 0].mean()) > 55)                                  # опора ножки — дерево (L* ≈ 66), не синее (L* ≈ 26)
+            self.assertTrue(rep['fallback_px'] > 0)                                              # рейка 6 px — запасной путь, причина названа
+            self.assertIn('тоньше 8 px', ' '.join(rep['fallback_why']))
+            med = TV.core_median(st2, p2, pm2)
+            self.assertTrue(np.allclose(ref2[rail & (distance_transform_edt(pm2) <= 2)][:, 0], med[0], atol=1e-3))
+            # флаг по умолчанию выкл. (rules/tex-visible.json → edge_bg_inward=false): 06 идёт как в main
+            self.assertFalse(bool(TV.R.get('edge_bg_inward', False)))
+        finally:
+            TV.EDGE_BG_INWARD = old_flag
+
+    def test_edge_bg_reach_limits_measure_to_photo_edge_band(self):
+        """Под флагом inward мерка смотрит на пиксели ≤ EDGE_BG_REACH (8 px) от края фото: кайма у края — внутри, светлая деталь на 12 px — снаружи области."""
+        n = 200
+        pm = np.zeros((n, n), bool); pm[20:180, 20:180] = True
+        reach = TV.edge_bg_reach(pm)
+        self.assertTrue(reach[20:180, 20:23].all())                      # у края — в области
+        self.assertFalse(reach[100, 20 + 12])                            # 12 px от края — вне
+        self.assertFalse(reach[~pm].any())                               # вне фото — вне
+        self.assertEqual(TV.EDGE_BG_REACH, float(TV.R.get('edge_bg_reject_px', 8.0)))
+
     def test_frayed_share_counts_known_pixels_next_to_unknown_only(self):
         n = 100
         mask = np.zeros((n, n), bool); mask[10:90, 10:90] = True

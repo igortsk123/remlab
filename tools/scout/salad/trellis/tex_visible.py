@@ -59,6 +59,9 @@ EDGE_BG_PX = float(os.environ.get('EDGE_BG_PX', R.get('edge_bg_reject_px', 8.0))
 EDGE_BG_MEASURE = float(R.get('edge_bg_measure_px', 6.0))
 EDGE_BG_DL = float(R.get('edge_bg_dL', 6.0))
 EDGE_BG_LOCAL = os.environ.get('EDGE_BG_LOCAL', str(R.get('edge_bg_local', False))).lower() in ('1', 'true', 'yes')   # T-20261124-10/2: опора каймы — цвет БЛИЖАЙШЕГО ядра, а не одна медиана на товар
+EDGE_BG_INWARD = os.environ.get('EDGE_BG_INWARD', str(R.get('edge_bg_inward', False))).lower() in ('1', 'true', 'yes')   # T-85 хвост (вариант В): опора каймы — цвет товара на INWARD_LO..INWARD_HI px вглубь от края фото (кайма вырезки тоньше, чем рама/ножка/кант), не медиана и не роль
+EDGE_BG_REACH = float(R.get('edge_bg_reject_px', 8.0))   # T-85/В: под флагом inward мерка смотрит только на пиксели ≤ этого от края фото (кайма вырезки по определению у края; светлая деталь глубже — не кайма)
+INWARD_LO, INWARD_HI = float(R.get('edge_bg_inward_lo_px', 8.0)), float(R.get('edge_bg_inward_hi_px', 14.0))
 EDGE_BG_REF_SIGMA = float(R.get('edge_bg_ref_sigma_px', 6.0))     # сглаживание опорного цвета ядра (px кадра)
 EDGE_BG_WHITE_L = float(R.get('edge_bg_white_L', 90.0))   # медиана ядра светлее — ткань белая, мерка и правило каймы слепы (N/A)
 FRAYED_PX = int(R.get('frayed_px', 3))           # рваность: известный пиксель в этих px от неизвестного внутри силуэта
@@ -298,9 +301,67 @@ def core_median(st: dict, prgb: np.ndarray, pmask: np.ndarray) -> np.ndarray:
 TV_FALLBACK_COS = 0.5
 
 
+_INWARD_REP: dict = {}
+
+
+def inward_reference(st: dict, prgb: np.ndarray, pmask: np.ndarray) -> np.ndarray:
+    """Lab-опора по пикселю (H,W,3): сглаженный цвет БЛИЖАЙШЕГО пикселя «кольца вглубь» — товара на lo..lo+span px от края альфы фото (внутри силуэта растра), span = INWARD_HI − INWARD_LO.
+    Светлая кайма вырезки (1–3 px) сравнивается с тканью сразу под ней; светлое дерево рамы/кромки шире каймы — с самим собой. ТОНКИЕ ЧАСТИ (ножка, рейка) и чужие стороны: кольцо
+    принимается, только если ОТРЕЗОК от пикселя до пикселя кольца целиком лежит внутри маски фото (линия видимости: через белый зазор, фон или другую сторону кольцо не берётся) и не дальше
+    2×INWARD_HI px; нет — следующая ступень глубины lo → 5 → 3 px (кольцо ложится внутри ЭТОЙ части); нет и ступени — запасной путь: медиана ядра товара (core_median). Что и сколько ушло
+    в запасной путь и почему — `_INWARD_REP` → check.json `edge_bg_inward`."""
+    from scipy.ndimage import distance_transform_edt, gaussian_filter, maximum_filter
+    dp = distance_transform_edt(pmask)
+    loc = maximum_filter(dp, size=int(2 * INWARD_HI) + 1)               # локальная полуширина части (только отчёт и быстрый отсев: решает линия видимости)
+    lab = _lab(prgb).astype(np.float32)
+    sg = max(EDGE_BG_REF_SIGMA, 0.5)
+    span = INWARD_HI - INWARD_LO
+    ref = np.broadcast_to(core_median(st, prgb, pmask), prgb.shape).astype(np.float32).copy()
+    todo = st['mask'] & pmask
+    rep = {'tiers': [], 'fallback_px': 0, 'fallback_why': {}}
+    ts = np.linspace(0.0, 1.0, 17)[1:]
+    for lo in (INWARD_LO, 5.0, 3.0):
+        ring = st['mask'] & pmask & (dp > lo) & (dp <= lo + span)
+        use = todo & (loc >= lo + 1.0)                                  # хоть 1 px кольца внутри окна этой части
+        if not use.any():
+            continue
+        if ring.sum() < 100:
+            rep['tiers'].append({'lo': lo, 'px': int(use.sum()), 'ring_px': int(ring.sum()), 'why': 'кольца нет (< 100 px)'})
+            continue
+        w = ring.astype(np.float32)
+        ws = gaussian_filter(w, sg)[..., None]
+        sm = np.stack([gaussian_filter(lab[..., c] * w, sg) for c in range(3)], -1) / np.maximum(ws, 1e-6)
+        dist, (iy, ix) = distance_transform_edt(~ring, return_indices=True)
+        yy, xx = np.nonzero(use & (dist <= 2 * INWARD_HI))
+        ok_los = np.ones(len(yy), bool)
+        if len(yy):
+            qy, qx = iy[yy, xx], ix[yy, xx]
+            for t in ts:                                                # отрезок пиксель → кольцо целиком внутри маски фото
+                sy = np.rint(yy + (qy - yy) * t).astype(np.int64)
+                sx = np.rint(xx + (qx - xx) * t).astype(np.int64)
+                ok_los &= pmask[sy, sx]
+        sel = np.zeros(pmask.shape, bool)
+        sel[yy[ok_los], xx[ok_los]] = True
+        ref[sel] = sm[iy, ix][sel]
+        rep['tiers'].append({'lo': lo, 'px': int(use.sum()), 'ring_px': int(ring.sum()), 'ref_px': int(sel.sum()), 'no_sight_px': int(len(yy) - ok_los.sum()), 'far_px': int((use & ~sel).sum() - (len(yy) - ok_los.sum()))})
+        todo = todo & ~sel
+    rep['fallback_px'] = int(todo.sum())
+    if rep['fallback_px']:
+        thin = int((todo & (loc < INWARD_LO / 2)).sum())
+        if thin:
+            rep['fallback_why']['часть тоньше 8 px (кольца внутри нет)'] = thin
+        if rep['fallback_px'] - thin:
+            rep['fallback_why']['кольцо вне линии видимости внутри маски или дальше 2×hi'] = rep['fallback_px'] - thin
+    _INWARD_REP.clear()
+    _INWARD_REP.update(rep)
+    return ref
+
+
 def fringe_reference(st: dict, prgb: np.ndarray, pmask: np.ndarray) -> np.ndarray:
     """Опорный цвет «ткани» для каймы/мерки края (T-20261124-10/2): флаг edge_bg_local ВЫКЛ — одна медиана ядра на весь товар (core_median, как раньше); ВКЛ — local_reference по пикселю.
     Одна медиана на товар из двух материалов (синяя обивка + светлое дерево) принимала дерево за «фон вырезки» (Марти-2: 4416 из 4416 пикселей на ножках, edge_bg_share 0,258)."""
+    if EDGE_BG_INWARD:
+        return inward_reference(st, prgb, pmask)
     return local_reference(st, prgb, pmask) if EDGE_BG_LOCAL else core_median(st, prgb, pmask)
 
 
@@ -331,7 +392,7 @@ def edge_bg_fringe(st: dict, prgb: np.ndarray, pmask: np.ndarray) -> np.ndarray:
     med = core_median(st, prgb, pmask)
     if med[0] > EDGE_BG_WHITE_L:                       # белая ткань (по всему товару): «светлее фона» — сама ткань
         return np.zeros(pmask.shape, bool)
-    return bg_like(_lab(prgb), fringe_reference(st, prgb, pmask) if EDGE_BG_LOCAL else med) & (distance_transform_edt(pmask) <= EDGE_BG_PX) & pmask
+    return bg_like(_lab(prgb), fringe_reference(st, prgb, pmask) if (EDGE_BG_LOCAL or EDGE_BG_INWARD) else med) & (distance_transform_edt(pmask) <= EDGE_BG_PX) & pmask
 
 
 def known_px(geoms: list, st: dict, tr: dict) -> np.ndarray:
@@ -370,18 +431,34 @@ def frayed_share(kn: np.ndarray, mask: np.ndarray, px: int = FRAYED_PX) -> dict:
     return {'frayed_share': round(float(fr.sum() / n), 4), 'frayed_px': int(fr.sum()), 'frayed_known_px': n}
 
 
+def edge_bg_reach(pmask: np.ndarray) -> np.ndarray:
+    """Маска кадра: пиксели фото не дальше EDGE_BG_REACH px от края его альфы (область мерки под флагом edge_bg_inward; директор 25.11: кайма живёт у края, светлая деталь на 10–15 px — не кайма)."""
+    from scipy.ndimage import distance_transform_edt
+    return (distance_transform_edt(pmask) <= EDGE_BG_REACH) & pmask
+
+
 def edge_bg_share(geoms: list, st: dict, prgb: np.ndarray, pmask: np.ndarray, tr: dict, after: np.ndarray) -> dict:
     """Автопроверка: доля «светлых как фон» среди ВЗЯТЫХ пикселей кадра у края (<= EDGE_BG_MEASURE px от края альфы фото или силуэта растра)."""
     from scipy.ndimage import distance_transform_edt
     mask = st['mask']
     kn = known_px(geoms, st, tr)
     near = (np.minimum(distance_transform_edt(pmask), distance_transform_edt(mask)) <= EDGE_BG_MEASURE) & kn
+    if EDGE_BG_INWARD:
+        near = near & edge_bg_reach(pmask)
     med = core_median(st, prgb, pmask)
     if med[0] > EDGE_BG_WHITE_L:
         return {'edge_bg_share': None, 'edge_known_px': int(near.sum()), 'edge_bg_px': 0, 'edge_bg_na': f'N/A: белая ткань (медиана ядра L* {med[0]:.1f} > {EDGE_BG_WHITE_L:g}), мерка слепа'}
-    bg = bg_like(_lab(after), fringe_reference(st, prgb, pmask) if EDGE_BG_LOCAL else med) & near
+    bg = bg_like(_lab(after), fringe_reference(st, prgb, pmask) if (EDGE_BG_LOCAL or EDGE_BG_INWARD) else med) & near
     n = int(near.sum())
-    return {'edge_bg_share': None if n < 200 else round(float(bg.sum() / n), 4), 'edge_known_px': n, 'edge_bg_px': int(bg.sum()), 'edge_bg_ref': 'local' if EDGE_BG_LOCAL else 'median'}
+    if os.environ.get('EDGE_BG_DEBUG'):                                  # отладка (только по env): что мерка видит у края — для разбора слепоты опоры
+        _rf = fringe_reference(st, prgb, pmask) if (EDGE_BG_LOCAL or EDGE_BG_INWARD) else med
+        np.savez_compressed(os.environ['EDGE_BG_DEBUG'], near=near, bg=bg, bg_med=bg_like(_lab(after), med) & near, lab=_lab(after).astype(np.float16), ref=np.broadcast_to(np.asarray(_rf), prgb.shape).astype(np.float16), pmask=pmask, mask=mask)
+    ref_kind = 'inward' if EDGE_BG_INWARD else ('local' if EDGE_BG_LOCAL else 'median')
+    out = {}
+    if EDGE_BG_INWARD and _INWARD_REP:
+        out['edge_bg_inward'] = dict(_INWARD_REP)
+    out.update({'edge_bg_share': None if n < 200 else round(float(bg.sum() / n), 4), 'edge_known_px': n, 'edge_bg_px': int(bg.sum()), 'edge_bg_ref': ref_kind})
+    return out
 
 
 def depth_band(st: dict) -> np.ndarray:
