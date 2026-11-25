@@ -6,8 +6,20 @@
   "set29": {
    "manifest": "set29/MANIFEST.tsv",
    "expect": 29,
-   "lists": ["~/remlab-logs/t229-1123/k29e-from06-c0019e1d-b07b/inputs-q*.json"],
-   "_lists_why": "списки прогонов ПОСЛЕДНЕГО круга на 29 (24.11 22:26): из них берётся «тот же вход, что гнали в круге» (extra_in photo.png и card.json, glb) и по ним проверяются пути и sha. Новый круг — дописать его список сюда (или заменить): иначе проверка его не видит.",
+   "lists": ["~/remlab-inputs/set29/lists/k29e-from06/inputs-q*.json"],
+   "_lists_why": "T-20261125-75/4: КОПИИ списков строк последнего круга на 29 (k29e, 24.11 22:26) в наборе — по ним проверяются пути и sha; loop5.json shard_inputs_glob смотрит сюда же. Новый круг — копию его списка в lists/<круг>/ (copy_lists) и сюда: иначе проверка его не видит.",
+   "copy_lists": [
+    {"src": "~/remlab-logs/t229-1123/k29e-from06-c0019e1d-b07b/inputs-q*.json", "dest": "lists/k29e-from06",
+     "note": "список строк круга k29e (24.11 22:26): из него взяты photo/card/glb набора; q0 — 29 товаров, q1 — 7 повторных (позже по имени — перекрывает)"}
+   ],
+   "_copy_lists_why": "источник копий — списки круга в ~/remlab-logs (из них --build берёт и photo/card/glb набора); после первой сборки круг читает копии из набора, не логи",
+   "copy_base": {
+    "src": ["~/remlab-logs/t220-1123/out-batch2", "/mnt/hdd/remlab-logs-arhiv/t220-1123/out-batch2"],
+    "dest": "base",
+    "files": ["06-visible/visible.glb", "06-visible/check.json", "06-visible/known.png", "07-fill/filled.glb", "07-fill/frame-photo.png", "08-material/material.glb"],
+    "need": ["06-visible/visible.glb", "06-visible/check.json"]
+   },
+   "_copy_base_why": "«до» круга (loop5 base_dirs/before_glb/need_files): файлы этапов 06/07/08 пакета 29 (t220 out-batch2, 24.11 папка ушла на HDD) — копии в set29/base/<шард>/<товар>/…, loop5.json base_root смотрит туда. Берутся только нужные кругу файлы (файлы из `files`, что есть у товара), а не весь 1,7 ГБ",
    "also": [
     {"sku": "112923_13224664101879413845", "kind": "other", "dest": "other/112923_13224664101879413845.hd.rgba.t94-1119.png",
      "path": "/mnt/hdd/remlab-logs-arhiv/t94-1119/inputs/112923_13224664101879413845.hd.rgba.png",

@@ -182,3 +182,97 @@ def test_set_photo_dirs_lists_existing_photo_dirs_only(world, capsys):
     assert ic.set_photo_dirs() == []                                          # набор ещё не собран
     build_ok(capsys)
     assert ic.set_photo_dirs() == [str(sdir / 'photo')]
+
+
+BASE_FILES = ['06-visible/visible.glb', '06-visible/check.json', '07-fill/filled.glb']
+
+
+def with_copies(world, need=('06-visible/visible.glb', '06-visible/check.json')):
+    """Правила с copy_lists (список круга → lists/c1) и copy_base («до» из logs/base, первая папка src нет); `lists` — копии в наборе."""
+    tmp, logs, runs, sdir = world
+    for i, sku in enumerate(SKUS):
+        for rel in BASE_FILES[:2] + (BASE_FILES[2:] if i else []):            # у первого товара нет 07-fill — это не обязательный файл
+            f = logs / 'base' / ('sh0' if i < 2 else 'sh1') / sku / rel
+            f.parent.mkdir(parents=True, exist_ok=True)
+            f.write_bytes(('B' + sku + rel).encode())
+    rp = Path(os.environ['INPUTS_CHECK_RULES'])
+    r = json.loads(rp.read_text())
+    st = r['sets']['s3']
+    st['lists'] = [str(sdir / 'lists' / 'c1' / 'inputs-q*.json')]
+    st['copy_lists'] = [{'src': str(logs / 'circle' / 'inputs-q*.json'), 'dest': 'lists/c1', 'note': 'список круга c1'}]
+    st['copy_base'] = {'src': [str(tmp / 'нет-такой'), str(logs / 'base')], 'dest': 'base', 'files': BASE_FILES, 'need': list(need)}
+    rp.write_text(json.dumps(r))
+    return st
+
+
+def test_build_copies_circle_lists_and_base_into_set_and_check_is_clean(world, capsys):
+    tmp, logs, runs, sdir = world
+    with_copies(world)
+    assert ic.main(['--build', 's3']) == 0
+    out = capsys.readouterr().out
+    assert 'MANIFEST записан' in out
+    assert (sdir / 'lists' / 'c1' / 'inputs-q0.json').read_bytes() == (logs / 'circle' / 'inputs-q0.json').read_bytes()      # список — побайтная копия
+    assert (sdir / 'base' / 'sh0' / SKUS[0] / '06-visible' / 'visible.glb').is_file()
+    assert not (sdir / 'base' / 'sh0' / SKUS[0] / '07-fill').exists()                                                        # чего нет у товара — не выдумываем
+    assert (sdir / 'base' / 'sh1' / SKUS[2] / '07-fill' / 'filled.glb').is_file()
+    rows, bad = ic.read_manifest(str(sdir / 'MANIFEST.tsv'))
+    kinds = {}
+    for r in rows:
+        kinds[r['kind']] = kinds.get(r['kind'], 0) + 1
+    assert not bad and kinds == {'photo': 3, 'card': 3, 'glb': 3, 'other': 1, 'list': 1, 'base': 8}
+    assert ic.main([]) == 0
+    assert 'чисто' in capsys.readouterr().out
+    assert ic.set_inputs('s3')[SKUS[0]].keys() == {'photo', 'card', 'glb'}                  # списки и «до» в основные входы не попадают
+
+
+def test_build_appends_to_existing_manifest_without_touching_old_rows(world, capsys):
+    tmp, logs, runs, sdir = world
+    build_ok(capsys)                                                         # прежний набор (без списков и «до»)
+    man = (sdir / 'MANIFEST.tsv').read_bytes()
+    with_copies(world)
+    assert ic.main(['--build', 's3']) == 0
+    assert 'MANIFEST дополнен' in capsys.readouterr().out
+    new = (sdir / 'MANIFEST.tsv').read_bytes()
+    assert new.startswith(man) and len(new) > len(man)                       # старые строки — байт в байт
+    assert ic.main([]) == 0
+    capsys.readouterr()
+    assert ic.main(['--build', 's3']) == 0                                   # повтор — нечего дописывать
+    assert 'новых файлов нет' in capsys.readouterr().out and (sdir / 'MANIFEST.tsv').read_bytes() == new
+
+
+def test_build_refuses_when_old_manifest_row_differs(world, capsys):
+    tmp, logs, runs, sdir = world
+    build_ok(capsys)
+    txt = (sdir / 'MANIFEST.tsv').read_text()
+    (sdir / 'MANIFEST.tsv').write_text(txt.replace(SKUS[0] + '\tglb', SKUS[0] + '\tother', 1))       # строка в MANIFEST не та
+    with_copies(world)
+    assert ic.main(['--build', 's3']) == 1
+    out = capsys.readouterr().out
+    assert 'отличается — не переписываю' in out and 'MANIFEST не дополнен' in out
+
+
+def test_build_reports_missing_need_base_file(world, capsys):
+    tmp, logs, runs, sdir = world
+    with_copies(world, need=('06-visible/visible.glb', '08-material/material.glb'))      # такого файла «до» нет ни у кого
+    assert ic.main(['--build', 's3']) == 1
+    out = capsys.readouterr().out
+    assert '«до» 08-material/material.glb нет' in out and not (sdir / 'MANIFEST.tsv').exists()
+
+
+def test_check_catches_changed_list_unpinned_list_and_missing_base(world, capsys):
+    tmp, logs, runs, sdir = world
+    with_copies(world)
+    assert ic.main(['--build', 's3']) == 0
+    capsys.readouterr()
+    (sdir / 'lists' / 'c1' / 'inputs-q9.json').write_text('{}')                # лежит в наборе, но не в MANIFEST
+    (sdir / 'lists' / 'c1' / 'inputs-q0.json').write_text(json.dumps({}))    # список подменён → sha не совпал
+    f = sdir / 'base' / 'sh0' / SKUS[1] / '06-visible' / 'check.json'
+    f.write_bytes(b'broken')                                                 # «до» испорчен
+    rows = (sdir / 'MANIFEST.tsv').read_text().splitlines()
+    keep = [ln for ln in rows if not (ln.split('\t')[0] == SKUS[2] and ln.split('\t')[1] == 'base' and '/06-visible/visible.glb' in ln)]
+    (sdir / 'MANIFEST.tsv').write_text('\n'.join(keep) + '\n')                # нет строки обязательного «до»
+    assert ic.main([]) == 1
+    out = capsys.readouterr().out
+    assert 'lists/c1/inputs-q0.json' in out and 'sha256 не совпал' in out
+    assert 'inputs-q9.json лежит в наборе, но его нет в MANIFEST' in out
+    assert '06-visible/check.json' in out and f'{SKUS[2]}: нет «до» 06-visible/visible.glb в MANIFEST' in out

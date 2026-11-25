@@ -15,8 +15,11 @@ glb/<sku>-hd.glb (форма из этапа 02), other/… (другие вер
   python3 tools/ops/inputs_check.py --set set29     # один набор
   python3 tools/ops/inputs_check.py --json          # машинно
   python3 tools/ops/inputs_check.py --build set29   # СОЗДАТЬ копии из списков `lists` (+ `also` — другие версии) и MANIFEST.tsv. Ничего не перезаписывает: файл на месте с другим sha — ❗ отказ,
-                                                    # тот же sha — оставляет; MANIFEST уже есть — не пишет (сверяет --check).
-Новый круг: добавить его список в `lists` правила (иначе проверка его не видит). Правила — в json, не в коде; env: INPUTS_CHECK_RULES (другой файл правил), INPUTS_ROOT (другой корень — тесты).
+                                                    # тот же sha — оставляет; MANIFEST уже есть — ДОПИСЫВАЕТ строки новых файлов (существующие строки не меняет, другой sha у строки — ❗).
+СПИСКИ СТРОК КРУГА И «ДО» (T-20261125-75/4): `copy_lists` — списки `inputs-q*.json` круга копируются в `<набор>/lists/<круг>/` (loop5.json `shard_inputs_glob` смотрит туда, а не в ~/remlab-logs);
+`copy_base` — файлы «до» (06-visible, 07-fill, 08-material) каждого товара копируются в `<набор>/base/<шард>/<товар>/…` (loop5.json `base_root` смотрит туда). Всё — строками MANIFEST (kind list / base),
+sha проверяется; `lists` правила — это КОПИИ (по ним проверка путей); список копии не закреплён в MANIFEST — ❗; у товара нет файла из `copy_base.need` — ❗.
+Новый круг: добавить его список в `copy_lists` (и `lists`) правила (иначе проверка его не видит). Правила — в json, не в коде; env: INPUTS_CHECK_RULES (другой файл правил), INPUTS_ROOT (другой корень — тесты).
 Без чтения секретов, без сети, без платного."""
 from __future__ import annotations
 
@@ -155,6 +158,17 @@ def check_set(name: str, cfg: dict, root: str) -> tuple[list, dict]:
             probs.append(f'{sku}: нет в MANIFEST основных входов: {", ".join(miss)}')
     entries, bad = list_entries(cfg.get('lists') or [])
     probs += bad
+    mfiles = {os.path.normpath(os.path.join(sdir, r['file'])) for r in rows}
+    for pat in cfg.get('lists') or []:
+        for f in sorted(glob.glob(_x(pat))):
+            if os.path.normpath(f).startswith(sdir + os.sep) and os.path.normpath(f) not in mfiles:
+                probs.append(f'список {os.path.relpath(f, sdir)} лежит в наборе, но его нет в MANIFEST (sha не закреплён)')
+    need = (cfg.get('copy_base') or {}).get('need') or []
+    if rows and need:
+        for sku in sorted(main):
+            for rel in need:
+                if not any(r['kind'] == 'base' and r['sku'] == sku and r['file'].endswith(f'/{sku}/{rel}') for r in rows):
+                    probs.append(f'{sku}: нет «до» {rel} в MANIFEST (kind base)')
     npaths = 0
     for sku, lst in sorted(entries.items()):
         if rows and sku not in main:
@@ -180,7 +194,8 @@ def build_set(name: str, cfg: dict, root: str) -> tuple[list, list]:
     probs, msgs = [], []
     sdir = os.path.join(root, name)
     mpath = os.path.join(root, cfg.get('manifest') or f'{name}/MANIFEST.tsv')
-    entries, bad = list_entries(cfg.get('lists') or [])
+    cl = cfg.get('copy_lists') or []
+    entries, bad = list_entries([c['src'] for c in cl] or cfg.get('lists') or [])      # источник входов — списки круга в логах (копии `lists` появятся после первой сборки)
     probs += bad
     plan = []                                                   # (sku, kind, dest-rel, source, note)
     for sku in sorted(entries):
@@ -192,6 +207,26 @@ def build_set(name: str, cfg: dict, root: str) -> tuple[list, list]:
                 probs.append(f'{sku}: в списке нет входа {k}')
                 continue
             plan.append((sku, k, DEST[k].format(sku=sku), src[k], ''))
+    for c in cl:
+        for f in sorted(glob.glob(_x(c['src']))):
+            plan.append(('*', 'list', f"{c['dest'].rstrip('/')}/{os.path.basename(f)}", f, c.get('note') or 'список строк круга (копия)'))
+    cb = cfg.get('copy_base')
+    if cb:
+        root_b = next((_x(s) for s in cb['src'] if os.path.isdir(_x(s))), None)
+        if not root_b:
+            probs.append('«до»: ни одной папки из copy_base.src нет: ' + ', '.join(cb['src']))
+        else:
+            for sku in sorted(entries):
+                got = set()
+                for d in sorted(glob.glob(os.path.join(root_b, '*', sku))):
+                    shard = os.path.basename(os.path.dirname(d))
+                    for rel in cb['files']:
+                        if os.path.isfile(os.path.join(d, rel)):
+                            got.add(rel)
+                            plan.append((sku, 'base', f"{cb['dest'].rstrip('/')}/{shard}/{sku}/{rel}", os.path.join(d, rel), f'до: {shard}'))
+                for rel in cb.get('need') or []:
+                    if rel not in got:
+                        probs.append(f'{sku}: «до» {rel} нет в {root_b}')
     for a in cfg.get('also') or []:
         plan.append((a['sku'], a.get('kind') or 'other', a['dest'], a['path'], a.get('note') or 'другая версия'))
     out_rows = []
@@ -219,7 +254,25 @@ def build_set(name: str, cfg: dict, root: str) -> tuple[list, list]:
             msgs.append(f'  скопировано {rel} ({os.path.getsize(dest)} Б)')
         out_rows.append({'sku': sku, 'kind': kind, 'file': rel, 'sha256': want, 'source': s, 'note': note})
     if os.path.lexists(mpath):
-        msgs.append(f'MANIFEST уже есть ({mpath}) — не пишу; сверка: python3 tools/ops/inputs_check.py --set {name}')
+        old, bad_m = read_manifest(mpath)
+        probs += bad_m
+        have = {r['file']: r for r in old}
+        new = []
+        for r in out_rows:
+            o = have.get(r['file'])
+            if o is None:
+                new.append(r)
+            elif o['sha256'] != r['sha256'] or o['sku'] != r['sku'] or o['kind'] != r['kind']:
+                probs.append(f'{r["sku"]} {r["kind"]}: строка MANIFEST для {r["file"]} отличается — не переписываю')
+        if new and not probs:
+            with open(mpath, 'a', encoding='utf-8') as f:
+                for r in sorted(new, key=lambda r: (r['sku'], r['kind'], r['file'])):
+                    f.write('\t'.join(r[h] for h in HEADER) + '\n')
+            msgs.append(f'MANIFEST дополнен: {mpath} (+{len(new)} строк; прежние не менялись)')
+        elif new:
+            msgs.append('MANIFEST не дополнен: есть ❗ выше — исправить и повторить --build')
+        else:
+            msgs.append(f'MANIFEST уже есть ({mpath}), новых файлов нет — не пишу; сверка: python3 tools/ops/inputs_check.py --set {name}')
     elif out_rows and not probs:
         os.makedirs(os.path.dirname(mpath), exist_ok=True)
         with open(mpath, 'w', encoding='utf-8') as f:

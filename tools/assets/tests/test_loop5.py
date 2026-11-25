@@ -246,6 +246,11 @@ class T(unittest.TestCase):
         rr = L.load_rules()
         ss = json.load(open(os.path.join(L.ROOT, 'tools', 'scout', 'rules', 'input-sets.json'), encoding='utf-8'))['sets']
         self.assertIn(rr['input_set'], ss)                                                   # круг называет набор из input-sets.json, а не путь руками
+        isr = json.load(open(os.path.join(L.ROOT, 'tools', 'scout', 'rules', 'input-sets.json'), encoding='utf-8'))
+        sdir = os.path.join(os.path.expanduser(isr['root']), rr['input_set'])
+        for k in ('shard_inputs_glob', 'base_root'):                                           # T-20261125-75/4: строки входа и «до» круга — копии В НАБОРЕ, не в ~/remlab-logs
+            self.assertTrue(os.path.normpath(L.ex(rr[k])).startswith(sdir + os.sep), (k, rr[k]))
+        self.assertIn(os.path.expanduser(rr['shard_inputs_glob']), [os.path.expanduser(x) for x in ss[rr['input_set']]['lists']])   # и их же проверяет inputs_check
 
     def test_all_skus_from_shards(self):
         with tempfile.TemporaryDirectory() as tmp:
