@@ -107,13 +107,34 @@ def main():
     check(not pl[1]['apply'] and pl[1]['reason'] == 'no_photo_evidence' and not pl[2]['apply'], 'ни у кого рисунка на фото нет → зерна нет (no_photo_evidence)')
     check(pl[1]['pat'] is None, 'у отказа узор не хранится')
 
-    # 5б. T-69/6: плоское фото (σ < photo_flat_max) — зерна нет совсем, соседи не спасают; граница включительно вверх
-    pl = PG.plan_grain([part(1, photo_sigma=2.0), part(2, photo_sigma=0.12), part(3, photo_sigma=R['photo_flat_max'] - 0.01), part(4, photo_sigma=R['photo_flat_max'])], R)
-    check(not pl[2]['apply'] and pl[2]['reason'] == 'flat_photo' and pl[2]['pat'] is None, 'σ фото 0,12 (белая МДФ) → flat_photo, зерна нет, хотя у соседа рисунок есть')
-    check(pl[3]['reason'] == 'flat_photo' and pl[4]['apply'] and pl[4]['amp_source'] == 'neighbors', 'граница: чуть ниже photo_flat_max — нет зерна, на границе и выше (до photo_sigma_min) — амплитуда соседей')
+    # 5б. T-69/6: на фото нет зерна (photo_grain False) — зерна нет совсем, соседи не спасают; None (судить не удалось) — как раньше, правило соседей
+    pl = PG.plan_grain([part(1, photo_sigma=2.0, photo_grain=True), part(2, photo_sigma=0.12, photo_grain=False), part(3, photo_sigma=0.7, photo_grain=None)], R)
+    check(not pl[2]['apply'] and pl[2]['reason'] == 'no_photo_grain' and pl[2]['pat'] is None, 'photo_grain=False (белая МДФ) → no_photo_grain, зерна нет, хотя у соседа рисунок есть')
+    check(pl[3]['apply'] and pl[3]['amp_source'] == 'neighbors', 'photo_grain=None → амплитуда соседей, как раньше')
     check(pl[1]['apply'] and pl[1]['amp_source'] == 'photo', 'сосед с рисунком не затронут')
-    pl = PG.plan_grain([part(1, photo_sigma=0.1), part(2, photo_sigma=None)], R)
-    check(not pl[1]['apply'] and not pl[2]['apply'] and pl[2]['reason'] == 'no_photo_evidence', 'плоская группа не считается доказательством для соседей без фото')
+    pl = PG.plan_grain([part(1, photo_sigma=0.1, photo_grain=False), part(2, photo_sigma=None)], R)
+    check(not pl[1]['apply'] and not pl[2]['apply'] and pl[2]['reason'] == 'no_photo_evidence', 'группа без зерна не считается доказательством для соседей без фото')
+
+    # 5в. T-69/6: photo_grain_feature — направленное зерно по всей панели / гладкое / шум в одном углу
+    rng = np.random.default_rng(5)
+    Hh = 360
+    yy, xx = np.mgrid[0:Hh, 0:Hh]
+    mk_ = np.ones((Hh, Hh), bool)
+    grain_ = np.zeros((Hh, Hh), np.float32)
+    for k_ in range(60):
+        grain_ += np.sin((yy * (0.5 + 0.9 * rng.random()) + rng.random() * 99) * 0.9) * (0.5 + rng.random())
+    grain_ = grain_[:, :1] * 0 + grain_                                   # нить вдоль x: зависит только от y
+    Lg = 60.0 + 0.0 * grain_ + (np.sin(yy * 0.9) * 2.0 + np.sin(yy * 0.37) * 1.5)                   # полосы поперёк y — направленно, по всей панели
+    f1 = PG.photo_grain_feature(Lg.astype(np.float32), mk_, R)
+    f2 = PG.photo_grain_feature(np.full((Hh, Hh), 60.0, np.float32), mk_, R)
+    Lc = np.full((Hh, Hh), 60.0, np.float32)
+    Lc[:90, :90] += (rng.standard_normal((90, 90)) * 3).astype(np.float32)                         # рисунок в одном углу, шум без оси
+    f3 = PG.photo_grain_feature(Lc, mk_, R)
+    f4 = PG.photo_grain_feature(Lg.astype(np.float32), np.zeros((Hh, Hh), bool), R)
+    check(f1['has'] is True and f1['R'] > 0.9 and f1['tile_share'] >= 0.9, f'направленные полосы по всей панели → зерно есть (R {f1["R"]:.2f}, плитки {f1["tile_share"]})')
+    check(f2['has'] is False and f2['sigma_mid'] < 0.05, 'ровная панель → зерна нет')
+    check(f3['has'] is False, f'шум в одном углу → зерна нет (R {f3["R"]}, плитки {f3["tile_share"]})')
+    check(f4['has'] is None and f4['reason'] == 'few_px', 'пустая маска → судить нельзя (None), соседи')
 
     # 6. отказы с причинами
     pl = PG.plan_grain([part(1, is_wood=False), part(2, n_texels=100), part(3, tone_sigma=5.0), part(4, tone_lab=None), part(5, photo_sigma=2.0)], R)

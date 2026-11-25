@@ -66,15 +66,25 @@ def group_photo_sigma(L_frame, valid, ids, cos_f, face_group, roles, face_ny, ru
     """σL фото по группам на кадре 04: {id группы: σ | None}. Верх (роль top) — грани, смотрящие вверх (|n_y|>0.8), с любого угла; остальные — грани к камере (cos ≥ 0.3).
     `face_group` — группа на грань (значение ≥ числа групп = «не красили»); ids — id грани на пиксель кадра (−1 фон)."""
     import part_grain as PG
+    return {g: (PG.photo_hf_sigma(L_frame, m, rules) if m.any() else None) for g, m in group_photo_masks(valid, ids, cos_f, face_group, roles, face_ny).items()}
+
+
+def group_photo_masks(valid, ids, cos_f, face_group, roles, face_ny) -> dict:
+    """Пиксели кадра 04 по группам: {id группы: bool-маска}. Верх (роль top) — грани |n_y|>0.8, остальные — грани к камере (cos ≥ 0.3). Одна на σ и на признак зерна."""
     nF = len(face_group)
     fid = np.clip(ids, 0, nF - 1)
     gpix = np.where(valid & (ids >= 0), np.asarray(face_group)[fid], -1)
     out = {}
     for g, role in enumerate(roles):
         m = gpix == g
-        m = m & (np.abs(np.asarray(face_ny)[fid]) > 0.8) if role == 'top' else m & (cos_f >= 0.3)
-        out[g] = PG.photo_hf_sigma(L_frame, m, rules) if m.any() else None
+        out[g] = m & (np.abs(np.asarray(face_ny)[fid]) > 0.8) if role == 'top' else m & (cos_f >= 0.3)
     return out
+
+
+def group_photo_grain(L_frame, valid, ids, cos_f, face_group, roles, face_ny, rules: dict) -> dict:
+    """Признак «на фото есть зерно» по группам: {id группы: результат `part_grain.photo_grain_feature`} — единственный счёт признака (замер зовёт эту же функцию)."""
+    import part_grain as PG
+    return {g: (PG.photo_grain_feature(L_frame, m, rules) if m.any() else {'has': None, 'reason': 'no_px'}) for g, m in group_photo_masks(valid, ids, cos_f, face_group, roles, face_ny).items()}
 
 
 def process(a, rules: dict, d: str, rep: dict) -> None:
@@ -130,6 +140,8 @@ def process(a, rules: dict, d: str, rep: dict) -> None:
     valid = st['mask'] & okp & (st['ids'] >= 0)
     sig = group_photo_sigma(Lf, valid, st['ids'], st['cos'], fgrp, roles, n3[:, 1], rules)
     rep['photo_sigma'] = {names[k]: (None if v is None else round(float(v), 2)) for k, v in sig.items()}
+    pgf = group_photo_grain(Lf, valid, st['ids'], st['cos'], fgrp, roles, n3[:, 1], rules)
+    rep['photo_grain'] = {names[k]: {kk: (round(vv, 3) if isinstance(vv, float) else vv) for kk, vv in v.items()} for k, v in pgf.items()}
     # ось ширины товара (круглая плита) — по камере 04; нет — запасная ось в плоскости
     width = None
     try:
@@ -139,21 +151,26 @@ def process(a, rules: dict, d: str, rep: dict) -> None:
     except Exception as e:  # noqa: BLE001
         rep['width_axis'] = 'fallback (%s)' % type(e).__name__
     tx = TF.Tex(g, P, TF._grid(g), None)
-    parts, masks = PG.parts_from_masks(z, tx, tex, card, sig, rules)
+    parts, masks = PG.parts_from_masks(z, tx, tex, card, sig, rules, {k: v.get('has') for k, v in pgf.items()})
     if not parts:
         raise Abstain('Ш4а не покрасил ни одной группы (painted_group пуст)')
     fp, pn = PG.planes_for(V, F)
     new, r = PG.apply_grain(tex, tx, parts, masks, fp, pn, cpu, width, rules, enabled=True)
     rep['groups'] = {str(k): dict(v, name=names[k]) for k, v in r['parts'].items()}
     rep.update(applied=r['applied'], skipped=r['skipped'], texels_changed=r['texels_changed'], planes=int(len(pn)))
-    if r['applied'] == 0:
+    flat_g = [int(k) for k, v in r['parts'].items() if v.get('reason') == 'no_photo_grain']   # плоское фото (T-69/6): зерна нет, но и 07 своей фактуры класть не должен — остаётся ровный тон Ш4а
+    if r['applied'] == 0 and not flat_g:
         raise Abstain('зерно не легло ни на одну группу (причины: %s)' % r['skipped'])
     if not os.path.exists(pre):
         shutil.copy2(vis, pre)                                       # исходник один раз; повторный запуск идёт от него
-    swap_tex_glb(src, new, vis)
+    if r['applied'] > 0:
+        swap_tex_glb(src, new, vis)
+    else:
+        shutil.copy2(pre, vis)                                       # зерна нет нигде (только ровные группы) — visible.glb возвращаем к исходнику, старого зерна не оставляем
     gmap = np.asarray(z['group_map'])
     applied_g = [int(k) for k, v in r['parts'].items() if v.get('apply')]
-    mk = np.isin(gmap, applied_g)                                    # метка «зерно уже есть»: 07 (заливка и верх top_prior) на этих текселях своей фактуры не кладёт
+    rep['flat_groups'] = [names[k] for k in flat_g]
+    mk = np.isin(gmap, applied_g + flat_g)                                    # метка «зерно уже есть»: 07 (заливка и верх top_prior) на этих текселях своей фактуры не кладёт
     Image.fromarray((mk * 255).astype(np.uint8)).save(os.path.join(d, MASK))
     rep['mask_texels'] = int(mk.sum())
     rep['seconds'] = round(time.time() - t0, 1)

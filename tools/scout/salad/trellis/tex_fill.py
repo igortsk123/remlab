@@ -3178,8 +3178,12 @@ def run_stage_once(run: str, sku: str, glb: str, known: list | None = None, part
             _new.append(ta_)
         tex_after = _new
         rep['legs_restored_texels'] = _lc                                   # сколько текселей ножек хуки успели изменить (и вернули)
-    if _gm:                                                                  # T-20261125-69/6: зерно шага part_grain лежит на «неизвестных» текселях, которые заливка/хуки перекрашивают сами — после ВСЕХ хуков вернуть тексель входа 06 (тон Ш4а + зерно)
-        tex_after, _gm_rep['final_restored_texels'] = grain_restore(tex_after, tex_before, _gm)
+    if _gm:                                                                  # T-20261125-69/6: зерно шага part_grain лежит на «неизвестных» текселях, которые заливка/хуки перекрашивают сами — после ВСЕХ хуков вернуть ЗЕРНО (отклонение L входа 06 от его тона), а тон оставить от 07
+        _tone = grain_tone_tex(prev_dir, geoms)                              # visible.pre-grain.glb шага зерна (тот же тон Ш4а без зерна)
+        if _tone is None:
+            _gm_rep['final_carry'] = 'нет visible.pre-grain.glb — зерно после 07 не переносится (остаётся результат 07)'
+        else:
+            tex_after, _gm_rep['final_carried_texels'] = grain_carry(tex_after, tex_before, _tone, _gm)
     _m = _hmark()
     pick['finish'](tex_after, None if sg_pas is None else SP.ref_maps(geoms, k_keep, sg_pas, sg_ctx))                                          # мерки — по ИТОГОВОЙ текстуре (после ref_zone_map, own_panel, top_prior), не по текстуре до хуков
     _hdone(hooks, 'finish_final', _m)
@@ -3377,6 +3381,50 @@ def grain_restore(tex_after: list, tex_pre: list, gm: list) -> tuple:
             kept += int(m_.sum())
         outs.append(t_)
     return outs, kept
+
+
+def grain_tone_tex(visible: str | None, geoms: list) -> list | None:
+    """Тон Ш4а БЕЗ зерна — текстуры `visible.pre-grain.glb` рядом с visible.glb (пишет шаг part_grain). Нет файла / число геометрий или размер развёртки не совпали — None."""
+    if not visible:
+        return None
+    fp = os.path.join(visible, 'visible.pre-grain.glb')
+    if not os.path.exists(fp):
+        return None
+    try:
+        gs = TC.load_geoms(fp)
+    except Exception:  # noqa: BLE001
+        return None
+    if len(gs) != len(geoms) or any(np.asarray(a_['tex']).shape != np.asarray(b_['tex']).shape for a_, b_ in zip(gs, geoms)):
+        return None
+    return [np.asarray(g_['tex']).copy() for g_ in gs]
+
+
+def grain_carry(tex_after: list, tex_before: list, tex_tone: list, gm: list) -> tuple:
+    """После всех хуков: на текселях зерна, которые 07 перекрасил, вернуть ЗЕРНО, а не тон. Зерно шага part_grain — только отклонение L (тон a, b и средняя L не трогает), поэтому
+    dL = L(вход 06 с зерном) − L(вход 06 тон без зерна); итог = Lab текселя 07 с L += dL (a, b и средняя яркость — как подобрал 07: тон боковины/сиблинга от 07 не затирается тоном Ш4а).
+    Тексель, который 07 не менял, остаётся как есть (там зерно уже лежит). Плоская группа (метка без зерна): dL = 0 → итог = результат 07 (заливка там без своей фактуры, texture_off).
+    → (текстуры, сколько текселей получили зерно)."""
+    n, outs = 0, []
+    for gi, t_ in enumerate(tex_after):
+        t_ = np.asarray(t_)
+        m_ = np.asarray(gm[gi], bool)
+        bf, tn = np.asarray(tex_before[gi]), np.asarray(tex_tone[gi])
+        if t_.shape[:2] != m_.shape:
+            outs.append(t_)
+            continue
+        chg = m_ & np.any(t_[..., :3] != bf[..., :3], axis=-1)
+        if chg.any():
+            dl = rgb2lab(bf[chg][:, :3])[:, 0] - rgb2lab(tn[chg][:, :3])[:, 0]
+            sel = np.abs(dl) > 1e-3
+            if sel.any():
+                idx = np.argwhere(chg)[sel]
+                lab = rgb2lab(t_[idx[:, 0], idx[:, 1]][:, :3])
+                lab[:, 0] = np.clip(lab[:, 0] + dl[sel], 0.0, 100.0)
+                t_ = t_.copy()
+                t_[idx[:, 0], idx[:, 1], :3] = lab2rgb(lab)
+                n += int(sel.sum())
+        outs.append(t_)
+    return outs, n
 
 
 def load_conf_png(visible: str) -> list | None:

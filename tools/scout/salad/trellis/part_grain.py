@@ -37,7 +37,7 @@ def load_rules(path: str = RULES_PATH) -> dict:
         r = json.load(fh)
     if not (0 < r['amp_min'] < r['amp_max'] <= 1.0):
         raise ValueError('part-grain.json: amp_min/amp_max вне пределов (0 < min < max ≤ 1)')
-    if not (0 <= r['photo_flat_max'] <= r['photo_sigma_min']) or not (0 < r['photo_sigma_min'] < 10) or not (0 < r['even_tone_sigma_max'] < 20) or r['min_texels'] < 1 or r['round_ratio'] < 1.0:
+    if not (0 < r['photo_sigma_min'] < 10) or not (0 < r['even_tone_sigma_max'] < 20) or r['min_texels'] < 1 or r['round_ratio'] < 1.0:
         raise ValueError('part-grain.json: пороги вне допустимых пределов')
     if len(r['tile_layers']) < 1 or len(r['no_tile_layers']) < 1:
         raise ValueError('part-grain.json: нужен хотя бы один слой шага')
@@ -76,6 +76,101 @@ def photo_hf_sigma(L_frame, mask, rules: dict):
         return None
     res = Lf[ok] - num[ok] / den[ok]
     return float(1.4826 * np.median(np.abs(res - np.median(res))))
+
+
+def _nconv(x, mf, s):
+    """Гауссово сглаживание по маске (нормированная свёртка): значения вне маски не примешиваются. → (сглаженное, вес)."""
+    import cv2
+    k = int(6 * s + 1) | 1
+    den = cv2.GaussianBlur(mf, (k, k), s)
+    return cv2.GaussianBlur(x * mf, (k, k), s) / np.maximum(den, 1e-6), den
+
+
+def photo_grain_feature(L_frame, mask, rules: dict) -> dict:
+    """Признак «на фото части есть зерно» (T-20261125-69/6, совет Fable; ЕДИНСТВЕННЫЙ счёт признака — замер и таблицы зовут эту же функцию). σ как признак убран: растёт от света/тени и щелей.
+    Три части (пороги — rules.grain_feature):
+      (а) направленность R — доля энергии средних полос вдоль ОДНОЙ оси: структурный тензор полосы (DoG s1..s2) в окне rho, по пикселям без самых резких краёв (edge_trim_pct — щели, ручки), R = |Σ e·exp(2iθ)| / Σ e (0..1);
+      (б) энергия в СРЕДНИХ полосах sigma_mid — робастная σ (1,4826·MAD) полосы s1..s2 (не самая мелкая — шум, не самая крупная — свет/тень);
+      (в) одинаково по плиткам панели tile_share — доля плиток сетки (tiles×tiles по рамке части) с энергией ≥ tile_sigma_frac·sigma_mid и осью в пределах tile_angle_deg от общей (не рисунок в одном углу).
+    L_frame — светлота кадра фото (системa кадра 04), mask — пиксели ЭТОЙ части, где тексель известен из фото (prov 1/2; иначе меряется своя заливка) — собирает вызывающий.
+    → {'has': True|False|None, 'R', 'sigma_mid', 'tile_share', 'tiles', 'px', 'axis_deg', 'reason'}; has=None — мало пикселей (решает правило соседей) или пороги не заданы."""
+    import cv2
+    g = rules['grain_feature']
+    Lf = np.asarray(L_frame, np.float32)
+    mm = np.asarray(mask, bool)
+    er = cv2.erode(mm.astype(np.uint8), np.ones((2 * int(g['erode_px']) + 1,) * 2, np.uint8)) > 0
+    mf = mm.astype(np.float32)
+    a1, _d = _nconv(Lf, mf, float(g['band_sigma'][0]))
+    a2, d2 = _nconv(Lf, mf, float(g['band_sigma'][1]))
+    band = (a1 - a2).astype(np.float32)
+    ok = er & (d2 > 0.6)
+    n = int(ok.sum())
+    out = {'has': None, 'R': None, 'sigma_mid': None, 'tile_share': None, 'tiles': 0, 'px': n, 'axis_deg': None, 'reason': None}
+    if n < int(g['min_px']):
+        out['reason'] = 'few_px'
+        return out
+    v = band[ok]
+    sm = float(1.4826 * np.median(np.abs(v - np.median(v))))
+    out['sigma_mid'] = sm
+    out['kurt'] = float(np.mean(((v - np.median(v)) / max(sm, 1e-6)) ** 4) - 3.0) if sm > 1e-6 else None
+    a0, _d0 = _nconv(Lf, mf, 1.0)
+    vf = (a0 - a1)[ok]
+    out['fine_ratio'] = float(1.4826 * np.median(np.abs(vf - np.median(vf))) / max(sm, 1e-6))
+    th0 = g.get('thresholds')
+    if th0 and sm < th0['sigma_mid_min']:                  # энергии средних полос нет вовсе — гладко, направленность/плитки не нужны (тензор шума бессмыслен)
+        out['has'], out['reason'] = False, 'smooth'
+        return out
+    okf = ok.astype(np.float32)
+    bz = band * okf
+    gx = cv2.Sobel(bz, cv2.CV_32F, 1, 0, ksize=3)
+    gy = cv2.Sobel(bz, cv2.CV_32F, 0, 1, ksize=3)
+    rho = float(g['tensor_rho'])
+    jxx, _ = _nconv(gx * gx, okf, rho)
+    jyy, _ = _nconv(gy * gy, okf, rho)
+    jxy, _ = _nconv(gx * gy, okf, rho)
+    e = (jxx + jyy)
+    th = 0.5 * np.arctan2(2 * jxy, jxx - jyy)
+    ev = e[ok]
+    hi = np.percentile(ev, 100.0 - float(g['edge_trim_pct']))
+    sel = ok & (e <= hi) & (e > 1e-9)
+    if int(sel.sum()) < int(g['min_px']) // 2:
+        out['reason'] = 'few_px'
+        return out
+    z = e * np.exp(2j * th)
+    zs, es = z[sel].sum(), e[sel].sum()
+    out['R'] = float(abs(zs) / es)
+    ax = 0.5 * np.angle(zs)
+    out['axis_deg'] = float(np.degrees(ax))
+    # (в) плитки
+    ys, xs = np.where(ok)
+    y0, y1, x0, x1 = ys.min(), ys.max() + 1, xs.min(), xs.max() + 1
+    nt = int(g['tiles'])
+    cnt = good = 0
+    for i in range(nt):
+        for j in range(nt):
+            ya, yb = y0 + (y1 - y0) * i // nt, y0 + (y1 - y0) * (i + 1) // nt
+            xa, xb = x0 + (x1 - x0) * j // nt, x0 + (x1 - x0) * (j + 1) // nt
+            c = np.zeros_like(ok)
+            c[ya:yb, xa:xb] = True
+            cs, co = c & sel, c & ok
+            if int(cs.sum()) < int(g['tile_min_px']) or int(co.sum()) < int(g['tile_min_px']):
+                continue
+            cnt += 1
+            vc = band[co]
+            sc = float(1.4826 * np.median(np.abs(vc - np.median(vc))))
+            zc = z[cs].sum()
+            dang = abs((np.degrees(0.5 * np.angle(zc)) - out['axis_deg'] + 90.0) % 180.0 - 90.0)
+            if sc >= float(g['tile_sigma_frac']) * sm and dang <= float(g['tile_angle_deg']):
+                good += 1
+    out['tiles'] = cnt
+    out['tile_share'] = (good / cnt) if cnt >= 2 else None
+    th_ = g.get('thresholds')
+    if th_:
+        ts = out['tile_share']
+        out['has'] = None if ts is None else bool(out['R'] >= th_['R_min'] and th_['sigma_mid_min'] <= sm <= th_['sigma_mid_max'] and ts >= th_['tile_share_min'])
+        if out['has'] is None:
+            out['reason'] = 'few_tiles'
+    return out
 
 
 # ------------------------------------------------------------------ бин и узор ---------------------------------------------------------------------
@@ -145,8 +240,8 @@ def plan_grain(parts: list, rules: dict | None = None) -> dict:
             continue
         rec['pat'], rec['pat_std'] = pat, pstd
         ps = p.get('photo_sigma')
-        if ps is not None and float(ps) < rules['photo_flat_max']:      # T-69/6: рисунка на фото нет вовсе (плоская МДФ/лак) — зерно только вредит (замер 13 товаров), соседей не слушаем
-            rec['reason'] = 'flat_photo'
+        if p.get('photo_grain') is False:                               # T-69/6: на фото зерна нет (гладкая МДФ/лак, не направленно, не по всей панели) — зерно только вредит, соседей не слушаем; None = не удалось судить → правило соседей
+            rec['reason'] = 'no_photo_grain'
             rec['pat'] = None
             continue
         if ps is not None and float(ps) >= rules['photo_sigma_min']:
@@ -294,11 +389,11 @@ def planes_for(V, F):
 
 
 # ------------------------------------------------------------------ вход от Ш4а (part_material, р.3) -------------------------------------------------------
-def parts_from_masks(npz, tx, tex, card: dict | None = None, photo_sigma: dict | None = None, rules: dict | None = None):
+def parts_from_masks(npz, tx, tex, card: dict | None = None, photo_sigma: dict | None = None, rules: dict | None = None, photo_grain: dict | None = None):
     """Выход Ш4а `06-visible/part_material_masks.npz` → (parts для plan_grain, masks по текселям tx). Ключи npz: group_map (T×T int16, группа по текселю, −1 = не красили), names (имя группы),
     tone_srgb (плоский тон группы, (G,3), 0..255 или 0..1), painted_group (bool: группу красил Ш4а), roles (английский ключ роли р.1 на группу: top/legs/facade/side/back/body; names — русские имена групп), texture_size. Берутся только painted_group. Дерево — по карточке и имени (`part_is_wood`; номер материала Ш4а —
     «один материал = один тон», классов он не несёт). Ровность тона (`tone_sigma`) — σL текстуры под маской группы (Ш4а кладёт плоский тон → ≈0; градиент → отказ tone_not_even).
-    photo_sigma — {id группы: σL фото (`photo_hf_sigma`)}; нет — None (предохранитель 2 берёт соседей)."""
+    photo_sigma — {id группы: σL фото (`photo_hf_sigma`)}; нет — None (предохранитель 2 берёт соседей). photo_grain — {id группы: has из `photo_grain_feature` (True/False/None)}; False → зерна нет совсем."""
     rules = rules or load_rules()
     z = npz if isinstance(npz, dict) else dict(np.load(npz, allow_pickle=False))
     gm = np.asarray(z['group_map']).reshape(-1)
@@ -323,7 +418,7 @@ def parts_from_masks(npz, tx, tex, card: dict | None = None, photo_sigma: dict |
         lab = TC.rgb2lab(np.clip(np.round(tone[g]), 0, 255).astype(np.uint8).reshape(1, 3))[0]
         sig = float(TC.rgb2lab(flat[m])[:, 0].std()) if n >= 20 else None
         parts.append({'id': g, 'name': names[g], 'is_wood': part_is_wood(names[g], card, rules, roles[g] if g < len(roles) else None), 'tone_lab': [float(x) for x in lab], 'tone_sigma': sig,
-                      'n_texels': n, 'photo_sigma': (photo_sigma or {}).get(g), 'card': card})
+                      'n_texels': n, 'photo_sigma': (photo_sigma or {}).get(g), 'photo_grain': (photo_grain or {}).get(g), 'card': card})
         masks[g] = m
     return parts, masks
 

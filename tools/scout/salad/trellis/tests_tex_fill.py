@@ -1820,6 +1820,23 @@ def test_grain_mask():
     ok(np.array_equal(back[0][~top_px], out[0][~top_px]), 'вне метки — результат хука не тронут')
     b2, k2 = TF.grain_restore(out, [tex], [np.zeros_like(top_px)])
     ok(k2 == 0 and np.array_equal(b2[0], out[0]), 'пустая метка = прежнее поведение байт в байт')
+    # T-69/6: итоговый перенос зерна — тон от 07, зерно (отклонение L) от входа 06
+    H_ = tex.shape[0]
+    tone = np.tile(np.array([[120, 140, 160]], np.uint8), (H_, H_, 1))
+    bump = (np.random.default_rng(3).integers(-9, 10, (H_, H_, 1))).astype(np.int16)
+    grained = np.clip(tone.astype(np.int16) + bump, 0, 255).astype(np.uint8)           # «вход 06»: тон + зерно
+    after07 = np.tile(np.array([[200, 150, 90]], np.uint8), (H_, H_, 1))               # «07» перекрасил в другой тон
+    mk = np.zeros((H_, H_), bool)
+    mk[: H_ // 2] = True
+    car, nc = TF.grain_carry([after07], [grained], [tone], [mk])
+    la, lt = TF.rgb2lab(car[0][mk].reshape(-1, 3)), TF.rgb2lab(after07[mk].reshape(-1, 3))
+    lg, ln0 = TF.rgb2lab(grained[mk].reshape(-1, 3))[:, 0], TF.rgb2lab(tone[mk].reshape(-1, 3))[:, 0]
+    ok(nc > 0 and abs(float(np.median(la[:, 0] - lt[:, 0]))) < 3.0 and float(np.corrcoef(la[:, 0], lg - ln0)[0, 1]) > 0.9, f'grain_carry: тон от 07 (медиана ΔL {float(np.median(la[:, 0] - lt[:, 0])):.1f}), зерно входа 06 легло (корреляция {float(np.corrcoef(la[:, 0], lg - ln0)[0, 1]):.2f})')
+    ok(float(np.abs(np.median(la[:, 1:], 0) - np.median(lt[:, 1:], 0)).max()) < 1.5 and np.array_equal(car[0][~mk], after07[~mk]), 'grain_carry: a, b — от 07; вне метки результат 07 не тронут')
+    car2, nc2 = TF.grain_carry([after07], [after07], [after07], [mk])
+    ok(nc2 == 0 and np.array_equal(car2[0], after07), 'grain_carry: плоская метка (зерна нет) → результат 07 байт в байт')
+    car3, nc3 = TF.grain_carry([grained], [grained], [tone], [mk])
+    ok(nc3 == 0 and np.array_equal(car3[0], grained), 'grain_carry: 07 тексель не менял → остаётся как есть (зерно уже лежит)')
     zk = {'protect': [np.zeros_like(top_px)], 'texture_off': [np.zeros_like(top_px)]}
 
 
