@@ -443,6 +443,16 @@ class TestTexVisible(unittest.TestCase):
         finally:
             TV.EDGE_BG_INWARD = old_flag
 
+    def test_edge_bg_reach_limits_measure_to_photo_edge_band(self):
+        """Под флагом inward мерка смотрит на пиксели ≤ EDGE_BG_REACH (8 px) от края фото: кайма у края — внутри, светлая деталь на 12 px — снаружи области."""
+        n = 200
+        pm = np.zeros((n, n), bool); pm[20:180, 20:180] = True
+        reach = TV.edge_bg_reach(pm)
+        self.assertTrue(reach[20:180, 20:23].all())                      # у края — в области
+        self.assertFalse(reach[100, 20 + 12])                            # 12 px от края — вне
+        self.assertFalse(reach[~pm].any())                               # вне фото — вне
+        self.assertEqual(TV.EDGE_BG_REACH, float(TV.R.get('edge_bg_reject_px', 8.0)))
+
     def test_frayed_share_counts_known_pixels_next_to_unknown_only(self):
         n = 100
         mask = np.zeros((n, n), bool); mask[10:90, 10:90] = True

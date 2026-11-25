@@ -60,6 +60,7 @@ EDGE_BG_MEASURE = float(R.get('edge_bg_measure_px', 6.0))
 EDGE_BG_DL = float(R.get('edge_bg_dL', 6.0))
 EDGE_BG_LOCAL = os.environ.get('EDGE_BG_LOCAL', str(R.get('edge_bg_local', False))).lower() in ('1', 'true', 'yes')   # T-20261124-10/2: опора каймы — цвет БЛИЖАЙШЕГО ядра, а не одна медиана на товар
 EDGE_BG_INWARD = os.environ.get('EDGE_BG_INWARD', str(R.get('edge_bg_inward', False))).lower() in ('1', 'true', 'yes')   # T-85 хвост (вариант В): опора каймы — цвет товара на INWARD_LO..INWARD_HI px вглубь от края фото (кайма вырезки тоньше, чем рама/ножка/кант), не медиана и не роль
+EDGE_BG_REACH = float(R.get('edge_bg_reject_px', 8.0))   # T-85/В: под флагом inward мерка смотрит только на пиксели ≤ этого от края фото (кайма вырезки по определению у края; светлая деталь глубже — не кайма)
 INWARD_LO, INWARD_HI = float(R.get('edge_bg_inward_lo_px', 8.0)), float(R.get('edge_bg_inward_hi_px', 14.0))
 EDGE_BG_REF_SIGMA = float(R.get('edge_bg_ref_sigma_px', 6.0))     # сглаживание опорного цвета ядра (px кадра)
 EDGE_BG_WHITE_L = float(R.get('edge_bg_white_L', 90.0))   # медиана ядра светлее — ткань белая, мерка и правило каймы слепы (N/A)
@@ -430,12 +431,20 @@ def frayed_share(kn: np.ndarray, mask: np.ndarray, px: int = FRAYED_PX) -> dict:
     return {'frayed_share': round(float(fr.sum() / n), 4), 'frayed_px': int(fr.sum()), 'frayed_known_px': n}
 
 
+def edge_bg_reach(pmask: np.ndarray) -> np.ndarray:
+    """Маска кадра: пиксели фото не дальше EDGE_BG_REACH px от края его альфы (область мерки под флагом edge_bg_inward; директор 25.11: кайма живёт у края, светлая деталь на 10–15 px — не кайма)."""
+    from scipy.ndimage import distance_transform_edt
+    return distance_transform_edt(pmask) <= EDGE_BG_REACH
+
+
 def edge_bg_share(geoms: list, st: dict, prgb: np.ndarray, pmask: np.ndarray, tr: dict, after: np.ndarray) -> dict:
     """Автопроверка: доля «светлых как фон» среди ВЗЯТЫХ пикселей кадра у края (<= EDGE_BG_MEASURE px от края альфы фото или силуэта растра)."""
     from scipy.ndimage import distance_transform_edt
     mask = st['mask']
     kn = known_px(geoms, st, tr)
     near = (np.minimum(distance_transform_edt(pmask), distance_transform_edt(mask)) <= EDGE_BG_MEASURE) & kn
+    if EDGE_BG_INWARD:
+        near = near & edge_bg_reach(pmask)
     med = core_median(st, prgb, pmask)
     if med[0] > EDGE_BG_WHITE_L:
         return {'edge_bg_share': None, 'edge_known_px': int(near.sum()), 'edge_bg_px': 0, 'edge_bg_na': f'N/A: белая ткань (медиана ядра L* {med[0]:.1f} > {EDGE_BG_WHITE_L:g}), мерка слепа'}
