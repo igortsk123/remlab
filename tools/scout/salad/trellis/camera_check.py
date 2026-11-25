@@ -227,6 +227,17 @@ def front_edge_dx(photo: np.ndarray, pose: dict, rules: dict, cv: dict, out_dir:
         return {'measured': False, 'reason': f'сбой мерки: {type(e).__name__}: {str(e)[:100]}'}
 
 
+def form_verdict_extra(run: str, pose: dict, rules: dict, cv: dict, fedge: dict) -> dict:
+    """Ярлык «форма / скругление / ложная_кромка / ок» (T-20261125-78/2, form_verdict.py): только отчёт, passed не меняет. Флаг rules.form_verdict.enabled=false (по умолчанию) → {} —
+    блока в check.json нет, файл побайтно как без мерки."""
+    import form_verdict as FV
+    R = {**FV.DEFAULTS, **(rules.get('form_verdict') or {})}
+    if not R['enabled']:
+        return {}
+    import junction as JN
+    return {'form_verdict': FV.from_run(run, pose, fedge, cv, JN, R)}
+
+
 def main() -> int:
     import cv2
     from PIL import Image
@@ -284,6 +295,7 @@ def main() -> int:
         edge_angle = {'measured': False, 'skip': f'сбой мерки: {type(e).__name__}: {str(e)[:100]}'}
     vconv = vertical_convergence(photo, pose, rules, pose.get('canvas') or {'x0': float(P[0, 2]), 'y0': float(P[1, 2]), 'side': float(P[0, 0]) * w})                  # схождение вертикалей рендер↔фото (T-20261124-18): только запись, passed не меняет
     fedge = front_edge_dx(photo, pose, rules, pose.get('canvas') or {'x0': float(P[0, 2]), 'y0': float(P[1, 2]), 'side': float(P[0, 0]) * w}, out)     # стык фронт|бок: пишется всегда; ворота — только при junction.enforce
+    fv = form_verdict_extra(a.run, pose, rules, pose.get('canvas') or {'x0': float(P[0, 2]), 'y0': float(P[1, 2]), 'side': float(P[0, 0]) * w}, fedge)           # ярлык формы: только отчёт
     if (rules.get('junction') or {}).get('enforce', False) and fedge.get('over'):
         reason = ('стык фронта: ребро формы ↔ кромка фото %s px (порог %s) — на фронте будет разрыв узора; ' % (fedge['dx_px'], fedge['threshold_px'])) + reason if not ok else ('стык фронта: ребро формы ↔ кромка фото %s px (порог %s); ' % (fedge['dx_px'], fedge['threshold_px'])) + reason
         ok = False
@@ -317,7 +329,7 @@ def main() -> int:
                                   'edge_agree': {'value': None if edge is None else round(edge, 4), **({'no_edges': True} if no_edges else {})}},
                          reason=reason if not ok else '', seconds=round(time.time() - t0, 1), outputs=['frame.png'] + (['junction.png'] if os.path.isfile(os.path.join(out, 'junction.png')) else []), frame='frame.png',
                          edge_ref_min=rules['edge_ref'], edge_below_ref=bool(edge is not None and edge < rules['edge_ref']), no_edges=no_edges, note=reason if ok else '', strip_rows=shares['strip_rows'], strip_frac=rules['strip_frac'],
-                         bottom_mask_coarse=coarse, edge_angle=edge_angle, vertical_convergence=vconv, front_edge=fedge, az_sigma=pose.get('az_sigma') or {'applicable': None, 'value': None, 'reason': 'не считалась (rules az_sigma.enabled=false / POSE_AZ_SIGMA)'}, front_edge_dx_px=(fedge.get('dx_px') if fedge.get('measured') else None), bottom_mask=bq, bottom_shape_mismatch=bsm, **LC.extra_fields(legs), shape_mismatch=shm, shape_corridor=shm_info, regen_form=bool(shm), iou_top=None if shares['iou_top'] is None else round(shares['iou_top'], 4),
+                         bottom_mask_coarse=coarse, edge_angle=edge_angle, vertical_convergence=vconv, front_edge=fedge, az_sigma=pose.get('az_sigma') or {'applicable': None, 'value': None, 'reason': 'не считалась (rules az_sigma.enabled=false / POSE_AZ_SIGMA)'}, front_edge_dx_px=(fedge.get('dx_px') if fedge.get('measured') else None), bottom_mask=bq, bottom_shape_mismatch=bsm, **LC.extra_fields(legs), **fv, shape_mismatch=shm, shape_corridor=shm_info, regen_form=bool(shm), iou_top=None if shares['iou_top'] is None else round(shares['iou_top'], 4),
                          bottom_top_iou_min=rules.get('bottom_top_iou_min', rules['iou_min']), thin=tm, thin_rescue=thin_rescue, unreliable=bool(unrel), unreliable_reason=unrel_why, rules_file='tools/scout/rules/camera-check.json',
                          camera=pose['camera'], yaw=a.yaw if a.yaw is not None else pose.get('yaw'), pairs=None, photo=a.photo, method=reg.get('method'),
                          textured=pose.get('textured'), frame_note='фото 50 % + рендер 50 %; красный контур — рендер формы, зелёный — фото')
