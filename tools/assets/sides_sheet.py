@@ -32,6 +32,16 @@ def load_rules(rules: dict | None = None) -> dict:
         return json.load(f)
 
 
+def light_rules(sh: dict, light: str | None) -> dict:
+    """Свет листа на этот прогон: None/'default' — как в sides-sheet.json (site.enabled; по умолчанию false = свет подгонки, model-viewer neutral exposure 1);
+    'fit' — свет подгонки; 'site' — свет сайта (three.js RoomEnvironment, как lib/viewer3d). Правила не меняются на диске."""
+    if light in (None, '', 'default'):
+        return sh
+    if light not in ('fit', 'site'):
+        raise ValueError(f"свет листа: fit | site | default, получено {light!r}")
+    return dict(sh, site=dict(sh.get('site', {}), enabled=(light == 'site')))
+
+
 def az_of(item: dict) -> float | None:
     if item.get('az') is not None:
         return float(item['az'])
@@ -98,8 +108,8 @@ def node_env(sh: dict, root: str | None = None, env: dict | None = None) -> tupl
     return env, 'sides_sheet: playwright не найден ни рядом, ни в node_fallback — node, скорее всего, упадёт'
 
 
-def batch(items: list, out: str, node: str = 'node', rules: dict | None = None, keep_work: bool = False, render_fn=None, clay: bool = False) -> dict:
-    sh = load_rules(rules)
+def batch(items: list, out: str, node: str = 'node', rules: dict | None = None, keep_work: bool = False, render_fn=None, clay: bool = False, light: str | None = None) -> dict:
+    sh = light_rules(load_rules(rules), light)
     os.makedirs(out, exist_ok=True)
     work = os.path.join(out, '_work')
     todo, times = [], {}
@@ -162,9 +172,10 @@ def main(argv: list) -> int:
     b.add_argument('--node', default='node')
     b.add_argument('--keep-work', action='store_true')
     b.add_argument('--clay', action='store_true', help='кроме листа — второй лист «глина» <id>.clay.png (для sides_eval)')
+    b.add_argument('--light', default='default', choices=['default', 'fit', 'site'], help='свет листа на этот прогон: default — по sides-sheet.json site.enabled (свет подгонки), fit — свет подгонки, site — свет сайта (для мерок sides_eval / абсолютного back_speckle)')
     a = ap.parse_args(argv)
     items = json.load(open(a.items, encoding='utf-8'))
-    t = batch(items, a.out, a.node, keep_work=a.keep_work, clay=a.clay)
+    t = batch(items, a.out, a.node, keep_work=a.keep_work, clay=a.clay, light=a.light)
     bad = [k for k, v in t.items() if not k.startswith('_') and not v['ok']]
     tot = t['_total']
     print(f"в списке {len(items)}, не вышли {len([b for b in bad if b in {i['id'] for i in items}])}, {tot['seconds']} с" + (f", не вышли: {bad}" if bad else ''))

@@ -69,7 +69,9 @@
   "min_gb_sheets_batch": 2
  },
  "sheets": {
-  "mode": "batch", "clay": true,
+  "mode": "batch",
+  "eval_light": "site",
+  "_eval_light_about": "свет листа для МЕРОК sides_eval (T-63, директор 25.11): основной лист — свет подгонки (sides-sheet.json site.enabled=false; для людей/Fable/ворот), мерки сидят на листе в свете сайта (пороги подобраны на нём, 23.11, 26/29 совпало с глазами) — второй лист «после» в папке sheets-eval; пересчёт порогов под свет подгонки — отдельной задачей на следующей партии.", "clay": true,
   "cmd": [
    "{python}",
    "-I",

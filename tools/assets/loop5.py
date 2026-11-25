@@ -418,15 +418,15 @@ def sheet_items(jobs: list[tuple]) -> list[dict]:
     return items
 
 
-def batch_cmd(rules: dict, items_path: str, out: str) -> list[str]:
+def batch_cmd(rules: dict, items_path: str, out: str, light: str | None = None) -> list[str]:
     """Команда листов браузером (T-27, tools/assets/sides_sheet.py batch): один Chromium, товары по очереди; под heavy-slot (ядра/память — rules.heavy_slot.*_batch)."""
     hs = rules['heavy_slot']
     c = [a.format(python=ex(rules['python']), root=ROOT) for a in rules['sheets']['cmd']]
     return [HEAVY, 'loop5-sheets', '--min-gb', str(hs['min_gb_sheets_batch']), '--cores', str(hs['cores_sheets_batch']), '--prio', str(hs['prio']), '--timeout', '1500', '--',
-            *c, *(['--clay'] if rules['sheets'].get('clay') else []), '--items', items_path, '--out', out]
+            *c, *(['--clay'] if rules['sheets'].get('clay') else []), *(['--light', light] if light else []), '--items', items_path, '--out', out]
 
 
-def run_sheets(rules: dict, jobs: list[tuple], log: str) -> int:
+def run_sheets(rules: dict, jobs: list[tuple], log: str, light: str | None = None) -> int:
     """Листы «со всех сторон» на наших ядрах под heavy-slot; готовые png (непустые) пропускаются. mode=batch — браузером одним вызовом (все jobs в одной папке), иначе — по процессу на товар."""
     todo = [j for j in jobs if not (os.path.isfile(j[2]) and os.path.getsize(j[2]) > 0)]               # пустой png (диск был полон) — не «готово»
     if not todo:
@@ -440,7 +440,7 @@ def run_sheets(rules: dict, jobs: list[tuple], log: str) -> int:
         items_path = log + '.items.json'
         with open(items_path, 'w', encoding='utf-8') as f:
             json.dump(sheet_items(todo), f, ensure_ascii=False, indent=1)
-        cmd = batch_cmd(rules, items_path, outs.pop())
+        cmd = batch_cmd(rules, items_path, outs.pop(), light)
     else:
         lst = log + '.list'
         with open(lst, 'w', encoding='utf-8') as f:
@@ -641,9 +641,22 @@ def type_policies(rules: dict, skus: list[str], types: dict[str, dict]) -> dict[
     return out
 
 
-def eval_after(rules: dict, run_dir: str, jobs: list[tuple], fronts: dict, types: dict | None = None) -> tuple[dict | None, str]:
+def sheet_default_light() -> str:
+    """Свет листа по умолчанию из data/flat3d/sides-sheet.json: site.enabled → 'site', иначе 'fit' (свет подгонки)."""
+    with open(os.path.join(ROOT, 'data', 'flat3d', 'sides-sheet.json'), encoding='utf-8') as f:
+        return 'site' if (json.load(f).get('site') or {}).get('enabled') else 'fit'
+
+
+def eval_sheets_light(rules: dict) -> str | None:
+    """Свет, в котором читает лист мерка sides_eval (rules.sheets.eval_light): отличается от света по умолчанию → нужен ВТОРОЙ лист «после» (папка sheets-eval); совпадает или не задан → мерка читает основной лист.
+    Мерки сидят на листе в свете сайта (пороги подобраны на нём, 23.11, 26/29), человек видит свет подгонки (директор 25.11) — пересчёт порогов под свет подгонки отдельной задачей."""
+    want = (rules.get('sheets') or {}).get('eval_light')
+    return want if want in ('fit', 'site') and want != sheet_default_light() else None
+
+
+def eval_after(rules: dict, run_dir: str, jobs: list[tuple], fronts: dict, types: dict | None = None, sheets_name: str = 'sheets') -> tuple[dict | None, str]:
     """Оценка листов «после» сама, без ручного шага: (ev, html таблицы). Нет ни одного листа — (None, ''); сбой оценки не роняет круг (❗ в странице и в журнале)."""
-    sheets = os.path.join(run_dir, 'sheets')
+    sheets = os.path.join(run_dir, sheets_name)
     items = [it for it in sheet_items(jobs) if os.path.isfile(os.path.join(sheets, it['id'] + '.png')) and os.path.getsize(os.path.join(sheets, it['id'] + '.png')) > 0]
     if not items:
         return None, '<p>❗ автооценка: нет ни одного листа «после»</p>'
@@ -889,7 +902,12 @@ def main(argv=None) -> int:
     sheets_s[1] = round(time.time() - t_sa, 1)
     t_ev = time.time()
     types = product_types(rules, skus)
-    ev, ev_html = eval_after(rules, run_dir, jobs, fronts, types)
+    ev_light = eval_sheets_light(rules)                                    # мерки читают лист в свете сайта; человек — свет подгонки (второй лист, папка sheets-eval)
+    if ev_light:
+        ev_jobs = [(j[0], j[1], os.path.join(run_dir, 'sheets-eval', os.path.basename(j[2])), *j[3:]) for j in jobs]
+        rc_e = run_sheets(rules, ev_jobs, os.path.join(run_dir, 'sheets-eval.log'), light=ev_light)
+        say(f'листы для мерок (свет {ev_light}): rc={rc_e}, готово {sum(os.path.isfile(j[2]) and os.path.getsize(j[2]) > 0 for j in ev_jobs)} из {len(ev_jobs)}')
+    ev, ev_html = eval_after(rules, run_dir, jobs, fronts, types, 'sheets-eval' if ev_light else 'sheets')
     sheets_s.append(round(time.time() - t_ev, 1))                          # секунды на листы «до», «после», оценку
     rows = []
     for s in skus:

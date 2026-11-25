@@ -106,15 +106,26 @@ def ts_num(key):
 site = SH.get('site', {})
 Lj = site.get('light', {})
 keys = ['exposure', 'env', 'hemi', 'hemiSky', 'hemiGround', 'sun', 'sunColor', 'fill']
-ok(site.get('enabled') is True and all(ts_num(k) is not None and ts_num(k) == Lj.get(k) for k in keys), 'свет листа: числа sides-sheet.json site.light = window-light.ts:LIGHT (' + ', '.join(f'{k} {Lj.get(k)} / {ts_num(k)}' for k in keys if ts_num(k) != Lj.get(k)) + ')')
+ok(isinstance(site.get('enabled'), bool) and all(ts_num(k) is not None and ts_num(k) == Lj.get(k) for k in keys), 'свет листа: числа sides-sheet.json site.light = window-light.ts:LIGHT (' + ', '.join(f'{k} {Lj.get(k)} / {ts_num(k)}' for k in keys if ts_num(k) != Lj.get(k)) + ')')
 ms = re.search(r'sun\.position\.set\((-?[0-9.]+),\s*(-?[0-9.]+),\s*(-?[0-9.]+)\)', vw)
 mf = re.search(r'fill\.position\.set\((-?[0-9.]+),\s*(-?[0-9.]+),\s*(-?[0-9.]+)\)', vw)
 mfc = re.search(r'new THREE\.DirectionalLight\((0x[0-9a-fA-F]+),\s*LIGHT\.fill\)', vw)
 ok(ms and mf and mfc and [float(x) for x in ms.groups()] == Lj.get('sunPos') and [float(x) for x in mf.groups()] == Lj.get('fillPos') and int(mfc.group(1), 16) == Lj.get('fillColor'), 'свет листа: позиции солнца/подсветки и цвет подсветки = viewer.ts')
 ok('three@' in site.get('libs', {}).get('three', '') and re.search(r'"three": "0\.', open(os.path.join(ROOT, 'package.json'), encoding='utf-8').read()) is not None, 'свет листа: three в правилах (версия из CDN-адреса) и в package.json есть')
-sp = SS.build_spec(SH, 'x', [], False)
+sp = SS.build_spec(dict(SH, site=dict(site, enabled=True)), 'x', [], False)
 sp_off = SS.build_spec(dict(SH, site=dict(site, enabled=False)), 'x', [], False)
-ok(sp['site'] is not None and sp['site']['light'] == Lj and sp_off['site'] is None, 'свет листа: spec несёт site.light; enabled=false → прежний model-viewer')
+ok(sp['site'] is not None and sp['site']['light'] == Lj and sp_off['site'] is None, 'свет листа: ОБА режима — enabled=true: spec несёт site.light (свет сайта); enabled=false: site нет → model-viewer (свет подгонки)')
+sp_def = SS.build_spec(SH, 'x', [], False)
+ok(site.get('enabled') is False and sp_def['site'] is None, 'свет листа: ПО УМОЛЧАНИЮ — свет подгонки (model-viewer neutral, exposure 1): site.enabled=false (директор 25.11, владелец TG 2981); свет сайта — вторым рядом по запросу, enabled=true')
+sp_fit = SS.build_spec(SS.light_rules(dict(SH, site=dict(site, enabled=True)), 'fit'), 'x', [], False)
+sp_site = SS.build_spec(SS.light_rules(SH, 'site'), 'x', [], False)
+ok(sp_fit['site'] is None and sp_site['site'] is not None and sp_site['site']['light'] == Lj and SS.light_rules(SH, None) is SH and SS.light_rules(SH, 'default') is SH, 'свет листа: --light fit|site переопределяет site.enabled на прогон, default — как в правилах')
+try:
+    SS.light_rules(SH, 'sun')
+    bad_light = False
+except ValueError:
+    bad_light = True
+ok(bad_light, 'свет листа: неизвестный свет — ошибка, а не тихий default')
 ok('RoomEnvironment' in src_js and 'toneMapping = THREE.NeutralToneMapping' in src_js and not re.search(r'\b0\.(9|42|8)\b|1\.05', src_js), 'свет листа: JS собирает сцену как сайт (RoomEnvironment + Neutral), чисел света в нём нет')
 
 # 2в. node_fallback: нет node_modules/playwright рядом — NODE_PATH основной копии из правил + строка в журнал; есть — не трогаем
