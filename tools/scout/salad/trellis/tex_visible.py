@@ -434,7 +434,7 @@ def frayed_share(kn: np.ndarray, mask: np.ndarray, px: int = FRAYED_PX) -> dict:
 def edge_bg_reach(pmask: np.ndarray) -> np.ndarray:
     """Маска кадра: пиксели фото не дальше EDGE_BG_REACH px от края его альфы (область мерки под флагом edge_bg_inward; директор 25.11: кайма живёт у края, светлая деталь на 10–15 px — не кайма)."""
     from scipy.ndimage import distance_transform_edt
-    return distance_transform_edt(pmask) <= EDGE_BG_REACH
+    return (distance_transform_edt(pmask) <= EDGE_BG_REACH) & pmask
 
 
 def edge_bg_share(geoms: list, st: dict, prgb: np.ndarray, pmask: np.ndarray, tr: dict, after: np.ndarray) -> dict:
