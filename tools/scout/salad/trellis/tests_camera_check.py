@@ -99,7 +99,7 @@ with tempfile.TemporaryDirectory() as root:
     check('unreliable ломает passed даже при идеальной форме', not ok and 'plate_found' in why, why)
 
 # 8. сквозной прогон main() на синтетической папке прогона: check.json + кадр
-def e2e(sku: str, S: np.ndarray, Aph: np.ndarray, root: str, prep_plate: bool | None = None, edge: dict | None = None) -> dict:
+def e2e(sku: str, S: np.ndarray, Aph: np.ndarray, root: str, prep_plate: bool | None = None, edge: dict | None = None, role: str = '') -> dict:
     from PIL import Image
     run = os.path.join(root, sku)
     os.makedirs(os.path.join(run, 'stages', 'render_view0'))
@@ -115,6 +115,8 @@ def e2e(sku: str, S: np.ndarray, Aph: np.ndarray, root: str, prep_plate: bool | 
         PS.write_check(PS.stage_dir(root, sku, '02-prep'), '02-prep', sku, passed=True, metrics={'plate_found': {'value': prep_plate}}, outputs=[], report={'written': False})
     old = sys.argv
     sys.argv = ['camera_check.py', '--run', run, '--photo', photo, '--yaw', '0']
+    if role:
+        sys.argv += ['--role', role]
     try:
         CC.main()
     finally:
@@ -375,6 +377,28 @@ check('white_plate: шкаф с белым верхом — не примени�
 check('white_plate: пустая маска — не применима, не падает', not r_n['applicable'] and not r_n['would_flag'], str(r_n))
 check('white_plate: роль не передана — не применима', not CC.white_plate(plate_photo((250, 250, 250)), '', R_WP)['applicable'])
 check('white_plate: enabled=false по умолчанию (в check.json ключа нет)', CC.load_rules()['white_plate']['enabled'] is False)
+
+# ---------- сквозной: метка white_plate в check.json — только при enabled=true; выключено — файл тот же, что без метки и без --role (T-20261124-57) ----------
+def _strip(c: dict) -> dict:
+    c = json.loads(json.dumps(c))
+    c.pop('seconds', None)
+    return c
+
+
+with tempfile.TemporaryDirectory() as root:
+    wp_off0 = e2e('wp_off0', np.roll(A, 1, axis=1), A, root)
+    wp_off1 = e2e('wp_off1', np.roll(A, 1, axis=1), A, root, role='стол обеденный')
+    check('white_plate: enabled=false — ключа в extra нет, с --role и без check.json совпадает (кроме имени папки/времени)',
+          'white_plate' not in wp_off0['extra'] and 'white_plate' not in wp_off1['extra'] and _strip({**wp_off0, 'sku': 0, 'extra': {**wp_off0['extra'], 'photo': 0}}) == _strip({**wp_off1, 'sku': 0, 'extra': {**wp_off1['extra'], 'photo': 0}}))
+    _lr = CC.load_rules
+    CC.load_rules = lambda path=CC.RULES_PATH: dict(_lr(path), white_plate=dict(_lr(path)['white_plate'], enabled=True))
+    try:
+        wp_on = e2e('wp_on', np.roll(A, 1, axis=1), A, root, role='стол обеденный')
+        wp_on_norole = e2e('wp_on_norole', np.roll(A, 1, axis=1), A, root)
+    finally:
+        CC.load_rules = _lr
+    check('white_plate: enabled=true + роль стола — ключ extra.white_plate есть, passed 04 тот же', 'white_plate' in wp_on['extra'] and wp_on['extra']['white_plate']['applicable'] and wp_on['passed'] == wp_off0['passed'], str(wp_on['extra'].get('white_plate')))
+    check('white_plate: enabled=true без роли — «не применима», не падает', wp_on_norole['extra']['white_plate']['applicable'] is False)
 
 print('all ok' if not bad else f'FAILED: {bad}')
 sys.exit(1 if bad else 0)
