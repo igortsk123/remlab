@@ -370,14 +370,14 @@ def front_form_votes(geo: dict, cam: dict, kind: str, R: dict) -> tuple:
 
 def front_decision(sp: dict, sf: dict, form_votes: dict, R: dict) -> dict:
     """Решение «перёд» для типа с перёдом: голоса flip_decision (силуэт, кромки, цвет, рельеф затенения) + голоса формы. Разворот: силуэт перевёрнутой не хуже `sil_drop_max`, «за» ≥ `flip_always.need_votes`, «против» нет.
-    verdict: 'развёрнут' | 'перёд верный' (нет голосов «за», есть «против») | 'перёд не определён' (остальное: голосов мало или они расходятся)."""
+    verdict: 'развёрнут' | 'перёд верный' (нет голосов «за», «против» не меньше need_votes — симметрично развороту) | 'перёд не определён' (остальное: голосов мало или они расходятся)."""
     base = flip_decision(sp, sf, R)
     votes = {**base['votes'], **form_votes}
     pro, con = list(votes.values()).count('за'), list(votes.values()).count('против')
     sil_ok = base['sil_gap'] <= R['flip_pick']['sil_drop_max']
     need = int(R['flip_always']['need_votes'])
     apply = bool(sil_ok and pro >= need and con == 0)
-    verdict = 'развёрнут' if apply else ('перёд верный' if (pro == 0 and con >= 1) else 'перёд не определён')
+    verdict = 'развёрнут' if apply else ('перёд верный' if (pro == 0 and con >= need) else 'перёд не определён')
     why = ((f"силуэт перевёрнутой хуже на {base['sil_gap']:+.3f} (> {R['flip_pick']['sil_drop_max']}) — не разворачиваем; " if not sil_ok else '') + f"голосов за {pro} (нужно {need}), против {con}")
     return {'apply': apply, 'votes': votes, 'gap': base['gap'], 'sil_gap': base['sil_gap'], 'why': why, 'verdict': verdict, 'pro': pro, 'con': con}
 

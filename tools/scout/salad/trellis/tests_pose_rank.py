@@ -299,7 +299,11 @@ try:
     PR.front_form_votes = lambda geo, cam, kind, R_: ({'relief_form': 'против', 'mesh_front': 'против'}, {})
     out, info = PR.flip_pick(object(), {}, pkA, None, None, 64, None, None, {}, None, 0.5, log=lambda *a: None, R=on, role='диван')
     check('«всегда»: мягкая, голоса форме против, за нет → «перёд верный», поза не тронута', not info['applied'] and out is pkA and info['front']['verdict'] == 'перёд верный' and info['front']['kind'] == 'soft' and info['front']['con'] == 2)
+    sigs[id(cams['b'])] = sg(0.89, 0.70, 9.0, 1.0)                    # один слабый голос «против» (цвет) — «перёд верный» нельзя
     PR.front_form_votes = lambda geo, cam, kind, R_: ({'relief_form': '—'}, {})
+    out, info = PR.flip_pick(object(), {}, pkA, None, None, 64, None, None, {}, None, 0.5, log=lambda *a: None, R=on, role='шкаф')
+    check('«всегда»: один голос «против» (цвет), за нет → «перёд не определён» (верный — только при ≥2 против)', not info['applied'] and info['front']['con'] == 1 and info['front']['verdict'] == 'перёд не определён')
+    sigs[id(cams['b'])] = sg(0.89, 0.70, 6.0, 1.0)
     out, info = PR.flip_pick(object(), {}, pkA, None, None, 64, None, None, {}, None, 0.5, log=lambda *a: None, R=on, role='шкаф')
     check('«всегда»: голосов нет (рельеф неоднозначен, остальное без разницы) → «перёд не определён», поза не тронута', not info['applied'] and out is pkA and info['front']['verdict'] == 'перёд не определён' and info['front']['pro'] == 0 and info['front']['con'] == 0)
     sigs[id(cams['b'])] = sg(0.89 - FR['sil_drop_max'] - 0.02, 0.9, 1.0, 5.0)    # голоса за, но силуэт перевёрнутой заметно хуже
