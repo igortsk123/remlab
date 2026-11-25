@@ -52,7 +52,7 @@ draft → in_progress → completed → перенос в completed_plans/
 | step07-speed-01 | Шаг 07 «докрасить невидимое» — где время, GPU или нет, как ускорить на 50k (ЧЕРНОВИК) | draft | — | 2026-11-23 |
 | price-segments-01 | Ценовые ступени по роли (П1.90) | partial | — | 2026-11-24 |
 | paint-photo-fill-01 | Покраска «фото + заливка» — порядок v3 (ADR-0457) | in_progress | — | 2026-11-23 |
-| paint-material-01 | — | in_progress | — | 2026-11-24 |
+| paint-material-01 | — | in_progress | — | 2026-11-25 |
 | paint-cycles-1123 | Круги покраски до «в целом хорошо» | in_progress | — | 2026-11-24 |
 | mesh-models-trial-01 | Проба открытых генераторов мешей против Hunyuan3D 2.1 | in_progress | — | 2026-11-20 |
 | body-carcass-tone-photo-01 | Тон корпуса body — сперва «какой это материал» (фото + лента + VLM), потом цвет; воздержание вместо порогов покрытия | draft | 2026-11-24 | 2026-11-24 |
