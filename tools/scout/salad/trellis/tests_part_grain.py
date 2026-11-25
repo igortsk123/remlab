@@ -229,6 +229,15 @@ def main():
     check(not np.array_equal(d_off, d_on), 'круглая деталь: порог axis_per_part_round_ratio меняет текстуру (ключ не «молчит»)')
     check(disc_aniso(d_on) < disc_aniso(d_off), f'диск: ось = ширина товара X (изменение вдоль X / вдоль Z {disc_aniso(d_on):.2f} < {disc_aniso(d_off):.2f} при главной оси части)')
 
+    # 11. классы бина по роли (T-63 р.5g): ножки/рама — straight; ключ включён → бин меняется со swirl (Wood047 — «завитки/глазки») на straight, выход меняется
+    npz_c = dict(npz_r, roles=np.array(['legs', 'legs']), names=np.array(['ножки', 'рама']))
+    pr0, _m0 = PG.parts_from_masks(npz_c, tx, tex, {'Материал ножек': 'дерево'}, None, R)
+    pr1, _m1 = PG.parts_from_masks(npz_c, tx, tex, {'Материал ножек': 'дерево'}, None, dict(R, bin_classes_by_role={'legs': ['straight']}))
+    check(all(x['classes'] is None for x in pr0) and all(x['classes'] == ['straight'] for x in pr1), 'bin_classes_by_role: по умолчанию classes=None; при ключе у роли legs — [straight]')
+    b_sw, _p, _s = PG.load_pattern([60.07, 8.21, 23.7], R, None)
+    b_st, _p, _s = PG.load_pattern([60.07, 8.21, 23.7], R, ['straight'])
+    check(b_sw['bin'] is not None and b_st['bin'] is not None and b_st.get('pattern_class') == 'straight' and b_sw['bin'] != b_st['bin'], f'тон ножек: без класса бин {b_sw["bin"]} ({b_sw.get("pattern_class")}), с классом straight — {b_st["bin"]}')
+
     bad_n = sum(1 for x in OK if not x)
     print(f'\n{len(OK) - bad_n}/{len(OK)} ok')
     sys.exit(1 if bad_n else 0)

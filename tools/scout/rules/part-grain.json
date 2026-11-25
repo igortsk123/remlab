@@ -32,5 +32,7 @@
   "axis_per_part_roles": ["legs", "frame"],
   "axis_per_part_min_texels": 200,
   "axis_per_part_round_ratio": 1.1,
-  "fallback_axis_per_part": false
+  "fallback_axis_per_part": false,
+  "_bin_classes_doc": "КЛАСС БИНА ПО РОЛИ (T-63 р.5g): {роль: [классы pattern_class библиотеки]}; пусто — любой класс (как раньше). Для ножек/рамы нужен straight: бин swirl (Wood047 — «глазки»/завитки) на узкой детали рисует косую ёлочку даже при верной оси (замер: 37 % блоков бина отклонены >15° от основного направления против 0–3 % у straight).",
+  "bin_classes_by_role": {}
 }

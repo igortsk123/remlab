@@ -356,7 +356,8 @@ def parts_from_masks(npz, tx, tex, card: dict | None = None, photo_sigma: dict |
         lab = TC.rgb2lab(np.clip(np.round(tone[g]), 0, 255).astype(np.uint8).reshape(1, 3))[0]
         sig = float(TC.rgb2lab(flat[m])[:, 0].std()) if n >= 20 else None
         parts.append({'id': g, 'name': names[g], 'is_wood': part_is_wood(names[g], card, rules, roles[g] if g < len(roles) else None), 'tone_lab': [float(x) for x in lab], 'tone_sigma': sig,
-                      'n_texels': n, 'photo_sigma': (photo_sigma or {}).get(g), 'card': card, 'role': roles[g] if g < len(roles) else None})
+                      'n_texels': n, 'photo_sigma': (photo_sigma or {}).get(g), 'card': card, 'role': roles[g] if g < len(roles) else None,
+                      'classes': (rules.get('bin_classes_by_role') or {}).get(roles[g] if g < len(roles) else None) or None})   # классы бина по роли (ножки/рама — straight: завитки/«глазки» на узкой детали дают ёлочку)
         masks[g] = m
     return parts, masks
 
