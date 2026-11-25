@@ -37,6 +37,8 @@
 и которые названы в ДЕЙСТВУЮЩЕМ плане (`.memory_bank/plans/*.md`, `status:` не completed/cancelled; нет `status:` — действующий). Сухо — всегда: список «удалил бы: N папок,
 X ГБ» (и в обычном сухом прогоне строка итога). Удаляет только `--prune-hdd --apply` (первый запуск — директор после проверки списка): папку на HDD (shutil.rmtree), затем
 висячую ссылку на основном диске (только если она ведёт ровно туда), строка в журнал (что, сколько ГБ). Ссылки, не папки, и всё вне `dst` не трогаются.
+ЗАЩИЩЁННОЕ (T-20261125-75/2): `~/remlab-inputs` (входы наборов: копии + MANIFEST.tsv, tools/ops/inputs_check.py) скрипт НЕ ТРОГАЕТ никогда — ни перенос, ни удаление с HDD; `protected_by` (по realpath: совпадает, внутри или родитель)
+проверяется у src/dst (отказ, код 2), у каждого кандидата, в move_one и prune_one; правило `archive.protected` только добавляет папки. 25.11 вход комода уехал вместе с папкой логов — входам набора там не место.
 Переопределения для проверки: LOGS_ARCHIVE_RULES (файл правил), LOGS_ARCHIVE_REPO (репозиторий для поиска ссылок)."""
 from __future__ import annotations
 
@@ -56,7 +58,8 @@ HERE = os.path.dirname(os.path.abspath(__file__))
 ROOT = os.path.abspath(os.path.join(HERE, '..', '..'))
 RULES_PATH = os.path.join(ROOT, 'tools', 'scout', 'rules', 'dev-disk.json')
 GB = 1024 ** 3
-DEFAULTS = {'src': '~/remlab-logs', 'dst': '/mnt/hdd/remlab-logs-arhiv', 'days': 5, 'min_hdd_free_gb': 50, 'never': [], 'worktrees_block': True, 'refs_exclude': [], 'adaptive': [], 'refs_scope': None, 'memory_paths': None, 'hdd_prune': {'days': 14}}
+DEFAULTS = {'src': '~/remlab-logs', 'dst': '/mnt/hdd/remlab-logs-arhiv', 'days': 5, 'min_hdd_free_gb': 50, 'never': [], 'worktrees_block': True, 'refs_exclude': [], 'adaptive': [], 'refs_scope': None, 'memory_paths': None, 'hdd_prune': {'days': 14}, 'protected': []}
+PROTECTED_DEFAULT = ['~/remlab-inputs']   # входы наборов (T-20261125-75/2): не переносить, не удалять; правило `archive.protected` только ДОБАВЛЯЕТ папки
 
 
 WT_DEFAULTS = {'idle_h': 12, 'big_mb': 200, 'base': 'origin/main', 'jobs': 4}
@@ -112,7 +115,19 @@ def rules() -> dict:
     out['wt'] = dict(WT_DEFAULTS, **(r.get('worktrees') or {}))
     out['src'] = os.path.expanduser(out['src'])
     out['dst'] = os.path.expanduser(out['dst'])
+    out['protected'] = list(PROTECTED_DEFAULT) + [x for x in (out.get('protected') or []) if x not in PROTECTED_DEFAULT]
     return out
+
+
+def protected_by(path: str, r: dict) -> str:
+    """Защищённая папка (~/remlab-inputs и `archive.protected`), с которой path совпадает, лежит в ней ИЛИ содержит её (родитель) — по realpath; нет — ''.
+    Такой путь ни переносу на HDD, ни удалению с HDD, ни src/dst не подходит: входы наборов (MANIFEST, sha) должны лежать на месте (25.11: вход комода уехал вместе с папкой логов)."""
+    rp = os.path.realpath(os.path.expanduser(path))
+    for x in list(PROTECTED_DEFAULT) + list(r.get('protected') or []):
+        root = os.path.realpath(os.path.expanduser(x))
+        if rp == root or rp.startswith(root + os.sep) or root.startswith(rp.rstrip(os.sep) + os.sep):
+            return root
+    return ''
 
 
 def newest_mtime(path: str, floor: float = 0.0) -> float:
@@ -422,6 +437,10 @@ def hdd_candidates(r: dict, repo: str, now: float | None = None, refs=None, live
         if n in (r.get('never') or []):
             skipped.append((n, 'в never'))
             continue
+        hit = protected_by(p, r)
+        if hit:
+            skipped.append((n, f'защищено ({hit}): входы наборов'))
+            continue
         if newest_mtime(p, floor=cutoff) >= cutoff or moved_at(r, n, p) >= cutoff:
             skipped.append((n, f'лежит на HDD меньше {days:g} сут или менялась'))
             continue
@@ -455,6 +474,9 @@ def prune_one(c: dict, r: dict, now: float | None = None, live=None) -> tuple[bo
     now = time.time() if now is None else now
     if len(dst.strip('/').split('/')) < 2:
         return False, f'❗ {n}: dst {dst!r} слишком короткий — отказ'
+    hit = protected_by(p, r)
+    if hit:
+        return False, f'❗ {n}: защищено ({hit}) — отказ удалять'
     if os.path.islink(p) or not os.path.isdir(p) or os.path.dirname(os.path.realpath(p)) != dst:
         return False, f'{n}: не папка прямо в {dst} — пропуск'
     days = float((r.get('hdd_prune') or {}).get('days', 14))
@@ -492,6 +514,10 @@ def candidates(r: dict, repo: str, now: float | None = None, refs=None, busy=Non
             continue                                            # одиночные файлы-журналы — дело disk-keeper
         if n in (r.get('never') or []):
             skipped.append((n, 'в never'))
+            continue
+        hit = protected_by(p, r)
+        if hit:
+            skipped.append((n, f'защищено ({hit}): входы наборов'))
             continue
         real = os.path.realpath(p)
         if os.path.isdir(os.path.join(p, '.git')):
@@ -538,6 +564,9 @@ def move_one(c: dict, r: dict, now: float | None = None, busy=None, rsync=None, 
     """Перенос одной папки: перепроверка → rsync → пустые каталоги → ссылка. (успех, строка). Данные удаляет только rsync после успешной копии."""
     p, n, dst = c['path'], c['name'], r['dst']
     now = time.time() if now is None else now
+    hit = protected_by(p, r)
+    if hit:
+        return False, f'❗ {n}: защищено ({hit}) — отказ переносить'
     if os.path.islink(p) or not os.path.isdir(p):
         return False, f'{n}: уже не папка — пропуск'
     if newest_mtime(p, floor=now - float(r['days']) * 86400) >= now - float(r['days']) * 86400:
@@ -736,6 +765,11 @@ def alert(text: str) -> None:
 def main(argv: list) -> int:
     apply_ = '--apply' in argv
     r = rules()
+    for what, path in (('src', r['src']), ('dst', r['dst'])):
+        hit = protected_by(path, r)
+        if hit:
+            print(f'❗ отказ: {what} {path} совпадает с защищённой {hit} или связан с ней (входы наборов, T-20261125-75/2) — перенос и удаление её не трогают', file=sys.stderr)
+            return 2
     why_days = ''
     if '--days' in argv and argv.index('--days') + 1 < len(argv):   # разовый порог для сухого прикидочного прогона (в правилах — archive.days)
         r['days'] = float(argv[argv.index('--days') + 1])

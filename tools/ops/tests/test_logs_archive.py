@@ -643,3 +643,69 @@ def test_rules_file_has_scope_and_hdd_prune():
     import json as _j
     a = _j.load(open(os.path.join(os.path.dirname(la.__file__), '..', 'scout', 'rules', 'dev-disk.json'), encoding='utf-8'))['archive']
     assert {'tools', 'app', 'lib', '.github'} <= set(a['refs_scope']) and '.memory_bank' not in a['refs_scope'] and a['hdd_prune']['days'] == 14
+
+
+# --- T-20261125-75/2: ~/remlab-inputs (входы наборов) скрипт не трогает никогда -------------------------------------------------------------------
+
+@pytest.fixture
+def inputs_dir(tmp_path, monkeypatch):
+    d = tmp_path / 'remlab-inputs'
+    mk(d / 'set29', {'photo/a.png': 100, 'MANIFEST.tsv': 50}, 30)           # старше любого порога: без защиты ушла бы первой
+    monkeypatch.setattr(la, 'PROTECTED_DEFAULT', [str(d)])
+    return d
+
+
+def test_protected_by_matches_inside_equal_and_parent(world, inputs_dir, tmp_path):
+    src, dst, repo, r = world
+    real = os.path.realpath(inputs_dir)
+    assert la.protected_by(str(inputs_dir / 'set29' / 'photo' / 'a.png'), r) == real
+    assert la.protected_by(str(inputs_dir), r) == real
+    assert la.protected_by(str(tmp_path), r) == real                        # родитель содержит защищённую папку — тоже нельзя
+    assert la.protected_by(str(src), r) == '' and la.protected_by(str(dst), r) == ''
+    link = tmp_path / 'via-link'
+    link.symlink_to(inputs_dir)
+    assert la.protected_by(str(link / 'set29'), r) == real                  # через ссылку — по realpath
+    assert la.protected_by(str(src / 'x'), dict(r, protected=[str(src)])) == os.path.realpath(src)   # правило archive.protected добавляет папки
+
+
+def test_protected_inputs_are_skipped_by_candidates_hdd_candidates_move_and_prune(world, inputs_dir):
+    src, dst, repo, r = world
+    r1 = dict(r, src=str(inputs_dir))
+    todo, skipped = la.candidates(r1, str(repo), now=NOW, busy=lambda p: '', live=lambda: {}, refs=lambda names, repo: set())
+    assert todo == [] and any('защищено' in why for _, why in skipped)       # папка набора не кандидат на перенос
+    ok, line = la.move_one({'name': 'set29', 'path': str(inputs_dir / 'set29'), 'total': 1, 'freed': 1}, dict(r1, days=5), now=NOW, busy=lambda p: '', live=lambda: {})
+    assert not ok and 'защищено' in line and (inputs_dir / 'set29' / 'photo' / 'a.png').is_file() and not (inputs_dir / 'set29').is_symlink()
+    r2 = dict(r, dst=str(inputs_dir))
+    todo, skipped = la.hdd_candidates(r2, str(repo), now=NOW, refs=lambda names, repo: set(), live=lambda: {}, plans=lambda names, repo: {})
+    assert todo == [] and any('защищено' in why for _, why in skipped)       # и не кандидат на удаление с «HDD»
+    ok, line = la.prune_one({'name': 'set29', 'path': str(inputs_dir / 'set29'), 'total': 1}, r2, now=NOW, live=lambda: {})
+    assert not ok and 'защищено' in line and (inputs_dir / 'set29' / 'MANIFEST.tsv').is_file()
+
+
+def test_main_refuses_src_or_dst_that_is_protected(world, inputs_dir, monkeypatch, tmp_path, capsys):
+    src, dst, repo, r = world
+    import json as _j
+    monkeypatch.setenv('LOGS_ARCHIVE_REPO', str(repo))
+    monkeypatch.setenv('LOGS_ARCHIVE_LOCK', str(tmp_path / 'lock'))
+    monkeypatch.setattr(la, 'free_gb', lambda p: 100.0)
+    for bad in ({'src': str(inputs_dir), 'dst': str(dst)}, {'src': str(src), 'dst': str(inputs_dir)}, {'src': str(inputs_dir / 'set29'), 'dst': str(dst)}):
+        rules = tmp_path / 'rules-bad.json'
+        rules.write_text(_j.dumps({'archive': {**r, **bad, 'days': 0}}))
+        monkeypatch.setenv('LOGS_ARCHIVE_RULES', str(rules))
+        for args in ([], ['--apply', '--digest'], ['--prune-hdd', '--apply', '--digest'], ['--worktrees']):
+            assert la.main(args) == 2, (bad, args)
+            assert 'отказ' in capsys.readouterr().err
+    assert (inputs_dir / 'set29' / 'photo' / 'a.png').is_file() and (inputs_dir / 'set29' / 'MANIFEST.tsv').is_file() and not dst.exists()
+
+
+def test_rules_default_protected_cannot_be_switched_off_and_file_names_it(tmp_path, monkeypatch):
+    import json as _j
+    monkeypatch.setattr(la, 'PROTECTED_DEFAULT', ['~/remlab-inputs'])
+    p = tmp_path / 'r.json'
+    p.write_text(_j.dumps({'archive': {'protected': []}}))
+    monkeypatch.setenv('LOGS_ARCHIVE_RULES', str(p))
+    assert la.rules()['protected'] == ['~/remlab-inputs']                  # пустой список в правиле защиту не снимает
+    p.write_text(_j.dumps({'archive': {'protected': ['~/other-keep']}}))
+    assert la.rules()['protected'] == ['~/remlab-inputs', '~/other-keep']
+    a = _j.load(open(os.path.join(os.path.dirname(la.__file__), '..', 'scout', 'rules', 'dev-disk.json'), encoding='utf-8'))['archive']
+    assert '~/remlab-inputs' in a['protected']
