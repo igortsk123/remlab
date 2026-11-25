@@ -33,7 +33,7 @@ def make_base(tmp, with_fill=True):
               open(os.path.join(shards, 'sh0.json'), 'w'))
     json.dump({s: {'glb': f'/g/{s}.glb', 'photo': f'/p/{s}.png', 'pose_run': f'/pose/{s}'} for s in SK[3:]}, open(os.path.join(shards, 'sh1.json'), 'w'))
     r = L.load_rules()
-    r.update({'golden': SK, 'base_root': root, 'shard_inputs_glob': os.path.join(shards, 'sh*.json'), 'out_root': os.path.join(tmp, 'out')})
+    r.update({'golden': SK, 'base_root': root, 'shard_inputs_glob': os.path.join(shards, 'sh*.json'), 'out_root': os.path.join(tmp, 'out'), 'input_set': None})
     return r, root
 
 
@@ -184,6 +184,68 @@ class T(unittest.TestCase):
         self.assertEqual((bu['кровать']['passed'], bu['кровать']['failed'], bu['кровать']['unmeasured']), (0, [], ['112923_1']))
         # сбой каталога не роняет круг
         self.assertEqual(L.product_types({**r, 'catalog': '/нет/такого.json'}, ['x'])['x']['type'], None)
+
+    def _mk_set(self, tmp, skus, kinds=('photo', 'card', 'glb'), with_files=True):
+        """Подставной набор входов: INPUTS_ROOT в tmp + правила + MANIFEST (T-20261125-75/3)."""
+        root = os.path.join(tmp, 'inputs')
+        rows = ['sku\tkind\tfile\tsha256\tsource\tnote']
+        for s in skus:
+            for k in kinds:
+                rel = {'photo': f'photo/{s}.hd.rgba.png', 'card': f'card/{s}.card.json', 'glb': f'glb/{s}-hd.glb'}[k]
+                if with_files:
+                    os.makedirs(os.path.dirname(os.path.join(root, 'sx', rel)), exist_ok=True)
+                    open(os.path.join(root, 'sx', rel), 'wb').write(b'x')
+                rows.append(f'{s}\t{k}\t{rel}\t0\t/src\t')
+        os.makedirs(os.path.join(root, 'sx'), exist_ok=True)
+        open(os.path.join(root, 'sx', 'MANIFEST.tsv'), 'w', encoding='utf-8').write('\n'.join(rows) + '\n')
+        rules = os.path.join(tmp, 'input-sets.json')
+        json.dump({'root': root, 'sets': {'sx': {'manifest': 'sx/MANIFEST.tsv'}}}, open(rules, 'w'))
+        os.environ['INPUTS_CHECK_RULES'] = rules
+        self.addCleanup(os.environ.pop, 'INPUTS_CHECK_RULES', None)
+        return root
+
+    def test_input_set_overrides_circle_inputs_only_for_set_skus(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            r, root = make_base(tmp)
+            root_in = self._mk_set(tmp, [SK[0], SK[3]])
+            b = {s: os.path.join(root, 'sh0', s) for s in SK}
+            plain = L.shard_inputs(r, SK, '06', b)
+            rs = {**r, 'input_set': 'sx'}
+            got = L.shard_inputs(rs, SK, '06', b)
+            sx = lambda rel: os.path.join(root_in, 'sx', rel)                                # noqa: E731
+            self.assertEqual(got[SK[0]]['glb'], sx(f'glb/{SK[0]}-hd.glb'))                   # glb, photo — из набора
+            self.assertEqual(got[SK[0]]['photo'], sx(f'photo/{SK[0]}.hd.rgba.png'))
+            self.assertEqual(got[SK[0]]['extra_in']['card.json'], sx(f'card/{SK[0]}.card.json'))   # extra_in.card.json — был в строке, подменён
+            self.assertEqual(got[SK[0]]['pose_run'], plain[SK[0]]['pose_run'])               # остальное — как в строке пакета
+            self.assertEqual(got[SK[1]], plain[SK[1]])                                       # товар вне набора — без изменений
+            self.assertEqual(got[SK[3]]['glb'], sx(f'glb/{SK[3]}-hd.glb'))
+            self.assertNotIn('extra_in', got[SK[3]])                                         # ключа в строке не было — не добавляется
+            self.assertEqual(L.photos(rs)[SK[0]], sx(f'photo/{SK[0]}.hd.rgba.png'))          # лист «до | после»: фото тоже из набора
+            self.assertEqual(L.photos(r)[SK[0]], f'/p/{SK[0]}.png')                          # без input_set — прежнее поведение
+
+    def test_input_set_stops_instead_of_silent_fallback(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            r, root = make_base(tmp)
+            b = {s: os.path.join(root, 'sh0', s) for s in SK}
+            rs = {**r, 'input_set': 'sx'}
+            os.environ['INPUTS_CHECK_RULES'] = os.path.join(tmp, 'нет-правил.json')
+            self.addCleanup(os.environ.pop, 'INPUTS_CHECK_RULES', None)
+            with self.assertRaises(SystemExit) as c:
+                L.shard_inputs(rs, SK[:1], '06', b)                                          # нет файла правил
+            self.assertIn('правила наборов', str(c.exception))
+            root_in = self._mk_set(tmp, [SK[0]], with_files=False)
+            with self.assertRaises(SystemExit) as c:
+                L.shard_inputs(rs, SK[:1], '06', b)                                          # MANIFEST есть, файлов копий нет
+            self.assertIn('нет файла входа', str(c.exception))
+            os.remove(os.path.join(root_in, 'sx', 'MANIFEST.tsv'))
+            with self.assertRaises(SystemExit) as c:
+                L.shard_inputs(rs, SK[:1], '06', b)                                          # нет MANIFEST
+            self.assertIn('MANIFEST', str(c.exception))
+
+    def test_real_loop5_rules_name_the_set_from_input_sets_rules(self):
+        rr = L.load_rules()
+        ss = json.load(open(os.path.join(L.ROOT, 'tools', 'scout', 'rules', 'input-sets.json'), encoding='utf-8'))['sets']
+        self.assertIn(rr['input_set'], ss)                                                   # круг называет набор из input-sets.json, а не путь руками
 
     def test_all_skus_from_shards(self):
         with tempfile.TemporaryDirectory() as tmp:
