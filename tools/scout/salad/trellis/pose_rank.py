@@ -368,26 +368,90 @@ def front_form_votes(geo: dict, cam: dict, kind: str, R: dict) -> tuple:
     return votes, info
 
 
-def front_decision(sp: dict, sf: dict, form_votes: dict, R: dict) -> dict:
-    """Решение «перёд» для типа с перёдом: голоса flip_decision (силуэт, кромки, цвет, рельеф затенения) + голоса формы. Разворот: силуэт перевёрнутой не хуже `sil_drop_max`, «за» ≥ `flip_always.need_votes`, «против» нет.
-    verdict: 'развёрнут' | 'перёд верный' (нет голосов «за», «против» не меньше need_votes — симметрично развороту) | 'перёд не определён' (остальное: голосов мало или они расходятся)."""
+def _pose_iou(PF, Pc: np.ndarray, cam: dict, Mp: np.ndarray, n: int) -> float:
+    """IoU силуэта позы с маской фото (то же, что `iou` кандидатов подбора)."""
+    return float(PF.iou(PF.splat_mask(Pc, cam, n), Mp))
+
+
+def front_axes(az: float, R: dict) -> str:
+    """Оси формы TRELLIS (кадр входного GLB: спереди +Z, `to_cube` с yaw 0 форму не поворачивает): по az выбранной позы → 'зад' (камера в задней половине — перёд, вероятно, на другой стороне),
+    'перёд' (передняя половина), 'мёртвая' (зона неопределённости) или 'нет' (az неизвестен). Пороги — `flip_always.corpus_axes`."""
+    if az is None:
+        return 'нет'
+    C = R['flip_always']['corpus_axes']
+    a = float(az) % 360.0
+    for lo, hi in C['dead_zones_deg']:
+        if float(lo) <= a <= float(hi):
+            return 'мёртвая'
+    d = min(a, 360.0 - a)                                              # угловое расстояние от 0°
+    return 'зад' if d > float(C['front_half_deg']) else 'перёд'
+
+
+def front_decision(sp: dict, sf: dict, form_votes: dict, R: dict, kind: str = 'soft', az: float | None = None, iou_gap: float | None = None) -> dict:
+    """Решение «перёд» для типа с перёдом. Мягкие: голоса flip_decision (силуэт, кромки, цвет, рельеф затенения) + голоса формы; разворот — силуэт перевёрнутой не хуже `sil_drop_max`, «за» ≥ `flip_always.need_votes`, «против» нет.
+    Корпусные (T-88, решение по оси): `front_axes(az)` + силуэт + рельеф формы; цвет и кромки в решение не входят (см. шапку патча/правило `flip_always.corpus_axes._why`).
+    verdict: 'развёрнут' | 'перёд верный' (у корпусных — «по осям», с пометкой «рельеф спорит», если рельеф уверенно «за») | 'перёд не определён'."""
     base = flip_decision(sp, sf, R)
     votes = {**base['votes'], **form_votes}
-    pro, con = list(votes.values()).count('за'), list(votes.values()).count('против')
     sil_ok = base['sil_gap'] <= R['flip_pick']['sil_drop_max']
+    if kind == 'corpus':
+        ax = front_axes(az, R)
+        if iou_gap is not None:                                        # корпусные: силуэт по IoU (iou_gap = IoU выбранной − IoU перевёрнутой), полоса низа в оценку не берётся (см. corpus_axes._why)
+            sil_ok = iou_gap <= float(R['flip_always']['corpus_axes']['iou_drop_max'])
+        rf = form_votes.get('relief_form', '—')
+        counted = {'оси': ax, 'sil_ok': 'да' if sil_ok else 'нет', 'relief_form': rf}
+        apply = bool(ax == 'зад' and sil_ok and rf != 'против')
+        if apply:
+            verdict, why = 'развёрнут', f"оси: az {az:.1f} в задней половине, силуэт перевёрнутой не хуже ({('IoU %+.3f' % -iou_gap) if iou_gap is not None else ('оценка %+.3f' % -base['sil_gap'])}), рельеф формы «{rf}» (не «camera»)"
+        elif ax == 'мёртвая':
+            verdict, why = 'перёд не определён', f"az {az:.1f} в мёртвой зоне — позу не трогаем"
+        elif ax == 'перёд':
+            verdict = 'перёд верный по осям, рельеф спорит' if rf == 'за' else 'перёд верный'
+            why = f"оси: az {az:.1f} в передней половине" + ("; рельеф формы уверенно «opposite» — спорит с осями, позу не трогаем" if rf == 'за' else '')
+        elif ax == 'зад':
+            verdict = 'перёд не определён'
+            why = ((f"IoU перевёрнутой хуже на {iou_gap:+.3f} (> {R['flip_always']['corpus_axes']['iou_drop_max']}) — не разворачиваем" if iou_gap is not None else f"силуэт перевёрнутой хуже на {base['sil_gap']:+.3f} (> {R['flip_pick']['sil_drop_max']}) — не разворачиваем") if not sil_ok else "оси «зад», но рельеф формы уверенно «camera» — не разворачиваем")
+        else:
+            verdict, why = 'перёд не определён', 'az неизвестен'
+        pro, con = (1 if apply else 0), (0 if apply else 1 if ax == 'зад' else 0)
+        return {'apply': apply, 'votes': votes, 'counted': counted, 'gap': base['gap'], 'sil_gap': base['sil_gap'], 'why': why, 'verdict': verdict, 'pro': pro, 'con': con, 'axes': ax}
+    counted = votes
+    pro, con = list(counted.values()).count('за'), list(counted.values()).count('против')
     need = int(R['flip_always']['need_votes'])
     apply = bool(sil_ok and pro >= need and con == 0)
     verdict = 'развёрнут' if apply else ('перёд верный' if (pro == 0 and con >= need) else 'перёд не определён')
     why = ((f"силуэт перевёрнутой хуже на {base['sil_gap']:+.3f} (> {R['flip_pick']['sil_drop_max']}) — не разворачиваем; " if not sil_ok else '') + f"голосов за {pro} (нужно {need}), против {con}")
-    return {'apply': apply, 'votes': votes, 'gap': base['gap'], 'sil_gap': base['sil_gap'], 'why': why, 'verdict': verdict, 'pro': pro, 'con': con}
+    return {'apply': apply, 'votes': votes, 'counted': counted, 'gap': base['gap'], 'sil_gap': base['sil_gap'], 'why': why, 'verdict': verdict, 'pro': pro, 'con': con, 'axes': None}
 
 
-def flip_hypothesis(PF, geo: dict, cam: dict, Pc: np.ndarray, Mp: np.ndarray, n: int, photo: np.ndarray, alpha: np.ndarray, cv: dict, tex, log=print) -> dict:
+def flip_hypothesis(PF, geo: dict, cam: dict, Pc: np.ndarray, Mp: np.ndarray, n: int, photo: np.ndarray, alpha: np.ndarray, cv: dict, tex, log=print, refit: dict | None = None) -> dict:
     """Перевёрнутая поза: подбор по силуэту от ТОЧНОГО az+180° (то же ядро, что мультистарт), затем уточнение по кромкам (отклоняется, если роняет IoU силуэта, как у обычных кандидатов).
     Не берём «семейство рядом»: у комода от +180° ближайшее семейство отстояло на 20° и было заведомо не той позой. → {cam, iou, edge (словарь edge_score), steps}."""
     cam0 = dict(cam)
     cam0['az'] = (cam0['az'] + 180.0) % 360.0
-    c, nit = PF.nm_two_stage(Pc, Mp, PF._blur(Mp, n), n, cam0)
+    Mpb = PF._blur(Mp, n)
+    if refit and refit.get('enabled'):                                 # T-88: одного старта мало (у Трейвиса Нелдер–Мид от az+180° встал в плохой минимум: силуэт хуже на 0,149, хотя перёд там верный) — несколько стартов вокруг az+180° (az ±, наклон), лучшая по pose_score; в заднюю половину не возвращаемся
+        best, nit = None, 0
+        for da in refit['az_offsets_deg']:
+            for de in refit['el_offsets_deg']:
+                s0 = dict(cam0)
+                s0['az'] = (cam0['az'] + float(da)) % 360.0
+                s0['el'] = cam0['el'] + float(de)
+                c_, k_ = PF.nm_two_stage(Pc, Mp, Mpb, n, s0)
+                nit += k_
+                a_ = float(c_['az']) % 360.0
+                if min(a_, 360.0 - a_) > float(refit['max_az_from_front_deg']):
+                    continue
+                sc_ = PF.pose_score(PF.splat_mask(Pc, c_, n), Mp)['score']
+                if best is None or sc_ > best[0]:
+                    best = (sc_, c_)
+        if best is not None:
+            c = best[1]
+        else:
+            c, k_ = PF.nm_two_stage(Pc, Mp, Mpb, n, cam0)
+            nit += k_
+    else:
+        c, nit = PF.nm_two_stage(Pc, Mp, Mpb, n, cam0)
     iou_sil = PF.iou(PF.splat_mask(Pc, c, n), Mp)
     e0 = PF.edge_score(geo, c, photo, alpha, cv, tex)
     V2 = PF.refine_v2_rules()                                          # camera_refine_v2 (T-44): None — выключено, как в main
@@ -405,14 +469,15 @@ def flip_hypothesis(PF, geo: dict, cam: dict, Pc: np.ndarray, Mp: np.ndarray, n:
 def _flip_always(PF, geo, pick, Pc, Mp, n, photo, alpha, cv, tex, edge_ref, log, R, kind, info):
     """Ветка flip_pick для типов с перёдом (`front_kind`): триггера по кромкам нет, гипотеза az+180° считается всегда; голоса — `front_decision`."""
     info.update({'enabled': True, 'always': True, 'kind': kind, 'triggered': True})
-    fh = flip_hypothesis(PF, geo, pick['cam'], Pc, Mp, n, photo, alpha, cv, tex, log=log)
+    fh = flip_hypothesis(PF, geo, pick['cam'], Pc, Mp, n, photo, alpha, cv, tex, log=log, refit=(R['flip_always'].get('flip_refit') if kind == 'corpus' else None))
     bf = R['orientation']['blur_frac']
     sp = flip_signals(PF, geo, pick['cam'], photo, alpha, cv, tex, Pc, Mp, n, blur_frac=bf)
     sf = flip_signals(PF, geo, fh['cam'], photo, alpha, cv, tex, Pc, Mp, n, blur_frac=bf)
     fv, finfo = front_form_votes(geo, pick['cam'], kind, R)
-    dec = front_decision(sp, sf, fv, R)
+    ious = {'pick': round(_pose_iou(PF, Pc, pick['cam'], Mp, n), 4), 'flip': round(_pose_iou(PF, Pc, fh['cam'], Mp, n), 4)} if kind == 'corpus' else None
+    dec = front_decision(sp, sf, fv, R, kind, az=float(pick['cam']['az']), iou_gap=(ious['pick'] - ious['flip']) if ious else None)
     info.update({'pick': {'cam': pick['cam'], **sp}, 'flip': {'cam': fh['cam'], 'iou': fh['iou'], 'edge_agree': fh['edge']['agree'], **sf}, **{k: dec[k] for k in ('votes', 'gap', 'sil_gap', 'why')},
-                 'applied': dec['apply'], 'front': {'kind': kind, 'verdict': dec['verdict'], 'pro': dec['pro'], 'con': dec['con'], 'votes': dec['votes'], 'form': finfo, 'az_pick': round(float(pick['cam']['az']), 2), 'az_flip': round(float(fh['cam']['az']), 2)}})
+                 'applied': dec['apply'], 'front': {'kind': kind, 'verdict': dec['verdict'], 'pro': dec['pro'], 'con': dec['con'], 'votes': dec['votes'], 'counted': dec['counted'], 'axes': dec.get('axes'), 'iou': ious, 'form': finfo, 'az_pick': round(float(pick['cam']['az']), 2), 'az_flip': round(float(fh['cam']['az']), 2)}})
     log(f"  перёд ({kind}): az={pick['cam']['az']:.1f} против az+180 → {fh['cam']['az']:.1f}; голоса {dec['votes']} · {dec['why']} → {dec['verdict']}")
     if dec['apply']:
         pick = {**pick, 'cam': fh['cam'], 'iou': fh['iou'], 'score': sf['score'], 'edge': fh['edge'], 'flip_pick': True, 'cam_before_flip': info['pick']['cam']}

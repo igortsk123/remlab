@@ -636,7 +636,10 @@ def load_geoms(path: str) -> list:
     """GLB → список геометрий {'V','F','UV','tex'} с применёнными трансформами сцены (как `mesh_render.load_parts`; без слияния вершин: развёртка остаётся как есть)."""
     import numpy as np
     import trimesh
-    sc = trimesh.load(path, force='scene', process=False)
+    try:
+        sc = trimesh.load(path, force='scene', process=False)
+    except IndexError as e:                                            # trimesh не читает GLB, сжатые meshopt (gltfpack: EXT_meshopt_compression), и GLB с буфером вне файла — голый IndexError ничего не говорит
+        raise ValueError(f'{os.path.basename(path)}: GLB не читается (сжат meshopt/gltfpack или буфер вне файла) — нужен несжатый GLB с встроенным буфером (форма из Ш0)') from e
     out = []
     for name, g in sc.geometry.items():
         try:

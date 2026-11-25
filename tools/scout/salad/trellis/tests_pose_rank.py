@@ -283,35 +283,160 @@ out, info = PR.flip_pick(Boom(), {}, pk, None, None, 64, None, None, {}, None, 0
 check('flip_pick: флаг вкл, симметричный тип → как раньше (поза не тронута, не вызвано)', out is pk and info['triggered'] is False and 'always' not in info)
 
 _orig2 = (PR.flip_hypothesis, PR.flip_signals, PR.front_form_votes)
+_orig_iou = PR._pose_iou
+IOU = {}
+PR._pose_iou = lambda PF_, Pc, cam, Mp, n: IOU.get(id(cam), 0.95)
 PR.flip_hypothesis = lambda PF_, geo, cam, *a, **k: {'cam': cams['b'], 'iou': 0.98, 'iou_sil': 0.96, 'edge': {'agree': 0.6}, 'steps': 5}
 PR.flip_signals = lambda PF_, geo, cam, *a, **k: sigs[id(cam)]
 try:
     sigs[id(cams['a'])] = sg(0.89, 0.70, 6.0, 1.0)                    # кромки выбранной позы высокие (0,70) — старый триггер молчит
     sigs[id(cams['b'])] = sg(0.90, 0.83, 2.0, 1.2)                    # перевёрнутая: кромки +0,13, цвет лучше; рельеф затенения ~
     pkA = {'cam': cams['a'], 'score': 0.89, 'iou': 0.97, 'edge': {'agree': 0.7, 'no_edges': False}}
+
+    def fp(pk, role):
+        return PR.flip_pick(object(), {}, pk, None, None, 64, None, None, {}, None, 0.5, log=lambda *a: None, R=on, role=role)
+
+    # ── мягкие: голоса, как раньше ──
     PR.front_form_votes = lambda geo, cam, kind, R_: ({'relief_form': 'за'}, {'relief_form': {'verdict': 'opposite'}})
-    out, info = PR.flip_pick(object(), {}, pkA, None, None, 64, None, None, {}, None, 0.5, log=lambda *a: None, R=on, role='комод')
-    check('«всегда»: кромки высокие, голоса за (кромки, цвет, рельеф формы), против нет → развёрнут; вердикт и голоса в info.front', info['applied'] and out['cam'] is cams['b'] and out['cam_before_flip'] is cams['a'] and info['front']['verdict'] == 'развёрнут' and info['front']['pro'] >= 2 and info['front']['con'] == 0 and info['front']['kind'] == 'corpus')
+    out, info = fp(pkA, 'диван')
+    check('«всегда» (мягкая): кромки высокие, голоса за (кромки, цвет, рельеф формы), против нет → развёрнут; вердикт и голоса в info.front', info['applied'] and out['cam'] is cams['b'] and out['cam_before_flip'] is cams['a'] and info['front']['verdict'] == 'развёрнут' and info['front']['pro'] >= 2 and info['front']['con'] == 0 and info['front']['kind'] == 'soft')
     PR.front_form_votes = lambda geo, cam, kind, R_: ({'relief_form': 'против'}, {})
-    out, info = PR.flip_pick(object(), {}, pkA, None, None, 64, None, None, {}, None, 0.5, log=lambda *a: None, R=on, role='комод')
-    check('«всегда»: рельеф формы против → не разворачиваем (вето), «перёд не определён» (за есть, против есть), поза не тронута', not info['applied'] and out is pkA and info['front']['verdict'] == 'перёд не определён' and info['front']['con'] == 1)
+    out, info = fp(pkA, 'кресло')
+    check('«всегда» (мягкая): рельеф формы против → не разворачиваем (вето), «перёд не определён», поза не тронута', not info['applied'] and out is pkA and info['front']['verdict'] == 'перёд не определён' and info['front']['con'] == 1)
     sigs[id(cams['b'])] = sg(0.89, 0.70, 6.0, 1.0)                    # перевёрнутая не лучше
     PR.front_form_votes = lambda geo, cam, kind, R_: ({'relief_form': 'против', 'mesh_front': 'против'}, {})
-    out, info = PR.flip_pick(object(), {}, pkA, None, None, 64, None, None, {}, None, 0.5, log=lambda *a: None, R=on, role='диван')
-    check('«всегда»: мягкая, голоса форме против, за нет → «перёд верный», поза не тронута', not info['applied'] and out is pkA and info['front']['verdict'] == 'перёд верный' and info['front']['kind'] == 'soft' and info['front']['con'] == 2)
+    out, info = fp(pkA, 'диван')
+    check('«всегда» (мягкая): голоса форме против, за нет → «перёд верный», поза не тронута', not info['applied'] and out is pkA and info['front']['verdict'] == 'перёд верный' and info['front']['con'] == 2)
+    sigs[id(cams['b'])] = sg(0.95, 0.40, 2.0, 4.0)
+    out, info = fp(pkA, 'диван')
+    check('мягкая: кромки против остаются вето → не разворачиваем', not info['applied'] and info['front']['con'] >= 1)
     sigs[id(cams['b'])] = sg(0.89, 0.70, 9.0, 1.0)                    # один слабый голос «против» (цвет) — «перёд верный» нельзя
     PR.front_form_votes = lambda geo, cam, kind, R_: ({'relief_form': '—'}, {})
-    out, info = PR.flip_pick(object(), {}, pkA, None, None, 64, None, None, {}, None, 0.5, log=lambda *a: None, R=on, role='шкаф')
-    check('«всегда»: один голос «против» (цвет), за нет → «перёд не определён» (верный — только при ≥2 против)', not info['applied'] and info['front']['con'] == 1 and info['front']['verdict'] == 'перёд не определён')
-    sigs[id(cams['b'])] = sg(0.89, 0.70, 6.0, 1.0)
-    out, info = PR.flip_pick(object(), {}, pkA, None, None, 64, None, None, {}, None, 0.5, log=lambda *a: None, R=on, role='шкаф')
-    check('«всегда»: голосов нет (рельеф неоднозначен, остальное без разницы) → «перёд не определён», поза не тронута', not info['applied'] and out is pkA and info['front']['verdict'] == 'перёд не определён' and info['front']['pro'] == 0 and info['front']['con'] == 0)
-    sigs[id(cams['b'])] = sg(0.89 - FR['sil_drop_max'] - 0.02, 0.9, 1.0, 5.0)    # голоса за, но силуэт перевёрнутой заметно хуже
+    out, info = fp(pkA, 'стул')
+    check('«всегда» (мягкая): один голос «против» (цвет), за нет → «перёд не определён» (верный — только при ≥2 против)', not info['applied'] and info['front']['con'] == 1 and info['front']['verdict'] == 'перёд не определён')
+
+    # ── корпусные: оси формы (az выбранной позы), силуэт, рельеф формы; цвет и кромки не входят ──
+    cF = {'az': 340.4, 'el': 1.0, 'd': 3.0}                           # передняя половина (Висмар)
+    cD1, cD2 = {'az': 90.0, 'el': 1.0, 'd': 3.0}, {'az': 250.0, 'el': 1.0, 'd': 3.0}
+    for c in (cF, cD1, cD2):
+        sigs[id(c)] = sg(0.89, 0.70, 6.0, 1.0)
+    pkF, pkD1, pkD2 = ({'cam': c, 'score': 0.89, 'iou': 0.97, 'edge': {'agree': 0.7, 'no_edges': False}} for c in (cF, cD1, cD2))
+    sigs[id(cams['b'])] = sg(0.90, 0.40, 9.0, 0.5)                    # силуэт перевёрнутой не хуже; кромки и цвет «против» (как у Теджонса, Рошаль): в решение не входят
     PR.front_form_votes = lambda geo, cam, kind, R_: ({'relief_form': 'за'}, {})
-    out, info = PR.flip_pick(object(), {}, pkA, None, None, 64, None, None, {}, None, 0.5, log=lambda *a: None, R=on, role='шкаф')
-    check('«всегда»: силуэт перевёрнутой хуже порога → не разворачиваем при любых голосах', not info['applied'] and out is pkA)
+    out, info = fp(pkA, 'комод')
+    check('корпусной (Теджонс): az 161 в задней половине, силуэт не хуже, рельеф формы «за», кромки и цвет «против» не входят → развёрнут', info['applied'] and out['cam'] is cams['b'] and info['front']['verdict'] == 'развёрнут' and info['front']['axes'] == 'зад' and info['front']['votes']['edge'] == 'против' and info['front']['votes']['color'] == 'против')
+    PR.front_form_votes = lambda geo, cam, kind, R_: ({'relief_form': '—'}, {})
+    out, info = fp(pkA, 'шкаф')
+    check('корпусной (Рошаль): az 161, рельеф формы неоднозначен (не «camera») → развёрнут', info['applied'] and info['front']['verdict'] == 'развёрнут')
+    PR.front_form_votes = lambda geo, cam, kind, R_: ({'relief_form': 'против'}, {})
+    out, info = fp(pkA, 'шкаф')
+    check('корпусной: az в задней половине, но рельеф формы уверенно «camera» → не разворачиваем, «перёд не определён»', not info['applied'] and out is pkA and info['front']['verdict'] == 'перёд не определён')
+    PR.front_form_votes = lambda geo, cam, kind, R_: ({'relief_form': 'за'}, {})
+    out, info = fp(pkF, 'шкаф')
+    check('корпусной (Висмар): az 340 в передней половине, рельеф формы «за» (выдуманный зад) → не трогаем, «перёд верный по осям, рельеф спорит»', not info['applied'] and out is pkF and info['front']['verdict'] == 'перёд верный по осям, рельеф спорит' and info['front']['axes'] == 'перёд')
+    PR.front_form_votes = lambda geo, cam, kind, R_: ({'relief_form': '—'}, {})
+    out, info = fp(pkF, 'шкаф')
+    check('корпусной: передняя половина, рельеф не спорит → «перёд верный», поза не тронута', not info['applied'] and info['front']['verdict'] == 'перёд верный')
+    PR.front_form_votes = lambda geo, cam, kind, R_: ({'relief_form': 'за'}, {})
+    ok = True
+    for pk_ in (pkD1, pkD2):
+        out, info = fp(pk_, 'тумба')
+        ok = ok and not info['applied'] and out is pk_ and info['front']['verdict'] == 'перёд не определён' and info['front']['axes'] == 'мёртвая'
+    check('корпусной: мёртвая зона (az 90, 250) → «перёд не определён», поза не тронута даже при рельефе «за»', ok)
+    PR.front_form_votes = lambda geo, cam, kind, R_: ({'relief_form': '—'}, {})
+    sigs[id(cams['b'])] = sg(0.89 - 0.149, 0.9, 1.0, 5.0)              # Трейвис: оценка с полосой низа хуже на 0,149, а IoU почти тот же (−0,004) → не запрет
+    IOU[id(cams['a'])], IOU[id(cams['b'])] = 0.9407, 0.9365
+    out, info = fp(pkA, 'тв-тумба')
+    check('корпусной (Трейвис): оценка низа хуже на 0,149, IoU −0,004 → разворачиваем (полоса низа в проверку не входит); IoU в info.front', info['applied'] and info['front']['verdict'] == 'развёрнут' and info['front']['iou'] == {'pick': 0.9407, 'flip': 0.9365})
+    IOU[id(cams['b'])] = 0.9407 - 0.05                                  # az в задней половине, но IoU перевёрнутой заметно хуже
+    out, info = fp(pkA, 'шкаф')
+    check('корпусной: IoU перевёрнутой хуже порога → не разворачиваем при любых осях', not info['applied'] and out is pkA and info['front']['verdict'] == 'перёд не определён')
+    IOU.clear()
+    check('front_axes: границы зон (60/120/240/300 — мёртвые; 59,9 и 300,1 — перёд; 120,1 и 239,9 — зад; az нет → «нет»)', [PR.front_axes(x, on) for x in (60.0, 120.0, 240.0, 300.0, 59.9, 300.1, 120.1, 239.9, 0.0, 359.0, 180.0)] == ['мёртвая', 'мёртвая', 'мёртвая', 'мёртвая', 'перёд', 'перёд', 'зад', 'зад', 'перёд', 'перёд', 'зад'] and PR.front_axes(None, on) == 'нет')
 finally:
+    PR._pose_iou = _orig_iou
     PR.flip_hypothesis, PR.flip_signals, PR.front_form_votes = _orig2
+
+# гипотеза az+180° с несколькими стартами (корпусные): лучшая по pose_score, в заднюю половину не возвращаемся; без refit — один старт
+class _FakePF:
+    def __init__(self, table):
+        self.table, self.calls = table, []
+
+    def _blur(self, Mp, n):
+        return Mp
+
+    def nm_two_stage(self, Pc, Mp, Mpb, n, cam0):
+        self.calls.append((round(cam0['az'], 1), round(cam0['el'], 1)))
+        return dict(self.table(cam0)), 3
+
+    def splat_mask(self, Pc, c, n):
+        return c
+
+    def pose_score(self, S, Mp):
+        return {'score': S['q']}
+
+    def iou(self, S, Mp):
+        return 0.9
+
+    def edge_score(self, *a, **k):
+        return {'agree': 0.5}
+
+    def refine_v2_rules(self):
+        return None
+
+    def refine_by_edges(self, geo, c, *a, **k):
+        return c, {'agree': 0.5}
+
+    def refine_ok(self, a, b):
+        return True
+
+
+def _tab(c0):                                                          # качество подгонки зависит от старта: старт az+15° и наклона +7 — лучший; старт az−15° уходит в заднюю половину (az 160) с самой высокой оценкой
+    a = round(c0['az'] % 360.0, 1)
+    if a == round((334.3 - 15) % 360.0, 1):
+        return {'az': 160.0, 'el': 3.0, 'q': 0.99}
+    q = 0.70 + (0.10 if abs(c0['el'] - 10.6) < 0.1 else 0.0) + (0.15 if abs(a - 349.3) < 0.1 else 0.0)
+    return {'az': a, 'el': c0['el'], 'q': q}
+
+
+fpf = _FakePF(_tab)
+fh = PR.flip_hypothesis(fpf, {}, {'az': 154.3, 'el': 3.6}, None, np.zeros((4, 4)), 4, None, None, {}, None, log=lambda *a: None,
+                        refit={'enabled': True, 'az_offsets_deg': [-15, 0, 15], 'el_offsets_deg': [0, 7], 'max_az_from_front_deg': 90})
+check('flip_hypothesis (refit): 6 стартов вокруг az+180°, лучшая по pose_score, не уходящая в заднюю половину (старт с az 160 и оценкой 0,99 отброшен)', len(fpf.calls) == 6 and abs(fh['cam']['az'] - 349.3) < 0.2 and abs(fh['cam']['el'] - 10.6) < 0.2)
+fpf = _FakePF(_tab)
+fh = PR.flip_hypothesis(fpf, {}, {'az': 154.3, 'el': 3.6}, None, np.zeros((4, 4)), 4, None, None, {}, None, log=lambda *a: None)
+check('flip_hypothesis без refit (мягкая мебель и прежний путь): один старт az+180°', len(fpf.calls) == 1 and fpf.calls[0][0] == round((154.3 + 180.0) % 360.0, 1))
+check('правило flip_refit: выключено (замер на Трейвисе: не помогло), три азимута × два наклона, не дальше 90° от 0°', R['flip_always']['flip_refit']['enabled'] is False and len(R['flip_always']['flip_refit']['az_offsets_deg']) == 3 and R['flip_always']['flip_refit']['max_az_from_front_deg'] == 90)
+
+# load_geoms: GLB без читаемого буфера (как сжатые meshopt GLB сайта) → понятная ValueError, а не голый IndexError
+def _glb_no_buffer(path):
+    import json as _j, struct as _s
+    j = {'asset': {'version': '2.0'}, 'scene': 0, 'scenes': [{'nodes': [0]}], 'nodes': [{'mesh': 0}],
+         'meshes': [{'primitives': [{'attributes': {'POSITION': 0}, 'indices': 1}]}],
+         'accessors': [{'bufferView': 0, 'componentType': 5126, 'count': 3, 'type': 'VEC3', 'min': [0, 0, 0], 'max': [1, 1, 0]}, {'bufferView': 1, 'componentType': 5123, 'count': 3, 'type': 'SCALAR'}],
+         'bufferViews': [{'buffer': 0, 'byteOffset': 0, 'byteLength': 36}, {'buffer': 0, 'byteOffset': 36, 'byteLength': 6}], 'buffers': [{'byteLength': 42}]}
+    js = _j.dumps(j).encode()
+    js += b' ' * ((4 - len(js) % 4) % 4)
+    with open(path, 'wb') as f:
+        f.write(_s.pack('<4sII', b'glTF', 2, 12 + 8 + len(js)))
+        f.write(_s.pack('<II', len(js), 0x4E4F534A) + js)
+
+
+try:
+    import tempfile as _tf
+    import tex_coverage as _TC
+    _p = os.path.join(_tf.mkdtemp(prefix='t88_glb_'), 'nobuf.glb')
+    _glb_no_buffer(_p)
+    try:
+        _TC.load_geoms(_p)
+        _ok = False
+    except ValueError as _e:
+        _ok = 'GLB не читается' in str(_e) and 'nobuf.glb' in str(_e)
+    except Exception:                                                  # noqa: BLE001
+        _ok = False
+    check('load_geoms: GLB без читаемого буфера → ValueError с понятным текстом (не голый IndexError)', _ok)
+except ImportError:
+    check('load_geoms: trimesh/tex_coverage недоступны — тест пропущен', True)
 
 # голоса формы: mesh_front — перёд рядом с камерой → против, далеко → за, нет уверенности → нет; на синтетическом «диване» (спинка у −Z, перёд +Z)
 def _sofa():
