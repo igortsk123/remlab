@@ -59,7 +59,7 @@ EDGE_BG_PX = float(os.environ.get('EDGE_BG_PX', R.get('edge_bg_reject_px', 8.0))
 EDGE_BG_MEASURE = float(R.get('edge_bg_measure_px', 6.0))
 EDGE_BG_DL = float(R.get('edge_bg_dL', 6.0))
 EDGE_BG_LOCAL = os.environ.get('EDGE_BG_LOCAL', str(R.get('edge_bg_local', False))).lower() in ('1', 'true', 'yes')   # T-20261124-10/2: опора каймы — цвет БЛИЖАЙШЕГО ядра, а не одна медиана на товар
-EDGE_BG_INWARD = os.environ.get('EDGE_BG_INWARD', str(R.get('edge_bg_inward', False))).lower() in ('1', 'true', 'yes')   # T-85 хвост (вариант В): опора каймы — цвет товара на INWARD_LO..INWARD_HI px вглубь от края фото (кайма вырезки тоньше, чем рама/ножка/кант), не медиана и не роль
+EDGE_BG_INWARD = os.environ.get('EDGE_BG_INWARD', str(R.get('edge_bg_inward', False))).lower() in ('1', 'true', 'yes')   # T-85 хвост (вариант В), ТОЛЬКО МЕРКА edge_bg_share (правило каймы/перенос от флага не зависят — текстура 06 неизменна): опора — цвет товара на INWARD_LO..INWARD_HI px вглубь от края фото (кайма вырезки тоньше, чем рама/ножка/кант), не медиана и не роль
 EDGE_BG_REACH = float(R.get('edge_bg_reject_px', 8.0))   # T-85/В: под флагом inward мерка смотрит только на пиксели ≤ этого от края фото (кайма вырезки по определению у края; светлая деталь глубже — не кайма)
 INWARD_LO, INWARD_HI = float(R.get('edge_bg_inward_lo_px', 8.0)), float(R.get('edge_bg_inward_hi_px', 14.0))
 EDGE_BG_REF_SIGMA = float(R.get('edge_bg_ref_sigma_px', 6.0))     # сглаживание опорного цвета ядра (px кадра)
@@ -357,10 +357,10 @@ def inward_reference(st: dict, prgb: np.ndarray, pmask: np.ndarray) -> np.ndarra
     return ref
 
 
-def fringe_reference(st: dict, prgb: np.ndarray, pmask: np.ndarray) -> np.ndarray:
+def fringe_reference(st: dict, prgb: np.ndarray, pmask: np.ndarray, inward: bool = False) -> np.ndarray:
     """Опорный цвет «ткани» для каймы/мерки края (T-20261124-10/2): флаг edge_bg_local ВЫКЛ — одна медиана ядра на весь товар (core_median, как раньше); ВКЛ — local_reference по пикселю.
     Одна медиана на товар из двух материалов (синяя обивка + светлое дерево) принимала дерево за «фон вырезки» (Марти-2: 4416 из 4416 пикселей на ножках, edge_bg_share 0,258)."""
-    if EDGE_BG_INWARD:
+    if inward:                                          # опора «вглубь» — по флагу МЕРКИ (edge_bg_inward); правило каймы (edge_bg_fringe → перенос) её не берёт: текстура 06 от флага не зависит
         return inward_reference(st, prgb, pmask)
     return local_reference(st, prgb, pmask) if EDGE_BG_LOCAL else core_median(st, prgb, pmask)
 
@@ -392,7 +392,7 @@ def edge_bg_fringe(st: dict, prgb: np.ndarray, pmask: np.ndarray) -> np.ndarray:
     med = core_median(st, prgb, pmask)
     if med[0] > EDGE_BG_WHITE_L:                       # белая ткань (по всему товару): «светлее фона» — сама ткань
         return np.zeros(pmask.shape, bool)
-    return bg_like(_lab(prgb), fringe_reference(st, prgb, pmask) if (EDGE_BG_LOCAL or EDGE_BG_INWARD) else med) & (distance_transform_edt(pmask) <= EDGE_BG_PX) & pmask
+    return bg_like(_lab(prgb), fringe_reference(st, prgb, pmask) if EDGE_BG_LOCAL else med) & (distance_transform_edt(pmask) <= EDGE_BG_PX) & pmask
 
 
 def known_px(geoms: list, st: dict, tr: dict) -> np.ndarray:
@@ -448,10 +448,10 @@ def edge_bg_share(geoms: list, st: dict, prgb: np.ndarray, pmask: np.ndarray, tr
     med = core_median(st, prgb, pmask)
     if med[0] > EDGE_BG_WHITE_L:
         return {'edge_bg_share': None, 'edge_known_px': int(near.sum()), 'edge_bg_px': 0, 'edge_bg_na': f'N/A: белая ткань (медиана ядра L* {med[0]:.1f} > {EDGE_BG_WHITE_L:g}), мерка слепа'}
-    bg = bg_like(_lab(after), fringe_reference(st, prgb, pmask) if (EDGE_BG_LOCAL or EDGE_BG_INWARD) else med) & near
+    bg = bg_like(_lab(after), fringe_reference(st, prgb, pmask, inward=EDGE_BG_INWARD) if (EDGE_BG_LOCAL or EDGE_BG_INWARD) else med) & near
     n = int(near.sum())
     if os.environ.get('EDGE_BG_DEBUG'):                                  # отладка (только по env): что мерка видит у края — для разбора слепоты опоры
-        _rf = fringe_reference(st, prgb, pmask) if (EDGE_BG_LOCAL or EDGE_BG_INWARD) else med
+        _rf = fringe_reference(st, prgb, pmask, inward=EDGE_BG_INWARD) if (EDGE_BG_LOCAL or EDGE_BG_INWARD) else med
         np.savez_compressed(os.environ['EDGE_BG_DEBUG'], near=near, bg=bg, bg_med=bg_like(_lab(after), med) & near, lab=_lab(after).astype(np.float16), ref=np.broadcast_to(np.asarray(_rf), prgb.shape).astype(np.float16), pmask=pmask, mask=mask)
     ref_kind = 'inward' if EDGE_BG_INWARD else ('local' if EDGE_BG_LOCAL else 'median')
     out = {}

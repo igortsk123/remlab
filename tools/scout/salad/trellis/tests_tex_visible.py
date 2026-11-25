@@ -443,6 +443,27 @@ class TestTexVisible(unittest.TestCase):
         finally:
             TV.EDGE_BG_INWARD = old_flag
 
+    def test_edge_bg_inward_flag_is_metric_only_rule_mask_unchanged(self):
+        """Директор 25.11 (А): флаг edge_bg_inward — только для мерки; маска правила каймы (edge_bg_fringe → перенос → visible.glb/known.png) от него не зависит: при вкл./выкл. совпадает побайтно, у синтетики с ореолом и двумя материалами."""
+        old = (TV.EDGE_BG_INWARD, TV.EDGE_BG_LOCAL)
+        try:
+            for local in (False, True):
+                n, pm, blue, wood, prgb, st = self._two_material_photo(halo=True)
+                TV.EDGE_BG_LOCAL = local
+                TV.EDGE_BG_INWARD = False
+                a = TV.edge_bg_fringe(st, prgb, pm)
+                TV.EDGE_BG_INWARD = True
+                b = TV.edge_bg_fringe(st, prgb, pm)
+                self.assertTrue(np.array_equal(a, b), local)
+                self.assertTrue(a.sum() > 0)                                              # маска не пустая (ореол режется) — сравнение содержательное
+            TV.EDGE_BG_LOCAL = False
+            r0 = TV.fringe_reference(st, prgb, pm)                                        # без inward — прежняя опора (одна медиана)
+            self.assertEqual(r0.shape, (3,))
+            r1 = TV.fringe_reference(st, prgb, pm, inward=True)                           # с inward — по пикселям (только мерка зовёт так)
+            self.assertEqual(r1.shape, (n, n, 3))
+        finally:
+            TV.EDGE_BG_INWARD, TV.EDGE_BG_LOCAL = old
+
     def test_edge_bg_reach_limits_measure_to_photo_edge_band(self):
         """Под флагом inward мерка смотрит на пиксели ≤ EDGE_BG_REACH (8 px) от края фото: кайма у края — внутри, светлая деталь на 12 px — снаружи области."""
         n = 200
