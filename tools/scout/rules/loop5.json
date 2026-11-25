@@ -65,7 +65,7 @@
   "cores_sheets": 4,
   "min_gb_sheets": 3,
   "prio": 2,
-  "cores_sheets_batch": 2, "cores_eval": 4, "min_gb_eval": 5, "prio_eval": 0,
+  "cores_sheets_batch": 2, "cores_eval": 4, "min_gb_eval": 2.8, "prio_eval": 0,
   "min_gb_sheets_batch": 2
  },
  "sheets": {
