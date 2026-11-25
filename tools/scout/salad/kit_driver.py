@@ -1138,6 +1138,36 @@ class Watch:
         return None, ''
 
 
+class DeployGuard:
+    """Сторож «группа в deploying без ноды» (T-20261125-58/5): после /start Salad иногда не выдаёт машину десятки минут (замер 21–25.11: 274 группы, p90 30 мин, макс 53), а деньги ещё не идут —
+    ждать незачем. `step` → True, когда группа в deploying и экземпляров НЕТ дольше `after_min` (от /start или от прошлого пересоздания) и пересозданий меньше `max_restarts`; драйвер гасит группу
+    и стартует её снова через те же ворота счёта (`create_and_start(existing=True)`), затем зовёт `restarted`. Экземпляр есть (creating/downloading/running) — не наш случай (докачку судит PullGuard).
+    after_min <= 0 или нет правила — выключен. Числа — `rules/salad-groups.json` → `deploy_guard`."""
+
+    def __init__(self, after_min: float, max_restarts: int, t0: float):
+        self.after_s, self.max_restarts, self.since, self.restarts = float(after_min or 0) * 60.0, int(max_restarts or 0), t0, 0
+
+    @classmethod
+    def from_rules(cls, rules: dict | None, t0: float) -> 'DeployGuard':
+        r = rules if rules is not None else salad_rules('deploy_guard')
+        return cls(r.get('after_min', 0), r.get('max_restarts', 0), t0)
+
+    def waited_min(self, t: float) -> float:
+        return (t - self.since) / 60.0
+
+    def step(self, t: float, st: str | None, ins: list, run_since: float | None) -> bool:
+        if self.after_s <= 0 or self.restarts >= self.max_restarts or run_since is not None:
+            return False
+        if st != 'deploying' or ins:
+            self.since = max(self.since, t) if ins else self.since                   # экземпляр появился — машина выдана, отсчёт «без ноды» не копим
+            return False
+        return t - self.since >= self.after_s
+
+    def restarted(self, t: float) -> None:
+        self.restarts += 1
+        self.since = t
+
+
 class SilenceGuard:
     """Сторож тишины (P-039, T-178 22.11: нода 37 мин без готовых заданий — узнали только на обходе). «Ход» — готовое задание, новая готовность ноды, перезапуск ноды. Нет хода дольше
     `minutes` (до готовности ноды — ×`warm_factor`: подъём ноды законно долог) — `step` возвращает минуты тишины, повтор тревоги — каждые `minutes`. minutes=0 — выключен."""
@@ -1686,6 +1716,7 @@ def _run_probe_once(a, MG, BR, spec: Spec, gw_factory=Gateway, sleep=time.sleep,
     dguard = (disk_guard or (lambda n: DiskGuard(n, min_gb_min=float((prof.get('expect') or {}).get('weights_gb_min_min') or DISK_MIN_GB_MIN))))(name) if disk_guard_wanted(a) else None
     if guard is not None:
         guard.configure(image_gib)                                                           # норма докачки — от размера образа (ожидаемое × 2,5), не константы мешей
+    dep_guard = DeployGuard.from_rules(None, t_start)                  # группа в deploying без ноды дольше N мин → стоп и повторный старт через ворота (T-20261125-58/5)
     gw = None
     streak = 0
     busy_waits = 0
@@ -1721,6 +1752,23 @@ def _run_probe_once(a, MG, BR, spec: Spec, gw_factory=Gateway, sleep=time.sleep,
                 say(f'!! {guard.give_up} — гашу')
                 summary['stopped_by'] = 'pull_slow'
                 break
+            if dep_guard.step(t, st, ins, w.run_since):
+                n_dep = dep_guard.restarts + 1
+                say(f'!! группа {name} {dep_guard.waited_min(t):.0f} мин в deploying, Salad не выдал машину (правило deploy_guard: {dep_guard.after_s / 60:.0f} мин) — гашу и стартую снова через ворота счёта (№{n_dep} из {dep_guard.max_restarts}, $0)')
+                summary['deploy_restarts'] = n_dep
+                summary.setdefault('deploy_waits_min', []).append(round(dep_guard.waited_min(t), 1))
+                if not stop_and_verify(BR, name):
+                    say('!! остановка не подтверждена — повторный старт не делаю, гашу')
+                    summary['stopped_by'] = 'deploy_stop_unverified'
+                    break
+                ok_r, _t_new, why_r = create_and_start(MG, BR, name, body, say, sleep, clock, wait_s, counters=summary, existing=True)
+                if not ok_r:
+                    say(f'!! повторный старт не прошёл ({why_r}) — гашу')
+                    summary['stopped_by'] = why_r
+                    break
+                dep_guard.restarted(clock())
+                w.last_cull = clock()                                      # «нода не выдана» (running_min) считаем заново, как после пересадки
+                continue
             lost_obs, node_restarts, lost_act = node_lost_step(w, t, ins, lost_obs, cur, pending, int(getattr(a, 'max_node_restarts', 3)), node_restarts)
             if lost_act == 'restart':
                 say(f'!! нода пропала у прогретой группы (Salad перезапустил экземпляр, перезапуск №{node_restarts}) — прерванное задание в начало очереди, жду новую ноду')
