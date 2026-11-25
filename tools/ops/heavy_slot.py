@@ -152,6 +152,15 @@
     жив, но НЕ бьётся дольше HEAVY_SLOT_BEAT_STALE (с, 120; 0 — не снимать) — процесс завис или остановлен, — для очереди мёртв и
     убирается сам при первом разборе (умерший pid и подмена pid — как прежде, по pid + времени старта). Процесс, очнувшийся позже,
     видит, что билета нет, и встаёт в конец заново (не вечно ждёт несуществующий билет). Старая версия без биения — по pid, как прежде.
+  * ДОЛЯ ДОЛГОГО ДЕРЖАТЕЛЯ ПО ЖИВОМУ ПИКУ (T-20261125-74, А; `rules/heavy-slot.json` → `live_share`): 25.11 четыре шарда заявили по 3 ГБ, держали
+    0,3–0,65 — «неизрасходованная заявка» 10,7 ГБ держала голову (порог 4) 47 мин при 13 ГБ свободных; порог по замеру пишется при отпускании слота, а
+    шарды не отпускались. Теперь замер пишет живой пик в запись держателя (`lpeak`), а держащий ≥ min_s (600 с) считается у других как
+    max(factor (2) × живой пик, floor_gb (0,5)) − память сейчас, если это ниже его порога. Рост пика — доля растёт сама (пик обновляется);
+    перебор (пик выше порога) — как прежде, по факту. HEAVY_SLOT_LIVE_MIN_S перебивает min_s (≤ 0 — выключено).
+  * ОБГОН ГОЛОВЫ ПО ПРОГНОЗУ (T-20261125-74, Б; `head_guard`): защита головы (HEAVY_SLOT_BACKFILL_MIN) закрывает обгон, только если голова ПРОЙДЁТ по
+    памяти в ближайшие eta_max_min (20) мин, когда держатели уйдут в срок: у кого есть замеры типа — медиана держания минус уже держит; без замеров —
+    «в окне», пока держит меньше окна, иначе неизвестно. Не пройдёт (все долгие/просрочены) — обгон открыт, мелкие, проходящие по факту, идут (строка
+    журнала «обгон открыт …»); голова не голодает — слот, который освободится, и так берёт она первой. HEAVY_SLOT_HEAD_ETA=0 — как до T-74.
 Переменные (для самопроверки и особых случаев): HEAVY_SLOT_DIR (замок и состояние, по умолчанию ~/.cache/remlab-heavy-slot —
 одинаково в кроне и в сессии, не в репо), HEAVY_SLOT_LOG, HEAVY_SLOT_MEMINFO (подмена /proc/meminfo), HEAVY_SLOT_POLL (с, 30),
 HEAVY_SLOT_REPORT (строка «ждёт» в журнал раз в N с, 300), HEAVY_SLOT_YIELD, HEAVY_SLOT_MAX_YIELDS, HEAVY_SLOT_SLOTS,
@@ -159,7 +168,7 @@ HEAVY_SLOT_RESERVE_GB, HEAVY_SLOT_HEAD_POLL, HEAVY_SLOT_SAMPLE, HEAVY_SLOT_LONG_
 HEAVY_SLOT_EFF_FLOOR_GB, HEAVY_SLOT_MEM_STUB (файл «метка ГБ» — подмена замера памяти дерева для самопроверки),
 HEAVY_SLOT_BACKFILL_MIN, HEAVY_SLOT_PRIO, HEAVY_SLOT_PRIO_AGE_MIN, HEAVY_SLOT_PRIO_SLOTS, HEAVY_SLOT_CORES_BUDGET,
 HEAVY_SLOT_LONG_NICE, HEAVY_SLOT_CPU_FACT, HEAVY_SLOT_CPU_WINDOW, HEAVY_SLOT_CPU_WARM, HEAVY_SLOT_CPU_MARGIN,
-HEAVY_SLOT_BEAT, HEAVY_SLOT_BEAT_STALE, HEAVY_SLOT_CORES_OVERCOMMIT, HEAVY_SLOT_MAX_SLOTS, HEAVY_SLOT_PROCSTAT (подмена /proc/stat), HEAVY_SLOT_CPU_STUB (файл «метка
+HEAVY_SLOT_BEAT, HEAVY_SLOT_BEAT_STALE, HEAVY_SLOT_LIVE_MIN_S, HEAVY_SLOT_HEAD_ETA, HEAVY_SLOT_HEAD_ETA_MIN, HEAVY_SLOT_CORES_OVERCOMMIT, HEAVY_SLOT_MAX_SLOTS, HEAVY_SLOT_PROCSTAT (подмена /proc/stat), HEAVY_SLOT_CPU_STUB (файл «метка
 ядер» — подмена факта CPU дерева), HEAVY_SLOT_STATUS_CPU_S (своё окно `--status`, когда держатели замер ещё не написали; 0 — не ждать, по умолчанию).
 """
 from __future__ import annotations
@@ -1039,6 +1048,37 @@ OVERRUN_DEFAULTS = {'factor': 2.0, 'min_excess_gb': 1.0, 'declared_floor_gb': 0.
 RULES_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)), '..', 'scout', 'rules', 'heavy-slot.json')
 
 
+LIVE_DEFAULTS = {'min_s': 600.0, 'factor': 2.0, 'floor_gb': 0.5}
+HEAD_DEFAULTS = {'by_eta': 1.0, 'eta_max_min': 20.0}
+
+
+def _rules_section(name: str, defaults: dict) -> dict:
+    cfg = dict(defaults)
+    try:
+        with open(os.environ.get('HEAVY_SLOT_RULES') or RULES_FILE, encoding='utf-8') as f:
+            cfg.update({k: float(v) for k, v in (json.load(f).get(name) or {}).items() if k in cfg})
+    except (OSError, ValueError, AttributeError):
+        pass
+    return cfg
+
+
+def live_cfg() -> dict:
+    """ДОЛЯ ДОЛГОГО ДЕРЖАТЕЛЯ ПО ЖИВОМУ ПИКУ (T-20261125-74, А) — `rules/heavy-slot.json` → `live_share`: держит ≥ min_s секунд (HEAVY_SLOT_LIVE_MIN_S
+    перебивает; ≤ 0 — выключено) — его доля у других = max(factor × живой пик, floor_gb) − память сейчас, а не заявка `--min-gb`."""
+    cfg = _rules_section('live_share', LIVE_DEFAULTS)
+    cfg['min_s'] = _env_f('HEAVY_SLOT_LIVE_MIN_S', cfg['min_s'])
+    return cfg
+
+
+def head_cfg() -> dict:
+    """ОБГОН ГОЛОВЫ ПО ПРОГНОЗУ (T-20261125-74, Б) — `rules/heavy-slot.json` → `head_guard`: by_eta ≥ 1 — защита головы закрывает обгон, только если голова
+    по замерам пройдёт в ближайшие eta_max_min минут (HEAVY_SLOT_HEAD_ETA_MIN перебивает; HEAVY_SLOT_HEAD_ETA=0 — как до T-74: закрыт всегда)."""
+    cfg = _rules_section('head_guard', HEAD_DEFAULTS)
+    cfg['by_eta'] = _env_f('HEAVY_SLOT_HEAD_ETA', cfg['by_eta'])
+    cfg['eta_max_min'] = _env_f('HEAVY_SLOT_HEAD_ETA_MIN', cfg['eta_max_min'])
+    return cfg
+
+
 def overrun_cfg() -> dict:
     """Порог ПЕРЕБОРА — `rules/heavy-slot.json` → `overrun` (нет файла рядом — умолчания выше; `HEAVY_SLOT_RULES` — другой файл; `HEAVY_SLOT_OVERRUN_X` перебивает `factor`, ≤ 0 — сторож выключен).
     factor — во сколько раз пик дерева выше заявки `--min-gb`; min_excess_gb — и не меньше стольких ГБ сверх заявки (мелочь не шумит); declared_floor_gb — заявка 0 считается как этот пол;
@@ -1073,6 +1113,7 @@ class _Meter(threading.Thread):
         self.label, self.pid, self.every, self.long_s = label, pid, every, long_s
         self.peak, self.peak_rss, self.t0, self.warned = 0.0, 0.0, time.time(), False
         self.holder, self.eff, self.told = holder, eff, 0.0
+        self.lw = 0.0                                 # живой пик, уже записанный в запись держателя (`lpeak`, T-20261125-74)
         self.cpu_s: list = []                         # (время, тики CPU дерева) за окно — факт держателя (T-75)
         self._stop_ev = threading.Event()
 
@@ -1081,6 +1122,7 @@ class _Meter(threading.Thread):
             a, b = tree_mem(self.pid, self.label)
             self.peak, self.peak_rss = max(self.peak, a), max(self.peak_rss, b)
             self.tell()
+            self.live()
             self.overrun()
 
     def publish(self) -> None:
@@ -1108,6 +1150,18 @@ class _Meter(threading.Thread):
         if m:
             h['fbusy'], h['fwin'], h['ft'] = f'{m[0]:.2f}', f'{m[1]:.1f}', f'{now:.2f}'
         _write_kv(self.holder, h)
+
+    def live(self) -> None:
+        """ЖИВОЙ ПИК (T-20261125-74): пик дерева за этот прогон — в запись держателя (`lpeak`), когда вырос на ≥ 0,02 ГБ: другие считают мою долю по нему,
+        а не по заявке, когда держу дольше live_share.min_s (`_holder_rows`). Запись редкая — пик растёт, а не мигает."""
+        if not self.holder or self.peak < self.lw + 0.02:
+            return
+        h = _read_kv(self.holder) or {}
+        if h.get('pid') != str(os.getpid()):
+            return
+        h['lpeak'] = f'{self.peak:.3f}'
+        _write_kv(self.holder, h)
+        self.lw = self.peak
 
     def tell(self) -> None:
         """ПРЕВЫШЕНИЕ (T-91): пик прогона выше своего порога — пишу его в запись держателя (`peak_gb`), чтобы другие считали
@@ -1172,14 +1226,14 @@ class _Meter(threading.Thread):
 
 # ---------------------------------------------------------------- допуск по памяти (T-74: без двойного счёта)
 
-def _holders_need(d: str, k: int, n: int) -> tuple[float, str, bool]:
-    """Сколько ещё памяти могут взять ДРУГИЕ держатели (кроме слота k): Σ max(порог_h − память_h, 0) → (ГБ, пояснение,
-    есть ли держатели). Порог — эффективный (`eff_gb`, у старой версии — `min_gb`); память — PSS дерева держателя сейчас:
-    она уже вычтена из MemAvailable, второй раз не считается. Порог не прочитан — бесконечность (ждать тот слот).
-    ПРЕВЫШЕНИЕ (T-91): пик держателя в этом прогоне (`peak_gb` из записи — пишет его замер, — или память сейчас) выше его
-    порога — оценка по замерам для него не сработала: доля считается по факту, не ниже объявленного —
-    max(объявленный, пик прогона) − память сейчас (пик выше сейчас — значит, память у него скачет и может вернуться)."""
-    total, parts = 0.0, []
+def _holder_rows(d: str, k: int, n: int) -> tuple[list, int | None]:
+    """Другие держатели (кроме слота k) → ([{label, type, stage, th, used, share, back, held_s, text}], номер слота с нечитаемым порогом | None).
+    th — эффективный порог (`eff_gb`, у старой версии — `min_gb`); used — PSS дерева сейчас (уже вычтена из MemAvailable); share = max(th − used, 0);
+    back = used + share — сколько вернётся в «место» после ухода держателя. ПРЕВЫШЕНИЕ (T-91): пик (`peak_gb`) или память сейчас выше порога —
+    доля по факту, не ниже объявленного. ЖИВОЙ ПИК (T-20261125-74): держит ≥ live_share.min_s и живой пик (`lpeak` из записи — пишет замер) в
+    factor раз ниже порога — порог = max(factor × пик, floor_gb): заявка в разы выше факта не бронирует память зря (4 шарда по 3 ГБ при 0,3–0,65 —
+    10,7 ГБ «брони» 25.11 держали голову 47 мин)."""
+    rows, now, cfg = [], time.time(), live_cfg()
     for j in range(1, n + 1):
         if j == k or not is_held(j):
             continue
@@ -1187,12 +1241,25 @@ def _holders_need(d: str, k: int, n: int) -> tuple[float, str, bool]:
         try:
             th = float(h.get('eff_gb') or h['min_gb'])
         except (KeyError, ValueError):
-            return float('inf'), f'порог держателя слота {j} не прочитан', True
+            return rows, j
         try:
             pid = int(h.get('pid', 0))
         except ValueError:
             pid = 0
         used = tree_mem(pid, h.get('label', ''))[0] if h.get('stage') == 'работает' else 0.0
+        try:
+            held = now - float(h.get('run_t') or h.get('since') or now)
+        except ValueError:
+            held = 0.0
+        live = ''
+        try:
+            lp = max(float(h.get('lpeak') or 0), used)
+        except ValueError:
+            lp = used
+        if h.get('stage') == 'работает' and cfg['min_s'] > 0 and held >= cfg['min_s'] and lp > 0:
+            lth = max(cfg['factor'] * lp, cfg['floor_gb'])
+            if lth < th:
+                th, live = lth, f' (по живому пику {lp:.2f})'
         try:
             peak = max(float(h.get('peak_gb') or 0), used)
         except ValueError:
@@ -1205,9 +1272,69 @@ def _holders_need(d: str, k: int, n: int) -> tuple[float, str, bool]:
                 decl = th
             th, over = max(decl, peak), f'(превысил: пик {peak:.1f})'
         part = max(th - used, 0.0)
-        total += part
-        parts.append(f"{h.get('label', '?')}{over} {th:g}−{used:.1f}={part:.1f}")
-    return total, ('держатели ' + ' + '.join(parts)) if parts else '', bool(parts)
+        rows.append({'label': h.get('label', '?'), 'type': h.get('type', ''), 'stage': h.get('stage', ''), 'th': th, 'used': used,
+                     'share': part, 'back': used + part, 'held_s': held,
+                     'text': f"{h.get('label', '?')}{over}{live} {th:g}−{used:.1f}={part:.1f}"})
+    return rows, None
+
+
+def _holders_need(d: str, k: int, n: int) -> tuple[float, str, bool]:
+    """Сколько ещё памяти могут взять ДРУГИЕ держатели (кроме слота k): Σ max(порог_h − память_h, 0) → (ГБ, пояснение,
+    есть ли держатели). Разбор каждого — `_holder_rows` (порог эффективный, память — PSS дерева сейчас: она уже вычтена из
+    MemAvailable, второй раз не считается; превышение T-91; живой пик T-20261125-74). Порог не прочитан — бесконечность (ждать тот слот)."""
+    rows, bad = _holder_rows(d, k, n)
+    if bad:
+        return float('inf'), f'порог держателя слота {bad} не прочитан', True
+    return (sum(r['share'] for r in rows), ('держатели ' + ' + '.join(r['text'] for r in rows)) if rows else '', bool(rows))
+
+
+def _eta_from(rows: list, room: float, th_head: float, win_s: float) -> float | None:
+    """Через сколько секунд голова (порог th_head) пройдёт по памяти, если держатели уйдут в срок: у кого есть замеры типа — по медиане их
+    держания минус сколько уже держит; без замеров — «уложится в окно», пока держит меньше окна, иначе неизвестно (долгий — не обещаем).
+    → секунды (0 — уже проходит) или None — не в обозримом окне win_s. room — свободно минус доли держателей минус запас."""
+    if th_head <= room:
+        return 0.0
+    cum = 0.0
+    for rem, back in sorted((r['rem'], r['back']) for r in rows if r.get('rem') is not None):
+        cum += back
+        if room + cum >= th_head:
+            return rem if rem <= win_s else None
+    return None
+
+
+def _head_eta(d: str, n: int, live: list, who: str) -> tuple[float | None, str]:
+    """Защита головы по прогнозу (T-20261125-74, Б): → (секунды до прохода головы или None, пояснение). Выключено (by_eta 0) или голова
+    не читается — 0 (как прежде: закрыт). Считает только память; голова, ждущая ядра, — как прежде."""
+    cfg = head_cfg()
+    if cfg['by_eta'] < 1:
+        return 0.0, ''
+    win = cfg['eta_max_min'] * 60
+    h1 = _read_kv(_holder_file(d, 1)) or {}
+    is_h1 = h1.get('stage') == 'память' and is_held(1) and h1.get('label') == who
+    hd = h1 if is_h1 else (live[0][2] if live else {})
+    try:
+        th_head = float(hd.get('eff_gb') or hd['min_gb'])
+    except (KeyError, ValueError):
+        return 0.0, ''
+    rows, bad = _holder_rows(d, 1 if is_h1 else 0, n)
+    if bad:
+        return 0.0, ''
+    room = mem_available_gb() - sum(r['share'] for r in rows) - reserve_gb()
+    prk = _peaks(d)
+    for r in rows:
+        r['rem'] = None
+        if r['stage'] != 'работает':
+            continue
+        c = _counted(prk, r['type'])
+        if c:
+            med = sorted(x['hold_s'] for x in c)[len(c) // 2]
+            r['rem'] = med - r['held_s'] if med > r['held_s'] else None
+        elif r['held_s'] < win:
+            r['rem'] = win - r['held_s']
+    eta = _eta_from(rows, room, th_head, win)
+    why = (f'голова {who} (порог {th_head:g}) при месте {room:.1f} ГБ по замерам не пройдёт в ближайшие {cfg["eta_max_min"]:g} мин: '
+           + ('держатели ' + ', '.join(f"{r['label']} {_sec(r['held_s'])} с" for r in rows if r['stage'] == 'работает') if rows else 'держателей нет'))
+    return eta, why
 
 
 def _holders_cores(d: str, k: int, n: int, strict: bool = True) -> tuple[float, bool]:
@@ -1512,8 +1639,8 @@ def heavy_slot(label: str, min_gb: float = 6.0, timeout: float | None = None, no
         note(eff_why)
     me = {'label': label, 'pid': os.getpid(), 'since': int(t0), 'min_gb': min_gb, 'eff_gb': round(own, 3), 'type': typ,
           'bf': 1, 'cmd': cmd[:300], 'prio': pr, 'cores': f'{cores:g}', 'long': int(bool(long)),
-          'v': 75}                                    # версия: видит слоты сверх legacy_top() (T-75, `_legacy_waiting`)
-    got, ticket, yields, t_lock, extra_why, said_closed = False, None, 0, 0.0, '', False
+          'v': 75, 'beat': 1}                         # v — видит слоты сверх legacy_top() (T-75); beat — понимает --cancel и бьёт билет (T-20261125-74)
+    got, ticket, yields, t_lock, extra_why, said_closed, said_open = False, None, 0, 0.0, '', False, False
     keep = None                                       # номер билета, с которым вернуться после уступки старшему классу
     refused = ['', 0.0]                               # чего ждал при последнем отказе в дополнительном слоте и когда писал
 
@@ -1581,7 +1708,7 @@ def heavy_slot(label: str, min_gb: float = 6.0, timeout: float | None = None, no
         HEAVY_SLOT_BACKFILL_MIN, и пока свободен слот 1 (его берёт голова). РЕЗЕРВ ПРОБЫ (T-20261110-29): свободен только резерв —
         он не слот впереди стоящих обычных (их не ждём, защита головы его не закрывает); ждём только впереди стоящих класса ≥ 1.
         → номер слота или 0."""
-        nonlocal extra_why, said_closed
+        nonlocal extra_why, said_closed, said_open
         lim = backfill_s()
         if not is_held(1):
             return 0
@@ -1605,7 +1732,12 @@ def heavy_slot(label: str, min_gb: float = 6.0, timeout: float | None = None, no
                     return 0
                 res_only = all(k in res_ids for k in free_k)
             who, waited = _head_wait(d, live)
-            if waited >= lim and not res_only:
+            eta = _head_eta(d, n, live, who) if waited >= lim and not res_only else (0.0, '')
+            if waited >= lim and not res_only and eta[0] is None:   # Б (T-20261125-74): голова по замерам не пройдёт в окно — закрывать нечем, мелкие идут
+                if not said_open:
+                    note(f'обгон открыт, хотя голова {who} ждёт {waited / 60:.0f} мин (≥ {lim / 60:g}): {eta[1]}')
+                    said_open = True
+            elif waited >= lim and not res_only:
                 if not said_closed:
                     note(f'обгон закрыт: голова {who} ждёт {waited / 60:.0f} мин (≥ {lim / 60:g}) — новые не стартуют, '
                          f'слоты стекают к ней; жду по очереди')
@@ -1913,6 +2045,8 @@ def cancel(target: str, out=sys.stdout) -> int:
                 continue
             if kv.get('proxy') == '1':
                 refused.append(f'{who}: процесс старой версии без билета — отмену не понимает, снять нельзя')
+            elif kv.get('beat') != '1':
+                refused.append(f'{who}: процесс старой версии (билет без биения) — отмену не понимает, снять нельзя')
             elif not _own_pid(pid):
                 refused.append(f'{who}: чужой процесс (не мой пользователь) — не снимаю')
             else:
@@ -1933,6 +2067,8 @@ def cancel(target: str, out=sys.stdout) -> int:
                 continue
             if h.get('stage') != 'память':
                 refused.append(f'{who}: уже ВЫПОЛНЯЕТ команду — отмена только у ожидающих; остановка — своей командой')
+            elif h.get('beat') != '1':
+                refused.append(f'{who}: процесс старой версии — отмену не понимает, снять нельзя')
             elif not _own_pid(pid):
                 refused.append(f'{who}: чужой процесс (не мой пользователь) — не снимаю')
             else:

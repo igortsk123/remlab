@@ -685,6 +685,70 @@ ok "одиночный — как раньше: 7 ≥ 6 сразу, без об�
   "$(yes_if '[ $rc = 0 ] && grep -q "bf-solo .*взял: ждал 0" "$HEAVY_SLOT_LOG" && ! grep -q "bf-solo .*обг" "$HEAVY_SLOT_LOG"')"
 mem 8
 
+# --- T-20261125-74 (А): доля долгого держателя — по живому пику, а не по заявке (25.11: 4 шарда по 3 ГБ держали 0,3–0,65, «бронь» 10,7 ГБ держала голову 47 мин)
+mem 6
+export HEAVY_SLOT_SAMPLE=0.1
+printf 'al0-h 0.3\nal-h 0.3\n' >> "$HEAVY_SLOT_MEM_STUB"
+# контроль: сторож выключен (min_s 0) — держатель 3 ГБ при факте 0,3: доля 2,7 → 4 + 2,7 + 1,5 > 6, второй НЕ идёт
+"$S" al0-h --min-gb 3 -- sh -c "$(hold3 h al0)" & pal0=$!
+until_f "[ -e $T/up-al0-h ]"
+HEAVY_SLOT_LIVE_MIN_S=0 "$S" al0-x --min-gb 4 --timeout 30 -- sh -c "echo sx >> $T/al0x" & pal0x=$!
+sleep 2
+x_early0=$([ -e "$T/al0x" ] && echo 1 || echo 0)
+touch "$T/go-al0"
+wait $pal0 $pal0x
+ok "без живого пика (min_s 0): заявка 3 при факте 0,3 держит «бронь» — второй (4) не идёт, пока держатель не ушёл" "$(yes_if '[ $x_early0 = 0 ] && [ -e $T/al0x ]')"
+# А: держатель держит ≥ min_s (1 с) — его доля max(2 × 0,3, 0,5) − 0,3 = 0,3, и 4 + 0,3 + 1,5 ≤ 6 — второй идёт при держателе
+"$S" al-h --min-gb 3 -- sh -c "$(hold3 h al)" & pal=$!
+until_f "[ -e $T/up-al-h ]"
+HEAVY_SLOT_LIVE_MIN_S=1 "$S" al-x --min-gb 4 --timeout 30 -- sh -c "$(hold3 x al)" & palx=$!
+until_f "[ -e $T/up-al-x ]"; x_up=$?
+h_alive=$([ ! -e "$T/go-al" ] && kill -0 $pal 2>/dev/null && echo 1 || echo 0)
+touch "$T/go-al"
+wait $pal $palx
+o=$(tr '\n' '|' < "$T/al")
+ok "живой пик: держатель 3 ГБ держит 0,3 уже ≥ 1 с — доля 0,3, второй (4) идёт при нём, не ждёт ухода ($o)" \
+  "$(yes_if '[ $x_up = 0 ] && [ $h_alive = 1 ] && [[ "$o" =~ ^sh\|sx\|e[hx]\|e[hx]\|$ ]] && grep -q "al-x .*слот 2: .*al-h (по живому пику 0.30) 0.6−0.3=0.3" "$HEAVY_SLOT_LOG"')"
+unset HEAVY_SLOT_SAMPLE
+mem 7
+
+# --- T-20261125-74 (Б): защита головы закрывает обгон, только если голова пройдёт в окно (по замерам / по возрасту держателей)
+export HEAVY_SLOT_BACKFILL_MIN=0.0002 HEAVY_SLOT_HEAD_ETA_MIN=0.0002     # голова ждёт дольше окна сразу; окно прогноза 12 мс — держатель его уже пережил
+bf_case bfe
+until_f "[ -e $T/up-bfe-b ]"; tail_up=$?
+a_early=$(grep -q '^sa$' "$T/bfe" && echo 1 || echo 0)
+touch "$T/go-bfe"
+wait $pbh_bfe $pba_bfe $pbb_bfe
+unset HEAVY_SLOT_BACKFILL_MIN HEAVY_SLOT_HEAD_ETA_MIN
+o=$(tr '\n' '|' < "$T/bfe")
+ok "держатель держит дольше окна прогноза, замеров нет — голова «не пройдёт в окно»: обгон ОТКРЫТ, хвост идёт при держателе, голова после ($o)" \
+  "$(yes_if '[ $tail_up = 0 ] && [ $a_early = 0 ] && [[ "$o" =~ ^sh\|sb\|e[hb]\|e[hb]\|sa\|$ ]] && grep -q "bfe-b .*обгон открыт, хотя голова bfe-a ждёт" "$HEAVY_SLOT_LOG" && grep -q "bfe-b .*взял: .*обогнал голову bfe-a" "$HEAVY_SLOT_LOG" && ! grep -q "bfe-b .*обгон закрыт" "$HEAVY_SLOT_LOG"')"
+# по замерам: тип держателя держал по peaks.tsv 5000 с — до его ухода ≫ окна 20 мин, обгон открыт и при обычном окне
+[ -f "$HEAVY_SLOT_DIR/peaks.tsv" ] && cp "$HEAVY_SLOT_DIR/peaks.tsv" "$T/peaks.bak"
+printf '2026-11-25 00:00:00\tbf-h\tbf-h\t2.000\t2.000\t5000.0\t4\t4.000\n' >> "$HEAVY_SLOT_DIR/peaks.tsv"
+export HEAVY_SLOT_BACKFILL_MIN=0.0002
+bf_case bfk
+until_f "[ -e $T/up-bfk-b ]"; tail_up=$?
+touch "$T/go-bfk"
+wait $pbh_bfk $pba_bfk $pbb_bfk
+unset HEAVY_SLOT_BACKFILL_MIN
+if [ -f "$T/peaks.bak" ]; then mv -f "$T/peaks.bak" "$HEAVY_SLOT_DIR/peaks.tsv"; else rm -f "$HEAVY_SLOT_DIR/peaks.tsv"; fi
+o=$(tr '\n' '|' < "$T/bfk")
+ok "по замерам типа (держит 5000 с, голова ждёт > 20 мин не пройдёт) — обгон открыт ($o)" \
+  "$(yes_if '[ $tail_up = 0 ] && [[ "$o" =~ ^sh\|sb\|e[hb]\|e[hb]\|sa\|$ ]] && grep -q "bfk-b .*обгон открыт, хотя голова bfk-a ждёт" "$HEAVY_SLOT_LOG"')"
+# выключатель HEAVY_SLOT_HEAD_ETA=0 — как до T-74 (закрыт всегда); существующая проверка «защита головы» выше идёт при включённом прогнозе: держатель моложе окна — закрыт
+ok "прогноз головы (_eta_from): по порядку ухода; дольше окна и недостижимо — None; уже проходит — 0" \
+  "$(yes_if 'PYTHONPATH="$DIR" python3 -c "
+import heavy_slot as H
+r = [{\"rem\": 600, \"back\": 3}, {\"rem\": 1500, \"back\": 3}, {\"rem\": None, \"back\": 5}]
+assert H._eta_from(r, 2, 4, 1200) == 600
+assert H._eta_from(r, 2, 7, 1200) is None
+assert H._eta_from(r, 2, 20, 1200) is None
+assert H._eta_from(r, 2, 1, 1200) == 0.0
+assert H._eta_from(r, 2, 7, 2000) == 1500
+"')"
+mem 8
+
 unset HEAVY_SLOT_MEM_STUB
 HEAVY_SLOT_SAMPLE=0.1 HEAVY_SLOT_LONG_S=0.4 HEAVY_SLOT_MEASURE_MIN_S=0 \
   "$S" t74-build-real --min-gb 1 -- python3 -c "import time; b = bytearray(300 << 20); b[::4096] = b'x' * len(b[::4096]); time.sleep(0.9)"
