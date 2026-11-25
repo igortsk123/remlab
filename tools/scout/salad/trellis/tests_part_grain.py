@@ -238,6 +238,18 @@ def main():
     b_st, _p, _s = PG.load_pattern([60.07, 8.21, 23.7], R, ['straight'])
     check(b_sw['bin'] is not None and b_st['bin'] is not None and b_st.get('pattern_class') == 'straight' and b_sw['bin'] != b_st['bin'], f'тон ножек: без класса бин {b_sw["bin"]} ({b_sw.get("pattern_class")}), с классом straight — {b_st["bin"]}')
 
+    # 12. library_max_de00 (T-63, замена no_grain_groups по имени): ключ меняет решение; светлая плита без близкого бина → ровный тон, тон дерева ножек — зерно
+    white = dict(part(1, photo_sigma=2.0), tone_lab=[92.0, 0.5, 2.0], name='плита')
+    legs = dict(part(2, photo_sigma=2.0), tone_lab=[60.07, 8.21, 23.7], name='ножки')
+    p_off = PG.plan_grain([white, legs], dict(R, library_max_de00=None))
+    p_on = PG.plan_grain([white, legs], dict(R, library_max_de00=12.0))
+    check(p_off[1]['apply'] and p_off[2]['apply'], 'library_max_de00 не задан: любой тон получает ближайший бин (светлая плита тоже — как было)')
+    check((not p_on[1]['apply']) and p_on[1]['reason'] == 'no_bin' and p_on[2]['apply'], f'library_max_de00=12: светлая плита → ровный тон (no_bin), ножки → зерно (бин {p_on[2]["bin"]["bin"]})')
+    odd = dict(part(3, photo_sigma=2.0), tone_lab=[30.0, 40.0, -40.0], name='синяя')
+    q_off = PG.plan_grain([odd], dict(R, library_max_de00=None))
+    q_on = PG.plan_grain([odd], dict(R, library_max_de00=12.0))
+    check(q_off[3]['apply'] and (not q_on[3]['apply']), 'library_max_de00 меняет выход и у цветной детали (без порога — бин дерева на синюю часть, с порогом — ровный тон)')
+
     bad_n = sum(1 for x in OK if not x)
     print(f'\n{len(OK) - bad_n}/{len(OK)} ok')
     sys.exit(1 if bad_n else 0)
