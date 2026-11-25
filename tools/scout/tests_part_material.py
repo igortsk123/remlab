@@ -240,6 +240,12 @@ fc = fa.copy(); fc[40:140, 40:140] = (90, 50, 30)                               
 g_far = PM.face_gate(fc, fa, rg, R)
 check(any('пятно' in x for x in g_far['fail']) and any('доля' in x for x in g_far['fail']), 'ворота: тёмное пятно вместо материала — отказ (доля и пятно)')
 check(PM.face_gate(fa, fa, np.zeros((200, 200), bool), R).get('skipped') == 'мало пикселей региона', 'ворота: пустой регион — пропуск, не отказ')
+fo = np.zeros((200, 200, 3), np.uint8); fo[:] = (200, 90, 50)                           # оранжевое фото с плавным запечённым градиентом света
+grad = np.linspace(0.65, 1.0, 200)[None, :, None]
+fo_g = (fo * grad).astype(np.uint8)
+check(PM.face_gate(fo, fo_g, rg, R)['fail'] == [], 'ворота: снят плавный запечённый свет (тот же цвет) — проходит')
+fp = np.zeros((200, 200, 3), np.uint8); fp[:] = (230, 200, 190)                       # бледный верх вместо оранжевого
+check(any('доля' in x for x in PM.face_gate(fp, fo, rg, R)['fail']), 'ворота: цвет ушёл (оранжевый → бледный) — отказ даже при снятии света')
 
 # ── seed k-means: тон и доля воспроизводимы между вызовами
 rs = np.random.RandomState(5)

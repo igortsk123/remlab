@@ -482,6 +482,13 @@ def face_gate(fin: np.ndarray, ctl: np.ndarray, region: np.ndarray, rules: dict)
         res['skipped'] = 'мало пикселей региона'
         return res
     lf, lc = lab_of(fin.reshape(-1, 3)).reshape(fin.shape), lab_of(ctl.reshape(-1, 3)).reshape(ctl.shape)
+    sg = float(gt.get('l_sigma_frac', 0) or 0) * fin.shape[0]
+    if sg > 0:                                                              # шаг снимает запечённый свет сам: плавную (низкочастотную) разницу светлоты не судим; цветность и мелкие детали — строго
+        m = region.astype(np.float32)
+        dl = (lf[..., 0] - lc[..., 0]).astype(np.float32) * m
+        lowd = cv2.GaussianBlur(dl, (0, 0), sg) / np.maximum(cv2.GaussianBlur(m, (0, 0), sg), 1e-3)
+        lc = lc.copy()
+        lc[..., 0] = lc[..., 0] + np.where(region, lowd, 0)
     de = de2000(lf.reshape(-1, 3), lc.reshape(-1, 3)).reshape(fin.shape[:2])
     far = (de > float(gt['de_px'])) & region
     res['share_far'] = round(float(far.sum() / n), 4)

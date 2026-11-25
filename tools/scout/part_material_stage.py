@@ -189,7 +189,8 @@ def process(a, rules: dict, d: str, rep: dict) -> None:
                     {'glb': os.path.join(work, 'ctl.glb'), 'out': os.path.join(work, 'ctl-cam-g.png'), 'orbit': orb_cam, 'size': SG}], rules, work)
     import cv2
     pgs = [gi for gi, gn in enumerate(names) if gn not in keep and (gn in alb or borrowed.get(gn) in alb)]
-    region = np.isin(lm_cam, pgs)
+    gskip = set(rules['gate'].get('skip_groups', []))
+    region = np.isin(lm_cam, [gi for gi in pgs if names[gi] not in gskip])       # группы с намеренным отходом от фото (ножки — тон лучшей, TG 2703) не судим
     if fit['erode_px']:
         region = cv2.erode(region.astype(np.uint8), np.ones((2 * int(fit['erode_px']) + 1,) * 2, np.uint8)).astype(bool)
     region = cv2.resize(region.astype(np.uint8), (SG, SG), interpolation=cv2.INTER_NEAREST).astype(bool)      # ворота — на кадре покрупнее: щели в 1–2 px на 420 не видны
