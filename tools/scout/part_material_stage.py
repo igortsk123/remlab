@@ -141,6 +141,11 @@ def process(a, rules: dict, d: str, rep: dict) -> None:
     ctl = ctl[..., :3].astype(np.uint8)
     T = ctl.shape[0]
     texmap = PM.uv_label_map(g['UV'], g['F'], flab, T)
+    pad = int(rules['occlusion'].get('texel_pad', 0))
+    if pad and (texmap == len(names)).any():                                # край острова внутренности не красим на pad текселей: билинейная фильтрация и мипы тянут цвет соседа на косую стенку
+        import cv2
+        near = cv2.dilate((texmap == len(names)).astype(np.uint8), np.ones((2 * pad + 1, 2 * pad + 1), np.uint8)).astype(bool)
+        texmap = np.where(near, len(names), texmap).astype(np.int16)
     work = os.path.join(d, '_partmaterial')
     os.makedirs(work, exist_ok=True)
     fit, tl = rules['fit'], rules['tools']
