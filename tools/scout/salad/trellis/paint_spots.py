@@ -9,9 +9,12 @@
 группы (1,4826·MAD, пол `sigma_floor`): порог `k` — в единицах разброса фото, не в L и не в ΔE.
 Класс 3 «граница групп» — места класса 1, где альбедо ближе к цвету ДРУГОЙ группы части, чем фото (белая подкладка столешницы на фото — дерево в альбедо): рассовмещение/граница, не пятно; считается отдельно и в «брак» не входит.
 Класс 2 «деталь на ненадёжном». Там фото не судья, но по правилу тон группы должен быть РОВНЫМ. Контраст места к окружению в одном альбедо (без фото) — против разброса альбедо ТОЙ ЖЕ группы на надёжных текселях
-(группа ненадёжного пикселя — часть × ближайший по альбедо цвет групп части). Избыток ≥ k и ≥ min_area_px → «деталь на ненадёжном».
-Вердикт: «брак» — есть место класса 1 или 2 с баллом ≥ k и площадью ≥ min_area_px; «на грани» — лучшее в пределах `edge_frac` (20 %) от порога снизу; иначе «чисто» (для надёжного).
-Выход: `spots.json` (доли, распределения, по 5 мест каждого класса), `worst-N.png` (класс 1), `unrel-N.png` (класс 2), `bound-N.png` (класс 3) — «фото | альбедо», `overview.png`, `overlay.png` (классы цветом).
+(группа ненадёжного пикселя — часть × ближайший по альбедо цвет групп части). Избыток ≥ k и ≥ min_area_px → «деталь на ненадёжном». T-92/4: (п.1) из контраста вычитается контраст ФОТО в той же точке (где фото хоть как-то есть, `cos_photo_min`) — шов, щель, строчка есть на фото;
+(п.2) σ не ниже зернистости фото группы (`grain_gain`); (п.3) область класса 2 больше `zone_frac` кадра — отдельной строкой «зона» (`tone_zones`), местами внутри остаются малые яркие ядра;
+тон проверяется только у широких пятен (`tone_open_px`: узкое ловит контраст, где фото вычитается).
+Класс 4 «рваный стык групп» — место класса 1 вплотную (`joint_px`) к стыку двух групп по фото (дерево/белое), где альбедо не перевёрнуто целиком (это класс 3): крошки на стыке покупатель видит — идёт в «брак» со своим счётом (`spots_joint`, `n_joint`).
+Вердикт: «брак» — есть место класса 1, 2 или 4 с баллом ≥ k и площадью ≥ min_area_px; «на грани» — лучшее в пределах `edge_frac` (20 %) от порога снизу; иначе «чисто» (для надёжного).
+Выход: `spots.json` (доли, распределения, по 5 мест каждого класса), `worst-N.png` (класс 1), `unrel-N.png` (класс 2), `bound-N.png` (класс 3), `joint-N.png` (класс 4), `zone-N.png` (зоны) — «фото | альбедо», `overview.png`, `overlay.png` (классы цветом).
 Пороги — `rules/paint-spots.json`. ID товаров в код не попадают.
 
   python paint_spots.py <material.glb> <photo.rgba.png> <pose_run> <out_dir> [parts08.npz]
@@ -110,7 +113,7 @@ def robust_sigma(x: np.ndarray, floor: float) -> tuple[float, float]:
     return med, max(1.4826 * float(np.median(np.abs(x - med))), floor)
 
 
-def _blobs(zs: np.ndarray, thr: float, min_px: int, G: np.ndarray, ca: np.ndarray, cp: np.ndarray | None, mism: np.ndarray | None) -> list:
+def _blobs(zs: np.ndarray, thr: float, min_px: int, G: np.ndarray, ca: np.ndarray, cp: np.ndarray | None, mism: np.ndarray | None, near: np.ndarray | None = None) -> list:
     """Связные места, где сглаженный балл ≥ thr и площадь ≥ min_px; по убыванию пика."""
     from scipy import ndimage as ndi
     lab, n = ndi.label(zs >= thr)
@@ -122,13 +125,16 @@ def _blobs(zs: np.ndarray, thr: float, min_px: int, G: np.ndarray, ca: np.ndarra
             continue
         ys, xs = np.nonzero(m)
         gv, gn = np.unique(G[m], return_counts=True)
-        s = {'peak_z': round(float(zs[m].max()), 2), 'area_px': area, 'part': group_name(int(gv[gn.argmax()])), 'bbox': [int(xs.min()), int(ys.min()), int(xs.max()), int(ys.max())],
+        s = {'peak_z': float(np.floor(float(zs[m].max()) * 100.0 + 1e-6) / 100.0), 'area_px': area, 'part': group_name(int(gv[gn.argmax()])), 'bbox': [int(xs.min()), int(ys.min()), int(xs.max()), int(ys.max())],
              'albedo_dE': round(float(ca[m].max()), 2)}
         if cp is not None:
             s['photo_dE'] = round(float(cp[m].mean()), 2)
         if mism is not None:
             core = m & (zs >= 0.5 * s['peak_z'])                 # ядро места (halo размытия вокруг пятна не считаем): доля пикселей, где альбедо ближе к другой группе, чем фото
             s['group_mismatch_share'] = round(float(mism[core].mean()), 3)
+        if near is not None:
+            core = m & (zs >= 0.5 * s['peak_z'])
+            s['joint_share'] = round(float(near[core].mean()), 3)       # доля ядра у стыка двух групп по фото (рваный стык)
         out.append(s)
     out.sort(key=lambda s: -s['peak_z'])
     return out
@@ -141,7 +147,7 @@ def _verdict(spots: list, k: float, c: dict) -> tuple[list, list]:
     return bad, edge
 
 
-def measure(A: np.ndarray, Pf: np.ndarray, valid: np.ndarray, grp: np.ndarray, cfg: dict | None = None, vis: np.ndarray | None = None) -> dict:
+def measure(A: np.ndarray, Pf: np.ndarray, valid: np.ndarray, grp: np.ndarray, cfg: dict | None = None, vis: np.ndarray | None = None, pho: np.ndarray | None = None) -> dict:
     """Ядро мерки на кадрах одного размера: A — альбедо в кадре камеры, Pf — фото в том же кадре, valid — НАДЁЖНО (фото честно), vis — всё, что видит камера (vis ⊇ valid; None — класса 2 нет), grp — метка части на пиксель
     (для vis). Чистая функция (тесты на заглушках)."""
     import cv2
@@ -174,13 +180,30 @@ def measure(A: np.ndarray, Pf: np.ndarray, valid: np.ndarray, grp: np.ndarray, c
         d0 = ((la[m] - c0) ** 2).sum(1)
         d1 = ((la[m] - c1) ** 2).sum(1)
         mism[m] = (d1 < d0).astype(np.int32) != (G[m] - p * 4)
-    allspots = _blobs(zs, float(c['list_frac']) * k, int(c['list_min_px']), G, ca, cp_loc, mism)
+    # стык двух групп по фото (дерево/белое): место на нём — «рваный стык групп» (класс 4), если альбедо там не перевёрнуто целиком (это класс 3)
+    # шов рваный: граница групп в альбедо идёт не там, где в фото — берём объединение границ по фото-группам G и по группам АЛЬБЕДО (ближайший центр части)
+    Ga = G.copy()
+    for p, (c0, c1) in ctrs.items():
+        m = valid & (grp == p)
+        Ga[m] = p * 4 + (((la[m] - c1) ** 2).sum(1) < ((la[m] - c0) ** 2).sum(1)).astype(np.int32)
+    pj = np.zeros(valid.shape, np.uint8)
+    for LL in (G, Ga):
+        for dy, dx in ((0, 1), (1, 0)):
+            a_, b_ = LL[:LL.shape[0] - dy, :LL.shape[1] - dx], LL[dy:, dx:]
+            d_ = (a_ != b_) & valid[:LL.shape[0] - dy, :LL.shape[1] - dx] & valid[dy:, dx:]
+            pj[:LL.shape[0] - dy, :LL.shape[1] - dx] |= d_
+            pj[dy:, dx:] |= d_
+    nearj = cv2.dilate(pj, cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (2 * int(c['joint_px']) + 1,) * 2)) > 0
+    allspots = _blobs(zs, float(c['list_frac']) * k, int(c['list_min_px']), G, ca, cp_loc, mism, nearj)
     bshare = float(c['boundary_share'])
-    spots = [s for s in allspots if s['group_mismatch_share'] < bshare]
     bound = [s for s in allspots if s['group_mismatch_share'] >= bshare]
+    joint = [s for s in allspots if s['group_mismatch_share'] < bshare and s['joint_share'] >= float(c['joint_share'])]
+    spots = [s for s in allspots if s['group_mismatch_share'] < bshare and s['joint_share'] < float(c['joint_share'])]
     bad1, edge1 = _verdict(spots, k, c)
+    bad4, edge4 = _verdict(joint, k, c)
     nj = int(c['json_top'])
-    res = {'k': k, 'parts': parts, 'spots': spots[:nj], 'spots_boundary': bound[:nj], 'n_bad': len(bad1), 'n_edge': len(edge1), 'n_boundary': len([s for s in bound if s['peak_z'] >= k]),
+    res = {'k': k, 'parts': parts, 'spots': spots[:nj], 'spots_boundary': bound[:nj], 'spots_joint': joint[:nj], 'n_bad': len(bad1), 'n_edge': len(edge1),
+           'n_joint': len(bad4), 'n_edge_joint': len(edge4), 'n_boundary': len([s for s in bound if s['peak_z'] >= k]),
            'valid_px': int(valid.sum()), 'worst_z': spots[0]['peak_z'] if spots else 0.0}
     maps = {'z': zs, 'ca': ca, 'cp': cp, 'mism': mism}
     # класс 2: деталь на ненадёжном (альбедо против альбедо своей группы на надёжных текселях, без фото)
@@ -206,33 +229,81 @@ def measure(A: np.ndarray, Pf: np.ndarray, valid: np.ndarray, grp: np.ndarray, c
                 G2[m] = np.asarray(cand)[d.argmin(1)]
         vis2 = valid | (unrel & (G2 != NOGRP))
         caU = contrast_map(la, G2, vis2, c['center_sigma'], c['surround_sigma'])
-        zu = np.zeros(valid.shape, np.float32)
+        # (п.1) фото в ненадёжной зоне не судья по тону, но показывает, есть ли в той же точке линия/щель/строчка: контраст фото вычитаем так же, как в классе 1
+        pho_u = (vis2 if pho is None else (pho & vis2)) & (G2 != NOGRP)
+        cpU = contrast_map(lp, G2, pho_u, c['center_sigma'], c['surround_sigma']) if pho is not None else np.zeros(valid.shape, np.float32)
+        cpU_loc = _dilate_max(cpU, int(c['tolerance_px']))
+        zc_map = np.zeros(valid.shape, np.float32)
+        zt_map = np.zeros(valid.shape, np.float32)
+        wide_raw = np.zeros(valid.shape, bool)
         stats2 = {}
         for g in np.unique(G2[vis2]):
             rel = valid & (G2 == g)
             un = unrel & vis2 & (G2 == g)
             if rel.sum() < c['min_part_px'] or not un.any():
                 continue
-            med, sg = robust_sigma(caU[rel], float(c['sigma_floor_albedo']))
-            zc = (caU[un] - med) / sg                      # (а) контраст места к окружению: границы пятна, полосы
+            med, sg_a = robust_sigma(caU[rel], float(c['sigma_floor_albedo']))
+            # (п.2) зернистость ФОТО группы: у зернистой обивки/дерева шире и разброс контраста альбедо — порог не ниже доли разброса контраста фото этой группы
+            gsg = robust_sigma(cp[valid & (G == g)], float(c['sigma_floor']))[1] if (valid & (G == g)).any() else 0.0
+            sg = max(sg_a, float(c['grain_gain']) * gsg)
+            zc_map[un] = (caU[un] - cpU_loc[un] - med) / sg          # (а) контраст места к окружению минус контраст фото в той же точке
             # (б) отклонение ТОНА места от типичного тона группы на надёжном: крупное ровное пятно другого тона (контрастом видна лишь его кромка)
             # только если надёжная выборка группы представительна (доля ≥ tone_min_share): у столешницы надёжны лишь кромки, её верх — другая поверхность, эталона тона нет → «не наблюдаемо», а не «чисто»
             rshare = float(rel.sum()) / float(rel.sum() + un.sum())
             tone_ok = rshare >= float(c['tone_min_share'])
-            zu[un] = zc
             if tone_ok:
                 w = (vis2 & (G2 == g)).astype(np.float32)
                 ls = _blur_norm(la, w, float(c['tone_sigma']))
                 tone = np.median(la[rel], axis=0)
                 dev = np.sqrt(((ls - tone) ** 2).sum(-1))
                 dmed, dsg = robust_sigma(dev[rel], float(c['sigma_floor_tone']))
-                zu[un] = np.maximum(zc, (dev[un] - dmed) / dsg)
-            stats2[group_name(int(g))] = {'px_reliable': int(rel.sum()), 'px_unreliable': int(un.sum()), 'sigma_albedo': round(sg, 3), 'median_albedo_contrast': round(med, 3),
-                                          'reliable_share': round(rshare, 3), 'tone_checked': bool(tone_ok),
+                zt_map[un] = (dev[un] - dmed) / dsg
+                draw = np.sqrt(((la - tone) ** 2).sum(-1))                  # СЫРОЕ (несглаженное) отклонение тона — по нему меряем ширину места
+                wide_raw |= un & (draw >= dmed + k * dsg)
+            stats2[group_name(int(g))] = {'px_reliable': int(rel.sum()), 'px_unreliable': int(un.sum()), 'sigma_albedo': round(sg_a, 3), 'sigma_photo_grain': round(gsg, 3), 'sigma_used': round(sg, 3),
+                                          'median_albedo_contrast': round(med, 3), 'reliable_share': round(rshare, 3), 'tone_checked': bool(tone_ok),
                                           **({'sigma_tone': round(dsg, 3), 'median_tone_dev': round(dmed, 3)} if tone_ok else {}),
-                                          'z_q99': round(float(np.quantile(zu[un], 0.99)), 3), 'z_max': round(float(zu[un].max()), 3)}
-        zus = cv2.GaussianBlur(zu, (0, 0), float(c['peak_sigma']))
-        zus = np.where(unrel, zus, 0).astype(np.float32)
+                                          'z_q99': round(float(np.quantile(zc_map[un], 0.99)), 3), 'z_max': round(float(zc_map[un].max()), 3)}
+        zcs = np.where(unrel, cv2.GaussianBlur(zc_map, (0, 0), float(c['peak_sigma'])), 0).astype(np.float32)
+        zts = np.where(unrel, cv2.GaussianBlur(zt_map, (0, 0), float(c['peak_sigma'])), 0).astype(np.float32)
+        # тон — про ШИРОКОЕ ровное пятно другого тона: узкое (линия, шов, строчка тоньше 2·tone_open_px+1) ловит контраст места, где контраст фото вычитается;
+        # тон фото на скользящей грани не вычитаем — размазано, прятало бы настоящее пятно (стол r1, ножка); компоненту оставляем целиком (значения не трогаем)
+        from scipy import ndimage as _nd0
+        rk = int(c['tone_open_px'])
+        core = cv2.morphologyEx(wide_raw.astype(np.uint8), cv2.MORPH_OPEN, cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (2 * rk + 1,) * 2)) > 0
+        lab0, n0 = _nd0.label(zts >= k)
+        good = np.unique(lab0[core])
+        kept = np.isin(lab0, good[good > 0])
+        gone = (lab0 > 0) & ~kept
+        zone_shoulder = cv2.dilate(gone.astype(np.uint8), cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (2 * int(round(2 * float(c['tone_sigma']))) + 1,) * 2)) > 0   # «плечо» убранного места (балл чуть ниже k) тоже убираем, иначе оно останется «на грани»
+        zts = np.where(zone_shoulder & ~kept, 0, zts).astype(np.float32)
+        # (п.3) зона: связная область класса 2 (контраст или тон) ≥ k больше zone_frac видимого кадра — отдельной строкой «зона», не «место» (в счёт мест не входит).
+        # Внутри зоны местами остаются только малые яркие ядра: компоненты с баллом ≥ zone_core_frac·пик зоны и площадью ≤ порога зоны (заплатка на сиденье не теряется)
+        from scipy import ndimage as _ndi
+        zus = np.maximum(zcs, zts).astype(np.float32)
+        zl, zn = _ndi.label(zus >= k)
+        tone_zones = []
+        lim = float(c['zone_frac']) * float(vis.sum())
+        for i in range(1, zn + 1):
+            mm = zl == i
+            ar = int(mm.sum())
+            if ar <= lim:
+                continue
+            ys, xs = np.nonzero(mm)
+            gv, gn = np.unique(G2[mm], return_counts=True)
+            pk = float(zus[mm].max())
+            src = 'тон' if float((zts[mm] >= k).mean()) >= 0.5 else 'контраст'
+            tone_zones.append({'peak_z': float(np.floor(pk * 100.0 + 1e-6) / 100.0), 'area_px': ar, 'area_frac': round(ar / float(vis.sum()), 4), 'part': group_name(int(gv[gn.argmax()])), 'source': src,
+                               'bbox': [int(xs.min()), int(ys.min()), int(xs.max()), int(ys.max())]})
+            hi = max(k, float(c['zone_core_frac']) * pk)
+            cl, cn = _ndi.label(mm & (zus >= hi))
+            keepc = np.zeros(valid.shape, bool)
+            for j in range(1, cn + 1):
+                cm = cl == j
+                if int(cm.sum()) <= lim:
+                    keepc |= cm
+            zus = np.where(mm & ~cv2.dilate(keepc.astype(np.uint8), cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (2 * int(round(2 * float(c['peak_sigma']))) + 1,) * 2)).astype(bool), 0, zus).astype(np.float32)
+        tone_zones.sort(key=lambda s: -s['peak_z'])
         # стык частей: место класса 2 у границы двух частей (белый низ столешницы / дерево) — рассовмещение, а не деталь: уходит в «граница групп»
         pe = np.zeros(valid.shape, np.uint8)
         for dy, dx in ((0, 1), (1, 0)):
@@ -251,10 +322,13 @@ def measure(A: np.ndarray, Pf: np.ndarray, valid: np.ndarray, grp: np.ndarray, c
         res['n_boundary'] = len([s for s in bound if s['peak_z'] >= k])
         bad2, edge2 = _verdict(spots2, k, c)
         res.update({'spots_unreliable': spots2[:nj], 'n_bad_unreliable': len(bad2), 'n_edge_unreliable': len(edge2), 'unreliable_groups': stats2,
-                    'worst_z_unreliable': spots2[0]['peak_z'] if spots2 else 0.0})
+                    'worst_z_unreliable': spots2[0]['peak_z'] if spots2 else 0.0, 'tone_zones': tone_zones[:nj], 'n_tone_zone': len(tone_zones),
+                    'tone_zone_area_px': int(sum(z_['area_px'] for z_ in tone_zones))})
         maps['zu'] = zus
+        maps['zc'] = zcs
+        maps['zt'] = zts
         maps['unrel'] = unrel
-    res['verdict'] = 'брак' if (bad1 or bad2) else ('на грани' if (edge1 or edge2) else 'чисто')
+    res['verdict'] = 'брак' if (bad1 or bad2 or bad4) else ('на грани' if (edge1 or edge2 or edge4) else 'чисто')
     res['maps'] = maps
     return res
 
@@ -281,6 +355,7 @@ def _crop_row(Pf, A, bbox, pad, scale, text, mark=(255, 0, 0)):
     import cv2
     x0, y0, x1, y1 = bbox
     a, b, cc, d = max(x0 - pad, 0), max(y0 - pad, 0), min(x1 + pad + 1, A.shape[1]), min(y1 + pad + 1, A.shape[0])
+    scale = max(1, min(scale, 1000 // max(cc - a, 1)))        # крупное место (зона тона) — без раздувания кропа
     tile = []
     for im in (Pf, A):
         t = im[b:d, a:cc].copy()
@@ -306,14 +381,16 @@ def run(glb: str, photo_png: str, pose_run: str, out_dir: str, parts_npz: str | 
     A = TV.frame_from_tex(st, geoms, [g['tex'] for g in geoms])
     vis = st['mask'].copy()
     band = TV.depth_band(st)             # полоса у разрыва глубины/перекрытия — тем же правилом, что в этапе 6 (глубина шумная: шаг по пикселю считается с поправкой на наклон)
-    valid = binary_erosion(vis & pm, iterations=int(c['erode_px'])) & (st['cos'] >= float(c['cos_min'])) & ~band
+    pme = binary_erosion(vis & pm, iterations=int(c['erode_px'])) & ~band
+    valid = pme & (st['cos'] >= float(c['cos_min']))
+    pho = pme & (st['cos'] >= float(c['cos_photo_min']))        # где фото хоть как-то есть (для вычитания контраста фото в классе 2); тон по нему не судим
     ids = st['ids']
     if parts_npz and os.path.exists(parts_npz):
         part_f = np.load(parts_npz)['part'].astype(np.int32)
         grp = np.where(ids >= 0, part_f[np.clip(ids, 0, len(part_f) - 1)], -1).astype(np.int32)
     else:
         grp = np.zeros(ids.shape, np.int32)
-    res = measure(A, Pf, valid, grp, cfg, vis=vis)
+    res = measure(A, Pf, valid, grp, cfg, vis=vis, pho=pho)
     maps = res.pop('maps')
     n_vis = max(int(vis.sum()), 1)
     res['coverage'] = {'frame_px': int(vis.sum()), 'valid_share': round(float(valid.sum()) / n_vis, 4), 'unreliable_share': round(float((vis & ~valid).sum()) / n_vis, 4),
@@ -321,11 +398,12 @@ def run(glb: str, photo_png: str, pose_run: str, out_dir: str, parts_npz: str | 
                                'невидимое камерой (зад, боковые грани) мерка не видит вовсе'}
     res['inputs'] = {'glb': glb, 'photo': photo_png, 'pose_run': pose_run, 'parts': parts_npz}
     if c.get('dump_npz'):                    # маленькая фикстура для тестов: A — на всём видимом, Pf — только на надёжном
-        np.savez_compressed(c['dump_npz'], A=np.where(vis[..., None], A, 0).astype(np.uint8), Pf=np.where(valid[..., None], Pf, 0).astype(np.uint8), valid=valid, vis=vis,
+        np.savez_compressed(c['dump_npz'], A=np.where(vis[..., None], A, 0).astype(np.uint8), Pf=np.where(pho[..., None], Pf, 0).astype(np.uint8), valid=valid, vis=vis, pho=pho,
                             grp=np.where(vis, grp, -1).astype(np.int16))
     np.save(os.path.join(out_dir, 'z.npy'), maps['z'].astype(np.float16))
     pad, sc = int(c['crop_pad_px']), max(1, int(c['crop_scale']))
-    for key, pref, col, lab in (('spots', 'worst', (255, 0, 0), 'пятно против фото'), ('spots_unreliable', 'unrel', (255, 0, 255), 'деталь на ненадёжном'), ('spots_boundary', 'bound', (0, 160, 255), 'граница групп')):
+    for key, pref, col, lab in (('spots', 'worst', (255, 0, 0), 'пятно против фото'), ('spots_unreliable', 'unrel', (255, 0, 255), 'деталь на ненадёжном'), ('spots_boundary', 'bound', (0, 160, 255), 'граница групп'), ('spots_joint', 'joint', (0, 200, 0), 'рваный стык групп'),
+                                  ('tone_zones', 'zone', (255, 160, 0), 'зона тона')):
         for i, s in enumerate(res.get(key, [])[:int(c['crops_top'])], 1):
             row = _crop_row(Pf, A, s['bbox'], pad, sc, f"{lab} #{i} гр {s['part']} z={s['peak_z']} площадь={s['area_px']}  фото | альбедо", col)
             Image.fromarray(row).save(os.path.join(out_dir, f'{pref}-{i}.png'))
