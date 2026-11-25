@@ -180,5 +180,20 @@ r = subprocess.run([sys.executable, os.path.join(HERE, 'part_material_stage.py')
 rep = json.load(open(os.path.join(tmp, 'x', '06-visible', 'part_material.json'), encoding='utf-8')) if os.path.exists(os.path.join(tmp, 'x', '06-visible', 'part_material.json')) else {}
 check(r.returncode == 0 and rep.get('abstain'), 'стадия ВКЛ без входов: воздержание со следом и причиной, rc 0 (06/07 красят как раньше)')
 
+# ── обвязка: ВЫКЛ → шаг выпадает из плана (не берёт слот heavy-slot); ВКЛ → шаг в плане
+import paint_run_all as PRA  # noqa: E402
+rr = os.path.join(tmp, 'rules'); os.makedirs(rr)
+json.dump({'enabled': False}, open(os.path.join(rr, 'f.json'), 'w'))
+stg = {'steps': [{'argv': ['a']}, {'argv': ['b'], 'heavy': {'prio': 1}, 'enabled_by': {'file': 'rules/f.json', 'key': 'enabled'}}]}
+cx = {'root': tmp, 'pythons': {}, 'py': 'py'}
+check([s['argv'] for s in PRA.resolve_steps(stg, cx)] == [['a']], 'обвязка: флаг ВЫКЛ — шаг не в плане, слот heavy-slot не занимается')
+json.dump({'enabled': True}, open(os.path.join(rr, 'f.json'), 'w'))
+check([s['argv'] for s in PRA.resolve_steps(stg, cx)] == [['a'], ['b']], 'обвязка: флаг ВКЛ — шаг в плане')
+os.remove(os.path.join(rr, 'f.json'))
+check([s['argv'] for s in PRA.resolve_steps(stg, cx)] == [['a']], 'обвязка: файла правил нет — шаг не в плане')
+real = json.load(open(os.path.join(HERE, 'rules', 'paint-run-all.json'), encoding='utf-8'))
+pm_steps = [s for st in real['stages'].values() for s in st.get('steps', []) if any('part_material_stage' in t for t in s['argv'])]
+check(len(pm_steps) == 1 and pm_steps[0].get('enabled_by', {}).get('file') == 'tools/scout/rules/part-material.json', 'правила обвязки: шаг материала части условный (enabled_by → part-material.json)')
+
 print('\nИТОГО: %d провалов' % len(FAILS))
 sys.exit(1 if FAILS else 0)
