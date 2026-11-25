@@ -1,0 +1,278 @@
+#!/usr/bin/env python3
+"""Мера «есть направленный рисунок» у группы части и класс «узор, не волокно» (T-20261125-93/3; замеры — ~/remlab-logs/t93/f2, план paint-trial-item-01). ВЫКЛЮЧЕНО (`rules/part-grain.json` → pattern_measure.enabled=false).
+
+ЗАЧЕМ. Волокно дерева из библиотеки (part_grain) кладётся на группу по карточке и тону; на не-дереве (велюр «под дерево по тону», ПВХ-плёнка с тиснением, рейки) оно ложное. Мера смотрит на ФОТО группы:
+  1. окна 32 px по надёжным текселям (known ∧ conf ≥ conf_min, эрозия, вдали от перепадов светлоты), в каждом когерентность и угол тензора структуры в полосе DoG σ1–6;
+  2. доля окон «coh ≥ coh_min ∧ угол ±angle_tol от медианного угла группы» + площадь A наибольшей связной надёжной области:
+     окон ≥ windows_min, A ≥ area_min и доля ≥ p_yes → «есть»; доля < p_no → «нет»; между (p_no…p_yes) или мало окон/площади → «не видно»;
+  3. класс «узор, не волокно» (рейки, тиснение, ромбы) по двум общим признакам — любой из них (`ac_pattern_min`, `dev_pattern_min_deg`):
+     (а) регулярность шага: пик нормированной автокорреляции мелкой полосы L (как `surface_passport.ac_peak`) ≥ ac_pattern_min — печать/рисунок, не зерно;
+     (б) направление относительно панели: медианное отклонение направления полос окон от ближайшей оси панели (3D, через якобиан развёртки грани; оси — `part_grain.plane_axes`) ≥ dev_pattern_min_deg
+         при ≥ dev_windows_min окон с известной осью (волокно идёт вдоль оси панели; устойчиво диагональное — узор). Круглая/мелкая плоскость — ось неизвестна (признак «не видно»).
+  4. решение `resolve_patterns`: «есть» → волокно; «узор» / «нет» → ровный тон; «не видно» → (1) наследовать от группы того же товара той же семьи (ножки/остальное) с тоном в inherit_de76 и решением;
+     (2) нет — карточка в узком смысле: массив/шпон/порода (solid_words) → волокно, ЛДСП/МДФ/ДСП/ПВХ (board_words) → ровный; (3) карточки нет или слова неоднозначны → ровный тон. Путь (measure / inherit / card / default) — в записи.
+Числа — только из rules; ID товаров в коде нет. Маска изломов (fold_near_mask) НЕ вводится (T-93/2: почти ничего не меняет).
+
+  python3 tests_part_grain_measure.py
+"""
+from __future__ import annotations
+
+import os
+import sys
+
+import numpy as np
+
+HERE = os.path.dirname(os.path.abspath(__file__))
+sys.path.insert(0, HERE)
+
+
+def pm_rules(rules: dict | None) -> dict | None:
+    """Включённые правила меры или None (выключено/ключа нет — модуль не влияет ни на что)."""
+    pm = (rules or {}).get('pattern_measure')
+    return pm if pm and pm.get('enabled') else None
+
+
+# ------------------------------------------------------------------ окна ---------------------------------------------------------------------------
+def lab_L(rgb) -> np.ndarray:
+    x = np.asarray(rgb)[..., :3].astype(np.float64) / 255.0
+    x = np.where(x <= 0.04045, x / 12.92, ((x + 0.055) / 1.055) ** 2.4)
+    y = 0.2126 * x[..., 0] + 0.7152 * x[..., 1] + 0.0722 * x[..., 2]
+    f = np.where(y > 0.008856, np.cbrt(y), 7.787 * y + 16 / 116)
+    return 116 * f - 16
+
+
+def reliable_mask(L, known, conf, gmask, pm: dict) -> np.ndarray:
+    """Надёжные тексели группы: известные фото ∧ conf ≥ conf_min ∧ эрозия edge_px ∧ вдали от перепадов светлоты (max−min на 3 px > jump_L, расширение jump_pad)."""
+    from scipy import ndimage as ndi
+    ok = np.asarray(gmask, bool) & np.asarray(known, bool) & (np.asarray(conf, np.float64) >= float(pm['conf_min']))
+    jump = ndi.binary_dilation(ndi.maximum_filter(L, size=3) - ndi.minimum_filter(L, size=3) > float(pm['jump_L']), iterations=int(pm['jump_pad']))
+    return ndi.binary_erosion(ok, iterations=int(pm['edge_px'])) & ~jump
+
+
+def largest_cc(rel) -> int:
+    from scipy import ndimage as ndi
+    lab, n = ndi.label(rel)
+    return int(np.bincount(lab.ravel())[1:].max()) if n else 0
+
+
+def window_stats(L, rel, pm: dict) -> list:
+    """Окна window_px по надёжным (покрытие ≥ cover_min): [{'x','y','coh','angle','cover'}]; тензор структуры по полосе DoG σ(band_sigma) внутри окна (отступ 3 px от края надёжных)."""
+    from scipy import ndimage as ndi
+    w, pad, T = int(pm['window_px']), int(pm['pad_px']), L.shape[0]
+    s_lo, s_hi = float(pm['band_sigma'][0]), float(pm['band_sigma'][1])
+    out = []
+    if not rel.any():
+        return out
+    ys, xs = np.where(rel)
+    y0, y1, x0, x1 = ys.min(), ys.max() + 1, xs.min(), xs.max() + 1
+    ii = np.pad(np.cumsum(np.cumsum(rel.astype(np.int32), 0), 1), ((1, 0), (1, 0)))
+    for y in range(y0, max(y1 - w + 1, y0 + 1), w):
+        for x in range(x0, max(x1 - w + 1, x0 + 1), w):
+            if y + w > T or x + w > L.shape[1]:
+                continue
+            s = ii[y + w, x + w] - ii[y, x + w] - ii[y + w, x] + ii[y, x]
+            if s < float(pm['cover_min']) * w * w:
+                continue
+            ya, yb, xa, xb = max(y - pad, 0), min(y + w + pad, T), max(x - pad, 0), min(x + w + pad, L.shape[1])
+            Lp, mp = L[ya:yb, xa:xb], rel[ya:yb, xa:xb]
+            inner = np.zeros(mp.shape, bool)
+            inner[y - ya:y - ya + w, x - xa:x - xa + w] = True
+            wgt = mp.astype(np.float64)
+
+            def blur(a, sg):
+                return ndi.gaussian_filter(a * wgt, sg) / np.maximum(ndi.gaussian_filter(wgt, sg), 1e-6)
+            band = blur(Lp, s_lo) - blur(Lp, s_hi)
+            gy, gx = np.gradient(band)
+            wt = (ndi.binary_erosion(mp, iterations=3) & inner).astype(np.float64)
+            if wt.sum() < float(pm['min_win_px']):
+                continue
+            sxx, syy, sxy = ((a_ * wt).sum() for a_ in (gx * gx, gy * gy, gx * gy))
+            tr = sxx + syy
+            if tr <= 1e-9:
+                continue
+            out.append({'x': int(x), 'y': int(y), 'coh': float(np.sqrt((sxx - syy) ** 2 + 4 * sxy ** 2) / tr), 'angle': float(np.degrees(0.5 * np.arctan2(2 * sxy, sxx - syy))), 'cover': float(s / (w * w))})
+    return out
+
+
+def axial_median(angles) -> float:
+    a = np.radians(2 * np.asarray(angles, np.float64))
+    return float(np.degrees(np.arctan2(np.sin(a).mean(), np.cos(a).mean())) / 2.0)
+
+
+def passing_windows(wins: list, pm: dict) -> list:
+    """Окна «есть направленный рисунок»: coh ≥ coh_min ∧ угол в ±angle_tol от медианного угла группы (медиана — по окнам с coh ≥ coh_min, иначе по всем)."""
+    if not wins:
+        return []
+    t = float(pm['coh_min'])
+    good = [w['angle'] for w in wins if w['coh'] >= t]
+    ref = axial_median(good) if good else axial_median([w['angle'] for w in wins])
+    return [w for w in wins if w['coh'] >= t and abs((w['angle'] - ref + 90) % 180 - 90) <= float(pm['angle_tol_deg'])]
+
+
+def share_verdict(share, n_win: int, area: int, pm: dict) -> str:
+    """«есть» / «нет» / «не видно» по доле окон, их числу и площади (пороги — rules)."""
+    if share is None or n_win < int(pm['windows_min']) or area < int(pm['area_min_px']):
+        return 'не видно'
+    if share >= float(pm['p_yes']):
+        return 'есть'
+    if share < float(pm['p_no']):
+        return 'нет'
+    return 'не видно'
+
+
+# ------------------------------------------------------------------ геометрия: направление относительно осей панели ----------------------------------
+class FaceFrame:
+    """Растр развёртки (id грани на тексель), якобиан UV→3D по граням и оси панелей (part_grain.plane_axes по центрам граней плоскости). Строится один раз на геометрию."""
+
+    def __init__(self, V, F, UV, T: int, face_plane, plane_normal, rules: dict):
+        import part_grain as PG
+        import tex_coverage as TC
+        self.V, self.F = np.asarray(V, np.float64), np.asarray(F, np.int64)
+        px = np.stack([np.asarray(UV, float)[:, 0] * T, (1.0 - np.asarray(UV, float)[:, 1]) * T], 1)
+        ids, _ = TC.raster(px, self.F, T)
+        self.ids = np.asarray(ids).reshape(T, T)
+        P0, P1, P2 = self.V[self.F[:, 0]], self.V[self.F[:, 1]], self.V[self.F[:, 2]]
+        self.P0, self.P1, self.P2 = P0, P1, P2
+        q0 = px[self.F[:, 0]]
+        self.q1, self.q2 = px[self.F[:, 1]] - q0, px[self.F[:, 2]] - q0
+        self.det = self.q1[:, 0] * self.q2[:, 1] - self.q1[:, 1] * self.q2[:, 0]
+        self.fp, self.pn = np.asarray(face_plane), np.asarray(plane_normal)
+        cen = (P0 + P1 + P2) / 3.0
+        self.axes = {}
+        for pl in np.unique(self.fp):
+            if pl < 0:
+                continue
+            fs = np.where(self.fp == pl)[0]
+            if len(fs) < 4:
+                continue
+            c1, c2, rl = PG.plane_axes(cen[fs], self.pn[pl], None, rules)
+            self.axes[int(pl)] = (c1, c2, bool(rl))
+
+    def dev_deg(self, gmask, x: int, y: int, w: int, angle_deg: float):
+        """Отклонение (0…45°) направления полос окна от ближайшей оси панели; None — ось неизвестна (нет плоскости, круглая/мелкая, вырожденная грань).
+        angle_deg — угол ГРАДИЕНТА в окне (как `window_stats`); линия полосы ⟂ градиенту."""
+        blk = self.ids[y:y + w, x:x + w][np.asarray(gmask, bool)[y:y + w, x:x + w]]
+        blk = blk[blk >= 0]
+        if not len(blk):
+            return None
+        fid = int(np.bincount(blk).argmax())
+        pl = int(self.fp[fid])
+        if pl not in self.axes or abs(self.det[fid]) < 1e-9:
+            return None
+        c1, c2, rl = self.axes[pl]
+        if rl:
+            return None
+        a = np.radians(angle_deg)
+        ld = np.array([-np.sin(a), np.cos(a)])
+        minv = np.array([[self.q2[fid, 1], -self.q2[fid, 0]], [-self.q1[fid, 1], self.q1[fid, 0]]]) / self.det[fid]
+        jm = np.stack([self.P1[fid] - self.P0[fid], self.P2[fid] - self.P0[fid]], 1) @ minv
+        v = jm @ ld
+        n = self.pn[pl]
+        v = v - (v @ n) * n
+        nv = float(np.linalg.norm(v))
+        if nv < 1e-12:
+            return None
+        v = v / nv
+        return float(min(np.degrees(np.arccos(min(1.0, abs(float(v @ c1))))), np.degrees(np.arccos(min(1.0, abs(float(v @ c2)))))))
+
+
+def ac_context(L, known, pm: dict):
+    """Как паспорт 07: мелкая полоса L (σ=grain_fine_px, размытие нормировано по ВСЕМ известным текселям, эрозия known_erode_px) и маска kc. Считается один раз на текстуру."""
+    from scipy import ndimage as ndi
+    kc = ndi.binary_erosion(np.asarray(known, bool), iterations=int(pm['known_erode_px'])) if int(pm['known_erode_px']) > 0 else np.asarray(known, bool)
+    w = kc.astype(np.float64)
+    sg = float(pm['grain_fine_px'])
+    fine = L - ndi.gaussian_filter(L * w, sg, mode='nearest') / np.maximum(ndi.gaussian_filter(w, sg, mode='nearest'), 1e-9)
+    return fine.astype(np.float32), kc
+
+
+def ac_value(ctx, gmask, pm: dict):
+    """Пик автокорреляции мелкой полосы L по известным текселям группы (как паспорт 07: `surface_passport.ac_peak`); мало текселей (< ac_min_texels) → None (признака нет)."""
+    fine, kc = ctx
+    msk = kc & np.asarray(gmask, bool)
+    if int(msk.sum()) < int(pm['ac_min_texels']):
+        return None
+    import surface_passport as SP
+    return float(SP.ac_peak(fine, msk, int(pm['ac_lag_lo_px']), int(pm['ac_lag_hi_px']), float(pm['ac_clip_k'])))
+
+
+def measure_group(L, known, conf, gmask, pm: dict, ff: FaceFrame | None = None, ac_ctx=None) -> dict:
+    """Мера группы: доля окон, их число, площадь A, ac_peak, отклонение от осей, класс. verdict ∈ fiber | pattern | no | unseen (unseen = «не видно»)."""
+    rel = reliable_mask(L, known, conf, gmask, pm)
+    wins = window_stats(L, rel, pm)
+    ps = passing_windows(wins, pm)
+    share = (len(ps) / len(wins)) if wins else None
+    area = largest_cc(rel)
+    base = share_verdict(share, len(wins), area, pm)
+    ac = ac_value(ac_ctx if ac_ctx is not None else ac_context(L, known, pm), gmask, pm)
+    devs = []
+    if ff is not None:
+        for w in ps:
+            d = ff.dev_deg(gmask, w['x'], w['y'], int(pm['window_px']), w['angle'])
+            if d is not None:
+                devs.append(d)
+    dev_med = float(np.median(devs)) if devs else None
+    by_ac = ac is not None and ac >= float(pm['ac_pattern_min'])
+    by_dev = len(devs) >= int(pm['dev_windows_min']) and dev_med >= float(pm['dev_pattern_min_deg'])
+    if base == 'нет':
+        verdict, why = 'no', 'доля окон %.2f < %.2f' % (share, float(pm['p_no']))
+    elif by_ac or by_dev:
+        verdict, why = 'pattern', ('повтор шага ac_peak %.2f ≥ %.2f' % (ac, float(pm['ac_pattern_min']))) if by_ac else ('направление %.0f° от осей панели ≥ %.0f° (окон с осью %d)' % (dev_med, float(pm['dev_pattern_min_deg']), len(devs)))
+    elif base == 'есть':
+        verdict, why = 'fiber', 'доля окон %.2f ≥ %.2f, повтор и направление не «узор»' % (share, float(pm['p_yes']))
+    else:
+        verdict, why = 'unseen', 'не видно: окон %d, A %d, доля %s' % (len(wins), area, 'нет' if share is None else '%.2f' % share)
+    return {'verdict': verdict, 'why': why, 'share': None if share is None else round(share, 3), 'n_windows': len(wins), 'n_pass': len(ps), 'area': area,
+            'ac_peak': None if ac is None else round(ac, 3), 'n_dev': len(devs), 'dev_med': None if dev_med is None else round(dev_med, 1), 'base': base}
+
+
+# ------------------------------------------------------------------ решение: наследование, карточка --------------------------------------------------
+def card_text(card: dict | None, role: str | None, name: str, rules: dict) -> str:
+    """Текст материала карточки для части в том же смысле, что `part_grain.part_is_wood` (ножки — «Материал ножек», остальное — корпус/фасад/столешница/каркас)."""
+    card = card or {}
+    legs = role == 'legs' if role else any(w in (name or '').lower() for w in rules['leg_part_words'])
+    keys = rules['leg_card_keys'] if legs else rules['wood_card_keys']
+    return ' '.join(str(v).lower() for k, v in card.items() if any(s in k.lower() for s in keys))
+
+
+def card_decision(text: str, pm: dict) -> tuple:
+    """Карточка в узком смысле: solid_words (массив/шпон/порода) → волокно; иначе board_words (ЛДСП/МДФ/ДСП/ПВХ) → ровный; пусто/ни того ни другого → ровный (default)."""
+    if any(w in text for w in pm['solid_words']):
+        return 'fiber', 'card', 'карточка: массив/шпон/порода'
+    if any(w in text for w in pm['board_words']):
+        return 'flat', 'card', 'карточка: плита (ЛДСП/МДФ/ДСП/ПВХ) — ровный тон'
+    return 'flat', 'default', 'карточки нет или материал не назван — ровный тон'
+
+
+def resolve_patterns(parts: list, rules: dict) -> dict:
+    """{id части: {'decision': 'fiber'|'flat', 'path': 'measure'|'inherit'|'card'|'default', 'why', 'verdict', 'from'}}. parts[i]: id, name, role, tone_lab, card, measure (dict из `measure_group` | None)."""
+    pm = rules['pattern_measure']
+    out, firm = {}, {}
+    for p in parts:
+        m = p.get('measure') or {}
+        v = m.get('verdict')
+        if v in ('fiber', 'pattern', 'no'):
+            out[p['id']] = {'decision': 'fiber' if v == 'fiber' else 'flat', 'path': 'measure', 'why': m.get('why'), 'verdict': v, 'from': None}
+            firm[p['id']] = p
+    for p in parts:
+        if p['id'] in out:
+            continue
+        legs = (p.get('role') == 'legs') if p.get('role') else any(w in (p.get('name') or '').lower() for w in rules['leg_part_words'])
+        best, bd = None, None
+        for q in firm.values():
+            ql = (q.get('role') == 'legs') if q.get('role') else any(w in (q.get('name') or '').lower() for w in rules['leg_part_words'])
+            if ql != legs or p.get('tone_lab') is None or q.get('tone_lab') is None:
+                continue
+            d = float(np.linalg.norm(np.asarray(p['tone_lab'], float) - np.asarray(q['tone_lab'], float)))
+            if d <= float(pm['inherit_de76']) and (bd is None or d < bd):
+                best, bd = q, d
+        if best is not None:
+            r = out[best['id']]
+            out[p['id']] = {'decision': r['decision'], 'path': 'inherit', 'why': 'наследовано от группы %s (тон Δ %.1f, решение «%s»)' % (best['id'], bd, r['verdict']), 'verdict': 'unseen', 'from': best['id']}
+            continue
+        if any(w in (p.get('name') or '').lower() for w in rules['non_wood_part_words']):      # явно недеревянное по имени (подушка, сиденье, ручка…): карточка корпуса к нему не относится
+            out[p['id']] = {'decision': 'flat', 'path': 'card', 'why': 'имя части — не дерево (%s)' % p.get('name'), 'verdict': 'unseen', 'from': None}
+            continue
+        dec, path, why = card_decision(card_text(p.get('card'), p.get('role'), p.get('name', ''), rules), pm)
+        out[p['id']] = {'decision': dec, 'path': path, 'why': why, 'verdict': 'unseen', 'from': None}
+    return out
