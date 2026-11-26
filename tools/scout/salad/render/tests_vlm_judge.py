@@ -58,6 +58,17 @@ class T(unittest.TestCase):
         self.assertNotIn('faceted', VJ.applicable('Комод', k))
         self.assertIn('faceted', VJ.applicable('ваза', k))
         self.assertEqual(VJ.applicable('диван', k), ['invented_detail'])
+        self.assertIn('table_shape', VJ.applicable('Стол обеденный', k))                  # T-99/8: вид для столов, группа d (кадры 0°, 90°, сверху)
+        self.assertNotIn('table_shape', VJ.applicable('Комод', k))
+        self.assertNotIn('table_shape', RULES['vlm_judge']['default_kinds'])             # боевой путь не меняется
+
+    def test_table_shape_answer_has_photo_and_model(self):
+        r = VJ.parse('{"table_shape": {"photo": "4 опоры, круглая", "model": "3 опоры", "verdict": "да", "where": ""}}', ['table_shape'])['table_shape']
+        self.assertEqual(r['verdict'], 'yes')
+        self.assertTrue(r['where'].startswith('фото: 4 опоры'))
+        self.assertIn('table_shape', VJ.PHOTO_MODEL_KINDS)
+        self.assertIn('d', RULES['vlm_judge']['groups'])
+        self.assertTrue(all(f in VJ.FRAME_LABELS for f in RULES['vlm_judge']['groups']['d']['frames']))
 
     def test_no_ids_in_rules(self):
         import re
