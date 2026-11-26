@@ -329,8 +329,354 @@ def clean_background(bgr):
     return out, info
 
 
-def clean_bgr(bgr, rectify=True, background=True):
-    """→ (bgr, ops, info). ops ⊂ ['rectify', 'background']; ничего не применилось — тот же массив."""
+# ---------------- (в) усиление бледных линий БТИ ----------------
+LINES_FAINT = 0.35          # типичная («75-й процентиль» по пикселям линий) глубина ниже этого → линии бледные, усиливаем
+LINES_TARGET = 0.65         # до какой глубины подтягиваем типичную линию
+LINES_GAIN = (1.0, 3.0)
+LINES_PAPER_SD = 8.0        # разброс яркости бумаги (верхние 40 % пикселей) больше — фон неровный/тёмный, усиление раздуло бы пятна: не трогаем
+LINES_CHANGED = 0.22        # доля потемневших пикселей больше — усилилось слишком много (не линии), откат
+LINES_LOW = 0.14            # штрих: глубина не меньше (иначе зерно бумаги)
+LINES_SEED = 0.20           # и связан с пикселем не мельче этой глубины
+LINES_AREA = (1.0, 2.6)     # площадь «чёрного» после/до: больше — усилился шум/толщина, откат
+
+
+def flag_lines() -> bool:
+    return os.environ.get('FP_CLEAN_LINES', '0') == '1'
+
+
+def strengthen_lines(bgr):
+    """→ (out | None, info). Бледные тонкие линии (серый скан БТИ) делаются темнее; бумага и заливки комнат не меняются, геометрия не меняется.
+    Глубина линии s = (местный фон − пиксель) / местный фон; фон — замыкание по большому окну. Усиливаются только пиксели с s > ~0.06 (плавный порог), коэффициент
+    подбирается по листу: типичная линия (75-й процентиль s) → LINES_TARGET, но не больше LINES_GAIN. Контраст уже высокий — не трогаем.
+    Автопроверки: чернил после/до по площади в LINES_AREA, фон вне линий не темнеет (доля пикселей бумаги, ставших «линией», ≈ 0)."""
+    info = {}
+    H, W = bgr.shape[:2]
+    L = max(H, W)
+    gray = cv2.cvtColor(bgr, cv2.COLOR_BGR2GRAY)
+    k = max(15, int(0.03 * L)) | 1
+    bg = cv2.morphologyEx(gray, cv2.MORPH_CLOSE, cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (k, k)))
+    bg = cv2.GaussianBlur(bg, (0, 0), k / 3.0).astype(np.float32)
+    bg = np.maximum(bg, gray.astype(np.float32))
+    bg = np.maximum(bg, 1.0)
+    s = np.clip((bg - gray.astype(np.float32)) / bg, 0.0, 1.0)
+    ink = s > 0.08
+    if float(ink.mean()) < 0.002:
+        info['reason'] = 'линий почти нет'
+        return None, info
+    p75 = float(np.percentile(s[ink], 75))                    # типичная глубина линии
+    info['depth_before'] = round(p75, 3)
+    if p75 >= LINES_FAINT:
+        info['reason'] = f'линии уже контрастные (глубина {p75:.2f} ≥ {LINES_FAINT})'
+        return None, info
+    sd = float(gray[gray > np.percentile(gray, 60)].std())
+    info['paper_sd'] = round(sd, 1)
+    if sd > LINES_PAPER_SD:
+        info['reason'] = f'фон неровный (разброс {sd:.1f} > {LINES_PAPER_SD}) — не трогаем'
+        return None, info
+    gain = float(np.clip(LINES_TARGET / max(p75, 0.05), *LINES_GAIN))
+    info['gain'] = round(gain, 2)
+    # только штрихи: пиксели глубже LINES_LOW, связанные с «верной» линией (глубже LINES_SEED); зернистость бумаги (s ~ 0.05–0.14) отдельными пятнами не усиливаем
+    low = (s > LINES_LOW).astype(np.uint8)
+    nl, lab = cv2.connectedComponents(low, connectivity=8)
+    seeded = np.zeros(nl, bool)
+    seeded[np.unique(lab[s > max(LINES_SEED, 0.7 * p75)])] = True
+    seeded[0] = False
+    stroke = seeded[lab].astype(np.uint8)
+    if not stroke.any():
+        info['reason'] = 'штрихов нет (линии мельче порога) — не трогаем'
+        return None, info
+    stroke = cv2.GaussianBlur(cv2.dilate(stroke, np.ones((3, 3), np.uint8)).astype(np.float32), (0, 0), 0.8)
+    w = np.clip((s - 0.04) / 0.06, 0.0, 1.0) * stroke
+    s2 = np.clip(s * (1.0 + (gain - 1.0) * w), 0.0, 1.0)
+    delta = (s2 - s) * bg                                     # на сколько уровней серого потемнеть
+    out = np.clip(bgr.astype(np.float32) - delta[..., None], 0, 255).astype(np.uint8)
+    thr = max(0.12, 0.5 * p75)                                # «линия» = не меньше половины типичной глубины до усиления
+    a0 = float((s > thr).sum())
+    a1 = float((s2 > thr).sum())
+    ratio = a1 / max(a0, 1.0)
+    paper = s < 0.04
+    leak = float(((s2 > 0.10) & paper).sum() / max(float(paper.sum()), 1.0))
+    info.update({'depth_after': round(float(np.percentile(s2[ink], 75)), 3), 'ink_area_ratio': round(ratio, 2), 'paper_leak': round(leak, 5)})
+    if a0 < 50 or not (LINES_AREA[0] <= ratio <= LINES_AREA[1]):
+        info['reason'] = f'площадь тёмного после/до {ratio:.2f} вне {LINES_AREA} — откат'
+        return None, info
+    changed = float(((gray.astype(np.float32) - cv2.cvtColor(out, cv2.COLOR_BGR2GRAY).astype(np.float32)) > 8).mean())
+    info['changed'] = round(changed, 3)
+    if changed > LINES_CHANGED:
+        info['reason'] = f'потемнело {changed:.2f} листа > {LINES_CHANGED} — откат'
+        return None, info
+    if leak > 0.001:
+        info['reason'] = f'фон вне линий потемнел ({leak:.4f}) — откат'
+        return None, info
+    return out, info
+
+
+# ---------------- (г) фон «в клетку» / тетрадный лист / сетка редактора ----------------
+GRID_MIN_LINES = 5          # не меньше стольких линий по каждой оси
+GRID_COVER_WEAK = 0.2       # слабая линия решётки (плану закрыта часть длины): тот же шаг, тот же тон
+GRID_COVER = 0.5            # линия сетки: светлый тонкий штрих на такой доле ширины/высоты листа
+GRID_DEPTH = (6, 110)       # глубина штриха сетки (уровней серого относительно фона): светлее 6 — шум, темнее 110 (серый ≲145 на белом) — линия плана, не сетка
+GRID_THIN = 4               # толщина штриха сетки не больше (px): штриховка и контуры стен толще
+GRID_REGULAR = 0.6          # доля зазоров между линиями, совпадающих с типичным (±20 %): сетка регулярна
+GRID_DARK_KEEP = 0.98       # тёмных (план) пикселей после/до не меньше
+GRID_LEFT = 0.25            # сетки осталось после/до не больше (по числу строк/столбцов-линий)
+
+
+def flag_grid() -> bool:
+    return os.environ.get('FP_CLEAN_GRID', '0') == '1'
+
+
+def _grid_axis(cand, dep, horizontal, W, H):
+    """строки (столбцы) листа с длинным светлым тонким штрихом: «верные» (покрытие ≥ GRID_COVER) + слабые (покрытие ≥ GRID_COVER_WEAK), если лежат на той же решётке и той же глубины тона.
+    → (индексы, число верных линий, регулярность верных, маска штрихов)"""
+    n = W if horizontal else H
+    ker = (max(31, int(0.04 * n)), 1) if horizontal else (1, max(31, int(0.04 * n)))
+    sq = cv2.getStructuringElement(cv2.MORPH_RECT, (GRID_THIN + 1, GRID_THIN + 1))
+    blobs = cv2.dilate(cv2.morphologyEx(cand, cv2.MORPH_OPEN, sq), np.ones((5, 5), np.uint8))          # толстое (стены, штриховка, подписи) — не сетка
+    thin = cand & (1 - blobs)
+    run = cv2.morphologyEx(thin, cv2.MORPH_OPEN, cv2.getStructuringElement(cv2.MORPH_RECT, ker))
+    ax = 1 if horizontal else 0
+    cov = run.mean(axis=ax)
+    idx = np.where(cov >= GRID_COVER)[0]
+    if len(idx) == 0:
+        return idx, 0, 0.0, run
+    groups = np.split(idx, np.where(np.diff(idx) > 1)[0] + 1)
+    centers = np.array([g.mean() for g in groups])
+    if len(centers) < 3:
+        return idx, len(centers), 0.0, run
+    gaps = np.diff(centers)
+    med = float(np.median(gaps))
+    reg = float((np.abs(gaps - med) <= 0.2 * med + 1).mean())
+    if reg >= GRID_REGULAR and len(centers) >= GRID_MIN_LINES:
+        # слабые линии (часть длины скрыта планом): та же решётка (шаг — самый частый зазор) и тот же тон
+        vals, cnt = np.unique(np.round(gaps).astype(int), return_counts=True)
+        pstep = float(vals[int(np.argmax(cnt))])
+        if pstep >= 4:
+            depsum = (dep * run).sum(axis=ax) / np.maximum(run.sum(axis=ax), 1)
+            tone = float(np.median(depsum[idx]))
+            weak = np.where((cov >= GRID_COVER_WEAK) & (cov < GRID_COVER))[0]
+            keep = [w for w in weak if min(((w - centers[0]) % pstep), pstep - ((w - centers[0]) % pstep)) <= 2 and 0.6 * tone <= depsum[w] <= 1.5 * tone]
+            idx = np.union1d(idx, np.array(keep, int))
+    return idx, len(centers), reg, run
+
+
+def remove_grid(bgr):
+    """→ (out | None, info). Периодическая сетка светлых тонких линий (клетка тетради, сетка редактора) закрашивается фоном; тёмные линии плана
+    не трогаются (закрашиваются только светлые пиксели на линиях сетки), геометрия не меняется.
+    Находим длинные светлые штрихи по строкам и столбцам; ≥ GRID_MIN_LINES линий на ось и регулярные зазоры — это сетка, иначе не трогаем.
+    Автопроверки: тёмных пикселей после/до ≥ GRID_DARK_KEEP; линий сетки после/до ≤ GRID_LEFT."""
+    info = {}
+    H, W = bgr.shape[:2]
+    gray = cv2.cvtColor(bgr, cv2.COLOR_BGR2GRAY)
+    L = max(H, W)
+    k = max(15, int(0.03 * L)) | 1
+    bg = cv2.morphologyEx(gray, cv2.MORPH_CLOSE, cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (k, k)))
+    bg = cv2.GaussianBlur(bg, (0, 0), k / 3.0)
+    dep = bg.astype(np.int16) - gray.astype(np.int16)
+    cand = ((dep >= GRID_DEPTH[0]) & (dep <= GRID_DEPTH[1])).astype(np.uint8)
+    ih, nh, rh, runh = _grid_axis(cand, dep, True, W, H)
+    iv, nv, rv, runv = _grid_axis(cand, dep, False, W, H)
+    info.update({'lines_h': nh, 'lines_v': nv, 'regular_h': round(rh, 2), 'regular_v': round(rv, 2)})
+    if nh < GRID_MIN_LINES or nv < GRID_MIN_LINES:
+        info['reason'] = f'сетки нет (линий {nh}×{nv} < {GRID_MIN_LINES})'
+        return None, info
+    if rh < GRID_REGULAR or rv < GRID_REGULAR:
+        info['reason'] = f'линии не регулярны ({rh:.2f}/{rv:.2f} < {GRID_REGULAR}) — не сетка'
+        return None, info
+    base = np.zeros((H, W), np.uint8)
+    base[ih, :] |= runh[ih, :]
+    base[:, iv] |= runv[:, iv]
+    paper = cv2.GaussianBlur(cv2.morphologyEx(bgr, cv2.MORPH_CLOSE, cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (k, k))), (0, 0), k / 3.0)    # цвет бумаги рядом (тонкое замыкание стирает штрихи)
+    d0 = float((gray < 110).sum())
+    reason = ''
+    for kd in (5, 3):                                         # толщина закраски: сперва с запасом на размытие JPEG, у частой сетки — тоньше
+        mask = cv2.dilate(base, np.ones((kd, kd), np.uint8))
+        mask &= (dep <= GRID_DEPTH[1]).astype(np.uint8)       # линии плана (темнее) под маску не попадают, даже на пересечении с сеткой
+        mask &= (dep >= 3).astype(np.uint8)
+        info['mask_share'] = round(float(mask.mean()), 4)
+        info['dilate'] = kd
+        out = bgr.copy()
+        out[mask > 0] = paper[mask > 0]
+        g2 = cv2.cvtColor(out, cv2.COLOR_BGR2GRAY)
+        d1 = float((g2 < 110).sum())
+        info['dark_ratio'] = round(d1 / max(d0, 1.0), 3)
+        if not (GRID_DARK_KEEP <= d1 / max(d0, 1.0) <= 2 - GRID_DARK_KEEP):
+            reason = f'тёмного после/до {d1 / max(d0, 1):.3f} вне {GRID_DARK_KEEP}…{2 - GRID_DARK_KEEP:.2f} — откат'
+            continue
+        bg2 = cv2.GaussianBlur(cv2.morphologyEx(g2, cv2.MORPH_CLOSE, cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (k, k))), (0, 0), k / 3.0)
+        dep2 = bg2.astype(np.int16) - g2.astype(np.int16)
+        cand2 = ((dep2 >= GRID_DEPTH[0]) & (dep2 <= GRID_DEPTH[1])).astype(np.uint8)
+        _, nh2, _, _ = _grid_axis(cand2, dep2, True, W, H)
+        _, nv2, _, _ = _grid_axis(cand2, dep2, False, W, H)
+        info.update({'lines_h_after': nh2, 'lines_v_after': nv2})
+        if nh2 + nv2 > GRID_LEFT * (nh + nv):
+            reason = f'сетка осталась ({nh2}×{nv2} из {nh}×{nv}) — откат'
+            continue
+        info.pop('reason', None)
+        return out, info
+    info['reason'] = reason
+    return None, info
+
+
+# ---------------- (д) слои: цветная мебель и размерные линии отдельно от стен (класс Г) ----------------
+LAYER_MEAN_SAT = 8.0         # средняя насыщенность листа выше — фото/цветная заливка (у чистых CAD-листов 1…3, у фото 18…35)
+LAYER_PAPER = 200            # медианная яркость листа ниже — не белая бумага
+LAYER_GREEN = (35, 90)       # оттенок (OpenCV H 0…179) мебели
+LAYER_BLUE = (100, 130)      # оттенок размерных линий
+LAYER_SAT = 40              # «цветной» пиксель: насыщенность выше (и яркость > 60)
+LAYER_FURN_MIN = 0.04       # цветная связная фигура мебели: большая сторона не меньше этой доли длинной стороны листа (подписи — мельче)
+LAYER_WALL_COLOURED = 0.25  # цветных длинных толстых штрихов больше — стены цветные (оранжевые/синие), мебель не трогаем
+LAYER_BRIDGE = 0.006         # радиус склейки цветных кусков через разрыв (подпись поверх линии), доля длинной стороны
+LAYER_CLOSE_SPAN = 0.08     # цветная фигура, касающаяся стен в двух местах дальше этой доли друг от друга, замыкает помещение — не стираем
+LAYER_FURN_SIDE = 0.025   # и меньшая сторона не меньше этой доли: цветные цифры и подписи комнат остаются
+DIM_MIN = 0.035             # размерная линия: длина не меньше (доля длинной стороны)
+DIM_TEXT_R = 0.016          # цифра размера должна лежать рядом с серединой линии (доля длинной стороны)
+DIM_TWIN = 0.010            # рядом вдоль линии есть «двойник» (параллельная линия ближе этого) — это стена/контур, не размерная
+LAYER_CHANGED = (0.0, 0.85) # доля стёртых от всех «чернил» — вне этого откат (мебель бывает 75 % чернил, kazan-7666695; стены защищены отдельно: толстое и «двойники»)
+
+
+def flag_layers() -> bool:
+    return os.environ.get('FP_CLEAN_LAYERS', '0') == '1'
+
+
+def separate_layers(bgr):
+    """→ (walls_bgr | None, info, masks). Убираем с листа цветную мебель (тонкие цветные контуры крупных фигур) и размерные линии (тонкие
+    одиночные прямые с цифрой у середины, без параллельного «двойника»); остаётся «стены + подписи комнат». masks = {'furniture', 'dims'} (uint8 0/255)
+    — слои можно отдать нейросети отдельно. Геометрия не меняется. Цветные подписи (мелкие фигуры) и цветные стены не трогаем.
+    Автопроверка: стёрто не больше LAYER_CHANGED от всех чернил, ни одной тёмной толстой связной фигуры (стены) не задето."""
+    info = {}
+    H, W = bgr.shape[:2]
+    L = max(H, W)
+    hsv = cv2.cvtColor(bgr, cv2.COLOR_BGR2HSV)
+    gray = cv2.cvtColor(bgr, cv2.COLOR_BGR2GRAY)
+    mean_sat, med_g = float(hsv[..., 1].mean()), float(np.median(gray))
+    info['mean_sat'], info['median_gray'] = round(mean_sat, 1), int(med_g)
+    if mean_sat > LAYER_MEAN_SAT or med_g < LAYER_PAPER:       # фото, цветной фон/заливка комнат, чёрный фон: цвет на листе ненадёжен или это данные — не трогаем
+        info['reason'] = 'цвет листа ненадёжен (фото/цветная заливка/тёмный фон)'
+        return None, info, {}
+    k = max(15, int(0.03 * L)) | 1
+    bg = cv2.GaussianBlur(cv2.morphologyEx(gray, cv2.MORPH_CLOSE, cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (k, k))), (0, 0), k / 3.0)
+    dep = bg.astype(np.int16) - gray.astype(np.int16)
+    ink = (dep > 40).astype(np.uint8)
+    col = ((hsv[..., 1] > LAYER_SAT) & (hsv[..., 2] > 60)).astype(np.uint8)
+    hue = hsv[..., 0]
+    green = col & ((hue >= LAYER_GREEN[0]) & (hue <= LAYER_GREEN[1]))      # мебель редакторов планов — зелёная; красное/синее/сиреневое на листах — данные (площади, метки, заливка комнат): не трогаем
+    blue = col & ((hue >= LAYER_BLUE[0]) & (hue <= LAYER_BLUE[1]))         # размерные линии редакторов — синие
+    t = max(3, int(0.004 * L)) | 1
+    thick = cv2.morphologyEx(ink | col, cv2.MORPH_OPEN, cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (t + 2, t + 2)))
+    n_thick = int(thick.sum())
+    info['ink_px'] = int((ink | col).sum())
+    if info['ink_px'] < 200:
+        info['reason'] = 'нет линий'
+        return None, info, {}
+    ln_ = max(9, int(0.06 * L)) | 1
+    long_ = cv2.morphologyEx(thick, cv2.MORPH_OPEN, np.ones((1, ln_), np.uint8)) | cv2.morphologyEx(thick, cv2.MORPH_OPEN, np.ones((ln_, 1), np.uint8))
+    wall_col = float((long_ & col).sum() / max(int(long_.sum()), 1))   # цвет СТЕН: доля цветного среди длинных толстых прямых штрихов (мебель — короткие/тонкие)
+    info['wall_coloured'] = round(wall_col, 3)
+    furn = np.zeros((H, W), np.uint8)
+    if wall_col <= LAYER_WALL_COLOURED:
+        thin_col = green & (1 - cv2.dilate(thick, np.ones((3, 3), np.uint8)))           # зелёное, но не толстая заливка/стена
+        d = cv2.dilate(thin_col, cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (5, 5)))
+        # стены: тёмные НЕцветные штрихи крупных связных фигур (подписи и мебель сюда не попадают)
+        wall0 = (ink > 0) & (hsv[..., 1] < LAYER_SAT) & (gray < 150)
+        nw, labw, stw, _ = cv2.connectedComponentsWithStats(wall0.astype(np.uint8), connectivity=8)
+        big = [j for j in range(1, nw) if max(stw[j, cv2.CC_STAT_WIDTH], stw[j, cv2.CC_STAT_HEIGHT]) >= 0.15 * L]
+        wall_m = np.isin(labw, big).astype(np.uint8) if big else np.zeros((H, W), np.uint8)
+        wall_d = cv2.dilate(wall_m, cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (7, 7)))
+        # «замыкающие»: цветные куски, связанные через разрывы (подпись поверх линии) в фигуру, чьи концы касаются стен в двух местах далеко друг от друга
+        d2 = cv2.dilate(thin_col, cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (2 * max(3, int(LAYER_BRIDGE * L)) + 1,) * 2))
+        n2, lab2, st2, _ = cv2.connectedComponentsWithStats(d2, connectivity=8)
+        closing = np.zeros((H, W), bool)
+        for j in range(1, n2):
+            x0_, y0_, w2, h2 = st2[j, 0], st2[j, 1], st2[j, 2], st2[j, 3]
+            if max(w2, h2) < LAYER_FURN_MIN * L:
+                continue
+            cj = (lab2[y0_:y0_ + h2, x0_:x0_ + w2] == j)
+            touch = cj & (wall_d[y0_:y0_ + h2, x0_:x0_ + w2] > 0)
+            nt, _, stt, cet = cv2.connectedComponentsWithStats(touch.astype(np.uint8), connectivity=8)
+            ends = [cet[q] for q in range(1, nt) if stt[q, cv2.CC_STAT_AREA] >= 4]
+            long_ax = 0 if w2 >= h2 else 1                                        # вдоль длинной стороны: касания должны быть у ДВУХ КОНЦОВ фигуры
+            ext = max(w2, h2)
+            at_ends = lambda u, v: abs(u[long_ax] - v[long_ax]) >= LAYER_CLOSE_SPAN * L and abs(u[long_ax] - v[long_ax]) >= 0.8 * ext   # noqa: E731
+            if any(at_ends(u, v) and min(u[long_ax], v[long_ax]) <= 0.15 * ext and max(u[long_ax], v[long_ax]) >= 0.85 * ext for k_, u in enumerate(ends) for v in ends[k_ + 1:]):
+                closing[y0_:y0_ + h2, x0_:x0_ + w2] |= cj
+        n, lab, st, _ = cv2.connectedComponentsWithStats(d, connectivity=8)
+        kept_walls = 0
+        for i in range(1, n):
+            w_, h_ = st[i, cv2.CC_STAT_WIDTH], st[i, cv2.CC_STAT_HEIGHT]
+            if max(w_, h_) >= LAYER_FURN_MIN * L and min(w_, h_) >= LAYER_FURN_SIDE * L:        # подписи (красное S=5,94, синее H=270) — низкие: не трогаем
+                if closing[lab == i].any():                      # линия замыкает помещение: оба конца у стены (балкон, лоджия) — граница комнаты, не мебель
+                    kept_walls += 1
+                    continue
+                furn[(lab == i) & (thin_col > 0)] = 255
+        info['kept_closing'] = kept_walls
+    else:
+        info['furniture_skipped'] = f'стены цветные ({wall_col:.2f}) — цвет не трогаем'
+    # размерные линии: тонкая прямая, одиночная, цифра у середины
+    dims = np.zeros((H, W), np.uint8)
+    # только СИНИЕ размерные линии: серые тонкие на БТИ неотличимы от перегородок (проба: стёрла стены у 14 листов), красное — данные листа
+    thin_ink = (blue & (1 - cv2.dilate(thick, np.ones((3, 3), np.uint8)))).astype(np.uint8)
+    segs = cv2.HoughLinesP(thin_ink * 255, 1, np.pi / 180, threshold=int(0.03 * L), minLineLength=int(DIM_MIN * L), maxLineGap=max(2, int(0.004 * L)))
+    small = cv2.connectedComponentsWithStats(cv2.dilate(thin_ink, np.ones((3, 3), np.uint8)), connectivity=8)
+    n_s, lab_s, st_s, cen_s = small
+    textlike = np.zeros(n_s, bool)
+    for i in range(1, n_s):
+        w_, h_ = st_s[i, cv2.CC_STAT_WIDTH], st_s[i, cv2.CC_STAT_HEIGHT]
+        textlike[i] = 3 <= max(w_, h_) <= 0.03 * L and min(w_, h_) >= 3 and st_s[i, cv2.CC_STAT_AREA] >= 6
+    n_dims = 0
+    if segs is not None:
+        for x1, y1, x2, y2 in segs.reshape(-1, 4):
+            ang = abs(np.degrees(np.arctan2(y2 - y1, x2 - x1))) % 180
+            if not (ang < 3 or abs(ang - 90) < 3 or abs(ang - 180) < 3):
+                continue
+            mx, my = (x1 + x2) // 2, (y1 + y2) // 2
+            r = max(6, int(DIM_TEXT_R * L))
+            y0, y1b, x0, x1b = max(my - r, 0), min(my + r + 1, H), max(mx - r, 0), min(mx + r + 1, W)
+            ids = np.unique(lab_s[y0:y1b, x0:x1b])
+            if not any(textlike[j] for j in ids if j > 0):
+                continue                                                      # у середины нет цифры
+            # «двойник»: параллельная тёмная линия ближе DIM_TWIN по обе стороны вдоль линии
+            tw = max(3, int(DIM_TWIN * L))
+            horizontal = abs(y2 - y1) <= abs(x2 - x1)
+            xs = np.linspace(x1, x2, 9).astype(int).clip(0, W - 1)
+            ys = np.linspace(y1, y2, 9).astype(int).clip(0, H - 1)
+            twin = 0
+            for sgn in (-1, 1):
+                hit = 0
+                for xx, yy in zip(xs, ys):
+                    for off in range(3, tw + 1):
+                        yy2, xx2 = (min(max(yy + sgn * off, 0), H - 1), xx) if horizontal else (yy, min(max(xx + sgn * off, 0), W - 1))
+                        if ink[yy2, xx2]:
+                            hit += 1
+                            break
+                twin += hit >= 6
+            if twin >= 1:
+                continue
+            cv2.line(dims, (int(x1), int(y1)), (int(x2), int(y2)), 255, 3)
+            n_dims += 1
+    dims &= (cv2.dilate(thin_ink, np.ones((3, 3), np.uint8)) * 255).astype(np.uint8)       # стираем только сами тонкие штрихи под линией
+    info['dim_lines'] = n_dims
+    info['furniture_px'] = int((furn > 0).sum())
+    allm = (furn > 0) | (dims > 0)
+    if not allm.any():
+        info['reason'] = 'мебели и размерных линий не найдено'
+        return None, info, {}
+    out = bgr.copy()
+    paper = cv2.GaussianBlur(cv2.morphologyEx(bgr, cv2.MORPH_CLOSE, cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (k, k))), (0, 0), k / 3.0)
+    m = (cv2.dilate((furn > 0).astype(np.uint8), np.ones((7, 7), np.uint8)) > 0) | (cv2.dilate((dims > 0).astype(np.uint8), np.ones((5, 5), np.uint8)) > 0)   # ореол сглаживания цветной линии тоже
+    m &= (hsv[..., 1] > 25) | (dims > 0)                                     # стены рядом с мебелью — серые: цветом их отличаем
+    m &= ~(thick > 0)                                                         # толстое (стены) под стирание не попадает
+    out[m] = paper[m]
+    share = float(m.sum() / max(info['ink_px'], 1))
+    info['erased_share'] = round(share, 3)
+    if not (LAYER_CHANGED[0] <= share <= LAYER_CHANGED[1]):
+        info['reason'] = f'стёрто {share:.2f} чернил вне {LAYER_CHANGED} — откат'
+        return None, info, {}
+    return out, info, {'furniture': furn, 'dims': dims}
+
+
+def clean_bgr(bgr, rectify=True, background=True, lines=False, grid=False, layers=False):
+    """→ (bgr, ops, info). ops ⊂ ['rectify', 'background', 'grid', 'layers', 'lines']; ничего не применилось — тот же массив."""
     ops, info, cur = [], {}, bgr
     if rectify:
         w_, inf = rectify_lines(cur)
@@ -338,26 +684,58 @@ def clean_bgr(bgr, rectify=True, background=True):
         if w_ is not None:
             cur = w_
             ops.append('rectify')
+            info['rect_H'] = inf['H']      # матрица исходный лист → выпрямленный (нужна для обратного преобразования)
     if background:
         b_, inf = clean_background(cur)
         info['bg'] = inf
         if b_ is not None:
             cur = b_
             ops.append('background')
+    if grid:                                                  # сетку — до усиления линий (иначе усилили бы и клетку)
+        g_, inf = remove_grid(cur)
+        info['grid'] = inf
+        if g_ is not None:
+            cur = g_
+            ops.append('grid')
+    if layers:                                                # слои (мебель, размерные) — после сетки, до усиления линий
+        y_, inf, _m = separate_layers(cur)
+        info['layers'] = inf
+        if y_ is not None:
+            cur = y_
+            ops.append('layers')
+    if lines:
+        l_, inf = strengthen_lines(cur)
+        info['lines'] = inf
+        if l_ is not None:
+            cur = l_
+            ops.append('lines')
     return cur, ops, info
+
+
+def clean_sheet_steps(sheet, flags=None):
+    """PIL RGB → (PIL RGB, ops, steps). steps — геометрия для обратного преобразования (исходный лист ← выход):
+    [{'op': 'rectify', 'H': 3×3 исходный→выход, 'in': [W, H], 'out': [w, h]}]; фон и усиление линий геометрию не меняют. Выключено/не применилось — тот же объект, [], []."""
+    if flags is None:
+        rect, bg, ln, gr, ly = flag_rect(), flag_bg(), flag_lines(), flag_grid(), flag_layers()
+    else:                                                     # явный набор (служба с потоками): окружение не читаем
+        rect, bg, ln, gr, ly = (bool(flags.get(k)) for k in ('rect', 'bg', 'lines', 'grid', 'layers'))
+    if not (rect or bg or ln or gr or ly):
+        return sheet, [], []
+    from PIL import Image
+    try:
+        bgr = cv2.cvtColor(np.asarray(sheet.convert('RGB')), cv2.COLOR_RGB2BGR)
+        out, ops, info = clean_bgr(bgr, rectify=rect, background=bg, lines=ln, grid=gr, layers=ly)
+    except Exception:  # noqa: BLE001 — чистка не должна ронять разбор: лист как есть
+        return sheet, [], []
+    if not ops:
+        return sheet, [], []
+    steps = []
+    if 'rectify' in ops and 'rect_H' in info:
+        steps.append({'op': 'rectify', 'H': info['rect_H'], 'in': [bgr.shape[1], bgr.shape[0]], 'out': [out.shape[1], out.shape[0]]})
+    return Image.fromarray(cv2.cvtColor(out, cv2.COLOR_BGR2RGB)), ops, steps
 
 
 def clean_sheet(sheet):
     """PIL RGB → (PIL RGB, ops) по флагам окружения; выключено/не применилось — тот же объект. Любой сбой шага — лист как есть."""
-    rect, bg = flag_rect(), flag_bg()
-    if not (rect or bg):
-        return sheet, []
-    from PIL import Image
-    try:
-        bgr = cv2.cvtColor(np.asarray(sheet.convert('RGB')), cv2.COLOR_RGB2BGR)
-        out, ops, _ = clean_bgr(bgr, rectify=rect, background=bg)
-    except Exception:  # noqa: BLE001 — чистка не должна ронять разбор: лист как есть
-        return sheet, []
-    if not ops:
-        return sheet, []
-    return Image.fromarray(cv2.cvtColor(out, cv2.COLOR_BGR2RGB)), ops
+    out, ops, _ = clean_sheet_steps(sheet)
+    return out, ops

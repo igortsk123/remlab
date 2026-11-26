@@ -160,11 +160,17 @@ def prepare(input_path: Path, mime: str, workdir: Path) -> tuple[Path, dict, lis
     if max(sheet.size) > MAX_SIDE:
         k = MAX_SIDE / max(sheet.size)
         sheet = sheet.resize((max(1, round(sheet.width * k)), max(1, round(sheet.height * k))), Image.LANCZOS)
-    import cleanup   # чистка входа (T-20261126-98/4): FP_CLEAN_BG / FP_CLEAN_RECT, по умолчанию выкл — тот же лист
-    sheet, _ops = cleanup.clean_sheet(sheet)
+    import input_step   # одношаговый вход (T-20261126-98/4): выпрямление, фон, сетка, линии, вырезка — каждый за своим флагом (или FP_INPUT_ALL=1), по умолчанию выкл — тот же лист
+    res = input_step.run(sheet)
+    sheet, steps = res['sheet'], res['steps']
     out = workdir / 'sheet.png'
     sheet.save(out, 'PNG')
-    return out, {'mime': mime, 'pages': pages, 'usedPages': used, 'imageW': sheet.width, 'imageH': sheet.height}, flags
+    source = {'mime': mime, 'pages': pages, 'usedPages': used, 'imageW': sheet.width, 'imageH': sheet.height}
+    if steps:
+        source['inputTransform'] = steps      # шаги входа, меняющие геометрию (по порядку): ответ нейросети → исходный лист (otvet-7)
+    if res['ops']:
+        source['inputOps'] = res['ops']      # что вход применил (для трассировки/разбора)
+    return out, source, flags
 
 
 def file_sha(path: Path) -> str:
