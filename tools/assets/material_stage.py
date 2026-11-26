@@ -330,6 +330,19 @@ def unsure_parts_report(mesh, part: np.ndarray, parts_rep: list[dict], parts: li
     return sorted(out, key=lambda d: -d["area_share"])
 
 
+def ensure_roles(parts: list[dict]) -> int:
+    """Части этапа 3 без поля `role` (parts.json от PartLLM при выключенном мосте ролей `part-llm-roles.json`, mode=dry) — не падение (было KeyError 'role', T-99/7 26.11):
+    общее правило «нет роли → role='unknown', канала нет» — дальше те же ветки, что у unknown (ножки/верх добираются геометрией, остальное — прежняя политика). → число частей, которым роль не дана
+    (идёт в check.json `extra.parts_without_role`, чтобы переход на геометрию был виден в отчёте прогона)."""
+    n = 0
+    for p in parts:
+        if "role" not in p or p["role"] in (None, ""):
+            p["role"] = "unknown"
+            p.setdefault("material_channel", None)
+            n += 1
+    return n
+
+
 def merge_roles(parts: list[dict], path: str) -> int:
     """Роли частей этапа 3 лежат отдельным файлом `roles.json` (пересчёт ролей без пересчёта частей): {id части: {role, material_channel, …}}. Части, у которых роль
     с каналом уже в parts.json, не трогаем; остальным дописываем role/material_channel/role_conf/unknown_reason. → сколько частей получило роль. Нет файла — 0."""
@@ -1053,11 +1066,13 @@ def run_stage(glb: str, run: str, sku: str, product: dict, parts_dir: str | None
     pdir = parts_dir or os.path.join(run, ps.safe_name(sku), "03-parts")
     npz = os.path.join(pdir, "parts.npz")
     shape_rep = None
+    parts_without_role = 0
     if os.path.exists(npz):
         part = np.load(npz)["part"].astype(np.int64)
         info = json.load(open(os.path.join(pdir, "parts.json"), encoding="utf-8"))
         parts = info["parts"]
         merge_roles(parts, os.path.join(pdir, "roles.json"))
+        parts_without_role = ensure_roles(parts)                                   # нет роли → unknown (геометрия), не KeyError; число — в check.json
         parts_source = "stage3"
         if len(part) != nf:
             return fail(f"число граней частей этапа 3 ({len(part)}) ≠ меша ({nf}) — части считались на другой модели", faces=nf)
@@ -1200,7 +1215,7 @@ def run_stage(glb: str, run: str, sku: str, product: dict, parts_dir: str | None
                  "geometry_unchanged": {"value": bool(geom_same), "threshold": True, "op": "=="},
                  "seconds": {"value": round(time.time() - t0, 1), "threshold": c["max_seconds"], "op": "<="}, **plate_mt},
         reason=reason, seconds=time.time() - t0, outputs=["material.glb"] + ([allowed_file] if allowed_file else []), frame=frame_name, plate=plate_rep, fill_stage=fill_note, texel_fill=texel_rep,
-        faces=nf, parts_source=parts_source, shape=shape_rep, catalog_parts_not_located=not_located, unsure_parts=unsure_rep, product_class={"class": cls["class"], "stage": cls["stage"], "confidence": cls["confidence"], "reason": cls["reason"], "parts": cls.get("parts")},
+        faces=nf, parts_source=parts_source, parts_without_role=parts_without_role, shape=shape_rep, catalog_parts_not_located=not_located, unsure_parts=unsure_rep, product_class={"class": cls["class"], "stage": cls["stage"], "confidence": cls["confidence"], "reason": cls["reason"], "parts": cls.get("parts")},
         parts=parts_rep, classes=table, compound=cls.get("compound") or [], untouched_share=round(float(np.isin(part, [pid for pid, r in res.items() if r["class"] == "unknown"]).sum()) / nf, 4),
         painted_metal_share=round(float(np.isin(part, [pid for pid, r in res.items() if r.get("painted_from")]).sum()) / nf, 4),
         gloss_finish_share=round(float(np.isin(part, [pid for pid, r in res.items() if r.get("gloss_from")]).sum()) / nf, 4), gloss_finish=cls.get("gloss"),
