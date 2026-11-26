@@ -731,7 +731,13 @@ open(pj08, 'w', encoding='utf-8').write(json.dumps({'parts': [{'id': 0, 'name': 
 os.remove(os.path.join(d08, 'roles.json'))
 inp08b = {'sku1': {'extra_in': {'parts.npz': os.path.join(d08, 'p.npz')}}}
 rep08b = ST.attach_08(inp08b, cat08, d08)
-ok(not rep08b['sku1']['parts'] and 'нет роли' in rep08b['sku1']['parts_why'] and '03-parts/parts.npz' not in inp08b['sku1']['extra_in_08'], 'attach_08: части без ролей (PartLLM до моста) не отправляются — 08 по форме, причина в отчёте')
+ok(rep08b['sku1']['parts'] and rep08b['sku1']['parts_why'] == '' and 'нет роли' in rep08b['sku1']['roles_note'] and inp08b['sku1']['extra_in_08'].get('03-parts/parts.npz', '').endswith('p.npz'),
+   'attach_08: части без ролей (мост dry) ЕДУТ в 08 как у paint_run_all (role=unknown), число — в roles_note; один путь Salad и локально')
+open(pj08, 'w', encoding='utf-8').write('{не json')
+inp08c = {'sku1': {'extra_in': {'parts.npz': os.path.join(d08, 'p.npz')}}}
+rep08c = ST.attach_08(inp08c, cat08, d08)
+ok(not rep08c['sku1']['parts'] and 'не читается' in rep08c['sku1']['parts_why'] and '03-parts/parts.npz' not in inp08c['sku1']['extra_in_08'], 'attach_08: нечитаемый parts.json — части не едут, причина в отчёте')
+ok(ST.parts_unreadable(pj08).startswith('parts.json не читается') and ST.parts_unreadable(os.path.join(d08, 'нет.json')).startswith('parts.json не читается'), 'parts_unreadable: битый и отсутствующий файл → причина')
 pool08 = WS.Pool(KW.State(), dict(C, work=tmpdir('work08')))
 ok(pool08.sem_08._value == 1,'08: по умолчанию одно задание за раз (пик памяти 4,5 ГБ, проба 23.11)')
 va = {'args': ['--card-json', '@in/card.json']}

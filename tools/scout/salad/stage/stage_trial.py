@@ -181,7 +181,8 @@ def attach_08(inputs: dict, catalog: str, out: str) -> dict:
             ex['product.json'] = pj
         npz = (v.get('extra_in') or {}).get('parts.npz')
         pjson = os.path.join(os.path.dirname(npz), 'parts.json') if npz else ''
-        why = 'нет parts.npz+parts.json' if not (npz and os.path.isfile(pjson)) else parts_roles_problem(pjson)
+        why = 'нет parts.npz+parts.json' if not (npz and os.path.isfile(pjson)) else parts_unreadable(pjson)      # один путь с paint_run_all: части без роли едут в 08 (role=unknown, `material_stage.ensure_roles`); не отдаём только пустую пару или нечитаемый parts.json
+        roles_note = parts_roles_problem(pjson) if npz and os.path.isfile(pjson) and not why else ''
         if not why:
             ex['03-parts/parts.npz'], ex['03-parts/parts.json'] = npz, pjson
             rj = os.path.join(os.path.dirname(npz), 'roles.json')
@@ -190,7 +191,7 @@ def attach_08(inputs: dict, catalog: str, out: str) -> dict:
         ph = v.get('photo') or (v.get('extra_in') or {}).get('photo.png') or ''                 # фото — вырезка товара: поле photo входа 06 или photo.png входа 07
         if os.path.isfile(ph):
             ex['photo.png'] = ph
-        rep[sku] = {'product': 'product.json' in ex, 'parts': '03-parts/parts.npz' in ex, 'photo': 'photo.png' in ex, 'parts_why': why}
+        rep[sku] = {'product': 'product.json' in ex, 'parts': '03-parts/parts.npz' in ex, 'photo': 'photo.png' in ex, 'parts_why': why, 'roles_note': roles_note}
     return rep
 
 
@@ -212,9 +213,18 @@ def attach_06(inputs: dict, catalog: str, out: str) -> dict:
     return rep
 
 
+def parts_unreadable(parts_json: str) -> str:
+    """'' если parts.json читается и в нём список `parts` (08 открывает его сразу); иначе причина строкой — только такие части в 08 не отправляются."""
+    try:
+        json.load(open(parts_json, encoding='utf-8'))['parts']
+    except (OSError, ValueError, KeyError) as exc:
+        return f'parts.json не читается: {type(exc).__name__}'
+    return ''
+
+
 def parts_roles_problem(parts_json: str) -> str:
-    """'' если у КАЖДОЙ части этапа 3 есть роль (parts.json `role`, либо рядом roles.json с ней): 08 читает `p["role"]` без запаса. Части PartLLM до моста T-17 ролей не несут — тогда 08 идёт без частей
-    (по форме, как локально без 03-parts), а причина пишется в inputs-08.json. Иначе — причина строкой."""
+    """Справка (НЕ запрет): '' если у КАЖДОЙ части этапа 3 есть роль (parts.json `role`, либо рядом roles.json с ней). Части PartLLM при выключенном мосте T-17 (mode=dry) ролей не несут — в 08 они едут
+    с role=unknown (`material_stage.ensure_roles`, ножки/верх добираются геометрией — как у paint_run_all); число таких частей пишется в inputs-08.json `roles_note`."""
     try:
         parts = json.load(open(parts_json, encoding='utf-8'))['parts']
     except (OSError, ValueError, KeyError) as exc:
@@ -222,7 +232,7 @@ def parts_roles_problem(parts_json: str) -> str:
     rj = os.path.join(os.path.dirname(parts_json), 'roles.json')
     roles = json.load(open(rj, encoding='utf-8')) if os.path.isfile(rj) else {}
     bad = [p.get('id') for p in parts if not p.get('role') and not (roles.get(str(p.get('id'))) or {}).get('role')]
-    return f'у {len(bad)} из {len(parts)} частей нет роли (PartLLM без моста T-17): 08 без частей' if bad else ''
+    return f'у {len(bad)} из {len(parts)} частей нет роли (мост T-17 в dry): в 08 они идут как role=unknown' if bad else ''
 
 
 def input_zip_06(v: dict, code_tar: bytes | None = None) -> bytes:
