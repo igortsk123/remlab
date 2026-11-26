@@ -160,6 +160,8 @@ def prepare(input_path: Path, mime: str, workdir: Path) -> tuple[Path, dict, lis
     if max(sheet.size) > MAX_SIDE:
         k = MAX_SIDE / max(sheet.size)
         sheet = sheet.resize((max(1, round(sheet.width * k)), max(1, round(sheet.height * k))), Image.LANCZOS)
+    import cleanup   # чистка входа (T-20261126-98/4): FP_CLEAN_BG / FP_CLEAN_RECT, по умолчанию выкл — тот же лист
+    sheet, _ops = cleanup.clean_sheet(sheet)
     out = workdir / 'sheet.png'
     sheet.save(out, 'PNG')
     return out, {'mime': mime, 'pages': pages, 'usedPages': used, 'imageW': sheet.width, 'imageH': sheet.height}, flags
