@@ -87,7 +87,7 @@
   },
   {
    "id": "director-by-header",
-   "claim": "Директор — по строке «Директор:» в шапке plan-zadach.md (сейчас не pakardev), состав в доках не дублируем",
+   "claim": "Директор — только по строке «Директор:» в шапке plan-zadach.md (с 26.11 12:32 — pakardev, ADR-0485), в других доках состав не дублируем",
    "canon": [
     {
      "file": ".memory_bank/plan-zadach.md",
@@ -101,24 +101,27 @@
    "forbidden": [
     {
      "pattern": "директор\\w*\\s*[—–:\\-]\\s*[`(]?pakardev",
-     "why": "директор — по шапке plan-zadach.md, не pakardev"
+     "why": "директор — только в шапке plan-zadach.md, в других доках не называть"
     },
     {
      "pattern": "pakardev\\s*[—–:\\-]\\s*директор",
-     "why": "директор — по шапке plan-zadach.md, не pakardev"
+     "why": "директор — только в шапке plan-zadach.md, в других доках не называть"
     },
     {
      "pattern": "директор\\w*\\s*\\(\\s*pakardev\\s*\\)",
-     "why": "директор — по шапке plan-zadach.md, не pakardev"
+     "why": "директор — только в шапке plan-zadach.md, в других доках не называть"
     },
     {
      "pattern": "директор\\w*\\s+pakardev",
-     "why": "директор — по шапке plan-zadach.md, не pakardev"
+     "why": "директор — только в шапке plan-zadach.md, в других доках не называть"
     },
     {
      "pattern": "pakardev:tg-remlab[^|\\n]{0,40}директор|директор[^|\\n]{0,40}pakardev:tg-remlab",
-     "why": "директор — по шапке plan-zadach.md, не pakardev:tg-remlab"
+     "why": "директор — только в шапке plan-zadach.md, в других доках не называть"
     }
+   ],
+   "allow_files": [
+    ".memory_bank/plan-zadach.md"
    ]
   },
   {
