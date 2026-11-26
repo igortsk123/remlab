@@ -350,6 +350,9 @@ def execute(run: str, sku: str, a: dict, rules: dict, check_rules: dict, only: l
                 r = _run_step(s, f'{name}-{i + 1}', ctx, rules, timeout, bool(a.get('heavy')))     # имя заявки heavy-slot у каждого шага своё
                 entry['steps'].append(r)
                 if r['rc'] != 0:
+                    if rules.get('continue_steps_on_soft') and stage_status(run, sku, rules['stages'][name]['produces'][0], check_rules)['status'] == 'soft':
+                        r['continued_on_soft'] = True                       # T-99/11: этап «мягко» не прошёл по метрике (rc≠0), но следующие этапы его принимают (ok/soft) — и шаги ЭТОГО этапа (Ш4а, зерно) не должны пропадать; выкл по умолчанию
+                        continue
                     break                                                   # дальнейшие шаги этапа без первого не имеют смысла; статус скажет check.json
                 if rules.get('abstain_is_stop') and s.get('abstain_report'):        # проба (T-99/7, правило директора 26.11): воздержание ВКЛЮЧЁННОГО шага — СТОП всего прогона, не «rc 0 → дальше»
                     try:

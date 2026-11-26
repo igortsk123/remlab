@@ -77,6 +77,17 @@ with tempfile.TemporaryDirectory() as run:
     RA.execute(run, 's3', A, r, CR)
     ok('07-fill' in calls(run) and '08-material' in calls(run), 'мягкий провал 06 (known_visible_share) не блокирует 07 и 08')
 
+# 2б. T-99/11: continue_steps_on_soft — первый шаг 06 rc=1 при мягком провале: выкл (по умолчанию) обрывает шаги этапа, вкл — идёт дальше; жёсткий провал обрывает в обоих
+soft_m = {'name': 'known_visible_share', 'value': 0.1, 'threshold': 0.30, 'op': '>=', 'ok': False}
+d2 = {'produces': ['06-visible'], 'needs': ['03-parts'], 'steps': [writer('06-visible', passed=False, rc=1, metric=soft_m), {'argv': [sys.executable, '-c', 'import sys,os;open(os.path.join(sys.argv[1],"calls.log"),"a").write("step2\\n")', '{run}']}]}
+ok(REAL.get('continue_steps_on_soft') is False, 'в rules-json continue_steps_on_soft=false по умолчанию')
+with tempfile.TemporaryDirectory() as run:
+    RA.execute(run, 's2b', A, fake_rules(d=d2), CR)
+    ok('step2' not in calls(run), 'continue_steps_on_soft выкл: rc=1 первого шага обрывает шаги этапа (как было)')
+with tempfile.TemporaryDirectory() as run:
+    lg = RA.execute(run, 's2b', A, dict(fake_rules(d=d2), continue_steps_on_soft=True), CR)
+    ok('step2' in calls(run) and any(s.get('continued_on_soft') for e in lg['stages'] for s in e['steps']), 'continue_steps_on_soft вкл: мягкий провал не обрывает шаги этапа, в журнале continued_on_soft')
+
 # 3. повтор пропускает готовое, --force гонит заново
 with tempfile.TemporaryDirectory() as run:
     RA.execute(run, 's4', A, fake_rules(), CR)
