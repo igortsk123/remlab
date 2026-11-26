@@ -104,7 +104,9 @@
             "--photo",
             "{photo}",
             "--out-run",
-            "{sku_dir}"
+            "{sku_dir}",
+            "--role",
+            "{product_role}"
           ],
           "heavy": {
             "prio": 1,
