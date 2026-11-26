@@ -160,17 +160,16 @@ def prepare(input_path: Path, mime: str, workdir: Path) -> tuple[Path, dict, lis
     if max(sheet.size) > MAX_SIDE:
         k = MAX_SIDE / max(sheet.size)
         sheet = sheet.resize((max(1, round(sheet.width * k)), max(1, round(sheet.height * k))), Image.LANCZOS)
-    import cleanup   # чистка входа (T-20261126-98/4): FP_CLEAN_BG / FP_CLEAN_RECT, по умолчанию выкл — тот же лист
-    import apartment_cut   # вырезать нашу квартиру по выделению: FP_CUT_APT, по умолчанию выкл — тот же лист
-    sheet, _ops, steps = cleanup.clean_sheet_steps(sheet)
-    sheet, cut = apartment_cut.cut_sheet(sheet)
-    if cut.get('status') == 'cut':
-        steps.append({'op': 'crop', **cut['transform']})
+    import input_step   # одношаговый вход (T-20261126-98/4): выпрямление, фон, сетка, линии, вырезка — каждый за своим флагом (или FP_INPUT_ALL=1), по умолчанию выкл — тот же лист
+    res = input_step.run(sheet)
+    sheet, steps = res['sheet'], res['steps']
     out = workdir / 'sheet.png'
     sheet.save(out, 'PNG')
     source = {'mime': mime, 'pages': pages, 'usedPages': used, 'imageW': sheet.width, 'imageH': sheet.height}
     if steps:
         source['inputTransform'] = steps      # шаги входа, меняющие геометрию (по порядку): ответ нейросети → исходный лист (otvet-7)
+    if res['ops']:
+        source['inputOps'] = res['ops']      # что вход применил (для трассировки/разбора)
     return out, source, flags
 
 

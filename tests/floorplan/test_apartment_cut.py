@@ -240,3 +240,16 @@ def test_prepare_flag_gated_and_writes_input_transform(tmp_path, monkeypatch):
     steps = source_on['inputTransform']
     assert steps[-1]['op'] == 'crop' and steps[-1]['scale'] == 1.0 and steps[-1]['src'] == [W, H]
     assert source_on['imageW'] == a.shape[1] and source_on['imageH'] == a.shape[0]
+
+
+def test_floor_gray_whole_plan_is_not_highlight():
+    """samara-10758856/869: серый пол ВСЕГО плана (≈47 % листа) — это не выделение нашей квартиры: не режем, лист как есть"""
+    img = np.full((H, W, 3), 255, np.uint8)
+    plan = (80, 60, 720, 590)
+    img[plan[1]:plan[3], plan[0]:plan[2]] = 197                  # пол всего плана одним серым тоном
+    _rooms(img, plan)
+    cv2.rectangle(img, (300, 200), (520, 380), (255, 255, 255), -1)   # белый ковёр/кровать внутри
+    for i, o in enumerate([(130, 220), (630, 220), (130, 560), (630, 560)]):
+        _text(img, f'{10.3 + i:.2f}', o)
+    out, info = ac.cut_bgr(img)
+    assert info['status'] == 'mark' and np.array_equal(out, img), info

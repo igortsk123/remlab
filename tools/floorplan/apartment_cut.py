@@ -36,6 +36,9 @@ def _fill_holes(m):
     return _inside_from_barrier(m)
 
 
+FILL_MAX = 0.35   # серая заливка больше этой доли листа — пол всего плана застройщика (samara-10758856/869: 0,47), не выделение; настоящие 0,19 (kazan-9583744)
+
+
 def d_fill(bgr):
     """серая плоская заливка квартиры (не касается краёв листа, снаружи светлее)"""
     H, W = bgr.shape[:2]
@@ -62,12 +65,12 @@ def d_fill(bgr):
     if not comps:
         return None, {'reason': 'плоской серой заливки нет'}
     a0, i0, med = max(comps)
-    if not (0.03 <= a0 <= 0.65):
-        return None, {'reason': f'крупнейшая заливка {a0:.2f} листа вне 0,03…0,65'}
+    if not (0.03 <= a0 <= FILL_MAX):
+        return None, {'reason': f'крупнейшая заливка {a0:.2f} листа вне 0,03…{FILL_MAX}'}
     keep = [i for a, i, m in comps if abs(m - med) <= 10]           # заливка рвётся стенами/дверями/подписями на куски одного тона — берём все
     a = sum(a_ for a_, i, m in comps if i in keep)
-    if a > 0.65:
-        return None, {'reason': f'заливка в сумме {a:.2f} листа > 0,65'}
+    if a > FILL_MAX:
+        return None, {'reason': f'заливка в сумме {a:.2f} листа > {FILL_MAX} — это цвет пола всего плана, а не выделение нашей квартиры среди соседних'}
     comp = np.isin(lab, keep).astype(np.uint8) * 255
     raw_n = int((comp > 0).sum())
     hole_ratio = float((_fill_holes(comp) > 0).sum() / max(raw_n, 1))
