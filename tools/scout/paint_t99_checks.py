@@ -167,7 +167,8 @@ def main(argv=None) -> int:
         known = _png_mask(a[a.index('--known') + 1], T) if '--known' in a else None
         cache: dict = {}
         tb, ta = table(gb, known, R, cache), table(ga, known, R, cache)
-        cm = changed_marked_count(gb['tex'], ga['tex'], mark, R['keep']['changed_eps']) if mark is not None else 0
+        occ = cache['cls'][0] >= 0                                          # только тексели развёртки: фон атласа (не меш) в счёт не идёт
+        cm = changed_marked_count(gb['tex'], ga['tex'], mark & occ, R['keep']['changed_eps']) if mark is not None else 0
         out = {'before': {'/'.join(k): v for k, v in tb.items()}, 'after': {'/'.join(k): v for k, v in ta.items()}, 'check1_keep': check_keep(tb, ta, cm, R), 'check2_no_flat_after': check_no_flat(ta, R)}
         if '--json' in a:
             with open(a[a.index('--json') + 1], 'w', encoding='utf-8') as f:
