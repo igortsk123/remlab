@@ -32,6 +32,7 @@ sys.path.insert(0, os.path.join(HERE, 'salad', 'trellis'))
 sys.path.insert(0, os.path.join(HERE, '..', 'assets'))
 import part_material as PM  # noqa: E402
 import paint_stage as PS  # noqa: E402
+import site_light_gain as SLG  # noqa: E402
 
 VERSION = 1
 STAGE_DIR = '06-visible'
@@ -168,6 +169,10 @@ def process(a, rules: dict, d: str, rep: dict) -> None:
     rep['same_as_facade'] = same
     if not any(t['own'] for t in tones.values()):
         raise Abstain('ни у одной группы нет своих чистых пикселей')
+    try:                                                                       # T-99/11 шаг 2: кривая света сайта (выкл → None); отпечаток света не сходится — воздержание
+        site_curve, _why = SLG.current_curve(rules)
+    except ValueError as e:
+        raise Abstain(str(e)) from e
     ctl = np.asarray(g['tex'])
     if ctl.ndim != 3:
         raise Abstain('текстура 06 не прочиталась')
@@ -395,6 +400,15 @@ def process(a, rules: dict, d: str, rep: dict) -> None:
     rep['fit_luma_only'] = bool(rules['fit'].get('luma_only', False))
     rep['fit_mult'] = PM.fit_mult(alb, tones)                         # множители по каналам итогового альбедо к тону фото (T-99/7): строка в отчёт и вход проверки разброса
     rep['painted_texel_share'] = round(float(painted.mean()), 4)
+    if site_curve is not None:                                              # T-99/11 шаг 2 (Fable 14 §2.2): альбедо подобрано под свет подгонки — перекладываем под свет сайта (S⁻¹(N(x)), по каналам), ПОСЛЕ ворот и метрик
+        L0 = PM.lab_of(tex[painted].reshape(-1, 3))[:, 0] if painted.any() else np.zeros(1)
+        tex = SLG.remap_srgb8(tex, painted, site_curve)
+        L1 = PM.lab_of(tex[painted].reshape(-1, 3))[:, 0] if painted.any() else np.zeros(1)
+        alb = {gn: SLG.remap_lin(np.asarray(v, float)[None], site_curve)[0] for gn, v in alb.items()}
+        rep['site_light'] = {'enabled': True, 'light_sha': rules['fit']['site_light']['light_sha'], 'L_медиана_до': round(float(np.median(L0)), 2), 'L_медиана_после': round(float(np.median(L1)), 2),
+                             'множители_на_128': SLG.multipliers(site_curve, 128), 'тон_групп_srgb_после': {gn: [int(x) for x in np.clip(PM.lin2srgb(v) + 0.5, 0, 255)] for gn, v in alb.items()}}
+    else:
+        rep['site_light'] = {'enabled': False}
     # запись: исходники сохраняем один раз, дальше идём от них
     for name, keepname in KEEP.items():
         p = os.path.join(d, name)
