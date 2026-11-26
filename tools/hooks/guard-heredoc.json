@@ -1,0 +1,4 @@
+{
+  "mode": "warn",
+  "_about": "warn — выход 0 + предупреждение в stderr; block — выход 2 (отказ). Сутки warn с 26.11, потом директор ставит block (одна строка). Нет файла/битый/другое значение — warn. Журнал: ~/.local/state/remlab/heredoc-guard.log (T-20261126-98/1, план heredoc-guard-01)"
+}
