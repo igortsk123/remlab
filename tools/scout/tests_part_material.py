@@ -37,6 +37,16 @@ def rgb_img(h, w, rgb):
 
 
 R = PM.load_rules()
+import copy as _cp  # noqa: E402
+R_on = _cp.deepcopy(R)                                      # «все новые поведения ветки T-63 включены» — правила по умолчанию их ВЫКЛЮЧАЮТ (T-97/1: каждое — свой ключ, один источник — rules)
+R_on['same_material'].update(neutral_ab=4, legs_hue_deg=3)
+R_on['ladder'].update({'зад': ['бок', 'корпус'], 'корпус': ['фасад', 'бок']})
+R_on['occlusion'].update(legs_never_interior=True, fill_leg_holes=True)
+R_on['foreign']['enabled'] = True
+R_on['gate'].update(max_abs_dl=3, max_abs_dl_top=6, spot_worst_each=True, seam_min_len_cm=10)
+R_on['donors'] = {k: True for k in ('zad_last', 'best_visible_chain', 'gate_all_refs')}
+R_on['faces_before_gate'] = True
+RU = dict(R, unify_max_dl=0)   # лесенка и unify — без ворот светлоты (они отдельно, _unify_dl)
 
 # ── выключено по умолчанию, числа и ID
 check(R['enabled'] is False, 'правило выключено по умолчанию (enabled=false)')
@@ -95,25 +105,25 @@ def tone(L, a_, b_, own=True, ab_minor=0.0):
     return {'own': own, 'n_all': 1000 if own else 0, 'share': 0.9, 'ab_minor': ab_minor, 'lab': lab, 'lin': PM.srgb2lin(np.array([128, 128, 128]))} if own else {'own': False, 'n_all': 0, 'share': None, 'ab_minor': None}
 
 t = {'фасад': tone(90, 0, 1), 'бок': tone(76, 0, 1), 'верх': tone(0, 0, 0, own=False), 'зад': tone(0, 0, 0, own=False)}
-keep, bor, same = PM.pick_sources(t, R)
+keep, bor, same = PM.pick_sources(t, RU)
 check(bor.get('зад') in ('бок', 'фасад'), 'зад берёт тон бока (через цепочку — итоговый тон бока)')
 check(bor.get('бок') == 'фасад' and same['бок']['same'], 'бок того же материала, что фасад → тон фасада (студийная тень не красится в серое)')
 check(bor.get('верх') == 'бок' or bor.get('верх') == 'фасад', 'верх без пикселей → донор по лесенке (бок), а не родной цвет')
 t = {'фасад': tone(70, 20, 25, ab_minor=0.3), 'бок': tone(0, 0, 0, own=False), 'зад': tone(0, 0, 0, own=False), 'верх': tone(0, 0, 0, own=False)}
-keep, bor, same = PM.pick_sources(t, R)
+keep, bor, same = PM.pick_sources(t, RU)
 check('фасад' in keep, 'фасад с рисунком (другой оттенок на >2 %) — фото 06 остаётся')
 check(bor.get('бок') != 'фасад' and bor.get('зад') is None, 'донор — не группа с рисунком: бок/зад не берут тон узорного фасада (нечем красить → «не уверен»)')
 t = {'фасад': tone(70, 20, 25), 'ножки': tone(0, 0, 0, own=False)}
-keep, bor, same = PM.pick_sources(t, R)
+keep, bor, same = PM.pick_sources(t, RU)
 check(bor.get('ножки', 'x') is None, 'ножки без пикселей: донора нет (ножки — своя группа) → не красим, «не уверен»')
 
 t = {'фасад': tone(90, 0, 1), 'бок': tone(76, 0, 1), 'зад': tone(0, 0, 0, own=False)}
-keep, bor, same = PM.pick_sources(t, R)
+keep, bor, same = PM.pick_sources(t, RU)
 check(bor.get('зад') == 'фасад', 'цепочка донора: зад ← бок ← фасад → итоговый тон фасада (а не тон теневого бока)')
 t = {'фасад': tone(90, 0, 1), 'бок': tone(0, 0, 0, own=False), 'зад': tone(40, 0, 0, own=False), 'верх': tone(30, 40, 40)}
-keep, bor, same = PM.pick_sources(t, R)
+keep, bor, same = PM.pick_sources(t, RU)
 t2 = {'фасад': tone(90, 0, 1), 'бок': tone(30, 40, 40), 'зад': tone(0, 0, 0, own=False)}
-keep, bor, same = PM.pick_sources(t2, R)
+keep, bor, same = PM.pick_sources(t2, RU)
 check(bor.get('зад') is None and 'gate:зад' in same, 'ворота: донор (бок) далеко от лица (ΔE2000 > порога) и не тот же материал → зад не красим, «не уверен»')
 
 tw = {'фасад': tone(90, 0, 1), 'корпус': tone(60, 3, 3)}
@@ -127,7 +137,7 @@ check(bor.get('корпус') == 'фасад' and tw['корпус'].get('weak')
 tu = {'верх': tone(76, 0, 2), 'бок': tone(79, 1, 2), 'корпус': tone(64, 3, 3), 'фасад': tone(73, 3, 3, ab_minor=0.3)}
 for g_, n_ in (('верх', 200000), ('бок', 13000), ('корпус', 6000)):
     tu[g_]['n_all'] = n_
-keep, bor, same = PM.pick_sources(tu, R, {'верх': 1.0, 'бок': 1.0, 'корпус': 1.0, 'фасад': 1.0})
+keep, bor, same = PM.pick_sources(tu, RU, {'верх': 1.0, 'бок': 1.0, 'корпус': 1.0, 'фасад': 1.0})
 check('фасад' in keep and bor.get('верх') == 'бок' and bor.get('корпус') == 'бок', 'один материал — один тон: верх и корпус берут тон опорной части (бок; верх опорной не бывает — виден скользяще), фасад с рисунком — фото 06')
 mids = PM.material_ids(['верх', 'бок', 'корпус', 'фасад'], tu, bor, R)
 check(len(set(mids)) == 1 and mids[0] >= 0, 'карта материалов: части одного материала — один номер')
@@ -162,8 +172,69 @@ fr = render(fin)
 want = np.clip(PM.lin2srgb(tones2['верх']['lin']) + 0.5, 0, 255)
 check(np.abs(fr[0, 0].astype(float) - want).max() <= 1.5 and len(hist) == R['fit']['iters'], 'подбор: кадр под светом совпал с тоном фото (потеря света 0,8 скомпенсирована)')
 
+# ── H′ (T-97 шаг 2): узкая группа не подгоняется отдельно — общая поправка товара; ключ fit.hprime.enabled
+Rh = _cp.deepcopy(R); Rh['fit']['hprime'].update(enabled=True, nrel=0.4)
+check(R['fit']['hprime']['enabled'] is False, 'H′: по умолчанию выкл (fit.hprime.enabled=false)')
+
+
+def render_dark(tex_):                             # свет разный по группам: верх теряет 0,8, узкие ножки — 0,5 (подбор по ним шумит)
+    out = np.clip(PM.lin2srgb(PM.srgb2lin(tex_) * np.where(np.arange(T)[None, :, None] < 8, 0.8, 0.5)) + 0.5, 0, 255).astype(np.uint8)
+    return out
+
+
+lm_n = np.zeros((T, T), np.int16); lm_n[:, 14:] = 1                                 # ножки — 2 столбца (32 px) против 224 px верха: узкая полоска
+alb_p, _h1 = PM.fit_albedo(names2, tones2, {}, set(), texmap, ctl, render_dark, lm_n, R)
+alb_h, _h2, log_h = PM.fit_albedo_hprime(names2, tones2, {}, set(), texmap, ctl, render_dark, lm_n, Rh)
+gwant = PM._luma(alb_p['верх']) / PM._luma(tones2['верх']['lin'])
+check(log_h['надёжные'] == ['верх'] and abs(log_h['g_товара'] - round(gwant, 3)) < 1e-6, 'H′: надёжна одна группа (верх) — поправка товара = её Y(альбедо)/Y(тон)')
+check(np.allclose(alb_h['ножки'], tones2['ножки']['lin'] * gwant) and np.allclose(alb_h['верх'], alb_p['верх']), 'H′: узкая группа = СВОЙ тон × поправка товара, надёжная группа не тронута')
+check(not np.allclose(alb_h['ножки'], alb_p['ножки']), 'H′: ключ меняет результат (узкая группа ≠ отдельная подгонка)')
+Rh0 = _cp.deepcopy(Rh); Rh0['fit']['hprime']['nrel'] = 5.0
+alb_0, _h3, log_0 = PM.fit_albedo_hprime(names2, tones2, {}, set(), texmap, ctl, render_dark, lm_n, Rh0)
+check(log_0['решения']['верх'].get('не_измерено') and np.allclose(alb_0['верх'], tones2['верх']['lin']) and np.allclose(alb_0['ножки'], tones2['ножки']['lin']), 'H′: ни одной надёжной — «не измерено», тон как есть')
+
+# ── A3g (T-97 шаг 4): узкую группу подгоняем по виду сверху, принимаем только если не зажим и ближе к сырому (в кадре камеры) на ≥ gain_min L
+Rg = _cp.deepcopy(Rh); Rg['fit']['hprime']['a3g']['enabled'] = True
+check(R['fit']['hprime']['a3g']['enabled'] is False, 'A3g: по умолчанию выкл (fit.hprime.a3g.enabled=false)')
+lm_top_t = np.zeros((T, T), np.int16); lm_top_t[:, 8:] = 1                          # сверху обе группы широкие
+
+
+def run_a3(fac_top, leg_lin, rules_):
+    tn = {'верх': tones2['верх'], 'ножки': {'own': True, 'lin': np.array(leg_lin)}}
+
+    def rtop(tex_):
+        return np.clip(PM.lin2srgb(PM.srgb2lin(tex_) * np.where(np.arange(T)[None, :, None] < 8, 0.8, fac_top)) + 0.5, 0, 255).astype(np.uint8)
+    return PM.fit_albedo_hprime(names2, tn, {}, set(), texmap, ctl, render_dark, lm_n, rules_, rtop, lm_top_t), tn
+
+
+(alb_a, _ha, log_a), tn_a = run_a3(0.4, [0.2, 0.3, 0.1], Rg)
+(alb_n, _hn, log_n), _tn = run_a3(0.4, [0.2, 0.3, 0.1], Rh)
+check(log_a['решения']['ножки']['A3g_исход'] == 'принято' and log_a['решения']['ножки']['A3g_сокращение_расстояния'] >= Rg['fit']['hprime']['a3g']['gain_min'], 'A3g: подгонка по виду сверху ближе к сырому в кадре камеры на ≥ порога → принято')
+check(not np.allclose(alb_a['ножки'], alb_n['ножки']) and np.allclose(alb_a['верх'], alb_n['верх']), 'A3g: ключ меняет результат (узкая группа ≠ поправка H′), надёжная не тронута')
+(alb_b, _hb, log_b), _tn = run_a3(0.9, [0.2, 0.3, 0.1], Rg)
+check(log_b['решения']['ножки']['A3g_исход'] == 'откат: не ближе' and np.allclose(alb_b['ножки'], alb_n['ножки']), 'A3g: подгонка не ближе → откат на поправку H′')
+(alb_c, _hc, log_c), _tn = run_a3(0.4, [0.9, 0.9, 0.9], Rg)
+check(log_c['решения']['ножки']['A3g_исход'] == 'откат: зажим', 'A3g: альбедо в зажиме (канал ≥ 254) → откат')
+
+# ── A2 (T-97 шаг 3): значение тона — с СЫРОГО фото, 05 — чистильщик; ключи pixels.tone_raw / pixels.cluster_raw
+check(R['pixels']['tone_raw'] is False and R['pixels']['cluster_raw'] is False, 'A2: по умолчанию выкл (pixels.tone_raw, pixels.cluster_raw = false)')
+H2 = 120
+pp2 = np.full((H2, H2), -1, np.int16); pp2[10:110, 10:110] = 0
+cos2 = np.ones((H2, H2), np.float32)
+p05 = np.full((H2, H2, 3), 200, np.uint8); p05[:, 70:] = 120                       # 05: два тона, главный (60 %) — левый, 200
+rawf = np.full((H2, H2, 3), 100, np.uint8); rawf[:, :58] = 220                     # сырое: разрез по-другому — слева 220 (40 %), справа 100 (60 %)
+Rr = _cp.deepcopy(R); Rr['pixels'].update(tone_raw=True, cluster_raw=False)
+Rc = _cp.deepcopy(R); Rc['pixels'].update(tone_raw=True, cluster_raw=True)
+t_05 = PM.group_tones(p05, pp2, ['фасад'], cos2, R)['фасад']
+t_r0 = PM.group_tones(p05, pp2, ['фасад'], cos2, Rr, None, rawf)['фасад']
+t_rc = PM.group_tones(p05, pp2, ['фасад'], cos2, Rc, None, rawf)['фасад']
+check(t_05['own'] and np.allclose(t_05['lin'], PM.med_lin(np.full((1, 3), 200, np.uint8))), 'A2: без raw (ключ выкл) — тон по 05, как раньше (200)')
+check(t_r0['own'] and not np.allclose(t_r0['lin'], t_05['lin']) and t_r0['lab'][0] > t_rc['lab'][0], 'A2: tone_raw — значение тона с сырого фото по пикселям 05-главного кластера (ключ меняет тон)')
+check(np.allclose(t_rc['lin'], PM.med_lin(np.full((1, 3), 100, np.uint8))), 'A2: cluster_raw — главный кластер по сырому (100), а не по 05; ключ меняет тон ещё раз')
+check(t_r0['n_all'] == t_05['n_all'], 'A2: отбор пикселей (маска) тот же — по 05')
+
 # ── растр меток по развёртке
-UV = np.array([[0.1, 0.1], [0.4, 0.1], [0.1, 0.4], [0.6, 0.6], [0.9, 0.6], [0.6, 0.9]])
+UV =np.array([[0.1, 0.1], [0.4, 0.1], [0.1, 0.4], [0.6, 0.6], [0.9, 0.6], [0.6, 0.9]])
 F = np.array([[0, 1, 2], [3, 4, 5]])
 m = PM.uv_label_map(UV, F, np.array([0, 1], np.int16), 64)
 check(m[int((1 - 0.15) * 64), int(0.15 * 64)] == 0 and m[int((1 - 0.65) * 64), int(0.65 * 64)] == 1 and (m >= 0).all(), 'растр меток: строка = (1 − uv_y)·T, пропуски заполнены ближайшей меткой')
@@ -227,6 +298,16 @@ line, side = td[:, 60:62].astype(float).mean(), td[:, 20:40].astype(float).mean(
 check(dn_.get('a') == Tt * Tt and line < 0.75 * side, 'детали лица: щель остаётся заметно темнее фона')
 check(abs(float(td[:, 100:120].mean()) - float(td[:, 10:30].mean())) < 6, 'детали лица: плавная тень (градиент) в плоский тон ушла')
 check(td[10, 10, 0] > td[10, 10, 2] and td[10, 10, 1] > td[10, 10, 2], 'детали лица: оттенок от тона материала (не от серого фото)')
+# затухание у границы маски (fade) гасит узкую линию, стоящую впритык к дырам; edge_fade=false — линия остаётся (T-63 25.11), стол/заморозка — флаг по умолчанию true = как раньше
+kh = allm.copy(); kh[:, 56:60] = False; kh[:, 62:66] = False                         # известно, но дыры по обе стороны линии (60–61)
+fd1 = {'enabled': True, 'zero_mean_sigma_frac': 0.1, 'radius_frac': 0.004, 'sigma_frac': 0.004}
+fd0 = dict(fd1, edge_fade=False)
+t_f1, _ = PM.keep_details(flat, ctl_g, mp, allm, kh, ['a'], set(), Rd, fade=fd1)
+t_f0, _ = PM.keep_details(flat, ctl_g, mp, allm, kh, ['a'], set(), Rd, fade=fd0)
+t_fd, _ = PM.keep_details(flat, ctl_g, mp, allm, kh, ['a'], set(), Rd, fade=dict(fd1, edge_fade=True))
+check(t_f1[:, 60:62].astype(float).mean() > 0.95 * flat[:, 60:62].astype(float).mean(), 'fade: узкая линия у дыр затухла (поведение заморозки)')
+check(t_f0[:, 60:62].astype(float).mean() < 0.75 * t_f0[:, 20:40].astype(float).mean(), 'fade edge_fade=false: узкая линия у дыр осталась заметно темнее фона')
+check((t_f1 == t_fd).all(), 'fade: edge_fade=true — как не заданный ключ (заморозка не меняется)')
 tk, dk = PM.keep_details(flat, ctl_g, mp, allm, np.zeros((Tt, Tt), bool), ['a'], set(), Rd)
 check(dk == {} and (tk == flat).all(), 'детали лица: нет известных текселей — плоский тон как есть')
 
@@ -252,14 +333,53 @@ gd = PM.face_gate(np.full((400, 400, 3), 200, np.uint8), dots, rg4, R)
 check(gd['seam_ratio'] is None and gd['seam_px'] == 0 and not any('щели' in x for x in gd['fail']), 'ворота: точки сетки не считаются щелями (нет «потери деталей» от узора)')
 hand = np.full((400, 400, 3), 225, np.uint8); hand[150:162, 200:208] = 90                       # ручка: тёмная компактная деталь на лице
 hand_gone = np.full((400, 400, 3), 225, np.uint8)
-g_h = PM.face_gate(hand_gone, hand, rg4, R)
-check(g_h['spot_ratio'] is not None and g_h['spot_ratio'] < 0.1 and any('ручки' in x for x in g_h['fail']), 'ворота: ручка стёрта плоской заливкой — отказ (пятна)')
-g_h2 = PM.face_gate(hand.copy(), hand, rg4, R)
+g_h = PM.face_gate(hand_gone, hand, rg4, R_on)
+check(g_h['spot_ratio'] is not None and g_h['spot_ratio'] < 0.1 and any('ручка' in x for x in g_h['fail']), 'ворота: ручка стёрта плоской заливкой — отказ (пятна)')
+two = np.full((400, 400, 3), 225, np.uint8); two[150:162, 100:108] = 90; two[150:162, 300:308] = 90             # две ручки: одна на месте, другая исчезла — по КАЖДОМУ пятну, не по сумме
+two_after = two.copy(); two_after[150:162, 100:108] = 225
+g_two = PM.face_gate(two_after, two, rg4, R_on)
+check(g_two['spot_n'] == 2 and g_two['spot_min'] is not None and g_two['spot_min'] < 0.1 and g_two['spot_ratio'] > 0.4 and any('ручка' in x for x in g_two['fail']), 'ворота: одна ручка исчезла, другая цела — отказ по худшему пятну (сумма 0,5 не прячет)')
+# ворота: деталь тоньше МЕСТНОЙ ошибки позы с фото не перенести — не судим (spot_thin_errs, директор 25.11), строкой «исключено»
+import json as _js
+R_th = _js.loads(_js.dumps(R_on)); R_th['gate']['spot_thin_errs'] = 1.0
+thin = np.full((400, 400, 3), 225, np.uint8); thin[100:103, 150:164] = 90                          # тонкая тёмная деталь 3 px × 14
+thin_gone = np.full((400, 400, 3), 225, np.uint8)
+g_t0 = PM.face_gate(thin_gone, thin, rg4, R_on, pose_err=4.0)
+g_t1 = PM.face_gate(thin_gone, thin, rg4, R_th, pose_err=4.0)
+g_t2 = PM.face_gate(thin_gone, thin, rg4, R_th, pose_err=2.0)
+g_t3 = PM.face_gate(hand_gone, hand, rg4, R_th, pose_err=4.0)
+g_t4 = PM.face_gate(thin_gone, thin, rg4, R_th)
+check(g_t0['spot_n'] == 1 and any('ручка' in x for x in g_t0['fail']), 'ворота: тонкая деталь, флаг выкл — судится как раньше (отказ)')
+check(g_t1['spot_n'] == 0 and g_t1['spot_thin_excluded'] == 1 and g_t1['fail'] == [], 'ворота: тоньше ошибки позы (3 px < 4 px) — не судим, исключено 1')
+check(g_t2['spot_n'] == 1 and g_t2['spot_thin_excluded'] == 0, 'ворота: ошибка позы мала (2 px) — деталь 3 px судится')
+check(g_t3['spot_n'] == 1 and g_t3['spot_thin_excluded'] == 0 and any('ручка' in x for x in g_t3['fail']), 'ворота: ручка (толще ошибки позы) исчезла — отказ остаётся при флаге')
+check(g_t4['spot_n'] == 1, 'ворота: флаг вкл, а ошибки позы нет — как выкл')
+# ворота: судим только перенесимое (spot_transfer_min, директор 25.11 19:14): пятно на гранях «ненадёжно / нет фото» не судим, строкой «исключено N px»
+R_tr = _js.loads(_js.dumps(R_on)); R_tr['gate']['spot_transfer_min'] = 0.5
+tr_none = np.zeros((400, 400), bool); tr_all = np.ones((400, 400), bool)
+tr_half = np.zeros((400, 400), bool); tr_half[:, :] = False                                         # ручка hand — по той же геометрии, что g_h
+g_r0 = PM.face_gate(hand_gone, hand, rg4, R_on, transfer=tr_none)
+g_r1 = PM.face_gate(hand_gone, hand, rg4, R_tr, transfer=tr_none)
+g_r2 = PM.face_gate(hand_gone, hand, rg4, R_tr, transfer=tr_all)
+g_r3 = PM.face_gate(hand_gone, hand, rg4, R_tr)
+check(g_r0['spot_n'] == 1 and any('ручка' in x for x in g_r0['fail']), 'ворота: флаг перенесимости выкл — судится как раньше (отказ)')
+check(g_r1['spot_n'] == 0 and g_r1['spot_untransferable']['пятен'] == 1 and g_r1['spot_untransferable']['px'] > 0 and g_r1['fail'] == [] and any('не переносимо' in x.get('исключено', '') for x in g_r1['spots_thin']), 'ворота: пятно вне перенесимого — не судим, исключено строкой (пятен и px)')
+check(g_r2['spot_n'] == 1 and g_r2['spot_untransferable']['пятен'] == 0 and any('ручка' in x for x in g_r2['fail']), 'ворота: ручка на перенесимых гранях исчезла — отказ остаётся при флаге')
+check(g_r3['spot_n'] == 1, 'ворота: флаг вкл, маски перенесимости нет — как выкл')
+# «чужой материал»: тёмная компактная ручка на светлой панели остаётся фото, щель (тонкая линия) и сама панель — красятся
+Tt = 1024
+ctl_f = np.full((Tt, Tt, 3), 225, np.uint8); ctl_f[400:440, 480:510] = 60; ctl_f[:, 160:162] = 80            # панель + ручка 40×30 + щель 2 текселя на всю высоту
+tmap = np.zeros((Tt, Tt), np.int16); known_f = np.ones((Tt, Tt), bool)
+tones_f = {'фасад': {'own': True, 'lab': PM.lab_of(np.array([225, 225, 225], np.uint8)[None])[0]}}
+fg_f, fi_f = PM.foreign_texels(ctl_f, tmap, np.ones((Tt, Tt), bool), known_f, ['фасад'], {'фасад': 1}, {}, tones_f, R_on)
+check(fg_f[430, 500] and not fg_f[600, 161] and not fg_f[10, 10], 'чужой материал: ручка остаётся фото, щель-линия и панель — нет')
+check(PM.face_gate(hand.copy(), hand, rg4, R_on, 4.0)['seam_min_len_px'] == 40.0 and PM.face_gate(hand.copy(), hand, rg4, R_on, 0.5)['seam_min_len_px'] == 12.0, 'ворота: щель меряется в см по карточке (10 см × px/см, не короче 12 px)')
+g_h2 = PM.face_gate(hand.copy(), hand, rg4, R_on)
 check(g_h2['spot_ratio'] is not None and abs(g_h2['spot_ratio'] - 1) < 0.02 and g_h2['fail'] == [], 'ворота: ручка сохранена — проходит, число 1,0')
-g_h3 = PM.face_gate(np.full((400, 400, 3), 200, np.uint8), dots, rg4, R)
+g_h3 = PM.face_gate(np.full((400, 400, 3), 200, np.uint8), dots, rg4, R_on)
 check(g_h3['spot_ratio'] is None, 'ворота: точки сетки не пятна (слишком малы)')
 fp = np.zeros((200, 200, 3), np.uint8); fp[:] = (230, 200, 190)                     # бледный верх вместо оранжевого
-check(any('доля' in x for x in PM.face_gate(fp, fo, rg, R)['fail']), 'ворота: цвет ушёл (оранжевый → бледный) — отказ даже при снятии света')
+check(any('доля' in x for x in PM.face_gate(fp, fo, rg, R_on)['fail']), 'ворота: цвет ушёл (оранжевый → бледный) — отказ даже при снятии света')
 
 # ── seed k-means: тон и доля воспроизводимы между вызовами
 rs = np.random.RandomState(5)
@@ -267,6 +387,14 @@ pxs = np.concatenate([rs.normal((230, 230, 230), 6, (600, 3)), rs.normal((90, 60
 check(PM.main_cluster(pxs)[1] == PM.main_cluster(pxs)[1] == PM.main_cluster(pxs)[1], 'kmeans: доля главного кластера воспроизводима (seed фиксирован)')
 
 # ── обвязка: ВЫКЛ → шаг выпадает из плана (не берёт слот heavy-slot); ВКЛ → шаг в плане
+smx = R_on['same_material']
+L_ = lambda L, a_, b_: np.array([L, a_, b_], float)   # noqa: E731
+check(not PM.same_material(L_(74.1, -2.1, -0.7), L_(72.2, -1.8, 7.3), smx)[0], 'материал: мятный и дуб (оба светлые «нейтральные», разница по a,b 8) — не один материал')
+check(not PM.same_material(L_(95.8, 0.0, 0.0), L_(56.5, 8.0, 22.5), smx)[0], 'материал: белый верх и деревянные ножки — не сливать')
+check(PM.same_material(L_(45.7, 0.0, 1.3), L_(43.0, 0.0, 1.0), smx)[0], 'материал: графит у фасада и у бока чуть темнее (Δab 0,3) — один')
+check(PM.same_material(L_(60.0, 8.0, 22.0), L_(42.0, 5.6, 15.4), smx)[0], 'материал: те же ножки в тени (тот же оттенок, C/L как у света) — слить')
+_r = {'unify_max_dl': 3}
+check(PM._unify_dl(True, 'x', [45.7, 0, 0], [47.0, 0, 0], _r)[0] is True and PM._unify_dl(True, 'x', [41.6, 0, 0], [45.7, 0, 0], _r)[0] is False and PM._unify_dl(True, 'x', [41.6, 0, 0], [45.7, 0, 0], {})[0] is True, 'тон: часть берёт чужой тон только при |ΔL| ≤ unify_max_dl (настоящая разница светлоты — свой тон)')
 import paint_run_all as PRA  # noqa: E402
 rr = os.path.join(tmp, 'rules'); os.makedirs(rr)
 json.dump({'enabled': False}, open(os.path.join(rr, 'f.json'), 'w'))
@@ -280,6 +408,149 @@ check([s['argv'] for s in PRA.resolve_steps(stg, cx)] == [['a']], 'обвязк�
 real = json.load(open(os.path.join(HERE, 'rules', 'paint-run-all.json'), encoding='utf-8'))
 pm_steps = [s for st in real['stages'].values() for s in st.get('steps', []) if any('part_material_stage' in t for t in s['argv'])]
 check(len(pm_steps) == 1 and pm_steps[0].get('enabled_by', {}).get('file') == 'tools/scout/rules/part-material.json', 'правила обвязки: шаг материала части условный (enabled_by → part-material.json)')
+
+# ── надёжность граней как источника деталей фото (reliability, круг 3 стола 25.11; флаг выкл по умолчанию) ──
+RL = R['reliability']
+check(RL['enabled'] is False, 'надёжность: по умолчанию ВЫКЛ (байт в байт как без правила)')
+Hh = 96
+ids_r = np.full((Hh, Hh), -1, np.int64)
+for ty in range(Hh // 8):
+    for tx in range(Hh // 8):
+        ids_r[ty * 8:(ty + 1) * 8, tx * 8:(tx + 1) * 8] = ty * (Hh // 8) + tx            # грань = плитка 8×8 px
+nF_r = (Hh // 8) ** 2
+valid_r = np.zeros((Hh, Hh), bool)
+valid_r[8:88, 8:88] = True                                                                # широкий блок 80×80
+valid_r[:, 0:2] = True                                                                     # тонкая полоска у левого края (2 px)
+cos_r = np.full((Hh, Hh), 0.9, np.float32)
+cen_r = np.zeros((nF_r, 3))
+for fi in range(nF_r):
+    cen_r[fi] = [(fi % (Hh // 8)) * 8.0, (fi // (Hh // 8)) * 8.0, 0.0]                    # плоскость: соседи на расстоянии одной плитки
+el_r = np.full(nF_r, 8.0)
+rel_r = PM.face_reliability(ids_r, cos_r, cen_r, el_r, valid_r, 1.0, nF_r, RL)
+ok_r, why_r = PM.reliable_faces(rel_r, RL)
+fid_mid = 5 * (Hh // 8) + 5                                                               # плитка в середине блока
+fid_edge = 1 * (Hh // 8) + 1                                                              # плитка у силуэта блока (кромка в 0 px)
+fid_thin = 5 * (Hh // 8) + 0                                                              # тонкая полоска
+check(bool(ok_r[fid_mid]), 'надёжность: середина широкого блока, прямо к камере — надёжна')
+check(not bool(ok_r[fid_edge]), 'надёжность: у края силуэта (< 2 ошибок позы) — ненадёжна')
+check(not bool(ok_r[fid_thin]), 'надёжность: тонкая деталь (< 4 ошибок позы шириной) — ненадёжна')
+cos_g = cos_r.copy()
+cos_g[ids_r == fid_mid] = 0.1
+rel_g = PM.face_reliability(ids_r, cos_g, cen_r, el_r, valid_r, 1.0, nF_r, RL)
+ok_g, _ = PM.reliable_faces(rel_g, RL)
+check(not bool(ok_g[fid_mid]), 'надёжность: скользящая грань (cos 0,1 < cos_min) — ненадёжна')
+cen_o = cen_r.copy()
+cen_o[fid_mid, 2] = 500.0                                                                 # грань далеко от соседей в мире — перекрытие
+rel_o = PM.face_reliability(ids_r, cos_r, cen_o, el_r, valid_r, 1.0, nF_r, RL)
+ok_o, _ = PM.reliable_faces(rel_o, RL)
+check(not bool(ok_o[fid_mid]) and not bool(ok_o[fid_mid + 1]), 'надёжность: разрыв по глубине между соседями (перекрытие) — обе стороны ненадёжны')
+# канавка ≠ край (комод 25.11, геометрия по Fable/директору): разрывы в мире — (а) малый сдвиг по нормали (20 при ширине товара 1000) у параллельных панелей — канавка;
+# (б) сдвиг 500 — перекрытие; (в) малый сдвиг, но нормаль повёрнута на 45° — другая плоскость. Флаг снимает только (а).
+ids_g = ids_r.copy()
+ids_g[8:88, 46:48] = 0                                                                    # канавка 2 px: стенка — грань 0 (нормаль «вбок», центр далеко): пары «панель | стенка» перпендикулярны, как на комоде
+def _gr_case(shift_g, tilt_deg=0.0):
+    cen_g = cen_r.copy()
+    nr = np.tile(np.array([0.0, 0.0, 1.0]), (nF_r, 1))
+    nr[0] = [1.0, 0.0, 0.0]
+    for fi in range(nF_r):
+        tx_ = fi % (Hh // 8)
+        cen_g[fi, 2] = 500.0 * (tx_ >= 3) + shift_g * (tx_ >= 6)
+        if tx_ >= 6 and tilt_deg:
+            nr[fi] = [np.sin(np.radians(tilt_deg)), 0.0, np.cos(np.radians(tilt_deg))]
+    cen_g[0] = [0.0, 0.0, 0.0]
+    nr[0] = [1.0, 0.0, 0.0]
+    return cen_g, nr
+fid_gv = 5 * (Hh // 8) + 5                                                                # плитка x 40..47 у разрыва с плиткой x ≥ 48
+fid_st = 5 * (Hh // 8) + 2                                                                # плитка x 16..23 у разрыва «перекрытие» (сдвиг 500)
+RLg = dict(RL, groove_parallel_deg=10.0, groove_offset_frac=0.02)
+cen_a, nr_a = _gr_case(19.0)
+d_off = PM.face_reliability(ids_g, cos_r, cen_a, el_r, valid_r, 1.0, nF_r, RL, nrm=nr_a, prod_w=1000.0)
+d_on = PM.face_reliability(ids_g, cos_r, cen_a, el_r, valid_r, 1.0, nF_r, RLg, nrm=nr_a, prod_w=1000.0)
+check(d_off['dist'][fid_gv] <= 1.5 and d_off['dist'][fid_st] <= 1.5 and d_off['groove_px'] == 0, 'канавка: флаг выкл — оба разрыва глубины считаются краем')
+check(d_on['dist'][fid_gv] > 8.0 and d_on['dist'][fid_st] <= 1.5 and d_on['groove_px'] > 0, 'канавка: параллельные панели + малый сдвиг по нормали — не край; перекрытие (сдвиг 500) остаётся краем')
+cen_b, nr_b = _gr_case(19.0, tilt_deg=45.0)
+d_tilt = PM.face_reliability(ids_g, cos_r, cen_b, el_r, valid_r, 1.0, nF_r, RLg, nrm=nr_b, prod_w=1000.0)
+check(d_tilt['dist'][fid_gv] <= 1.5, 'канавка: нормали не параллельны (45°) — другая плоскость, край')
+cen_c, nr_c = _gr_case(60.0)
+d_big = PM.face_reliability(ids_g, cos_r, cen_c, el_r, valid_r, 1.0, nF_r, RLg, nrm=nr_c, prod_w=1000.0)
+check(d_big['dist'][fid_gv] <= 1.5, 'канавка: сдвиг по нормали 60 > 2 % ширины товара — край')
+d_nn = PM.face_reliability(ids_g, cos_r, cen_a, el_r, valid_r, 1.0, nF_r, RLg)
+check(bool(np.array_equal(d_nn['dist'], d_off['dist'])), 'канавка: нормалей нет — как выкл (без падения)')
+dep_n = np.full((Hh, Hh), 100.0, np.float32)
+dep_n[:, 46:50] = 150.0                                                                   # узкая (4 px) глубокая канавка
+dep_w = np.full((Hh, Hh), 100.0, np.float32)
+dep_w[:, 46:70] = 150.0                                                                   # широкий уступ (24 px)
+RLm = dict(RLg, groove_max_px=3)
+d_gn = PM.face_reliability(ids_g, cos_r, cen_a, el_r, valid_r, 1.0, nF_r, RLm, depth=dep_n, nrm=nr_a, prod_w=1000.0)['dist'][fid_gv]
+d_gw = PM.face_reliability(ids_g, cos_r, cen_a, el_r, valid_r, 1.0, nF_r, RLm, depth=dep_w, nrm=nr_a, prod_w=1000.0)['dist'][fid_gv]
+check(d_gn > 8.0 and d_gw <= 1.5, 'канавка: предохранитель groove_max_px — узкая канавка снимается, широкий уступ остаётся краем')
+rl_off = dict(RL, cos_min=0.0, edge_errs=0.0, thin_errs=0.0)
+ok_all, why_all = PM.reliable_faces(rel_g, rl_off)
+check(bool(ok_all[fid_edge]) and bool(ok_all[fid_thin]) and bool(ok_all[fid_mid]) and why_all['надёжна'] == why_all['видна'], 'надёжность: пороги 0 — правила выключены по одному, остаётся «видна в кадре» (растекание не берётся)')
+check(rel_r['cnt'][fid_mid] == 64.0 and rel_r['cnt'][nF_r - 1] == 0.0, 'надёжность: cnt — пиксели в кадре; вне предмета 0 (невидимая грань)')
+UVt = np.array([[0.1, 0.1], [0.4, 0.1], [0.1, 0.4], [0.6, 0.6], [0.9, 0.6], [0.6, 0.9]])
+Ft = np.array([[0, 1, 2], [3, 4, 5]])
+fm_t = PM.uv_face_map(UVt, Ft, 100)
+check(fm_t.shape == (100, 100) and fm_t[100 - 20, 20] == 0 and fm_t[100 - 70, 70] == 1, 'карта текселей: строка = (1 − v)·T, грань по текселю; пропуски — ближайшей гранью')
+check(int(fm_t.min()) >= 0, 'карта текселей: пропусков нет')
+
+# ── излом формы рядом (T-63 круг 3 комода): crease_pairs + fold_distance
+Vc = np.array([[0, 0, 0], [1, 0, 0], [0, 1, 0], [1, 1, 0], [1, 0, 1], [1, 1, 1], [2, 0, 1], [2, 1, 1]], np.float64)       # плоскость z=0 (грани 0,1), стена x=1 (грани 2,3: излом 90°), плоскость z=1 (грани 4,5: ещё излом 90°)
+Fc = np.array([[0, 1, 2], [2, 1, 3], [1, 4, 3], [3, 4, 5], [4, 6, 5], [5, 6, 7]])
+Tc = Vc[Fc]
+Nc = np.cross(Tc[:, 1] - Tc[:, 0], Tc[:, 2] - Tc[:, 0])
+Nc = Nc / np.linalg.norm(Nc, axis=-1, keepdims=True)
+prs = PM.crease_pairs(Vc, Fc, Nc, 30.0)
+check(set(int(k) for k in prs) == {1 * 6 + 2, 3 * 6 + 4}, 'излом: пары граней с общим ребром и углом > 30° найдены (стена и полка)')
+check(0 * 6 + 1 not in set(int(k) for k in prs) and 2 * 6 + 3 not in set(int(k) for k in prs), 'излом: грани одной плоскости изломом не считаются')
+check(len(PM.crease_pairs(Vc, Fc, Nc, 100.0)) == 0, 'излом: порог угла 100° — изломов нет (90° не проходит)')
+Vw = np.concatenate([Vc, Vc[[1, 4, 3]]])                                                                     # шов развёртки режет вершины: грань 2 на дублях вершин — склейка по положению всё равно находит излом
+Fw = Fc.copy()
+Fw[2] = [len(Vc), len(Vc) + 1, len(Vc) + 2]
+check(set(int(k) for k in PM.crease_pairs(Vw, Fw, Nc, 30.0)) == {1 * 6 + 2, 3 * 6 + 4}, 'излом: дубли вершин (шов развёртки) склеены по положению')
+idm = np.zeros((20, 30), np.int64)
+idm[:, 10:20] = 1
+idm[:, 20:] = 2
+vm = np.ones((20, 30), bool)
+fd = PM.fold_distance(idm, vm, 3, np.array([0 * 3 + 1]))
+check(abs(fd[0]) < 1e-6 and abs(fd[1]) < 1e-6 and 9.5 < fd[2] < 11.5, 'излом: расстояние до линии излома в кадре — на линии 0, у третьей грани ≈ 10 px')
+check((PM.fold_distance(idm, vm, 3, np.array([], np.int64)) > 1e8).all(), 'излом: нет изломов — расстояние бесконечно (ничего не снимаем)')
+vm2 = vm.copy(); vm2[:, 10:20] = False
+check((PM.fold_distance(idm, vm2, 3, np.array([0 * 3 + 1])) > 1e8).all(), 'излом: линия не видна в кадре — граней «у излома» нет')
+
+Vq = np.array([[0, 0, 0], [1, 0, 0], [0, 1, 0], [1, 1, 0], [1, 0, 1], [1, 1, 1]], np.float64)
+Fq = np.array([[0, 1, 2], [2, 1, 3], [1, 4, 3]])                                                              # грани 0,1 — плоскость; грань 2 — стена (излом с гранью 1)
+idq = np.zeros((20, 30), np.int64)
+idq[:, :15] = 1
+idq[:, 15:] = 2
+tmq, fnq, inf_q = PM.fold_near_mask(Vq, Fq, idq, np.ones((20, 30), bool), 3.0, fidmap=np.array([[0, 1], [2, 2]]), deg=30.0, errs=2.0)
+check(fnq.tolist() == [False, True, True] and tmq.tolist() == [[False, True], [True, True]] and inf_q['пар_с_изломом'] == 1, 'fold_near_mask: у излома грани 1 и 2 (в кадре у линии), грань 0 — нет; маска текселей по карте граней')
+_, fnq2, _ = PM.fold_near_mask(Vq, Fq, idq, np.ones((20, 30), bool), 0.5, deg=30.0, errs=2.0)
+check(fnq2.tolist() == [False, True, True], 'fold_near_mask: линия излома — грани по обе стороны на расстоянии 0 → «у излома» при любой ошибке позы > 0')
+Fq2 = np.array([[0, 1, 2], [2, 1, 3], [0, 1, 2]])
+_, fnq3, inf_q3 = PM.fold_near_mask(Vq, Fq2, idq, np.ones((20, 30), bool), 3.0, deg=30.0)
+check(not fnq3.any() and inf_q3['пар_с_изломом'] == 0, 'fold_near_mask: в плоской форме излома нет — ничего не снимаем')
+
+# ── T-97/1: каждое новое поведение ветки T-63 — свой ключ rules, по умолчанию ВЫКЛ (один источник — rules, без `.get(…, True)` в коде); ключ меняет результат
+NEW_KEYS = [('occlusion', 'legs_never_interior'), ('occlusion', 'fill_leg_holes'), ('foreign', 'enabled'), ('', 'faces_before_gate'), ('donors', 'zad_last'), ('donors', 'best_visible_chain'),
+            ('donors', 'gate_all_refs'), ('gate', 'spot_worst_each')]
+check(all(not (R[a][k] if a else R[k]) for a, k in NEW_KEYS), 'T-97: правила по умолчанию — новые поведения выключены (legs, holes, foreign, faces_before_gate, 3 правила донора, spot_worst_each)')
+check(R['same_material']['neutral_ab'] == 0 and R['same_material']['legs_hue_deg'] == 0 and R['gate']['seam_min_len_cm'] == 0 and R['gate']['max_abs_dl'] == 0 and R['gate']['max_abs_dl_top'] == 0
+      and R['ladder']['зад'] == ['бок'] and R['ladder']['корпус'] == ['фасад'], 'T-97: числовые правила по умолчанию — как в main (neutral_ab, legs_hue_deg, seam_min_len_cm, max_abs_dl, лесенка)')
+check(re.search(r"\.get\(\s*'(legs_never_interior|fill_leg_holes|faces_before_gate|spot_worst_each|zad_last|best_visible_chain|gate_all_refs)'", src) is None, 'T-97: в коде нет `.get(<новый ключ>, …)` — значение только из rules')
+SC = {'zad_last': {'фасад': (90, 0, 0, 1000), 'бок': None, 'верх': (70, 3, 0, 9000), 'зад': (90, 20, 40, 1000), 'корпус': None},
+      'gate_all_refs': {'фасад': (30, 3, 25, 9000), 'бок': (50, 40, 40, 1000), 'верх': None, 'зад': None, 'корпус': (30, 40, 40, 1000)}}
+SC['best_visible_chain'] = SC['zad_last']
+for k_, sc_ in SC.items():
+    def mk(sc=sc_):
+        return {g: dict(tone(v[0], v[1], v[2]), n_all=v[3]) if v else tone(0, 0, 0, own=False) for g, v in sc.items()}
+    ron = PM.pick_sources(mk(), R_on)[1]
+    roff = PM.pick_sources(mk(), dict(R_on, donors=dict(R_on['donors'], **{k_: False})))[1]
+    check(ron != roff, 'T-97: ключ donors.%s меняет выбор доноров (вкл %s ≠ выкл %s)' % (k_, ron, roff))
+g_sum_off = PM.face_gate(two_after, two, rg4, dict(R_on, gate=dict(R_on['gate'], spot_worst_each=False)))
+check(g_two['fail'] and not g_sum_off['fail'], 'T-97: ключ gate.spot_worst_each меняет вердикт (одна ручка исчезла: по худшему пятну — отказ, по сумме 0,5 — проходит)')
+check(PM.face_gate(hand.copy(), hand, rg4, R, 4.0)['seam_min_len_px'] != PM.face_gate(hand.copy(), hand, rg4, R_on, 4.0)['seam_min_len_px'], 'T-97: ключ gate.seam_min_len_cm меняет длину щели в пикселях')
+check(PM.same_material(L_(74.1, -2.1, -0.7), L_(72.2, -1.8, 7.3), R['same_material'])[0] != PM.same_material(L_(74.1, -2.1, -0.7), L_(72.2, -1.8, 7.3), R_on['same_material'])[0], 'T-97: ключ same_material.neutral_ab меняет вердикт «один материал»')
 
 print('\nИТОГО: %d провалов' % len(FAILS))
 sys.exit(1 if FAILS else 0)

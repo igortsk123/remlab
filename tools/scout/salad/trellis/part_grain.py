@@ -133,6 +133,9 @@ def plan_grain(parts: list, rules: dict | None = None) -> dict:
         if not wood:
             rec['reason'] = 'not_wood'
             continue
+        if str(p.get('name', '')) in (rules.get('no_grain_groups') or []):      # группа без зерна по решению вызывающего (на фото рисунка нет — плита/пластик; Fable 25.11: «ровная по паспорту → ровный тон»)
+            rec['reason'] = 'no_grain_group'
+            continue
         if int(p.get('n_texels', 0)) < rules['min_texels']:
             rec['reason'] = 'too_small'
             continue
@@ -165,7 +168,7 @@ def plan_grain(parts: list, rules: dict | None = None) -> dict:
         if rec['pat'] is None or rec['reason'] is not None:
             continue
         if rec['amp_source'] is None:
-            if med is None:
+            if med is None or not rules.get('amp_from_neighbors', True):      # Fable 25.11 19:13: «зерно везде или нигде» — амплитуда у соседа не доказательство для этой части; нет СВОЕГО фото-доказательства → ровный тон (флаг amp_from_neighbors=false)
                 rec['reason'] = 'no_photo_evidence'
                 rec['pat'] = None
                 continue
@@ -311,7 +314,7 @@ def axis_check_plane(q, nn_plane, c1, round_like: bool, ctx: dict, faces, ac: di
             'photo_hf': photo.get('hf'), 'axis_deg': None if axis_deg is None else round(axis_deg, 1), **v}
 
 
-def apply_grain(tex, tx, parts: list, masks: dict, face_plane, plane_normal, cm_per_unit: float | None, width_axis=None, rules: dict | None = None, enabled: bool | None = None, plan: dict | None = None, axis_ctx: dict | None = None):
+def apply_grain(tex, tx, parts: list, masks: dict, face_plane, plane_normal, cm_per_unit: float | None, width_axis=None, rules: dict | None = None, enabled: bool | None = None, plan: dict | None = None, axis_ctx: dict | None = None, face_part=None):
     """Зерно на текстуру. tex — (H,W,3) uint8 после тона Ш4а; tx — растр развёртки (`tex_fill.Tex`: ti, Q, N, f); parts — как в `plan_grain` (+ 'id'); masks[id] — bool по текселям tx
     (какие тексели части красить: маска части ∩ «тон Ш4а лёг»); face_plane — (m,) id плоскости на грань (−1 — не плоскость), plane_normal — (k,3); cm_per_unit — см на единицу кадра;
     width_axis — ось ширины товара (кадр 04). → (новая текстура, отчёт). Выключено (rules.enabled / enabled=False) → (tex БЕЗ изменений, отчёт enabled=False)."""
@@ -352,6 +355,10 @@ def apply_grain(tex, tx, parts: list, masks: dict, face_plane, plane_normal, cm_
         w3, ev3 = np.linalg.eigh(np.cov((qall - qall.mean(0)).T))
         a1, a2, a3 = ev3[:, 2], ev3[:, 1], ev3[:, 0]
         n_pl_groups = 0
+        # одно правило: ось зерна = ось ДЕТАЛИ (главная ось текселей самой части) во ВСЕХ путях — для ролей из rules.axis_per_part_roles (ножки/рама); по умолчанию выключено
+        per_part = bool(rules.get('axis_per_part')) and face_part is not None and (p.get('role') in (rules.get('axis_per_part_roles') or ['legs', 'frame']))
+        pp_min = int(rules.get('axis_per_part_min_texels', 200))
+        pp_round = float(rules.get('axis_per_part_round_ratio', 1.1))                     # «круглая деталь» — отношение главных осей (дисперсий) ≤ этого
         groups = [int(g) for g in np.unique(fpt[sel])]
         for g in groups:
             tgt = sel & (fpt == g)
@@ -365,14 +372,44 @@ def apply_grain(tex, tx, parts: list, masks: dict, face_plane, plane_normal, cm_
                 if ac.get('enabled') and axis_ctx is not None and any(w in str(p.get('name', '')).lower() for w in ac['part_words']):      # T-20261124-57/5: только отчёт — зерно и текстуру не меняет
                     r.setdefault('axis', []).append(dict(plane=g, n_texels=int(tgt.sum()), **axis_check_plane(q, plane_normal[g], c1, _rl, axis_ctx, tx.f[tgt], ac, rules)))
                 u_cm, s_cm = q @ c1, q @ c2
+                if per_part:
+                    # плоскость склеила несколько деталей (ножка+перекладина…): ось — по текселям КАЖДОЙ детали в плоскости, а не плоскости целиком (T-63 р.5d)
+                    fpl = np.asarray(face_part)[tx.f[tgt]]
+                    for pp in np.unique(fpl):
+                        mm = fpl == pp
+                        if int(mm.sum()) >= pp_min and int(mm.sum()) < len(fpl):
+                            e1, e2, _r2 = plane_axes(q[mm], plane_normal[g], width_axis, dict(rules, round_ratio=pp_round))
+                            u_cm[mm], s_cm[mm] = q[mm] @ e1, q[mm] @ e2
                 key = g + 1
                 n_pl_groups += 1
+            elif (per_part or rules.get('fallback_axis_per_part')) and face_part is not None and g < 0:
+                # ось зерна — ось ДЕТАЛИ (главная ось ЕЁ текселей), а не всей группы: у ножек в разные стороны и у перекладин ось группы идёт вкось/поперёк (диагональная «ёлочка», T-63 р.5)
+                fpart = np.asarray(face_part)[tx.f[tgt]]
+                dl = np.zeros(len(q))
+                for pp in np.unique(fpart):
+                    mm = fpart == pp
+                    qq = q[mm]
+                    if int(mm.sum()) >= 3:
+                        _w, _ev = np.linalg.eigh(np.cov((qq - qq.mean(0)).T))
+                        b1, b2, b3 = _ev[:, 2], _ev[:, 1], _ev[:, 0]
+                        if width_axis is not None and float(_w[2]) / max(float(_w[1]), 1e-12) <= pp_round:
+                            # круглая деталь (диск, кольцо): длинной оси нет, главная ось — случайная → ось ширины товара в плоскости диска (как у круглой плиты в plane_axes)
+                            wa = np.asarray(width_axis, np.float64)
+                            e1 = wa - (wa @ b3) * b3
+                            if np.linalg.norm(e1) > 1e-6:
+                                b1 = e1 / np.linalg.norm(e1)
+                                b2 = np.cross(b3, b1)
+                    else:
+                        b1, b2, b3 = a1, a2, a3
+                    dl[mm] = sample_pat(d['pat'], qq @ b1, np.where(np.abs(nn[mm] @ b2) < np.abs(nn[mm] @ b3), qq @ b2, qq @ b3), tile, 777 + int(pp), layers)
             else:
                 u_cm = q @ a1
                 s_cm = np.where(np.abs(nn @ a2) < np.abs(nn @ a3), q @ a2, q @ a3)
                 key = 777 + int(pid)
             lab = np.tile(tone, (int(tgt.sum()), 1))
-            lab[:, 0] = np.clip(lab[:, 0] + d['amp'] * sample_pat(d['pat'], u_cm, s_cm, tile, key, layers), 0.0, 100.0)
+            if not ((per_part or rules.get('fallback_axis_per_part')) and face_part is not None and g < 0):
+                dl = sample_pat(d['pat'], u_cm, s_cm, tile, key, layers)
+            lab[:, 0] = np.clip(lab[:, 0] + d['amp'] * dl, 0.0, 100.0)
             flat[tx.ti[tgt]] = TF.lab2rgb(lab)
             rep['texels_changed'] += int(tgt.sum())
         r.update(planes_used=n_pl_groups, groups=len(groups))
@@ -419,7 +456,8 @@ def parts_from_masks(npz, tx, tex, card: dict | None = None, photo_sigma: dict |
         lab = TC.rgb2lab(np.clip(np.round(tone[g]), 0, 255).astype(np.uint8).reshape(1, 3))[0]
         sig = float(TC.rgb2lab(flat[m])[:, 0].std()) if n >= 20 else None
         parts.append({'id': g, 'name': names[g], 'is_wood': part_is_wood(names[g], card, rules, roles[g] if g < len(roles) else None), 'tone_lab': [float(x) for x in lab], 'tone_sigma': sig,
-                      'n_texels': n, 'photo_sigma': (photo_sigma or {}).get(g), 'card': card, 'role': roles[g] if g < len(roles) else None})
+                      'n_texels': n, 'photo_sigma': (photo_sigma or {}).get(g), 'card': card, 'role': roles[g] if g < len(roles) else None,
+                      'classes': (rules.get('bin_classes_by_role') or {}).get(roles[g] if g < len(roles) else None) or None})   # классы бина по роли (ножки/рама — straight: завитки/«глазки» на узкой детали дают ёлочку)
         masks[g] = m
     return parts, masks
 

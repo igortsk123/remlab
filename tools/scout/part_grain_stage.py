@@ -193,7 +193,12 @@ def process(a, rules: dict, d: str, rep: dict) -> None:
             axis_ctx = {'L': Lf, 'ids': st['ids'], 'valid': valid & (st['cos'] >= float(ac['cos_min'])), 'xy': np.stack([xs * n_px, ys * n_px], 1), 'P': P, 'F': F}
         else:
             rep['axis_check'] = 'нет перспективной камеры — проверка оси не считалась'
-    new, r = PG.apply_grain(tex, tx, parts, masks, fp, pn, cpu, width, rules, enabled=True, axis_ctx=axis_ctx)
+    face_part = None
+    pnp = os.path.join(d, '..', '03-parts', 'parts.npz')                 # части этапа 3 (id на грань): ось зерна запасного пути — ось ДЕТАЛИ (rules.fallback_axis_per_part)
+    if (rules.get('axis_per_part') or rules.get('fallback_axis_per_part')) and os.path.exists(pnp):
+        fpz = np.asarray(np.load(pnp)['part']).astype(np.int64)
+        face_part = fpz if len(fpz) == nF else None
+    new, r = PG.apply_grain(tex, tx, parts, masks, fp, pn, cpu, width, rules, enabled=True, axis_ctx=axis_ctx, face_part=face_part)
     rep['groups'] = {str(k): dict(v, name=names[k]) for k, v in r['parts'].items()}
     rep.update(applied=r['applied'], skipped=r['skipped'], texels_changed=r['texels_changed'], planes=int(len(pn)))
     if r['applied'] == 0:

@@ -284,8 +284,10 @@ def part_pixels(img: np.ndarray, pmap: np.ndarray, parts: list, erode: int, extr
     return img[m], m
 
 
-def group_tones(prgb: np.ndarray, pp: np.ndarray, names: list, cosf: np.ndarray, rules: dict, comp_px: np.ndarray | None = None) -> dict:
+def group_tones(prgb: np.ndarray, pp: np.ndarray, names: list, cosf: np.ndarray, rules: dict, comp_px: np.ndarray | None = None, raw: np.ndarray | None = None) -> dict:
     """Тон каждой группы по чистым пикселям фото. pp — метка группы на пиксель кадра (−1 — нет), comp_px — номер связного куска меша на пиксель (для «лучшей ножки»).
+    raw — сырой кадр той же формы, что prgb (A2, rules.pixels.tone_raw): отбор пикселей (маска, края, косые, отсев блика) — по prgb (05), ЗНАЧЕНИЕ тона — по тем же пикселям raw;
+    rules.pixels.cluster_raw — и главный кластер ищется по raw.
     → {группа: {n_all, n_main, share, ab_minor, own, lin, lab, best_leg_px?}}."""
     px_r = rules['pixels']
     out = {}
@@ -303,7 +305,10 @@ def group_tones(prgb: np.ndarray, pp: np.ndarray, names: list, cosf: np.ndarray,
             lb = lab_of(px)
             abm = np.median(lb[:, 1:], 0)
             minor = float((np.hypot(*(lb[:, 1:] - abm).T) > rules['pattern']['minor_ab_dist']).mean())
-            sel = px[mm]
+            vpx = px if raw is None else raw[m]                         # пиксели, по которым берётся ЗНАЧЕНИЕ тона (05 или сырое фото)
+            if raw is not None and px_r['cluster_raw']:
+                mm, share = main_cluster(vpx, px_r['kmeans_k'], px_r['kmeans_sample'])
+            sel = vpx[mm]
             info.update(n_main=int(mm.sum()), share=round(share, 3), ab_minor=round(minor, 3), own=True, lin=med_lin(sel), lab=np.median(lab_of(sel), 0))
             if gn in px_r['best_leg_groups'] and comp_px is not None:
                 comp = comp_px[m]
@@ -313,7 +318,7 @@ def group_tones(prgb: np.ndarray, pp: np.ndarray, names: list, cosf: np.ndarray,
                     if kk > bn:
                         best, bn = u, kk
                 if best is not None and bn >= px_r['best_leg_min_px']:
-                    sel2 = px[(comp == best) & mm]
+                    sel2 = vpx[(comp == best) & mm]
                     info.update(lin=med_lin(sel2), lab=np.median(lab_of(sel2), 0), best_leg_px=bn)
         out[gn] = info
     return out
@@ -328,7 +333,9 @@ def same_material(a: np.ndarray, b: np.ndarray, sm: dict) -> tuple[bool, str]:
         rc = abs(ra - rb) / max(rb, 1e-3)
         return bool(dh < sm['hue_deg'] and rc < sm['ratio_tol']), 'оттенок %.0f°' % dh
     dl = float(a[0] - b[0])
-    return bool(abs(dl) <= sm['neutral_dl'] and max(ca, cb) <= sm['neutral_c']), 'нейтральные, ΔL %.1f' % dl
+    dab = float(np.hypot(a[1] - b[1], a[2] - b[2]))                  # малая насыщенность: угол оттенка шумит — расстояние по (a, b); мятный и дуб оба «светлые нейтральные» по ΔL, но разнятся по a,b
+    ok = abs(dl) <= sm['neutral_dl'] and max(ca, cb) <= sm['neutral_c'] and (not sm.get('neutral_ab') or dab <= sm['neutral_ab'])
+    return bool(ok), 'нейтральные, ΔL %.1f, Δab %.1f' % (dl, dab)
 
 
 def pick_sources(tones: dict, rules: dict, area_share: dict | None = None) -> tuple[set, dict, dict]:
@@ -348,19 +355,26 @@ def pick_sources(tones: dict, rules: dict, area_share: dict | None = None) -> tu
         return tones[g]['n_all'] / max(float(ash.get(g, 1.0)), 1e-6)
     big = max([vis(g) for g in tones if tones[g]['own']] or [0])
     weak = float(rules['pixels'].get('weak_share', 0))
-    for gn, srcs in lad.items():
+    dn = rules['donors']                                                     # новые правила выбора донора: каждое — свой ключ, значение только из rules (false = как до T-63)
+    for gn, srcs in (sorted(lad.items(), key=lambda kv: kv[0] == 'зад') if dn['zad_last'] else lad.items()):      # зад — последним: его доноры (бок, корпус) к этому моменту сами уже взяли тон у своих
         if gn not in tones:
             continue
         is_weak = bool(tones[gn]['own'] and srcs and vis(gn) < weak * big and any(s in tones and tones[s]['own'] and vis(s) >= weak * big and s not in keep for s in srcs))
         if is_weak:
             tones[gn]['weak'] = True                              # своих пикселей мизер против главной группы: тон по ним ненадёжен — донор
         if (not tones[gn]['own']) or gn == 'зад' or is_weak:
-            for s in srcs:
-                if s in tones and tones[s]['own'] and s not in borrowed and s not in keep:
-                    borrowed[gn] = s
-                    break
+            if dn['best_visible_chain']:
+                cand = [s for s in srcs if s in tones and (tones[s]['own'] or borrowed.get(s)) and s != gn and s not in keep]       # донор может сам брать тон (зад ← бок ← фасад) — цепочка раскрывается ниже
+                if cand:
+                    borrowed[gn] = max(cand, key=vis)                       # лучше видимый донор (по пикселям на площадь), а не первый по списку: у верха Шелтона 700 px — ненадёжен
+            else:
+                for s in srcs:
+                    if s in tones and tones[s]['own'] and s not in borrowed and s not in keep:
+                        borrowed[gn] = s
+                        break
     if 'бок' in tones and 'фасад' in tones and tones['бок']['own'] and tones['фасад']['own'] and 'бок' not in borrowed:
         ok, why = same_material(tones['бок']['lab'], tones['фасад']['lab'], rules['same_material'])
+        ok, why = _unify_dl(ok, why, tones['бок']['lab'], tones['фасад']['lab'], rules)
         same['бок'] = {'same': ok, 'why': why}
         if ok and 'фасад' not in keep:
             borrowed['бок'] = 'фасад'
@@ -372,6 +386,7 @@ def pick_sources(tones: dict, rules: dict, area_share: dict | None = None) -> tu
             if g == ref:
                 continue
             ok, why = same_material(tones[g]['lab'], tones[ref]['lab'], rules['same_material'])
+            ok, why = _unify_dl(ok, why, tones[g]['lab'], tones[ref]['lab'], rules)
             same[g] = {'same': ok, 'why': why, 'ref': ref}
             if ok:
                 borrowed[g] = ref
@@ -384,6 +399,18 @@ def pick_sources(tones: dict, rules: dict, area_share: dict | None = None) -> tu
             s, hops = borrowed[s], hops + 1
         borrowed[gn] = s
     gate = rules.get('ladder_gate') or {}
+    if dn['gate_all_refs']:
+        refs = [g for g in ('фасад', 'верх', 'корпус') if g in tones and tones[g]['own'] and g not in borrowed]
+        for gn, s in list(borrowed.items()):                        # ворота: тон донора далеко от ВСЕХ лиц/верха/корпуса (ни одно не близко и не «тот же материал») → не красим, «не уверен»
+            rr = [r for r in refs if r != gn]
+            if s is None or not rr or s in rr or 'max_de00' not in gate:
+                continue
+            des = [(float(de2000(tones[s]['lab'][None], tones[r]['lab'][None])[0]), r) for r in rr]
+            if min(d for d, _ in des) > float(gate['max_de00']) and not any(same_material(tones[s]['lab'], tones[r]['lab'], rules['same_material'])[0] for r in rr):
+                de, r0 = min(des)
+                same['gate:' + gn] = {'donor': s, 'ref': r0, 'dE2000': round(de, 1), 'порог': gate['max_de00']}
+                borrowed[gn] = None
+        return keep, borrowed, same
     refs = [g for g in ('фасад', 'верх', 'корпус') if g in tones and tones[g]['own'] and g not in borrowed and g not in keep]
     for gn, s in list(borrowed.items()):                        # ворота: тон донора далеко от лица/верха того же материала → не красим, «не уверен»
         if s is None or not refs or s in refs or 'max_de00' not in gate:
@@ -393,6 +420,16 @@ def pick_sources(tones: dict, rules: dict, area_share: dict | None = None) -> tu
             same['gate:' + gn] = {'donor': s, 'ref': refs[0], 'dE2000': round(de, 1), 'порог': gate['max_de00']}
             borrowed[gn] = None
     return keep, borrowed, same
+
+
+def _unify_dl(ok: bool, why: str, lab_a, lab_b, rules: dict) -> tuple:
+    """Видимая часть берёт тон другой только если светлота близка (|ΔL| ≤ unify_max_dl): иначе разница на фото — настоящая (тёмный бок, свет сверху), своё лицо красим своим тоном, а не чужим (иначе ΔL к фото > ворот)."""
+    mx = float(rules.get('unify_max_dl', 0) or 0)
+    if ok and mx > 0:
+        d = abs(float(lab_a[0]) - float(lab_b[0]))
+        if d > mx:
+            return False, 'светлота разная: ΔL %.1f > %.1f (разница на фото настоящая, тон свой)' % (d, mx)
+    return ok, why
 
 
 def material_ids(names: list, tones: dict, borrowed: dict, rules: dict) -> list:
@@ -407,6 +444,12 @@ def material_ids(names: list, tones: dict, borrowed: dict, rules: dict) -> list:
     for g, s in borrowed.items():
         if s is not None and g in par and s in par:
             par[find(g)] = find(s)
+    lh = float(rules['same_material'].get('legs_hue_deg', 0) or 0)       # ножки и верх/фасад одного дерева: цвет по ОДНОМУ оттенку (ножка не светится как верх — C/L не сравниваем), только при очень близком оттенке
+    if lh and 'ножки' in par and tones['ножки']['own']:
+        for g in par:
+            if g != 'ножки' and tones[g]['own'] and chroma(tones[g]['lab']) > rules['same_material']['c_min'] and chroma(tones['ножки']['lab']) > rules['same_material']['c_min'] \
+                    and abs(hue_diff(hue_of(tones[g]['lab']), hue_of(tones['ножки']['lab']))) < lh:
+                par[find('ножки')] = find(g)
     ug = [g for g in rules.get('unify_groups', []) if g in par and tones[g]['own']]
     for i, a in enumerate(ug):
         for b in ug[i + 1:]:
@@ -441,7 +484,326 @@ def compose(ctl: np.ndarray, texmap: np.ndarray, names: list, alb: dict, borrowe
     return tex, painted
 
 
-def keep_details(tex: np.ndarray, ctl: np.ndarray, texmap: np.ndarray, painted: np.ndarray, known: np.ndarray, names: list, keep: set, rules: dict) -> tuple[np.ndarray, dict]:
+def foreign_texels(ctl: np.ndarray, texmap: np.ndarray, painted: np.ndarray, known: np.ndarray, names: list, alb: dict, borrowed: dict, tones: dict, rules: dict, dbg: dict | None = None) -> tuple[np.ndarray, dict]:
+    """«Чужой материал» на панели (ручки, накладки, стекло, вставки) — ОДНО правило: перекрашиваем только тексели, ПОХОЖИЕ на тон панели (ΔE2000 до тона группы ≤ de_max).
+    Непохожее и КОМПАКТНОЕ (связный кусок в текстуре: площадь ≥ min_area_frac·T², толщина = площадь/диагональ ≥ min_thick_frac·T; длинная тонкая линия — щель, не чужой материал) в тон не входит
+    и остаётся фото. Судим только известные (фото) тексели покрашенных групп: у текселей без фото цвета нет. → (маска «оставить фото», {группа: текселей})."""
+    import cv2
+    fm = rules['foreign']
+    T = ctl.shape[0]
+    out = np.zeros(texmap.shape, bool)
+    info = {}
+    lab = None
+    for gi, gn in enumerate(names):
+        src = gn if gn in alb else borrowed.get(gn)
+        if src is None or src not in alb or not tones[src]['own'] or gn in rules['pixels'].get('best_leg_groups', []) or gn not in fm['groups']:      # ножка — один тон целиком (TG 2703): чужого материала на ней нет
+            continue
+        m = (texmap == gi) & painted & known
+        if int(m.sum()) < int(fm['min_group_texels']):
+            continue
+        if lab is None:
+            lab = lab_of(ctl.reshape(-1, 3)).reshape(T, T, 3)
+        de = np.zeros((T, T), np.float32)
+        de[m] = de2000(lab[m], tones[src]['lab'][None]).astype(np.float32)
+        far = (de > float(fm['de_max'])) & m
+        if float(fm.get('de_local', 0) or 0) > 0:                            # и непохожее на СВОЁ окружение (светло-серая ручка на белой панели далека от окружения, но близка к тону панели; плавная тень — нет)
+            mf = m.astype(np.float32)
+            sg = max(1.0, float(fm['local_sigma_frac']) * T)
+            w = np.maximum(cv2.GaussianBlur(mf, (0, 0), sg), 1e-4)
+            bg = np.stack([cv2.GaussianBlur(lab[..., c].astype(np.float32) * mf, (0, 0), sg) / w for c in range(3)], -1)
+            dl_ = np.zeros((T, T), np.float32)
+            dl_[m] = de2000(lab[m], bg[m]).astype(np.float32)
+            far |= (dl_ > float(fm['de_local'])) & m
+        if dbg is not None:
+            dbg[gn] = np.maximum(de, dl_ if float(fm.get('de_local', 0) or 0) > 0 else 0)
+        far = far.astype(np.uint8)
+        k, lb, st, _c = cv2.connectedComponentsWithStats(far, connectivity=8)
+        keepc = np.zeros(k, bool)
+        for i in range(1, k):
+            ar = float(st[i, cv2.CC_STAT_AREA])
+            ln = float(np.hypot(st[i, cv2.CC_STAT_WIDTH], st[i, cv2.CC_STAT_HEIGHT]))
+            keepc[i] = float(fm['min_area_frac']) * T * T <= ar <= float(fm['max_area_frac']) * T * T and ar / max(ln, 1.0) >= float(fm['min_thick_frac']) * T         # крупное — не ручка, а свойство панели (рисунок, тень, срез)
+        fg = keepc[lb]
+        pad = int(fm.get('pad_px', 0))
+        if pad and fg.any():
+            fg = cv2.dilate(fg.astype(np.uint8), np.ones((2 * pad + 1, 2 * pad + 1), np.uint8)).astype(bool) & m
+        if fg.any():
+            out |= fg
+            info[gn] = int(fg.sum())
+    return out, info
+
+
+def uv_face_map(UV: np.ndarray, F: np.ndarray, T: int) -> np.ndarray:
+    """Индекс грани на тексель развёртки T×T (int32; строка = (1 − uv_y)·T, как у текстуры 06); пропуски — ближайшей гранью. Нужен для «откуда тексель»: надёжность грани → тексель."""
+    import cv2
+    from scipy.ndimage import distance_transform_edt
+    m = np.full((T, T), -1, np.int32)
+    uv = np.stack([UV[F][..., 0] * T, (1.0 - UV[F][..., 1]) * T], -1)
+    pts = np.round(uv).astype(np.int32)
+    for i in range(len(F)):
+        cv2.fillConvexPoly(m, pts[i], int(i))
+    miss = m < 0
+    if miss.any() and (~miss).any():
+        _, (iy, ix) = distance_transform_edt(miss, return_indices=True)
+        m = m[iy, ix]
+    return m
+
+
+def face_reliability(ids: np.ndarray, cosf: np.ndarray, cen: np.ndarray, el: np.ndarray, valid: np.ndarray, px_len: float, nF: int, rl: dict, depth: np.ndarray | None = None, nrm: np.ndarray | None = None, prod_w: float | None = None) -> dict:
+    """Надёжность каждой грани как источника цвета ФОТО (стол 18286219715731135772, разбор Fable 25.11: пятна = лоскуты фото с ненадёжных мест).
+    По пикселям кадра камеры фото (valid = объект ∩ фото): cos — средний cos угла грани к лучу; dist — наименьшее расстояние (px) от пикселя грани до края силуэта/фото или разрыва глубины
+    (перекрытия: сосед ближе/дальше больше depth_jump_px·px_len); width — наибольшая ширина детали (2 × расстояние до края силуэта, px) на этой грани; cnt — число пикселей (0 — не видна).
+    Единица порогов — «ошибка позы» pose_err_px (px кадра)."""
+    from scipy import ndimage as ndi
+    H, W = ids.shape
+    edt = ndi.distance_transform_edt(valid)
+    bd = np.zeros((H, W), bool)
+    c = np.clip(cosf, 0.2, 1.0)
+    tn = np.sqrt(1.0 - c * c) / c                                                    # наклон плоскости: на косой грани сосед по кадру дальше на px_len·(1+tan) — это не перекрытие
+    jump = float(rl.get('depth_jump_px', 2.0))
+    # Глубина кадра этапа 4 — по средней глубине грани, без z-буфера (у стола шаг между соседними пикселями в сотни px_len, tex_visible.depth_mismatch) — для перекрытий не годится.
+    # Перекрытие = соседние пиксели кадра попали в грани, чьи центры в МИРЕ дальше, чем размер граней + шаг пикселя на косой плоскости (+ jump пикселей запаса): поверхность там не сплошная.
+    cen = np.asarray(cen, np.float64)
+    el = np.asarray(el, np.float64)
+    ids_c = np.clip(ids, 0, nF - 1)
+
+    gdeg = float(rl.get('groove_parallel_deg', 0) or 0)
+    nrm_ok = gdeg > 0 and nrm is not None and prod_w and prod_w > 0
+    cos_par = float(np.cos(np.radians(gdeg))) if nrm_ok else 2.0
+    off_max = float(rl.get('groove_offset_frac', 0.02)) * float(prod_w or 0.0)
+
+    diag = {'brk': 0, 'par': 0, 'cosang': [], 'off_frac': []}                           # разбор разрывов (для отчёта): сколько, у скольких параллельные нормали, распределение угла и сдвига по нормали / ширина товара
+
+    def _brk(a, b, ta, tb, va, vb):
+        d = np.linalg.norm(cen[a] - cen[b], axis=-1)
+        thr = el[a] + el[b] + px_len * (np.maximum(ta, tb) + jump)
+        brk = (d > thr) & va & vb & (a != b)
+        if nrm is not None and prod_w:
+            na_, nb_ = nrm[a][brk], nrm[b][brk]
+            ca = np.abs((na_ * nb_).sum(-1))
+            nn_ = na_ + np.sign((na_ * nb_).sum(-1, keepdims=True) + 1e-12) * nb_
+            nn_ = nn_ / np.maximum(np.linalg.norm(nn_, axis=-1, keepdims=True), 1e-9)
+            of_ = np.abs(((cen[a][brk] - cen[b][brk]) * nn_).sum(-1)) / float(prod_w)
+            diag['brk'] += int(brk.sum())
+            diag['cosang'].append(ca)
+            diag['off_frac'].append(of_)
+        return brk
+
+    span = int(rl.get('groove_span_px', 6) or 6)
+
+    def _pair_ok(ia, ib):                                                                 # панели одной плоскости лица: нормали параллельны в допуске угла и малый сдвиг по нормали
+        na, nb = nrm[ia], nrm[ib]
+        dt = (na * nb).sum(-1)
+        nn = na + np.sign(dt[:, None] + 1e-12) * nb
+        nn = nn / np.maximum(np.linalg.norm(nn, axis=-1, keepdims=True), 1e-9)
+        off = np.abs(((cen[ia] - cen[ib]) * nn).sum(-1))
+        return (np.abs(dt) >= cos_par) & (off <= off_max)
+
+    def _groove_h(brk, ids_, val_):
+        """brk (H, W−1): пара (r,c)-(r,c+1) — разрыв. Канавка: пиксели p < … ≤ q = p + s (s ≤ groove_span_px) по строке, ОБЕ крайние точки — разные грани одной плоскости лица (канавка/щель — её дно и стенки между ними
+        в кадре 1–4 px; стенки с нормалью «вбок» пару «грань | стенка» параллельной не делают, поэтому смотрим ЧЕРЕЗ канавку). Разрыв внутри такого окна — не край."""
+        rr, cc = np.nonzero(brk)
+        ex = np.zeros(len(rr), bool)
+        Wd = ids_.shape[1]
+        for s_ in range(2, span + 1):
+            for j in range(0, s_):
+                p, q = cc - j, cc - j + s_
+                ok = (p >= 0) & (q < Wd)
+                if not ok.any():
+                    continue
+                pi, qi, ri = p[ok], q[ok], rr[ok]
+                ia, ib = ids_[ri, pi], ids_[ri, qi]
+                m = val_[ri, pi] & val_[ri, qi] & (ia != ib)
+                if m.any():
+                    good = np.zeros(len(ri), bool)
+                    good[m] = _pair_ok(ia[m], ib[m])
+                    ex[np.nonzero(ok)[0][good]] = True
+        out = np.zeros_like(brk)
+        out[rr[ex], cc[ex]] = True
+        return out
+    ay, by = ids_c[1:, :], ids_c[:-1, :]
+    ax, bx = ids_c[:, 1:], ids_c[:, :-1]
+    dy = _brk(ay, by, tn[1:, :], tn[:-1, :], valid[1:, :], valid[:-1, :])
+    dx = _brk(ax, bx, tn[:, 1:], tn[:, :-1], valid[:, 1:], valid[:, :-1])
+    gy = gx = None
+    if nrm_ok:
+        gx = _groove_h(dx, ids_c, valid)
+        gy = _groove_h(dy.T, ids_c.T, valid.T).T
+    n_groove = 0                                                                          # пикселей кадра, снятых с «края» как канавка
+    if nrm_ok:
+        ey, ex = dy & ~gy, dx & ~gx                                                       # настоящие разрывы (перекрытие / другая плоскость / большой сдвиг)
+        bg = np.zeros((H, W), bool)
+        bg[1:, :] |= gy
+        bg[:-1, :] |= gy
+        bg[:, 1:] |= gx
+        bg[:, :-1] |= gx
+        keep_g = np.zeros((H, W), bool)                                                    # пиксели «канавок», оставленные краем предохранителем
+        gmax = int(rl.get('groove_max_px', 0) or 0)
+        if gmax > 0 and depth is not None:                                                # вторичный предохранитель: канавка — узкая (≤ groove_max_px) и глубже соседей; широкий уступ краем остаётся
+            dep = np.asarray(depth, np.float64)
+            dep = np.where(valid & (dep > 0), dep, np.nan)
+            dep = np.where(np.isfinite(dep), dep, np.nanmax(dep) if np.isfinite(dep).any() else 0.0)
+            kk_ = 2 * gmax + 1
+            op = ndi.grey_dilation(ndi.grey_erosion(dep, size=(kk_, kk_)), size=(kk_, kk_))
+            narrow = ndi.binary_dilation(valid & ((dep - op) > px_len * float(rl.get('groove_min_depth_px', 4.0))), iterations=int(rl.get('groove_margin_px', 2)))
+            keep_g = bg & ~narrow                                                           # не узкая канавка — остаётся краем
+        be = np.zeros((H, W), bool)
+        be[1:, :] |= ey
+        be[:-1, :] |= ey
+        be[:, 1:] |= ex
+        be[:, :-1] |= ex
+        bd = be | keep_g                                                                    # канавки (bg) краем не считаются
+        n_groove = int((bg & ~bd).sum())
+    else:
+        bd[1:, :] |= dy
+        bd[:-1, :] |= dy
+        bd[:, 1:] |= dx
+        bd[:, :-1] |= dx
+    dist = edt.copy()
+    if bd.any():
+        dist = np.minimum(dist, ndi.distance_transform_edt(~bd))
+    ys, xs = np.nonzero(valid)
+    f = np.clip(ids[ys, xs], 0, nF - 1).astype(np.int64)
+    cnt = np.bincount(f, minlength=nF).astype(np.float64)
+    cs = np.bincount(f, cosf[ys, xs].astype(np.float64), nF) / np.maximum(cnt, 1)
+    dmin = np.full(nF, 1e9)
+    np.minimum.at(dmin, f, dist[ys, xs])
+    wmax = np.zeros(nF)
+    np.maximum.at(wmax, f, 2.0 * edt[ys, xs])
+    gd = None
+    if diag['cosang']:
+        ca, of_ = np.concatenate(diag['cosang']), np.concatenate(diag['off_frac'])
+        if len(ca):
+            deg = np.degrees(np.arccos(np.clip(ca, 0, 1)))
+            gd = {'разрывов_пар': int(len(ca)), 'угол_нормалей_p50_p90_град': [round(float(np.percentile(deg, 50)), 1), round(float(np.percentile(deg, 90)), 1)],
+                  'доля_параллельных_10град': round(float((deg <= 10).mean()), 3), 'сдвиг_по_нормали_доля_ширины_p10_p50_p90': [round(float(np.percentile(of_, q)), 4) for q in (10, 50, 90)],
+                  'параллельных_и_сдвиг_до_2%': round(float(((deg <= 10) & (of_ <= 0.02)).mean()), 3)}
+    return {'cos': cs, 'dist': np.where(cnt > 0, dmin, 0.0), 'width': wmax, 'cnt': cnt, 'groove_px': n_groove, 'groove_diag': gd}
+
+
+def crease_pairs(V: np.ndarray, F: np.ndarray, nrm: np.ndarray, deg: float, weld: float = 1e-5) -> np.ndarray:
+    """Пары граней с ОБЩИМ ребром, у которых двугранный угол (между нормалями) > deg: излом / уступ формы (T-63 круг 3 комода, Fable 25.11 20:13). Вершины склеены по положению (шов развёртки режет вершины, но не поверхность).
+    → ключи a*nF+b (a<b), отсортированные."""
+    nF = len(F)
+    q = np.round(np.asarray(V, np.float64) / max(weld, 1e-12)).astype(np.int64)
+    _, inv = np.unique(q, axis=0, return_inverse=True)
+    inv = np.asarray(inv).reshape(-1)
+    Fw = inv[np.asarray(F, np.int64)]
+    ed = np.concatenate([Fw[:, [0, 1]], Fw[:, [1, 2]], Fw[:, [2, 0]]], axis=0)
+    ed = np.sort(ed, axis=1)
+    fi = np.tile(np.arange(nF, dtype=np.int64), 3)
+    key = ed[:, 0] * (int(inv.max()) + 1) + ed[:, 1]
+    o = np.argsort(key, kind='stable')
+    ks, fs = key[o], fi[o]
+    same = (ks[1:] == ks[:-1]) & (fs[1:] != fs[:-1])
+    a, b = fs[:-1][same], fs[1:][same]
+    cosd = np.clip((nrm[a] * nrm[b]).sum(-1), -1.0, 1.0)
+    sel = cosd < float(np.cos(np.radians(deg)))
+    a, b = a[sel], b[sel]
+    lo, hi = np.minimum(a, b), np.maximum(a, b)
+    return np.unique(lo * nF + hi)
+
+
+def fold_distance(ids: np.ndarray, valid: np.ndarray, nF: int, pairs: np.ndarray) -> np.ndarray:
+    """Расстояние (px кадра фото) от каждой видимой грани до видимой линии излома: пиксели, где соседи по кадру — грани из crease_pairs. Нет излома в кадре / грань не видна — 1e9."""
+    from scipy import ndimage as ndi
+    H, W = ids.shape
+    out = np.full(nF, 1e9)
+    if len(pairs) == 0:
+        return out
+    ic = np.clip(ids, 0, nF - 1).astype(np.int64)
+    fold = np.zeros((H, W), bool)
+    for a_, b_, va, vb, sl_a, sl_b in ((ic[:, 1:], ic[:, :-1], valid[:, 1:], valid[:, :-1], (slice(None), slice(1, None)), (slice(None), slice(None, -1))),
+                                       (ic[1:, :], ic[:-1, :], valid[1:, :], valid[:-1, :], (slice(1, None), slice(None)), (slice(None, -1), slice(None)))):
+        m = va & vb & (a_ != b_)
+        k = np.minimum(a_, b_) * nF + np.maximum(a_, b_)
+        hit = m & np.isin(k, pairs)
+        fold[sl_a] |= hit
+        fold[sl_b] |= hit
+    if not fold.any():
+        return out
+    dist = ndi.distance_transform_edt(~fold)
+    ys, xs = np.nonzero(valid)
+    f = ic[ys, xs]
+    np.minimum.at(out, f, dist[ys, xs])
+    return out
+
+
+def fold_near_mask(V: np.ndarray, F: np.ndarray, ids: np.ndarray, valid: np.ndarray, pose_err, fidmap: np.ndarray | None = None, deg: float = 30.0, errs: float = 2.0, nrm: np.ndarray | None = None) -> tuple[np.ndarray, np.ndarray, dict]:
+    """ОБЩАЯ функция (комод р.3, T-63; зовёт и мерка рисунка по окнам T-93): «деталь фото у излома формы» — свет (тень щели, блик кромки), а не рисунок/материал.
+    Вход: меш V, F; кадр фото: ids (id грани на пиксель), valid (видимость); pose_err — ошибка позы в px кадра (число или массив по граням, местная); fidmap — карта текселей → грань (PM.uv_face_map), нет — маска текселей None;
+    deg — двугранный угол излома (по умолчанию 30°), errs — запас в ошибках позы (2.0, как у края); nrm — нормали граней (нет — считаются по V, F).
+    Выход: (маска текселей у излома | None, маска граней у излома [nF], отчёт {пар_с_изломом, граней_у_излома}). Грань «у излома» = в кадре ближе errs × pose_err к видимой линии излома. Грань не видна в кадре → не у излома (судить нечем)."""
+    V = np.asarray(V, np.float64)
+    F = np.asarray(F, np.int64)
+    nF = len(F)
+    if nrm is None:
+        t = V[F]
+        nrm = np.cross(t[:, 1] - t[:, 0], t[:, 2] - t[:, 0])
+        nrm = nrm / np.maximum(np.linalg.norm(nrm, axis=-1, keepdims=True), 1e-12)
+    prs = crease_pairs(V, F, nrm, deg)
+    fd = fold_distance(ids, valid, nF, prs)
+    e = np.asarray(pose_err, np.float64) if np.ndim(pose_err) else float(pose_err)
+    fn = fd < float(errs) * e
+    tm = fn[np.clip(fidmap, 0, nF - 1)] & (fidmap >= 0) if fidmap is not None else None
+    return tm, fn, {'пар_с_изломом': int(len(prs)), 'граней_у_излома': int(fn.sum())}
+
+
+def reliable_faces(rel: dict, rl: dict) -> tuple[np.ndarray, dict]:
+    """Грань — надёжный источник деталей фото: видна, cos не скользящий (≥ cos_min), от края силуэта/перекрытия не ближе edge_errs ошибок позы, деталь шире thin_errs ошибок. → (маска, счётчики причин отказа)."""
+    e = rl['pose_err_arr'] if rl.get('pose_err_arr') is not None else float(rl['pose_err_px'])      # массив по граням — местная ошибка позы (pose_error_field), иначе одно число
+    vis = rel['cnt'] > 0
+    c_ok = rel['cos'] >= float(rl['cos_min'])
+    d_ok = rel['dist'] >= float(rl['edge_errs']) * e
+    w_ok = rel['width'] >= float(rl['thin_errs']) * e
+    ok = vis & c_ok & d_ok & w_ok
+    why = {'видна': int(vis.sum()), 'скользящая': int((vis & ~c_ok).sum()), 'у_края_или_перекрытия': int((vis & ~d_ok).sum()), 'тонкая': int((vis & ~w_ok).sum()), 'надёжна': int(ok.sum())}
+    return ok, why
+
+
+def pose_error_px(mask_render: np.ndarray, mask_photo: np.ndarray, rl: dict) -> tuple[float, dict]:
+    """Ошибка позы ТОВАРА в px кадра (единица порогов надёжности): расстояние от контура растра формы до контура фото-силуэта (90-й процентиль по точкам контура растра), в [pose_err_min_px, pose_err_max_px].
+    Измерена у этого товара из того же кадра, а не одна константа на все: хорошо легшая камера — меньше запретная полоса у края, плохо легшая — больше. → (px, {измерено, p50, p90, взято})."""
+    import cv2
+    from scipy import ndimage as ndi
+    k = np.ones((3, 3), np.uint8)
+    br = mask_render & ~(cv2.erode(mask_render.astype(np.uint8), k) > 0)
+    bp = mask_photo & ~(cv2.erode(mask_photo.astype(np.uint8), k) > 0)
+    lo, hi = float(rl.get('pose_err_min_px', 1.5)), float(rl.get('pose_err_max_px', 6.0))
+    if not br.any() or not bp.any():
+        return float(rl.get('pose_err_px', 3.0)), {'измерено': False}
+    d_to_p = ndi.distance_transform_edt(~bp)[br]
+    p50, p90 = float(np.percentile(d_to_p, 50)), float(np.percentile(d_to_p, 90))
+    take = float(np.percentile(d_to_p, float(rl.get('pose_err_pct', 90))))
+    return float(np.clip(take, lo, hi)), {'измерено': True, 'p50_px': round(p50, 2), 'p90_px': round(p90, 2), 'перцентиль': float(rl.get('pose_err_pct', 90))}
+
+
+def pose_error_field(mask_render: np.ndarray, mask_photo: np.ndarray, rl: dict) -> tuple[np.ndarray, dict]:
+    """МЕСТНАЯ ошибка позы (Fable 25.11 17:20): в каждой точке кадра — расстояние контура растра до контура фото на ближайшем участке контура (окно по контуру: гауссово среднее по точкам контура, σ = local_window_px),
+    значения контура зажаты в [pose_err_min_px, pose_err_max_px]; где контура в окне нет (вес < 1e-3·…) — глобальная медиана. Без одного числа на товар: у слабо легшего конца ножки запас больше, у ровного участка — меньше.
+    → (поле H×W px, {p10/p50/p90 поля по пикселям объекта, медиана контура})."""
+    import cv2
+    from scipy import ndimage as ndi
+    k = np.ones((3, 3), np.uint8)
+    br = mask_render & ~(cv2.erode(mask_render.astype(np.uint8), k) > 0)
+    bp = mask_photo & ~(cv2.erode(mask_photo.astype(np.uint8), k) > 0)
+    lo, hi = float(rl.get('pose_err_min_px', 1.5)), float(rl.get('pose_err_max_px', 6.0))
+    H, W = mask_render.shape
+    if not br.any() or not bp.any():
+        return np.full((H, W), float(rl.get('pose_err_px', 3.0)), np.float32), {'измерено': False}
+    dist_p = ndi.distance_transform_edt(~bp)
+    v = np.clip(dist_p, lo, hi).astype(np.float32) * br
+    sg = float(rl.get('local_window_px', 40.0))
+    num = cv2.GaussianBlur(v, (0, 0), sg)
+    den = cv2.GaussianBlur(br.astype(np.float32), (0, 0), sg)
+    gmed = float(np.clip(np.median(dist_p[br]), lo, hi))
+    fld = np.where(den > 1e-4, num / np.maximum(den, 1e-9), gmed).astype(np.float32)
+    inside = mask_render
+    q = np.percentile(fld[inside], [10, 50, 90]) if inside.any() else [gmed] * 3
+    return fld, {'измерено': True, 'окно_px': sg, 'контур_медиана_px': round(float(np.median(dist_p[br])), 2), 'поле_p10_p50_p90': [round(float(x), 2) for x in q]}
+
+
+def keep_details(tex: np.ndarray,ctl: np.ndarray, texmap: np.ndarray, painted: np.ndarray, known: np.ndarray, names: list, keep: set, rules: dict, fade: dict | None = None) -> tuple[np.ndarray, dict]:
     """Лицо = тон материала + МЕЛКИЕ детали фото: на известных (фото) текселях покрашенной группы цвет = плоский тон × (яркость фото / её сглаживание по той же группе),
     поправка в [lo, hi]. Щели, кромки, зерно остаются (мельче ~sigma), запечённые тени и блики (крупнее) уходят в ровный тон. Сглаживание — нормированное по маске
     «известно и та же группа»: через границу материалов и край фото не размывается. → (текстура, {группа: число текселей с деталью})."""
@@ -456,19 +818,33 @@ def keep_details(tex: np.ndarray, ctl: np.ndarray, texmap: np.ndarray, painted: 
     for gi, gn in enumerate(names):
         if gn in keep:
             continue
+        if gn in set(dt.get('no_detail_groups') or []):                              # «зерно везде или нигде» (Fable 25.11 17:20): у группы нет деталей фото — ровный тон; зерно — одним источником (part_grain) по всей группе
+            continue
         m = (texmap == gi) & painted & known
         if int(m.sum()) < int(dt['min_texels']):
             continue
         mf = m.astype(np.float32)
         bl = cv2.GaussianBlur(Y * mf, (0, 0), sg) / np.maximum(cv2.GaussianBlur(mf, (0, 0), sg), 1e-4)
-        ratio = np.clip(Y / np.maximum(bl, 1e-4), float(dt['lo']), float(dt['hi']))
+        lo_g = float(dt['lo'])
+        oc = dt.get('outlier_clip') or {}
+        if oc.get('enabled') and gn in (oc.get('groups') or []):                   # ровная группа (дерево ножек): тёмные «крапинки» — выбросы фото, проекция под косым углом; волокно (в [lo_g, hi]) остаётся
+            lo_g = max(lo_g, float(oc['lo']))
+        ratio = np.clip(Y / np.maximum(bl, 1e-4), lo_g, float(dt['hi']))
+        if fade and fade.get('enabled'):                                          # шов «деталь | тон»: деталь = отклонение от тона группы со средним ноль (без медленного тона фото), амплитуда плавно → 0 к границе надёжной зоны
+            lr = np.log(ratio).astype(np.float32)
+            sz = max(1.0, float(fade.get('zero_mean_sigma_frac', 0.02)) * T)
+            slow = cv2.GaussianBlur(lr * mf, (0, 0), sz) / np.maximum(cv2.GaussianBlur(mf, (0, 0), sz), 1e-4)
+            rr = max(1, int(round(float(fade.get('radius_frac', 0.004)) * T)))
+            er = cv2.erode(m.astype(np.uint8), cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (2 * rr + 1, 2 * rr + 1))).astype(np.float32)
+            w = cv2.GaussianBlur(er, (0, 0), max(1.0, float(fade.get('sigma_frac', 0.004)) * T)) if fade.get('edge_fade', True) else np.ones_like(er)       # edge_fade=false (T-63 25.11): без затухания у границы маски — узкая линия (щель, кромка) вся стоит у границы надёжной зоны (её соседи — дыры) и затухание съедало до ⅔ глубины; ступеньки тона нет — деталь и так с нулевым средним (slow)
+            ratio = np.exp((lr - slow) * w)
         flat = srgb2lin(tex[m].astype(np.float64))
         out[m] = np.clip(lin2srgb(flat * ratio[m][:, None]) + 0.5, 0, 255).astype(np.uint8)
         done[gn] = int(m.sum())
     return out, done
 
 
-def face_gate(fin: np.ndarray, ctl: np.ndarray, region: np.ndarray, rules: dict) -> dict:
+def face_gate(fin: np.ndarray, ctl: np.ndarray, region: np.ndarray, rules: dict, px_per_cm: float | None = None, pose_err: 'np.ndarray | float | None' = None, transfer: 'np.ndarray | None' = None) -> dict:
     """Ворота «лицо против фото» (жёсткий отказ шага): кадры с ОДНОЙ камеры и тем же светом — после шага (fin) и до него (ctl: фото 06 на текстуре), только пиксели покрашенных групп (region).
     1) share_far — доля пикселей, ушедших от фото дальше de_px (ΔE2000); blob — крупнейшее связное пятно таких пикселей, доля региона;
     2) seam_ratio — «чёрная шляпа» по L (тонкие тёмные линии: щели, кромки) после шага / до шага на пикселях линий фото: потеря мелких деталей лица.
@@ -501,6 +877,9 @@ def face_gate(fin: np.ndarray, ctl: np.ndarray, region: np.ndarray, rules: dict)
     bh_f = cv2.morphologyEx(lf[..., 0].astype(np.float32), cv2.MORPH_BLACKHAT, ker)
     sm = (bh_c > float(gt['seam_min_dl'])) & region
     min_len = float(gt.get('seam_min_len_frac', 0) or 0) * fin.shape[0]
+    if px_per_cm and float(gt.get('seam_min_len_cm', 0) or 0) > 0:          # щель — линия не короче N см товара (по карточке), а не доли кадра: у малого товара/ящика короткая щель не пропадает
+        min_len = max(float(gt.get('seam_min_len_px_floor', 12)), float(gt['seam_min_len_cm']) * float(px_per_cm))
+    res['seam_min_len_px'] = round(float(min_len), 1)
     if min_len > 0:                                                         # щель — ДЛИННАЯ тонкая линия; точки сетки/перфорации и пятнышки не щели (иначе метрика судит рисунок, а не потерю щелей)
         k2, lab2, st2, _c2 = cv2.connectedComponentsWithStats(sm.astype(np.uint8), connectivity=8)
         keep_c = np.zeros(k2, bool)
@@ -523,17 +902,70 @@ def face_gate(fin: np.ndarray, ctl: np.ndarray, region: np.ndarray, rules: dict)
         k4, lab4, st4, _c4 = cv2.connectedComponentsWithStats(cand.astype(np.uint8), connectivity=8)
         h2 = float(fin.shape[0]) ** 2
         keep4 = np.zeros(k4, bool)
+        te = float(gt.get('spot_thin_errs', 0) or 0)                        # директор 25.11 18:5x: линию тоньше МЕСТНОЙ ошибки позы с фото перенести нельзя в принципе — ворота такие детали не судят (строкой «исключено»)
+        pef = None
+        if pose_err is not None:
+            pef = np.asarray(pose_err, np.float64)
+            if pef.ndim == 2:
+                pef = cv2.resize(pef.astype(np.float32), (fin.shape[1], fin.shape[0]), interpolation=cv2.INTER_LINEAR).astype(np.float64) * (fin.shape[0] / float(np.asarray(pose_err).shape[0]))
+            else:
+                pef = float(pef) * (fin.shape[0] / float(gt.get('pose_err_frame_px', fin.shape[0])))
+        n_thin = 0
+        info_sp = []
+        thick_of = {}
+        tmin = float(gt.get('spot_transfer_min', 0) or 0)                   # директор 25.11 19:14: судим только то, что шаг МОЖЕТ перенести — пиксели граней «надёжно ∧ известно фото»; пятно, чья доля таких пикселей < N, — растяжка/нет фото, не судим (строкой «исключено N px и почему»)
+        tfm = None
+        if tmin > 0 and transfer is not None:
+            tfm = np.asarray(transfer, bool)
+            if tfm.shape != fin.shape[:2]:
+                tfm = cv2.resize(tfm.astype(np.uint8), (fin.shape[1], fin.shape[0]), interpolation=cv2.INTER_NEAREST).astype(bool)
+        n_untr, px_untr = 0, 0
         for i in range(1, k4):
             ar = float(st4[i, cv2.CC_STAT_AREA])
             ln = float(np.hypot(st4[i, cv2.CC_STAT_WIDTH], st4[i, cv2.CC_STAT_HEIGHT]))
             is_line = min_len > 0 and ln >= min_len and ar / ln <= float(gt['seam_max_thick'])
-            keep4[i] = float(gt['spot_min_px_frac']) * h2 <= ar <= float(gt['spot_max_px_frac']) * h2 and not is_line
+            ok_i = float(gt['spot_min_px_frac']) * h2 <= ar <= float(gt['spot_max_px_frac']) * h2 and not is_line
+            if ok_i and tfm is not None:
+                sh_tr = float(tfm[lab4 == i].mean())
+                if sh_tr < tmin:
+                    ok_i = False
+                    n_untr += 1
+                    px_untr += int(ar)
+                    info_sp.append({'исключено': 'фото не переносимо (грань ненадёжна или текселей без фото)', 'площадь': int(ar), 'доля_переносимых_px': round(sh_tr, 3), 'bbox': [int(st4[i, c]) for c in (cv2.CC_STAT_LEFT, cv2.CC_STAT_TOP, cv2.CC_STAT_WIDTH, cv2.CC_STAT_HEIGHT)]})
+            if ok_i and pef is not None:
+                cm0 = lab4 == i
+                th = 2.0 * float(cv2.distanceTransform(cm0.astype(np.uint8), cv2.DIST_L2, 3).max())     # толщина пятна = 2 × наибольшее расстояние до края пятна
+                er = float(np.median(pef[cm0])) if isinstance(pef, np.ndarray) else float(pef)
+                thick_of[i] = (round(th, 1), round(er, 1))
+                if te > 0 and th < te * er:
+                    ok_i = False
+                    n_thin += 1
+                    info_sp.append({'исключено': 'тоньше ошибки позы', 'площадь': int(ar), 'толщина_px': round(th, 1), 'ошибка_позы_px': round(er, 1), 'bbox': [int(st4[i, cv2.CC_STAT_LEFT]), int(st4[i, cv2.CC_STAT_TOP]), int(st4[i, cv2.CC_STAT_WIDTH]), int(st4[i, cv2.CC_STAT_HEIGHT])]})
+            keep4[i] = ok_i
+        res['spot_thin_excluded'] = n_thin
+        res['spot_untransferable'] = {'пятен': n_untr, 'px': px_untr}
+        res['spots_thin'] = info_sp
         spm = keep4[lab4]
         res['spot_px'], res['spot_n'] = int(spm.sum()), int(keep4.sum())
         if res['spot_px'] >= int(gt['spot_min_total_px']):
             res['spot_ratio'] = round(float(sf_[spm].sum() / max(float(sc_[spm].sum()), 1e-6)), 3)
-    if res['spot_ratio'] is not None and res['spot_ratio'] < float(gt['min_spot_ratio']):
-        res['fail'].append('мелкие тёмные детали лица (ручки/фурнитура) %.2f от фото < %.2f' % (res['spot_ratio'], float(gt['min_spot_ratio'])))
+            per = []                                                        # КАЖДОЕ пятно отдельно: одна ручка в норме не прячет исчезнувшую соседнюю (директор 25.11, 09366429)
+            allsp = []
+            for i in np.where(keep4)[0]:
+                cm_ = lab4 == i
+                den = float(sc_[cm_].sum())
+                if den > 0:
+                    per.append(float(sf_[cm_].sum()) / den)
+                    allsp.append({'доля': round(per[-1], 3), 'площадь': int(st4[i, cv2.CC_STAT_AREA]), 'bbox': [int(st4[i, c]) for c in (cv2.CC_STAT_LEFT, cv2.CC_STAT_TOP, cv2.CC_STAT_WIDTH, cv2.CC_STAT_HEIGHT)], 'толщина_и_ошибка_позы_px': thick_of.get(i)})
+            res['spots_all'] = sorted(allsp, key=lambda x: x['доля'])[:10]
+            if per:
+                res['spot_min'] = round(min(per), 3)
+                res['spot_ratios'] = [round(x, 2) for x in sorted(per)[:8]]
+    if not gt['spot_worst_each']:                                           # ключ выкл — решение по СУММЕ всех пятен (как до T-63); вкл — по худшему пятну отдельно
+        if res['spot_ratio'] is not None and res['spot_ratio'] < float(gt['min_spot_ratio']):
+            res['fail'].append('мелкие тёмные детали лица (ручки/фурнитура) %.2f от фото < %.2f' % (res['spot_ratio'], float(gt['min_spot_ratio'])))
+    elif res.get('spot_min') is not None and res['spot_min'] < float(gt['min_spot_ratio']):
+        res['fail'].append('мелкая тёмная деталь лица (ручка/фурнитура) осталась %.2f от фото < %.2f (по худшему пятну из %d)' % (res['spot_min'], float(gt['min_spot_ratio']), res['spot_n']))
     if res['share_far'] > float(gt['max_share_far']):
         res['fail'].append('доля ушедших от фото %.1f %% > %.1f %%' % (100 * res['share_far'], 100 * float(gt['max_share_far'])))
     if res['blob'] > float(gt['max_blob']):
@@ -564,6 +996,93 @@ def fit_albedo(names: list, tones: dict, borrowed: dict, keep: set, texmap: np.n
             alb[gn] = alb[gn] * np.clip(tones[gn]['lin'] / np.maximum(v, 1e-4), fit['clip'][0], fit['clip'][1])
         hist.append(row)
     return alb, hist
+
+
+def _luma(lin) -> float:
+    lin = np.asarray(lin, float)
+    return float(0.2126 * lin[0] + 0.7152 * lin[1] + 0.0722 * lin[2])
+
+
+def fit_albedo_hprime(names: list, tones: dict, borrowed: dict, keep: set, texmap: np.ndarray, ctl: np.ndarray, render_cam, label_map: np.ndarray, rules: dict, render_top=None, label_top: np.ndarray | None = None) -> tuple[dict, list, dict]:
+    """H′ (rules.fit.hprime): подбор как fit_albedo, затем группы с узкой полоской в кадре камеры (px < nrel × самой большой или < min_frame_px) НЕ держат свой подбор —
+    берут общую поправку товара g (медиана с весом px по надёжным группам Y(альбедо)/Y(тон)), применённую к СВОЕМУ тону. Надёжных нет — «не измерено» (тон как есть).
+    → (альбедо, история, журнал решений для отчёта)."""
+    fit, hp = rules['fit'], rules['fit']['hprime']
+    alb, hist = fit_albedo(names, tones, borrowed, keep, texmap, ctl, render_cam, label_map, rules)
+    tex, _p = compose(ctl, texmap, names, alb, borrowed, keep)
+    fr = render_cam(tex)
+    n = {}
+    for gn in alb:
+        px, _m = part_pixels(fr, label_map, [names.index(gn)], fit['erode_px'])
+        if len(px) < fit['min_frame_px']:
+            px, _m = part_pixels(fr, label_map, [names.index(gn)], 0)
+        n[gn] = int(len(px))
+    log = {'n_px_кадра_камеры': n, 'решения': {}}
+    if not n:
+        return alb, hist, log
+    nmax = max(n.values())
+    rel = [g for g in n if n[g] >= float(hp['nrel']) * nmax and n[g] >= fit['min_frame_px']]
+    unrel = [g for g in n if g not in rel]
+    if not rel:
+        log['случай'] = 'ни одной надёжной: подгонки нет, тон группы как есть («не измерено»)'
+        for gn in list(alb):
+            alb[gn] = np.asarray(tones[gn]['lin'], float).copy()
+            log['решения'][gn] = {'g': 1.0, 'не_измерено': True}
+        return alb, hist, log
+    gg = {g: _luma(alb[g]) / max(_luma(tones[g]['lin']), 1e-6) for g in rel}
+    log['надёжные'] = rel
+    log['g_надёжных'] = {g: round(v, 3) for g, v in gg.items()}
+    w = np.array([n[g] for g in rel], float)
+    v = np.array([gg[g] for g in rel], float)
+    o = np.argsort(v)
+    cw = np.cumsum(w[o]) / w.sum()
+    gprod = float(v[o][int(np.searchsorted(cw, 0.5))])
+    log['g_товара'] = round(gprod, 3)
+    log['случай'] = 'одна надёжная (поправка = её)' if len(rel) == 1 else '%d надёжных (взвешенная медиана)' % len(rel)
+    for gn in unrel:
+        old = [int(x) for x in lin2srgb(alb[gn])]
+        alb[gn] = np.asarray(tones[gn]['lin'], float) * gprod
+        log['решения'][gn] = {'g': round(gprod, 3), 'tone_было': old, 'tone_стало': [int(x) for x in lin2srgb(alb[gn])]}
+    a3 = hp['a3g']
+    if a3['enabled'] and unrel and render_top is not None:
+        # A3g: узкую в кадре камеры группу подгоняем по ЕЁ кадру с вида сверху (тот же свет и размер, меняется только orbit); принимаем только если не зажим и ближе к сырому
+        ft = render_top(tex)
+        a_top, _h = fit_albedo(names, tones, borrowed, keep, texmap, ctl, render_top, label_top, rules)
+        for gn in unrel:
+            gi = names.index(gn)
+            px, _m = part_pixels(ft, label_top, [gi], fit['erode_px'])
+            ntop = int(len(px))
+            d_ = log['решения'][gn]
+            d_['px_вида_сверху'] = ntop
+            if not (ntop >= float(hp['nrel']) * nmax and ntop >= fit['min_frame_px']):
+                d_['A3g'] = 'мало px сверху — осталась поправка H′'
+                continue
+            d_['A3g_tone_до'] = [int(x) for x in lin2srgb(alb[gn])]
+            cand = np.asarray(a_top[gn], float)
+            s_c = np.asarray(lin2srgb(cand)).reshape(-1)
+            if (s_c >= float(a3['clamp_hi'])).any() or (s_c <= float(a3['clamp_lo'])).any():
+                d_['A3g_исход'] = 'откат: зажим'
+            else:
+                def _lm(ad, gi=gi):
+                    fr_ = render_cam(compose(ctl, texmap, names, ad, borrowed, keep)[0])
+                    px_, _m2 = part_pixels(fr_, label_map, [gi], fit['erode_px'])
+                    if len(px_) < fit['min_frame_px']:
+                        px_, _m2 = part_pixels(fr_, label_map, [gi], 0)
+                    return float(np.asarray(lab_of(px_.reshape(-1, 3)))[:, 0].mean())            # px — sRGB (как у med_lin), не линейные
+                a_c = dict(alb)
+                a_c[gn] = cand
+                l_h, l_c = _lm(dict(alb)), _lm(a_c)
+                l_raw = float(np.asarray(lab_of(np.asarray(lin2srgb(np.asarray(tones[gn]['lin'], float)), float)[None]))[0, 0])
+                gain = abs(l_h - l_raw) - abs(l_c - l_raw)
+                d_.update({'A3g_L_сырое': round(l_raw, 2), 'A3g_L_кадр_камеры_прежнее': round(l_h, 2), 'A3g_L_кадр_камеры_новое': round(l_c, 2), 'A3g_сокращение_расстояния': round(gain, 2), 'A3g_порог': float(a3['gain_min'])})
+                d_['A3g_исход'] = 'принято' if gain >= float(a3['gain_min']) else 'откат: не ближе'
+            if d_['A3g_исход'] == 'принято':
+                alb[gn] = cand
+                d_['A3g'] = 'подогнано по виду сверху'
+            else:
+                d_['A3g'] = 'откат на поправку H′ (%s)' % d_['A3g_исход']
+            d_['A3g_tone_после'] = [int(x) for x in lin2srgb(alb[gn])]
+    return alb, hist, log
 
 
 # ───────────────────────────── рендер (model-viewer) ─────────────────────────────
