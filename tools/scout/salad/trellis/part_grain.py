@@ -119,6 +119,10 @@ def plan_grain(parts: list, rules: dict | None = None) -> dict:
     rules = rules or load_rules()
     out: dict = {}
     evid: dict = {}
+    mres = None
+    if (rules.get('pattern_measure') or {}).get('enabled'):          # T-20261125-93/3: мера «есть рисунок» / «узор» (выкл по умолчанию; выкл — ни одной строки ниже не выполняется)
+        import part_grain_measure as PM
+        mres = PM.resolve_patterns(parts, rules)
     for p in parts:
         pid = p['id']
         rec = {'apply': False, 'reason': None, 'bin': None, 'amp': None, 'amp_source': None, 'pat': None, 'pat_std': 0.0}
@@ -138,6 +142,12 @@ def plan_grain(parts: list, rules: dict | None = None) -> dict:
         if float(p['tone_sigma']) > rules['even_tone_sigma_max']:
             rec['reason'] = 'tone_not_even'          # градиент Ш4а — зерно поверх градиента отдельной задачей
             continue
+        if mres is not None:
+            m_ = mres[pid]
+            rec['measure'] = {k: m_[k] for k in ('decision', 'path', 'why', 'verdict', 'from', 'field') if k in m_}
+            if m_['decision'] != 'fiber':
+                rec['reason'] = 'measure_flat'      # «узор» / «нет» / наследование / карточка-плита: библиотечное волокно не кладём, тон остаётся ровным
+                continue
         b, pat, pstd = load_pattern(p['tone_lab'], rules, p.get('classes'))
         rec['bin'] = {k: b.get(k) for k in ('bin', 'dE00', 'tile_cm', 'grain_axis')}
         if pat is None:
@@ -320,6 +330,8 @@ def apply_grain(tex, tx, parts: list, masks: dict, face_plane, plane_normal, cm_
         pid = p['id']
         d = plan[pid]
         r = {'apply': d['apply'], 'reason': d['reason'], 'bin': d['bin'], 'amp': None if d['amp'] is None else round(d['amp'], 3), 'amp_source': d['amp_source']}
+        if d.get('measure') is not None:
+            r['measure'] = d['measure']
         rep['parts'][pid] = r
         if not d['apply']:
             rep['skipped'][d['reason']] = rep['skipped'].get(d['reason'], 0) + 1
@@ -407,7 +419,7 @@ def parts_from_masks(npz, tx, tex, card: dict | None = None, photo_sigma: dict |
         lab = TC.rgb2lab(np.clip(np.round(tone[g]), 0, 255).astype(np.uint8).reshape(1, 3))[0]
         sig = float(TC.rgb2lab(flat[m])[:, 0].std()) if n >= 20 else None
         parts.append({'id': g, 'name': names[g], 'is_wood': part_is_wood(names[g], card, rules, roles[g] if g < len(roles) else None), 'tone_lab': [float(x) for x in lab], 'tone_sigma': sig,
-                      'n_texels': n, 'photo_sigma': (photo_sigma or {}).get(g), 'card': card})
+                      'n_texels': n, 'photo_sigma': (photo_sigma or {}).get(g), 'card': card, 'role': roles[g] if g < len(roles) else None})
         masks[g] = m
     return parts, masks
 

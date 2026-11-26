@@ -77,6 +77,42 @@ def group_photo_sigma(L_frame, valid, ids, cos_f, face_group, roles, face_ny, ru
     return out
 
 
+def measure_parts(d: str, parts: list, z: dict, V, F, fp, pn, rules: dict) -> dict:
+    """Мера группы по ФОТО-текстуре до тона Ш4а (`*.pre-partmaterial.*`; нет — текущие файлы 06): parts[i]['measure'] = `part_grain_measure.measure_group`. → {имя группы: запись} для следа."""
+    import part_grain_measure as PGM
+    import tex_visible as TV
+    from PIL import Image
+    pm = rules['pattern_measure']
+
+    def pick(pre, cur):
+        p = os.path.join(d, pre)
+        return p if os.path.exists(p) else os.path.join(d, cur)
+    gp = TV.load_shape(pick('visible.pre-partmaterial.glb', 'visible.glb'))[0]
+    L = PGM.lab_L(np.asarray(gp['tex'])[..., :3])
+    T = L.shape[0]
+    kp, cp = pick('known.pre-partmaterial.png', 'known.png'), pick('conf.pre-partmaterial.png', 'conf.png')
+    known = np.asarray(Image.open(kp).convert('L')) > 127 if os.path.exists(kp) else np.zeros((T, T), bool)
+    conf = np.asarray(Image.open(cp).convert('L')) / 255.0 if os.path.exists(cp) else np.ones((T, T))
+    gm = np.asarray(z['group_map'])
+    ff = PGM.FaceFrame(V, F, gp['UV'], T, fp, pn, rules)
+    out = {}
+    known_ac = known                                         # повтор шага — на ТОМ ЖЕ «известном», что у паспорта 07 (`tex_fill.load_known_png`): без текселей provenance=4 (synth, не наблюдались), пока synth_trusted=false; иначе значения вдвое ниже паспортных (T-93/3: рейки 0,14 против 0,28)
+    pv_path = pick('prov.pre-partmaterial.png', 'prov.png')
+    try:
+        import tex_fill as TF
+        if not TF.synth_known_trusted() and os.path.exists(pv_path):
+            pv = np.asarray(Image.open(pv_path))
+            if pv.ndim == 2 and pv.shape == known.shape:
+                known_ac = known & (pv != 4)
+    except ImportError:                                      # нет tex_fill в срезе кода — как раньше, известное целиком
+        pass
+    actx = PGM.ac_context(L, known_ac, pm)
+    for p in parts:
+        p['measure'] = PGM.measure_group(L, known, conf, gm == p['id'], pm, ff, actx)
+        out[str(p['id'])] = dict(p['measure'], id=int(p['id']), name=str(p['name']))
+    return out
+
+
 def process(a, rules: dict, d: str, rep: dict) -> None:
     import part_grain as PG
     import pose_fit as PF
@@ -143,6 +179,10 @@ def process(a, rules: dict, d: str, rep: dict) -> None:
     if not parts:
         raise Abstain('Ш4а не покрасил ни одной группы (painted_group пуст)')
     fp, pn = PG.planes_for(V, F)
+    if (rules.get('pattern_measure') or {}).get('enabled'):                  # T-20261125-93/3: мера «есть рисунок» / «узор» по фото ДО тона Ш4а (выкл — строка не выполняется)
+        rep['pattern_measure'] = measure_parts(d, parts, z, V, F, fp, pn, rules)
+        import part_grain_measure as PGM_
+        rep['pattern_measure_fields'] = PGM_.field_summary(parts, rules)       # T-93/6: счётчик «поле карточки для роли не найдено» / «роль не названа»
     axis_ctx = None
     ac = rules.get('axis_check') or {}
     if ac.get('enabled'):                                                  # T-20261124-57/5: контекст проверки оси зерна (кадр 04, фото) — только отчёт
