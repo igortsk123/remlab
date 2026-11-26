@@ -349,3 +349,40 @@ def test_bench_A_to_G_zero_changes():
         if ops:
             changed.append((p.name, ops, info))
     assert not changed, changed
+
+
+# ───────── фон не трогает тёмный/цветной лист (T-98/4h, krasnodar-10120266) ─────────
+
+def _on_black(img, scale=0.55):
+    h, w = img.shape[:2]
+    out = np.zeros((int(h / scale), int(w / scale), 3), np.uint8)             # чёрное поле вокруг плана
+    y, x = (out.shape[0] - h) // 2, (out.shape[1] - w) // 2
+    out[y:y + h, x:x + w] = img
+    return out
+
+
+def test_background_leaves_black_sheet_alone():
+    img = _on_black(plan(1))
+    out, info = cl.clean_background(img)
+    assert out is None and "тёмн" in info["reason"], info
+
+
+def test_background_leaves_dark_framed_colour_sheet_alone():
+    img = plan(2).copy()
+    img[:] = (np.array(img, np.int32) * 0.8 + np.array([30, 40, 20]) * 0.2).astype(np.uint8)   # цветной лист застройщика
+    cv2.rectangle(img, (0, 0), (img.shape[1] - 1, img.shape[0] - 1), (45, 45, 45), 60)         # тёмная рама
+    out, info = cl.clean_background(img)
+    assert out is None, info
+
+
+def test_background_leaves_coloured_sheet_alone():
+    img = plan(3).copy()
+    img[(img > 240).all(axis=2)] = (120, 200, 120)                                             # сплошной зелёный фон
+    out, info = cl.clean_background(img)
+    assert out is None, info
+
+
+def test_background_still_cleans_bti_photo_on_table():
+    """контроль: фото БТИ (серо-жёлтая бумага, свет с градиентом) — по-прежнему чистится"""
+    out, info = cl.clean_background(scan_of(plan(3), 3))
+    assert out is not None, info

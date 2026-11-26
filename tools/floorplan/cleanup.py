@@ -28,6 +28,7 @@ MAX_ROT = 30.0          # поворот главной оси от горизо
 BG_S_MAX = 90           # лист «бумажный»: насыщенность медианного пикселя (0..255) не выше
 BG_V_WHITE = 247        # …и фон не белый: V ≤ 247, либо тон заметен (S ≥ 25 при V < 250)
 BG_INK_MAX = 0.15
+BG_RING_V_MIN = 100     # яркость кольца по краю листа (медиана) ниже — тёмный фон/рама (чёрный лист, цветной лист застройщика в тёмной рамке): фон не светлим; у фото БТИ на столе кольцо ≥ 109
 INK_RATIO = (0.8, 1.3)
 
 
@@ -297,6 +298,9 @@ def clean_background(bgr):
     m = max(3, int(0.02 * min(Hh, Ww)))
     ring = np.concatenate([hsv[:m, :, 2].ravel(), hsv[-m:, :, 2].ravel(), hsv[:, :m, 2].ravel(), hsv[:, -m:, 2].ravel()])
     info['ringV'] = round(float(np.median(ring)), 1)
+    if float(np.median(ring)) < BG_RING_V_MIN:
+        info['reason'] = f'лист в тёмной раме/на тёмном фоне (V по краю {np.median(ring):.0f} < {BG_RING_V_MIN}) — это не бумага скана, фон не светлим'
+        return None, info
     if float(np.median(ring)) - medV > 18:
         info['reason'] = f'по краю светлее, чем в середине (V {np.median(ring):.0f} против {medV:.0f}) — заливка внутри белого листа, не бумага'
         return None, info
