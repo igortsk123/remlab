@@ -204,6 +204,38 @@ def apply_owner(tex: np.ndarray, gmap: np.ndarray, ids: np.ndarray, fg2: np.ndar
     return out, gm, per
 
 
+# ───────────────────────────── шаг 7: дилатация (поле вокруг островов) ─────────────────────────────
+
+def dilate_gutter(tex: np.ndarray, ids: np.ndarray, px: int) -> tuple[np.ndarray, int]:
+    """Непокрытые гранями тексели в пределах px от покрытых берут цвет БЛИЖАЙШЕГО покрытого (EDT с индексами); покрытые не меняются ни на байт. px=0 — ничего. → (текстура, число перекрашенных текселей).
+    Зачем: при линейной выборке на границе острова видеокарта подмешивает тексель соседнего поля — оно должно быть цвета острова, а не чужого/заполнителя."""
+    if px <= 0:
+        return tex, 0
+    from scipy import ndimage
+    allcov = ids >= 0
+    dist, (iy, ix) = ndimage.distance_transform_edt(~allcov, return_indices=True)
+    take = (~allcov) & (dist <= px)
+    out = tex.copy()
+    out[take] = tex[iy[take], ix[take]]
+    return out, int(take.sum())
+
+
+def _lab_l(rgb: np.ndarray) -> np.ndarray:
+    x = cv2.cvtColor(np.ascontiguousarray(rgb), cv2.COLOR_RGB2LAB).astype(np.float32)
+    return x[..., 0] * (100.0 / 255.0)
+
+
+def guard_gutter(tex: np.ndarray, ids: np.ndarray, px: int, dl_max: float) -> dict:
+    """Сторож: непокрытые тексели в пределах px от покрытых, чья светлота L отличается от ближайшего покрытого больше dl_max (должно быть 0). Считает по ИТОГОВОЙ текстуре (после дилатации)."""
+    from scipy import ndimage
+    allcov = ids >= 0
+    dist, (iy, ix) = ndimage.distance_transform_edt(~allcov, return_indices=True)
+    band = (~allcov) & (dist <= max(px, 0))
+    L = _lab_l(tex)
+    bad = band & (np.abs(L - L[iy, ix]) > dl_max)
+    return {'в_полосе_текселей': int(band.sum()), 'с_расхождением_L_больше_порога': int(bad.sum()), 'порог_L': float(dl_max), 'полоса_px': int(px)}
+
+
 def guard_unpainted(ids: np.ndarray, gmap: np.ndarray, known: np.ndarray | None) -> dict:
     """Сторож: покрытые гранями тексели, оставшиеся без покраски (group_map < 0); из них — не «известные с 06»."""
     allcov = ids >= 0

@@ -2,7 +2,8 @@
 """Тест шага «владелец текселя» tex_owner (+ стадия tex_owner_stage; T-20261126-97/1 фаза 2) на синтетике: плита-верх 2×1 клетки (4 грани в одной плоскости) + вертикальная ножка (2 грани, свои вершины, сварены по позиции),
 текстура — шум. Проверяем: панели по излому 15°; D3 грань без роли берёт роль панели; D4 чужая роль (≤25 % панели) → большинство; D5 панель без ролей — голос смежных граней; владелец текселя (внутренность перекрывает
 пограничное); отступ 5×5 только на непокрытые; узорная группа не красится; сторож «покрытые без покраски» = 0; стадия: выключено → ничего не пишет (байт в байт), «флаг меняет выход» (вкл ≠ выкл), исходник сохранён,
-повтор даёт тот же результат, нет npz Ш4а → воздержание с причиной и visible.glb не тронут."""
+повтор даёт тот же результат, нет npz Ш4а → воздержание с причиной и visible.glb не тронут. Фаза 3 (tex_gutter_stage): дилатация — покрытые не меняются, поле = цвет ближайшего покрытого, ключ uv_gutter_px
+(0 = выкл, байт в байт) меняет выход, сторож «непокрытые в полосе с |ΔL| > порога» = 0 после, повтор идемпотентен."""
 import hashlib
 import json
 import os
@@ -169,11 +170,77 @@ def test_stage():
     check(json.load(open(ST.RULES_PATH, encoding='utf-8'))['enabled'] is False, 'в репозитории шаг выключен по умолчанию')
 
 
+def test_gutter():
+    import tex_gutter_stage as GS
+    with tempfile.TemporaryDirectory() as tmp:
+        d = make_run(tmp)
+        rules = ST.load_rules()
+        P, UV, F = TO.read_geom(os.path.join(d, 'visible.glb'))
+        ids = TO.owner_ids(UV, F, T, rules)
+        cov = ids >= 0
+        tex = np.random.default_rng(2).integers(0, 256, (T, T, 3), dtype=np.uint8)
+        new0, n0 = TO.dilate_gutter(tex, ids, 0)
+        check(n0 == 0 and new0 is tex, 'дилатация px=0 — текстура та же, ничего не перекрашено')
+        new, n = TO.dilate_gutter(tex, ids, 2)
+        check(bool((new[cov] == tex[cov]).all()), 'дилатация: покрытые тексели не меняются ни на байт')
+        from scipy import ndimage
+        dist = ndimage.distance_transform_edt(~cov)
+        band = (~cov) & (dist <= 2)
+        check(n == int(band.sum()) and n > 0 and bool((new[(~cov) & (dist > 2)] == tex[(~cov) & (dist > 2)]).all()), 'перекрашены ровно непокрытые не дальше 2 px (%d), дальше — как было' % n)
+        _d, (iy, ix) = ndimage.distance_transform_edt(~cov, return_indices=True)
+        check(bool((new[band] == tex[iy[band], ix[band]]).all()) and bool(cov[iy[band], ix[band]].all()), 'цвет поля = цвет ближайшего ПОКРЫТОГО тексела')
+        new4, n4 = TO.dilate_gutter(tex, ids, 4)
+        check(n4 > n and not np.array_equal(new4, new), 'ключ uv_gutter_px меняет выход: 4 px перекрашивает больше, чем 2')
+        g0 = TO.guard_gutter(tex, ids, 2, 2.0)
+        g1 = TO.guard_gutter(new, ids, 2, 2.0)
+        check(g0['с_расхождением_L_больше_порога'] > 0 and g1['с_расхождением_L_больше_порога'] == 0 and g1['в_полосе_текселей'] == n, 'сторож: на шуме до дилатации расхождений много, после = 0: %s → %s' % (g0, g1))
+        args = ['--run', os.path.join(tmp, 'run'), '--sku', 'sku']
+        vis, pre = os.path.join(d, 'visible.glb'), os.path.join(d, GS.PRE)
+        s0 = sha(vis)
+        GS.main(args)
+        check(sha(vis) == s0 and not os.path.exists(pre) and not os.path.exists(os.path.join(d, GS.OUT)), 'uv_gutter_px=0 (по умолчанию): ни один байт не изменён, следа нет')
+        rp = os.path.join(tmp, 'rules-g2.json')
+        r = json.load(open(ST.RULES_PATH, encoding='utf-8'))
+        r['dilate']['uv_gutter_px'] = 2
+        json.dump(r, open(rp, 'w', encoding='utf-8'), ensure_ascii=False)
+        GS.main(args + ['--rules', rp])
+        rep = json.load(open(os.path.join(d, GS.OUT), encoding='utf-8'))
+        check(rep['abstain'] is None and sha(vis) != s0 and sha(pre) == s0, 'uv_gutter_px=2: текстура переписана (ключ меняет выход), исходник сохранён')
+        check(rep['после']['с_расхождением_L_больше_порога'] == 0 and rep['перекрашено_текселей'] == n, 'в следе: сторож после = 0, перекрашено %d' % n)
+        js, binb = TO.read_glb(vis)
+        got = TO.tex_of(js, binb, 0)
+        want, _n = TO.dilate_gutter(TO.tex_of(*TO.read_glb(pre), 0), ids, 2)
+        check(np.array_equal(got, want), 'текстура в GLB = расчёт дилатации исходной текстуры (PNG без потерь)')
+        s1 = sha(vis)
+        GS.main(args + ['--rules', rp])
+        check(sha(vis) == s1, 'повторный запуск идёт от исходника и даёт тот же результат')
+        GS.main(args + ['--force-px', '2'])
+        check(sha(vis) == s1, '--force-px 2 при нулевом ключе = то же, что uv_gutter_px=2')
+        os.remove(vis)
+        os.remove(pre)
+        GS.main(args + ['--force-px', '2'])
+        rep = json.load(open(os.path.join(d, GS.OUT), encoding='utf-8'))
+        check(rep['abstain'] and 'visible.glb' in rep['abstain'], 'нет visible.glb → воздержание с причиной')
+    for bad in ({'uv_gutter_px': -1}, {'uv_gutter_px': 65}, {'guard_dl_max': 0}):
+        r = json.load(open(ST.RULES_PATH, encoding='utf-8'))
+        r['dilate'] = {**r['dilate'], **bad}
+        with tempfile.TemporaryDirectory() as tmp:
+            p = os.path.join(tmp, 'r.json')
+            json.dump(r, open(p, 'w', encoding='utf-8'))
+            try:
+                ST.load_rules(p)
+                check(False, 'правила dilate вне пределов отвергаются: %s' % bad)
+            except ValueError:
+                check(True, 'правила dilate вне пределов отвергаются: %s' % bad)
+    check(json.load(open(ST.RULES_PATH, encoding='utf-8'))['dilate']['uv_gutter_px'] == 0, 'в репозитории дилатация выключена по умолчанию (uv_gutter_px=0)')
+
+
 def main():
     test_roles()
     with tempfile.TemporaryDirectory() as tmp:
         test_owner(tmp)
     test_stage()
+    test_gutter()
     bad = OK.count(False)
     print('\n%d проверок, провалов: %d' % (len(OK), bad))
     return 1 if bad else 0

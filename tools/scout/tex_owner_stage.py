@@ -43,6 +43,9 @@ def load_rules(path: str = RULES_PATH) -> dict:
         raise ValueError('tex-owner.json: roles вне допустимых пределов')
     if not (0 <= float(ow['shrink_texel']) < 4) or int(ow['pad_px']) < 1 or int(ow['pad_px']) % 2 == 0 or not (0 <= int(ow['raster_bits']) <= 8):
         raise ValueError('tex-owner.json: owner вне допустимых пределов (pad_px нечётный ≥ 1)')
+    dl = r['dilate']
+    if not (0 <= int(dl['uv_gutter_px']) <= 64) or not (0 < float(dl['guard_dl_max']) < 100):
+        raise ValueError('tex-owner.json: dilate вне допустимых пределов (uv_gutter_px 0…64, guard_dl_max > 0)')
     return r
 
 
