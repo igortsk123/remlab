@@ -131,9 +131,9 @@ def main():
     setmode('block')
     p = subprocess.run([sys.executable, HOOK], input=bash(f'cat {HD}EOF\nx\nEOF'), capture_output=True, text=True, env=env2, timeout=30)
     check('журнал недоступен: режим block всё равно отказывает (код 2)', p.returncode == 2, (p.returncode, p.stderr[:80]))
-    # конфиг репозитория: режим по умолчанию — warn
+    # конфиг репозитория: режим — block (директор, 26.11, после warn-суток)
     with open(os.path.join(HERE, 'guard-heredoc.json'), encoding='utf-8') as f:
-        check('guard-heredoc.json: mode warn', json.load(f).get('mode') == 'warn')
+        check('guard-heredoc.json: mode block', json.load(f).get('mode') == 'block')
     print(f'\nпроверок: {N}, провалов: {len(FAILS)}')
     for x in FAILS:
         print('  ', x)
