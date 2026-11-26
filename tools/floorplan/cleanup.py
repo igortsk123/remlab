@@ -329,8 +329,90 @@ def clean_background(bgr):
     return out, info
 
 
-def clean_bgr(bgr, rectify=True, background=True):
-    """→ (bgr, ops, info). ops ⊂ ['rectify', 'background']; ничего не применилось — тот же массив."""
+# ---------------- (в) усиление бледных линий БТИ ----------------
+LINES_FAINT = 0.35          # типичная («75-й процентиль» по пикселям линий) глубина ниже этого → линии бледные, усиливаем
+LINES_TARGET = 0.65         # до какой глубины подтягиваем типичную линию
+LINES_GAIN = (1.0, 3.0)
+LINES_PAPER_SD = 8.0        # разброс яркости бумаги (верхние 40 % пикселей) больше — фон неровный/тёмный, усиление раздуло бы пятна: не трогаем
+LINES_CHANGED = 0.22        # доля потемневших пикселей больше — усилилось слишком много (не линии), откат
+LINES_LOW = 0.14            # штрих: глубина не меньше (иначе зерно бумаги)
+LINES_SEED = 0.20           # и связан с пикселем не мельче этой глубины
+LINES_AREA = (1.0, 2.6)     # площадь «чёрного» после/до: больше — усилился шум/толщина, откат
+
+
+def flag_lines() -> bool:
+    return os.environ.get('FP_CLEAN_LINES', '0') == '1'
+
+
+def strengthen_lines(bgr):
+    """→ (out | None, info). Бледные тонкие линии (серый скан БТИ) делаются темнее; бумага и заливки комнат не меняются, геометрия не меняется.
+    Глубина линии s = (местный фон − пиксель) / местный фон; фон — замыкание по большому окну. Усиливаются только пиксели с s > ~0.06 (плавный порог), коэффициент
+    подбирается по листу: типичная линия (75-й процентиль s) → LINES_TARGET, но не больше LINES_GAIN. Контраст уже высокий — не трогаем.
+    Автопроверки: чернил после/до по площади в LINES_AREA, фон вне линий не темнеет (доля пикселей бумаги, ставших «линией», ≈ 0)."""
+    info = {}
+    H, W = bgr.shape[:2]
+    L = max(H, W)
+    gray = cv2.cvtColor(bgr, cv2.COLOR_BGR2GRAY)
+    k = max(15, int(0.03 * L)) | 1
+    bg = cv2.morphologyEx(gray, cv2.MORPH_CLOSE, cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (k, k)))
+    bg = cv2.GaussianBlur(bg, (0, 0), k / 3.0).astype(np.float32)
+    bg = np.maximum(bg, gray.astype(np.float32))
+    bg = np.maximum(bg, 1.0)
+    s = np.clip((bg - gray.astype(np.float32)) / bg, 0.0, 1.0)
+    ink = s > 0.08
+    if float(ink.mean()) < 0.002:
+        info['reason'] = 'линий почти нет'
+        return None, info
+    p75 = float(np.percentile(s[ink], 75))                    # типичная глубина линии
+    info['depth_before'] = round(p75, 3)
+    if p75 >= LINES_FAINT:
+        info['reason'] = f'линии уже контрастные (глубина {p75:.2f} ≥ {LINES_FAINT})'
+        return None, info
+    sd = float(gray[gray > np.percentile(gray, 60)].std())
+    info['paper_sd'] = round(sd, 1)
+    if sd > LINES_PAPER_SD:
+        info['reason'] = f'фон неровный (разброс {sd:.1f} > {LINES_PAPER_SD}) — не трогаем'
+        return None, info
+    gain = float(np.clip(LINES_TARGET / max(p75, 0.05), *LINES_GAIN))
+    info['gain'] = round(gain, 2)
+    # только штрихи: пиксели глубже LINES_LOW, связанные с «верной» линией (глубже LINES_SEED); зернистость бумаги (s ~ 0.05–0.14) отдельными пятнами не усиливаем
+    low = (s > LINES_LOW).astype(np.uint8)
+    nl, lab = cv2.connectedComponents(low, connectivity=8)
+    seeded = np.zeros(nl, bool)
+    seeded[np.unique(lab[s > max(LINES_SEED, 0.7 * p75)])] = True
+    seeded[0] = False
+    stroke = seeded[lab].astype(np.uint8)
+    if not stroke.any():
+        info['reason'] = 'штрихов нет (линии мельче порога) — не трогаем'
+        return None, info
+    stroke = cv2.GaussianBlur(cv2.dilate(stroke, np.ones((3, 3), np.uint8)).astype(np.float32), (0, 0), 0.8)
+    w = np.clip((s - 0.04) / 0.06, 0.0, 1.0) * stroke
+    s2 = np.clip(s * (1.0 + (gain - 1.0) * w), 0.0, 1.0)
+    delta = (s2 - s) * bg                                     # на сколько уровней серого потемнеть
+    out = np.clip(bgr.astype(np.float32) - delta[..., None], 0, 255).astype(np.uint8)
+    thr = max(0.12, 0.5 * p75)                                # «линия» = не меньше половины типичной глубины до усиления
+    a0 = float((s > thr).sum())
+    a1 = float((s2 > thr).sum())
+    ratio = a1 / max(a0, 1.0)
+    paper = s < 0.04
+    leak = float(((s2 > 0.10) & paper).sum() / max(float(paper.sum()), 1.0))
+    info.update({'depth_after': round(float(np.percentile(s2[ink], 75)), 3), 'ink_area_ratio': round(ratio, 2), 'paper_leak': round(leak, 5)})
+    if a0 < 50 or not (LINES_AREA[0] <= ratio <= LINES_AREA[1]):
+        info['reason'] = f'площадь тёмного после/до {ratio:.2f} вне {LINES_AREA} — откат'
+        return None, info
+    changed = float(((gray.astype(np.float32) - cv2.cvtColor(out, cv2.COLOR_BGR2GRAY).astype(np.float32)) > 8).mean())
+    info['changed'] = round(changed, 3)
+    if changed > LINES_CHANGED:
+        info['reason'] = f'потемнело {changed:.2f} листа > {LINES_CHANGED} — откат'
+        return None, info
+    if leak > 0.001:
+        info['reason'] = f'фон вне линий потемнел ({leak:.4f}) — откат'
+        return None, info
+    return out, info
+
+
+def clean_bgr(bgr, rectify=True, background=True, lines=False):
+    """→ (bgr, ops, info). ops ⊂ ['rectify', 'background', 'lines']; ничего не применилось — тот же массив."""
     ops, info, cur = [], {}, bgr
     if rectify:
         w_, inf = rectify_lines(cur)
@@ -345,19 +427,25 @@ def clean_bgr(bgr, rectify=True, background=True):
         if b_ is not None:
             cur = b_
             ops.append('background')
+    if lines:
+        l_, inf = strengthen_lines(cur)
+        info['lines'] = inf
+        if l_ is not None:
+            cur = l_
+            ops.append('lines')
     return cur, ops, info
 
 
 def clean_sheet_steps(sheet):
     """PIL RGB → (PIL RGB, ops, steps). steps — геометрия для обратного преобразования (исходный лист ← выход):
-    [{'op': 'rectify', 'H': 3×3 исходный→выход, 'in': [W, H], 'out': [w, h]}]; фон геометрию не меняет. Выключено/не применилось — тот же объект, [], []."""
-    rect, bg = flag_rect(), flag_bg()
-    if not (rect or bg):
+    [{'op': 'rectify', 'H': 3×3 исходный→выход, 'in': [W, H], 'out': [w, h]}]; фон и усиление линий геометрию не меняют. Выключено/не применилось — тот же объект, [], []."""
+    rect, bg, ln = flag_rect(), flag_bg(), flag_lines()
+    if not (rect or bg or ln):
         return sheet, [], []
     from PIL import Image
     try:
         bgr = cv2.cvtColor(np.asarray(sheet.convert('RGB')), cv2.COLOR_RGB2BGR)
-        out, ops, info = clean_bgr(bgr, rectify=rect, background=bg)
+        out, ops, info = clean_bgr(bgr, rectify=rect, background=bg, lines=ln)
     except Exception:  # noqa: BLE001 — чистка не должна ронять разбор: лист как есть
         return sheet, [], []
     if not ops:

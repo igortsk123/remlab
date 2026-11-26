@@ -182,6 +182,75 @@ def test_clean_sheet_failure_returns_sheet(monkeypatch):
     assert out is sheet and ops == []
 
 
+# ───────────────── усиление бледных линий (FP_CLEAN_LINES) ─────────────────
+
+def faint_plan(seed, line=(185, 185, 185), W=1000, H=800, paper=246):
+    """бледный серый скан БТИ: тонкие светло-серые линии и «подписи» на светлой бумаге с лёгким шумом"""
+    rng = np.random.default_rng(seed)
+    img = np.full((H, W, 3), paper, np.uint8)
+    cv2.rectangle(img, (120, 100), (W - 120, H - 100), line, 3)
+    cv2.line(img, (480, 100), (480, H - 100), line, 2)
+    cv2.line(img, (120, 420), (480, 420), line, 2)
+    for k in range(8):
+        cv2.putText(img, '%d.%d' % (k + 1, k * 3), (200 + 60 * k, 300), cv2.FONT_HERSHEY_SIMPLEX, 0.6, line, 1, cv2.LINE_AA)
+    noise = rng.normal(0, 1.2, (H, W, 1))
+    return np.clip(img.astype(np.float32) + noise, 0, 255).astype(np.uint8)
+
+
+def test_lines_faint_become_darker_paper_untouched():
+    img = faint_plan(1)
+    out, info = cl.strengthen_lines(img)
+    assert out is not None, info
+    g0, g1 = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY), cv2.cvtColor(out, cv2.COLOR_BGR2GRAY)
+    ink = g0 < 225
+    assert g1[ink].mean() < g0[ink].mean() - 40                  # линии заметно темнее
+    paper = cv2.erode((g0 >= 240).astype(np.uint8), np.ones((9, 9), np.uint8)) > 0
+    assert np.abs(g1[paper].astype(int) - g0[paper]).max() <= 2  # бумага вдали от линий не изменилась
+    assert out.shape == img.shape                                # геометрия та же
+    assert info['paper_leak'] <= 0.001 and 1.0 <= info['ink_area_ratio'] <= 2.6
+
+
+def test_lines_already_contrasty_refused():
+    img = faint_plan(2, line=(40, 40, 40))
+    out, info = cl.strengthen_lines(img)
+    assert out is None and 'контрастные' in info['reason']
+
+
+def test_lines_blank_and_uneven_refused():
+    assert cl.strengthen_lines(np.full((400, 600, 3), 245, np.uint8))[0] is None
+    img = faint_plan(3)
+    grad = np.linspace(0, 110, img.shape[1], dtype=np.float32)[None, :, None]
+    img = np.clip(img.astype(np.float32) - grad, 0, 255).astype(np.uint8)                          # сильный градиент света — неровный фон
+    out, info = cl.strengthen_lines(img)
+    assert out is None and ('неровный' in info['reason'] or 'контрастные' in info['reason'])    # на ярко-неровном фоне усиление не делаем
+
+
+def test_lines_grain_not_amplified():
+    """зерно бумаги (отдельные пятна неглубокие) не усиливается: от линий не больше, чем «штрихи»"""
+    img = faint_plan(4)
+    rng = np.random.default_rng(5)
+    grain = cv2.GaussianBlur(rng.normal(0, 1, img.shape[:2]).astype(np.float32), (0, 0), 3) * 18
+    img = np.clip(img.astype(np.float32) + grain[..., None], 0, 255).astype(np.uint8)
+    out, info = cl.strengthen_lines(img)
+    if out is not None:
+        g0, g1 = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY), cv2.cvtColor(out, cv2.COLOR_BGR2GRAY)
+        away = cv2.erode((g0 > 215).astype(np.uint8), np.ones((15, 15), np.uint8)) > 0
+        assert (g0.astype(int) - g1)[away].max() <= 6
+
+
+def test_lines_flag_gated(monkeypatch):
+    from PIL import Image
+    sheet = Image.fromarray(cv2.cvtColor(faint_plan(6), cv2.COLOR_BGR2RGB))
+    monkeypatch.delenv('FP_CLEAN_BG', raising=False)
+    monkeypatch.delenv('FP_CLEAN_RECT', raising=False)
+    monkeypatch.delenv('FP_CLEAN_LINES', raising=False)
+    out, ops, steps = cl.clean_sheet_steps(sheet)
+    assert out is sheet and ops == [] and steps == []
+    monkeypatch.setenv('FP_CLEAN_LINES', '1')
+    out, ops, steps = cl.clean_sheet_steps(sheet)
+    assert ops == ['lines'] and steps == [] and out.size == sheet.size          # геометрия не меняется → обратное преобразование пустое
+
+
 # ───────────────── стенд A–G (DEV) ─────────────────
 
 def _bench_sheets():
