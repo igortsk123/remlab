@@ -2,6 +2,8 @@
   "_about": "ЧТО запускать на каждом этапе пути покраски (T-20261121-169/4). Код обвязки paint_run_all.py ничего не знает про этапы: порядок, команды, зависимости (`needs` — этапы, чей статус отказ/нет блокирует этот), служебные файлы — здесь. Подстановки {…}: py, blender, root, run, sku, sku_dir, work, prep_glb, native, photo, product_role, channels, cam_az_args. Пустые {product_role}/{channels} выпадают вместе со своим флагом.",
   "_outputs_about": "T-20261125-82: у каждого этапа outputs — файлы выхода и КТО их читает (consumers: stage + via needs|dynamic|argv|alias|code) либо terminal/report_only с причиной; проверка — tools/ops/stage_outputs.py (в conveyor_check.py, предупреждение ORPHAN-OUTPUT): потребитель подтверждается по argv/dynamic/коду, а не по слову. Новый выход этапа — сразу строка здесь. Пути — от папки товара; pose.json, stage_loss.json, stages/ лежат в корне папки товара (их пишет pose_fit этапа 04).",
   "_unverified": "Команды собраны по шапкам/CLI скриптов на ветках, НЕ запускались. Сомнительное до первого запуска: (1) этап 7 — ветка paint-fill-1120 (f137a675) должна быть влита; (2) запись каталога (`--catalog`): сопоставление sid == sku точное; (3) порядок 04 до 03 — роли берут азимут камеры только при passed 4; (4) parts.npz этапа 3 и GLB этапа 6 — одно число граней (проверено на 3 формах out30-v3: 149999 = 149999, одна геометрия; для многогеометрийных этап 7 сам даст ValueError → rc 2).",
+  "abstain_is_stop": true,
+  "_abstain_is_stop_about": "T-99/7 (правило директора 26.11): воздержание ВКЛЮЧЁННОГО шага (поле abstain в его отчёте, rc 0) — СТОП прогона, а не «rc 0 → дальше»; шаги с abstain_report. Выключенные шаги не участвуют.",
   "heavy_slot": "tools/ops/heavy-slot.sh",
   "pythons": {"scout": "venvs/scout/bin/python", "delight": "venvs/delight/bin/python"},
   "_pythons_about": "Интерпретаторы шагов — от домашней папки. По умолчанию (`default_python`) — scout; этап с полем `python` берёт другой. 05-delight: Marigold IID требует diffusers, а он тянет huggingface_hub новее, чем в scout (там живёт сервис кадров) — отдельный venv delight (как собрать — tools/ops/requirements-delight.txt; T-20261121-169/5).",
@@ -296,11 +298,66 @@
             "--channels",
             "{channels}",
             "--channel-classes",
-            "{channel_classes}"
+            "{channel_classes}",
+            "--raw-photo",
+            "{photo}",
+            "--card",
+            "{card}"
           ],
           "heavy": {"prio": 1, "min_gb": 4, "cores": 2},
           "enabled_by": {"file": "tools/scout/rules/part-material.json", "key": "enabled"},
-          "_about": "T-63 Ш4а (выключено — шаг выпадает из плана и не берёт слот heavy-slot, enabled_by): материал части — ровный тон роль-части («цвет большинства», подбор светом сайта) после 06 и back_panel; rules/part-material.json, ВЫКЛ по умолчанию: пока enabled=false шаг ничего не пишет (06-visible байт в байт). Нет ролей/камеры/gltfpack — воздержание с причиной в 06-visible/part_material.json, rc 0 всегда."
+          "abstain_report": "06-visible/part_material.json",
+          "write_files": {"{work}/card.json": "$card_flat"},
+          "_about": "T-63 Ш4а (выключено — шаг выпадает из плана и не берёт слот heavy-slot, enabled_by): материал части — ровный тон роль-части («цвет большинства», подбор светом сайта) после 06 и back_panel; rules/part-material.json, ВЫКЛ по умолчанию: пока enabled=false шаг ничего не пишет (06-visible байт в байт). Нет ролей/камеры/gltfpack — воздержание с причиной в 06-visible/part_material.json, rc 0 всегда. T-99/7: --raw-photo/--card — как в руке A (тон по сырому фото; плоская карточка work/card.json); abstain_report — при rules.abstain_is_stop воздержание = СТОП прогона."
+        },
+        {
+          "argv": [
+            "{py}",
+            "{root}/tools/scout/tex_owner_stage.py",
+            "--run",
+            "{run}",
+            "--sku",
+            "{sku}"
+          ],
+          "heavy": {"prio": 1, "min_gb": 4, "cores": 1},
+          "enabled_by": {"file": "tools/scout/rules/tex-owner.json", "key": "enabled"},
+          "abstain_report": "06-visible/tex_owner.json",
+          "_about": "T-99/7 (вариант А, Ш5–6 «владелец текселя», после Ш4а): rules/tex-owner.json, ВЫКЛ по умолчанию (шаг выпадает из плана — main байт в байт); включение — enabled=true в файле правил (раньше проба звала --force). Воздержание — 06-visible/tex_owner.json, rc 0."
+        },
+        {
+          "argv": [
+            "{py}",
+            "{root}/tools/scout/part_grain_stage.py",
+            "--run",
+            "{run}",
+            "--sku",
+            "{sku}",
+            "--photo",
+            "{photo}",
+            "--pose-run",
+            "{sku_dir}",
+            "--card",
+            "{card}"
+          ],
+          "heavy": {"prio": 1, "min_gb": 4, "cores": 1},
+          "enabled_by": {"file": "tools/scout/rules/part-grain.json", "key": "enabled"},
+          "abstain_report": "06-visible/part_grain.json",
+          "write_files": {"{work}/card.json": "$card_flat"},
+          "_about": "T-99/7 (зерно дерева, после owner): rules/part-grain.json, ВЫКЛ по умолчанию; фото — сырое {photo} (как в руке A), карточка плоская work/card.json (габарит → см на текстель; нет записи каталога — флаг выпадает); пробные правила (тонкая плита, bottom_nearest…) — в файле правил, не в argv. Воздержание — 06-visible/part_grain.json."
+        },
+        {
+          "argv": [
+            "{py}",
+            "{root}/tools/scout/tex_gutter_stage.py",
+            "--run",
+            "{run}",
+            "--sku",
+            "{sku}"
+          ],
+          "heavy": {"prio": 1, "min_gb": 4, "cores": 1},
+          "enabled_by": {"file": "tools/scout/rules/tex-owner.json", "key": "dilate.uv_gutter_px"},
+          "abstain_report": "06-visible/tex_gutter.json",
+          "_about": "T-99/7 (поле вокруг островов, после зерна, до 07): rules/tex-owner.json → dilate.uv_gutter_px (0 = выкл, замороженный вариант А — 2; раньше проба звала --force-px 2). Воздержание — 06-visible/tex_gutter.json."
         }
       ],
       "needs_tolerate": {

@@ -172,6 +172,21 @@ fr = render(fin)
 want = np.clip(PM.lin2srgb(tones2['верх']['lin']) + 0.5, 0, 255)
 check(np.abs(fr[0, 0].astype(float) - want).max() <= 1.5 and len(hist) == R['fit']['iters'], 'подбор: кадр под светом совпал с тоном фото (потеря света 0,8 скомпенсирована)')
 
+# ── T-99/7 (Fable, вопрос 12): подбор под свет меняет только яркость — один множитель на три канала (оттенок и насыщенность от фото); ключ fit.luma_only
+def render_tint(tex_):                             # свет сайта с цветным отсветом ракурса: синий теряет сильнее красного (0,9 / 0,8 / 0,5)
+    return np.clip(PM.lin2srgb(PM.srgb2lin(tex_) * np.array([0.9, 0.8, 0.5])) + 0.5, 0, 255).astype(np.uint8)
+
+
+Rl = _cp.deepcopy(R); Rl['fit']['luma_only'] = True
+Rc = _cp.deepcopy(R); Rc['fit']['luma_only'] = False
+alb_c, _hc = PM.fit_albedo(names2, tones2, {}, set(), texmap, ctl, render_tint, lm, Rc)
+alb_l, _hl = PM.fit_albedo(names2, tones2, {}, set(), texmap, ctl, render_tint, lm, Rl)
+mc, ml = PM.fit_mult(alb_c, tones2), PM.fit_mult(alb_l, tones2)
+check(mc['верх']['spread'] > 1.3, 'luma_only выкл: по каналам — множители разные (подбор вбирает цветной отсвет: синего убрано больше), разброс > 1,3')
+check(ml['верх']['spread'] <= 1.001 and ml['ножки']['spread'] <= 1.001, 'luma_only: ОДИН множитель на три канала у всех групп (разброс max/min = 1), оттенок и насыщенность от фото')
+check(abs(PM._luma(PM.srgb2lin(render_tint(PM.compose(ctl, texmap, names2, alb_l, {}, set())[0])[0, 0])) - PM._luma(tones2['верх']['lin'])) < 0.01, 'luma_only: яркость кадра под светом совпала с яркостью тона фото')
+check(R['fit'].get('luma_only') is True, 'luma_only: в правилах по умолчанию включён (боевая рука Ш4а выкл — main не меняется)')
+
 # ── H′ (T-97 шаг 2): узкая группа не подгоняется отдельно — общая поправка товара; ключ fit.hprime.enabled
 Rh = _cp.deepcopy(R); Rh['fit']['hprime'].update(enabled=True, nrel=0.4)
 check(R['fit']['hprime']['enabled'] is False, 'H′: по умолчанию выкл (fit.hprime.enabled=false)')

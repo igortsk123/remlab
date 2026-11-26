@@ -392,6 +392,8 @@ def process(a, rules: dict, d: str, rep: dict) -> None:
             rep['photo_texels_replaced_in_mask'] = int((ph & chg).sum())
             rep['photo_texels_changed_outside_mask'] = int((ph & chg & ~painted).sum())
     rep['fit_iters'] = hist
+    rep['fit_luma_only'] = bool(rules['fit'].get('luma_only', False))
+    rep['fit_mult'] = PM.fit_mult(alb, tones)                         # множители по каналам итогового альбедо к тону фото (T-99/7): строка в отчёт и вход проверки разброса
     rep['painted_texel_share'] = round(float(painted.mean()), 4)
     # запись: исходники сохраняем один раз, дальше идём от них
     for name, keepname in KEEP.items():
