@@ -3034,6 +3034,14 @@ def run_stage_once(run: str, sku: str, glb: str, known: list | None = None, part
     else:
         pick, used = one(cfg, draft), ((cfg or {}).get('source') or 'stat')
     rep, tex_after, de, big, de_worst = pick['rep'], pick['tex'], pick['de'], pick['big'], pick['de_worst']
+    _gk = RULES.get('grain_keep') or {}                                     # T-99/11 шаг 1: тексель с меткой зерна 07 не меняет совсем (выкл = как в main)
+    _gk_on = bool(_gk.get('enabled') and _gm)
+    _gk_tr = {} if (_gk_on and _gk.get('trace', True)) else None
+
+    def _gk_mark(label, tx_):
+        if _gk_tr is not None:
+            _gk_tr[label] = {'зерно': grain_changed(tx_, tex_before, _gm), 'тон_только': grain_changed(tx_, tex_before, _to)}
+    _gk_mark('fill', tex_after)
     _legs_fill = [np.array(t_) for t_ in tex_after] if pick.get('legs_protect') is not None else None      # ножки (legs_common_tone): результат fill — пин; хуки ниже его не меняют
     _m = _hmark()
     tex_after, rep['ref_zone_map'] = apply_ref_zone_map(geoms, tex_after, known, cfg)
@@ -3097,6 +3105,7 @@ def run_stage_once(run: str, sku: str, glb: str, known: list | None = None, part
     except Exception as e:  # noqa: BLE001
         rep['sub_tone'] = {'error': f'{type(e).__name__}: {e}'}
     _tex_pre_top = tex_after
+    _gk_mark('до_top_prior', tex_after)
     _m = _hmark()
     _sy_dir = (cfg or {}).get('synth_dir')                                  # T-28/1: маска «synth» этапа 6 (prov=4) + цвета 06 — кандидат тона верха без фото
     _synth_arg = (load_synth_png(_sy_dir), tex_before) if _sy_dir else None
@@ -3104,6 +3113,7 @@ def run_stage_once(run: str, sku: str, glb: str, known: list | None = None, part
     if _gm:                                                                    # одна деталь — один источник фактуры: на текселях зерна верх top_prior остаётся как был (тон Ш4а + зерно)
         tex_after, _gm_rep['top_prior_kept_texels'] = grain_restore(tex_after, _tex_pre_top, _gm)
     _hdone(hooks, 'top_prior', _m)
+    _gk_mark('top_prior', tex_after)
     if sg_pas is not None and rep['top_prior'].get('applied'):                  # T-28/1: верх без фото с тоном, далёким от однотонной группы, следует группе (хук откатывается, красит паспорт)
         _tf = SP.top_follows_group(rep['top_prior'], sg_pas, sg_cfg)
         rep['top_prior']['follow_group'] = _tf
@@ -3169,6 +3179,7 @@ def run_stage_once(run: str, sku: str, glb: str, known: list | None = None, part
         rep['paint_policy']['groups_synth'] = _modes
         rep['paint_policy']['applied'] = 'synth' if 'quilt' in _modes else ('abstain' if rep['paint_policy'].get('reason') else 'no_synth')
     rep['surface_groups'] = sg_rep
+    _gk_mark('группы', tex_after)
     rep['known_source'] = (cfg or {}).get('known_source_gate')
     rep['metrics_pre_hook'] = {k: pick['vals'].get(k) for k in ('empty_pct', 'dE00_front_back', 'dL_front_back', 'filled_faces_step_pct', 'far_excess_pct')}     # что было бы до хуков (для сравнения; на passed не влияет)
     if _dz_eff is not None:                                                                  # зоны деталей/стекла — как на входе (хуки после заливки их не меняют)
@@ -3184,6 +3195,12 @@ def run_stage_once(run: str, sku: str, glb: str, known: list | None = None, part
             _new.append(ta_)
         tex_after = _new
         rep['legs_restored_texels'] = _lc                                   # сколько текселей ножек хуки успели изменить (и вернули)
+    if _gk_on:                                                                # T-99/11 шаг 1: после ВСЕХ хуков и групп тексели с меткой зерна — как на входе 07 (06): ни тон, ни рисунок
+        _gk_before = grain_changed(tex_after, tex_before, _gm)
+        tex_after, _ = grain_restore(tex_after, tex_before, _gm)
+        rep['grain_keep'] = {'enabled': True, 'texels': int(sum(int(np.asarray(m_).sum()) for m_ in _gm)), 'changed_before_restore': _gk_before, 'changed_after': grain_changed(tex_after, tex_before, _gm), **({'trace': _gk_tr} if _gk_tr is not None else {})}
+    else:
+        rep['grain_keep'] = {'enabled': False}
     _m = _hmark()
     pick['finish'](tex_after, None if sg_pas is None else SP.ref_maps(geoms, k_keep, sg_pas, sg_ctx))                                          # мерки — по ИТОГОВОЙ текстуре (после ref_zone_map, own_panel, top_prior), не по текстуре до хуков
     _hdone(hooks, 'finish_final', _m)
@@ -3366,6 +3383,16 @@ def grain_mask_merge(geoms: list, dz_eff: dict | None, gm: list | None) -> tuple
         dz_eff = {'protect': [np.zeros((_grid(g_), _grid(g_)), bool) for g_ in geoms], 'texture_off': [np.zeros((_grid(g_), _grid(g_)), bool) for g_ in geoms]}
     dz_eff = dict(dz_eff, texture_off=[np.asarray(t_, bool) | np.asarray(m_, bool) for t_, m_ in zip(dz_eff['texture_off'], gm)])
     return dz_eff, gm, {'applied': True, 'texels': int(sum(int(np.asarray(m_).sum()) for m_ in gm))}
+
+
+def grain_changed(tex: list, tex_pre: list, masks: list | None) -> int:
+    """T-99/11: сколько текселей маски (метка зерна / тон-только) отличаются по цвету от `tex_pre` — мерка «07 не трогает зерно» и трасса «какой хук менял». Нет маски — 0."""
+    n = 0
+    for t_, p_, m_ in zip(tex, tex_pre, masks or []):
+        t_, p_, m_ = np.asarray(t_), np.asarray(p_), np.asarray(m_, bool)
+        if t_.shape[:2] == m_.shape and p_.shape == t_.shape:
+            n += int((np.any(t_[..., :3] != p_[..., :3], axis=-1) & m_).sum())
+    return n
 
 
 def grain_restore(tex_after: list, tex_pre: list, gm: list) -> tuple:

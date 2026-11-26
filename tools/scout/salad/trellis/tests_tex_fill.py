@@ -1823,6 +1823,25 @@ def test_grain_mask():
     zk = {'protect': [np.zeros_like(top_px)], 'texture_off': [np.zeros_like(top_px)]}
 
 
+def test_grain_keep():
+    print('T-99/11 шаг 1: 07 не меняет тексели с меткой зерна (grain_keep; выкл по умолчанию):')
+    before = np.zeros((8, 8, 3), np.uint8) + 120
+    before[2:5, 2:5] = (130, 100, 70)                                  # "зерно" на входе 07
+    gm = np.zeros((8, 8), bool)
+    gm[1:6, 1:6] = True
+    after = before.copy()
+    after[0:8, 0:3] = (90, 90, 90)                                     # группа перекрасила полосу (часть в метке, часть вне)
+    n = TF.grain_changed([after], [before], [gm])
+    ok(n == int((gm & np.any(after != before, axis=-1)).sum()) and n > 0, f'grain_changed считает отличия только внутри метки ({n})')
+    ok(TF.grain_changed([before], [before], [gm]) == 0 and TF.grain_changed([after], [before], None) == 0, 'без отличий / без метки — 0')
+    back, _k = TF.grain_restore([after], [before], [gm])
+    ok(TF.grain_changed(back, [before], [gm]) == 0, 'после восстановления: изменённых текселей с меткой зерна 0')
+    ok(np.array_equal(back[0][~gm], after[~gm]), 'вне метки — результат 07 не тронут')
+    ok(((TF.RULES.get('grain_keep') or {}).get('enabled')) is False, 'в rules/paint-fill.json grain_keep.enabled = false по умолчанию (как в main)')
+    src = open(TF.__file__, encoding='utf-8').read()
+    ok(src.index("rep['surface_groups'] = sg_rep") < src.index('if _gk_on:') < src.index("pick['finish'](tex_after"), 'возврат зерна стоит ПОСЛЕ групп материала и до итоговых мерок')
+
+
 def test_detail_zones_fill():
     print('зоны деталей (T-47/4): protect — вне тона части и как на входе; texture_off — тон без фактуры; паспорт не просит — зон нет:')
     g, parts, known, tl, col = scene_parts()
@@ -2001,7 +2020,7 @@ def test_cpu_model_in_check():
 
 
 def main() -> int:
-    for f in (test_cpu_model_in_check, test_part_deltas_same_as_reference, test_known_synth_by_type, test_known_synth_not_trusted, test_grain_mask, test_detail_zones_fill, test_check_on_final_texture, test_side_azimuths, test_top_prior_hook, test_mirror_off_by_default, test_shrink_layout, test_tie_picks_front_on_back, test_front_on_back, test_front_on_back_within_parts, test_front_on_back_unequal_parts, test_color, test_photo, test_parts, test_lighter_than_photo, test_no_known_part, test_mirror, test_texture, test_gutter_render, test_seam_steps_concavity, test_diffuse_quilt_far, test_draft_source, test_tone_mode_pattern, test_quilt_efros, test_quilt_holes, test_known_unchanged, test_render_pattern, test_outlier_blocks, test_dark_fabric, test_trellis_relief, test_part_roles_from_stage3, test_stage7_side_tone_smooth_rules, test_tone_from_neighbour, test_nail_twins, test_borrow_donors, test_tone_only, test_part_pattern_single_truth, test_pr_camera_and_winding, test_hidden_visible, test_stage6_gate, test_cli_run_stage, test_orphan_parts, test_cli_parts_flags, test_zones_fallback, test_brightness_target_median, test_run_stage_fallback, test_render_low, test_quilt_lattice, test_pattern_lattice, test_part_independence, test_unobserved_relief):
+    for f in (test_cpu_model_in_check, test_part_deltas_same_as_reference, test_known_synth_by_type, test_known_synth_not_trusted, test_grain_mask, test_grain_keep, test_detail_zones_fill, test_check_on_final_texture, test_side_azimuths, test_top_prior_hook, test_mirror_off_by_default, test_shrink_layout, test_tie_picks_front_on_back, test_front_on_back, test_front_on_back_within_parts, test_front_on_back_unequal_parts, test_color, test_photo, test_parts, test_lighter_than_photo, test_no_known_part, test_mirror, test_texture, test_gutter_render, test_seam_steps_concavity, test_diffuse_quilt_far, test_draft_source, test_tone_mode_pattern, test_quilt_efros, test_quilt_holes, test_known_unchanged, test_render_pattern, test_outlier_blocks, test_dark_fabric, test_trellis_relief, test_part_roles_from_stage3, test_stage7_side_tone_smooth_rules, test_tone_from_neighbour, test_nail_twins, test_borrow_donors, test_tone_only, test_part_pattern_single_truth, test_pr_camera_and_winding, test_hidden_visible, test_stage6_gate, test_cli_run_stage, test_orphan_parts, test_cli_parts_flags, test_zones_fallback, test_brightness_target_median, test_run_stage_fallback, test_render_low, test_quilt_lattice, test_pattern_lattice, test_part_independence, test_unobserved_relief):
         f()
     print(f'tests_tex_fill: ошибок {bad}')
     return 1 if bad else 0
