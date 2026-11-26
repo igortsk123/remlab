@@ -8,7 +8,7 @@ importance: med
 source: manual
 status: working
 source_of_truth: supporting
-last_verified: 2026-11-24
+last_verified: 2026-11-26
 ---
 
 # Пул нод Salad — эксплуатация (Tier 2)
@@ -27,7 +27,7 @@ last_verified: 2026-11-24
 8. 12.11: проба 0/3 — открытая автоволна и таймер разбора
 
 ## 1. Регламент
-- **Правила групп** — `tools/scout/rules/salad-groups.json`: тариф (в файле low/batch; по правилу владельца с 24.11 — только `low`, TG 2626; код ещё не приведён), окно, цена;
+- **Правила групп** — `tools/scout/rules/salad-groups.json`: тариф (у групп мешей low/batch, у выключенных групп рендера `render-*` — high/medium; по правилу владельца с 24.11 — только `low`, TG 2626; код ещё не приведён), окно, цена;
   код не хранит копий этих чисел (ADR-0177; исключения — курс `pool_ledger.py:USD_RUB` и тарифы пилотного
   `submit.py:RATE_PER_HOUR`). Группы с окном поднимает `batch_window.sh up` (крон 09:00 UTC) — только без стоп-файла
   и при живом `batch_show.py`, и не группу под запретом цены (`salad_groups.py --can-start`); гасит `down` в 15:00
@@ -41,7 +41,7 @@ last_verified: 2026-11-24
   тишина без мешей, обвал связи (≥ `MESH_GUARD_BURST_N`=25 отказов одной ошибкой за `MESH_GUARD_BURST_MIN`=15 мин) или
   выбраны деньги волны; он сильнее `autostart_policy`. Снимать руками
   только после разбора причины (`kind`: `budget`, `shared_infra`, `silence`).
-- **Живые логи**: `batch-hardened.log` (конвейер, `tools/scout/mesh_wave_start.sh:LOG`; на 18.11 файла в банке нет, строки § 8 не проверяемы) пишется в
+- **Живые логи**: `batch-hardened.log` (конвейер, `tools/scout/mesh_wave_start.sh:LOG`; файл есть, последняя запись 19.11) пишется в
   `.memory_bank/_intake/` — при следующей остановке конвейера перенаправить в `~/scout-logs/`.
 
 ## 2. Замеры темпа и цены
@@ -93,7 +93,7 @@ last_verified: 2026-11-24
 ## 4. Чистка приёмника и прополка — шесть шагов
 `drain.sh --keep` → `ingest_registry` → **`apply_repairs` (приёмка)** → `mesh_bind` →
 `receiver_purge --apply` → `prune_shapes.py --apply` (прополка болванок, ADR-0233; добавлена
-02.10 — `tools/scout/salad/sink_keeper.sh:93` и `tools/scout/salad/batch_show.py:649`).
+02.10 — `tools/scout/salad/sink_keeper.sh:93` и `tools/scout/salad/batch_show.py:670`).
 Пропуск приёмки даёт «к удалению: 0, нет в базе 161»: без вердикта база не помечает
 `mesh_status` (так было 04.09); с 20.10 (mesh-12) чистилка судит по реестру поколений `mesh_generations`, а не по `mesh_status`:
 комплект с моделью, не записанный `ingest_registry`, остаётся («нет в реестре», `tools/scout/salad/receiver_purge.py:225-229`, шапка `:13-29`;
@@ -138,7 +138,7 @@ last_verified: 2026-11-24
   кредиты — только по свежему маркеру `mesh-no-credits.json` от `batch_show` (`MESH_GUARD_CLUE_H`=6). Стенд
   `tools/scout/salad/tests_money_guard.py` гоняет настоящий `main()` и валит старый код.
 - `autostart_policy: true` поднимает группу при СОЗДАНИИ, окно тарифа её не гасит.
-- ~~Пересадка ноды снимает и ту, что докачала образ на 100 %~~ — закрыто 05.09: докачавшую (≥99,9 %) не снимаем (`tools/scout/salad/batch_show.py:450`).
+- ~~Пересадка ноды снимает и ту, что докачала образ на 100 %~~ — закрыто 05.09: докачавшую (≥99,9 %) не снимаем (`tools/scout/salad/batch_show.py:471`).
 - Почему воркер иногда не встаёт на `cu124-localpaint2` (кэш Salad холодный после смены образа).
 - Поправка цвета меша по фото магазина на SKU — ждёт слова владельца (условия Codex в блокноте).
 
@@ -175,7 +175,7 @@ last_verified: 2026-11-24
   не работает (ложная тревога 06.11 TG 267).
 - **Группу-очередь по самой себе не пересоздавать:** образец удаляется вместе с группой, а Salad держит имя удалённой группы
   `name_conflict` > 50 мин — ни группы, ни образца. `recreate_group.py` отказывает (`self_donor_refusal`), группу-очередь создаёт
-  `queue_setup.py` по живому донору под новым именем (06.11: запасное `mesh-q-color2-canary` — окончание `-canary` обязательно, `tools/scout/rules/salad-groups.json`).
+  `queue_setup.py` по живому донору под новым именем (06.11: запасное `mesh-q-color2-canary`, `tools/scout/rules/salad-groups.json`; группа без окончания `-canary` в правилах обязана быть `disabled` — `tools/scout/salad/queue_setup.py:22-23`).
 - **Баланс Salad программно не узнать** (в API нет; `tools/scout/salad/wave_guard.py`, шапка) — остаток сообщает владелец; у нас только
   учёт трат (`pool_ledger.py`, книга сторожа денег).
 
@@ -187,7 +187,7 @@ last_verified: 2026-11-24
   `mesh-group-halt.json` (`kind: budget`, `source: lease`). Закрывает волну (на 12.11; позже § 9 — и по известному концу конвейера, `wave_guard.py:296-305`) только `tools/scout/salad/wave_guard.py:close_wave`, когда замки
   свободны (крон 15 мин) — тогда же сам стартует следующая автоволна по разрешению владельца.
 - **Причина 2 (вторичная):** ожидание «нет готовых машин 30 мин» считалось от старта группы, а основной цикл ~40 мин висел в хвосте
-  выгрузки: `scp … *.png` в шаге «ориент-паблиш» (post_steps, `batch_show.py:657`; `publish_merge` льёт только json) заливает на прод ВСЕ 6 873 картинки вида сверху, а не только новые (хвост каждой волны 35–40 мин,
+  выгрузки: `scp … *.png` в шаге «ориент-паблиш» (post_steps, `batch_show.py:678`; `publish_merge` льёт только json) заливает на прод ВСЕ 6 873 картинки вида сверху, а не только новые (хвост каждой волны 35–40 мин,
   замок конвейера держится). Первый круг после хвоста увидел 3 готовые машины, выдал задания и сразу снял их по истёкшему таймеру.
   Заливать только новые — T-20261112-105 (П1.32, владелец «да» TG 1244); таймер — кандидат в починку.
 - **Правила:** перед пробой/ручной волной — нет ли открытой автоволны в `wave-lease.json` (`wave_guard.py --dry` покажет «волна закрыта: …»);
@@ -220,12 +220,12 @@ last_verified: 2026-11-24
 - Этапы 06/07 на Salad (профиль cpu_stage, образ ghcr …/mesh-stage-trial:stage-cpu, T-189/1) — проба 4 товаров ≤$1; причина — память наших ядер 29 ГБ, 06/07 просят по ~5 ГБ и ждут в heavy-slot.
 - Сборка пробного образа (`.github/workflows/build-*-trial.yml`): `on.push.paths` обязан покрывать КАЖДЫЙ файл образа — список `*_files.txt` и всё из него (код, `rules/*.json`, данные), Dockerfile, COPY, скрипт контекста и сам workflow, иначе правка в `trial/*` не пересоберёт образ и проба молча пойдёт на старом коде (24.11, pose); сверяет CI — `tools/ops/trial_build_paths_check.py` (T-20261124-56).
   - Замер (T-189/1–2, 22.11): 06 ≈146 с на форму (пик 1,2–1,4 ГБ), 07 ≈52 с (пик 2,0–2,5 ГБ), 28 форм 07 одним пакетом — 28/28, ≈$0,004; сверка с локальным счётом = 0. Профиль `cpu_stage` — `basis: measured`.
-  - КОД ЭТАПА ЕДЕТ В ЗАДАНИИ (T-193/1/1, 22.11): во входе `code.tar` = `git archive <SHA>` (`tools/scout/salad/stage/code_tar.py`: trellis/** + rules/** + замыкание импортов; один SHA → один tar), в теле `code_sha` + `code_tar_sha256` (обязательны), команда из whitelist (06 tex_visible · 07 tex_fill · ref_zone · render_unlit); образ — только среда, пересобирать не нужно; запасной путь «код образа» выключен (STAGE_ALLOW_BAKED=1). В результате `_code.json` с SHA. Проба на 3 формах: код de5c8d52 — побайтно как локально; другой SHA с другим порогом — другой результат и другой code_sha; ≈$0,002 за группу. Драйвер: `tools/scout/salad/stage/stage_trial.py --code-ref <SHA>`. Ловушка: `python -I` не читает PYTHONPATH — пути кода воркер задаёт сам.
+  - КОД ЭТАПА ЕДЕТ В ЗАДАНИИ (T-193/1/1, 22.11): во входе `code.tar` = `git archive <SHA>` (`tools/scout/salad/stage/code_tar.py`: trellis/** + rules/** + замыкание импортов; один SHA → один tar), в теле `code_sha` + `code_tar_sha256` (обязательны), команда из whitelist (06 tex_visible · 07 tex_fill · ref_zone · render_unlit); образ — только среда, пересобирать не нужно; запасной путь «код образа» выключен по умолчанию, включает только `STAGE_ALLOW_BAKED=1` (`tools/scout/salad/stage/worker_stage.py`). В результате `_code.json` с SHA. Проба на 3 формах: код de5c8d52 — побайтно как локально; другой SHA с другим порогом — другой результат и другой code_sha; ≈$0,002 за группу. Драйвер: `tools/scout/salad/stage/stage_trial.py --code-ref <SHA>`. Ловушка: `python -I` не читает PYTHONPATH — пути кода воркер задаёт сам.
   - Страница этапа 07 (`tools/scout/salad/stage/page07.py`, T-189/3): рендер у нас ортографический; кадр раньше центрировался по средней вершин (у тумбы со смещённой массой правый край обрезался) — теперь по габариту, поле ≥3 % со всех сторон, не прошло — отдаляем (`tests_page07.py`).
 
 ## Сбои API Salad — повторы (23.11, T-20261123-03/04)
-- **Сбои API Salad (23.11, 65b0ba4a/604cbe0c):** создание группы 504/обрыв → поиск группы по имени и подхват (без второго create), 503 → один повтор, сироты гасятся (`kit_driver.api_retry`, `tools/scout/rules/salad-groups.json` → `api_retry`); 502/503 шлюза на POST задания сразу после «нода готова» → паузы 10–60 с (≤3 мин) + `/health`, отказ ОДНОГО задания `gateway_503`, не всей пробы (`kit_driver.post_job`, `gateway_post.gateway_wait`); счётчики `retries_create/retries_post/adopted_after_504`.
-- **Дальше (23.11, f1126b921 T-220/1, 7d5713b1b T-20/2):** 524 добавлен в `retry_http` и `gateway_wait.codes` (`salad-groups.json`: `[502, 503, 524]`); у зависимых этапов (`kit_driver.py:Spec.ordered`, `:1190`) повтор идёт В НАЧАЛО очереди с паузой `requeue_pause_s` 30 с, не более `requeue_max` 2 (`kit_driver.py:1670-1673`) — в конец очереди следующий этап брал пустой вход и ронял ноду; отказ шлюза и «нечего отправлять» после него не копят серию отказов (`summary.gateway_refused`, `stopped_by=gateway_503`, `kit_driver.py:1685-1687`); потолок повторов шлюза на ноду — `node_series_max` 1 / `node_swap_max` 2: исчерпана серия → пересадка ноды, задание на свежую.
+- **Сбои API Salad (23.11, 65b0ba4a/604cbe0c):** создание группы 504/обрыв → поиск группы по имени и подхват (без второго create), 503 → один повтор, сироты гасятся (`kit_driver.api_retry`, `tools/scout/rules/salad-groups.json` → `api_retry`); 502/503 шлюза на POST задания сразу после «нода готова» → паузы 10–60 с (≤3 мин) + `/health`, отказ ОДНОГО задания `gateway_503`, не всей пробы (`kit_driver.post_job`, правило `gateway_post.gateway_wait` в `salad-groups.json`); счётчики `retries_create/retries_post/adopted_after_504`.
+- **Дальше (23.11, f1126b921 T-220/1, 7d5713b1b T-20/2):** 524 добавлен в `retry_http` и `gateway_wait.codes` (`salad-groups.json`: `gateway_wait.codes` `[502, 503, 524]`, `retry_http` `[502, 503, 504, 524]`); у зависимых этапов (`kit_driver.py:Spec.ordered`, `:1355`) повтор идёт В НАЧАЛО очереди с паузой `requeue_pause_s` 30 с, не более `requeue_max` 2 (`kit_driver.py:1883-1889`) — в конец очереди следующий этап брал пустой вход и ронял ноду; отказ шлюза и «нечего отправлять» после него не копят серию отказов (`summary.gateway_refused`, `stopped_by=gateway_503`, `kit_driver.py:1900-1902`, `:1947`); потолок повторов шлюза на ноду — `node_series_max` 1 / `node_swap_max` 2: исчерпана серия → пересадка ноды, задание на свежую.
 
 ## Предел живых машин Salad — ворота (24.11, T-20261124-58)
 - **Предел 10 живых машин на ВСЕХ проектах держат ворота при каждом создании и старте группы** (`tools/scout/salad/salad_ceiling.py`: замок + резерв, счёт по всем группам аккаунта, свои тёплые тоже; число — одно, `salad_ceiling` в `tools/scout/rules/loop5.json`; список Salad не прочитан — отказ): подключены в `kit_driver.api_retry`/`create_and_start`/`stop_and_verify`, `queue_setup`, `recreate_group`, `migrate_groups`; новый создатель групп обязан идти через них (тест `tests_salad_ceiling.py` ловит мимо). Старт готовой группы тоже под воротами (T-58/2): `batch_show.py` (оба `/start`), `cutout_redo.py`, `grey_probe.py`, `batch_window.sh` (`salad_ceiling.py --admit`); счёт живых — одна функция `live_by_group`, её же зовёт `tools/ops/salad_live.py`; резерв стартовавшей группы забывается через `salad_start_grace_s` (300 с). Замок и резерв — на машину (common/pakardev свои); общий источник — список Salad. Имя тёплой группы loop5 = `w<N>-<digest>-<прогон>`: два прогона одного образа не делят группу, чужую — только `--warm-from`.
