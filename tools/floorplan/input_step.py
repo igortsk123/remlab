@@ -17,7 +17,7 @@ import os
 import apartment_cut
 import cleanup
 
-ENV = {'rect': 'FP_CLEAN_RECT', 'bg': 'FP_CLEAN_BG', 'grid': 'FP_CLEAN_GRID', 'lines': 'FP_CLEAN_LINES', 'cut': 'FP_CUT_APT'}
+ENV = {'rect': 'FP_CLEAN_RECT', 'bg': 'FP_CLEAN_BG', 'grid': 'FP_CLEAN_GRID', 'lines': 'FP_CLEAN_LINES', 'layers': 'FP_CLEAN_LAYERS', 'cut': 'FP_CUT_APT'}
 
 
 def flag_all() -> bool:
