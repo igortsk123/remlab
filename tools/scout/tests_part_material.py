@@ -172,8 +172,29 @@ fr = render(fin)
 want = np.clip(PM.lin2srgb(tones2['верх']['lin']) + 0.5, 0, 255)
 check(np.abs(fr[0, 0].astype(float) - want).max() <= 1.5 and len(hist) == R['fit']['iters'], 'подбор: кадр под светом совпал с тоном фото (потеря света 0,8 скомпенсирована)')
 
+# ── H′ (T-97 шаг 2): узкая группа не подгоняется отдельно — общая поправка товара; ключ fit.hprime.enabled
+Rh = _cp.deepcopy(R); Rh['fit']['hprime'].update(enabled=True, nrel=0.5)
+check(R['fit']['hprime']['enabled'] is False, 'H′: по умолчанию выкл (fit.hprime.enabled=false)')
+
+
+def render_dark(tex_):                             # свет разный по группам: верх теряет 0,8, узкие ножки — 0,5 (подбор по ним шумит)
+    out = np.clip(PM.lin2srgb(PM.srgb2lin(tex_) * np.where(np.arange(T)[None, :, None] < 8, 0.8, 0.5)) + 0.5, 0, 255).astype(np.uint8)
+    return out
+
+
+lm_n = np.zeros((T, T), np.int16); lm_n[:, 14:] = 1                                 # ножки — 2 столбца (32 px) против 224 px верха: узкая полоска
+alb_p, _h1 = PM.fit_albedo(names2, tones2, {}, set(), texmap, ctl, render_dark, lm_n, R)
+alb_h, _h2, log_h = PM.fit_albedo_hprime(names2, tones2, {}, set(), texmap, ctl, render_dark, lm_n, Rh)
+gwant = PM._luma(alb_p['верх']) / PM._luma(tones2['верх']['lin'])
+check(log_h['надёжные'] == ['верх'] and abs(log_h['g_товара'] - round(gwant, 3)) < 1e-6, 'H′: надёжна одна группа (верх) — поправка товара = её Y(альбедо)/Y(тон)')
+check(np.allclose(alb_h['ножки'], tones2['ножки']['lin'] * gwant) and np.allclose(alb_h['верх'], alb_p['верх']), 'H′: узкая группа = СВОЙ тон × поправка товара, надёжная группа не тронута')
+check(not np.allclose(alb_h['ножки'], alb_p['ножки']), 'H′: ключ меняет результат (узкая группа ≠ отдельная подгонка)')
+Rh0 = _cp.deepcopy(Rh); Rh0['fit']['hprime']['nrel'] = 5.0
+alb_0, _h3, log_0 = PM.fit_albedo_hprime(names2, tones2, {}, set(), texmap, ctl, render_dark, lm_n, Rh0)
+check(log_0['решения']['верх'].get('не_измерено') and np.allclose(alb_0['верх'], tones2['верх']['lin']) and np.allclose(alb_0['ножки'], tones2['ножки']['lin']), 'H′: ни одной надёжной — «не измерено», тон как есть')
+
 # ── растр меток по развёртке
-UV = np.array([[0.1, 0.1], [0.4, 0.1], [0.1, 0.4], [0.6, 0.6], [0.9, 0.6], [0.6, 0.9]])
+UV =np.array([[0.1, 0.1], [0.4, 0.1], [0.1, 0.4], [0.6, 0.6], [0.9, 0.6], [0.6, 0.9]])
 F = np.array([[0, 1, 2], [3, 4, 5]])
 m = PM.uv_label_map(UV, F, np.array([0, 1], np.int16), 64)
 check(m[int((1 - 0.15) * 64), int(0.15 * 64)] == 0 and m[int((1 - 0.65) * 64), int(0.65 * 64)] == 1 and (m >= 0).all(), 'растр меток: строка = (1 − uv_y)·T, пропуски заполнены ближайшей меткой')

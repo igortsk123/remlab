@@ -202,7 +202,10 @@ def process(a, rules: dict, d: str, rep: dict) -> None:
         PM.render_jobs([{'glb': os.path.join(work, 'it.glb'), 'out': os.path.join(work, 'it-cam.png'), 'orbit': orb_cam, 'size': S}], rules, work)
         return np.asarray(Image.open(os.path.join(work, 'it-cam.png')).convert('RGB'))
 
-    alb, hist = PM.fit_albedo(names, tones, borrowed, keep, texmap, ctl, render_cam, lm_cam, rules)
+    if rules['fit']['hprime']['enabled']:                                      # H′: узкая группа не подгоняется отдельно — общая поправка товара (ключ fit.hprime.enabled)
+        alb, hist, rep['hprime'] = PM.fit_albedo_hprime(names, tones, borrowed, keep, texmap, ctl, render_cam, lm_cam, rules)
+    else:
+        alb, hist = PM.fit_albedo(names, tones, borrowed, keep, texmap, ctl, render_cam, lm_cam, rules)
     tex, painted = PM.compose(ctl, texmap, names, alb, borrowed, keep)
     if not painted.any():
         raise Abstain('нечего красить: у групп нет ни своего тона, ни донора')

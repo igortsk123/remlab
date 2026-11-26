@@ -993,6 +993,54 @@ def fit_albedo(names: list, tones: dict, borrowed: dict, keep: set, texmap: np.n
     return alb, hist
 
 
+def _luma(lin) -> float:
+    lin = np.asarray(lin, float)
+    return float(0.2126 * lin[0] + 0.7152 * lin[1] + 0.0722 * lin[2])
+
+
+def fit_albedo_hprime(names: list, tones: dict, borrowed: dict, keep: set, texmap: np.ndarray, ctl: np.ndarray, render_cam, label_map: np.ndarray, rules: dict) -> tuple[dict, list, dict]:
+    """H′ (rules.fit.hprime): подбор как fit_albedo, затем группы с узкой полоской в кадре камеры (px < nrel × самой большой или < min_frame_px) НЕ держат свой подбор —
+    берут общую поправку товара g (медиана с весом px по надёжным группам Y(альбедо)/Y(тон)), применённую к СВОЕМУ тону. Надёжных нет — «не измерено» (тон как есть).
+    → (альбедо, история, журнал решений для отчёта)."""
+    fit, hp = rules['fit'], rules['fit']['hprime']
+    alb, hist = fit_albedo(names, tones, borrowed, keep, texmap, ctl, render_cam, label_map, rules)
+    tex, _p = compose(ctl, texmap, names, alb, borrowed, keep)
+    fr = render_cam(tex)
+    n = {}
+    for gn in alb:
+        px, _m = part_pixels(fr, label_map, [names.index(gn)], fit['erode_px'])
+        if len(px) < fit['min_frame_px']:
+            px, _m = part_pixels(fr, label_map, [names.index(gn)], 0)
+        n[gn] = int(len(px))
+    log = {'n_px_кадра_камеры': n, 'решения': {}}
+    if not n:
+        return alb, hist, log
+    nmax = max(n.values())
+    rel = [g for g in n if n[g] >= float(hp['nrel']) * nmax and n[g] >= fit['min_frame_px']]
+    unrel = [g for g in n if g not in rel]
+    if not rel:
+        log['случай'] = 'ни одной надёжной: подгонки нет, тон группы как есть («не измерено»)'
+        for gn in list(alb):
+            alb[gn] = np.asarray(tones[gn]['lin'], float).copy()
+            log['решения'][gn] = {'g': 1.0, 'не_измерено': True}
+        return alb, hist, log
+    gg = {g: _luma(alb[g]) / max(_luma(tones[g]['lin']), 1e-6) for g in rel}
+    log['надёжные'] = rel
+    log['g_надёжных'] = {g: round(v, 3) for g, v in gg.items()}
+    w = np.array([n[g] for g in rel], float)
+    v = np.array([gg[g] for g in rel], float)
+    o = np.argsort(v)
+    cw = np.cumsum(w[o]) / w.sum()
+    gprod = float(v[o][int(np.searchsorted(cw, 0.5))])
+    log['g_товара'] = round(gprod, 3)
+    log['случай'] = 'одна надёжная (поправка = её)' if len(rel) == 1 else '%d надёжных (взвешенная медиана)' % len(rel)
+    for gn in unrel:
+        old = [int(x) for x in lin2srgb(alb[gn])]
+        alb[gn] = np.asarray(tones[gn]['lin'], float) * gprod
+        log['решения'][gn] = {'g': round(gprod, 3), 'tone_было': old, 'tone_стало': [int(x) for x in lin2srgb(alb[gn])]}
+    return alb, hist, log
+
+
 # ───────────────────────────── рендер (model-viewer) ─────────────────────────────
 
 def node_env(root: str | None = None) -> dict:
