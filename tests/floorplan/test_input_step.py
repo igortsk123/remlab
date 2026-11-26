@@ -71,3 +71,21 @@ def test_prepare_writes_input_ops(tmp_path, monkeypatch):
     monkeypatch.setenv('FP_INPUT_ALL', '1')
     _, on, _ = pl.prepare(src, 'image/png', tmp_path / 'on')
     assert 'cut' in on['inputOps'] and on['inputTransform'][-1]['op'] == 'crop'
+
+
+def test_explicit_flags_no_env_and_no_crosstalk(monkeypatch):
+    """два run подряд с разными flags не влияют друг на друга, os.environ не меняется и не читается (службе с потоками — без гонки)"""
+    _clear(monkeypatch)
+    before = dict(os.environ)
+    sheet = _pil(_sheet())
+    r_cut = ins.run(sheet, {"cut": True})
+    r_grid = ins.run(sheet, {"grid": True})
+    r_off = ins.run(sheet, {})
+    r_cut2 = ins.run(sheet, {"cut": True})
+    assert r_cut["ops"] == ["cut"] and r_cut2["ops"] == ["cut"] and r_cut["sheet"].size == r_cut2["sheet"].size
+    assert r_grid["ops"] == ["grid"] and r_grid["sheet"].size == sheet.size
+    assert r_off["ops"] == [] and r_off["sheet"] is sheet
+    assert dict(os.environ) == before
+    monkeypatch.setenv("FP_INPUT_ALL", "1")
+    assert ins.run(sheet, {})["ops"] == []                        # явный набор сильнее окружения
+    assert ins.flags_from_env() == {k: True for k in ins.ENV}

@@ -312,9 +312,9 @@ def cut_bgr(bgr):
     return bgr, info
 
 
-def cut_sheet(sheet):
+def cut_sheet(sheet, flags=None):
     """PIL RGB → (PIL RGB, info) по флагу FP_CUT_APT; выключено / выделения нет / сбой — тот же объект."""
-    if not flag_cut():
+    if not (flag_cut() if flags is None else bool(flags.get('cut'))):
         return sheet, {'status': 'off'}
     from PIL import Image
     try:

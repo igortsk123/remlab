@@ -549,10 +549,13 @@ def clean_bgr(bgr, rectify=True, background=True, lines=False, grid=False):
     return cur, ops, info
 
 
-def clean_sheet_steps(sheet):
+def clean_sheet_steps(sheet, flags=None):
     """PIL RGB → (PIL RGB, ops, steps). steps — геометрия для обратного преобразования (исходный лист ← выход):
     [{'op': 'rectify', 'H': 3×3 исходный→выход, 'in': [W, H], 'out': [w, h]}]; фон и усиление линий геометрию не меняют. Выключено/не применилось — тот же объект, [], []."""
-    rect, bg, ln, gr = flag_rect(), flag_bg(), flag_lines(), flag_grid()
+    if flags is None:
+        rect, bg, ln, gr = flag_rect(), flag_bg(), flag_lines(), flag_grid()
+    else:                                                     # явный набор (служба с потоками): окружение не читаем
+        rect, bg, ln, gr = (bool(flags.get(k)) for k in ('rect', 'bg', 'lines', 'grid'))
     if not (rect or bg or ln or gr):
         return sheet, [], []
     from PIL import Image
