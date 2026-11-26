@@ -448,9 +448,23 @@ def lighter_than_photo(glb: str, photo: str | None, pose_run: str | None, R: dic
         return {'status': 'na', 'why': f'растр камеры от другой формы (развёртка совпала у {frac:.0%} пикселей)', 'uv_match': round(frac, 3)}
     prgb, pmask = TV.photo_to_frame(np.asarray(Image.open(photo).convert('RGBA')), st['P'], st['px'])
     after = TV.frame_from_tex(st, geoms, [g['tex'] for g in geoms])
+    site_ref = None
+    try:                                                                  # T-99/11 шаг 2: Ш4а под свет сайта поднимает альбедо ПО ЗАДУМКЕ (модель под светом сайта темнее подгонки) — опора «фото» та же кривая (что было бы нужно под светом сайта)
+        sys.path.insert(0, HERE)
+        import site_light_gain as SLG  # noqa: E402
+        with open(os.path.join(HERE, 'rules', 'part-material.json'), encoding='utf-8') as f_:
+            curve, _why = SLG.current_curve(json.load(f_))
+        if curve is not None:
+            prgb = SLG.remap_srgb8(np.asarray(prgb), np.ones(np.asarray(prgb).shape[:2], bool), curve)
+            site_ref = True
+    except (ValueError, ImportError, OSError) as e:
+        return {'status': 'na', 'why': f'опора под свет сайта не собрана: {str(e)[:100]}'}
     r = TF.lighter_than_photo_share(after, prgb, st['mask'] & pmask)
     op, thr = TF.THRESHOLDS['lighter_than_photo_pct']
-    return {'status': 'ok', 'share_pct': r['share_pct'], 'inner_px': r['inner_px'], 'spot_px': r['spot_px'], 'threshold': [op, thr]}
+    out = {'status': 'ok', 'share_pct': r['share_pct'], 'inner_px': r['inner_px'], 'spot_px': r['spot_px'], 'threshold': [op, thr]}
+    if site_ref:
+        out['site_light_ref'] = True
+    return out
 
 
 def cold_spots(glb: str, photo: str | None, pose_run: str | None, R: dict) -> dict:

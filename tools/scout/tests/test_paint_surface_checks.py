@@ -152,6 +152,10 @@ for share, want in ((0.05, 'ok'), (3.5, 'refused')):
     mm2 = dict(mm, lighter_than_photo={'status': 'ok', 'share_pct': share, 'inner_px': 1000, 'spot_px': 1, 'threshold': ['<=', 0.2]})
     ok(P.judge(mm2, R)['status'] == want, f'доля пятен {share} % → {want}')
 ok('timing_s' in mm and {'load', 'top_vs_photo', 'group_bleed'} <= set(mm['timing_s']), 'время по меркам записано (для расчёта на 50k)')
+# 7б-2. T-99/11: Ш4а под свет сайта поднимает альбедо по задумке → «светлее фото» сравнивает с фото, переложенным той же кривой (при выкл. site_light — как раньше)
+_src = open(os.path.join(os.path.dirname(os.path.abspath(P.__file__)), 'paint_surface_checks.py'), encoding='utf-8').read()
+_pm = json.load(open(os.path.join(os.path.dirname(os.path.abspath(P.__file__)), 'rules', 'part-material.json'), encoding='utf-8'))
+ok(_pm['fit']['site_light']['enabled'] is False and 'SLG.current_curve' in _src and "out['site_light_ref'] = True" in _src, 'опора «светлее фото» под свет сайта: только при fit.site_light.enabled; выкл — как в main')
 
 # 7а. кадры срабатываний: верх и затёк подсвечены, файлы ≤ max_kb
 fr = P.frames(p('bleed.glb'), p('k_none2.png'), p('parts.npz'), p('fr'))
