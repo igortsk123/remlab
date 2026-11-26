@@ -298,6 +298,8 @@ def process(a, rules: dict, d: str, rep: dict) -> None:
             rep['reliability']['текселей_надёжных'] = int(kn_det.sum())
     tex, det = PM.keep_details(tex, ctl, texmap, painted, kn_det, names, keep, rules, fade=(rl.get('fade') if rl.get('enabled') else None))       # лицо = тон + мелкие детали фото (щели, кромки, зерно)
     rep['details_texels'] = det
+    if (rules.get('pattern_unknown') or {}).get('enabled'):                      # T-97/1 ф.6: тексели узорной группы без фото — тоном группы, не заполнителем 06 (выкл — строка не выполняется)
+        tex, painted, rep['pattern_unknown'] = PM.fill_pattern_unknown(tex, texmap, painted, kn0, names, keep, rules)
     # итоговые кадры для мерки и ворот «лицо против фото» (кадр до шага — фото 06 на той же геометрии)
     PM.swap_tex_glb(base, tex, os.path.join(work, 'fin.glb'), rough=rules['unlit_roughness'])
     PM.swap_tex_glb(base, ctl, os.path.join(work, 'ctl.glb'), rough=rules['unlit_roughness'])

@@ -112,6 +112,37 @@ def main():
     check(not pl[3]['apply'] and pl[3]['reason'] == 'no_photo_evidence' and pl[3]['pat'] is None and not pl[4]['apply'] and pl[4]['reason'] == 'no_photo_evidence', 'лазейка закрыта: σ ниже порога и нет фото — ровный тон (no_photo_evidence), амплитуду у соседей не берём')
     check(PG.plan_grain([part(1, photo_sigma=2.0), part(3, photo_sigma=0.5)], R)[3]['amp_source'] == 'neighbors', 'флаг не задан — как раньше (соседи)')
 
+    # 5б. T-97/1 фаза 4: пол размаха amp_floor_L (σ узора = amp × pat_std не ниже пола, в единицах L); 0 = выкл
+    check(R['amp_floor_L'] == 0.0 and R['photo_sigma_min'] == 0.8, 'по умолчанию пол выключен (0), порог photo_sigma_min — одно число 0,8')
+    p0 = PG.plan_grain([part(1, photo_sigma=R['photo_sigma_min'] + 0.01)], R)[1]
+    sig0 = p0['amp'] * p0['pat_std']
+    check('floor' not in p0 and not p0['amp_source'].endswith('+floor'), 'пол выкл: амплитуда как была, строки floor нет')
+    R_hi = dict(R, amp_floor_L=sig0 * 2.0)
+    p1 = PG.plan_grain([part(1, photo_sigma=R['photo_sigma_min'] + 0.01)], R_hi)[1]
+    check(p1['amp'] > p0['amp'] and abs(p1['amp'] * p1['pat_std'] - min(sig0 * 2.0, p1['pat_std'])) < 1e-9 and p1['amp_source'] == 'photo+floor' and p1['floor']['raised'], 'пол выше σ: амплитуда поднята до пола/σ узора, источник «+floor», в следе raised')
+    R_lo = dict(R, amp_floor_L=sig0 * 0.5)
+    p2 = PG.plan_grain([part(1, photo_sigma=R['photo_sigma_min'] + 0.01)], R_lo)[1]
+    check(p2['amp'] == p0['amp'] and p2['floor']['raised'] is False and p2['amp_source'] == 'photo', 'пол ниже σ: амплитуда не тронута, raised=false')
+    p3 = PG.plan_grain([part(1, photo_sigma=R['photo_sigma_min'] + 0.01)], dict(R, amp_floor_L=19.0))[1]
+    check(p3['amp'] == 1.0, 'пол не поднимает амплитуду выше 1,0')
+    pn_ = PG.plan_grain([part(1, photo_sigma=2.0), part(3, photo_sigma=0.5)], dict(R, amp_floor_L=19.0))
+    check(pn_[3]['amp_source'] == 'neighbors+floor' and pn_[1]['amp_source'] == 'photo+floor', 'пол действует и на амплитуду «у соседей»')
+    o_off, rp_off = PG.apply_grain(tex, tx, [part(1, photo_sigma=R['photo_sigma_min'] + 0.01)], {1: mask}, fp, pn, 100.0, (1, 0, 0), R, enabled=True)
+    o_hi, rp_hi = PG.apply_grain(tex, tx, [part(1, photo_sigma=R['photo_sigma_min'] + 0.01)], {1: mask}, fp, pn, 100.0, (1, 0, 0), R_hi, enabled=True)
+    check(not np.array_equal(o_off, o_hi) and 'floor' not in rp_off['parts'][1] and rp_hi['parts'][1]['floor']['raised'], 'ключ amp_floor_L меняет выход (текстура) и след; выкл — без строки floor')
+    try:
+        import json as _j
+        import tempfile as _t
+        rr = copy.deepcopy(R)
+        rr['amp_floor_L'] = 25.0
+        with _t.TemporaryDirectory() as _d:
+            _p = os.path.join(_d, 'r.json')
+            _j.dump(rr, open(_p, 'w'))
+            PG.load_rules(_p)
+        check(False, 'amp_floor_L вне пределов отвергается')
+    except ValueError:
+        check(True, 'amp_floor_L вне пределов отвергается')
+
     # 6. отказы с причинами
     pl = PG.plan_grain([part(1, is_wood=False), part(2, n_texels=100), part(3, tone_sigma=5.0), part(4, tone_lab=None), part(5, photo_sigma=2.0)], R)
     check(pl[1]['reason'] == 'not_wood' and pl[2]['reason'] == 'too_small' and pl[3]['reason'] == 'tone_not_even' and pl[4]['reason'] == 'no_tone', 'причины отказа: не дерево / мало текселей / градиент / нет тона')

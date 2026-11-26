@@ -39,6 +39,8 @@ def load_rules(path: str = RULES_PATH) -> dict:
         raise ValueError('part-grain.json: amp_min/amp_max вне пределов (0 < min < max ≤ 1)')
     if not (0 < r['photo_sigma_min'] < 10) or not (0 < r['even_tone_sigma_max'] < 20) or r['min_texels'] < 1 or r['round_ratio'] < 1.0:
         raise ValueError('part-grain.json: пороги вне допустимых пределов')
+    if not (0.0 <= float(r.get('amp_floor_L') or 0.0) < 20.0):
+        raise ValueError('part-grain.json: amp_floor_L вне пределов (0 = выкл … 20 L)')
     if len(r['tile_layers']) < 1 or len(r['no_tile_layers']) < 1:
         raise ValueError('part-grain.json: нужен хотя бы один слой шага')
     return r
@@ -174,6 +176,13 @@ def plan_grain(parts: list, rules: dict | None = None) -> dict:
                 continue
             rec.update(amp=float(np.clip(med, rules['amp_min'], rules['amp_max'])), amp_source='neighbors')
         rec.update(apply=True, reason='ok')
+        fl = float(rules.get('amp_floor_L') or 0.0)             # T-97/1 фаза 4 (вариант А, шаг 8): пол размаха зерна в единицах L; 0 = выкл (амплитуда как была)
+        if fl > 0 and rec['amp'] is not None:
+            sig = rec['amp'] * max(rec['pat_std'], 1e-6)         # σL, которую даст узор бина при этой амплитуде
+            rec['floor'] = {'L': fl, 'sigma_before': round(float(sig), 3), 'raised': bool(sig < fl)}
+            if sig < fl:
+                rec['amp'] = float(min(fl / max(rec['pat_std'], 1e-6), 1.0))
+                rec['amp_source'] = str(rec['amp_source']) + '+floor'
     return out
 
 
@@ -335,6 +344,8 @@ def apply_grain(tex, tx, parts: list, masks: dict, face_plane, plane_normal, cm_
         r = {'apply': d['apply'], 'reason': d['reason'], 'bin': d['bin'], 'amp': None if d['amp'] is None else round(d['amp'], 3), 'amp_source': d['amp_source']}
         if d.get('measure') is not None:
             r['measure'] = d['measure']
+        if d.get('floor') is not None:                           # пол включён (T-97/1 ф.4): что дала амплитуда до пола и поднят ли размах
+            r['floor'] = d['floor']
         rep['parts'][pid] = r
         if not d['apply']:
             rep['skipped'][d['reason']] = rep['skipped'].get(d['reason'], 0) + 1
