@@ -56,6 +56,12 @@ def load_rules(path: str = RULES) -> dict:
         for r in (gf.get(blk) or {}).get("roles_order", []):
             if r not in roles:
                 raise ValueError(f"part-llm-roles.json: geometry_fallback.{blk}.roles_order: роли {r!r} нет в словаре ролей part-roles.json")
+    cab = gf.get("cabinet_in_no_body_types")
+    if cab:
+        if cab.get("facade_rules_of_group") not in pro.load_rules()["groups"]:
+            raise ValueError(f"part-llm-roles.json: geometry_fallback.cabinet_in_no_body_types.facade_rules_of_group={cab.get('facade_rules_of_group')!r}: группы нет в part-roles.json")
+        if not isinstance(cab.get("body_kinds"), list) or not cab["body_kinds"]:
+            raise ValueError("part-llm-roles.json: geometry_fallback.cabinet_in_no_body_types.body_kinds — непустой список видов части (kind)")
     nr = t.get("name_relax") or {}
     for role, cfg in nr.items():
         if role in ("enabled",) or role.startswith("_"):
@@ -94,6 +100,14 @@ def _geometry_roles(f: dict, role_rules: dict, product_role: str | None, channel
 def _body_allowed(grp: dict, product_role: str | None) -> bool:
     """Можно ли тут поставить `body`: тип не без канала (`no_body_for_types`) и не тип, где материал столешницы/ножек назван отдельно (`body_scope: none`)."""
     return product_role not in grp.get("no_body_for_types", []) and grp.get("body_scope", "all") != "none"
+
+
+def _cabinet_cfg(rules: dict, e: dict) -> dict | None:
+    """Блок `geometry_fallback.cabinet_in_no_body_types` (T-121/4), если он включён вместе с `geometry_fallback` и у строки таблицы стоит метка `cabinet` («Cabinet …», «Door»): общее правило
+    для типа без body (стол с тумбой). Нет блока/метки/включения — None, тогда мост работает ровно как до правила."""
+    gf = rules.get("geometry_fallback") or {}
+    c = gf.get("cabinet_in_no_body_types") or {}
+    return c if gf.get("enabled") and c.get("enabled") and e.get("cabinet") else None
 
 
 def bridge_roles(names: dict[int, str], feats: dict[int, dict], rules: dict, role_rules: dict, product_role: str | None, channels: set[str] | None = None,
@@ -147,15 +161,20 @@ def bridge_roles(names: dict[int, str], feats: dict[int, dict], rules: dict, rol
             elif grp.get("body_scope", "all") == "none":
                 gen = gf.get("generic_in_no_body_types") or {}
                 fits = _geometry_roles(f, role_rules, product_role, channels, gen.get("roles_order", []), catalog_classes) if gf_on and gen.get("enabled") else []
+                cab = _cabinet_cfg(rules, e)
                 if len(fits) == 1:                                                                                                  # у стола «Base»/«Horizontal Panel»: корпуса нет, роль — столешница или ножки по форме
                     out[p] = {**_done(role_rules, fits[0], f"название «{name}» (общее) → роль по геометрии: {fits[0]} (условия роли выполнены)", rc["matched"], grp=grp), "name": name}
+                elif cab and not fits and f.get("kind") in cab.get("body_kinds", []):                                              # стол с тумбой: «Cabinet Frame/Shelf» — объёмная часть, не верх/ножки/каркас стола → корпус тумбы
+                    out[p] = {**_done(role_rules, "body", f"название «{name}» → корпус тумбы внутри «{product_role}» (стол с тумбой): объёмная часть ({f.get('kind')}), "
+                                      "ни столешница, ни ножки, ни каркас стола по геометрии", rc["body"]), "name": name, "cabinet_in_table": True}
                 else:
                     out[p] = {**_done(role_rules, "unknown", "тип, где материал столешницы/ножек назван отдельно: body не ставим" + (f"; геометрии подходят роли {fits}" if fits else ""),
                                       rc["unknown"], "body_scope"), "name": name}
             else:
                 out[p] = {**_done(role_rules, "body", f"название «{name}» → корпус/обивка (без геометрического условия)", rc["body"]), "name": name}
             continue
-        ok, why = pro.role_fit(f, role_rules, product_role, channels, role, catalog_classes=catalog_classes)
+        cab = _cabinet_cfg(rules, e) if role == "facade" and grp.get("body_scope", "all") == "none" and role not in grp["roles"] else None   # у стола правила фасада нет: дверь тумбы — по правилу фасада группы case
+        ok, why = pro.role_fit(f, role_rules, product_role, channels, role, catalog_classes=catalog_classes, group=cab["facade_rules_of_group"] if cab else None)
         picked = role if ok else None
         relaxed = False
         nr = (rules.get("name_relax") or {}).get(role) if (rules.get("name_relax") or {}).get("enabled") else None
@@ -166,9 +185,12 @@ def bridge_roles(names: dict[int, str], feats: dict[int, dict], rules: dict, rol
             picked = e["else"] if ok2 else None
         if picked:
             out[p] = {**_done(role_rules, picked, f"название «{name}» → {role}" + ("" if picked == role else f", геометрия — {picked}")
-                              + ("; строгая геометрия не прошла, ослабленная (name_relax: на полу, тонкая) — да" if relaxed else "; условия роли выполнены"), rc["matched"], grp=grp), "name": name}
+                              + ("; строгая геометрия не прошла, ослабленная (name_relax: на полу, тонкая) — да" if relaxed else "; условия роли выполнены")
+                              + (f" (дверь тумбы внутри «{product_role}»: правило фасада группы {cab['facade_rules_of_group']})" if cab else ""), rc["matched"], grp=grp), "name": name}
             if relaxed:
                 out[p]["relaxed"] = True
+            if cab:
+                out[p]["cabinet_in_table"] = True
         elif why == "no_channel":                                                  # у товара нет такого канала в каталоге (плафон без «shade»): не провал геометрии
             out[p] = {**_done(role_rules, "unknown", f"название «{name}» → {role}, но канала «{role}» у товара в каталоге нет", rc["unknown"], "no_channel"), "name": name}
         elif (why == "no_rule" and (rules.get("no_rule_other_channel") or {}).get("enabled")
