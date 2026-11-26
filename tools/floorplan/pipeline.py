@@ -161,10 +161,17 @@ def prepare(input_path: Path, mime: str, workdir: Path) -> tuple[Path, dict, lis
         k = MAX_SIDE / max(sheet.size)
         sheet = sheet.resize((max(1, round(sheet.width * k)), max(1, round(sheet.height * k))), Image.LANCZOS)
     import cleanup   # чистка входа (T-20261126-98/4): FP_CLEAN_BG / FP_CLEAN_RECT, по умолчанию выкл — тот же лист
-    sheet, _ops = cleanup.clean_sheet(sheet)
+    import apartment_cut   # вырезать нашу квартиру по выделению: FP_CUT_APT, по умолчанию выкл — тот же лист
+    sheet, _ops, steps = cleanup.clean_sheet_steps(sheet)
+    sheet, cut = apartment_cut.cut_sheet(sheet)
+    if cut.get('status') == 'cut':
+        steps.append({'op': 'crop', **cut['transform']})
     out = workdir / 'sheet.png'
     sheet.save(out, 'PNG')
-    return out, {'mime': mime, 'pages': pages, 'usedPages': used, 'imageW': sheet.width, 'imageH': sheet.height}, flags
+    source = {'mime': mime, 'pages': pages, 'usedPages': used, 'imageW': sheet.width, 'imageH': sheet.height}
+    if steps:
+        source['inputTransform'] = steps      # шаги входа, меняющие геометрию (по порядку): ответ нейросети → исходный лист (otvet-7)
+    return out, source, flags
 
 
 def file_sha(path: Path) -> str:

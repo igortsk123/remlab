@@ -338,6 +338,7 @@ def clean_bgr(bgr, rectify=True, background=True):
         if w_ is not None:
             cur = w_
             ops.append('rectify')
+            info['rect_H'] = inf['H']      # матрица исходный лист → выпрямленный (нужна для обратного преобразования)
     if background:
         b_, inf = clean_background(cur)
         info['bg'] = inf
@@ -347,17 +348,27 @@ def clean_bgr(bgr, rectify=True, background=True):
     return cur, ops, info
 
 
-def clean_sheet(sheet):
-    """PIL RGB → (PIL RGB, ops) по флагам окружения; выключено/не применилось — тот же объект. Любой сбой шага — лист как есть."""
+def clean_sheet_steps(sheet):
+    """PIL RGB → (PIL RGB, ops, steps). steps — геометрия для обратного преобразования (исходный лист ← выход):
+    [{'op': 'rectify', 'H': 3×3 исходный→выход, 'in': [W, H], 'out': [w, h]}]; фон геометрию не меняет. Выключено/не применилось — тот же объект, [], []."""
     rect, bg = flag_rect(), flag_bg()
     if not (rect or bg):
-        return sheet, []
+        return sheet, [], []
     from PIL import Image
     try:
         bgr = cv2.cvtColor(np.asarray(sheet.convert('RGB')), cv2.COLOR_RGB2BGR)
-        out, ops, _ = clean_bgr(bgr, rectify=rect, background=bg)
+        out, ops, info = clean_bgr(bgr, rectify=rect, background=bg)
     except Exception:  # noqa: BLE001 — чистка не должна ронять разбор: лист как есть
-        return sheet, []
+        return sheet, [], []
     if not ops:
-        return sheet, []
-    return Image.fromarray(cv2.cvtColor(out, cv2.COLOR_BGR2RGB)), ops
+        return sheet, [], []
+    steps = []
+    if 'rectify' in ops and 'rect_H' in info:
+        steps.append({'op': 'rectify', 'H': info['rect_H'], 'in': [bgr.shape[1], bgr.shape[0]], 'out': [out.shape[1], out.shape[0]]})
+    return Image.fromarray(cv2.cvtColor(out, cv2.COLOR_BGR2RGB)), ops, steps
+
+
+def clean_sheet(sheet):
+    """PIL RGB → (PIL RGB, ops) по флагам окружения; выключено/не применилось — тот же объект. Любой сбой шага — лист как есть."""
+    out, ops, _ = clean_sheet_steps(sheet)
+    return out, ops
