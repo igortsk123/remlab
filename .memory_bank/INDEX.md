@@ -20,6 +20,7 @@ remlab — «Смета-first» v0.4 (ADR-0016), мастер `plans/MASTER-cost
 | Сценарии /demo — кнопки, проверки, дефекты | `core/demo-scenarios.md` | `domain/demo-scenario-map.md` |
 | Деплой/откат/сервер exit-fi | `deployment.md` | `domain/deployment-details.md` |
 | Смета — калькуляторы, /go/ реф | `core/estimate.md` | `domain/pricing-works-ru.md` |
+| Этажи — РФ-планы → 3D: чтение нейросетью, проверки, набор | `core/etazhi-plans.md` | `domain/etazhi-vneshnee-issledovanie-2026-11-26.md` |
 | Мебель — сеты, визуализация | `core/furniture.md` | `domain/viz-fidelity-playbook.md` |
 | Цели v0.4 — сценарий, монетизация, порядок ступеней | `core/goals.md` | `plans/MASTER-cost-first.md` |
 | Source-KB из книг — спека, KB0–KB9 | `core/knowledge-db.md` | `../remlab_knowledge_db_v1/spec/SPEC_source_kb_v1.md` |

@@ -3,7 +3,7 @@ tier: 1
 topic: layout
 scope: Расстановка: правила, зоны, прод-ядро
 tier2: ../domain/occupancy-rules.md
-updated: 2026-11-18
+updated: 2026-11-26
 last_verified: 2026-11-18
 importance: high
 source: manual
@@ -21,8 +21,7 @@ review_after: 2026-12-05
 **Зонный — боевой дефолт (ADR-0074…0078):** `services/planner-solver/planner/zones.py`.
 **Шаблоны/модификаторы (ADR-0088…0094):** паспорт+инварианты
 (`services/planner-solver/rules/templates.json`), конверт слота (`tools/scout/compose2.py`).
-**Своды №10–13 (ADR-0104…0108):** BEAM по гипотезам, ТВ-канон, «только каноны»;
-пакеты Q6b–Q10 (нук, capability, back_gap, приоры, сертификат возможностей) — детали в Tier 2.
+**Своды №10–13 (ADR-0104…0108):** BEAM, ТВ-канон, «только каноны», Q6b–Q10 — Tier 2.
 
 **Q11–Q12 (ADR-0109…0114):** каноны `/test/canons/`; схема — под ЯКОРЬ комнаты (окно/эркер/угол/камин/стена), приоры — тайбрейк.
 
@@ -37,5 +36,7 @@ review_after: 2026-12-05
 **Выбор набора — по обязательному ядру (ADR-0411, 13.11):** без награды за число предметов; необязательный атом (комод+лампа) не
 ухудшает ядро; тур при провале ядра пробует следующий набор (`tools/scout/trial_demo.py`, `tools/scout/flat215_demo.py`, тест
 `tools/scout/tests/test_dresser_atom.py`). Строго по шаблонам — ADR-0407, [[room-templates]].
+
+**РФ-планы (26.11, ADR-0486):** 3 дефекта ядра — полоса двери `planner/validate.py:check_openings`, банкетка под окном, шкаф no_space — `../domain/occupancy-rules.md` § «Дефекты РФ-планов»; П2.11.
 
 **Tier 2:** `../domain/occupancy-rules.md` · `../guides/layout-engine-spec.md`
