@@ -114,7 +114,10 @@ def measure(src: str, now: float | None = None) -> dict:
         except OSError:
             continue
         acc = new_acc()
-        acc["newest"] = e.stat(follow_symlinks=False).st_mtime
+        try:
+            acc["newest"] = e.stat(follow_symlinks=False).st_mtime
+        except OSError:      # папку убрали прямо во время замера (автоуборка/другая сессия) — пропуск
+            continue
         walk_tree(e.path, acc, seen)
         card = RM.read_card(e.path)
         rows.append({

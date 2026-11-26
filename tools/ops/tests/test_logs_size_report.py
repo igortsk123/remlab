@@ -89,6 +89,46 @@ def test_measure(tmp_path):
     assert snapshot(tmp_path) == before, "замер ничего не меняет"
 
 
+class FakeEntry:
+    """Запись каталога, чья папка исчезла между scandir и stat (автоуборка убрала её во время замера)."""
+    name = "ушла"
+    path = "/нет/такой"
+
+    def is_symlink(self):
+        return False
+
+    def is_dir(self, follow_symlinks=True):
+        return True
+
+    def stat(self, follow_symlinks=True):
+        raise FileNotFoundError(self.path)
+
+
+def test_measure_survives_vanished_dir(tmp_path, monkeypatch):
+    src, dst = build(tmp_path)
+    real = os.scandir
+
+    class Ctx:
+        def __init__(self, entries):
+            self.entries = entries
+
+        def __enter__(self):
+            return iter(self.entries)
+
+        def __exit__(self, *a):
+            return False
+
+    def fake(path):
+        if str(path) == str(src):
+            with real(path) as it:
+                return Ctx(list(it) + [FakeEntry()])
+        return real(path)
+
+    monkeypatch.setattr(os, "scandir", fake)
+    res = lsr.measure(str(src))
+    assert "ушла" not in {r["name"] for r in res["rows"]} and len(res["rows"]) == 4
+
+
 def test_total_and_missing_hdd(tmp_path):
     src, dst = build(tmp_path)
     t = lsr.total_of(str(dst))
