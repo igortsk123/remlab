@@ -87,7 +87,7 @@ def main():
     # 0. правила и выключатель
     check(PM['enabled'] is False, 'pattern_measure по умолчанию: enabled=false')
     check(PGM.pm_rules(R) is None and PGM.pm_rules(pm_on) is not None, 'pm_rules: выкл → None, вкл → правила')
-    check(abs(PM['p_center'] - (PM['p_yes'] + PM['p_no']) / 2) < 0.01 and PM['p_no'] < PM['p_yes'], 'пороги: p_center в середине полосы «не видно» (0,30–0,43), p_no < p_yes')
+    check(PM['p_split'] == 0.30 and abs(PM['ci_z'] - 1.645) < 1e-9 and not any(k in PM for k in ('p_yes', 'p_no', 'p_center', 'no_windows_min')), 'T-93/5: один порог p_split=0,30 и один уровень ci_z=1,645; ширины, p_yes/p_no/p_center, no_windows_min в правилах нет')
     tx = types.SimpleNamespace(ti=np.arange(100), Q=np.zeros((100, 3)), N=np.tile([0.0, 1.0, 0.0], (100, 1)), f=np.zeros(100, np.int64))
     parts = [{'id': 1, 'name': 'Panel', 'is_wood': True, 'tone_lab': [67.4, 9.8, 15.9], 'tone_sigma': 0.3, 'n_texels': 7200, 'photo_sigma': 1.5, 'role': 'top', 'card': {'Материал корпуса': 'ЛДСП 16 мм'}}]
     p_off = PG.plan_grain(parts, R)
@@ -103,7 +103,7 @@ def main():
 
     # 1. окна и доля
     m = measure(fiber_img(), ff)
-    check(m['n_windows'] >= 10 and m['share'] is not None and m['share'] >= PM['p_yes'] and m['verdict'] == 'fiber' and m['ac_peak'] is not None and m['ac_peak'] < PM['ac_pattern_min'],
+    check(m['n_windows'] >= 10 and m['share'] is not None and m['ci'][0] > PM['p_split'] and m['verdict'] == 'fiber' and m['ac_peak'] is not None and m['ac_peak'] < PM['ac_pattern_min'],
           f'волокно вдоль оси панели → «есть» и класс fiber ({m})')
     flat = np.full((T, T), 60.0) + np.random.default_rng(3).normal(0, 0.25, (T, T))
     m = measure(flat, ff)
@@ -119,8 +119,17 @@ def main():
     kn[40:60, 40:60] = True
     m = measure(fiber_img(), ff, kn)
     check(m['verdict'] == 'unseen' and m['n_windows'] < PM['windows_min'] + 5, f'надёжной площади мало (A<{PM["area_min_px"]}) → «не видно» ({m["verdict"]}, A {m["area"]})')
-    check(PGM.share_verdict(0.37, 10, 5000, PM) == 'не видно' and PGM.share_verdict(0.30, 10, 5000, PM) == 'не видно' and PGM.share_verdict(0.43, 10, 5000, PM) == 'есть'
-          and PGM.share_verdict(0.299, 10, 5000, PM) == 'нет' and PGM.share_verdict(0.9, 1, 5000, PM) == 'не видно' and PGM.share_verdict(0.9, 10, 100, PM) == 'не видно', 'share_verdict: p=0,37 — «не видно»; ≥0,43 «есть»; <0,30 «нет»; мало окон/площади «не видно»')
+    sv = lambda k, n, a=5000: PGM.share_verdict(k, n, a, PM)  # noqa: E731
+    check(sv(0, 37) == 'нет' and sv(3, 13) == 'не видно' and sv(5, 6) == 'есть' and sv(8, 14) == 'есть' and sv(0, 4) == 'не видно' and sv(11, 47) == 'не видно' and sv(1, 2) == 'не видно'
+          and sv(90, 100) == 'есть' and sv(0, 153) == 'нет' and sv(9, 10, 100) == 'не видно' and sv(1, 1) == 'не видно',
+          'share_verdict по Уилсону 90 %: 0/37 «нет»; 3/13, 0/4, 11/47, 1/2 «не видно»; 5/6, 8/14, 90/100 «есть»; мало площади «не видно»')
+    lo0, hi0 = PGM.wilson(0, 37, PM['ci_z'])
+    lo1, hi1 = PGM.wilson(3, 13, PM['ci_z'])
+    check(lo0 == 0.0 and abs(hi0 - 0.068) < 0.003 and 0.09 < lo1 < 0.11 and 0.44 < hi1 < 0.48 and PGM.wilson(0, 0, 1.645) == (0.0, 1.0), f'wilson: 0/37 → 0,00–{hi0:.3f}; 3/13 → {lo1:.3f}–{hi1:.3f}; n=0 → (0, 1)')
+    check(all(sv(k, n) == 'нет' or PGM.wilson(k, n, PM['ci_z'])[1] >= PM['p_split'] for n in range(2, 60) for k in range(n + 1)) and all(PGM.wilson(k, n, PM['ci_z'])[0] > PM['p_split'] for n in range(2, 60) for k in range(n + 1) if sv(k, n) == 'есть'),
+          'граница: «нет» ⇒ верхняя < 0,30, «есть» ⇒ нижняя > 0,30 — на всех k ≤ n < 60')
+    check(all(sv(k, n) in ('нет', 'не видно', 'есть') for n in range(2, 60) for k in range(n + 1)) and all(sv(k, n) != 'есть' or sv(k + 1, n) == 'есть' for n in range(2, 60) for k in range(n)),
+          'монотонность: больше окон с волокном не уводит «есть» назад')
 
     # 2. класс «узор»
     m = measure(sine_img(40.0), ff)
@@ -188,23 +197,22 @@ def main():
     nw = PG.plan_grain([dict(base, id=1, is_wood=False, measure={'verdict': 'fiber', 'why': 'т'})], pm_on)
     check(nw[1]['reason'] == 'not_wood' and 'measure' not in nw[1], 'не дерево по карточке — отказ not_wood раньше меры (мера только гасит, не включает)')
 
-    # 5. T-93/4 А: «нет» — только у группы шире 2 окон и с окон ≥ порога
+    # 5. T-93/5: «нет»/«есть» — по границам Уилсона; ширина группы в решении не участвует (правило А T-93/4 снято)
     flat = np.full((T, T), 60.0) + np.random.default_rng(3).normal(0, 0.25, (T, T))
     gm_all = gmask_of(ff)
     m = PGM.measure_group(flat, np.ones((T, T), bool), np.ones((T, T)), gm_all, PM, ff)
-    check(m['verdict'] == 'no' and m['width'] >= 2 * PM['window_px'] * (1 + PM['edge_frac']) and m['n_windows'] >= PM['no_windows_min'] * (1 + PM['edge_frac']),
-          f'А: широкая группа (ширина {m["width"]} px, окон {m["n_windows"]}) без рисунка → уверенное «нет»')
+    check(m['verdict'] == 'no' and m['ci'][1] < PM['p_split'] and 'верхняя граница' in m['why'] and 'width' not in m, f'широкая группа без рисунка → «нет» по верхней границе (окон {m["n_windows"]}, интервал {m["ci"]})')
     strip = np.zeros((T, T), bool)
     strip[100:140, :] = True
     strip &= gm_all
     m = PGM.measure_group(flat, np.ones((T, T), bool), np.ones((T, T)), strip, PM, ff)
-    check(m['verdict'] == 'unseen' and 'слабое' in m['why'] and m['width'] < 2 * PM['window_px'], f'А: узкая полоса (ножка, ширина {m["width"]} px < 2 окон) без рисунка → «не видно», не «нет» ({m["why"]})')
+    check(m['verdict'] in ('no', 'unseen') and (m['verdict'] == 'no') == (m['ci'] is not None and m['ci'][1] < PM['p_split']), f'узкая полоса без рисунка: вердикт только по границе ({m["verdict"]}, окон {m["n_windows"]}, интервал {m["ci"]}) — ширина не нужна')
     few = np.zeros((T, T), bool)
     few[80:190, 20:100] = True
     few &= gm_all
     m = PGM.measure_group(flat, np.ones((T, T), bool), np.ones((T, T)), few, PM, ff)
-    check(m['verdict'] == 'unseen' and m['n_windows'] < PM['no_windows_min'], f'А: широкая, но окон мало ({m["n_windows"]} < {PM["no_windows_min"]}) → «не видно» ({m["why"]})')
-    check(PGM.group_width(np.zeros((8, 8), bool)) == 0 and PGM.group_width(np.ones((40, 40), bool)) >= 38, 'group_width: пусто — 0; квадрат 40×40 — ≈40')
+    check((m['verdict'] == 'no') == (m['ci'] is not None and m['ci'][1] < PM['p_split']) and m['verdict'] != 'fiber', f'мало окон ({m["n_windows"]}): «нет» только если верхняя граница < 0,30 (интервал {m["ci"]}, {m["verdict"]})')
+    check(not hasattr(PGM, 'group_width'), 'правило ширины снято: group_width в модуле нет')
 
     # Г: «на грани» — ближе edge_frac к порогу → «не видно» (повтор шага, направление)
     m0 = measure(sine_img(90.0), ff)

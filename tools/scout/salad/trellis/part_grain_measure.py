@@ -4,7 +4,7 @@
 ЗАЧЕМ. Волокно дерева из библиотеки (part_grain) кладётся на группу по карточке и тону; на не-дереве (велюр «под дерево по тону», ПВХ-плёнка с тиснением, рейки) оно ложное. Мера смотрит на ФОТО группы:
   1. окна 32 px по надёжным текселям (known ∧ conf ≥ conf_min, эрозия, вдали от перепадов светлоты), в каждом когерентность и угол тензора структуры в полосе DoG σ1–6;
   2. доля окон «coh ≥ coh_min ∧ угол ±angle_tol от медианного угла группы» + площадь A наибольшей связной надёжной области:
-     окон ≥ windows_min, A ≥ area_min и доля ≥ p_yes → «есть»; доля < p_no → «нет»; между (p_no…p_yes) или мало окон/площади → «не видно»;
+     окон ≥ windows_min, A ≥ area_min; доверительный интервал Уилсона (ci_z) доли k/n: нижняя граница > p_split → «есть»; верхняя < p_split → «нет»; иначе или мало окон/площади → «не видно» (T-93/5);
   3. класс «узор, не волокно» (рейки, тиснение, ромбы) по двум общим признакам — любой из них (`ac_pattern_min`, `dev_pattern_min_deg`):
      (а) регулярность шага: пик нормированной автокорреляции мелкой полосы L (как `surface_passport.ac_peak`) ≥ ac_pattern_min — печать/рисунок, не зерно;
      (б) направление относительно панели: медианное отклонение направления полос окон от ближайшей оси панели (3D, через якобиан развёртки грани; оси — `part_grain.plane_axes`) ≥ dev_pattern_min_deg
@@ -53,14 +53,6 @@ def largest_cc(rel) -> int:
     from scipy import ndimage as ndi
     lab, n = ndi.label(rel)
     return int(np.bincount(lab.ravel())[1:].max()) if n else 0
-
-
-def group_width(rel) -> int:
-    """Ширина области группы в текселях: диаметр наибольшего вписанного круга (2 × максимум EDT). Узкая полоса (ножка, планка) — мало; 0 — области нет."""
-    from scipy import ndimage as ndi
-    if not rel.any():
-        return 0
-    return int(round(2.0 * float(ndi.distance_transform_edt(rel).max())))
 
 
 def window_stats(L, rel, pm: dict) -> list:
@@ -117,13 +109,26 @@ def passing_windows(wins: list, pm: dict) -> list:
     return [w for w in wins if w['coh'] >= t and abs((w['angle'] - ref + 90) % 180 - 90) <= float(pm['angle_tol_deg'])]
 
 
-def share_verdict(share, n_win: int, area: int, pm: dict) -> str:
-    """«есть» / «нет» / «не видно» по доле окон, их числу и площади (пороги — rules)."""
-    if share is None or n_win < int(pm['windows_min']) or area < int(pm['area_min_px']):
+def wilson(k: int, n: int, z: float) -> tuple:
+    """Доверительный интервал Уилсона для доли k/n (z — квантиль, 1,645 ≈ 90 %). n = 0 → (0, 1): ничего не известно."""
+    if n <= 0:
+        return 0.0, 1.0
+    p = k / n
+    d = 1.0 + z * z / n
+    c = (p + z * z / (2.0 * n)) / d
+    h = z * np.sqrt(p * (1.0 - p) / n + z * z / (4.0 * n * n)) / d
+    return float(max(0.0, c - h)), float(min(1.0, c + h))
+
+
+def share_verdict(k: int, n_win: int, area: int, pm: dict) -> str:
+    """«есть» / «нет» / «не видно» по k окнам с волокном из n_win и площади A (T-93/5, вердикт Fable): граница доверия одного уровня (Уилсон, ci_z) против одного порога p_split —
+    «нет» только если ВЕРХНЯЯ граница < p_split, «есть» только если НИЖНЯЯ > p_split, иначе «не видно». Ширина группы в решении не участвует: малое число окон само даёт широкий интервал."""
+    if n_win < int(pm['windows_min']) or area < int(pm['area_min_px']):
         return 'не видно'
-    if share >= float(pm['p_yes']):
+    lo, hi = wilson(k, n_win, float(pm['ci_z']))
+    if lo > float(pm['p_split']):
         return 'есть'
-    if share < float(pm['p_no']):
+    if hi < float(pm['p_split']):
         return 'нет'
     return 'не видно'
 
@@ -211,7 +216,8 @@ def measure_group(L, known, conf, gmask, pm: dict, ff: FaceFrame | None = None, 
     ps = passing_windows(wins, pm)
     share = (len(ps) / len(wins)) if wins else None
     area = largest_cc(rel)
-    base = share_verdict(share, len(wins), area, pm)
+    base = share_verdict(len(ps), len(wins), area, pm)
+    ci = wilson(len(ps), len(wins), float(pm['ci_z'])) if wins else None
     ac = ac_value(ac_ctx if ac_ctx is not None else ac_context(L, known, pm), gmask, pm)
     devs = []
     if ff is not None:
@@ -220,7 +226,6 @@ def measure_group(L, known, conf, gmask, pm: dict, ff: FaceFrame | None = None, 
             if d is not None:
                 devs.append(d)
     dev_med = float(np.median(devs)) if devs else None
-    width = group_width(np.asarray(gmask, bool) & np.asarray(known, bool) & (np.asarray(conf, np.float64) >= float(pm['conf_min'])))      # ширина области, которую видело фото (не «надёжных» текселей: рельеф/швы дробят их на тонкие куски у широкого фасада)
     edge = float(pm['edge_frac'])
     ac_lo, ac_hi = float(pm['ac_pattern_min']) * (1 - edge), float(pm['ac_pattern_min']) * (1 + edge)
     dv_lo, dv_hi = (float(x) for x in pm['dev_unsure_deg'])
@@ -235,26 +240,16 @@ def measure_group(L, known, conf, gmask, pm: dict, ff: FaceFrame | None = None, 
     if a_min * (1 - edge) <= area < a_min * (1 + edge):
         unsure.append('площадь %d на грани порога %d' % (area, int(a_min)))
     if base == 'нет':
-        # А: «нет» — только у группы шире 2 окон и с окон ≥ порога; узкая полоса / мало окон / значение на грани порога — «не видно»
-        w_min, n_min = 2.0 * float(pm['window_px']), float(pm['no_windows_min'])
-        weak = []
-        if width < w_min * (1 + edge):
-            weak.append('ширина %d px < 2 окон (%d px)%s' % (width, int(w_min), '' if width < w_min else ' (на грани)'))
-        if len(wins) < n_min * (1 + edge):
-            weak.append('окон %d < %d%s' % (len(wins), int(n_min), '' if len(wins) < n_min else ' (на грани)'))
-        if weak:
-            verdict, why = 'unseen', '«нет» слабое: ' + '; '.join(weak) + ' — узкая/малая деталь, решает материал'
-        else:
-            verdict, why = 'no', 'доля окон %.2f < %.2f' % (share, float(pm['p_no']))
+        verdict, why = 'no', 'окон с волокном %d из %d, верхняя граница Уилсона %.2f < %.2f' % (len(ps), len(wins), ci[1], float(pm['p_split']))
     elif by_ac or by_dev:
         verdict, why = 'pattern', ('повтор шага ac_peak %.2f > %.2f' % (ac, ac_hi)) if by_ac else ('направление %.0f° от осей панели > %.0f° (окон с осью %d)' % (dev_med, dv_hi, len(devs)))
     elif unsure:
         verdict, why = 'unseen', 'на грани: ' + '; '.join(unsure)
     elif base == 'есть':
-        verdict, why = 'fiber', 'доля окон %.2f ≥ %.2f, повтор и направление не «узор»' % (share, float(pm['p_yes']))
+        verdict, why = 'fiber', 'окон с волокном %d из %d, нижняя граница Уилсона %.2f > %.2f, повтор и направление не «узор»' % (len(ps), len(wins), ci[0], float(pm['p_split']))
     else:
-        verdict, why = 'unseen', 'не видно: окон %d, A %d, доля %s' % (len(wins), area, 'нет' if share is None else '%.2f' % share)
-    return {'verdict': verdict, 'why': why, 'share': None if share is None else round(share, 3), 'n_windows': len(wins), 'n_pass': len(ps), 'area': area, 'width': width,
+        verdict, why = 'unseen', 'не видно: окон %d, A %d, %s' % (len(wins), area, 'окон нет' if ci is None else 'окон с волокном %d, интервал Уилсона %.2f–%.2f накрывает порог %.2f' % (len(ps), ci[0], ci[1], float(pm['p_split'])))
+    return {'verdict': verdict, 'why': why, 'share': None if share is None else round(share, 3), 'ci': None if ci is None else [round(ci[0], 3), round(ci[1], 3)], 'n_windows': len(wins), 'n_pass': len(ps), 'area': area,
             'ac_peak': None if ac is None else round(ac, 3), 'n_dev': len(devs), 'dev_med': None if dev_med is None else round(dev_med, 1), 'base': base}
 
 
@@ -323,7 +318,7 @@ def _tone_d(a: dict, b: dict) -> float:
 
 def resolve_patterns(parts: list, rules: dict) -> dict:
     """{id части: {'decision': 'fiber'|'flat', 'path': 'measure'|'material'|'inherit'|'card'|'default', 'why', 'verdict', 'from'}}. parts[i]: id, name, role, tone_lab, card, measure (dict из `measure_group` | None).
-    Порядок (T-93/4): (1) своя мера — «есть»/«узор»/уверенное «нет» (слабое «нет» узкой детали = «не видно», см. measure_group);
+    Порядок (T-93/4): (1) своя мера — «есть»/«узор»/уверенное «нет» («нет» — только по верхней границе Уилсона, см. measure_group);
     (2) МАТЕРИАЛ товара: уверенное «есть» хотя бы у одной группы материала решает за все группы материала (кроме «узора»); (3) «не видно» наследует от уверенной группы материала, СНАЧАЛА с той же ролью, потом любой;
     (4) карточка в узком смысле; (5) ровный. Части с именем «не дерево» — только своя мера/карточка (в материал не входят)."""
     pm = rules['pattern_measure']
