@@ -251,6 +251,73 @@ def test_lines_flag_gated(monkeypatch):
     assert ops == ['lines'] and steps == [] and out.size == sheet.size          # геометрия не меняется → обратное преобразование пустое
 
 
+# ───────────────── фон «в клетку» (FP_CLEAN_GRID) ─────────────────
+
+def grid_sheet(step=20, W=900, H=700, tone=225, major=190, plan=True):
+    img = np.full((H, W, 3), 252, np.uint8)
+    for i, x in enumerate(range(5, W, step)):
+        cv2.line(img, (x, 0), (x, H), (major,) * 3 if i % 5 == 0 else (tone,) * 3, 1)
+    for i, y in enumerate(range(5, H, step)):
+        cv2.line(img, (0, y), (W, y), (major,) * 3 if i % 5 == 0 else (tone,) * 3, 1)
+    if plan:
+        cv2.rectangle(img, (250, 180), (650, 520), (45, 45, 45), 9)
+        cv2.line(img, (450, 180), (450, 520), (45, 45, 45), 7)
+        cv2.line(img, (250, 350), (450, 350), (45, 45, 45), 5)
+    return img
+
+
+def test_grid_removed_plan_untouched():
+    img = grid_sheet()
+    out, info = cl.remove_grid(img)
+    assert out is not None, info
+    g0, g1 = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY), cv2.cvtColor(out, cv2.COLOR_BGR2GRAY)
+    dark0, dark1 = g0 < 110, g1 < 110
+    assert abs(int(dark1.sum()) - int(dark0.sum())) <= 0.02 * dark0.sum()        # план не тронут
+    assert np.array_equal(dark0[200:500, 270:630], dark1[200:500, 270:630]) or (dark0 ^ dark1).sum() < 50
+    corner = g1[0:150, 0:200]
+    assert corner.min() >= 245                                                       # вне плана сетки нет
+    assert out.shape == img.shape and info['lines_h_after'] + info['lines_v_after'] <= 0.25 * (info['lines_h'] + info['lines_v'])
+
+
+def test_grid_not_found_on_plain_and_irregular():
+    plain = np.full((700, 900, 3), 252, np.uint8)
+    cv2.rectangle(plain, (250, 180), (650, 520), (45, 45, 45), 9)
+    assert cl.remove_grid(plain)[0] is None
+    rng = np.random.default_rng(1)
+    img = np.full((700, 900, 3), 252, np.uint8)
+    for x in sorted(rng.integers(5, 895, 14)):
+        cv2.line(img, (int(x), 0), (int(x), 700), (215,) * 3, 1)
+    for y in sorted(rng.integers(5, 695, 12)):
+        cv2.line(img, (0, int(y)), (900, int(y)), (215,) * 3, 1)
+    out, info = cl.remove_grid(img)
+    assert out is None and 'регулярн' in info.get('reason', '') or out is None
+
+
+def test_grid_thick_wall_hatch_not_eaten():
+    """серая штриховка толстой стены (не тонкий штрих) не принимается за сетку"""
+    img = grid_sheet(plan=False)
+    cv2.rectangle(img, (200, 150), (700, 560), (150, 150, 150), 40)
+    out, info = cl.remove_grid(img)
+    if out is not None:
+        g0, g1 = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY), cv2.cvtColor(out, cv2.COLOR_BGR2GRAY)
+        wall = np.zeros_like(g0, bool)
+        wall[150:560, 200:700] = True
+        wall[190:520, 240:660] = False
+        assert np.abs(g0.astype(int) - g1)[wall].max() <= 2
+
+
+def test_grid_flag_gated(monkeypatch):
+    from PIL import Image
+    sheet = Image.fromarray(cv2.cvtColor(grid_sheet(), cv2.COLOR_BGR2RGB))
+    for v in ('FP_CLEAN_BG', 'FP_CLEAN_RECT', 'FP_CLEAN_LINES', 'FP_CLEAN_GRID'):
+        monkeypatch.delenv(v, raising=False)
+    out, ops, steps = cl.clean_sheet_steps(sheet)
+    assert out is sheet and ops == []
+    monkeypatch.setenv('FP_CLEAN_GRID', '1')
+    out, ops, steps = cl.clean_sheet_steps(sheet)
+    assert ops == ['grid'] and steps == [] and out.size == sheet.size
+
+
 # ───────────────── стенд A–G (DEV) ─────────────────
 
 def _bench_sheets():

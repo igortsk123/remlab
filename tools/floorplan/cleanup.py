@@ -411,8 +411,115 @@ def strengthen_lines(bgr):
     return out, info
 
 
-def clean_bgr(bgr, rectify=True, background=True, lines=False):
-    """→ (bgr, ops, info). ops ⊂ ['rectify', 'background', 'lines']; ничего не применилось — тот же массив."""
+# ---------------- (г) фон «в клетку» / тетрадный лист / сетка редактора ----------------
+GRID_MIN_LINES = 5          # не меньше стольких линий по каждой оси
+GRID_COVER_WEAK = 0.2       # слабая линия решётки (плану закрыта часть длины): тот же шаг, тот же тон
+GRID_COVER = 0.5            # линия сетки: светлый тонкий штрих на такой доле ширины/высоты листа
+GRID_DEPTH = (6, 110)       # глубина штриха сетки (уровней серого относительно фона): светлее 6 — шум, темнее 110 (серый ≲145 на белом) — линия плана, не сетка
+GRID_THIN = 4               # толщина штриха сетки не больше (px): штриховка и контуры стен толще
+GRID_REGULAR = 0.6          # доля зазоров между линиями, совпадающих с типичным (±20 %): сетка регулярна
+GRID_DARK_KEEP = 0.98       # тёмных (план) пикселей после/до не меньше
+GRID_LEFT = 0.25            # сетки осталось после/до не больше (по числу строк/столбцов-линий)
+
+
+def flag_grid() -> bool:
+    return os.environ.get('FP_CLEAN_GRID', '0') == '1'
+
+
+def _grid_axis(cand, dep, horizontal, W, H):
+    """строки (столбцы) листа с длинным светлым тонким штрихом: «верные» (покрытие ≥ GRID_COVER) + слабые (покрытие ≥ GRID_COVER_WEAK), если лежат на той же решётке и той же глубины тона.
+    → (индексы, число верных линий, регулярность верных, маска штрихов)"""
+    n = W if horizontal else H
+    ker = (max(31, int(0.04 * n)), 1) if horizontal else (1, max(31, int(0.04 * n)))
+    sq = cv2.getStructuringElement(cv2.MORPH_RECT, (GRID_THIN + 1, GRID_THIN + 1))
+    blobs = cv2.dilate(cv2.morphologyEx(cand, cv2.MORPH_OPEN, sq), np.ones((5, 5), np.uint8))          # толстое (стены, штриховка, подписи) — не сетка
+    thin = cand & (1 - blobs)
+    run = cv2.morphologyEx(thin, cv2.MORPH_OPEN, cv2.getStructuringElement(cv2.MORPH_RECT, ker))
+    ax = 1 if horizontal else 0
+    cov = run.mean(axis=ax)
+    idx = np.where(cov >= GRID_COVER)[0]
+    if len(idx) == 0:
+        return idx, 0, 0.0, run
+    groups = np.split(idx, np.where(np.diff(idx) > 1)[0] + 1)
+    centers = np.array([g.mean() for g in groups])
+    if len(centers) < 3:
+        return idx, len(centers), 0.0, run
+    gaps = np.diff(centers)
+    med = float(np.median(gaps))
+    reg = float((np.abs(gaps - med) <= 0.2 * med + 1).mean())
+    if reg >= GRID_REGULAR and len(centers) >= GRID_MIN_LINES:
+        # слабые линии (часть длины скрыта планом): та же решётка (шаг — самый частый зазор) и тот же тон
+        vals, cnt = np.unique(np.round(gaps).astype(int), return_counts=True)
+        pstep = float(vals[int(np.argmax(cnt))])
+        if pstep >= 4:
+            depsum = (dep * run).sum(axis=ax) / np.maximum(run.sum(axis=ax), 1)
+            tone = float(np.median(depsum[idx]))
+            weak = np.where((cov >= GRID_COVER_WEAK) & (cov < GRID_COVER))[0]
+            keep = [w for w in weak if min(((w - centers[0]) % pstep), pstep - ((w - centers[0]) % pstep)) <= 2 and 0.6 * tone <= depsum[w] <= 1.5 * tone]
+            idx = np.union1d(idx, np.array(keep, int))
+    return idx, len(centers), reg, run
+
+
+def remove_grid(bgr):
+    """→ (out | None, info). Периодическая сетка светлых тонких линий (клетка тетради, сетка редактора) закрашивается фоном; тёмные линии плана
+    не трогаются (закрашиваются только светлые пиксели на линиях сетки), геометрия не меняется.
+    Находим длинные светлые штрихи по строкам и столбцам; ≥ GRID_MIN_LINES линий на ось и регулярные зазоры — это сетка, иначе не трогаем.
+    Автопроверки: тёмных пикселей после/до ≥ GRID_DARK_KEEP; линий сетки после/до ≤ GRID_LEFT."""
+    info = {}
+    H, W = bgr.shape[:2]
+    gray = cv2.cvtColor(bgr, cv2.COLOR_BGR2GRAY)
+    L = max(H, W)
+    k = max(15, int(0.03 * L)) | 1
+    bg = cv2.morphologyEx(gray, cv2.MORPH_CLOSE, cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (k, k)))
+    bg = cv2.GaussianBlur(bg, (0, 0), k / 3.0)
+    dep = bg.astype(np.int16) - gray.astype(np.int16)
+    cand = ((dep >= GRID_DEPTH[0]) & (dep <= GRID_DEPTH[1])).astype(np.uint8)
+    ih, nh, rh, runh = _grid_axis(cand, dep, True, W, H)
+    iv, nv, rv, runv = _grid_axis(cand, dep, False, W, H)
+    info.update({'lines_h': nh, 'lines_v': nv, 'regular_h': round(rh, 2), 'regular_v': round(rv, 2)})
+    if nh < GRID_MIN_LINES or nv < GRID_MIN_LINES:
+        info['reason'] = f'сетки нет (линий {nh}×{nv} < {GRID_MIN_LINES})'
+        return None, info
+    if rh < GRID_REGULAR or rv < GRID_REGULAR:
+        info['reason'] = f'линии не регулярны ({rh:.2f}/{rv:.2f} < {GRID_REGULAR}) — не сетка'
+        return None, info
+    base = np.zeros((H, W), np.uint8)
+    base[ih, :] |= runh[ih, :]
+    base[:, iv] |= runv[:, iv]
+    paper = cv2.GaussianBlur(cv2.morphologyEx(bgr, cv2.MORPH_CLOSE, cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (k, k))), (0, 0), k / 3.0)    # цвет бумаги рядом (тонкое замыкание стирает штрихи)
+    d0 = float((gray < 110).sum())
+    reason = ''
+    for kd in (5, 3):                                         # толщина закраски: сперва с запасом на размытие JPEG, у частой сетки — тоньше
+        mask = cv2.dilate(base, np.ones((kd, kd), np.uint8))
+        mask &= (dep <= GRID_DEPTH[1]).astype(np.uint8)       # линии плана (темнее) под маску не попадают, даже на пересечении с сеткой
+        mask &= (dep >= 3).astype(np.uint8)
+        info['mask_share'] = round(float(mask.mean()), 4)
+        info['dilate'] = kd
+        out = bgr.copy()
+        out[mask > 0] = paper[mask > 0]
+        g2 = cv2.cvtColor(out, cv2.COLOR_BGR2GRAY)
+        d1 = float((g2 < 110).sum())
+        info['dark_ratio'] = round(d1 / max(d0, 1.0), 3)
+        if not (GRID_DARK_KEEP <= d1 / max(d0, 1.0) <= 2 - GRID_DARK_KEEP):
+            reason = f'тёмного после/до {d1 / max(d0, 1):.3f} вне {GRID_DARK_KEEP}…{2 - GRID_DARK_KEEP:.2f} — откат'
+            continue
+        bg2 = cv2.GaussianBlur(cv2.morphologyEx(g2, cv2.MORPH_CLOSE, cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (k, k))), (0, 0), k / 3.0)
+        dep2 = bg2.astype(np.int16) - g2.astype(np.int16)
+        cand2 = ((dep2 >= GRID_DEPTH[0]) & (dep2 <= GRID_DEPTH[1])).astype(np.uint8)
+        _, nh2, _, _ = _grid_axis(cand2, dep2, True, W, H)
+        _, nv2, _, _ = _grid_axis(cand2, dep2, False, W, H)
+        info.update({'lines_h_after': nh2, 'lines_v_after': nv2})
+        if nh2 + nv2 > GRID_LEFT * (nh + nv):
+            reason = f'сетка осталась ({nh2}×{nv2} из {nh}×{nv}) — откат'
+            continue
+        info.pop('reason', None)
+        return out, info
+    info['reason'] = reason
+    return None, info
+
+
+def clean_bgr(bgr, rectify=True, background=True, lines=False, grid=False):
+    """→ (bgr, ops, info). ops ⊂ ['rectify', 'background', 'grid', 'lines']; ничего не применилось — тот же массив."""
     ops, info, cur = [], {}, bgr
     if rectify:
         w_, inf = rectify_lines(cur)
@@ -427,6 +534,12 @@ def clean_bgr(bgr, rectify=True, background=True, lines=False):
         if b_ is not None:
             cur = b_
             ops.append('background')
+    if grid:                                                  # сетку — до усиления линий (иначе усилили бы и клетку)
+        g_, inf = remove_grid(cur)
+        info['grid'] = inf
+        if g_ is not None:
+            cur = g_
+            ops.append('grid')
     if lines:
         l_, inf = strengthen_lines(cur)
         info['lines'] = inf
@@ -439,13 +552,13 @@ def clean_bgr(bgr, rectify=True, background=True, lines=False):
 def clean_sheet_steps(sheet):
     """PIL RGB → (PIL RGB, ops, steps). steps — геометрия для обратного преобразования (исходный лист ← выход):
     [{'op': 'rectify', 'H': 3×3 исходный→выход, 'in': [W, H], 'out': [w, h]}]; фон и усиление линий геометрию не меняют. Выключено/не применилось — тот же объект, [], []."""
-    rect, bg, ln = flag_rect(), flag_bg(), flag_lines()
-    if not (rect or bg or ln):
+    rect, bg, ln, gr = flag_rect(), flag_bg(), flag_lines(), flag_grid()
+    if not (rect or bg or ln or gr):
         return sheet, [], []
     from PIL import Image
     try:
         bgr = cv2.cvtColor(np.asarray(sheet.convert('RGB')), cv2.COLOR_RGB2BGR)
-        out, ops, info = clean_bgr(bgr, rectify=rect, background=bg, lines=ln)
+        out, ops, info = clean_bgr(bgr, rectify=rect, background=bg, lines=ln, grid=gr)
     except Exception:  # noqa: BLE001 — чистка не должна ронять разбор: лист как есть
         return sheet, [], []
     if not ops:
