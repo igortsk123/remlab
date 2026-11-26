@@ -151,7 +151,17 @@ def process(a, rules: dict, d: str, rep: dict) -> None:
         rep['niche_photo'] = {'n': int(nich.sum()), 'L_med': round(float(np.median(Ln)), 1), 'L_p10': round(float(np.percentile(Ln, 10)), 1), 'L_p90': round(float(np.percentile(Ln, 90)), 1)}
     pp = np.where(valid, flab[fid], -1)
     comp_px = PM.components(g['V'], g['F'])[fid]
-    tones = PM.group_tones(prgb, pp, names, cosf, rules, comp_px)
+    raw_frame = None
+    if rules['pixels']['cluster_raw'] and not rules['pixels']['tone_raw']:
+        raise Abstain('правила: pixels.cluster_raw требует pixels.tone_raw')
+    if rules['pixels']['tone_raw']:                                            # A2: значение тона — с сырого фото (05 остаётся чистильщиком: маска, края, блики)
+        if not a.raw_photo or not os.path.exists(a.raw_photo):
+            raise Abstain('pixels.tone_raw включён, а сырого фото (--raw-photo) нет: %r' % (a.raw_photo,))
+        raw_frame = TV.photo_to_frame(np.asarray(Image.open(a.raw_photo).convert('RGBA')), st['P'], st['px'])[0]
+        if raw_frame.shape != prgb.shape:
+            raise Abstain('сырое фото в кадре камеры другой формы, чем 05: %s против %s' % (raw_frame.shape, prgb.shape))
+        rep['tone_source'] = {'raw_photo': a.raw_photo, 'cluster_raw': bool(rules['pixels']['cluster_raw'])}
+    tones = PM.group_tones(prgb, pp, names, cosf, rules, comp_px, raw_frame)
     keep, borrowed, same = PM.pick_sources(tones, rules, rep['area_share'])
     rep['pattern_keep'] = sorted(keep)
     rep['borrowed'] = borrowed
@@ -428,6 +438,7 @@ def main(argv: list | None = None) -> int:
     ap.add_argument('--rules', default='')
     ap.add_argument('--out-dir', default='', help='папка 06-visible для пробы вместо <run>/<sku>/06-visible')
     ap.add_argument('--card', default='', help='card.json товара: «Размеры: Высота габаритная» (см) → масштаб кадра для ворот щелей; нет — щели по доле кадра')
+    ap.add_argument('--raw-photo', default='', help='сырое фото (до 05) — нужно только при rules.pixels.tone_raw: значение тона группы берётся с него, а 05 (--photo) остаётся чистильщиком')
     ap.add_argument('--keep-work', action='store_true')
     a = ap.parse_args(argv)
     rules = PM.load_rules(a.rules or None)

@@ -284,8 +284,10 @@ def part_pixels(img: np.ndarray, pmap: np.ndarray, parts: list, erode: int, extr
     return img[m], m
 
 
-def group_tones(prgb: np.ndarray, pp: np.ndarray, names: list, cosf: np.ndarray, rules: dict, comp_px: np.ndarray | None = None) -> dict:
+def group_tones(prgb: np.ndarray, pp: np.ndarray, names: list, cosf: np.ndarray, rules: dict, comp_px: np.ndarray | None = None, raw: np.ndarray | None = None) -> dict:
     """Тон каждой группы по чистым пикселям фото. pp — метка группы на пиксель кадра (−1 — нет), comp_px — номер связного куска меша на пиксель (для «лучшей ножки»).
+    raw — сырой кадр той же формы, что prgb (A2, rules.pixels.tone_raw): отбор пикселей (маска, края, косые, отсев блика) — по prgb (05), ЗНАЧЕНИЕ тона — по тем же пикселям raw;
+    rules.pixels.cluster_raw — и главный кластер ищется по raw.
     → {группа: {n_all, n_main, share, ab_minor, own, lin, lab, best_leg_px?}}."""
     px_r = rules['pixels']
     out = {}
@@ -303,7 +305,10 @@ def group_tones(prgb: np.ndarray, pp: np.ndarray, names: list, cosf: np.ndarray,
             lb = lab_of(px)
             abm = np.median(lb[:, 1:], 0)
             minor = float((np.hypot(*(lb[:, 1:] - abm).T) > rules['pattern']['minor_ab_dist']).mean())
-            sel = px[mm]
+            vpx = px if raw is None else raw[m]                         # пиксели, по которым берётся ЗНАЧЕНИЕ тона (05 или сырое фото)
+            if raw is not None and px_r['cluster_raw']:
+                mm, share = main_cluster(vpx, px_r['kmeans_k'], px_r['kmeans_sample'])
+            sel = vpx[mm]
             info.update(n_main=int(mm.sum()), share=round(share, 3), ab_minor=round(minor, 3), own=True, lin=med_lin(sel), lab=np.median(lab_of(sel), 0))
             if gn in px_r['best_leg_groups'] and comp_px is not None:
                 comp = comp_px[m]
@@ -313,7 +318,7 @@ def group_tones(prgb: np.ndarray, pp: np.ndarray, names: list, cosf: np.ndarray,
                     if kk > bn:
                         best, bn = u, kk
                 if best is not None and bn >= px_r['best_leg_min_px']:
-                    sel2 = px[(comp == best) & mm]
+                    sel2 = vpx[(comp == best) & mm]
                     info.update(lin=med_lin(sel2), lab=np.median(lab_of(sel2), 0), best_leg_px=bn)
         out[gn] = info
     return out

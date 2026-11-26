@@ -193,6 +193,23 @@ Rh0 = _cp.deepcopy(Rh); Rh0['fit']['hprime']['nrel'] = 5.0
 alb_0, _h3, log_0 = PM.fit_albedo_hprime(names2, tones2, {}, set(), texmap, ctl, render_dark, lm_n, Rh0)
 check(log_0['решения']['верх'].get('не_измерено') and np.allclose(alb_0['верх'], tones2['верх']['lin']) and np.allclose(alb_0['ножки'], tones2['ножки']['lin']), 'H′: ни одной надёжной — «не измерено», тон как есть')
 
+# ── A2 (T-97 шаг 3): значение тона — с СЫРОГО фото, 05 — чистильщик; ключи pixels.tone_raw / pixels.cluster_raw
+check(R['pixels']['tone_raw'] is False and R['pixels']['cluster_raw'] is False, 'A2: по умолчанию выкл (pixels.tone_raw, pixels.cluster_raw = false)')
+H2 = 120
+pp2 = np.full((H2, H2), -1, np.int16); pp2[10:110, 10:110] = 0
+cos2 = np.ones((H2, H2), np.float32)
+p05 = np.full((H2, H2, 3), 200, np.uint8); p05[:, 70:] = 120                       # 05: два тона, главный (60 %) — левый, 200
+rawf = np.full((H2, H2, 3), 100, np.uint8); rawf[:, :58] = 220                     # сырое: разрез по-другому — слева 220 (40 %), справа 100 (60 %)
+Rr = _cp.deepcopy(R); Rr['pixels'].update(tone_raw=True, cluster_raw=False)
+Rc = _cp.deepcopy(R); Rc['pixels'].update(tone_raw=True, cluster_raw=True)
+t_05 = PM.group_tones(p05, pp2, ['фасад'], cos2, R)['фасад']
+t_r0 = PM.group_tones(p05, pp2, ['фасад'], cos2, Rr, None, rawf)['фасад']
+t_rc = PM.group_tones(p05, pp2, ['фасад'], cos2, Rc, None, rawf)['фасад']
+check(t_05['own'] and np.allclose(t_05['lin'], PM.med_lin(np.full((1, 3), 200, np.uint8))), 'A2: без raw (ключ выкл) — тон по 05, как раньше (200)')
+check(t_r0['own'] and not np.allclose(t_r0['lin'], t_05['lin']) and t_r0['lab'][0] > t_rc['lab'][0], 'A2: tone_raw — значение тона с сырого фото по пикселям 05-главного кластера (ключ меняет тон)')
+check(np.allclose(t_rc['lin'], PM.med_lin(np.full((1, 3), 100, np.uint8))), 'A2: cluster_raw — главный кластер по сырому (100), а не по 05; ключ меняет тон ещё раз')
+check(t_r0['n_all'] == t_05['n_all'], 'A2: отбор пикселей (маска) тот же — по 05')
+
 # ── растр меток по развёртке
 UV =np.array([[0.1, 0.1], [0.4, 0.1], [0.1, 0.4], [0.6, 0.6], [0.9, 0.6], [0.6, 0.9]])
 F = np.array([[0, 1, 2], [3, 4, 5]])
