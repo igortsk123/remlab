@@ -839,8 +839,16 @@ def test_facade_axis():
     ok(i0 == SP.facade_axis([box], w(0.0, (2, 1))), 'чистая функция: повтор даёт тот же ответ (детерминированная выборка заполнения)')
 
 
+def test_grain_ratio_min_off_by_default():
+    print('T-99/11: нижняя граница grain_ratio — выключатель и порог в правилах (выкл = метрики нет):')
+    R = TF.RULES['surface_groups']
+    ok(R.get('grain_ratio_min_enabled') is False and R['thresholds']['grain_ratio_min'] == ['>=', 0.7], 'grain_ratio_min_enabled=false, порог >= 0.7 (старт, гипотеза пилота)')
+    src = open(os.path.join(os.path.dirname(os.path.abspath(__file__)), 'surface_passport.py'), encoding='utf-8').read()
+    ok("R.get('grain_ratio_min_enabled')" in src and "worst['grain_ratio_min'] = min(_gv)" in src, 'метрика считается только под выключателем')
+
+
 def main() -> int:
-    for f in (test_carcass_library, test_carcass_library_modes,test_new_rules_only_body_type, test_rule_entries_body, test_rule_entries_not_body, test_blur_caches, test_split_plane_one_tone, test_contrast_door_own_group, test_gray_pattern_not_flattened, test_back_is_body_not_facade, test_back_not_tiny_contrast, test_top_follows_group, test_edge_body_tone, test_light_floor, test_rebuild_body_gates, test_type_allows_body, test_body_override_only_for_body_type, test_facade_relief_and_release_weak, test_grain_no_dark_seams, test_gradient_continues, test_outlier_replaced, test_orphan_attached, test_orphan_guards, test_orphan_keeps_hook_tone, test_hook_keep_top, test_ultratex_switch_off, test_hidden_pattern_by_type, test_facade_axis):
+    for f in (test_grain_ratio_min_off_by_default, test_carcass_library, test_carcass_library_modes,test_new_rules_only_body_type, test_rule_entries_body, test_rule_entries_not_body, test_blur_caches, test_split_plane_one_tone, test_contrast_door_own_group, test_gray_pattern_not_flattened, test_back_is_body_not_facade, test_back_not_tiny_contrast, test_top_follows_group, test_edge_body_tone, test_light_floor, test_rebuild_body_gates, test_type_allows_body, test_body_override_only_for_body_type, test_facade_relief_and_release_weak, test_grain_no_dark_seams, test_gradient_continues, test_outlier_replaced, test_orphan_attached, test_orphan_guards, test_orphan_keeps_hook_tone, test_hook_keep_top, test_ultratex_switch_off, test_hidden_pattern_by_type, test_facade_axis):
         f()
     print(f'tests_surface_passport: ошибок {bad}')
     return 1 if bad else 0

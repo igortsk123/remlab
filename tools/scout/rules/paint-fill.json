@@ -166,8 +166,11 @@
       "panel_spread_de": ["<=", 3.0],
       "jump_median": ["<=", 2.0],
       "jump_p95": ["<=", 5.0],
-      "grain_ratio": ["<=", 1.1]
+      "grain_ratio": ["<=", 1.1],
+      "grain_ratio_min": [">=", 0.7]
     },
+    "grain_ratio_min_enabled": false,
+    "_grain_ratio_min_why": "T-99/11 (Fable 15 §2): grain_ratio ограничена только сверху — у Хостера зерно невидимого к видимому было 0,05 и «проходило» (ровные грани без глаза). true: нижняя граница thresholds.grain_ratio_min (старт 0,7, гипотеза пилота) по худшей группе класса «тон + зерно»; метрика sg_grain_ratio_min справочная, пока surface_groups.gate=false. Включать вместе с grain_keep. false = как в main (метрики нет, check.json байт в байт).",
     "gate": false,
     "_gate_note": "gate=false: мерки surface_groups пишутся в check.json как справочные (без порога, на passed не влияют), пока пороги — гипотеза. true — пороги судят passed.",
     "measure": {

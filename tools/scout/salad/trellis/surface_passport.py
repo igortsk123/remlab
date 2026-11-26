@@ -1354,9 +1354,15 @@ def measure(geoms: list, tex_after: list, known_keep: list, pas: dict, ctx: dict
             worst['violation_pct'] = max(worst['violation_pct'], viol)
     worst = {k: round(v, 2) for k, v in worst.items()}
     worst['grain_ratio'] = max(gr_ratio.values()) if gr_ratio else None
+    gr_min_on = bool(R.get('grain_ratio_min_enabled')) and 'grain_ratio_min' in th                 # T-99/11 (Fable 15 §2): нижняя граница — ровные грани без глаза (зерно невидимого к видимому, класс «тон + зерно»)
+    if gr_min_on:
+        _gv = [v for gid_, v in gr_ratio.items() if next(x for x in pas['groups'] if x['id'] == gid_)['class'] == 'тон + зерно']
+        worst['grain_ratio_min'] = min(_gv) if _gv else None
     slits = measure_slits(geoms, tex_after, known_keep, ctx, R, tf)
     ok = {'dE_base': worst['dE_base'] <= th['dE_base'][1], 'panel_p95': worst['panel_p95'] <= th['panel_spread_de'][1], 'jump_median': worst['jump_median'] <= th['jump_median'][1],
           'jump_p95': worst['jump_p95'] <= th['jump_p95'][1], 'grain_ratio': (worst['grain_ratio'] is None or worst['grain_ratio'] <= th['grain_ratio'][1])}
+    if gr_min_on:
+        ok['grain_ratio_min'] = worst['grain_ratio_min'] is None or worst['grain_ratio_min'] >= th['grain_ratio_min'][1]
     return {'per_group': per, 'worst': worst, 'slits': slits, 'ok_hypothesis': ok, 'all_ok_hypothesis': bool(all(ok.values())), 'thresholds_hypothesis': th}
 
 

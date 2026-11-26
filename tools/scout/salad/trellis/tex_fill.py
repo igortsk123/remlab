@@ -3283,7 +3283,7 @@ def run_stage_once(run: str, sku: str, glb: str, known: list | None = None, part
     if _sga:                                                            # мерки групп материала: пороги — гипотеза пилота; gate=false → справочные (без порога), true → судят passed
         _sgth = sg_cfg['thresholds']
         for k_, v_, t_ in (('sg_dE_base', _sga['worst']['dE_base'], _sgth['dE_base']), ('sg_panel_spread_p95', _sga['worst']['panel_p95'], _sgth['panel_spread_de']),
-                           ('sg_jump_median', _sga['worst']['jump_median'], _sgth['jump_median']), ('sg_jump_p95', _sga['worst']['jump_p95'], _sgth['jump_p95'])) + ((('sg_grain_ratio', _sga['worst']['grain_ratio'], _sgth['grain_ratio']),) if _sga['worst'].get('grain_ratio') is not None else ()):
+                           ('sg_jump_median', _sga['worst']['jump_median'], _sgth['jump_median']), ('sg_jump_p95', _sga['worst']['jump_p95'], _sgth['jump_p95'])) + ((('sg_grain_ratio', _sga['worst']['grain_ratio'], _sgth['grain_ratio']),) if _sga['worst'].get('grain_ratio') is not None else ()) + ((('sg_grain_ratio_min', _sga['worst']['grain_ratio_min'], _sgth['grain_ratio_min']),) if _sga['worst'].get('grain_ratio_min') is not None else ()):
             metrics[k_] = {'value': v_, 'op': t_[0], 'threshold': float(t_[1]) if sg_cfg['gate'] else None, 'hypothesis_threshold': float(t_[1]), 'ok': (PS.judge(v_, t_[0], float(t_[1])) if sg_cfg['gate'] else None)}
         _orp = (sg_pas or {}).get('orphans')
         if _orp:                                                           # счётчик сирот (частей без видимого тона и донора): до → после
