@@ -440,16 +440,16 @@ class T(unittest.TestCase):
             self.assertEqual((money['kept_warm'], money['adopted_warm'], money['stop_verified']), (1, 1, True))     # тёплая нода — не «остановка не подтверждена»
 
     def test_eval_light_second_sheet_and_batch_cmd_light(self):
-        """Свет листа (T-63, директор 25.11): основной лист — свет подгонки (по умолчанию site.enabled=false), мерки sides_eval — свет сайта: нужен ВТОРОЙ лист; свет передаётся в sides_sheet --light."""
+        """Свет листа (T-99/11, директор 26.11): основной лист — СВЕТ САЙТА (site.enabled=true по умолчанию), мерки sides_eval тоже на свете сайта → второй лист не нужен; свет подгонки — явный флаг для отладки; свет передаётся в sides_sheet --light."""
         r = L.load_rules()
-        self.assertEqual(L.sheet_default_light(), 'fit')                       # лист для людей — свет подгонки
+        self.assertEqual(L.sheet_default_light(), 'site')                      # лист для людей и для мерок — свет сайта
         self.assertEqual(r['sheets']['eval_light'], 'site')                    # мерки сидят на свете сайта (пороги подобраны на нём)
-        self.assertEqual(L.eval_sheets_light(r), 'site')                       # → второй лист «после» (папка sheets-eval)
-        self.assertIsNone(L.eval_sheets_light({**r, 'sheets': {**r['sheets'], 'eval_light': 'fit'}}))   # мерка в том же свете — второй лист не нужен
+        self.assertIsNone(L.eval_sheets_light(r))                              # тот же свет, что у основного листа — второй лист «после» не нужен
+        self.assertEqual(L.eval_sheets_light({**r, 'sheets': {**r['sheets'], 'eval_light': 'fit'}}), 'fit')   # мерка в другом свете (отладка) — второй лист нужен
         self.assertIsNone(L.eval_sheets_light({**r, 'sheets': {k: v for k, v in r['sheets'].items() if k != 'eval_light'}}))
         c = L.batch_cmd(r, '/o/i.json', '/o/s', 'site')
         self.assertEqual(c[c.index('--light') + 1], 'site')
-        self.assertNotIn('--light', L.batch_cmd(r, '/o/i.json', '/o/s'))       # без света — как раньше: по sides-sheet.json
+        self.assertNotIn('--light', L.batch_cmd(r, '/o/i.json', '/o/s'))       # без света — как раньше: по sides-sheet.json (свет сайта)
 
     def test_sheet_items_and_batch_cmd(self):
         items = L.sheet_items([('/g/a/material.glb', '/p/a.png', '/o/sheets/112923_1.png', '/v/a/check.json'), ('/g/b/material.glb', '/p/b.png', '/o/sheets/112923_2.png')])

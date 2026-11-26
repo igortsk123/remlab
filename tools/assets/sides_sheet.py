@@ -64,6 +64,11 @@ def build_spec(sh: dict, out: str, items: list, clay: bool = False) -> dict:
             'items': [{'id': it['id'], 'glb': it['glb'], 'orbits': orbits_for(sh, it['_az'])} for it in items]}
 
 
+def light_name(sh: dict) -> str:
+    """Подпись света листа: «свет сайта» (three.js, числа window-light.ts:LIGHT) | «свет подгонки» (model-viewer neutral, exposure 1). T-99/11: кадры на оценку — только свет сайта, подпись обязательна."""
+    return 'свет сайта' if (sh.get('site') or {}).get('enabled') else 'свет подгонки'
+
+
 def assemble(sh: dict, photo_path: str | None, views_dir: str, dst: str, suffix: str = '') -> None:
     from PIL import Image, ImageDraw, ImageFont
     S, hp = int(sh['size']), int(sh['header_px'])
@@ -73,7 +78,7 @@ def assemble(sh: dict, photo_path: str | None, views_dir: str, dst: str, suffix:
         font = ImageFont.load_default()
     sheet = Image.new('RGB', (S * (len(sh['views']) + 1), S + hp), 'white')
     d = ImageDraw.Draw(sheet)
-    d.text((5, 4), 'ФОТО', fill='black', font=font)
+    d.text((5, 4), 'ФОТО · ' + light_name(sh), fill='black', font=font)
     try:
         ph = Image.open(photo_path).convert('RGBA')
         bg = Image.new('RGBA', ph.size, tuple(sh['photo_bg']) + (255,))
@@ -144,7 +149,7 @@ def batch(items: list, out: str, node: str = 'node', rules: dict | None = None, 
             assemble(sh, it.get('photo'), os.path.join(work, it['id']), os.path.join(out, it['id'] + '.png'))
             if clay:                                                     # второй лист — «глина» (те же виды, белый материал): рядом, <id>.clay.png
                 assemble(sh, None, os.path.join(work, it['id']), os.path.join(out, it['id'] + '.clay.png'), '.clay')
-        times[it['id']] = {'ok': bool(r_.get('ok')), 'seconds': r_.get('seconds'), 'notes': r_.get('notes', [])[:3]}
+        times[it['id']] = {'ok': bool(r_.get('ok')), 'seconds': r_.get('seconds'), 'notes': r_.get('notes', [])[:3], 'light': 'site' if (sh.get('site') or {}).get('enabled') else 'fit'}
     times['_total'] = {'seconds': round(time.time() - t0, 1), 'items': len(items)}
     tp = os.path.join(out, 'times.json')
     prev = {}

@@ -3046,6 +3046,7 @@ def run_stage_once(run: str, sku: str, glb: str, known: list | None = None, part
     _m = _hmark()
     tex_after, rep['ref_zone_map'] = apply_ref_zone_map(geoms, tex_after, known, cfg)
     _hdone(hooks, 'ref_zone_map', _m)
+    _gk_mark('ref_zone_map', tex_after)
     rep['relief_source'] = relief_src
     rep['paint_policy'] = pp_pol
     rep['detail_zones'] = _dz_doc
@@ -3063,6 +3064,7 @@ def run_stage_once(run: str, sku: str, glb: str, known: list | None = None, part
     _m = _hmark()
     tex_after, rep['own_panel'] = own_panel_tone_hook(geoms, tex_after, known, ut_g, parts, _fax, float(th['front_on_back_corr'][1]))
     _hdone(hooks, 'own_panel', _m)
+    _gk_mark('own_panel', tex_after)
     import ref_zone as RZ
     _m_sib = _hmark()
     try:                                                                  # части-близнецы (стул 7733, 23.11): тон из мизерного известного подтягивается к парной части с тем же цветом 06; сбой не роняет этап
@@ -3098,6 +3100,7 @@ def run_stage_once(run: str, sku: str, glb: str, known: list | None = None, part
     except Exception as e:  # noqa: BLE001
         rep['sibling_tone'] = {'error': f'{type(e).__name__}: {e}'}
     _hdone(hooks, 'sibling_tone_all', _m_sib)
+    _gk_mark('sibling_tone', tex_after)
     try:                                                                  # подчасть по цвету 06 (Б, 23.11): мелкие невидимые панели со своим тоном; сбой не роняет этап
         _m = _hmark()
         tex_after, rep['sub_tone'] = RZ.sub_tone(geoms, tex_before, tex_after, known, parts)

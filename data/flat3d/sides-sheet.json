@@ -65,8 +65,8 @@
   "roughness": 0.85
  },
  "site": {
-  "_about": "ПО УМОЛЧАНИЮ enabled=false — свет ПОДГОНКИ (model-viewer neutral, exposure 1): лист для людей/Fable/ворот (директор 25.11, владелец TG 2979); свет сайта — вторым листом по запросу (`sides_sheet.py batch --light site`), в нём читают мерки sides_eval и абсолютный back_speckle (пороги подобраны на нём 23.11). Свет сайта (enabled=true; директор 23.11, T-20261123-37): лист снимается тем же three.js и теми же числами, что просмотрщик сайта (`lib/viewer3d/viewer.ts` + `window-light.ts:LIGHT`: RoomEnvironment, полусфера, солнце, подсветка, Neutral tone mapping). Числа света — ЗЕРКАЛО `window-light.ts:LIGHT` и позиций света в `viewer.ts`; тест `test_sides_sheet.py` сверяет их с исходниками, разошлись — красный. enabled=false — прежний model-viewer (нейтральный свет `light`). distance_k — множитель расстояния камеры (радиус орбиты листа × радиус описывающей сферы при fov).",
-  "enabled": false,
+  "_about": "ПО УМОЛЧАНИЮ enabled=TRUE — лист снимается СВЕТОМ САЙТА (директор 26.11, T-99/11: кадры на оценку и показ — только светом сайта; при свете подгонки ошибались ≈1,5 раза по яркости). Свет подгонки (model-viewer neutral, exposure 1) — явным флагом для отладки: `sides_sheet.py batch --light fit` (подпись на листе «свет подгонки»). Свет сайта: тот же three.js и те же числа света, что просмотрщик (`lib/viewer3d/viewer.ts` + `window-light.ts:LIGHT`): RoomEnvironment, полусфера, солнце, подсветка, Neutral tone mapping (T-20261123-37). Числа — ЗЕРКАЛО `window-light.ts:LIGHT` и позиций света в `viewer.ts`; тест `test_sides_sheet.py` сверяет их с исходниками, разошлись — красный. Подпись света — на листе (шапка) и в times.json (light); имя файла <id>.png не меняется (контракт loop5/sides_eval), в именах кадров на показ свет пишется явно (site/fit). distance_k — множитель расстояния камеры.",
+  "enabled": true,
   "fov": 45,
   "distance_k": 1.0,
   "libs": {
