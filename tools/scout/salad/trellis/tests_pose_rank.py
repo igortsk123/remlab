@@ -489,5 +489,21 @@ check('front_half_pick: env POSE_FRONT_PICK=1 включает при выкл. 
 check('is_corpus_role: комод/шкаф да, диван/стол нет, пусто нет (от flip_always.enabled не зависит)', PR.is_corpus_role('Комод', on) and PR.is_corpus_role('шкаф-купе', on) and not PR.is_corpus_role('диван', on) and not PR.is_corpus_role('', on) and not PR.is_corpus_role(None, on))
 check('front_half_pick: правило в pose-rank.json выкл. по умолчанию', PR.rules()['flip_always']['corpus_axes']['front_pick']['enabled'] is False and 'front_half_pick' in inspect.getsource(PR) and not re.search(r'\d{8,}', inspect.getsource(PR.front_half_pick)))
 
+# T-99/5: v2 — окно «каталог слева» az 300…360 ∪ 0…10 (зеркало 3/4: кандидат справа при фото слева не берётся)
+Rw = copy.deepcopy(Rfp)
+Rw['flip_always']['corpus_axes']['front_pick']['az_window_deg'] = [300, 10]
+_pm = _c(137.5, 0.9320, 0.7815)                                                                      # Модерн: боевая сзади
+_o, _i = PR.front_half_pick(_pm, [_c(15.9, 0.9584, 0.8525), _c(321.8, 0.9263, 0.7924)], {'starts': []}, Rw)
+check('v2 зеркало: боевая сзади, справа (az 16, оценка выше) и слева (az 322) → берём левый', _o['cam']['az'] == 321.8 and _i['az_after'] == 321.8 and not _i['stop'] and _i['window'] == [300, 10])
+_o, _i = PR.front_half_pick(_pm, [_c(15.9, 0.9584, 0.8525)], {'starts': []}, Rw)
+check('v2 зеркало: только справа (az 16) → СТОП, поза не тронута (v1 взяла бы 16)', _o is _pm and _i['stop'] and _i['n_front'] == 0 and PR.front_half_pick(_pm, [_c(15.9, 0.9584, 0.8525)], {'starts': []}, Rfp)[0]['cam']['az'] == 15.9)
+_o, _i = PR.front_half_pick(_c(15.9, 0.9584, 0.8525), [_c(321.8, 0.945, 0.7924)], {'starts': []}, Rw)
+check('v2 зеркало: боевая справа-спереди (az 16, вне окна) при кандидате слева → переставлена на левый', _o['cam']['az'] == 321.8 and not _i['stop'])
+_o, _i = PR.front_half_pick(_c(340.0, 0.98, 0.95), [_c(15.9, 0.99, 0.99)], {'starts': []}, Rw)
+check('v2: боевая в окне (340) → «согласны», лучший справа не берётся', _o['cam']['az'] == 340.0 and _i['verdict'] == 'согласны')
+_o, _i = PR.front_half_pick(_c(5.0, 0.98, 0.95), [], {'starts': []}, Rw)
+check('v2: граница окна — az 5 и 359 «согласны», az 10,5 и 299 вне окна', _i['verdict'] == 'согласны' and PR.front_half_pick(_c(359.0, 0.9, 0.9), [], {'starts': []}, Rw)[1]['verdict'] == 'согласны' and PR.front_half_pick(_c(10.5, 0.9, 0.9), [], {'starts': []}, Rw)[1]['stop'] and PR.front_half_pick(_c(299.0, 0.9, 0.9), [], {'starts': []}, Rw)[1]['stop'])
+check('v2: в pose-rank.json окно [300, 10], флаг выкл.', PR.rules()['flip_always']['corpus_axes']['front_pick']['az_window_deg'] == [300, 10] and PR.rules()['flip_always']['corpus_axes']['front_pick']['enabled'] is False)
+
 print('all ok' if not bad else f'FAILED: {bad}')
 sys.exit(1 if bad else 0)

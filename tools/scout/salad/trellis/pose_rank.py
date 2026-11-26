@@ -397,6 +397,7 @@ def front_half_pick(pick: dict, cands: list, ms_info: dict | None, R: dict, env:
     """T-99/3: подбор камеры 04 корпусных ТОЛЬКО в передней половине осей (`front_axes` == 'перёд'). Поза этапа 04 по силуэту не различает перёд и зад коробки (Модерн, тв-тумба, Теджонс, Рошаль, Монблан-4 встали сзади), оси верны.
     Кандидаты — боевая + `cands` + стартовые позы мультистарта (уже посчитаны, ничего не считаем заново). Боевая уже в передней половине → «согласны». Иначе лучшая по оценке в передней половине принимается, если её IoU силуэта хуже лучшего
     боевой (задней) позы не более чем на `front_pick.iou_gap_max`; нет передней или она заметно хуже → поза остаётся и вердикт «СТОП: оси ≠ поза» (товар до покраски не идёт).
+    v2: `front_pick.az_window_deg` — окно «каталог слева» (фото каталога снято слева-спереди, верные az 315–345): передняя = передняя половина И в окне; кандидат справа (зеркало 3/4, Модерн az 16 вместо 322) не берётся, только справа — СТОП.
     Флаг `corpus_axes.front_pick.enabled` (или env POSE_FRONT_PICK: 1 — вкл, 0 — выкл; приоритет у env) выкл — (pick, {'enabled': False}) без изменений. → (pick, info)."""
     C = R['flip_always']['corpus_axes']
     fp = C.get('front_pick') or {}
@@ -415,25 +416,34 @@ def front_half_pick(pick: dict, cands: list, ms_info: dict | None, R: dict, env:
         pool.append(c)
     az0 = float(pick['cam']['az']) % 360.0
     ax0 = front_axes(az0, R)
-    info = {'enabled': True, 'az_before': round(az0, 2), 'axes_before': ax0, 'n_pool': len(pool), 'stop': False}
-    if ax0 == 'перёд':
-        info.update({'verdict': 'согласны', 'why': f"боевая поза az {az0:.1f} уже в передней половине осей", 'az_after': round(az0, 2)})
+    win = fp.get('az_window_deg')                                       # v2 (T-99/5): окно «каталог слева» [от, до) через 0, напр. [300, 10]; null — вся передняя половина (v1)
+
+    def in_win(a: float) -> bool:
+        if not win:
+            return True
+        lo, hi = float(win[0]), float(win[1])
+        a = float(a) % 360.0
+        return (a >= lo or a <= hi) if lo > hi else (lo <= a <= hi)
+    info = {'enabled': True, 'az_before': round(az0, 2), 'axes_before': ax0, 'window': win, 'n_pool': len(pool), 'stop': False}
+    if ax0 == 'перёд' and in_win(az0):
+        info.update({'verdict': 'согласны', 'why': f"боевая поза az {az0:.1f} уже в передней половине осей" + (f" и в окне {win}" if win else ''), 'az_after': round(az0, 2)})
         return pick, info
-    front = [c for c in pool if front_axes(float(c['cam']['az']), R) == 'перёд']
+    where = f"{ax0} половина осей" if ax0 != 'перёд' else f"передняя половина, но вне окна «каталог слева» {win} (зеркало 3/4 возможно)"
+    front = [c for c in pool if front_axes(float(c['cam']['az']), R) == 'перёд' and in_win(float(c['cam']['az']))]
     info['n_front'] = len(front)
-    best_iou = float(pick.get('iou', 0.0))                          # сравниваем с боевой (задней), не с максимумом пула: у стартов IoU до уточнения по кромкам выше (Теджонс: 0,0275 против 0,03 из-за этого)
+    best_iou = float(pick.get('iou', 0.0))                          # сравниваем с боевой, не с максимумом пула: у стартов IoU до уточнения по кромкам выше (Теджонс: 0,0275 против 0,03 из-за этого)
     if not front:
-        info.update({'stop': True, 'verdict': 'СТОП: оси ≠ поза', 'why': f"az {az0:.1f} — {ax0} половина осей, кандидатов в передней половине нет (нужен старт подбора в передней половине)", 'az_after': round(az0, 2)})
+        info.update({'stop': True, 'verdict': 'СТОП: оси ≠ поза', 'why': f"az {az0:.1f} — {where}; кандидатов в " + ('окне' if win else 'передней половине') + " нет (нужен старт подбора там)", 'az_after': round(az0, 2)})
         return pick, info
     bf = max(front, key=lambda c: float(c.get('score', -9.0)))
     gap = round(best_iou - float(bf.get('iou', 0.0)), 4)
     info.update({'iou_gap': gap, 'front_az': round(float(bf['cam']['az']), 2), 'front_iou': bf.get('iou'), 'front_score': bf.get('score')})
     if gap <= float(fp['iou_gap_max']):
         info.update({'verdict': 'перёд по осям (камера 04 переставлена)', 'az_after': round(float(bf['cam']['az']), 2),
-                     'why': f"az {az0:.1f} → {float(bf['cam']['az']):.1f}: передняя половина осей, IoU хуже лучшего на {gap:.4f} (≤ {fp['iou_gap_max']})"})
+                     'why': f"az {az0:.1f} → {float(bf['cam']['az']):.1f}: {'окно ' + str(win) if win else 'передняя половина осей'}, IoU хуже боевой на {gap:.4f} (≤ {fp['iou_gap_max']})"})
         return {**pick, **{k: v for k, v in bf.items() if k not in ('start_az', 'start_el')}, 'front_pick': True, 'cam_before_front_pick': pick['cam']}, info
     info.update({'stop': True, 'verdict': 'СТОП: оси ≠ поза', 'az_after': round(az0, 2),
-                 'why': f"az {az0:.1f} — {ax0} половина осей; передняя (az {float(bf['cam']['az']):.1f}) заметно хуже по силуэту: IoU хуже на {gap:.4f} (> {fp['iou_gap_max']})"})
+                 'why': f"az {az0:.1f} — {where}; кандидат (az {float(bf['cam']['az']):.1f}) заметно хуже по силуэту: IoU хуже на {gap:.4f} (> {fp['iou_gap_max']})"})
     return pick, info
 
 
