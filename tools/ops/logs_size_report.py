@@ -129,7 +129,7 @@ def measure(src: str, now: float | None = None) -> dict:
             "nfiles": acc["nfiles"],
             "wt_bytes": acc["wt_bytes"],
             "wt_roots": acc["wt_roots"],
-            "age_d": round((now - acc["newest"]) / 86400, 1) if acc["newest"] else None,
+            "age_d": round(max(0.0, now - acc["newest"]) / 86400, 1) if acc["newest"] else None,
             "card": card["state"],
         })
     return {"rows": rows, "loose_bytes": loose_bytes, "loose_files": loose_files, "links": links}
