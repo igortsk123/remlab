@@ -350,16 +350,23 @@ def pick_sources(tones: dict, rules: dict, area_share: dict | None = None) -> tu
         return tones[g]['n_all'] / max(float(ash.get(g, 1.0)), 1e-6)
     big = max([vis(g) for g in tones if tones[g]['own']] or [0])
     weak = float(rules['pixels'].get('weak_share', 0))
-    for gn, srcs in sorted(lad.items(), key=lambda kv: kv[0] == 'зад'):      # зад — последним: его доноры (бок, корпус) к этому моменту сами уже взяли тон у своих
+    dn = rules['donors']                                                     # новые правила выбора донора: каждое — свой ключ, значение только из rules (false = как до T-63)
+    for gn, srcs in (sorted(lad.items(), key=lambda kv: kv[0] == 'зад') if dn['zad_last'] else lad.items()):      # зад — последним: его доноры (бок, корпус) к этому моменту сами уже взяли тон у своих
         if gn not in tones:
             continue
         is_weak = bool(tones[gn]['own'] and srcs and vis(gn) < weak * big and any(s in tones and tones[s]['own'] and vis(s) >= weak * big and s not in keep for s in srcs))
         if is_weak:
             tones[gn]['weak'] = True                              # своих пикселей мизер против главной группы: тон по ним ненадёжен — донор
         if (not tones[gn]['own']) or gn == 'зад' or is_weak:
-            cand = [s for s in srcs if s in tones and (tones[s]['own'] or borrowed.get(s)) and s != gn and s not in keep]       # донор может сам брать тон (зад ← бок ← фасад) — цепочка раскрывается ниже
-            if cand:
-                borrowed[gn] = max(cand, key=vis)                       # лучше видимый донор (по пикселям на площадь), а не первый по списку: у верха Шелтона 700 px — ненадёжен
+            if dn['best_visible_chain']:
+                cand = [s for s in srcs if s in tones and (tones[s]['own'] or borrowed.get(s)) and s != gn and s not in keep]       # донор может сам брать тон (зад ← бок ← фасад) — цепочка раскрывается ниже
+                if cand:
+                    borrowed[gn] = max(cand, key=vis)                       # лучше видимый донор (по пикселям на площадь), а не первый по списку: у верха Шелтона 700 px — ненадёжен
+            else:
+                for s in srcs:
+                    if s in tones and tones[s]['own'] and s not in borrowed and s not in keep:
+                        borrowed[gn] = s
+                        break
     if 'бок' in tones and 'фасад' in tones and tones['бок']['own'] and tones['фасад']['own'] and 'бок' not in borrowed:
         ok, why = same_material(tones['бок']['lab'], tones['фасад']['lab'], rules['same_material'])
         ok, why = _unify_dl(ok, why, tones['бок']['lab'], tones['фасад']['lab'], rules)
@@ -387,15 +394,25 @@ def pick_sources(tones: dict, rules: dict, area_share: dict | None = None) -> tu
             s, hops = borrowed[s], hops + 1
         borrowed[gn] = s
     gate = rules.get('ladder_gate') or {}
-    refs = [g for g in ('фасад', 'верх', 'корпус') if g in tones and tones[g]['own'] and g not in borrowed]
-    for gn, s in list(borrowed.items()):                        # ворота: тон донора далеко от ВСЕХ лиц/верха/корпуса (ни одно не близко и не «тот же материал») → не красим, «не уверен»
-        rr = [r for r in refs if r != gn]
-        if s is None or not rr or s in rr or 'max_de00' not in gate:
+    if dn['gate_all_refs']:
+        refs = [g for g in ('фасад', 'верх', 'корпус') if g in tones and tones[g]['own'] and g not in borrowed]
+        for gn, s in list(borrowed.items()):                        # ворота: тон донора далеко от ВСЕХ лиц/верха/корпуса (ни одно не близко и не «тот же материал») → не красим, «не уверен»
+            rr = [r for r in refs if r != gn]
+            if s is None or not rr or s in rr or 'max_de00' not in gate:
+                continue
+            des = [(float(de2000(tones[s]['lab'][None], tones[r]['lab'][None])[0]), r) for r in rr]
+            if min(d for d, _ in des) > float(gate['max_de00']) and not any(same_material(tones[s]['lab'], tones[r]['lab'], rules['same_material'])[0] for r in rr):
+                de, r0 = min(des)
+                same['gate:' + gn] = {'donor': s, 'ref': r0, 'dE2000': round(de, 1), 'порог': gate['max_de00']}
+                borrowed[gn] = None
+        return keep, borrowed, same
+    refs = [g for g in ('фасад', 'верх', 'корпус') if g in tones and tones[g]['own'] and g not in borrowed and g not in keep]
+    for gn, s in list(borrowed.items()):                        # ворота: тон донора далеко от лица/верха того же материала → не красим, «не уверен»
+        if s is None or not refs or s in refs or 'max_de00' not in gate:
             continue
-        des = [(float(de2000(tones[s]['lab'][None], tones[r]['lab'][None])[0]), r) for r in rr]
-        if min(d for d, _ in des) > float(gate['max_de00']) and not any(same_material(tones[s]['lab'], tones[r]['lab'], rules['same_material'])[0] for r in rr):
-            de, r0 = min(des)
-            same['gate:' + gn] = {'donor': s, 'ref': r0, 'dE2000': round(de, 1), 'порог': gate['max_de00']}
+        de = float(de2000(tones[s]['lab'][None], tones[refs[0]]['lab'][None])[0])
+        if de > float(gate['max_de00']) and not same_material(tones[s]['lab'], tones[refs[0]]['lab'], rules['same_material'])[0]:
+            same['gate:' + gn] = {'donor': s, 'ref': refs[0], 'dE2000': round(de, 1), 'порог': gate['max_de00']}
             borrowed[gn] = None
     return keep, borrowed, same
 
@@ -939,7 +956,10 @@ def face_gate(fin: np.ndarray, ctl: np.ndarray, region: np.ndarray, rules: dict,
             if per:
                 res['spot_min'] = round(min(per), 3)
                 res['spot_ratios'] = [round(x, 2) for x in sorted(per)[:8]]
-    if res.get('spot_min') is not None and res['spot_min'] < float(gt['min_spot_ratio']):
+    if not gt['spot_worst_each']:                                           # ключ выкл — решение по СУММЕ всех пятен (как до T-63); вкл — по худшему пятну отдельно
+        if res['spot_ratio'] is not None and res['spot_ratio'] < float(gt['min_spot_ratio']):
+            res['fail'].append('мелкие тёмные детали лица (ручки/фурнитура) %.2f от фото < %.2f' % (res['spot_ratio'], float(gt['min_spot_ratio'])))
+    elif res.get('spot_min') is not None and res['spot_min'] < float(gt['min_spot_ratio']):
         res['fail'].append('мелкая тёмная деталь лица (ручка/фурнитура) осталась %.2f от фото < %.2f (по худшему пятну из %d)' % (res['spot_min'], float(gt['min_spot_ratio']), res['spot_n']))
     if res['share_far'] > float(gt['max_share_far']):
         res['fail'].append('доля ушедших от фото %.1f %% > %.1f %%' % (100 * res['share_far'], 100 * float(gt['max_share_far'])))

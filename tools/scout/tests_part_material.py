@@ -37,6 +37,15 @@ def rgb_img(h, w, rgb):
 
 
 R = PM.load_rules()
+import copy as _cp  # noqa: E402
+R_on = _cp.deepcopy(R)                                      # «все новые поведения ветки T-63 включены» — правила по умолчанию их ВЫКЛЮЧАЮТ (T-97/1: каждое — свой ключ, один источник — rules)
+R_on['same_material'].update(neutral_ab=4, legs_hue_deg=3)
+R_on['ladder'].update({'зад': ['бок', 'корпус'], 'корпус': ['фасад', 'бок']})
+R_on['occlusion'].update(legs_never_interior=True, fill_leg_holes=True)
+R_on['foreign']['enabled'] = True
+R_on['gate'].update(max_abs_dl=3, max_abs_dl_top=6, spot_worst_each=True, seam_min_len_cm=10)
+R_on['donors'] = {k: True for k in ('zad_last', 'best_visible_chain', 'gate_all_refs')}
+R_on['faces_before_gate'] = True
 RU = dict(R, unify_max_dl=0)   # лесенка и unify — без ворот светлоты (они отдельно, _unify_dl)
 
 # ── выключено по умолчанию, числа и ID
@@ -263,18 +272,18 @@ gd = PM.face_gate(np.full((400, 400, 3), 200, np.uint8), dots, rg4, R)
 check(gd['seam_ratio'] is None and gd['seam_px'] == 0 and not any('щели' in x for x in gd['fail']), 'ворота: точки сетки не считаются щелями (нет «потери деталей» от узора)')
 hand = np.full((400, 400, 3), 225, np.uint8); hand[150:162, 200:208] = 90                       # ручка: тёмная компактная деталь на лице
 hand_gone = np.full((400, 400, 3), 225, np.uint8)
-g_h = PM.face_gate(hand_gone, hand, rg4, R)
+g_h = PM.face_gate(hand_gone, hand, rg4, R_on)
 check(g_h['spot_ratio'] is not None and g_h['spot_ratio'] < 0.1 and any('ручка' in x for x in g_h['fail']), 'ворота: ручка стёрта плоской заливкой — отказ (пятна)')
 two = np.full((400, 400, 3), 225, np.uint8); two[150:162, 100:108] = 90; two[150:162, 300:308] = 90             # две ручки: одна на месте, другая исчезла — по КАЖДОМУ пятну, не по сумме
 two_after = two.copy(); two_after[150:162, 100:108] = 225
-g_two = PM.face_gate(two_after, two, rg4, R)
+g_two = PM.face_gate(two_after, two, rg4, R_on)
 check(g_two['spot_n'] == 2 and g_two['spot_min'] is not None and g_two['spot_min'] < 0.1 and g_two['spot_ratio'] > 0.4 and any('ручка' in x for x in g_two['fail']), 'ворота: одна ручка исчезла, другая цела — отказ по худшему пятну (сумма 0,5 не прячет)')
 # ворота: деталь тоньше МЕСТНОЙ ошибки позы с фото не перенести — не судим (spot_thin_errs, директор 25.11), строкой «исключено»
 import json as _js
-R_th = _js.loads(_js.dumps(R)); R_th['gate']['spot_thin_errs'] = 1.0
+R_th = _js.loads(_js.dumps(R_on)); R_th['gate']['spot_thin_errs'] = 1.0
 thin = np.full((400, 400, 3), 225, np.uint8); thin[100:103, 150:164] = 90                          # тонкая тёмная деталь 3 px × 14
 thin_gone = np.full((400, 400, 3), 225, np.uint8)
-g_t0 = PM.face_gate(thin_gone, thin, rg4, R, pose_err=4.0)
+g_t0 = PM.face_gate(thin_gone, thin, rg4, R_on, pose_err=4.0)
 g_t1 = PM.face_gate(thin_gone, thin, rg4, R_th, pose_err=4.0)
 g_t2 = PM.face_gate(thin_gone, thin, rg4, R_th, pose_err=2.0)
 g_t3 = PM.face_gate(hand_gone, hand, rg4, R_th, pose_err=4.0)
@@ -285,10 +294,10 @@ check(g_t2['spot_n'] == 1 and g_t2['spot_thin_excluded'] == 0, 'ворота: о
 check(g_t3['spot_n'] == 1 and g_t3['spot_thin_excluded'] == 0 and any('ручка' in x for x in g_t3['fail']), 'ворота: ручка (толще ошибки позы) исчезла — отказ остаётся при флаге')
 check(g_t4['spot_n'] == 1, 'ворота: флаг вкл, а ошибки позы нет — как выкл')
 # ворота: судим только перенесимое (spot_transfer_min, директор 25.11 19:14): пятно на гранях «ненадёжно / нет фото» не судим, строкой «исключено N px»
-R_tr = _js.loads(_js.dumps(R)); R_tr['gate']['spot_transfer_min'] = 0.5
+R_tr = _js.loads(_js.dumps(R_on)); R_tr['gate']['spot_transfer_min'] = 0.5
 tr_none = np.zeros((400, 400), bool); tr_all = np.ones((400, 400), bool)
 tr_half = np.zeros((400, 400), bool); tr_half[:, :] = False                                         # ручка hand — по той же геометрии, что g_h
-g_r0 = PM.face_gate(hand_gone, hand, rg4, R, transfer=tr_none)
+g_r0 = PM.face_gate(hand_gone, hand, rg4, R_on, transfer=tr_none)
 g_r1 = PM.face_gate(hand_gone, hand, rg4, R_tr, transfer=tr_none)
 g_r2 = PM.face_gate(hand_gone, hand, rg4, R_tr, transfer=tr_all)
 g_r3 = PM.face_gate(hand_gone, hand, rg4, R_tr)
@@ -301,15 +310,15 @@ Tt = 1024
 ctl_f = np.full((Tt, Tt, 3), 225, np.uint8); ctl_f[400:440, 480:510] = 60; ctl_f[:, 160:162] = 80            # панель + ручка 40×30 + щель 2 текселя на всю высоту
 tmap = np.zeros((Tt, Tt), np.int16); known_f = np.ones((Tt, Tt), bool)
 tones_f = {'фасад': {'own': True, 'lab': PM.lab_of(np.array([225, 225, 225], np.uint8)[None])[0]}}
-fg_f, fi_f = PM.foreign_texels(ctl_f, tmap, np.ones((Tt, Tt), bool), known_f, ['фасад'], {'фасад': 1}, {}, tones_f, R)
+fg_f, fi_f = PM.foreign_texels(ctl_f, tmap, np.ones((Tt, Tt), bool), known_f, ['фасад'], {'фасад': 1}, {}, tones_f, R_on)
 check(fg_f[430, 500] and not fg_f[600, 161] and not fg_f[10, 10], 'чужой материал: ручка остаётся фото, щель-линия и панель — нет')
-check(PM.face_gate(hand.copy(), hand, rg4, R, 4.0)['seam_min_len_px'] == 40.0 and PM.face_gate(hand.copy(), hand, rg4, R, 0.5)['seam_min_len_px'] == 12.0, 'ворота: щель меряется в см по карточке (10 см × px/см, не короче 12 px)')
-g_h2 = PM.face_gate(hand.copy(), hand, rg4, R)
+check(PM.face_gate(hand.copy(), hand, rg4, R_on, 4.0)['seam_min_len_px'] == 40.0 and PM.face_gate(hand.copy(), hand, rg4, R_on, 0.5)['seam_min_len_px'] == 12.0, 'ворота: щель меряется в см по карточке (10 см × px/см, не короче 12 px)')
+g_h2 = PM.face_gate(hand.copy(), hand, rg4, R_on)
 check(g_h2['spot_ratio'] is not None and abs(g_h2['spot_ratio'] - 1) < 0.02 and g_h2['fail'] == [], 'ворота: ручка сохранена — проходит, число 1,0')
-g_h3 = PM.face_gate(np.full((400, 400, 3), 200, np.uint8), dots, rg4, R)
+g_h3 = PM.face_gate(np.full((400, 400, 3), 200, np.uint8), dots, rg4, R_on)
 check(g_h3['spot_ratio'] is None, 'ворота: точки сетки не пятна (слишком малы)')
 fp = np.zeros((200, 200, 3), np.uint8); fp[:] = (230, 200, 190)                     # бледный верх вместо оранжевого
-check(any('доля' in x for x in PM.face_gate(fp, fo, rg, R)['fail']), 'ворота: цвет ушёл (оранжевый → бледный) — отказ даже при снятии света')
+check(any('доля' in x for x in PM.face_gate(fp, fo, rg, R_on)['fail']), 'ворота: цвет ушёл (оранжевый → бледный) — отказ даже при снятии света')
 
 # ── seed k-means: тон и доля воспроизводимы между вызовами
 rs = np.random.RandomState(5)
@@ -317,7 +326,7 @@ pxs = np.concatenate([rs.normal((230, 230, 230), 6, (600, 3)), rs.normal((90, 60
 check(PM.main_cluster(pxs)[1] == PM.main_cluster(pxs)[1] == PM.main_cluster(pxs)[1], 'kmeans: доля главного кластера воспроизводима (seed фиксирован)')
 
 # ── обвязка: ВЫКЛ → шаг выпадает из плана (не берёт слот heavy-slot); ВКЛ → шаг в плане
-smx = R['same_material']
+smx = R_on['same_material']
 L_ = lambda L, a_, b_: np.array([L, a_, b_], float)   # noqa: E731
 check(not PM.same_material(L_(74.1, -2.1, -0.7), L_(72.2, -1.8, 7.3), smx)[0], 'материал: мятный и дуб (оба светлые «нейтральные», разница по a,b 8) — не один материал')
 check(not PM.same_material(L_(95.8, 0.0, 0.0), L_(56.5, 8.0, 22.5), smx)[0], 'материал: белый верх и деревянные ножки — не сливать')
@@ -460,6 +469,27 @@ check(fnq2.tolist() == [False, True, True], 'fold_near_mask: линия изло
 Fq2 = np.array([[0, 1, 2], [2, 1, 3], [0, 1, 2]])
 _, fnq3, inf_q3 = PM.fold_near_mask(Vq, Fq2, idq, np.ones((20, 30), bool), 3.0, deg=30.0)
 check(not fnq3.any() and inf_q3['пар_с_изломом'] == 0, 'fold_near_mask: в плоской форме излома нет — ничего не снимаем')
+
+# ── T-97/1: каждое новое поведение ветки T-63 — свой ключ rules, по умолчанию ВЫКЛ (один источник — rules, без `.get(…, True)` в коде); ключ меняет результат
+NEW_KEYS = [('occlusion', 'legs_never_interior'), ('occlusion', 'fill_leg_holes'), ('foreign', 'enabled'), ('', 'faces_before_gate'), ('donors', 'zad_last'), ('donors', 'best_visible_chain'),
+            ('donors', 'gate_all_refs'), ('gate', 'spot_worst_each')]
+check(all(not (R[a][k] if a else R[k]) for a, k in NEW_KEYS), 'T-97: правила по умолчанию — новые поведения выключены (legs, holes, foreign, faces_before_gate, 3 правила донора, spot_worst_each)')
+check(R['same_material']['neutral_ab'] == 0 and R['same_material']['legs_hue_deg'] == 0 and R['gate']['seam_min_len_cm'] == 0 and R['gate']['max_abs_dl'] == 0 and R['gate']['max_abs_dl_top'] == 0
+      and R['ladder']['зад'] == ['бок'] and R['ladder']['корпус'] == ['фасад'], 'T-97: числовые правила по умолчанию — как в main (neutral_ab, legs_hue_deg, seam_min_len_cm, max_abs_dl, лесенка)')
+check(re.search(r"\.get\(\s*'(legs_never_interior|fill_leg_holes|faces_before_gate|spot_worst_each|zad_last|best_visible_chain|gate_all_refs)'", src) is None, 'T-97: в коде нет `.get(<новый ключ>, …)` — значение только из rules')
+SC = {'zad_last': {'фасад': (90, 0, 0, 1000), 'бок': None, 'верх': (70, 3, 0, 9000), 'зад': (90, 20, 40, 1000), 'корпус': None},
+      'gate_all_refs': {'фасад': (30, 3, 25, 9000), 'бок': (50, 40, 40, 1000), 'верх': None, 'зад': None, 'корпус': (30, 40, 40, 1000)}}
+SC['best_visible_chain'] = SC['zad_last']
+for k_, sc_ in SC.items():
+    def mk(sc=sc_):
+        return {g: dict(tone(v[0], v[1], v[2]), n_all=v[3]) if v else tone(0, 0, 0, own=False) for g, v in sc.items()}
+    ron = PM.pick_sources(mk(), R_on)[1]
+    roff = PM.pick_sources(mk(), dict(R_on, donors=dict(R_on['donors'], **{k_: False})))[1]
+    check(ron != roff, 'T-97: ключ donors.%s меняет выбор доноров (вкл %s ≠ выкл %s)' % (k_, ron, roff))
+g_sum_off = PM.face_gate(two_after, two, rg4, dict(R_on, gate=dict(R_on['gate'], spot_worst_each=False)))
+check(g_two['fail'] and not g_sum_off['fail'], 'T-97: ключ gate.spot_worst_each меняет вердикт (одна ручка исчезла: по худшему пятну — отказ, по сумме 0,5 — проходит)')
+check(PM.face_gate(hand.copy(), hand, rg4, R, 4.0)['seam_min_len_px'] != PM.face_gate(hand.copy(), hand, rg4, R_on, 4.0)['seam_min_len_px'], 'T-97: ключ gate.seam_min_len_cm меняет длину щели в пикселях')
+check(PM.same_material(L_(74.1, -2.1, -0.7), L_(72.2, -1.8, 7.3), R['same_material'])[0] != PM.same_material(L_(74.1, -2.1, -0.7), L_(72.2, -1.8, 7.3), R_on['same_material'])[0], 'T-97: ключ same_material.neutral_ab меняет вердикт «один материал»')
 
 print('\nИТОГО: %d провалов' % len(FAILS))
 sys.exit(1 if FAILS else 0)

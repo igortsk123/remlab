@@ -128,7 +128,7 @@ def process(a, rules: dict, d: str, rep: dict) -> None:
     inner = PM.ring_faces(st['ids'], vis0, inner, nF, rules)
     inner = PM.grow_faces(g['V'], g['F'], inner, rules)
     leg_ids = [i for i, gn in enumerate(names) if gn in rules['pixels'].get('best_leg_groups', [])]
-    if leg_ids and rules['occlusion'].get('legs_never_interior', True):      # ножка — ОДНА деталь с ОДНИМ тоном целиком: верх ножки под царгой/столешницей — тот же материал, не «ниша» (74696250: верх ножки оставался светлым 06, низ — тёмным)
+    if leg_ids and rules['occlusion']['legs_never_interior']:      # ножка — ОДНА деталь с ОДНИМ тоном целиком: верх ножки под царгой/столешницей — тот же материал, не «ниша» (74696250: верх ножки оставался светлым 06, низ — тёмным)
         inner = inner & ~np.isin(flab, leg_ids)
     flab =np.where(inner, len(names), flab).astype(np.int16)
     wk0 = os.path.join(d, '_partmaterial')
@@ -177,7 +177,7 @@ def process(a, rules: dict, d: str, rep: dict) -> None:
             continue
         holes = cv2.morphologyEx(mg, cv2.MORPH_CLOSE, np.ones((5, 5), np.uint8)).astype(bool) & (texmap < 0)
         rep['texmap_holes'][gn] = {'texels': int(holes.sum()), 'share': round(float(holes.sum() / max(int(mg.sum()), 1)), 5)}
-        if gi in leg_ids and rules['occlusion'].get('fill_leg_holes', True):
+        if gi in leg_ids and rules['occlusion']['fill_leg_holes']:
             texmap = np.where(holes, gi, texmap).astype(np.int16)
     work = os.path.join(d, '_partmaterial')
     os.makedirs(work, exist_ok=True)
@@ -212,7 +212,10 @@ def process(a, rules: dict, d: str, rep: dict) -> None:
     if kn0.shape != painted.shape:
         kn0 = np.zeros(painted.shape, bool)
     fdbg = {}
-    fg, finfo = PM.foreign_texels(ctl, texmap, painted, kn0, names, alb, borrowed, tones, rules, fdbg)      # ручки/накладки/стекло: непохожее на тон панели и компактное — остаётся фото
+    if rules['foreign']['enabled']:                                           # ключ выкл — «чужой материал» не ищем (как до T-63)
+        fg, finfo = PM.foreign_texels(ctl, texmap, painted, kn0, names, alb, borrowed, tones, rules, fdbg)      # ручки/накладки/стекло: непохожее на тон панели и компактное — остаётся фото
+    else:
+        fg, finfo = np.zeros(texmap.shape, bool), {}
     rep['foreign_texels'] = finfo
     if a.keep_work:
         for gn_, h_ in fdbg.items():
@@ -347,11 +350,12 @@ def process(a, rules: dict, d: str, rep: dict) -> None:
         gate['dl_bad'] = bad
         if bad:
             gate['fail'].append('светлота лица против фото: %s L (порог ±%.1f, верх ±%.1f)' % (', '.join(bad), dlmax, float(rules['gate'].get('max_abs_dl_top', dlmax) or dlmax)))
-    mid = PM.material_ids(names, tones, borrowed, rules)             # материал по граням (группировка, 07 читает её под флагом): пишем ДО отказа ворот — группы от того, красим ли тон, не зависят
-    rep['materials'] = {gn: mid[i] for i, gn in enumerate(names)}
-    fm = np.array(mid + [-1], np.int32)[np.asarray(flab)]
-    np.savez_compressed(os.path.join(d, 'part_material_faces.npz'), face_material=fm)
-    if gate['fail']:                                         # отказ — после метрик: у воздержавшегося в отчёте те же числа (dL к фото по группам) для разбора
+    if rules['faces_before_gate']:                                    # ключ выкл — карта материалов пишется после ворот (как до T-63): у воздержавшегося шага файла нет
+        mid = PM.material_ids(names, tones, borrowed, rules)             # материал по граням (группировка, 07 читает её под флагом): пишем ДО отказа ворот — группы от того, красим ли тон, не зависят
+        rep['materials'] = {gn: mid[i] for i, gn in enumerate(names)}
+        fm = np.array(mid + [-1], np.int32)[np.asarray(flab)]
+        np.savez_compressed(os.path.join(d, 'part_material_faces.npz'), face_material=fm)
+    if gate['fail']:                                        # отказ — после метрик: у воздержавшегося в отчёте те же числа (dL к фото по группам) для разбора
         raise Abstain('ворота «лицо против фото»: ' + '; '.join(gate['fail']))
     chg =(tex != ctl).any(-1)                              # правило этапа: красим только свою заявленную маску; вне её — байт в байт
     rep['changed_outside_mask_texels'] = int((chg & ~painted).sum())
@@ -391,7 +395,12 @@ def process(a, rules: dict, d: str, rep: dict) -> None:
         Image.fromarray((kn * 255).astype(np.uint8)).save(os.path.join(d, 'known.png'))
     tone_only = t0m | (painted & ~kn)
     Image.fromarray((tone_only * 255).astype(np.uint8)).save(to_p)
-    gtone = []                                                       # вход для зерна (T-69): карта части по текселям + плоский тон каждой группы (sRGB, как в текстуре) + материал
+    if not rules['faces_before_gate']:
+        mid = PM.material_ids(names, tones, borrowed, rules)             # материал по граням для мерки «ступени» 07: граница разных материалов — не скачок
+        rep['materials'] = {gn: mid[i] for i, gn in enumerate(names)}
+        fm = np.array(mid + [-1], np.int32)[np.asarray(flab)]
+        np.savez_compressed(os.path.join(d, 'part_material_faces.npz'), face_material=fm)
+    gtone = []                                                     # вход для зерна (T-69): карта части по текселям + плоский тон каждой группы (sRGB, как в текстуре) + материал
     for gi, gn in enumerate(names):
         src = gn if gn in alb else borrowed.get(gn)
         gtone.append(np.clip(PM.lin2srgb(alb[src]) + 0.5, 0, 255).astype(np.uint8) if (gn not in keep and src in alb) else np.array([0, 0, 0], np.uint8))
