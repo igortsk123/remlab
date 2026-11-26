@@ -18,8 +18,7 @@ Tier 0 = этот файл + INDEX + `.claude/rules/*.md`; Tier 2 = `.memory_ban
 При компакции сохранить: активный план (slug+статус), изменённые файлы, next steps, блокнот.
 
 ## Критично
-Все правила работы — реестр `.memory_bank/rules/` (свод 20.11.2026): строка на правило — `.claude/rules/00-operating-index.md`,
-четыре гейта — `.claude/rules/10-decision-gates.md`. Свод 23.11: 7 сводных правил P-069…P-075 + правила продукта.
+Правила — реестр `.memory_bank/rules/` (свод 23.11: P-069…P-075 + правила продукта); индекс и гейты — `.claude/rules/`.
 
 ## Команды
 `pnpm test` · `pnpm e2e` · `pnpm typecheck` · `pnpm lint` · `pnpm build` · `./deploy.sh`
@@ -28,5 +27,4 @@ Tier 0 = этот файл + INDEX + `.claude/rules/*.md`; Tier 2 = `.memory_ban
 ## Решения человека (не Claude)
 Партнёрки/Гдеслон; кэшбек; цены paid-ступеней; модель после бенча; источники прайсов; дизайн экранов; юр. вопросы.
 
-## Path-scoped правила (.claude/rules/)
-всегда: `00-operating-index` · `10-decision-gates` · `review-checklist`; по путям: `code-standards` (ts/tsx) · `ui-rules` (app/components) · `pipeline-tracing` (ADR-0013).
+По путям (.claude/rules/): `code-standards` (ts/tsx) · `ui-rules` (app/components) · `pipeline-tracing`.
