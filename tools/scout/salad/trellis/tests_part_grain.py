@@ -143,6 +143,85 @@ def main():
     except ValueError:
         check(True, 'amp_floor_L вне пределов отвергается')
 
+    # 5в. T-97/1 фаза 5: «дерево — волокно всегда» (rules.wood_always); выкл по умолчанию = прежний plan_grain
+    WA0 = R['wood_always']
+    check(WA0['enabled'] is False, 'wood_always: по умолчанию выключено')
+    pl_off = PG.plan_grain([part(1, role='top', card={'Материал столешницы': 'массив дуба'}, photo_sigma=2.0)], R)
+    check('wood' not in pl_off[1], 'wood_always выкл: ветка не выполняется (в плане нет строки wood)')
+    RW = copy.deepcopy(R)
+    RW['wood_always']['enabled'] = True
+    RW['amp_floor_L'] = 1.4
+    lib_ = PG._library(PG.TP.load_rules())
+    st_ = [n for n, v in lib_['items'].items() if v.get('family', 'wood') == 'wood' and v.get('pattern_class', 'straight') == 'straight']
+    check(st_ and all(lib_['items'][n].get('grain_marks') and set(lib_['items'][n]['grain_marks']) == {'sigma_L', 'low_freq', 'directionality'} for n in st_), 'разметка библиотеки: у каждого straight-бина есть grain_marks {sigma_L, low_freq, directionality} (%d бинов)' % len(st_))
+    try:
+        import part_grain_marks as PGMK
+        bad_ = [n for n, m in PGMK.compute(lib_).items() if lib_['items'][n].get('grain_marks') != m]
+        check(not bad_, 'разметка библиотеки == пересчёт по сканам (part_grain_marks.py --check): расхождений %d' % len(bad_))
+    except ImportError as e_:
+        print('SKIP пересчёт разметки: нет модуля (%s)' % e_)
+
+    def wplan(parts_, rules_=None):
+        return PG.plan_grain(parts_, rules_ or RW)
+    w1 = wplan([part(1, role='top', card={'Материал столешницы': 'массив дуба'}, photo_sigma=2.0)])[1]
+    check(w1['apply'] and w1['amp_source'].startswith('photo') and w1['wood']['class'] == 'дерево' and w1['wood']['source'] == 'фото' and w1['bin']['bin'], 'дерево по карточке роли + фото видно: волокно из фото (источник «фото»)')
+    check(wplan([part(1, role='legs', card={'Материал ножек (опор)': 'металл'}, photo_sigma=2.0)])[1]['reason'] == 'not_wood', 'металл — не дерево, ровно')
+    check(wplan([part(1, role='legs', card={'Материал ножек (опор)': 'ткань велюр'}, photo_sigma=2.0)])[1]['reason'] == 'not_wood', 'обивка — не дерево, ровно')
+    wb = wplan([part(1, role='top', card={'Материал столешницы': 'лдсп'}, photo_sigma=2.0)])[1]
+    check(wb['reason'] == 'not_wood' and wb['wood']['class'] == 'плита', 'плита без породы (ЛДСП) — ровно, класс «плита»')
+    check(wplan([part(1, role='top', card={}, photo_sigma=2.0)])[1]['reason'] == 'material_not_named', 'материал не назван — ровно (material_not_named)')
+    wc = wplan([part(1, role='top', card={'Материал столешницы': 'массив'}, tone_lab=[80.0, 2.0, 3.0], photo_sigma=0.3)])[1]
+    check(wc['reason'] == 'colourless_no_photo' and not wc['apply'], 'бесцветный «массив» без волокна на фото — крашеный, ровно')
+    wc2 = wplan([part(1, role='top', card={'Материал столешницы': 'массив'}, tone_lab=[80.0, 2.0, 3.0], photo_sigma=2.0)])[1]
+    check(wc2['apply'], 'бесцветный «массив», но фото волокно показывает — волокно')
+    wf = wplan([part(1, role='top', card={'Основной материал': 'шпон дуба'}, photo_sigma=2.0)])[1]
+    check(wf['apply'] and 'запасное поле' in wf['wood']['field'], 'поля роли нет — запасное поле «Основной материал», помечено в следе (%s)' % wf['wood']['field'])
+    # запас: фото молчит
+    r_dub = wplan([part(1, role='top', card={'Материал столешницы': 'массив дуба'}, photo_sigma=0.3)])[1]
+    r_buk = wplan([part(1, role='top', card={'Материал столешницы': 'массив бука'}, photo_sigma=0.3)])[1]
+    r_non = wplan([part(1, role='top', card={'Материал столешницы': 'массив'}, photo_sigma=None)])[1]
+    rows_ = sorted((float(lib_['items'][n]['grain_marks']['sigma_L']), n) for n in st_)
+    k_ = max(1, len(rows_) // 3)
+    check(all(x['apply'] and x['amp_source'] == 'reserve' for x in (r_dub, r_buk, r_non)), 'фото молчит, соседа нет — запас по породе (источник «reserve») у дуба, бука и «не названа»')
+    check(r_dub['bin']['bin'] in [n for _s, n in rows_[-k_:]] and abs(r_dub['amp'] - min(2.0 / r_dub['pat_std'], 3.0)) < 1e-9, 'дуб/ясень: «выраженный» бин (верхняя треть по σ узора), размах 2,0 L')
+    cm_ = lambda n: lib_['items'][n]['grain_marks']  # noqa: E731
+    calm_ = [n for _s, n in rows_ if cm_(n)['sigma_L'] <= 5.5 and cm_(n)['directionality'] >= 1.5 and cm_(n)['low_freq'] <= 0.4]
+    check(calm_ and r_buk['bin']['bin'] in calm_ and r_non['bin']['bin'] in calm_ and abs(r_buk['amp'] - min(1.5 / r_buk['pat_std'], 3.0)) < 1e-9, 'бук/«не названа»: «спокойный» бин (σ≤5,5, направленность≥1,5, низких≤0,4 — по разметке), размах 1,5 L')
+    check(r_non['bin']['bin'] == min(calm_, key=lambda n: (cm_(n)['low_freq'], cm_(n)['sigma_L'])), 'порода не названа: самый спокойный бин (наименьшая доля низких частот)')
+    check(not any(cm_(x['bin']['bin'])['low_freq'] > 0.4 for x in (r_buk, r_non)), 'запас без пятен и сучков: доля низких частот выбранных бинов ≤ 0,4')
+    ws = wplan([part(1, role='legs', card={'Материал ножек (опор)': 'массив бука'}, photo_sigma=2.0), part(2, role='legs', card={'Материал ножек (опор)': 'массив бука'}, photo_sigma=0.3)])
+    check(ws[2]['amp_source'] == 'material' and abs(ws[2]['amp'] - min(2.0 / ws[2]['pat_std'], 3.0)) < 1e-9, 'фото молчит, на товаре тот же материал с фото: размах переносится (источник «material», цель σ 2,0 L)')
+    wh = copy.deepcopy(RW)
+    wh['wood_always']['reserve_amp_max'] = 0.2
+    check(wplan([part(1, role='top', card={'Материал столешницы': 'массив дуба'}, photo_sigma=0.3)], wh)[1]['amp'] == 0.2, 'ключ reserve_amp_max ограничивает амплитуду запаса')
+    wl = copy.deepcopy(RW)
+    wl['wood_always']['reserve_sigma_L'] = 1.0
+    wl['amp_floor_L'] = 1.4
+    rl = wplan([part(1, role='top', card={'Материал столешницы': 'массив бука'}, photo_sigma=0.3)], wl)[1]
+    check(abs(rl['amp'] - min(1.4 / rl['pat_std'], 3.0)) < 1e-9, 'пол amp_floor_L держит и запас: цель σ = max(reserve_sigma_L 1,0; пол 1,4) = 1,4 L')
+    wr = copy.deepcopy(RW)
+    wr['wood_always']['strong_species'] = ['бук']
+    check(wplan([part(1, role='top', card={'Материал столешницы': 'массив бука'}, photo_sigma=0.3)], wr)[1]['bin']['bin'] in [n for _s, n in rows_[-k_:]], 'ключ strong_species меняет выбор: бук объявлен «выраженной» породой — бин из верхней трети по σ')
+    wd = copy.deepcopy(RW)
+    wd['library_max_de00'] = 0.5
+    w_far = wplan([part(1, role='top', card={'Материал столешницы': 'массив дуба'}, photo_sigma=2.0, tone_lab=[30.0, 40.0, -30.0])], wd)[1]
+    check(w_far['apply'] and 'дальше лимита' in w_far['wood']['source'], 'бин дальше лимита ΔE00 — ближайший straight без лимита, с пометкой в следе')
+    o_def, _r1 = PG.apply_grain(tex, tx, [part(1, role='top', card={'Материал столешницы': 'массив дуба'}, photo_sigma=0.3)], {1: mask}, fp, pn, 100.0, (1, 0, 0), R, enabled=True)
+    o_wa, rep_wa = PG.apply_grain(tex, tx, [part(1, role='top', card={'Материал столешницы': 'массив дуба'}, photo_sigma=0.3)], {1: mask}, fp, pn, 100.0, (1, 0, 0), RW, enabled=True)
+    check(np.array_equal(o_def, tex) and not np.array_equal(o_wa, tex) and rep_wa['parts'][1]['wood']['decision'] == 'волокно', 'ключ wood_always меняет выход: фото молчит — раньше ровно, теперь волокно; в следе строка wood')
+    miss_ = copy.deepcopy(RW)
+    del miss_['wood_always']['reserve_amp_max']
+    try:
+        import json as _j2
+        import tempfile as _t2
+        with _t2.TemporaryDirectory() as _d2:
+            _p2 = os.path.join(_d2, 'r.json')
+            _j2.dump(miss_, open(_p2, 'w'))
+            PG.load_rules(_p2)
+        check(False, 'wood_always без обязательного ключа отвергается')
+    except ValueError:
+        check(True, 'wood_always без обязательного ключа отвергается')
+
     # 6. отказы с причинами
     pl = PG.plan_grain([part(1, is_wood=False), part(2, n_texels=100), part(3, tone_sigma=5.0), part(4, tone_lab=None), part(5, photo_sigma=2.0)], R)
     check(pl[1]['reason'] == 'not_wood' and pl[2]['reason'] == 'too_small' and pl[3]['reason'] == 'tone_not_even' and pl[4]['reason'] == 'no_tone', 'причины отказа: не дерево / мало текселей / градиент / нет тона')

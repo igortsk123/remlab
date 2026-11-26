@@ -19,6 +19,7 @@ from __future__ import annotations
 
 import json
 import os
+import re
 import sys
 
 import numpy as np
@@ -41,6 +42,15 @@ def load_rules(path: str = RULES_PATH) -> dict:
         raise ValueError('part-grain.json: пороги вне допустимых пределов')
     if not (0.0 <= float(r.get('amp_floor_L') or 0.0) < 20.0):
         raise ValueError('part-grain.json: amp_floor_L вне пределов (0 = выкл … 20 L)')
+    wa = r.get('wood_always')
+    if wa and wa.get('enabled'):                                  # T-97/1 ф.5: проверка только при включении (выкл — ключ не читается)
+        need = ('colourless_chroma_max', 'reserve_sigma_L', 'reserve_sigma_strong_L', 'reserve_amp_max', 'photo_classes', 'fallback_fields', 'not_wood_words', 'solid_extra_words',
+                'strong_species', 'weak_species', 'strong_top_div', 'calm_sigma_max', 'calm_directionality_min', 'calm_low_freq_max')
+        miss = [k for k in need if k not in wa]
+        if miss:
+            raise ValueError('part-grain.json: wood_always без ключей %s' % miss)
+        if not (0 < float(wa['reserve_sigma_L']) <= float(wa['reserve_sigma_strong_L']) < 20) or not (0 < float(wa['reserve_amp_max']) <= 10) or int(wa['strong_top_div']) < 1:
+            raise ValueError('part-grain.json: wood_always — размах запаса/потолок/доля вне пределов')
     if len(r['tile_layers']) < 1 or len(r['no_tile_layers']) < 1:
         raise ValueError('part-grain.json: нужен хотя бы один слой шага')
     return r
@@ -94,23 +104,30 @@ def _library(tp_rules: dict) -> dict:
 
 def load_pattern(tone_lab, rules: dict, classes: list | None = None):
     """Бин библиотеки по тону → (описание бина, узор L (m,m) float, нулевое среднее, бесшовный, ось по бину; σL узора). Нет бина/flat → (описание, None, 0.0)."""
-    from PIL import Image
     tp = TP.load_rules()
     lib = _library(tp)
     b = TP.library_bin(tone_lab, 'library', lib, dict(tp, library_max_de00=rules['library_max_de00']), None, classes)
     if b.get('bin') in (None, 'flat'):
         return b, None, 0.0
-    path = os.path.join(ROOT, tp['library_pat'], b['bin'] + '.jpg')
+    pat, std = pattern_of_bin(b['bin'], b.get('grain_axis'))
+    return b, pat, std
+
+
+def pattern_of_bin(name: str, grain_axis: str | None) -> tuple:
+    """Узор L одного бина библиотеки по имени (нулевое среднее, бесшовный, ось по бину) → (узор (512,512), σL узора). Одно место для `load_pattern` и для запасного бина `plan_wood_always`."""
+    from PIL import Image
+    tp = TP.load_rules()
+    path = os.path.join(ROOT, tp['library_pat'], name + '.jpg')
     im = np.asarray(Image.open(path).convert('RGB').resize((512, 512)), np.uint8)
     L = TC.rgb2lab(im.reshape(-1, 3)).reshape(512, 512, 3)[:, :, :1].astype(np.float64)
     pat = L - L.reshape(-1, 1).mean(0)
     pat = np.concatenate([pat, np.zeros_like(pat), np.zeros_like(pat)], axis=2)       # узор только по L
     pat = TP.seamless_pattern(pat, tp['pattern'].get('seam_overlap', 0.0))
     pat = pat[:, :, 0]
-    if b.get('grain_axis') == 'v':
+    if grain_axis == 'v':
         pat = pat.T
     pat = pat - pat.mean()
-    return b, np.ascontiguousarray(pat), float(pat.std())
+    return np.ascontiguousarray(pat), float(pat.std())
 
 
 # ------------------------------------------------------------------ решение по частям ---------------------------------------------------------------
@@ -119,6 +136,8 @@ def plan_grain(parts: list, rules: dict | None = None) -> dict:
     'photo_sigma' (float | None), 'card' (dict | None), 'classes' (классы бина | None)}. → {id: {'apply': bool, 'reason': str, 'bin', 'amp', 'amp_source', 'pat', 'pat_std'}}.
     Амплитуда: фото-доказательство (σ ≥ photo_sigma_min) → σ/σ_узора в [amp_min, amp_max]; иначе — медиана амплитуд частей с доказательством; их нет → 'no_photo_evidence'."""
     rules = rules or load_rules()
+    if (rules.get('wood_always') or {}).get('enabled'):          # T-97/1 фаза 5 (TG 3039): деревянная деталь — волокно всегда; выкл (по умолчанию) — ни одной строки ниже функции не выполняется
+        return plan_wood_always(parts, rules)
     out: dict = {}
     evid: dict = {}
     mres = None
@@ -183,6 +202,164 @@ def plan_grain(parts: list, rules: dict | None = None) -> dict:
             if sig < fl:
                 rec['amp'] = float(min(fl / max(rec['pat_std'], 1e-6), 1.0))
                 rec['amp_source'] = str(rec['amp_source']) + '+floor'
+    return out
+
+
+# ------------------------------------------------------------------ дерево — волокно всегда (T-97/1 фаза 5, слово владельца TG 3039; проба р.5 t94/fiber_grain.py) ----------------------------
+def _wood_rules(rules: dict) -> tuple:
+    """(правила ветки wood_always, правила меры материала из pattern_measure). Слова материала/породы/обивки — ОДИН источник: `pattern_measure` (T-93); в файле правил его нет (замороженные rules-g) — берём из rules/part-grain.json."""
+    wa = rules['wood_always']
+    pm = rules.get('pattern_measure') or load_rules()['pattern_measure']
+    return wa, pm
+
+
+def _straight_rows(wa: dict) -> tuple:
+    """Бины straight семейства «дерево» с разметкой библиотеки (`grain_marks`: σ узора, доля низких частот, направленность — пишет part_grain_marks.py) → (библиотека, [(σ, имя, низких, направленность)] по возрастанию σ)."""
+    lib = _library(TP.load_rules())
+    rows = []
+    for name, v in lib['items'].items():
+        if v.get('family', 'wood') != 'wood' or v.get('pattern_class', 'straight') not in wa['photo_classes']:
+            continue
+        m = v.get('grain_marks')
+        if not m:
+            raise ValueError('library.json: у бина %s нет grain_marks — запустить tools/scout/salad/trellis/part_grain_marks.py и закоммитить файл' % name)
+        rows.append((float(m['sigma_L']), name, float(m['low_freq']), float(m['directionality'])))
+    rows.sort()
+    return lib, rows
+
+
+def _nearest_bin(lib: dict, names: list, tone_lab):
+    return min(names, key=lambda n: TP._de(tone_lab, lib['items'][n]['lab']))
+
+
+def _pick_reserve(species_text: str, tone_lab, lib: dict, rows: list, wa: dict) -> tuple:
+    """Запасной бин, когда фото молчит и материала-соседа нет: порода дуб/ясень → «выраженный» (верхняя треть straight по σ узора, ближайший по тону), бук/берёза/сосна… → «спокойный»
+    (σ ≤ calm_sigma_max, направленность ≥ calm_directionality_min, низких частот ≤ calm_low_freq_max — без пятен и сучков; ближайший по тону), порода не названа → самый спокойный (наименьшая доля низких частот).
+    → (имя бина, σL-цель, пометка)."""
+    k = max(1, len(rows) // int(wa['strong_top_div']))
+    toks = ' '.join(re.findall(r'[а-яёa-z]+', species_text.lower()))
+    if any(w in toks for w in wa['strong_species']):
+        return _nearest_bin(lib, [r[1] for r in rows[-k:]], tone_lab), float(wa['reserve_sigma_strong_L']), 'порода выраженная (дуб/ясень)'
+    calm = [r for r in rows if r[0] <= wa['calm_sigma_max'] and r[3] >= wa['calm_directionality_min'] and r[2] <= wa['calm_low_freq_max']]
+    note_none = ''
+    if not calm:                                                    # разметка не оставила спокойных — самый слабый по σ, с пометкой (честно, не падаем)
+        calm, note_none = rows[:1], ' (спокойных бинов нет — самый слабый)'
+    if any(w in toks for w in wa['weak_species']):
+        return _nearest_bin(lib, [r[1] for r in calm], tone_lab), float(wa['reserve_sigma_L']), 'порода слабая (бук/берёза/сосна): спокойный мелкий прямой, ближайший по тону' + note_none
+    return min(calm, key=lambda r: (r[2], r[0]))[1], float(wa['reserve_sigma_L']), 'порода не названа — самый спокойный мелкий прямой (без пятен)' + note_none
+
+
+def _wood_class(rf: dict, extra: str, pm: dict, wa: dict) -> tuple:
+    """Класс материала части по тексту поля карточки роли: дерево / не_дерево / плита / не_назван."""
+    import part_grain_measure as PGM
+    text = (rf['text'] + ' ' + extra).strip()
+    solid = any(w in text for w in pm['solid_words']) or PGM.has_decor(text, pm) or any(w in text for w in wa['solid_extra_words'])
+    if solid:
+        return 'дерево', 'материал: ' + text[:60]
+    if PGM.has_decor(rf['color_text'], pm):
+        return 'дерево', 'порода в поле цвета: ' + rf['color_text'][:40]
+    if any(w in text for w in wa['not_wood_words']) or PGM.has_upholstery(text, pm):
+        return 'не_дерево', 'материал: ' + text[:60]
+    if any(w in text for w in pm['board_words']):
+        return 'плита', 'материал: ' + text[:60]
+    return 'не_назван', 'материала нет в карточке'
+
+
+def plan_wood_always(parts: list, rules: dict) -> dict:
+    """Решение по частям при rules.wood_always.enabled (вместо `plan_grain` по умолчанию): ДЕРЕВО определяет карточка по роли детали (поле роли; нет — запасные поля fallback_fields), волокно на дереве — ВСЕГДА,
+    ровный тон — только не-дерево / бесцветная деталь без волокна на фото / плита / материал не назван. Фото решает «какое и сколько»: σL фото ≥ photo_sigma_min → бин класса straight по тону (лимит library_max_de00; дальше — ближайший без лимита),
+    амплитуда σ_фото/σ_бина в [amp_min, amp_max], пол amp_floor_L. Фото молчит → размах ТОГО ЖЕ материала на товаре (группа с тем же текстом материала и фото-доказательством: её σ_фото переносится, бин — по тону группы),
+    иначе запас по породе (`_pick_reserve`): размах reserve_sigma_L (дуб/ясень — reserve_sigma_strong_L), не ниже пола, амплитуда не выше reserve_amp_max. Ось зерна — как в `apply_grain` (ось детали, rules.axis_per_part).
+    След: у группы `wood` {role, field, material_text, class, why, photo_sigma, tone_L_C, decision, source, sigma_applied, ...}. Решения (потолок запаса, «спокойные» бины, straight) — кандидаты проб р.5, см. _about в rules."""
+    import part_grain_measure as PGM
+    wa, pm = _wood_rules(rules)
+    prm = dict(rules, pattern_measure=pm)
+    lib, rows = _straight_rows(wa)
+    names = [r[1] for r in rows]
+    fl = float(rules.get('amp_floor_L') or 0.0)
+    out, info, mkey, ev = {}, {}, {}, {}
+    for p in parts:                                                   # 1) класс материала по роли
+        pid = p['id']
+        role, _src = PGM.part_role(p, prm)
+        rf = PGM.role_field(p.get('card'), role, prm)
+        extra, ff = '', []
+        if rf['status'] != 'ok':                                      # поля роли нет: общий «Основной материал»/«Материал каркаса» как запасные поля (без «цвет»)
+            h = [(k, v) for k, v in (p.get('card') or {}).items() if any(s in k.lower() for s in wa['fallback_fields'])]
+            extra, ff = ' '.join(str(v).lower() for k, v in h if 'цвет' not in k.lower()), [k for k, _ in h]
+        cls, why = _wood_class(rf, extra, pm, wa)
+        mkey[pid] = ' '.join(sorted(re.findall(r'[а-яёa-z]+', (rf['text'] + ' ' + extra).lower())))
+        ps = p.get('photo_sigma')
+        info[pid] = {'role': role, 'field': rf['status'] + ('+запасное поле ' + ','.join(ff) if ff else ''), 'fields': rf['fields'] or ff, 'material_text': (rf['text'] + ' ' + extra).strip(),
+                     'color_text': rf['color_text'], 'class': cls, 'why': why, 'photo_sigma': None if ps is None else round(float(ps), 2)}
+    for p in parts:                                                   # 2) решение по группе (с фото-доказательством)
+        pid = p['id']
+        w = info[pid]
+        rec = {'apply': False, 'reason': None, 'bin': None, 'amp': None, 'amp_source': None, 'pat': None, 'pat_std': 0.0, 'wood': w}
+        out[pid] = rec
+        tone = p.get('tone_lab')
+        if tone is None or p.get('tone_sigma') is None:
+            rec['reason'], w['decision'] = 'no_tone', 'ровно: нет тона'
+            continue
+        chroma = float(np.hypot(tone[1], tone[2]))
+        w['tone_L_C'] = [round(float(tone[0]), 1), round(chroma, 1)]
+        if w['class'] == 'не_назван':
+            rec['reason'], w['decision'], w['source'] = 'material_not_named', 'ровно: материал не назван', 'не назван'
+            continue
+        if w['class'] != 'дерево':
+            rec['reason'], w['decision'] = 'not_wood', 'ровно: ' + w['class']
+            continue
+        if str(p.get('name', '')) in (rules.get('no_grain_groups') or []):
+            rec['reason'], w['decision'] = 'no_grain_group', 'ровно: группа без зерна по решению вызывающего'
+            continue
+        if int(p.get('n_texels', 0)) < rules['min_texels']:
+            rec['reason'], w['decision'] = 'too_small', 'ровно: мало текселей'
+            continue
+        if float(p['tone_sigma']) > rules['even_tone_sigma_max']:
+            rec['reason'], w['decision'] = 'tone_not_even', 'ровно: градиент тона'
+            continue
+        ps = p.get('photo_sigma')
+        sees = ps is not None and float(ps) >= rules['photo_sigma_min']
+        if not sees and chroma < float(wa['colourless_chroma_max']):   # «массив» бесцветный и фото волокна не показывает — деталь крашеная, ровно
+            rec['reason'], w['decision'], w['source'] = 'colourless_no_photo', 'ровно: бесцветный тон, фото волокна не показывает', 'бесцветный'
+            continue
+        if not sees:
+            w['_need'] = True
+            continue
+        b, pat, pstd = load_pattern(tone, rules, wa['photo_classes'])
+        note = ''
+        if pat is None:                                               # бин дальше лимита ΔE00 — ближайший straight без лимита, с пометкой
+            near = b.get('nearest')
+            nm = near if near in names else _nearest_bin(lib, names, tone)
+            pat, pstd = pattern_of_bin(nm, lib['items'][nm].get('grain_axis'))
+            v = lib['items'][nm]
+            b = {'bin': nm, 'dE00': round(float(TP._de(tone, v['lab'])), 1), 'tile_cm': v.get('tile_cm'), 'grain_axis': v.get('grain_axis')}
+            note = 'бин дальше лимита — ближайший без лимита'
+        amp = float(np.clip(float(ps) / max(pstd, 1e-6), rules['amp_min'], rules['amp_max']))
+        ev[pid] = float(ps)
+        raised = False
+        if fl > 0 and amp * pstd < fl:
+            amp, raised = float(min(fl / max(pstd, 1e-6), 1.0)), True
+        rec.update(bin={k: b.get(k) for k in ('bin', 'dE00', 'tile_cm', 'grain_axis')}, pat=pat, pat_std=pstd, amp=amp, amp_source='photo' + ('+floor' if raised else ''), apply=True, reason='ok')
+        w.update(decision='волокно', source='фото' + (' (' + note + ')' if note else ''), sigma_applied=round(amp * pstd, 2), floor_raised=raised)
+    for p in parts:                                                   # 3) фото молчит: тот же материал на товаре → запас по породе
+        pid = p['id']
+        w = info[pid]
+        if not w.pop('_need', False):
+            continue
+        rec, tone = out[pid], p['tone_lab']
+        sib = [q for q in ev if q != pid and mkey[q] and mkey[q] == mkey[pid]]
+        if sib:
+            sig_t = float(np.median([ev[q] for q in sib]))
+            nm, src, note = _nearest_bin(lib, names, tone), 'material', 'материал (того же на товаре: группы %s)' % sib
+        else:
+            nm, sig_t, note = _pick_reserve(w['material_text'] + ' ' + w['color_text'], tone, lib, rows, wa)
+            src, note = 'reserve', 'запас (' + note + ')'
+        v = lib['items'][nm]
+        pat, pstd = pattern_of_bin(nm, v.get('grain_axis'))
+        sig_t = max(sig_t, fl)
+        amp = float(min(sig_t / max(pstd, 1e-6), float(wa['reserve_amp_max'])))
+        rec.update(bin={'bin': nm, 'dE00': round(float(TP._de(tone, v['lab'])), 1), 'tile_cm': v.get('tile_cm'), 'grain_axis': v.get('grain_axis')}, pat=pat, pat_std=pstd, amp=amp, amp_source=src, apply=True, reason='ok')
+        w.update(decision='волокно', source=note, sigma_applied=round(amp * pstd, 2), sigma_target=round(sig_t, 2))
     return out
 
 
@@ -346,6 +523,8 @@ def apply_grain(tex, tx, parts: list, masks: dict, face_plane, plane_normal, cm_
             r['measure'] = d['measure']
         if d.get('floor') is not None:                           # пол включён (T-97/1 ф.4): что дала амплитуда до пола и поднят ли размах
             r['floor'] = d['floor']
+        if d.get('wood') is not None:                            # «дерево — волокно всегда» (T-97/1 ф.5): класс материала, поле карточки, источник размаха
+            r['wood'] = d['wood']
         rep['parts'][pid] = r
         if not d['apply']:
             rep['skipped'][d['reason']] = rep['skipped'].get(d['reason'], 0) + 1
