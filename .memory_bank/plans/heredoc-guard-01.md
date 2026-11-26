@@ -1,4 +1,5 @@
 ---
+title: Хук против heredoc/herestring в Bash агентов
 tier: 3
 topic: Хук против heredoc/herestring в Bash агентов (python, работает и на algor)
 scope: tools/hooks/guard_heredoc.py, tools/hooks/guard_heredoc_test.py, .claude/settings.json (строку добавляет директор)
