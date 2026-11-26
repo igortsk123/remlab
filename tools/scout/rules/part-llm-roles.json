@@ -13,6 +13,7 @@
   "enabled": true,
   "to_body": {"enabled": false, "_doc": "ВЫКЛЮЧЕНО по умолчанию (решение директора 24.11 по ответу Codex ~/remlab-logs/t2403-1124/codex-roles-answer.md: body и facade — не честная метка слитой «фасад+корпус» части; 07 по роли facade берёт зоны рельефа и донора тона, мерка «доля с ролью» награждает неверный body; остаётся unknown:name_geometry до разбиения по областям). Включение — отдельным решением после теневого прогона 07/08. Устройство: имя дало роль того же канала каталога, что у корпуса (top, facade → main), геометрия не подтвердила (самая крупная часть, ящик с дном, вертикальная панель вместо плиты) → body. Роли других каналов (ножки, каркас, ручки, плафон) не подменяются: корпус вместо них дал бы им материал корпуса. Не у типов без body (стол: материал столешницы/ножек назван отдельно) и не у типов без канала."},
   "generic_in_no_body_types": {"enabled": true, "roles_order": ["top", "legs", "frame"], "_doc": "общее имя (body по названию: «Base», «Horizontal Panel», «Casing») у типа без body (стол): роль — по геометрии из этого списка, если подходит РОВНО одна; иначе unknown:body_scope как раньше"},
+  "cabinet_in_no_body_types": {"enabled": true, "facade_rules_of_group": "case", "body_kinds": ["body"], "_doc": "T-121/4 (директор 26.11: тип товара руками не правим — у тысяч карточек «стол» с тумбой то же): у типа без body (стол) часть с меткой cabinet в таблице («Cabinet Frame/Shelf/Door», «Door») — стол с тумбой. Роль body: часть объёмная (kind ∈ body_kinds), не tiny и ни одна роль стола (top/legs/frame — generic_in_no_body_types.roles_order) геометрией не подходит; подходит ровно одна — она, как раньше; ≥2 — unknown:body_scope. Роль facade: правило фасада группы facade_rules_of_group (case: front ≥ 0,5 и т.д. — без камеры cam_az фронта нет, дверь остаётся unknown:name_geometry). Условие — тип группы (body_scope: none), имя из таблицы и геометрия; ни товара, ни ID в правиле нет. Мост dry — на roles/parts.json ничего не влияет, пока режим не on. enabled=false или метки нет — как до правила (байт в байт)."},
   "unnamed": {"enabled": false, "_off_doc": "ВЫКЛЮЧЕНО по умолчанию (решение директора 24.11 по Codex: 2 % площади — размер, не свидетельство материала; безымянный фасад, стекло, фурнитура, кластер ручек, контрастная обивка могли бы стать body). Остаётся unknown:no_name.", "roles_order": ["top", "legs", "frame"], "min_area_share": 0.02, "body": true, "_doc": "части без названия (строка \"\" с geometry_fallback=unnamed): роль по геометрии (ровно одна подходит), иначе объёмная часть не меньше min_area_share → body, где он разрешён типом. Меняет решение плана 23.11 «по геометрии роль не ставим» — отдельный выключатель: enabled=false оставит no_name."}
  },
  "no_rule_other_channel": {
@@ -79,10 +80,10 @@
   "Drawer": {"role": "facade"},
   "Drawer Front Panel": {"role": "facade"},
   "Door Panel": {"role": "facade"},
-  "Cabinet Door": {"role": "facade", "_why": "T-121/3 (директор 26.11): дверца шкафа/тумбы — тот же класс, что «Door Panel»; геометрия facade проверяется как у остальных (имя — только кандидат)"},
-  "Door": {"role": "facade", "_why": "T-121/3: общее имя двери (5 товаров в готовых parts.json) — класс «Door Panel»; геометрия решает"},
-  "Cabinet Frame": {"role": "body", "_why": "T-121/3: каркас/корпус шкафа или тумбы — класс «Cabinet»/«Casing» (body); у типов без body (стол) — как у них (unknown:body_scope)"},
-  "Cabinet Shelf": {"role": "body", "_why": "T-121/3: полка шкафа — класс «Shelf» (body)"},
+  "Cabinet Door": {"role": "facade", "cabinet": true, "_why": "T-121/3 (директор 26.11): дверца шкафа/тумбы — тот же класс, что «Door Panel»; геометрия facade проверяется как у остальных (имя — только кандидат)"},
+  "Door": {"role": "facade", "cabinet": true, "_why": "T-121/3: общее имя двери (5 товаров в готовых parts.json) — класс «Door Panel»; геометрия решает"},
+  "Cabinet Frame": {"role": "body", "cabinet": true, "_why": "T-121/3: каркас/корпус шкафа или тумбы — класс «Cabinet»/«Casing» (body); у типов без body (стол) — unknown:body_scope, кроме стола с тумбой: см. geometry_fallback.cabinet_in_no_body_types (T-121/4, метка cabinet)"},
+  "Cabinet Shelf": {"role": "body", "cabinet": true, "_why": "T-121/3: полка шкафа — класс «Shelf» (body)"},
   "Shelf Board": {"role": "body", "_why": "T-121/3: доска полки — класс «Shelf» (body)"},
   "Vertical Back Panel": {"role": "body", "_why": "T-121/3: задняя панель — класс «Back Panel» (body)"},
   "Vertical Rear Panel": {"role": "body", "_why": "T-121/3: задняя панель — класс «Back Panel» (body)"},

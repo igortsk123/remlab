@@ -670,5 +670,129 @@ class CabinetNames(unittest.TestCase):
         self.assertEqual(TBL["mode"], "dry")                                                     # включение моста — отдельное решение, словарь его не меняет
 
 
+def jd(x):
+    return json.dumps(x, sort_keys=True, ensure_ascii=False, default=float)
+
+
+class CabinetInTable(unittest.TestCase):
+    """T-121/4 (директор 26.11): стол с тумбой. Общее правило группы table (body_scope: none): часть с меткой cabinet в таблице («Cabinet Frame/Shelf/Door», «Door») — body, если объёмная и не подходит
+    ни под одну роль стола, и facade — по правилу фасада группы case (нужна камера). Тип товара руками не правим. Выключатель и метка — как до правила (байт в байт)."""
+    KINDS = {0: "body", 1: "body", 2: "body", 3: "body", 4: "thin", 5: "thin"}
+    NAMES = {0: "Surface Panel", 1: "Cabinet Frame", 2: "Cabinet Door", 3: "Cabinet Shelf", 4: "Leg", 5: "Leg"}
+
+    @staticmethod
+    def desk():
+        """Столешница-плита (0), тумба под ней на полу (1), дверца на её +Z (2), полка внутри (3), две ножки (4–5)."""
+        top = box(0, 0.80, 0, 1.2, 0.03, 0.6, n=24)
+        cab = box(-0.3, 0.35, 0, 0.4, 0.7, 0.5, n=10)
+        door = box(-0.3, 0.35, 0.27, 0.36, 0.64, 0.03, n=10)
+        shelf = box(-0.3, 0.35, 0, 0.36, 0.01, 0.44, n=4)
+        legs = [box(0.5, 0.39, z, 0.05, 0.78, 0.05, n=3) for z in (-0.25, 0.25)]
+        return assemble([top, cab, door, shelf] + legs)
+
+    @staticmethod
+    def off():
+        t = json.loads(json.dumps(TBL))
+        t["geometry_fallback"]["cabinet_in_no_body_types"]["enabled"] = False
+        return t
+
+    def run_table(self, rules=None, cam=None, names=None, kinds=None, product="стол обеденный"):
+        v, f, part = self.desk()
+        ft = feats(v, f, part, kinds or self.KINDS, **({"cam_az": cam} if cam is not None else {}))
+        return ft, pn.bridge_roles(names or self.NAMES, ft, rules or TBL, RR, product, {"legs"})
+
+    def test_block_is_in_rules_with_marks_and_doc(self):
+        c = TBL["geometry_fallback"]["cabinet_in_no_body_types"]
+        self.assertTrue(c["enabled"])
+        self.assertTrue(c.get("_doc"))
+        self.assertIn(c["facade_rules_of_group"], RR["groups"])
+        for n in ("Cabinet Frame", "Cabinet Shelf", "Cabinet Door", "Door"):
+            self.assertTrue(TBL["map"][n].get("cabinet"), n)
+        self.assertEqual({n for n, e in TBL["map"].items() if e.get("cabinet")}, {"Cabinet Frame", "Cabinet Shelf", "Cabinet Door", "Door"})   # метка — только у корпусных имён
+
+    def test_body_parts_of_table_with_cabinet_get_body(self):
+        ft, r = self.run_table()
+        for p in (1, 3):
+            self.assertEqual((r[p]["role"], r[p]["unknown_reason"]), ("body", None), (p, r[p]["role_why"]))
+            self.assertTrue(r[p]["cabinet_in_table"])
+            self.assertIn("стол с тумбой", r[p]["role_why"])
+        self.assertEqual(r[0]["role"], "top")                                                    # столешница и ножки — как раньше
+        self.assertEqual([r[p]["role"] for p in (4, 5)], ["legs", "legs"])
+        self.assertNotIn("cabinet_in_table", r[0])
+
+    def test_before_the_rule_same_parts_were_body_scope(self):
+        _, r = self.run_table(self.off())
+        for p in (1, 3):
+            self.assertEqual((r[p]["role"], r[p]["unknown_reason"]), ("unknown", "body_scope"))   # было: у стола body не ставим
+
+    def test_door_is_facade_only_with_camera(self):
+        _, no_cam = self.run_table()
+        self.assertEqual((no_cam[2]["role"], no_cam[2]["unknown_reason"]), ("unknown", "name_geometry"))   # фронта без камеры нет — дверь честно «без роли»
+        self.assertEqual(no_cam[2]["geometry_why"], "no_front")
+        _, cam = self.run_table(cam=0.0)
+        self.assertEqual(cam[2]["role"], "facade", cam[2]["role_why"])                           # камера есть → правило фасада группы case подтвердило
+        self.assertTrue(cam[2]["cabinet_in_table"])
+        self.assertIn("группы case", cam[2]["role_why"])
+        _, wrong = self.run_table(cam=180.0)
+        self.assertNotEqual(wrong[2]["role"], "facade")                                          # камера с другой стороны: дверь смотрит назад — не фасад
+
+    def test_rule_does_not_touch_parts_without_mark_or_with_other_kind(self):
+        _, r = self.run_table(names={**self.NAMES, 1: "Casing", 3: "Shelf"})                       # «Casing»/«Shelf» — body без метки cabinet: у стола, как было
+        for p in (1, 3):
+            self.assertEqual((r[p]["role"], r[p]["unknown_reason"]), ("unknown", "body_scope"))
+        _, r2 = self.run_table(kinds={**self.KINDS, 1: "thin"})                                  # тонкая часть — не корпус тумбы
+        self.assertEqual((r2[1]["role"], r2[1]["unknown_reason"]), ("unknown", "body_scope"))
+
+    def test_slab_named_cabinet_keeps_geometry_role(self):
+        _, r = self.run_table(names={**self.NAMES, 0: "Cabinet Frame"})                           # плита-столешница с именем «Cabinet Frame»: по геометрии top (ровно одна роль стола), не body
+        self.assertEqual(r[0]["role"], "top")
+        self.assertNotIn("cabinet_in_table", r[0])
+
+    def test_other_groups_and_switches_are_byte_for_byte(self):
+        for product in ("комод", "стул", "лампа настольная", "диван прямой"):
+            ft, a = self.run_table(product=product)
+            _, b = self.run_table(self.off(), product=product)
+            self.assertEqual(jd(a), jd(b), product)                                              # не стол: правило не действует
+        ft, a = self.run_table(names={0: "Tabletop", 1: "Casing", 2: "Door Panel", 3: "Shelf", 4: "Leg", 5: "Leg"})
+        _, b = self.run_table(self.off(), names={0: "Tabletop", 1: "Casing", 2: "Door Panel", 3: "Shelf", 4: "Leg", 5: "Leg"})
+        self.assertEqual(jd(a), jd(b))                                                           # у стола имена без метки cabinet — как до правила
+        t = json.loads(json.dumps(TBL))
+        t["geometry_fallback"]["enabled"] = False                                                # общий выключатель «как было»
+        t_b = json.loads(json.dumps(t))
+        t_b["geometry_fallback"]["cabinet_in_no_body_types"]["enabled"] = False
+        _, c = self.run_table(t)
+        _, d = self.run_table(t_b)
+        self.assertEqual(jd(c), jd(d))                                                           # geometry_fallback.enabled=false гасит и это правило
+        t2 = json.loads(json.dumps(TBL))
+        del t2["geometry_fallback"]["cabinet_in_no_body_types"]                                  # блока нет вовсе
+        _, e = self.run_table(t2)
+        _, f_ = self.run_table(self.off())
+        self.assertEqual(jd(e), jd(f_))
+
+    def test_rules_loader_checks_the_block(self):
+        import shutil
+        td = tempfile.mkdtemp()
+        src = os.path.join(HERE, "..", "..", "scout", "rules", "part-llm-roles.json")
+        t = json.load(open(src, encoding="utf-8"))
+        t["geometry_fallback"]["cabinet_in_no_body_types"]["facade_rules_of_group"] = "нет-такой"
+        p = os.path.join(td, "r.json")
+        json.dump(t, open(p, "w", encoding="utf-8"), ensure_ascii=False)
+        with self.assertRaises(ValueError):
+            pn.load_rules(p)
+        t["geometry_fallback"]["cabinet_in_no_body_types"]["facade_rules_of_group"] = "case"
+        t["geometry_fallback"]["cabinet_in_no_body_types"]["body_kinds"] = []
+        json.dump(t, open(p, "w", encoding="utf-8"), ensure_ascii=False)
+        with self.assertRaises(ValueError):
+            pn.load_rules(p)
+        shutil.rmtree(td, ignore_errors=True)
+
+    def test_role_fit_group_override_is_optional(self):
+        v, f, part = self.desk()
+        ft = feats(v, f, part, self.KINDS, cam_az=0.0)
+        base = pro.role_fit(ft[2], RR, "стол обеденный", {"legs"}, "facade")
+        self.assertEqual(base, (False, "no_rule"))                                               # у стола правила фасада нет — как раньше
+        self.assertTrue(pro.role_fit(ft[2], RR, "стол обеденный", {"legs"}, "facade", group="case")[0])
+
+
 if __name__ == "__main__":
     unittest.main()
