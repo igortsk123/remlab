@@ -698,8 +698,33 @@ def test_gloss_rule_record():
         ok(not errs, "rule_registry_audit --run: у R-GLOSS-08 нет ошибок («пустой охват» и др.) на прогоне из двух товаров" + (" — " + "; ".join(x["why"] for x in errs) if errs else ""))
 
 
+def test_stage3_parts_without_role():
+    """parts.json от PartLLM без поля role (мост ролей выключен): не KeyError, а role=unknown (геометрия) + число частей без роли в check.json (T-99/7 26.11)."""
+    parts = [{"id": 0, "face_share": 0.5, "name": "Cabinet Frame"}, {"id": 1, "face_share": 0.5, "name": "Leg", "role": None}]
+    ok(MS.ensure_roles(parts) == 2 and all(p["role"] == "unknown" and p["material_channel"] is None for p in parts), "ensure_roles: нет роли/None → unknown, канала нет, посчитано 2")
+    keep = [{"id": 0, "role": "legs", "material_channel": "legs"}]
+    ok(MS.ensure_roles(keep) == 0 and keep[0]["role"] == "legs", "ensure_roles: поставленную роль не трогает")
+    try:
+        MS._paint_stage()
+    except SystemExit:
+        print("  – paint_stage.py не найден: сквозная проверка пропущена")
+        return
+    with tempfile.TemporaryDirectory() as d:
+        src = os.path.join(d, "m.glb")
+        _tiny_glb(src)
+        run = os.path.join(d, "run")
+        pdir = os.path.join(run, "sku-nr", "03-parts")
+        os.makedirs(pdir)
+        np.savez_compressed(os.path.join(pdir, "parts.npz"), part=np.array([0] * 6 + [1] * 6, dtype=np.int16))
+        json.dump({"source": "partllm", "parts": [{"id": 0, "face_share": 0.5, "name": "Cabinet Frame"}, {"id": 1, "face_share": 0.5, "name": "Panel"}]}, open(os.path.join(pdir, "parts.json"), "w"))
+        product = {"sid": "x", "name": "Стол Тест", "role": "стол обеденный", "params": {"Материал столешницы": "Дерево"}}
+        doc = _run(src, run, "sku-nr", product, frame=False)
+        ok(doc["extra"]["parts_source"] == "stage3" and doc["extra"]["parts_without_role"] == 2, "08 на частях этапа 3 без ролей идёт (не KeyError), в check.json: parts_without_role=2")
+        ok(doc["metrics"]["recipe_share"]["value"] == 1.0, "у всех граней есть рецепт")
+
+
 if __name__ == "__main__":
-    for t in (test_rules_complete, test_no_ids_in_code, test_resolve, test_legs_and_colour, test_bake, test_patch_glb, test_stage_end_to_end, test_plate_left_gate, test_fill_gate, test_shapes_without_stage3, test_top_zone_shade, test_stand_junction_is_metal, test_unsure_parts_report, test_soft_body_inherits_upholstery, test_stage3_roles, test_merge_roles_file, test_top_zone_bigger_than_body, test_inherit_unseen, test_stage_geometry_and_inherited, test_compound_field, test_painted_metal, test_gloss_finish, test_gloss_rule_record, test_glass_keeps_colour_map, test_frame_gate, test_flat_top_roughness):
+    for t in (test_rules_complete, test_no_ids_in_code, test_resolve, test_legs_and_colour, test_bake, test_patch_glb, test_stage_end_to_end, test_plate_left_gate, test_fill_gate, test_shapes_without_stage3, test_top_zone_shade, test_stand_junction_is_metal, test_unsure_parts_report, test_soft_body_inherits_upholstery, test_stage3_roles, test_merge_roles_file, test_stage3_parts_without_role, test_top_zone_bigger_than_body, test_inherit_unseen, test_stage_geometry_and_inherited, test_compound_field, test_painted_metal, test_gloss_finish, test_gloss_rule_record, test_glass_keeps_colour_map, test_frame_gate, test_flat_top_roughness):
         print(t.__name__)
         t()
     print(f"material_stage tests: ошибок {FAIL}")
