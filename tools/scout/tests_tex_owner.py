@@ -170,6 +170,157 @@ def test_stage():
     check(json.load(open(ST.RULES_PATH, encoding='utf-8'))['enabled'] is False, 'в репозитории шаг выключен по умолчанию')
 
 
+def _frame(face3_rgb, show3=True, n=100, own=None):
+    """Кадр камеры на синтетике: грань 3 (без роли, отдана owner группе «верх») — квадрат 50×50 px; грани 0 (верх) и 4 (ножки) — свои квадраты."""
+    ids = np.full((n, n), -1, np.int32)
+    rgb = np.zeros((n, n, 3), np.uint8)
+    h = n // 2
+    if show3:
+        ids[:h, :h] = 3
+        rgb[:h, :h] = face3_rgb
+    ids[h:, :h] = 0
+    rgb[h:, :h] = TONES[0] if own is None else own
+    ids[:h, h:] = 4
+    rgb[:h, h:] = TONES[1]
+    return ids, rgb, np.ones((n, n), bool), np.ones((n, n), np.float32)
+
+
+def _tg(rules, **kw):
+    return {**rules, 'tone_guard': {**rules['tone_guard'], **kw}}
+
+
+def test_tone_guard():
+    """Сторож «не отдавать» (T-20261126-121/2, уточнение директора по Fable 15 § 2): панель, чей цвет до owner далёк от тона группы, группе не отдаётся (роль остаётся прежней, метки зерна нет);
+    СТОП — только при большой доле не отданной площади."""
+    rules = ST.load_rules()
+    P = np.array([(0, 0, 0), (1, 0, 0), (2, 0, 0), (0, 0, 1), (1, 0, 1), (2, 0, 1), (0, 0, 0), (0, 0, 1), (0, -1, 0), (0, -1, 1)], np.float64)
+    F = np.array([[0, 3, 4], [0, 4, 1], [1, 4, 5], [1, 5, 2], [6, 8, 9], [6, 9, 7]], np.int64)
+    UV = np.array([(x / 2 * 0.4 + 0.1, z * 0.6 + 0.2) for x, _y, z in P[:6]] + [(0.6 + z * 0.3, 0.2 + (-y) * 0.6) for _x, y, z in P[6:]], np.float64)
+    area = TO.face_areas(P, F)
+    _n, comp = TO.panels(P, F, rules['roles']['crease_deg'], rules['roles']['weld_scale'])
+    fg = np.array([0, 0, 0, 2, 1, 1])
+    fg2 = np.array([0, 0, 0, 0, 1, 1])
+    names = ['верх', 'ножки']
+    both = np.array([True, True])
+    share3 = float(area[3] / area.sum())
+
+    def run(frame, rl=None, pg=both, f2=fg2, tex=None, ids_tex=None):
+        i, c, v, k = frame
+        return TO.guard_tone(i, c, v, fg, f2, comp, area, TONES, pg, names, rl or rules, k, tex, ids_tex)
+
+    def row(r):
+        return r['детали'][0] if r['детали'] else {}
+
+    # 1. свой тон на фото → отдаётся
+    r = run(_frame(TONES[0]))
+    check(not r['стоп'] and r['не_отдать'] == [] and row(r)['решение'] == 'отдана' and abs(row(r)['dL']) < 1 and r['по_группам']['верх']['вердикт'] == 'ок', 'сторож: область owner своего тона — отдаётся, dL≈0: %s' % row(r))
+    check(abs(r['доля_отдано_площади'] - share3) < 1e-3 and 'ножки' not in r['по_группам'], 'доля площади, розданной owner (одна грань из шести): %s' % r['доля_отдано_площади'])
+    # 2. белая область → не отдаётся (грань 3), НЕ стоп (доля 1/6 < 0,25), причина в строке
+    r = run(_frame((240, 240, 240)))
+    check(r['не_отдать'] == [3] and row(r)['решение'] == 'не отдана' and 'ΔL' in row(r)['почему'] and not r['стоп'] and abs(r['доля_не_отдано_площади'] - share3) < 1e-3, 'сторож: белая область (тон группы оранжевый) — не отдаётся, но и не стоп: %s' % row(r))
+    # 3. СТОП только при большой доле: порог stop_area_frac 0,1 < 1/6
+    r = run(_frame((240, 240, 240)), _tg(rules, stop_area_frac=0.1))
+    check(r['стоп'] and 'роль/группа не сходится с фото' in r['причина'] and 'чужой группе отдано' in r['причина'], 'сторож: не отдано больше stop_area_frac площади → СТОП с причиной (ключ меняет выход)')
+    # 4. ключи dl_max / dab_max меняют выход
+    r = run(_frame((240, 240, 240)), _tg(rules, dl_max=99.0, dab_max=199.0))
+    check(r['не_отдать'] == [] and row(r)['решение'] == 'отдана', 'ключи dl_max/dab_max меняют выход: при 99/199 тот же белый отдаётся')
+    # 5. тот же цвет по светлоте, другая цветность → по dab не отдаётся; лёгкий оттенок своего материала (dL < 5) — отдаётся
+    r = run(_frame((140, 140, 140)))
+    check(row(r)['решение'] == 'не отдана' and abs(row(r)['dL']) < 5 and 'цветности' in row(r)['почему'], 'сторож: светлота та же, цветность иная (серое вместо оранжевого) — не отдаётся по dab: %s' % row(r))
+    r = run(_frame((200, 115, 58)))
+    check(row(r)['решение'] == 'отдана' and abs(row(r)['dL']) < 5, 'сторож: лёгкий оттенок того же материала — отдаётся')
+    # 6. не видна на фото и нет 06 → «не проверено», отдаётся
+    r = run(_frame((240, 240, 240), show3=False))
+    check(r['не_отдать'] == [] and not r['стоп'] and row(r)['решение'] == 'отдана' and 'не проверено' in row(r)['почему'] and r['по_группам']['верх']['вердикт'].startswith('не проверено'), 'сторож: не видна и нет 06 — «не проверено», отдаётся: %s' % row(r))
+    # 7. косой угол (cos < cos_min) в цвет не считается
+    i, c, v, k = _frame((240, 240, 240))
+    r = TO.guard_tone(i, c, v, fg, fg2, comp, area, TONES, both, names, rules, k * 0.1)
+    check(r['не_отдать'] == [] and 'не проверено' in row(r)['почему'], 'сторож: косой угол (cos < cos_min) — «не проверено»')
+    # 8. узорная группа, owner ничего не менял, мелкая панель
+    r = run(_frame((240, 240, 240)), pg=np.array([False, True]))
+    check(r['не_отдать'] == [] and r['по_группам']['верх']['вердикт'].startswith('не проверено: узорная'), 'сторож: узорная группа (painted_group=false) не проверяется')
+    r = run(_frame((240, 240, 240)), f2=fg)
+    check(not r['стоп'] and r['по_группам'] == {} and r['доля_отдано_площади'] == 0.0 and r['не_отдать'] == [], 'сторож: owner ничего не менял — нечего проверять')
+    r = run(_frame((240, 240, 240)), _tg(rules, min_area_frac=0.5))
+    check(r['не_отдать'] == [3] and len(r['детали']) == 1, 'сторож: min_area_frac только прячет строки малых панелей, не отдаёт их без проверки (не отданная всё равно в строках)')
+    r = run(_frame(TONES[0]), _tg(rules, min_area_frac=0.5))
+    check(r['не_отдать'] == [] and r['детали'] == [], 'сторож: min_area_frac прячет строки малых ОТДАННЫХ панелей (ключ меняет выход)')
+    # «сильно чужой» — только он считается для СТОПа: (140,140,140) — не отдана по цветности, но не сильно (dab 45 > 30 → сильно); тот же материал темнее на 17 L — не отдана, НЕ сильно (17 < stop_dl 20)
+    r = run(_frame((85, 85, 85), own=(128, 128, 128)), _tg(rules, stop_area_frac=0.05))
+    check(r['не_отдать'] == [3] and r['доля_сильно_чужой_площади'] == 0.0 and not r['стоп'], 'сторож: не отдана, но не «сильно чужая» (|ΔL| 17 < stop_dl) — не стоп даже при низком stop_area_frac')
+    r = run(_frame((240, 240, 240)), _tg(rules, stop_area_frac=0.05))
+    check(r['стоп'] and abs(r['доля_сильно_чужой_площади'] - share3) < 1e-3, 'сторож: белое — «сильно чужое» (|ΔL| ≥ stop_dl) — стоп при stop_area_frac 0,05: %s' % r['доля_сильно_чужой_площади'])
+    # остаток: панели без данных (панель_min_px больше, чем пикселей у каждой) решаются пулом группы
+    r = run(_frame((240, 240, 240)), _tg(rules, panel_min_px=100000, min_px=100000))
+    check(r['не_отдать'] == [] and 'не проверено' in row(r)['почему'], 'сторож: данных не хватает и пулу — «не проверено», отдаётся')
+    r = run(_frame((240, 240, 240)), _tg(rules, panel_min_px=2600, min_px=300))
+    check(r['не_отдать'] == [3] and str(row(r)['панель']).startswith('остаток'), 'сторож: панель без данных идёт в остаток группы и решается там (белый остаток — не отдан): %s' % row(r).get('панель'))
+    # 9. эталон: фото своих граней; своих пикселей мало — тон Ш4а
+    i, c, v, k = _frame((240, 240, 240))
+    v2 = v.copy()
+    v2[50:, :50] = False
+    r = run((i, c, v2, k))
+    check(row(r)['решение'] == 'не отдана' and 'тон Ш4а' in row(r)['эталон'], 'сторож: своих пикселей группы на фото нет → эталон — тон Ш4а')
+    r = run(_frame((85, 85, 85), own=(128, 128, 128)))
+    check(row(r)['решение'] == 'не отдана' and 'фото своих граней' in row(r)['эталон'] and row(r)['dL'] < -5, 'сторож: эталон — фото своих граней; тот же материал темнее на 17 L — по критерию ΔL>5 не отдаётся')
+    # 10. невидимая панель — по текстуре 06: белая не отдаётся, своего тона — отдаётся
+    ids_t = TO.owner_ids(UV, F, T, rules)
+    for label, col, want in (('белая', (240, 240, 240), 'не отдана'), ('своего тона', tuple(int(x) for x in TONES[0]), 'отдана')):
+        tex = np.random.default_rng(5).integers(0, 256, (T, T, 3), dtype=np.uint8)
+        for f in range(6):
+            tex[ids_t == f] = TONES[0] if f != 3 else col
+        r = run(_frame((240, 240, 240), show3=False), tex=tex, ids_tex=ids_t)
+        d3 = row(r)
+        check(d3.get('решение') == want and d3.get('цвет_из') == '06' and (want == 'отдана' or r['не_отдать'] == [3]), 'сторож: панель не видна на фото — цвет из текстуры 06, %s → %s: %s' % (label, want, d3))
+    # 11. стадия: кадр из rel.npz Ш4а; не отдана → фасет остаётся без роли (текстура грани 3 не перекрашена), стоп = воздержание, файлы не тронуты
+    def stage(frame, rl_over=None, with_rel=True):
+        with tempfile.TemporaryDirectory() as tmp:
+            d = make_run(tmp)
+            if with_rel:
+                i2, c2, v2_, k2 = frame
+                os.makedirs(os.path.join(d, '_partmaterial'))
+                np.savez_compressed(os.path.join(d, '_partmaterial', 'rel.npz'), ids=i2, prgb_reg=c2, valid=v2_, cosf=k2, known=np.zeros((T, T), bool))
+            vis, npz = os.path.join(d, 'visible.glb'), os.path.join(d, 'part_material_masks.npz')
+            s0, n0 = sha(vis), sha(npz)
+            args = ['--run', os.path.join(tmp, 'run'), '--sku', 'sku', '--force']
+            if rl_over:
+                r = json.load(open(ST.RULES_PATH, encoding='utf-8'))
+                r['tone_guard'].update(rl_over)
+                p = os.path.join(tmp, 'r.json')
+                json.dump(r, open(p, 'w', encoding='utf-8'))
+                args += ['--rules', p]
+            ST.main(args)
+            rep = json.load(open(os.path.join(d, ST.OUT), encoding='utf-8'))
+            out = {'rep': rep, 'changed': sha(vis) != s0, 'npz_same': sha(npz) == n0, 'pre': os.path.exists(os.path.join(d, ST.PRE))}
+            if not rep.get('abstain'):
+                js, binb = TO.read_glb(vis)
+                t1 = TO.tex_of(js, binb, 0)
+                out['face3_painted'] = bool((t1[ids_t == 3] == TONES[0]).all())
+                out['face0_painted'] = bool((t1[ids_t == 0] == TONES[0]).all())
+            return out
+    s = stage(_frame((240, 240, 240)))
+    check(not s['rep']['abstain'] and s['changed'] and not s['face3_painted'] and s['face0_painted'] and s['rep']['tone_guard']['не_отдано_граней'] == 1, 'стадия: белая область не отдана — грань 3 НЕ закрашена тоном группы, грань 0 закрашена, в следе 1 грань')
+    s = stage(_frame(TONES[0]))
+    check(not s['rep']['abstain'] and s['face3_painted'] and s['rep']['tone_guard']['не_отдано_граней'] == 0, 'стадия: свой тон — область отдана и закрашена тоном группы')
+    s = stage(_frame((240, 240, 240)), {'stop_area_frac': 0.1})
+    check(bool(s['rep']['abstain']) and 'роль/группа не сходится с фото' in s['rep']['abstain'] and not s['changed'] and s['npz_same'] and not s['pre'], 'стадия: не отдано > stop_area_frac → воздержание (abstain_is_stop), visible.glb и npz не тронуты, pre-owner не создан')
+    s = stage(_frame((240, 240, 240)), with_rel=False)
+    check(not s['rep']['abstain'] and 'только текстура 06' in s['rep']['tone_guard']['кадр'], 'стадия: нет фото/позы и rel.npz — проверка по текстуре 06, шаг идёт: %s' % s['rep']['tone_guard'].get('кадр'))
+    # 12. правила: вне пределов отвергаются, _why есть
+    for bad in ({'dl_max': 0}, {'min_px': 0}, {'cos_min': 1.5}, {'stop_area_frac': 2}, {'panel_min_texels': 0}):
+        r = json.load(open(ST.RULES_PATH, encoding='utf-8'))
+        r['tone_guard'] = {**r['tone_guard'], **bad}
+        with tempfile.TemporaryDirectory() as tmp:
+            p = os.path.join(tmp, 'r.json')
+            json.dump(r, open(p, 'w', encoding='utf-8'))
+            try:
+                ST.load_rules(p)
+                check(False, 'правила tone_guard вне пределов отвергаются: %s' % bad)
+            except ValueError:
+                check(True, 'правила tone_guard вне пределов отвергаются: %s' % bad)
+    check(json.load(open(ST.RULES_PATH, encoding='utf-8'))['tone_guard']['_why'], 'в правилах tone_guard есть _why')
+
+
 def test_gutter():
     import tex_gutter_stage as GS
     with tempfile.TemporaryDirectory() as tmp:
@@ -240,6 +391,7 @@ def main():
     with tempfile.TemporaryDirectory() as tmp:
         test_owner(tmp)
     test_stage()
+    test_tone_guard()
     test_gutter()
     bad = OK.count(False)
     print('\n%d проверок, провалов: %d' % (len(OK), bad))

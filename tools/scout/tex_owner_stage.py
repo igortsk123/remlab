@@ -22,7 +22,7 @@ import traceback
 import numpy as np
 
 HERE = os.path.dirname(os.path.abspath(__file__))
-sys.path[:0] = [HERE]
+sys.path[:0] = [HERE, os.path.join(HERE, 'salad', 'trellis')]
 
 OUT = 'tex_owner.json'
 STAGE_DIR = '06-visible'
@@ -46,10 +46,57 @@ def load_rules(path: str = RULES_PATH) -> dict:
     dl = r['dilate']
     if not (0 <= int(dl['uv_gutter_px']) <= 64) or not (0 < float(dl['guard_dl_max']) < 100):
         raise ValueError('tex-owner.json: dilate вне допустимых пределов (uv_gutter_px 0…64, guard_dl_max > 0)')
+    tg = r['tone_guard']
+    if (not (0 < float(tg['dl_max']) < 100) or not (0 < float(tg['dab_max']) < 200) or int(tg['min_px']) < 1 or not (0 <= float(tg['min_area_frac']) < 1) or not (0 <= float(tg['cos_min']) < 1)
+            or int(tg['panel_min_px']) < 1 or int(tg['panel_min_texels']) < 1 or not (0 <= float(tg['stop_area_frac']) <= 1) or not (0 < float(tg['stop_dl']) < 100) or not (0 < float(tg['stop_dab']) < 200)):
+        raise ValueError('tex-owner.json: tone_guard вне допустимых пределов (dl_max/stop_dl 0…100, dab_max/stop_dab 0…200, min_px/panel_min_px/panel_min_texels ≥ 1, min_area_frac/cos_min 0…1, stop_area_frac 0…1)')
     return r
 
 
-def process(rules: dict, d: str, rep: dict) -> None:
+def photo_frame(d: str, src_glb: str, photo: str, pose_run: str) -> tuple:
+    """Кадр камеры 04 с ФОТО: (ids граней, фото в кадре, valid, cos, откуда). Боевой путь — фото + папка позы (как у зерна); для готовых 06 разбора без них — rel.npz Ш4а (--keep-work).
+    Нет ни того ни другого → (None, …, причина): сторож пишет «не проверено», не стоп."""
+    if photo and pose_run and os.path.exists(photo):
+        import tex_visible as TV
+        from PIL import Image
+        geoms = TV.load_shape(src_glb)
+        if len(geoms) != 1:
+            return None, None, None, None, 'в visible.glb %d геометрий' % len(geoms)
+        st = TV.load_stage(pose_run)
+        st, _zi = TV.zbuffer_fix(geoms, st)
+        if not st.get('camera') or st['camera'].get('az') is None:
+            return None, None, None, None, 'нет камеры этапа 4 (az)'
+        rgb, okp = TV.photo_to_frame(np.asarray(Image.open(photo).convert('RGBA')), st['P'], st['px'])
+        return st['ids'], rgb, st['mask'] & okp & (st['ids'] >= 0), st['cos'], 'фото+поза'
+    rp = os.path.join(d, '_partmaterial', 'rel.npz')
+    if os.path.exists(rp):
+        r = np.load(rp, allow_pickle=False)
+        if all(k in r.files for k in ('ids', 'prgb_reg', 'valid', 'cosf')):
+            return r['ids'], r['prgb_reg'], np.asarray(r['valid'], bool), r['cosf'], 'rel.npz Ш4а'
+    return None, None, None, None, 'нет фото/позы и нет rel.npz'
+
+
+def tone_guard_run(rules: dict, d: str, src_glb: str, P, F, fg, fg2, z: dict, names: list, photo: str, pose_run: str, tex=None, ids_tex=None) -> dict:
+    """Сторож «не отдавать»: цвет детали до owner (фото, где видна; иначе текстура 06) против тона её группы. Нет кадра фото — проверка по 06 (если есть tex/ids_tex), иначе «не проверено» (всё отдаётся как раньше)."""
+    import tex_owner as TO
+    area = TO.face_areas(P, F)
+    ids, rgb, valid, cosf, how = photo_frame(d, src_glb, photo, pose_run)
+    rr = rules['roles']
+    _n, comp = TO.panels(P, F, float(rr['crease_deg']), float(rr['weld_scale']))
+    if ids is None:
+        if tex is None:
+            n = len(names)
+            giv = (fg2 >= 0) & (fg2 < n) & (fg2 != fg)
+            return {'стоп': False, 'причина': '', 'не_проверено': how, 'доля_отдано_площади': round(float(area[giv].sum() / max(float(area.sum()), 1e-20)), 4), 'по_группам': {}, 'детали': [], 'не_отдать': []}
+        ids = np.full(ids_tex.shape, -1, np.int64)                      # кадра нет — пустой кадр: все панели идут по текстуре 06
+        rgb, valid, cosf = np.zeros(ids.shape + (3,), np.uint8), np.zeros(ids.shape, bool), None
+        how = 'нет фото/позы: только текстура 06 (%s)' % how
+    res = TO.guard_tone(ids, rgb, valid, fg, fg2, comp, area, np.asarray(z['tone_srgb']), np.asarray(z['painted_group'], bool), names, rules, cosf, tex, ids_tex)
+    res['кадр'] = how
+    return res
+
+
+def process(rules: dict, d: str, rep: dict, photo: str = '', pose_run: str = '') -> None:
     import tex_owner as TO
     t0 = time.time()
     mp = os.path.join(d, 'part_material_masks.npz')
@@ -80,6 +127,17 @@ def process(rules: dict, d: str, rep: dict) -> None:
     fg2, info = TO.face_roles(P, F, fg, len(names), rules)
     rep['roles'] = info
     ids = TO.owner_ids(UV, F, T, rules)
+    if rules['tone_guard']['enabled']:
+        tgr = tone_guard_run(rules, d, src, P, F, fg, fg2, z, names, photo, pose_run, tex, ids)
+        rep['tone_guard'] = tgr
+        if tgr['стоп']:
+            raise Abstain(tgr['причина'])                                # воздержание = СТОП прогона (abstain_is_stop): текстуру и visible.glb не трогаем, 07 не идёт
+        if tgr['не_отдать']:
+            nd = np.asarray(tgr['не_отдать'], np.int64)
+            fg2 = fg2.copy()
+            fg2[nd] = fg[nd]                                             # «не отдавать»: грани панели остаются с прежней ролью → метки зерна нет, 07 красит их как раньше (sub_tone и др.)
+        tgr['не_отдано_граней'] = len(tgr['не_отдать'])
+        tgr['не_отдать'] = []                                            # индексы в след не пишем (тысячи); строки по панелям — в 'детали'
     new, gmap, per = TO.apply_owner(tex, np.asarray(z['group_map']).copy(), ids, fg2, painted, np.asarray(z['tone_srgb']), names, rules)
     rep['groups'] = per
     kn = None
@@ -102,6 +160,8 @@ def main(argv: list | None = None) -> int:
     ap.add_argument('--rules', default='')
     ap.add_argument('--out-dir', default='', help='папка 06-visible для пробы вместо <run>/<sku>/06-visible')
     ap.add_argument('--force', action='store_true', help='включить шаг независимо от rules.enabled (замер/проба)')
+    ap.add_argument('--photo', default='', help='сырое фото входа 06 — для сторожа «тон фото области ↔ тон группы» (вместе с --pose-run)')
+    ap.add_argument('--pose-run', default='', help='папка позы (<run>/<sku>) с 04-camera — кадр камеры для сторожа')
     a = ap.parse_args(argv)
     rules = load_rules(a.rules or RULES_PATH)
     if not rules.get('enabled') and not a.force:
@@ -111,7 +171,7 @@ def main(argv: list | None = None) -> int:
     os.makedirs(d, exist_ok=True)
     rep = {'version': VERSION, 'rule': 'R-TEX-OWNER', 'sku': a.sku, 'abstain': None}
     try:
-        process(rules, d, rep)
+        process(rules, d, rep, a.photo, a.pose_run)
     except Abstain as e:
         rep['abstain'] = str(e)
     except Exception as e:  # noqa: BLE001 — шаг не роняет конвейер: остальные шаги идут как раньше, причина в след
