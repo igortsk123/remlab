@@ -87,7 +87,8 @@ def tone_guard_run(rules: dict, d: str, src_glb: str, P, F, fg, fg2, z: dict, na
         if tex is None:
             n = len(names)
             giv = (fg2 >= 0) & (fg2 < n) & (fg2 != fg)
-            return {'стоп': False, 'причина': '', 'не_проверено': how, 'доля_отдано_площади': round(float(area[giv].sum() / max(float(area.sum()), 1e-20)), 4), 'по_группам': {}, 'детали': [], 'не_отдать': []}
+            sh = round(float(area[giv].sum() / max(float(area.sum()), 1e-20)), 4)
+            return {'стоп': False, 'причина': '', 'не_проверено': how, 'доля_отдано_площади': sh, 'по_группам': {}, 'детали': [], 'не_отдать': [], 'не_проверено_по_фото': TO.not_photo_counter(0.0, sh, 0.0)}
         ids = np.full(ids_tex.shape, -1, np.int64)                      # кадра нет — пустой кадр: все панели идут по текстуре 06
         rgb, valid, cosf = np.zeros(ids.shape + (3,), np.uint8), np.zeros(ids.shape, bool), None
         how = 'нет фото/позы: только текстура 06 (%s)' % how
@@ -130,6 +131,7 @@ def process(rules: dict, d: str, rep: dict, photo: str = '', pose_run: str = '')
     if rules['tone_guard']['enabled']:
         tgr = tone_guard_run(rules, d, src, P, F, fg, fg2, z, names, photo, pose_run, tex, ids)
         rep['tone_guard'] = tgr
+        rep['не_проверено_по_фото'] = tgr['не_проверено_по_фото']          # в итог шага (и в print main) — доля площади изделия, решённая без пикселей фото; и при СТОПе
         if tgr['стоп']:
             raise Abstain(tgr['причина'])                                # воздержание = СТОП прогона (abstain_is_stop): текстуру и visible.glb не трогаем, 07 не идёт
         if tgr['не_отдать']:
@@ -179,7 +181,9 @@ def main(argv: list | None = None) -> int:
         traceback.print_exc()
     with open(os.path.join(d, OUT), 'w', encoding='utf-8') as fh:
         json.dump(rep, fh, ensure_ascii=False, indent=1, default=float)
-    print('tex_owner:', 'текстура переписана, групп %d' % len(rep.get('groups') or {}) if not rep['abstain'] else 'воздержался — ' + rep['abstain'])
+    npf = rep.get('не_проверено_по_фото')
+    tail = '; не проверено по фото %.1f %% площади (06 %.1f, без данных %.1f, узорные %.1f)' % (100 * npf['доля_площади'], 100 * npf['по_текстуре_06'], 100 * npf['без_данных'], 100 * npf['узорные_группы']) if npf else ''
+    print('tex_owner:', ('текстура переписана, групп %d' % len(rep.get('groups') or {}) + tail) if not rep['abstain'] else 'воздержался — ' + rep['abstain'] + tail)
     return 0
 
 

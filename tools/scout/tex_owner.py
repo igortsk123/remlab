@@ -266,6 +266,15 @@ def _grp_med(key: np.ndarray, lab: np.ndarray) -> dict:
     return {int(k[0]): (len(k), np.median(l, axis=0)) for k, l in zip(np.split(key, cuts), np.split(lab, cuts))}
 
 
+def not_photo_counter(tex06: float, no_data: float, pattern: float, photo: float = 0.0) -> dict:
+    """Счётчик «не проверено по фото» (T-121/3, директор 26.11): доля ПЛОЩАДИ ИЗДЕЛИЯ, отданной owner, чьё решение «отдать/не отдать» принято НЕ по пикселям фото:
+    по текстуре 06 (панель на кадре не видна/косая/кадра нет), вовсе без данных (отдана как раньше) или узорная группа (не красится, не проверяется). Одно место расчёта для следа и итога шага."""
+    n = tex06 + no_data + pattern
+    giv = n + photo
+    return {'доля_площади': round(n, 4), 'по_текстуре_06': round(tex06, 4), 'без_данных': round(no_data, 4), 'узорные_группы': round(pattern, 4),
+            'по_фото': round(photo, 4), 'доля_от_отданного': round(n / giv, 4) if giv > 0 else 0.0}
+
+
 def guard_tone(ids: np.ndarray, rgb: np.ndarray, valid: np.ndarray, fg: np.ndarray, fg2: np.ndarray, comp: np.ndarray, area: np.ndarray, tone_srgb: np.ndarray, painted_group: np.ndarray,
                names: list, rules: dict, cos: np.ndarray | None = None, tex: np.ndarray | None = None, ids_tex: np.ndarray | None = None) -> dict:
     """Сторож «цвет детали ≠ тон группы» — «не отдавать» (директор 26.11 по Fable 15 § 2). Область группы G, отданная owner = грани, чья роль изменилась шагом 5 и стала G; единица — ПАНЕЛЬ (comp, как у шага 5).
@@ -295,6 +304,7 @@ def guard_tone(ids: np.ndarray, rgb: np.ndarray, valid: np.ndarray, fg: np.ndarr
     lab = None
     withheld = np.zeros(len(fg), bool)
     strong = np.zeros(len(fg), bool)
+    by = {'фото': 0.0, '06': 0.0, 'нет': 0.0, 'узор': 0.0}               # доля площади изделия по тому, чем решена панель (T-121/3: счётчик «не проверено по фото»)
     for g in range(nrole):
         m = given & (fg2 == g)
         if not m.any():
@@ -303,6 +313,7 @@ def guard_tone(ids: np.ndarray, rgb: np.ndarray, valid: np.ndarray, fg: np.ndarr
         out['по_группам'][names[g]] = row
         if not painted_group[g]:
             row['вердикт'] = 'не проверено: узорная группа не красится'
+            by['узор'] += row['доля_площади']
             continue
         pan_px, ref_px, ref_px_how = {}, None, ''
         gv = ok_px & m[fid]
@@ -349,6 +360,7 @@ def guard_tone(ids: np.ndarray, rgb: np.ndarray, valid: np.ndarray, fg: np.ndarr
             dl, dab, bad, why, st = judge(med, ref)
             d.update({'dL': round(dl, 1), 'dab': round(dab, 1), 'цвет_Lab': [round(float(x), 1) for x in med], 'эталон_Lab': [round(float(x), 1) for x in ref], 'решение': 'не отдана' if bad else 'отдана'})
             checked += 1
+            by[d['цвет_из']] += a
             if bad:
                 d['почему'] = why
                 withheld |= fm
@@ -372,10 +384,12 @@ def guard_tone(ids: np.ndarray, rgb: np.ndarray, valid: np.ndarray, fg: np.ndarr
                 med, ref, d['цвет_из'], d['эталон'] = np.median(PM.lab_of(tex[cov_t & pm[fidt]].astype(np.float64)), axis=0), ref_tx, '06', 'текстура 06 своих граней группы'
             if med is None:
                 d['решение'], d['почему'] = 'отдана', 'не проверено: мелкие панели не видны на фото и нет текселей 06'
+                by['нет'] += pa
             else:
                 dl, dab, bad, why, st = judge(med, ref)
                 d.update({'dL': round(dl, 1), 'dab': round(dab, 1), 'цвет_Lab': [round(float(x), 1) for x in med], 'эталон_Lab': [round(float(x), 1) for x in ref], 'решение': 'не отдана' if bad else 'отдана'})
                 checked += 1
+                by[d['цвет_из']] += pa
                 if bad:
                     d['почему'] = why
                     withheld |= pm
@@ -390,6 +404,7 @@ def guard_tone(ids: np.ndarray, rgb: np.ndarray, valid: np.ndarray, fg: np.ndarr
         row['не_отдано_доля_площади'] = round(held_area, 4)
         row['вердикт'] = ('не проверено: нет ни пикселей фото, ни текселей 06' if not checked else
                           'ок' if not held else 'не отдано %d панелей (%.1f %% площади изделия)' % (held, 100 * held_area))
+    out['не_проверено_по_фото'] = not_photo_counter(by['06'], by['нет'], by['узор'], by['фото'])
     out['не_отдать'] = [int(i) for i in np.nonzero(withheld)[0]]
     out['доля_не_отдано_площади'] = round(float(area[withheld].sum()) / tot, 4)
     out['доля_сильно_чужой_площади'] = round(float(area[strong].sum()) / tot, 4)

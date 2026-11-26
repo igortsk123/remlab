@@ -306,6 +306,30 @@ def test_tone_guard():
     check(bool(s['rep']['abstain']) and 'роль/группа не сходится с фото' in s['rep']['abstain'] and not s['changed'] and s['npz_same'] and not s['pre'], 'стадия: не отдано > stop_area_frac → воздержание (abstain_is_stop), visible.glb и npz не тронуты, pre-owner не создан')
     s = stage(_frame((240, 240, 240)), with_rel=False)
     check(not s['rep']['abstain'] and 'только текстура 06' in s['rep']['tone_guard']['кадр'], 'стадия: нет фото/позы и rel.npz — проверка по текстуре 06, шаг идёт: %s' % s['rep']['tone_guard'].get('кадр'))
+    # 11б. счётчик «не проверено по фото» (T-121/3): панель решена по фото → не считается; по 06 → считается; нет данных → считается; узорные → считается; сумма = отданная доля
+    def npf(r):
+        return r['не_проверено_по_фото']
+    r = run(_frame(TONES[0]))
+    check(npf(r)['доля_площади'] == 0.0 and abs(npf(r)['по_фото'] - share3) < 1e-3 and npf(r)['доля_от_отданного'] == 0.0, 'счётчик: панель решена по пикселям фото — не считается (0), по_фото = отданная доля: %s' % npf(r))
+    r = run(_frame((240, 240, 240), show3=False))
+    check(abs(npf(r)['доля_площади'] - share3) < 1e-3 and abs(npf(r)['без_данных'] - share3) < 1e-3 and npf(r)['по_текстуре_06'] == 0.0 and npf(r)['доля_от_отданного'] == 1.0, 'счётчик: не видна и нет 06 — «без данных» = вся отданная доля: %s' % npf(r))
+    tex = np.random.default_rng(5).integers(0, 256, (T, T, 3), dtype=np.uint8)
+    for f in range(6):
+        tex[ids_t == f] = TONES[0]
+    r = run(_frame((240, 240, 240), show3=False), tex=tex, ids_tex=ids_t)
+    check(abs(npf(r)['по_текстуре_06'] - share3) < 1e-3 and npf(r)['без_данных'] == 0.0 and abs(npf(r)['доля_площади'] - share3) < 1e-3, 'счётчик: панель решена по текстуре 06 — считается (по_текстуре_06): %s' % npf(r))
+    r = run(_frame((240, 240, 240)), pg=np.array([False, True]))
+    check(abs(npf(r)['узорные_группы'] - share3) < 1e-3 and abs(npf(r)['доля_площади'] - share3) < 1e-3, 'счётчик: узорная группа (не красится, не проверяется) — считается отдельной строкой: %s' % npf(r))
+    r = run(_frame((240, 240, 240)), f2=fg)
+    check(npf(r) == TO.not_photo_counter(0.0, 0.0, 0.0), 'счётчик: owner ничего не менял — все нули')
+    for rr in (run(_frame(TONES[0])), run(_frame((240, 240, 240), show3=False)), run(_frame((240, 240, 240)), _tg(rules, panel_min_px=2600, min_px=300))):
+        n_ = npf(rr)
+        check(abs(n_['доля_площади'] + n_['по_фото'] - rr['доля_отдано_площади']) < 2e-4, 'счётчик: «не по фото» + «по фото» = отданная доля площади (%s + %s ≈ %s)' % (n_['доля_площади'], n_['по_фото'], rr['доля_отдано_площади']))
+    check(TO.not_photo_counter(0.0, 0.0, 0.0)['доля_от_отданного'] == 0.0 and TO.not_photo_counter(0.1, 0.0, 0.0, 0.1)['доля_от_отданного'] == 0.5, 'счётчик: доля от отданного — 0 при пустом, 0,5 при половине')
+    s = stage(_frame((240, 240, 240), show3=False), with_rel=False)
+    check(not s['rep']['abstain'] and s['rep']['не_проверено_по_фото']['доля_площади'] > 0 and s['rep']['не_проверено_по_фото'] == s['rep']['tone_guard']['не_проверено_по_фото'], 'стадия: счётчик «не проверено по фото» в итоге шага и в следе tone_guard (одни и те же цифры): %s' % s['rep'].get('не_проверено_по_фото'))
+    s = stage(_frame(TONES[0]))
+    check(s['rep']['не_проверено_по_фото']['доля_площади'] == 0.0, 'стадия: все панели по фото — счётчик 0')
     # 12. правила: вне пределов отвергаются, _why есть
     for bad in ({'dl_max': 0}, {'min_px': 0}, {'cos_min': 1.5}, {'stop_area_frac': 2}, {'panel_min_texels': 0}):
         r = json.load(open(ST.RULES_PATH, encoding='utf-8'))
