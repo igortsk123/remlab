@@ -1,0 +1,3853 @@
+{
+"_about": "T-99/8: сохранённые проверки форм образцов T-99/1 (без GLB; 40 размеченных форм) + метки директора + ключ видов; новых генераций нет",
+"raw": {
+"С1:curA": {
+"rec": {
+"sku": "sample",
+"checks": [
+{
+"name": "glb_sane",
+"value": 0.9,
+"thr": 0.0001,
+"flag": false
+},
+{
+"name": "open_edges",
+"value": 0.0002,
+"thr": 0.05,
+"flag": false
+},
+{
+"name": "detached",
+"value": 0.2376,
+"thr": 0.03,
+"flag": true
+},
+{
+"name": "stitch_p95",
+"value": null,
+"thr": [
+0.4,
+0.02
+],
+"flag": false,
+"would_flag": false
+},
+{
+"name": "sil_extra~",
+"value": 0.2789,
+"thr": 0.12,
+"flag": false
+},
+{
+"name": "sil_miss~",
+"value": 0.5343,
+"thr": 0.12,
+"flag": false
+},
+{
+"name": "holes",
+"value": -0.0179,
+"thr": 0.3,
+"flag": false
+},
+{
+"name": "legs~",
+"value": 2.0,
+"thr": 0,
+"flag": false
+},
+{
+"name": "thin_width",
+"value": 1.313,
+"thr": [
+0.65,
+1.6
+],
+"flag": false,
+"would_flag": false
+},
+{
+"name": "thin_len",
+"value": 1.703,
+"thr": [
+0.5,
+2.0
+],
+"flag": false,
+"would_flag": false
+},
+{
+"name": "leg_wave",
+"value": 0.0,
+"thr": [
+0.06,
+3
+],
+"flag": false,
+"would_flag": false
+}
+]
+}
+},
+"С1:hdB_rep": {
+"rec": {
+"sku": "sample",
+"checks": [
+{
+"name": "glb_sane",
+"value": 0.9693,
+"thr": 0.0001,
+"flag": false
+},
+{
+"name": "open_edges",
+"value": 0.0,
+"thr": 0.05,
+"flag": false
+},
+{
+"name": "detached",
+"value": 0.2094,
+"thr": 0.03,
+"flag": true
+},
+{
+"name": "stitch_p95",
+"value": null,
+"thr": [
+0.4,
+0.02
+],
+"flag": false,
+"would_flag": false
+},
+{
+"name": "sil_extra~",
+"value": 0.2644,
+"thr": 0.12,
+"flag": false
+},
+{
+"name": "sil_miss~",
+"value": 0.4969,
+"thr": 0.12,
+"flag": false
+},
+{
+"name": "holes",
+"value": -0.0018,
+"thr": 0.3,
+"flag": false
+},
+{
+"name": "legs~",
+"value": 2.0,
+"thr": 0,
+"flag": false
+},
+{
+"name": "thin_width",
+"value": 1.254,
+"thr": [
+0.65,
+1.6
+],
+"flag": false,
+"would_flag": false
+},
+{
+"name": "thin_len",
+"value": 1.485,
+"thr": [
+0.5,
+2.0
+],
+"flag": false,
+"would_flag": false
+},
+{
+"name": "leg_wave",
+"value": 0.0,
+"thr": [
+0.06,
+3
+],
+"flag": false,
+"would_flag": false
+}
+]
+}
+},
+"С1:hdB": {
+"rec": {
+"sku": "sample",
+"checks": [
+{
+"name": "glb_sane",
+"value": 0.9595,
+"thr": 0.0001,
+"flag": false
+},
+{
+"name": "open_edges",
+"value": 0.0001,
+"thr": 0.05,
+"flag": false
+},
+{
+"name": "detached",
+"value": 0.1881,
+"thr": 0.03,
+"flag": true
+},
+{
+"name": "stitch_p95",
+"value": null,
+"thr": [
+0.4,
+0.02
+],
+"flag": false,
+"would_flag": false
+},
+{
+"name": "sil_extra~",
+"value": 0.2821,
+"thr": 0.12,
+"flag": false
+},
+{
+"name": "sil_miss~",
+"value": 0.4875,
+"thr": 0.12,
+"flag": false
+},
+{
+"name": "holes",
+"value": -0.0113,
+"thr": 0.3,
+"flag": false
+},
+{
+"name": "legs~",
+"value": 2.0,
+"thr": 0,
+"flag": false
+},
+{
+"name": "thin_width",
+"value": 1.322,
+"thr": [
+0.65,
+1.6
+],
+"flag": false,
+"would_flag": false
+},
+{
+"name": "thin_len",
+"value": 1.451,
+"thr": [
+0.5,
+2.0
+],
+"flag": false,
+"would_flag": false
+},
+{
+"name": "leg_wave",
+"value": 0.0,
+"thr": [
+0.06,
+3
+],
+"flag": false,
+"would_flag": false
+}
+]
+}
+},
+"С1:orig_hd": {
+"rec": {
+"sku": "sample",
+"checks": [
+{
+"name": "glb_sane",
+"value": 0.9032,
+"thr": 0.0001,
+"flag": false
+},
+{
+"name": "open_edges",
+"value": 0.0001,
+"thr": 0.05,
+"flag": false
+},
+{
+"name": "detached",
+"value": 0.1947,
+"thr": 0.03,
+"flag": true
+},
+{
+"name": "stitch_p95",
+"value": null,
+"thr": [
+0.4,
+0.02
+],
+"flag": false,
+"would_flag": false
+},
+{
+"name": "sil_extra~",
+"value": 0.2517,
+"thr": 0.12,
+"flag": false
+},
+{
+"name": "sil_miss~",
+"value": 0.5088,
+"thr": 0.12,
+"flag": false
+},
+{
+"name": "holes",
+"value": -0.0021,
+"thr": 0.3,
+"flag": false
+},
+{
+"name": "legs~",
+"value": 2.0,
+"thr": 0,
+"flag": false
+},
+{
+"name": "thin_width",
+"value": 1.222,
+"thr": [
+0.65,
+1.6
+],
+"flag": false,
+"would_flag": false
+},
+{
+"name": "thin_len",
+"value": 1.738,
+"thr": [
+0.5,
+2.0
+],
+"flag": false,
+"would_flag": false
+},
+{
+"name": "leg_wave",
+"value": 0.0,
+"thr": [
+0.06,
+3
+],
+"flag": false,
+"would_flag": false
+}
+]
+}
+},
+"С1:hdA": {
+"rec": {
+"sku": "sample",
+"checks": [
+{
+"name": "glb_sane",
+"value": 0.8909,
+"thr": 0.0001,
+"flag": false
+},
+{
+"name": "open_edges",
+"value": 0.0001,
+"thr": 0.05,
+"flag": false
+},
+{
+"name": "detached",
+"value": 0.1895,
+"thr": 0.03,
+"flag": true
+},
+{
+"name": "stitch_p95",
+"value": null,
+"thr": [
+0.4,
+0.02
+],
+"flag": false,
+"would_flag": false
+},
+{
+"name": "sil_extra~",
+"value": 0.2749,
+"thr": 0.12,
+"flag": false
+},
+{
+"name": "sil_miss~",
+"value": 0.5,
+"thr": 0.12,
+"flag": false
+},
+{
+"name": "holes",
+"value": -0.0476,
+"thr": 0.3,
+"flag": false
+},
+{
+"name": "legs~",
+"value": 2.0,
+"thr": 0,
+"flag": false
+},
+{
+"name": "thin_width",
+"value": 1.343,
+"thr": [
+0.65,
+1.6
+],
+"flag": false,
+"would_flag": false
+},
+{
+"name": "thin_len",
+"value": 1.575,
+"thr": [
+0.5,
+2.0
+],
+"flag": false,
+"would_flag": false
+},
+{
+"name": "leg_wave",
+"value": 0.0,
+"thr": [
+0.06,
+3
+],
+"flag": false,
+"would_flag": false
+}
+]
+}
+},
+"С2:orig_hd": {
+"rec": {
+"sku": "sample",
+"checks": [
+{
+"name": "glb_sane",
+"value": 0.6684,
+"thr": 0.0001,
+"flag": false
+},
+{
+"name": "open_edges",
+"value": 0.0001,
+"thr": 0.05,
+"flag": false
+},
+{
+"name": "detached",
+"value": 0.0,
+"thr": 0.03,
+"flag": false
+},
+{
+"name": "stitch_p95",
+"value": null,
+"thr": [
+0.4,
+0.02
+],
+"flag": false,
+"would_flag": false
+},
+{
+"name": "sil_extra~",
+"value": 0.0813,
+"thr": 0.12,
+"flag": false
+},
+{
+"name": "sil_miss~",
+"value": 0.1716,
+"thr": 0.12,
+"flag": false
+},
+{
+"name": "holes",
+"value": 0.0,
+"thr": 0.3,
+"flag": false
+},
+{
+"name": "legs~",
+"value": 0.0,
+"thr": 0,
+"flag": false
+},
+{
+"name": "thin_width",
+"value": null,
+"thr": [
+0.65,
+1.6
+],
+"flag": false,
+"would_flag": false
+},
+{
+"name": "thin_len",
+"value": null,
+"thr": [
+0.5,
+2.0
+],
+"flag": false,
+"would_flag": false
+},
+{
+"name": "leg_wave",
+"value": null,
+"thr": [
+0.06,
+3
+],
+"flag": false,
+"would_flag": false
+}
+]
+}
+},
+"С2:hdB_rep": {
+"rec": {
+"sku": "sample",
+"checks": [
+{
+"name": "glb_sane",
+"value": 0.6755,
+"thr": 0.0001,
+"flag": false
+},
+{
+"name": "open_edges",
+"value": 0.0002,
+"thr": 0.05,
+"flag": false
+},
+{
+"name": "detached",
+"value": 0.0,
+"thr": 0.03,
+"flag": false
+},
+{
+"name": "stitch_p95",
+"value": null,
+"thr": [
+0.4,
+0.02
+],
+"flag": false,
+"would_flag": false
+},
+{
+"name": "sil_extra~",
+"value": 0.0816,
+"thr": 0.12,
+"flag": false
+},
+{
+"name": "sil_miss~",
+"value": 0.1712,
+"thr": 0.12,
+"flag": false
+},
+{
+"name": "holes",
+"value": 0.0,
+"thr": 0.3,
+"flag": false
+},
+{
+"name": "legs~",
+"value": 0.0,
+"thr": 0,
+"flag": false
+},
+{
+"name": "thin_width",
+"value": null,
+"thr": [
+0.65,
+1.6
+],
+"flag": false,
+"would_flag": false
+},
+{
+"name": "thin_len",
+"value": null,
+"thr": [
+0.5,
+2.0
+],
+"flag": false,
+"would_flag": false
+},
+{
+"name": "leg_wave",
+"value": null,
+"thr": [
+0.06,
+3
+],
+"flag": false,
+"would_flag": false
+}
+]
+}
+},
+"С2:curA": {
+"rec": {
+"sku": "sample",
+"checks": [
+{
+"name": "glb_sane",
+"value": 0.667,
+"thr": 0.0001,
+"flag": false
+},
+{
+"name": "open_edges",
+"value": 0.0003,
+"thr": 0.05,
+"flag": false
+},
+{
+"name": "detached",
+"value": 0.0,
+"thr": 0.03,
+"flag": false
+},
+{
+"name": "stitch_p95",
+"value": null,
+"thr": [
+0.4,
+0.02
+],
+"flag": false,
+"would_flag": false
+},
+{
+"name": "sil_extra~",
+"value": 0.0752,
+"thr": 0.12,
+"flag": false
+},
+{
+"name": "sil_miss~",
+"value": 0.1575,
+"thr": 0.12,
+"flag": false
+},
+{
+"name": "holes",
+"value": 0.0,
+"thr": 0.3,
+"flag": false
+},
+{
+"name": "legs~",
+"value": 0.0,
+"thr": 0,
+"flag": false
+},
+{
+"name": "thin_width",
+"value": null,
+"thr": [
+0.65,
+1.6
+],
+"flag": false,
+"would_flag": false
+},
+{
+"name": "thin_len",
+"value": null,
+"thr": [
+0.5,
+2.0
+],
+"flag": false,
+"would_flag": false
+},
+{
+"name": "leg_wave",
+"value": null,
+"thr": [
+0.06,
+3
+],
+"flag": false,
+"would_flag": false
+}
+]
+}
+},
+"С2:hdB": {
+"rec": {
+"sku": "sample",
+"checks": [
+{
+"name": "glb_sane",
+"value": 0.6783,
+"thr": 0.0001,
+"flag": false
+},
+{
+"name": "open_edges",
+"value": 0.0002,
+"thr": 0.05,
+"flag": false
+},
+{
+"name": "detached",
+"value": 0.0,
+"thr": 0.03,
+"flag": false
+},
+{
+"name": "stitch_p95",
+"value": null,
+"thr": [
+0.4,
+0.02
+],
+"flag": false,
+"would_flag": false
+},
+{
+"name": "sil_extra~",
+"value": 0.0817,
+"thr": 0.12,
+"flag": false
+},
+{
+"name": "sil_miss~",
+"value": 0.1713,
+"thr": 0.12,
+"flag": false
+},
+{
+"name": "holes",
+"value": 0.0,
+"thr": 0.3,
+"flag": false
+},
+{
+"name": "legs~",
+"value": 0.0,
+"thr": 0,
+"flag": false
+},
+{
+"name": "thin_width",
+"value": null,
+"thr": [
+0.65,
+1.6
+],
+"flag": false,
+"would_flag": false
+},
+{
+"name": "thin_len",
+"value": null,
+"thr": [
+0.5,
+2.0
+],
+"flag": false,
+"would_flag": false
+},
+{
+"name": "leg_wave",
+"value": null,
+"thr": [
+0.06,
+3
+],
+"flag": false,
+"would_flag": false
+}
+]
+}
+},
+"С2:hdA": {
+"rec": {
+"sku": "sample",
+"checks": [
+{
+"name": "glb_sane",
+"value": 0.67,
+"thr": 0.0001,
+"flag": false
+},
+{
+"name": "open_edges",
+"value": 0.0002,
+"thr": 0.05,
+"flag": false
+},
+{
+"name": "detached",
+"value": 0.0,
+"thr": 0.03,
+"flag": false
+},
+{
+"name": "stitch_p95",
+"value": null,
+"thr": [
+0.4,
+0.02
+],
+"flag": false,
+"would_flag": false
+},
+{
+"name": "sil_extra~",
+"value": 0.0765,
+"thr": 0.12,
+"flag": false
+},
+{
+"name": "sil_miss~",
+"value": 0.157,
+"thr": 0.12,
+"flag": false
+},
+{
+"name": "holes",
+"value": 0.0,
+"thr": 0.3,
+"flag": false
+},
+{
+"name": "legs~",
+"value": 0.0,
+"thr": 0,
+"flag": false
+},
+{
+"name": "thin_width",
+"value": null,
+"thr": [
+0.65,
+1.6
+],
+"flag": false,
+"would_flag": false
+},
+{
+"name": "thin_len",
+"value": null,
+"thr": [
+0.5,
+2.0
+],
+"flag": false,
+"would_flag": false
+},
+{
+"name": "leg_wave",
+"value": null,
+"thr": [
+0.06,
+3
+],
+"flag": false,
+"would_flag": false
+}
+]
+}
+},
+"С3:curA": {
+"rec": {
+"sku": "sample",
+"checks": [
+{
+"name": "glb_sane",
+"value": 0.8421,
+"thr": 0.0001,
+"flag": false
+},
+{
+"name": "open_edges",
+"value": 0.0002,
+"thr": 0.05,
+"flag": false
+},
+{
+"name": "detached",
+"value": 0.0,
+"thr": 0.03,
+"flag": false
+},
+{
+"name": "stitch_p95",
+"value": null,
+"thr": [
+0.4,
+0.02
+],
+"flag": false,
+"would_flag": false
+},
+{
+"name": "sil_extra~",
+"value": 0.1928,
+"thr": 0.12,
+"flag": false
+},
+{
+"name": "sil_miss~",
+"value": 0.4682,
+"thr": 0.12,
+"flag": false
+},
+{
+"name": "holes",
+"value": 0.0,
+"thr": 0.3,
+"flag": false
+},
+{
+"name": "legs~",
+"value": 1.0,
+"thr": 0,
+"flag": false
+},
+{
+"name": "thin_width",
+"value": 0.879,
+"thr": [
+0.65,
+1.6
+],
+"flag": false,
+"would_flag": false
+},
+{
+"name": "thin_len",
+"value": 0.915,
+"thr": [
+0.5,
+2.0
+],
+"flag": false,
+"would_flag": false
+},
+{
+"name": "leg_wave",
+"value": 0.0,
+"thr": [
+0.06,
+3
+],
+"flag": false,
+"would_flag": false
+}
+]
+}
+},
+"С3:hdA": {
+"rec": {
+"sku": "sample",
+"checks": [
+{
+"name": "glb_sane",
+"value": 0.8422,
+"thr": 0.0001,
+"flag": false
+},
+{
+"name": "open_edges",
+"value": 0.0002,
+"thr": 0.05,
+"flag": false
+},
+{
+"name": "detached",
+"value": 0.0,
+"thr": 0.03,
+"flag": false
+},
+{
+"name": "stitch_p95",
+"value": null,
+"thr": [
+0.4,
+0.02
+],
+"flag": false,
+"would_flag": false
+},
+{
+"name": "sil_extra~",
+"value": 0.193,
+"thr": 0.12,
+"flag": false
+},
+{
+"name": "sil_miss~",
+"value": 0.4681,
+"thr": 0.12,
+"flag": false
+},
+{
+"name": "holes",
+"value": 0.0,
+"thr": 0.3,
+"flag": false
+},
+{
+"name": "legs~",
+"value": 1.0,
+"thr": 0,
+"flag": false
+},
+{
+"name": "thin_width",
+"value": 0.879,
+"thr": [
+0.65,
+1.6
+],
+"flag": false,
+"would_flag": false
+},
+{
+"name": "thin_len",
+"value": 0.92,
+"thr": [
+0.5,
+2.0
+],
+"flag": false,
+"would_flag": false
+},
+{
+"name": "leg_wave",
+"value": 0.0,
+"thr": [
+0.06,
+3
+],
+"flag": false,
+"would_flag": false
+}
+]
+}
+},
+"С3:hdB": {
+"rec": {
+"sku": "sample",
+"checks": [
+{
+"name": "glb_sane",
+"value": 0.8384,
+"thr": 0.0001,
+"flag": false
+},
+{
+"name": "open_edges",
+"value": 0.0003,
+"thr": 0.05,
+"flag": false
+},
+{
+"name": "detached",
+"value": 0.0,
+"thr": 0.03,
+"flag": false
+},
+{
+"name": "stitch_p95",
+"value": null,
+"thr": [
+0.4,
+0.02
+],
+"flag": false,
+"would_flag": false
+},
+{
+"name": "sil_extra~",
+"value": 0.2203,
+"thr": 0.12,
+"flag": false
+},
+{
+"name": "sil_miss~",
+"value": 0.4341,
+"thr": 0.12,
+"flag": false
+},
+{
+"name": "holes",
+"value": 0.0,
+"thr": 0.3,
+"flag": false
+},
+{
+"name": "legs~",
+"value": 1.0,
+"thr": 0,
+"flag": false
+},
+{
+"name": "thin_width",
+"value": 0.845,
+"thr": [
+0.65,
+1.6
+],
+"flag": false,
+"would_flag": false
+},
+{
+"name": "thin_len",
+"value": 0.685,
+"thr": [
+0.5,
+2.0
+],
+"flag": false,
+"would_flag": false
+},
+{
+"name": "leg_wave",
+"value": 0.0,
+"thr": [
+0.06,
+3
+],
+"flag": false,
+"would_flag": false
+}
+]
+}
+},
+"С3:hdB_rep": {
+"rec": {
+"sku": "sample",
+"checks": [
+{
+"name": "glb_sane",
+"value": 0.8384,
+"thr": 0.0001,
+"flag": false
+},
+{
+"name": "open_edges",
+"value": 0.0003,
+"thr": 0.05,
+"flag": false
+},
+{
+"name": "detached",
+"value": 0.0,
+"thr": 0.03,
+"flag": false
+},
+{
+"name": "stitch_p95",
+"value": null,
+"thr": [
+0.4,
+0.02
+],
+"flag": false,
+"would_flag": false
+},
+{
+"name": "sil_extra~",
+"value": 0.2207,
+"thr": 0.12,
+"flag": false
+},
+{
+"name": "sil_miss~",
+"value": 0.4339,
+"thr": 0.12,
+"flag": false
+},
+{
+"name": "holes",
+"value": 0.0,
+"thr": 0.3,
+"flag": false
+},
+{
+"name": "legs~",
+"value": 1.0,
+"thr": 0,
+"flag": false
+},
+{
+"name": "thin_width",
+"value": 0.846,
+"thr": [
+0.65,
+1.6
+],
+"flag": false,
+"would_flag": false
+},
+{
+"name": "thin_len",
+"value": 0.691,
+"thr": [
+0.5,
+2.0
+],
+"flag": false,
+"would_flag": false
+},
+{
+"name": "leg_wave",
+"value": 0.0,
+"thr": [
+0.06,
+3
+],
+"flag": false,
+"would_flag": false
+}
+]
+}
+},
+"С3:orig_hd": {
+"rec": {
+"sku": "sample",
+"checks": [
+{
+"name": "glb_sane",
+"value": 0.8579,
+"thr": 0.0001,
+"flag": false
+},
+{
+"name": "open_edges",
+"value": 0.0003,
+"thr": 0.05,
+"flag": false
+},
+{
+"name": "detached",
+"value": 0.0,
+"thr": 0.03,
+"flag": false
+},
+{
+"name": "stitch_p95",
+"value": null,
+"thr": [
+0.4,
+0.02
+],
+"flag": false,
+"would_flag": false
+},
+{
+"name": "sil_extra~",
+"value": 0.3299,
+"thr": 0.12,
+"flag": false
+},
+{
+"name": "sil_miss~",
+"value": 0.4114,
+"thr": 0.12,
+"flag": false
+},
+{
+"name": "holes",
+"value": 0.0,
+"thr": 0.3,
+"flag": false
+},
+{
+"name": "legs~",
+"value": 3.0,
+"thr": 0,
+"flag": false
+},
+{
+"name": "thin_width",
+"value": 1.258,
+"thr": [
+0.65,
+1.6
+],
+"flag": false,
+"would_flag": false
+},
+{
+"name": "thin_len",
+"value": 1.177,
+"thr": [
+0.5,
+2.0
+],
+"flag": false,
+"would_flag": false
+},
+{
+"name": "leg_wave",
+"value": 0.0,
+"thr": [
+0.06,
+3
+],
+"flag": false,
+"would_flag": false
+}
+]
+}
+},
+"С4:hdB_rep": {
+"rec": {
+"sku": "sample",
+"checks": [
+{
+"name": "glb_sane",
+"value": 0.9363,
+"thr": 0.0001,
+"flag": false
+},
+{
+"name": "open_edges",
+"value": 0.0001,
+"thr": 0.05,
+"flag": false
+},
+{
+"name": "detached",
+"value": 0.0,
+"thr": 0.03,
+"flag": false
+},
+{
+"name": "stitch_p95",
+"value": null,
+"thr": [
+0.4,
+0.02
+],
+"flag": false,
+"would_flag": false
+},
+{
+"name": "sil_extra~",
+"value": 0.4357,
+"thr": 0.12,
+"flag": false
+},
+{
+"name": "sil_miss~",
+"value": 0.4415,
+"thr": 0.12,
+"flag": false
+},
+{
+"name": "holes",
+"value": 0.0,
+"thr": 0.3,
+"flag": false
+},
+{
+"name": "legs~",
+"value": 2.0,
+"thr": 0,
+"flag": false
+},
+{
+"name": "thin_width",
+"value": 0.915,
+"thr": [
+0.65,
+1.6
+],
+"flag": false,
+"would_flag": false
+},
+{
+"name": "thin_len",
+"value": 0.982,
+"thr": [
+0.5,
+2.0
+],
+"flag": false,
+"would_flag": false
+},
+{
+"name": "leg_wave",
+"value": 0.0,
+"thr": [
+0.06,
+3
+],
+"flag": false,
+"would_flag": false
+}
+]
+}
+},
+"С4:hdB": {
+"rec": {
+"sku": "sample",
+"checks": [
+{
+"name": "glb_sane",
+"value": 0.934,
+"thr": 0.0001,
+"flag": false
+},
+{
+"name": "open_edges",
+"value": 0.0001,
+"thr": 0.05,
+"flag": false
+},
+{
+"name": "detached",
+"value": 0.0,
+"thr": 0.03,
+"flag": false
+},
+{
+"name": "stitch_p95",
+"value": null,
+"thr": [
+0.4,
+0.02
+],
+"flag": false,
+"would_flag": false
+},
+{
+"name": "sil_extra~",
+"value": 0.4285,
+"thr": 0.12,
+"flag": false
+},
+{
+"name": "sil_miss~",
+"value": 0.4453,
+"thr": 0.12,
+"flag": false
+},
+{
+"name": "holes",
+"value": 0.0,
+"thr": 0.3,
+"flag": false
+},
+{
+"name": "legs~",
+"value": 2.0,
+"thr": 0,
+"flag": false
+},
+{
+"name": "thin_width",
+"value": 0.981,
+"thr": [
+0.65,
+1.6
+],
+"flag": false,
+"would_flag": false
+},
+{
+"name": "thin_len",
+"value": 0.983,
+"thr": [
+0.5,
+2.0
+],
+"flag": false,
+"would_flag": false
+},
+{
+"name": "leg_wave",
+"value": 0.0,
+"thr": [
+0.06,
+3
+],
+"flag": false,
+"would_flag": false
+}
+]
+}
+},
+"С4:curA": {
+"rec": {
+"sku": "sample",
+"checks": [
+{
+"name": "glb_sane",
+"value": 0.8837,
+"thr": 0.0001,
+"flag": false
+},
+{
+"name": "open_edges",
+"value": 0.0001,
+"thr": 0.05,
+"flag": false
+},
+{
+"name": "detached",
+"value": 0.0,
+"thr": 0.03,
+"flag": false
+},
+{
+"name": "stitch_p95",
+"value": null,
+"thr": [
+0.4,
+0.02
+],
+"flag": false,
+"would_flag": false
+},
+{
+"name": "sil_extra~",
+"value": 0.4159,
+"thr": 0.12,
+"flag": false
+},
+{
+"name": "sil_miss~",
+"value": 0.4707,
+"thr": 0.12,
+"flag": false
+},
+{
+"name": "holes",
+"value": 0.0,
+"thr": 0.3,
+"flag": false
+},
+{
+"name": "legs~",
+"value": 2.0,
+"thr": 0,
+"flag": false
+},
+{
+"name": "thin_width",
+"value": 0.764,
+"thr": [
+0.65,
+1.6
+],
+"flag": false,
+"would_flag": false
+},
+{
+"name": "thin_len",
+"value": 0.968,
+"thr": [
+0.5,
+2.0
+],
+"flag": false,
+"would_flag": false
+},
+{
+"name": "leg_wave",
+"value": 0.0,
+"thr": [
+0.06,
+3
+],
+"flag": false,
+"would_flag": false
+}
+]
+}
+},
+"С4:orig_hd": {
+"rec": {
+"sku": "sample",
+"checks": [
+{
+"name": "glb_sane",
+"value": 0.8901,
+"thr": 0.0001,
+"flag": false
+},
+{
+"name": "open_edges",
+"value": 0.0002,
+"thr": 0.05,
+"flag": false
+},
+{
+"name": "detached",
+"value": 0.1032,
+"thr": 0.03,
+"flag": true
+},
+{
+"name": "stitch_p95",
+"value": null,
+"thr": [
+0.4,
+0.02
+],
+"flag": false,
+"would_flag": false
+},
+{
+"name": "sil_extra~",
+"value": 0.563,
+"thr": 0.12,
+"flag": false
+},
+{
+"name": "sil_miss~",
+"value": 0.4552,
+"thr": 0.12,
+"flag": false
+},
+{
+"name": "holes",
+"value": 0.0,
+"thr": 0.3,
+"flag": false
+},
+{
+"name": "legs~",
+"value": 2.0,
+"thr": 0,
+"flag": false
+},
+{
+"name": "thin_width",
+"value": 0.851,
+"thr": [
+0.65,
+1.6
+],
+"flag": false,
+"would_flag": false
+},
+{
+"name": "thin_len",
+"value": 0.635,
+"thr": [
+0.5,
+2.0
+],
+"flag": false,
+"would_flag": false
+},
+{
+"name": "leg_wave",
+"value": 0.0,
+"thr": [
+0.06,
+3
+],
+"flag": false,
+"would_flag": false
+}
+]
+}
+},
+"С4:hdA": {
+"rec": {
+"sku": "sample",
+"checks": [
+{
+"name": "glb_sane",
+"value": 0.885,
+"thr": 0.0001,
+"flag": false
+},
+{
+"name": "open_edges",
+"value": 0.0002,
+"thr": 0.05,
+"flag": false
+},
+{
+"name": "detached",
+"value": 0.0,
+"thr": 0.03,
+"flag": false
+},
+{
+"name": "stitch_p95",
+"value": null,
+"thr": [
+0.4,
+0.02
+],
+"flag": false,
+"would_flag": false
+},
+{
+"name": "sil_extra~",
+"value": 0.5224,
+"thr": 0.12,
+"flag": false
+},
+{
+"name": "sil_miss~",
+"value": 0.4346,
+"thr": 0.12,
+"flag": false
+},
+{
+"name": "holes",
+"value": 0.0,
+"thr": 0.3,
+"flag": false
+},
+{
+"name": "legs~",
+"value": 2.0,
+"thr": 0,
+"flag": false
+},
+{
+"name": "thin_width",
+"value": 0.864,
+"thr": [
+0.65,
+1.6
+],
+"flag": false,
+"would_flag": false
+},
+{
+"name": "thin_len",
+"value": 0.682,
+"thr": [
+0.5,
+2.0
+],
+"flag": false,
+"would_flag": false
+},
+{
+"name": "leg_wave",
+"value": 0.0,
+"thr": [
+0.06,
+3
+],
+"flag": false,
+"would_flag": false
+}
+]
+}
+},
+"С5:curA": {
+"rec": {
+"sku": "sample",
+"checks": [
+{
+"name": "glb_sane",
+"value": 0.2428,
+"thr": 0.0001,
+"flag": false
+},
+{
+"name": "open_edges",
+"value": 0.0002,
+"thr": 0.05,
+"flag": false
+},
+{
+"name": "detached",
+"value": 0.0,
+"thr": 0.03,
+"flag": false
+},
+{
+"name": "stitch_p95",
+"value": null,
+"thr": [
+0.4,
+0.02
+],
+"flag": false,
+"would_flag": false
+},
+{
+"name": "sil_extra~",
+"value": 0.9297,
+"thr": 0.12,
+"flag": false
+},
+{
+"name": "sil_miss~",
+"value": 0.0039,
+"thr": 0.12,
+"flag": false
+},
+{
+"name": "holes",
+"value": 0.0,
+"thr": 0.3,
+"flag": false
+},
+{
+"name": "legs~",
+"value": 0.0,
+"thr": 0,
+"flag": false
+},
+{
+"name": "thin_width",
+"value": null,
+"thr": [
+0.65,
+1.6
+],
+"flag": false,
+"would_flag": false
+},
+{
+"name": "thin_len",
+"value": null,
+"thr": [
+0.5,
+2.0
+],
+"flag": false,
+"would_flag": false
+},
+{
+"name": "leg_wave",
+"value": null,
+"thr": [
+0.06,
+3
+],
+"flag": false,
+"would_flag": false
+}
+]
+}
+},
+"С5:hdB_rep": {
+"rec": {
+"sku": "sample",
+"checks": [
+{
+"name": "glb_sane",
+"value": 0.3811,
+"thr": 0.0001,
+"flag": false
+},
+{
+"name": "open_edges",
+"value": 0.0001,
+"thr": 0.05,
+"flag": false
+},
+{
+"name": "detached",
+"value": 0.0,
+"thr": 0.03,
+"flag": false
+},
+{
+"name": "stitch_p95",
+"value": null,
+"thr": [
+0.4,
+0.02
+],
+"flag": false,
+"would_flag": false
+},
+{
+"name": "sil_extra~",
+"value": 0.3854,
+"thr": 0.12,
+"flag": false
+},
+{
+"name": "sil_miss~",
+"value": 0.1979,
+"thr": 0.12,
+"flag": false
+},
+{
+"name": "holes",
+"value": 0.0301,
+"thr": 0.3,
+"flag": false
+},
+{
+"name": "legs~",
+"value": 1.0,
+"thr": 0,
+"flag": false
+},
+{
+"name": "thin_width",
+"value": null,
+"thr": [
+0.65,
+1.6
+],
+"flag": false,
+"would_flag": false
+},
+{
+"name": "thin_len",
+"value": null,
+"thr": [
+0.5,
+2.0
+],
+"flag": false,
+"would_flag": false
+},
+{
+"name": "leg_wave",
+"value": null,
+"thr": [
+0.06,
+3
+],
+"flag": false,
+"would_flag": false
+}
+]
+}
+},
+"С5:hdA": {
+"rec": {
+"sku": "sample",
+"checks": [
+{
+"name": "glb_sane",
+"value": 0.3897,
+"thr": 0.0001,
+"flag": false
+},
+{
+"name": "open_edges",
+"value": 0.0003,
+"thr": 0.05,
+"flag": false
+},
+{
+"name": "detached",
+"value": 0.0,
+"thr": 0.03,
+"flag": false
+},
+{
+"name": "stitch_p95",
+"value": null,
+"thr": [
+0.4,
+0.02
+],
+"flag": false,
+"would_flag": false
+},
+{
+"name": "sil_extra~",
+"value": 0.6734,
+"thr": 0.12,
+"flag": false
+},
+{
+"name": "sil_miss~",
+"value": 0.0668,
+"thr": 0.12,
+"flag": false
+},
+{
+"name": "holes",
+"value": 0.0,
+"thr": 0.3,
+"flag": false
+},
+{
+"name": "legs~",
+"value": 1.0,
+"thr": 0,
+"flag": false
+},
+{
+"name": "thin_width",
+"value": null,
+"thr": [
+0.65,
+1.6
+],
+"flag": false,
+"would_flag": false
+},
+{
+"name": "thin_len",
+"value": null,
+"thr": [
+0.5,
+2.0
+],
+"flag": false,
+"would_flag": false
+},
+{
+"name": "leg_wave",
+"value": null,
+"thr": [
+0.06,
+3
+],
+"flag": false,
+"would_flag": false
+}
+]
+}
+},
+"С5:hdB": {
+"rec": {
+"sku": "sample",
+"checks": [
+{
+"name": "glb_sane",
+"value": 0.3811,
+"thr": 0.0001,
+"flag": false
+},
+{
+"name": "open_edges",
+"value": 0.0001,
+"thr": 0.05,
+"flag": false
+},
+{
+"name": "detached",
+"value": 0.0,
+"thr": 0.03,
+"flag": false
+},
+{
+"name": "stitch_p95",
+"value": null,
+"thr": [
+0.4,
+0.02
+],
+"flag": false,
+"would_flag": false
+},
+{
+"name": "sil_extra~",
+"value": 0.3855,
+"thr": 0.12,
+"flag": false
+},
+{
+"name": "sil_miss~",
+"value": 0.198,
+"thr": 0.12,
+"flag": false
+},
+{
+"name": "holes",
+"value": 0.0301,
+"thr": 0.3,
+"flag": false
+},
+{
+"name": "legs~",
+"value": 1.0,
+"thr": 0,
+"flag": false
+},
+{
+"name": "thin_width",
+"value": null,
+"thr": [
+0.65,
+1.6
+],
+"flag": false,
+"would_flag": false
+},
+{
+"name": "thin_len",
+"value": null,
+"thr": [
+0.5,
+2.0
+],
+"flag": false,
+"would_flag": false
+},
+{
+"name": "leg_wave",
+"value": null,
+"thr": [
+0.06,
+3
+],
+"flag": false,
+"would_flag": false
+}
+]
+}
+},
+"С5:orig_hd": {
+"rec": {
+"sku": "sample",
+"checks": [
+{
+"name": "glb_sane",
+"value": 0.3883,
+"thr": 0.0001,
+"flag": false
+},
+{
+"name": "open_edges",
+"value": 0.0003,
+"thr": 0.05,
+"flag": false
+},
+{
+"name": "detached",
+"value": 0.0,
+"thr": 0.03,
+"flag": false
+},
+{
+"name": "stitch_p95",
+"value": null,
+"thr": [
+0.4,
+0.02
+],
+"flag": false,
+"would_flag": false
+},
+{
+"name": "sil_extra~",
+"value": 0.399,
+"thr": 0.12,
+"flag": false
+},
+{
+"name": "sil_miss~",
+"value": 0.1923,
+"thr": 0.12,
+"flag": false
+},
+{
+"name": "holes",
+"value": 0.0,
+"thr": 0.3,
+"flag": false
+},
+{
+"name": "legs~",
+"value": 1.0,
+"thr": 0,
+"flag": false
+},
+{
+"name": "thin_width",
+"value": null,
+"thr": [
+0.65,
+1.6
+],
+"flag": false,
+"would_flag": false
+},
+{
+"name": "thin_len",
+"value": null,
+"thr": [
+0.5,
+2.0
+],
+"flag": false,
+"would_flag": false
+},
+{
+"name": "leg_wave",
+"value": null,
+"thr": [
+0.06,
+3
+],
+"flag": false,
+"would_flag": false
+}
+]
+}
+},
+"С6:hdB": {
+"rec": {
+"sku": "sample",
+"checks": [
+{
+"name": "glb_sane",
+"value": 0.4935,
+"thr": 0.0001,
+"flag": false
+},
+{
+"name": "open_edges",
+"value": 0.0006,
+"thr": 0.05,
+"flag": false
+},
+{
+"name": "detached",
+"value": 0.0,
+"thr": 0.03,
+"flag": false
+},
+{
+"name": "stitch_p95",
+"value": null,
+"thr": [
+0.4,
+0.02
+],
+"flag": false,
+"would_flag": false
+},
+{
+"name": "sil_extra~",
+"value": 0.3632,
+"thr": 0.12,
+"flag": false
+},
+{
+"name": "sil_miss~",
+"value": 0.5977,
+"thr": 0.12,
+"flag": false
+},
+{
+"name": "holes",
+"value": 0.5786,
+"thr": 0.3,
+"flag": true
+},
+{
+"name": "legs~",
+"value": 2.0,
+"thr": 0,
+"flag": false
+},
+{
+"name": "thin_width",
+"value": 1.057,
+"thr": [
+0.65,
+1.6
+],
+"flag": false,
+"would_flag": false
+},
+{
+"name": "thin_len",
+"value": 1.011,
+"thr": [
+0.5,
+2.0
+],
+"flag": false,
+"would_flag": false
+},
+{
+"name": "leg_wave",
+"value": 0.0,
+"thr": [
+0.06,
+3
+],
+"flag": false,
+"would_flag": false
+}
+]
+}
+},
+"С6:curA": {
+"rec": {
+"sku": "sample",
+"checks": [
+{
+"name": "glb_sane",
+"value": 0.4672,
+"thr": 0.0001,
+"flag": false
+},
+{
+"name": "open_edges",
+"value": 0.0006,
+"thr": 0.05,
+"flag": false
+},
+{
+"name": "detached",
+"value": 0.0,
+"thr": 0.03,
+"flag": false
+},
+{
+"name": "stitch_p95",
+"value": null,
+"thr": [
+0.4,
+0.02
+],
+"flag": false,
+"would_flag": false
+},
+{
+"name": "sil_extra~",
+"value": 0.4161,
+"thr": 0.12,
+"flag": false
+},
+{
+"name": "sil_miss~",
+"value": 0.6487,
+"thr": 0.12,
+"flag": false
+},
+{
+"name": "holes",
+"value": 0.5622,
+"thr": 0.3,
+"flag": true
+},
+{
+"name": "legs~",
+"value": 1.0,
+"thr": 0,
+"flag": false
+},
+{
+"name": "thin_width",
+"value": 1.054,
+"thr": [
+0.65,
+1.6
+],
+"flag": false,
+"would_flag": false
+},
+{
+"name": "thin_len",
+"value": 0.977,
+"thr": [
+0.5,
+2.0
+],
+"flag": false,
+"would_flag": false
+},
+{
+"name": "leg_wave",
+"value": 0.0,
+"thr": [
+0.06,
+3
+],
+"flag": false,
+"would_flag": false
+}
+]
+}
+},
+"С6:hdA": {
+"rec": {
+"sku": "sample",
+"checks": [
+{
+"name": "glb_sane",
+"value": 0.4677,
+"thr": 0.0001,
+"flag": false
+},
+{
+"name": "open_edges",
+"value": 0.0005,
+"thr": 0.05,
+"flag": false
+},
+{
+"name": "detached",
+"value": 0.0,
+"thr": 0.03,
+"flag": false
+},
+{
+"name": "stitch_p95",
+"value": null,
+"thr": [
+0.4,
+0.02
+],
+"flag": false,
+"would_flag": false
+},
+{
+"name": "sil_extra~",
+"value": 0.4163,
+"thr": 0.12,
+"flag": false
+},
+{
+"name": "sil_miss~",
+"value": 0.6139,
+"thr": 0.12,
+"flag": false
+},
+{
+"name": "holes",
+"value": 0.5155,
+"thr": 0.3,
+"flag": true
+},
+{
+"name": "legs~",
+"value": 2.0,
+"thr": 0,
+"flag": false
+},
+{
+"name": "thin_width",
+"value": 1.133,
+"thr": [
+0.65,
+1.6
+],
+"flag": false,
+"would_flag": false
+},
+{
+"name": "thin_len",
+"value": 0.971,
+"thr": [
+0.5,
+2.0
+],
+"flag": false,
+"would_flag": false
+},
+{
+"name": "leg_wave",
+"value": 0.0,
+"thr": [
+0.06,
+3
+],
+"flag": false,
+"would_flag": false
+}
+]
+}
+},
+"С6:hdB_rep": {
+"rec": {
+"sku": "sample",
+"checks": [
+{
+"name": "glb_sane",
+"value": 0.4961,
+"thr": 0.0001,
+"flag": false
+},
+{
+"name": "open_edges",
+"value": 0.0005,
+"thr": 0.05,
+"flag": false
+},
+{
+"name": "detached",
+"value": 0.0,
+"thr": 0.03,
+"flag": false
+},
+{
+"name": "stitch_p95",
+"value": null,
+"thr": [
+0.4,
+0.02
+],
+"flag": false,
+"would_flag": false
+},
+{
+"name": "sil_extra~",
+"value": 0.3664,
+"thr": 0.12,
+"flag": false
+},
+{
+"name": "sil_miss~",
+"value": 0.5962,
+"thr": 0.12,
+"flag": false
+},
+{
+"name": "holes",
+"value": 0.5834,
+"thr": 0.3,
+"flag": true
+},
+{
+"name": "legs~",
+"value": 0.0,
+"thr": 0,
+"flag": false
+},
+{
+"name": "thin_width",
+"value": 1.265,
+"thr": [
+0.65,
+1.6
+],
+"flag": false,
+"would_flag": false
+},
+{
+"name": "thin_len",
+"value": 0.952,
+"thr": [
+0.5,
+2.0
+],
+"flag": false,
+"would_flag": false
+},
+{
+"name": "leg_wave",
+"value": 0.0,
+"thr": [
+0.06,
+3
+],
+"flag": false,
+"would_flag": false
+}
+]
+}
+},
+"С6:orig_hd": {
+"rec": {
+"sku": "sample",
+"checks": [
+{
+"name": "glb_sane",
+"value": 0.4825,
+"thr": 0.0001,
+"flag": false
+},
+{
+"name": "open_edges",
+"value": 0.0004,
+"thr": 0.05,
+"flag": false
+},
+{
+"name": "detached",
+"value": 0.0,
+"thr": 0.03,
+"flag": false
+},
+{
+"name": "stitch_p95",
+"value": null,
+"thr": [
+0.4,
+0.02
+],
+"flag": false,
+"would_flag": false
+},
+{
+"name": "sil_extra~",
+"value": 0.6263,
+"thr": 0.12,
+"flag": false
+},
+{
+"name": "sil_miss~",
+"value": 0.6045,
+"thr": 0.12,
+"flag": false
+},
+{
+"name": "holes",
+"value": 0.1912,
+"thr": 0.3,
+"flag": false
+},
+{
+"name": "legs~",
+"value": 0.0,
+"thr": 0,
+"flag": false
+},
+{
+"name": "thin_width",
+"value": 1.091,
+"thr": [
+0.65,
+1.6
+],
+"flag": false,
+"would_flag": false
+},
+{
+"name": "thin_len",
+"value": 1.633,
+"thr": [
+0.5,
+2.0
+],
+"flag": false,
+"would_flag": false
+},
+{
+"name": "leg_wave",
+"value": 0.0,
+"thr": [
+0.06,
+3
+],
+"flag": false,
+"would_flag": false
+}
+]
+}
+},
+"К1:curA": {
+"rec": {
+"sku": "sample",
+"checks": [
+{
+"name": "glb_sane",
+"value": 0.261,
+"thr": 0.0001,
+"flag": false
+},
+{
+"name": "open_edges",
+"value": 0.0002,
+"thr": 0.05,
+"flag": false
+},
+{
+"name": "detached",
+"value": 0.0,
+"thr": 0.03,
+"flag": false
+},
+{
+"name": "body_skew",
+"value": 8.3953,
+"thr": 3.0,
+"flag": true
+},
+{
+"name": "stitch_p95",
+"value": null,
+"thr": [
+0.4,
+0.02
+],
+"flag": false,
+"would_flag": false
+},
+{
+"name": "sil_extra~",
+"value": 0.0719,
+"thr": 0.12,
+"flag": false
+},
+{
+"name": "sil_miss~",
+"value": 0.4822,
+"thr": 0.12,
+"flag": false
+},
+{
+"name": "holes",
+"value": 0.0,
+"thr": 0.3,
+"flag": false
+},
+{
+"name": "legs~",
+"value": 0.0,
+"thr": 0,
+"flag": false
+},
+{
+"name": "thin_width",
+"value": null,
+"thr": [
+0.65,
+1.6
+],
+"flag": false,
+"would_flag": false
+},
+{
+"name": "thin_len",
+"value": null,
+"thr": [
+0.5,
+2.0
+],
+"flag": false,
+"would_flag": false
+},
+{
+"name": "leg_wave",
+"value": null,
+"thr": [
+0.06,
+3
+],
+"flag": false,
+"would_flag": false
+}
+]
+}
+},
+"К1:orig_hd": {
+"rec": {
+"sku": "sample",
+"checks": [
+{
+"name": "glb_sane",
+"value": 0.265,
+"thr": 0.0001,
+"flag": false
+},
+{
+"name": "open_edges",
+"value": 0.0005,
+"thr": 0.05,
+"flag": false
+},
+{
+"name": "detached",
+"value": 0.0,
+"thr": 0.03,
+"flag": false
+},
+{
+"name": "body_skew",
+"value": 0.6828,
+"thr": 3.0,
+"flag": false
+},
+{
+"name": "stitch_p95",
+"value": null,
+"thr": [
+0.4,
+0.02
+],
+"flag": false,
+"would_flag": false
+},
+{
+"name": "sil_extra~",
+"value": 0.1164,
+"thr": 0.12,
+"flag": false
+},
+{
+"name": "sil_miss~",
+"value": 0.0128,
+"thr": 0.12,
+"flag": false
+},
+{
+"name": "holes",
+"value": 0.0,
+"thr": 0.3,
+"flag": false
+},
+{
+"name": "legs~",
+"value": 0.0,
+"thr": 0,
+"flag": false
+},
+{
+"name": "thin_width",
+"value": null,
+"thr": [
+0.65,
+1.6
+],
+"flag": false,
+"would_flag": false
+},
+{
+"name": "thin_len",
+"value": null,
+"thr": [
+0.5,
+2.0
+],
+"flag": false,
+"would_flag": false
+},
+{
+"name": "leg_wave",
+"value": null,
+"thr": [
+0.06,
+3
+],
+"flag": false,
+"would_flag": false
+}
+]
+}
+},
+"К1:hdB": {
+"rec": {
+"sku": "sample",
+"checks": [
+{
+"name": "glb_sane",
+"value": 0.2753,
+"thr": 0.0001,
+"flag": false
+},
+{
+"name": "open_edges",
+"value": 0.0013,
+"thr": 0.05,
+"flag": false
+},
+{
+"name": "detached",
+"value": 0.0,
+"thr": 0.03,
+"flag": false
+},
+{
+"name": "body_skew",
+"value": 0.6364,
+"thr": 3.0,
+"flag": false
+},
+{
+"name": "stitch_p95",
+"value": null,
+"thr": [
+0.4,
+0.02
+],
+"flag": false,
+"would_flag": false
+},
+{
+"name": "sil_extra~",
+"value": 0.128,
+"thr": 0.12,
+"flag": false
+},
+{
+"name": "sil_miss~",
+"value": 0.0075,
+"thr": 0.12,
+"flag": false
+},
+{
+"name": "holes",
+"value": 0.0,
+"thr": 0.3,
+"flag": false
+},
+{
+"name": "legs~",
+"value": 0.0,
+"thr": 0,
+"flag": false
+},
+{
+"name": "thin_width",
+"value": null,
+"thr": [
+0.65,
+1.6
+],
+"flag": false,
+"would_flag": false
+},
+{
+"name": "thin_len",
+"value": null,
+"thr": [
+0.5,
+2.0
+],
+"flag": false,
+"would_flag": false
+},
+{
+"name": "leg_wave",
+"value": null,
+"thr": [
+0.06,
+3
+],
+"flag": false,
+"would_flag": false
+}
+]
+}
+},
+"К1:hdA": {
+"rec": {
+"sku": "sample",
+"checks": [
+{
+"name": "glb_sane",
+"value": 0.2668,
+"thr": 0.0001,
+"flag": false
+},
+{
+"name": "open_edges",
+"value": 0.0005,
+"thr": 0.05,
+"flag": false
+},
+{
+"name": "detached",
+"value": 0.0,
+"thr": 0.03,
+"flag": false
+},
+{
+"name": "body_skew",
+"value": 5.2402,
+"thr": 3.0,
+"flag": true
+},
+{
+"name": "stitch_p95",
+"value": null,
+"thr": [
+0.4,
+0.02
+],
+"flag": false,
+"would_flag": false
+},
+{
+"name": "sil_extra~",
+"value": 0.1366,
+"thr": 0.12,
+"flag": false
+},
+{
+"name": "sil_miss~",
+"value": 0.0006,
+"thr": 0.12,
+"flag": false
+},
+{
+"name": "holes",
+"value": 0.0,
+"thr": 0.3,
+"flag": false
+},
+{
+"name": "legs~",
+"value": 0.0,
+"thr": 0,
+"flag": false
+},
+{
+"name": "thin_width",
+"value": null,
+"thr": [
+0.65,
+1.6
+],
+"flag": false,
+"would_flag": false
+},
+{
+"name": "thin_len",
+"value": null,
+"thr": [
+0.5,
+2.0
+],
+"flag": false,
+"would_flag": false
+},
+{
+"name": "leg_wave",
+"value": null,
+"thr": [
+0.06,
+3
+],
+"flag": false,
+"would_flag": false
+}
+]
+}
+},
+"К2:old_native": {
+"rec": {
+"sku": "sample",
+"checks": [
+{
+"name": "glb_sane",
+"value": 0.5648,
+"thr": 0.0001,
+"flag": false
+},
+{
+"name": "open_edges",
+"value": 0.0011,
+"thr": 0.05,
+"flag": false
+},
+{
+"name": "detached",
+"value": 0.0,
+"thr": 0.03,
+"flag": false
+},
+{
+"name": "body_skew",
+"value": 0.0692,
+"thr": 3.0,
+"flag": false
+},
+{
+"name": "stitch_p95",
+"value": null,
+"thr": [
+0.4,
+0.02
+],
+"flag": false,
+"would_flag": false
+},
+{
+"name": "sil_extra~",
+"value": 0.0431,
+"thr": 0.12,
+"flag": false
+},
+{
+"name": "sil_miss~",
+"value": 0.0085,
+"thr": 0.12,
+"flag": false
+},
+{
+"name": "holes",
+"value": 0.0,
+"thr": 0.3,
+"flag": false
+},
+{
+"name": "legs~",
+"value": 1.0,
+"thr": 0,
+"flag": false
+},
+{
+"name": "thin_width",
+"value": 1.042,
+"thr": [
+0.65,
+1.6
+],
+"flag": false,
+"would_flag": false
+},
+{
+"name": "thin_len",
+"value": 1.49,
+"thr": [
+0.5,
+2.0
+],
+"flag": false,
+"would_flag": false
+},
+{
+"name": "leg_wave",
+"value": 0.0,
+"thr": [
+0.06,
+3
+],
+"flag": false,
+"would_flag": false
+}
+]
+}
+},
+"К2:curB": {
+"rec": {
+"sku": "sample",
+"checks": [
+{
+"name": "glb_sane",
+"value": 0.5137,
+"thr": 0.0001,
+"flag": false
+},
+{
+"name": "open_edges",
+"value": 0.0023,
+"thr": 0.05,
+"flag": false
+},
+{
+"name": "detached",
+"value": 0.0,
+"thr": 0.03,
+"flag": false
+},
+{
+"name": "body_skew",
+"value": 0.2225,
+"thr": 3.0,
+"flag": false
+},
+{
+"name": "stitch_p95",
+"value": null,
+"thr": [
+0.4,
+0.02
+],
+"flag": false,
+"would_flag": false
+},
+{
+"name": "sil_extra~",
+"value": 0.0486,
+"thr": 0.12,
+"flag": false
+},
+{
+"name": "sil_miss~",
+"value": 0.0088,
+"thr": 0.12,
+"flag": false
+},
+{
+"name": "holes",
+"value": 0.0,
+"thr": 0.3,
+"flag": false
+},
+{
+"name": "legs~",
+"value": 1.0,
+"thr": 0,
+"flag": false
+},
+{
+"name": "thin_width",
+"value": 1.023,
+"thr": [
+0.65,
+1.6
+],
+"flag": false,
+"would_flag": false
+},
+{
+"name": "thin_len",
+"value": 1.412,
+"thr": [
+0.5,
+2.0
+],
+"flag": false,
+"would_flag": false
+},
+{
+"name": "leg_wave",
+"value": null,
+"thr": [
+0.06,
+3
+],
+"flag": false,
+"would_flag": false
+}
+]
+}
+},
+"К2:hdA": {
+"rec": {
+"sku": "sample",
+"checks": [
+{
+"name": "glb_sane",
+"value": 0.5687,
+"thr": 0.0001,
+"flag": false
+},
+{
+"name": "open_edges",
+"value": 0.0015,
+"thr": 0.05,
+"flag": false
+},
+{
+"name": "detached",
+"value": 0.0,
+"thr": 0.03,
+"flag": false
+},
+{
+"name": "body_skew",
+"value": 0.7821,
+"thr": 3.0,
+"flag": false
+},
+{
+"name": "stitch_p95",
+"value": null,
+"thr": [
+0.4,
+0.02
+],
+"flag": false,
+"would_flag": false
+},
+{
+"name": "sil_extra~",
+"value": 0.0606,
+"thr": 0.12,
+"flag": false
+},
+{
+"name": "sil_miss~",
+"value": 0.0091,
+"thr": 0.12,
+"flag": false
+},
+{
+"name": "holes",
+"value": 0.0,
+"thr": 0.3,
+"flag": false
+},
+{
+"name": "legs~",
+"value": 1.0,
+"thr": 0,
+"flag": false
+},
+{
+"name": "thin_width",
+"value": 1.007,
+"thr": [
+0.65,
+1.6
+],
+"flag": false,
+"would_flag": false
+},
+{
+"name": "thin_len",
+"value": 1.38,
+"thr": [
+0.5,
+2.0
+],
+"flag": false,
+"would_flag": false
+},
+{
+"name": "leg_wave",
+"value": 0.0,
+"thr": [
+0.06,
+3
+],
+"flag": false,
+"would_flag": false
+}
+]
+}
+},
+"К2:curA": {
+"rec": {
+"sku": "sample",
+"checks": [
+{
+"name": "glb_sane",
+"value": 0.5688,
+"thr": 0.0001,
+"flag": false
+},
+{
+"name": "open_edges",
+"value": 0.0015,
+"thr": 0.05,
+"flag": false
+},
+{
+"name": "detached",
+"value": 0.0,
+"thr": 0.03,
+"flag": false
+},
+{
+"name": "body_skew",
+"value": 0.7636,
+"thr": 3.0,
+"flag": false
+},
+{
+"name": "stitch_p95",
+"value": null,
+"thr": [
+0.4,
+0.02
+],
+"flag": false,
+"would_flag": false
+},
+{
+"name": "sil_extra~",
+"value": 0.0558,
+"thr": 0.12,
+"flag": false
+},
+{
+"name": "sil_miss~",
+"value": 0.0131,
+"thr": 0.12,
+"flag": false
+},
+{
+"name": "holes",
+"value": 0.0,
+"thr": 0.3,
+"flag": false
+},
+{
+"name": "legs~",
+"value": 1.0,
+"thr": 0,
+"flag": false
+},
+{
+"name": "thin_width",
+"value": 1.048,
+"thr": [
+0.65,
+1.6
+],
+"flag": false,
+"would_flag": false
+},
+{
+"name": "thin_len",
+"value": 1.306,
+"thr": [
+0.5,
+2.0
+],
+"flag": false,
+"would_flag": false
+},
+{
+"name": "leg_wave",
+"value": null,
+"thr": [
+0.06,
+3
+],
+"flag": false,
+"would_flag": false
+}
+]
+}
+},
+"К2:hdB": {
+"rec": {
+"sku": "sample",
+"checks": [
+{
+"name": "glb_sane",
+"value": 0.5139,
+"thr": 0.0001,
+"flag": false
+},
+{
+"name": "open_edges",
+"value": 0.0024,
+"thr": 0.05,
+"flag": false
+},
+{
+"name": "detached",
+"value": 0.0,
+"thr": 0.03,
+"flag": false
+},
+{
+"name": "body_skew",
+"value": 0.2405,
+"thr": 3.0,
+"flag": false
+},
+{
+"name": "stitch_p95",
+"value": null,
+"thr": [
+0.4,
+0.02
+],
+"flag": false,
+"would_flag": false
+},
+{
+"name": "sil_extra~",
+"value": 0.0503,
+"thr": 0.12,
+"flag": false
+},
+{
+"name": "sil_miss~",
+"value": 0.0104,
+"thr": 0.12,
+"flag": false
+},
+{
+"name": "holes",
+"value": 0.0,
+"thr": 0.3,
+"flag": false
+},
+{
+"name": "legs~",
+"value": 1.0,
+"thr": 0,
+"flag": false
+},
+{
+"name": "thin_width",
+"value": 0.991,
+"thr": [
+0.65,
+1.6
+],
+"flag": false,
+"would_flag": false
+},
+{
+"name": "thin_len",
+"value": 1.496,
+"thr": [
+0.5,
+2.0
+],
+"flag": false,
+"would_flag": false
+},
+{
+"name": "leg_wave",
+"value": null,
+"thr": [
+0.06,
+3
+],
+"flag": false,
+"would_flag": false
+}
+]
+}
+},
+"К2:orig_hd": {
+"rec": {
+"sku": "sample",
+"checks": [
+{
+"name": "glb_sane",
+"value": 0.5654,
+"thr": 0.0001,
+"flag": false
+},
+{
+"name": "open_edges",
+"value": 0.0016,
+"thr": 0.05,
+"flag": false
+},
+{
+"name": "detached",
+"value": 0.0,
+"thr": 0.03,
+"flag": false
+},
+{
+"name": "body_skew",
+"value": 0.7265,
+"thr": 3.0,
+"flag": false
+},
+{
+"name": "stitch_p95",
+"value": null,
+"thr": [
+0.4,
+0.02
+],
+"flag": false,
+"would_flag": false
+},
+{
+"name": "sil_extra~",
+"value": 0.0655,
+"thr": 0.12,
+"flag": false
+},
+{
+"name": "sil_miss~",
+"value": 0.009,
+"thr": 0.12,
+"flag": false
+},
+{
+"name": "holes",
+"value": 0.0,
+"thr": 0.3,
+"flag": false
+},
+{
+"name": "legs~",
+"value": 1.0,
+"thr": 0,
+"flag": false
+},
+{
+"name": "thin_width",
+"value": 1.072,
+"thr": [
+0.65,
+1.6
+],
+"flag": false,
+"would_flag": false
+},
+{
+"name": "thin_len",
+"value": 1.286,
+"thr": [
+0.5,
+2.0
+],
+"flag": false,
+"would_flag": false
+},
+{
+"name": "leg_wave",
+"value": null,
+"thr": [
+0.06,
+3
+],
+"flag": false,
+"would_flag": false
+}
+]
+}
+}
+},
+"eye": {
+"С1": {
+"A": "ok",
+"B": "ok",
+"C": "ok",
+"D": "ok",
+"E": "ok"
+},
+"С2": {
+"A": "bad",
+"B": "bad",
+"C": "ok",
+"D": "bad",
+"E": "ok"
+},
+"С3": {
+"A": "bad",
+"B": "bad",
+"C": "ok",
+"D": "ok",
+"E": "ok"
+},
+"С4": {
+"A": "bad",
+"B": "bad",
+"C": "bad",
+"D": "bad",
+"E": "bad"
+},
+"С5": {
+"A": "bad",
+"B": "bad",
+"C": "ok",
+"D": "bad",
+"E": "bad"
+},
+"С6": {
+"A": "ok",
+"B": "ok",
+"C": "ok",
+"D": "ok",
+"E": "ok"
+},
+"К1": {
+"A": "bad",
+"B": "bad",
+"C": "bad",
+"D": "bad"
+},
+"К2": {
+"A": "bad",
+"B": "bad",
+"C": "ok",
+"D": "ok",
+"E": "bad",
+"F": "bad"
+}
+},
+"key": {
+"С1": {
+"name": "Стол TC белый 80×75",
+"cls": "Т",
+"letters": {
+"A": {
+"kind": "curA"
+},
+"B": {
+"kind": "hdB_rep"
+},
+"C": {
+"kind": "hdB"
+},
+"D": {
+"kind": "orig_hd"
+},
+"E": {
+"kind": "hdA"
+}
+}
+},
+"С2": {
+"name": "Стол Хилл 120",
+"cls": "Т",
+"letters": {
+"A": {
+"kind": "orig_hd"
+},
+"B": {
+"kind": "hdB_rep"
+},
+"C": {
+"kind": "curA"
+},
+"D": {
+"kind": "hdB"
+},
+"E": {
+"kind": "hdA"
+}
+}
+},
+"С3": {
+"name": "Стол TC 90×90",
+"cls": "Н",
+"letters": {
+"A": {
+"kind": "curA"
+},
+"B": {
+"kind": "hdA"
+},
+"C": {
+"kind": "hdB"
+},
+"D": {
+"kind": "hdB_rep"
+},
+"E": {
+"kind": "orig_hd"
+}
+}
+},
+"С4": {
+"name": "Стол TC чёрный",
+"cls": "Н",
+"letters": {
+"A": {
+"kind": "hdB_rep"
+},
+"B": {
+"kind": "hdB"
+},
+"C": {
+"kind": "curA"
+},
+"D": {
+"kind": "orig_hd"
+},
+"E": {
+"kind": "hdA"
+}
+}
+},
+"С5": {
+"name": "Стол «П»",
+"cls": "Л",
+"letters": {
+"A": {
+"kind": "curA"
+},
+"B": {
+"kind": "hdB_rep"
+},
+"C": {
+"kind": "hdA"
+},
+"D": {
+"kind": "hdB"
+},
+"E": {
+"kind": "orig_hd"
+}
+}
+},
+"С6": {
+"name": "Стол TC Rusto 160×90",
+"cls": "С",
+"letters": {
+"A": {
+"kind": "hdB"
+},
+"B": {
+"kind": "curA"
+},
+"C": {
+"kind": "hdA"
+},
+"D": {
+"kind": "hdB_rep"
+},
+"E": {
+"kind": "orig_hd"
+}
+}
+},
+"К1": {
+"name": "Комод Венда",
+"cls": "Н",
+"letters": {
+"A": {
+"kind": "curA"
+},
+"B": {
+"kind": "orig_hd"
+},
+"C": {
+"kind": "hdB"
+},
+"D": {
+"kind": "hdA"
+}
+}
+},
+"К2": {
+"name": "Комод-листья",
+"cls": "У",
+"letters": {
+"A": {
+"kind": "old_native"
+},
+"B": {
+"kind": "curB"
+},
+"C": {
+"kind": "hdA"
+},
+"D": {
+"kind": "curA"
+},
+"E": {
+"kind": "hdB"
+},
+"F": {
+"kind": "orig_hd"
+}
+}
+}
+}
+}

@@ -43,6 +43,7 @@ def gate(out: str, glbs: str, skus: list[str], roles: dict | None = None, photos
          pose_roots: list[str] | None = None, chat=None, find_glb=None, vlm: bool = True, vlm_all: bool = False, vlm_budget: float | None = None, log=None, cards: dict | None = None) -> list[dict]:
     """Проверки по каждому товару, у которого есть кадры в `<out>/<sku>`; пишет form_checks.json и form_gate.tsv. Оценщик — по умолчанию 3 вида × корпусные роли × потолок; возвращает записи."""
     import form_checks as FC
+    import form_reseed as FR
     import vlm_judge as VJ
     if find_glb is None:
         import forms_render as FR
@@ -85,6 +86,7 @@ def gate(out: str, glbs: str, skus: list[str], roles: dict | None = None, photos
         kw = {'kinds_only': kinds_only, 'budget': budget, 'log': say}
         rec = FC.run_sku(s, find_glb(glbs, s), photo, fr, rules, pose_roots or [], None, roles.get(s, ''), cache if (use_vlm and photo) else None, chat, kw,
                          None if cards is None else cards.get(s.replace(':', '_'), {}))               # размеры карточки (T-20261124-11): dims_depth/dims_axes в observe
+        rec = FR.annotate(rec)                                                                # правило повтора формы (T-20261126-99/8): FORM_RESEED=0 — запись не меняется
         json.dump(rec, open(os.path.join(fr, 'form_checks.json'), 'w', encoding='utf-8'), ensure_ascii=False, indent=1)
         recs.append(rec)
         rows.append(eye_row(rec, roles.get(s, '')))

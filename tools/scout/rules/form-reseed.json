@@ -1,0 +1,28 @@
+{
+  "_about": "Правило повтора формы (T-20261126-99/8, П1.164; по итогам замера T-99/1 и ответа Codex). ВЫКЛЮЧЕНО по умолчанию: флаг окружения FORM_RESEED = 0 (как сейчас) | shadow (только пишет решение в отчёт, ничего не генерирует) | 1 (включено; платные повторы — только словом владельца). Здесь только пороги и таблицы — в коде нет ни порогов, ни ID товаров.",
+  "version": "2026-11-26.1",
+  "n_new_max": 2,
+  "use_would_flag": true,
+  "pass_score_max": 0,
+  "min_measured": 3,
+  "unverifiable_flags": ["glb_sane"],
+  "class_priority": ["Н", "Т", "Л", "У", "С"],
+  "class_checks": {
+    "Н": ["legs_match", "legs", "legs~", "vlm_count_mismatch"],
+    "Т": ["thin_width", "thin_len", "leg_wave"],
+    "Л": ["detached", "dims_depth", "dims_axes", "sil_extra", "sil_extra~", "vlm_back_copy", "back_dup", "back_dup_mask"],
+    "У": ["open_edges", "holes", "relief", "relief_graze", "back_relief", "vlm_ragged_facade", "vlm_no_gaps"],
+    "С": ["sil_iou", "sil_miss", "sil_miss~", "body_skew", "vlm_skewed_body"]
+  },
+  "reseed_classes": ["Т", "Л", "У", "С"],
+  "quarantine_classes": ["Н"],
+  "weights": {"default": 1.0},
+  "derived_flags": {
+    "legs~": {"op": "<", "thr": 0, "note": "опор в нижней полосе у формы меньше, чем у фото (приближение; единственный признак числа ножек, когда нет позы этапа 04 — legs_match)"}
+  },
+  "reasons": {
+    "quarantine_n": "число опор/дверей не как на фото",
+    "unverifiable": "не удалось проверить",
+    "none_passed": "ни один образец не прошёл проверки"
+  }
+}
