@@ -35,7 +35,7 @@ review_after: 2026-12-01
 **Меши на сайт** — [[mesh-pipeline]]: лёгкой копией ≤5 МБ и только после «принято» (P-040, P-059).
 
 ## Организация
-Директор — один, по шапке `plan-zadach.md` (с 23.11 — algor, `tg-remlab`; P-070; при лимите недели algor — передача common файлом передачи, ADR-0476); работники — Sonnet 5.5, на algor, pakardev и common (с 24.11, TG 2621). Задачи
+Директор — один, по шапке `plan-zadach.md` (с 26.11 12:32 — pakardev, до того algor с 23.11, `tg-remlab`; ADR-0485; P-070; при лимите недели algor — передача common файлом передачи, ADR-0476); работники — Sonnet 5.5, на algor, pakardev и common (с 24.11, TG 2621). Задачи
 ставит только владелец (P-069); правила — реестр `rules/INDEX.md` (7 сводных P-069…P-075, свод 23.11), обход — `guides/pamyatka-obhoda.md`.
 - **Всё через конвейер (ADR-0407):** собранные файлы правит только генератор ([[regression-net]]); надписи — пара RU/EN.
 - **Туры = демо (ADR-0372, 0398):** правило — на /demo, «Этажах», турах, новых загрузках; автофото тура — [[agent-trial]].
@@ -54,7 +54,7 @@ review_after: 2026-12-01
 - **Деплой:** push в `main` → CI → `deploy.sh` (smoke, авто-откат); после push — `bash tools/ops/deploy-need.sh --status` (ADR-0360) — `deployment.md`.
 
 ## DEV (pakardev) и машины
-16 ядер и 29 ГБ — навсегда (ADR-0403). Тяжёлое — `tools/ops/heavy-slot.sh` по факту ядер; с 24.11 потоки numpy/BLAS/OpenMP команды = заявке ядер (T-20261124-40).
+15 ядер и 19 ГБ ОЗУ (после перезагрузки 20.11; ADR-0403 — «больше не просить») + медленный HDD /mnt/hdd (архив логов, HF-кэш с 26.11). Тяжёлое — `tools/ops/heavy-slot.sh` по факту ядер; с 24.11 потоки numpy/BLAS/OpenMP команды = заявке ядер (T-20261124-40).
 CI зелёный (ADR-0353); временное — `REMLAB_TMP` (ADR-0354); уборка — `disk_clean --apply`; логи — на HDD `logs_archive.py`, там удалять старше 14 суток кроме нужных коду/прогонам (TG 2686, ADR-0476); 24.11 22:20 свободно 63 ГБ.
 Рабочие на common — `~/common-remote/start-rabochiy.sh remlab remlab-N` (ADR-0474).
 
