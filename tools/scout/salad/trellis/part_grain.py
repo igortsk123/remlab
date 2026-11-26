@@ -51,6 +51,10 @@ def load_rules(path: str = RULES_PATH) -> dict:
             raise ValueError('part-grain.json: wood_always без ключей %s' % miss)
         if not (0 < float(wa['reserve_sigma_L']) <= float(wa['reserve_sigma_strong_L']) < 20) or not (0 < float(wa['reserve_amp_max']) <= 10) or int(wa['strong_top_div']) < 1:
             raise ValueError('part-grain.json: wood_always — размах запаса/потолок/доля вне пределов')
+    tp = r.get('thin_plate')
+    if tp and tp.get('enabled'):                                  # T-97/1 ф.7: проверка только при включении (выкл — ключ не читается)
+        import thin_plate as TPL
+        TPL.check_rules(tp)
     if len(r['tile_layers']) < 1 or len(r['no_tile_layers']) < 1:
         raise ValueError('part-grain.json: нужен хотя бы один слой шага')
     return r

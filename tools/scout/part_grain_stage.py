@@ -113,6 +113,33 @@ def measure_parts(d: str, parts: list, z: dict, V, F, fp, pn, rules: dict) -> di
     return out
 
 
+def thin_plate_step(tex, z, roles: list, V, g: dict, d: str, tp: dict, rep: dict):
+    """Ф.7 «тонкая плита — один материал»: после зерна. → (текстура, маска перекрашенных | None). Нет роли «верх» / known.png — воздержание с причиной в след (текстура та же)."""
+    import thin_plate as TPL
+    from PIL import Image
+    info = {'applied': False, 'reason': None}
+    rep['thin_plate'] = info
+    kp = os.path.join(d, 'known.png')
+    top = [i for i, r in enumerate(roles) if r == 'top']
+    if not top:
+        info['reason'] = 'нет группы с ролью «верх»'
+        return tex, None
+    if not os.path.exists(kp):
+        info['reason'] = 'нет known.png (маска «взято с фото»)'
+        return tex, None
+    known = np.asarray(Image.open(kp).convert('L')) > 127
+    if known.shape != tex.shape[:2]:
+        info['reason'] = 'known.png %s ≠ текстура %s' % (known.shape, tex.shape[:2])
+        return tex, None
+    uv = np.asarray(g['UV'], np.float64)
+    uv_img = np.stack([uv[:, 0], 1.0 - uv[:, 1]], 1)                  # строка текстуры = v_glTF·T (trimesh отдаёт 1 − v)
+    new, ch, inf = TPL.apply(tex, np.asarray(g['V'], np.float64), uv_img, np.asarray(g['F'], np.int64), np.asarray(z['face_group']).astype(np.int64), top[0], known, tp)
+    info.update(inf)
+    if not inf.get('applied'):
+        return tex, None
+    return new, ch
+
+
 def process(a, rules: dict, d: str, rep: dict) -> None:
     import part_grain as PG
     import pose_fit as PF
@@ -201,7 +228,10 @@ def process(a, rules: dict, d: str, rep: dict) -> None:
     new, r = PG.apply_grain(tex, tx, parts, masks, fp, pn, cpu, width, rules, enabled=True, axis_ctx=axis_ctx, face_part=face_part)
     rep['groups'] = {str(k): dict(v, name=names[k]) for k, v in r['parts'].items()}
     rep.update(applied=r['applied'], skipped=r['skipped'], texels_changed=r['texels_changed'], planes=int(len(pn)))
-    if r['applied'] == 0:
+    tp_mask = None
+    if (rules.get('thin_plate') or {}).get('enabled'):                      # T-97/1 ф.7: тонкая плита — низ и торец тоном и волокном лица (выкл — строки не выполняются)
+        new, tp_mask = thin_plate_step(new, z, roles, V, g, d, rules['thin_plate'], rep)
+    if r['applied'] == 0 and tp_mask is None:
         raise Abstain('зерно не легло ни на одну группу (причины: %s)' % r['skipped'])
     if not os.path.exists(pre):
         shutil.copy2(vis, pre)                                       # исходник один раз; повторный запуск идёт от него
@@ -209,6 +239,8 @@ def process(a, rules: dict, d: str, rep: dict) -> None:
     gmap = np.asarray(z['group_map'])
     applied_g = [int(k) for k, v in r['parts'].items() if v.get('apply')]
     mk = np.isin(gmap, applied_g)                                    # метка «зерно уже есть»: 07 (заливка и верх top_prior) на этих текселях своей фактуры не кладёт
+    if tp_mask is not None:
+        mk = mk | tp_mask                                            # ф.7: перекрашенные низ/торец плиты — тоже «уже есть» (07 своей фактуры не кладёт)
     Image.fromarray((mk * 255).astype(np.uint8)).save(os.path.join(d, MASK))
     rep['mask_texels'] = int(mk.sum())
     rep['seconds'] = round(time.time() - t0, 1)
