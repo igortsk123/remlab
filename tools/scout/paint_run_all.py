@@ -95,6 +95,7 @@ def make_ctx(run: str, sku: str, a: dict, rules: dict, stage_dones: dict | None 
         ctx['channels'], ctx['channel_classes'] = catalog_channels(ctx['_record'])
     ctx['product_role'] = a.get('product_role') or (ctx['_record'] or {}).get('role', '')
     ctx['photo_cam'], ctx['photo_vis'], ctx['body_only_args'] = ctx['photo'], ctx['photo'], []
+    ctx['card'] = os.path.join(work, 'card.json') if ctx['_record'] else ''                          # плоская карточка (`$card_flat`) для шагов с --card (зерно, T-99/7); нет записи каталога — флаг выпадает
     ctx.update(rules.get('paths', {}))
     return ctx
 
@@ -175,7 +176,10 @@ def _step_on(s: dict, ctx: dict) -> bool:
         return True
     try:
         with open(os.path.join(ctx['root'], e['file']), encoding='utf-8') as f:
-            return bool(json.load(f).get(e['key']))
+            v = json.load(f)
+        for k in str(e['key']).split('.'):                                          # ключ может быть вложенным через точку («dilate.uv_gutter_px»: 0 = выкл); обычный ключ — как раньше (T-99/7)
+            v = v.get(k) if isinstance(v, dict) else None
+        return bool(v)
     except (OSError, ValueError):
         return False                                                                # нет файла правил — шаг не нужен
 
@@ -197,12 +201,13 @@ def resolve_steps(stage: dict, ctx: dict, extra: dict | None = None) -> list:
             if m and isinstance(ctx.get(m.group(1)), list):
                 argv += [str(x) for x in ctx[m.group(1)]]                   # {cam_az_args}, {body_only_args}: список аргументов (пустой — ничего)
                 continue
-            if m and m.group(1) in ('channels', 'product_role', 'channel_classes') and not ctx.get(m.group(1)):
+            if m and m.group(1) in ('channels', 'product_role', 'channel_classes', 'card') and not ctx.get(m.group(1)):
                 if argv and argv[-1].startswith('--'):
                     argv.pop()                                              # убрать и сам флаг без значения
                 continue
             argv.append(tok)
-        steps.append({'argv': _subst(argv, ctx), 'heavy': s.get('heavy'), 'retry_extra': s.get('retry_extra'), 'cwd': s.get('cwd')})
+        steps.append({'argv': _subst(argv, ctx), 'heavy': s.get('heavy'), 'retry_extra': s.get('retry_extra'), 'cwd': s.get('cwd'),
+                      **({'abstain_report': s['abstain_report']} if s.get('abstain_report') else {})})
     return steps
 
 
@@ -211,6 +216,9 @@ def resolve_files(stage: dict, ctx: dict) -> dict:
     def sub(o):
         if o == '$product_record':
             return ctx['_record']
+        if o == '$card_flat':                                                           # карточка плоско: name, role + params (как card.json у проб; нужна зерну для габарита → см на текстель)
+            r = ctx['_record'] or {}
+            return {'name': r.get('name'), 'role': r.get('role'), **(r.get('params') or {})}
         if isinstance(o, str):
             return _PH.sub(lambda m: str(ctx[m.group(1)]), o)
         if isinstance(o, list):
@@ -218,7 +226,11 @@ def resolve_files(stage: dict, ctx: dict) -> dict:
         if isinstance(o, dict):
             return {k: sub(v) for k, v in o.items()}
         return o
-    return {sub(k): sub(v) for k, v in stage.get('write_files', {}).items()}
+    files = {sub(k): sub(v) for k, v in stage.get('write_files', {}).items()}
+    for s in stage.get('steps', []):                                                    # служебные файлы ВКЛЮЧЁННОГО шага (выключенный не пишет ничего — main байт в байт, T-99/7)
+        if s.get('write_files') and _step_on(s, ctx) and (ctx['_record'] or '$card_flat' not in s['write_files'].values()):
+            files.update({sub(k): sub(v) for k, v in s['write_files'].items()})
+    return files
 
 
 def _heavy(step: dict, name: str, ctx: dict, rules: dict) -> list:
@@ -339,6 +351,19 @@ def execute(run: str, sku: str, a: dict, rules: dict, check_rules: dict, only: l
                 entry['steps'].append(r)
                 if r['rc'] != 0:
                     break                                                   # дальнейшие шаги этапа без первого не имеют смысла; статус скажет check.json
+                if rules.get('abstain_is_stop') and s.get('abstain_report'):        # проба (T-99/7, правило директора 26.11): воздержание ВКЛЮЧЁННОГО шага — СТОП всего прогона, не «rc 0 → дальше»
+                    try:
+                        _ab = json.load(open(os.path.join(ctx['sku_dir'], s['abstain_report']), encoding='utf-8')).get('abstain')
+                    except (OSError, ValueError):
+                        _ab = 'нет отчёта шага (%s)' % s['abstain_report']
+                    if _ab:
+                        r['abstain'] = str(_ab)[:300]
+                        log['stopped'] = {'stage': name, 'step': i + 1, 'abstain': r['abstain'], 'report': s['abstain_report']}
+                        break
+        if log.get('stopped'):
+            entry['status'] = {p: stage_status(run, sku, p, check_rules)['status'] for p in rules['stages'][name]['produces']}
+            log['stages'].append(entry)
+            break
         entry['status'] = {p: stage_status(run, sku, p, check_rules)['status'] for p in rules['stages'][name]['produces']}
         log['stages'].append(entry)
         _save(ctx, log)

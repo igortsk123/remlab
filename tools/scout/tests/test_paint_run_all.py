@@ -314,5 +314,80 @@ c2 = RA.make_ctx('/r', 'k', {'native': 'n', 'photo': 'p', 'root': '/x'}, rules2)
 ok(c2['py'] == os.path.join(HOME, 'b/py'), 'default_python меняет интерпретатор по умолчанию без правки кода')
 ok('/venvs/' not in open(os.path.join(HERE, '..', 'paint_run_all.py'), encoding='utf-8').read().replace("'venvs'", ''), 'в коде обвязки нет путей к venv')
 
+# 11. T-99/7: шаги «Ш4а → owner → зерно → gutter» в этапе 06 — по выключателям из файлов правил (по умолчанию ВЫКЛ), порядок как в руке A; воздержание включённого шага = СТОП
+import shutil  # noqa: E402
+
+REPO = os.path.abspath(os.path.join(HERE, '..', '..', '..'))
+RULE_FILES = ['part-material', 'tex-owner', 'part-grain']
+SW = {'part_material_stage.py': ('part-material', 'enabled'), 'tex_owner_stage.py': ('tex-owner', 'enabled'),
+      'part_grain_stage.py': ('part-grain', 'enabled'), 'tex_gutter_stage.py': ('tex-owner', 'dilate.uv_gutter_px')}
+
+
+def names06(root, rec=None):
+    c = RA.make_ctx('/r', 'k', {'native': 'n', 'photo': 'p', 'product_role': 'стол обеденный', 'channels': '', 'root': root}, REAL)
+    c['_record'] = rec
+    c['card'] = os.path.join(c['work'], 'card.json') if rec else ''
+    return [os.path.basename(a) for s in RA.resolve_steps(REAL['stages']['06'], c) for a in s['argv'] if a.endswith('_stage.py') or a.endswith('tex_visible.py')], c
+
+
+def root_with(**flags):
+    """Временный «корень репо» с копиями файлов правил; flags: имя файла → {путь через точку: значение}."""
+    r = tempfile.mkdtemp(dir=os.environ.get('TMPDIR'))
+    os.makedirs(os.path.join(r, 'tools', 'scout', 'rules'))
+    for f in RULE_FILES:
+        d = json.load(open(os.path.join(REPO, 'tools', 'scout', 'rules', f + '.json'), encoding='utf-8'))
+        for path, val in (flags.get(f.replace('-', '_')) or {}).items():
+            cur = d
+            ks = path.split('.')
+            for k in ks[:-1]:
+                cur = cur.setdefault(k, {})
+            cur[ks[-1]] = val
+        json.dump(d, open(os.path.join(r, 'tools', 'scout', 'rules', f + '.json'), 'w', encoding='utf-8'))
+    return r
+
+
+r_off = root_with()
+n_off, c_off = names06(r_off)
+ok(not any(n in n_off for n in SW), 'выключатели выкл (как в main) → в этапе 06 нет Ш4а/owner/зерна/gutter: ' + ' '.join(n_off))
+ok(RA.resolve_files(REAL['stages']['06'], {**c_off, '_record': {'name': 'x', 'role': 'r', 'params': {}}}) == {}, 'шаги выкл → служебные файлы (card.json) не пишутся: main байт в байт')
+r_on = root_with(part_material={'enabled': True}, tex_owner={'enabled': True, 'dilate.uv_gutter_px': 2}, part_grain={'enabled': True})
+n_on, c_on = names06(r_on, {'name': 'Стол', 'role': 'стол обеденный', 'params': {'Размеры: Высота габаритная': '75'}})
+ok([n for n in n_on if n in SW] == ['part_material_stage.py', 'tex_owner_stage.py', 'part_grain_stage.py', 'tex_gutter_stage.py'], 'всё вкл → порядок руки A: Ш4а → owner → зерно → gutter: ' + ' '.join(n_on))
+ok(n_on.index('tex_visible.py') < n_on.index('part_material_stage.py'), '06 перенос фото — раньше Ш4а')
+for sw, (rf, key) in SW.items():                                                      # каждый выключатель действует сам по себе, соседи не затронуты
+    fl = {k.replace('-', '_'): {} for k in RULE_FILES}
+    for sw2, (rf2, key2) in SW.items():
+        if sw2 != sw:
+            fl[rf2.replace('-', '_')][key2] = 2 if key2.startswith('dilate') else True
+    rr = root_with(**fl)
+    got = [n for n in names06(rr)[0] if n in SW]
+    ok(sw not in got and len(got) == 3, f'выключен один {sw} ({rf}:{key}) → шага нет, трое остальных на месте')
+    shutil.rmtree(rr, ignore_errors=True)
+r_g0 = root_with(part_material={'enabled': True}, tex_owner={'enabled': True, 'dilate.uv_gutter_px': 0}, part_grain={'enabled': True})
+ok('tex_gutter_stage.py' not in names06(r_g0)[0], 'gutter: dilate.uv_gutter_px=0 → шаг выкл (вложенный ключ enabled_by)')
+st_on = RA.resolve_steps(REAL['stages']['06'], c_on)
+ag = next(s['argv'] for s in st_on if any(a.endswith('part_grain_stage.py') for a in s['argv']))
+ok(ag[ag.index('--card') + 1].endswith('work/card.json') and ag[ag.index('--photo') + 1] == 'p', 'зерно: --card = work/card.json, --photo = сырое фото (как рука A)')
+ok(not any(a in ('--force', '--force-px') for s in st_on for a in s['argv']), '--force/--force-px в argv нет: пробные значения — в файлах правил')
+n_nr, c_nr = names06(r_on, None)
+ag2 = next(s['argv'] for s in RA.resolve_steps(REAL['stages']['06'], c_nr) if any(a.endswith('part_grain_stage.py') for a in s['argv']))
+ok('--card' not in ag2, 'нет записи каталога → флаг --card выпадает целиком')
+fl_on = RA.resolve_files(REAL['stages']['06'], {**c_on, '_record': {'name': 'Стол', 'role': 'стол обеденный', 'params': {'Размеры: Высота габаритная': '75'}}})
+ok(list(fl_on.values()) == [{'name': 'Стол', 'role': 'стол обеденный', 'Размеры: Высота габаритная': '75'}], 'card.json плоский: name, role + params (как у проб)')
+for r_ in (r_off, r_on, r_g0):
+    shutil.rmtree(r_, ignore_errors=True)
+
+# 11б. abstain_is_stop: воздержание включённого шага (rc 0, abstain в отчёте) останавливает прогон
+code_ab = ('import sys,os,json\nd=os.path.join(sys.argv[1],sys.argv[2],"06-visible");os.makedirs(d,exist_ok=True)\n'
+           'json.dump({"abstain":"нет ролей"},open(os.path.join(d,"rep.json"),"w"))\nopen(os.path.join(sys.argv[1],"calls.log"),"a").write("ab\\n")\n')
+for stop_on, exp in ((True, ['01-trellis', 'ab']), (False, ['01-trellis', 'ab', '02-prep'])):
+    with tempfile.TemporaryDirectory() as run:
+        rr = fake_rules(a={'produces': ['01-trellis'], 'needs': [], 'steps': [writer('01-trellis'), {'argv': [sys.executable, '-c', code_ab, '{run}', '{sku}'], 'abstain_report': '06-visible/rep.json'}]})
+        rr['abstain_is_stop'] = stop_on
+        lg = RA.execute(run, 'sa', A, rr, CR)
+        ok(calls(run)[:len(exp)] == exp and (('stopped' in lg) == stop_on) and (len(calls(run)) == len(exp) or not stop_on), f'abstain_is_stop={stop_on}: ' + ' '.join(calls(run)))
+        if stop_on:
+            ok(lg['stopped']['abstain'] == 'нет ролей' and calls(run) == ['01-trellis', 'ab'], 'СТОП: причина воздержания в журнале (stopped.abstain), следующие этапы не запущены')
+
 print(f'paint_run_all: ошибок {FAIL}')
 sys.exit(1 if FAIL else 0)
