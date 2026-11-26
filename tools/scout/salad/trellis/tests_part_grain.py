@@ -106,6 +106,11 @@ def main():
     pl = PG.plan_grain([part(1, photo_sigma=0.5), part(2, photo_sigma=None)], R)
     check(not pl[1]['apply'] and pl[1]['reason'] == 'no_photo_evidence' and not pl[2]['apply'], 'ни у кого рисунка на фото нет → зерна нет (no_photo_evidence)')
     check(pl[1]['pat'] is None, 'у отказа узор не хранится')
+    R_nn = dict(R, amp_from_neighbors=False)                                   # лазейка закрыта: свой σ ниже порога/нет фото → ровный тон, даже при соседях с рисунком
+    pl = PG.plan_grain([part(1, photo_sigma=2.0), part(2, photo_sigma=3.0), part(3, photo_sigma=0.5), part(4, photo_sigma=None)], R_nn)
+    check(pl[1]['apply'] and pl[1]['amp_source'] == 'photo' and pl[2]['apply'], 'лазейка закрыта: части с рисунком на фото — зерно по своему фото')
+    check(not pl[3]['apply'] and pl[3]['reason'] == 'no_photo_evidence' and pl[3]['pat'] is None and not pl[4]['apply'] and pl[4]['reason'] == 'no_photo_evidence', 'лазейка закрыта: σ ниже порога и нет фото — ровный тон (no_photo_evidence), амплитуду у соседей не берём')
+    check(PG.plan_grain([part(1, photo_sigma=2.0), part(3, photo_sigma=0.5)], R)[3]['amp_source'] == 'neighbors', 'флаг не задан — как раньше (соседи)')
 
     # 6. отказы с причинами
     pl = PG.plan_grain([part(1, is_wood=False), part(2, n_texels=100), part(3, tone_sigma=5.0), part(4, tone_lab=None), part(5, photo_sigma=2.0)], R)
@@ -262,6 +267,69 @@ def main():
     rep_n = PG.apply_grain(tex, tx, [part(1, name='ножки')], {1: mask}, fp, pn, 100.0, (1, 0, 0), RA, enabled=True, axis_ctx=ctx_for(L_h))[1]
     check('axis' not in rep_n['parts'][1], 'не-верх (имя без part_words) — проверка не считается')
     check(PG.ang_diff180(10, 170) == 20 and PG.ang_diff180(0, 90) == 90 and PG.ang_diff180(179, 1) == 2, 'ang_diff180: ось — прямая, разница 0…90°')
+
+    # 9. ключи правил «ось детали» (T-63 р.5d): ВКЛЮЧЁННЫЙ ключ обязан менять выход (молча не включившийся флаг = красный тест)
+    nx, ny, T2 = 120, 60, 128
+    tx0, tex = plate(nx, ny, T2)
+    n = len(tx0.ti)
+    pn = np.array([[0.0, 1.0, 0.0]])
+    ij = np.array([(j, i) for i in range(ny) for j in range(nx)])
+    tx2 = types.SimpleNamespace(ti=tx0.ti, Q=tx0.Q, N=tx0.N, f=(ij[:, 0] >= 100).astype(np.int64))     # грань 0 — левые 100 см, грань 1 — полоса 20×60 вдоль Z
+    fp2, fpart2 = np.array([0, 0]), np.array([0, 1])
+    base_r = dict(copy.deepcopy(R), enabled=True)
+    run = lambda **k: PG.apply_grain(tex, tx2, [dict(part(1), role='legs')], {1: np.ones(n, bool)}, fp2, pn, 100.0, (1, 0, 0), dict(base_r, **k), enabled=True, face_part=fpart2)[0]
+    o_off = run()
+    o_on = run(axis_per_part=True, axis_per_part_roles=['legs'])
+    check(not np.array_equal(o_off, o_on), 'axis_per_part=true меняет текстуру (флаг не «молчит»)')
+    check(np.array_equal(o_off, run(axis_per_part=True, axis_per_part_roles=['top'])), 'axis_per_part: роль не из axis_per_part_roles → без изменений')
+    check(np.array_equal(o_off, PG.apply_grain(tex, tx2, [dict(part(1), role='legs')], {1: np.ones(n, bool)}, fp2, pn, 100.0, (1, 0, 0), dict(base_r, axis_per_part=True), enabled=True)[0]), 'axis_per_part без face_part → без изменений (нет данных о частях)')
+    strip = (ij[:, 0] >= 100)
+    def aniso(o):
+        L = TC.rgb2lab(o.reshape(-1, 3)[tx2.ti])[:, 0].reshape(ny, nx)[:, 100:]
+        return float(np.abs(np.diff(L, axis=0)).mean() / max(float(np.abs(np.diff(L, axis=1)).mean()), 1e-9))        # вдоль Z / поперёк (X)
+    check(aniso(o_on) < aniso(o_off), f'полоса вдоль Z: при axis_per_part волокно идёт вдоль неё (изменение вдоль/поперёк {aniso(o_on):.2f} < {aniso(o_off):.2f} без правила)')
+    fpt_all = np.full(2, -1)
+    o_fb_off = PG.apply_grain(tex, tx2, [dict(part(1), role='legs')], {1: np.ones(n, bool)}, fpt_all, pn, 100.0, (1, 0, 0), base_r, enabled=True, face_part=fpart2)[0]
+    o_fb_on = PG.apply_grain(tex, tx2, [dict(part(1), role='legs')], {1: np.ones(n, bool)}, fpt_all, pn, 100.0, (1, 0, 0), dict(base_r, axis_per_part=True), enabled=True, face_part=fpart2)[0]
+    check(not np.array_equal(o_fb_off, o_fb_on), 'запасной путь (не плоскость): axis_per_part=true меняет текстуру')
+
+    # 10. круглая деталь (диск), запасной путь: оси деталь не имеет → ось ширины товара (X); без правила — случайная главная ось (чуть вытянутый по Z диск → Z)
+    cx, cz = (ij[:, 0] - 60.0), (ij[:, 1] - 30.0)
+    disc = (cx / 29.0) ** 2 + (cz / 30.0) ** 2 < 1.0                                       # эллипс 58×60 см: отношение осей ≈ 1,07 ≤ 1,1
+    tx3 = types.SimpleNamespace(ti=tx0.ti[disc], Q=tx0.Q[disc], N=tx0.N[disc], f=np.zeros(int(disc.sum()), np.int64))
+    fp3 = np.array([-1])
+    def disc_run(**k):
+        return PG.apply_grain(tex, tx3, [dict(part(1), role='legs')], {1: np.ones(int(disc.sum()), bool)}, fp3, pn, 100.0, (1, 0, 0), dict(base_r, **k), enabled=True, face_part=np.array([0]))[0]
+    def disc_aniso(o):
+        img = np.full((ny, nx), np.nan)
+        img[ij[disc][:, 1], ij[disc][:, 0]] = TC.rgb2lab(o.reshape(-1, 3)[tx3.ti])[:, 0]
+        dx = np.abs(np.diff(img, axis=1))
+        dz = np.abs(np.diff(img, axis=0))
+        return float(np.nanmean(dx) / max(float(np.nanmean(dz)), 1e-9))                  # изменение вдоль X / вдоль Z
+    d_off, d_on = disc_run(axis_per_part=True, axis_per_part_roles=['legs'], axis_per_part_round_ratio=1.0), disc_run(axis_per_part=True, axis_per_part_roles=['legs'])
+    check(not np.array_equal(d_off, d_on), 'круглая деталь: порог axis_per_part_round_ratio меняет текстуру (ключ не «молчит»)')
+    check(disc_aniso(d_on) < disc_aniso(d_off), f'диск: ось = ширина товара X (изменение вдоль X / вдоль Z {disc_aniso(d_on):.2f} < {disc_aniso(d_off):.2f} при главной оси части)')
+
+    # 11. классы бина по роли (T-63 р.5g): ножки/рама — straight; ключ включён → бин меняется со swirl (Wood047 — «завитки/глазки») на straight, выход меняется
+    npz_c = dict(npz_r, roles=np.array(['legs', 'legs']), names=np.array(['ножки', 'рама']))
+    pr0, _m0 = PG.parts_from_masks(npz_c, tx, tex, {'Материал ножек': 'дерево'}, None, R)
+    pr1, _m1 = PG.parts_from_masks(npz_c, tx, tex, {'Материал ножек': 'дерево'}, None, dict(R, bin_classes_by_role={'legs': ['straight']}))
+    check(all(x['classes'] is None for x in pr0) and all(x['classes'] == ['straight'] for x in pr1), 'bin_classes_by_role: по умолчанию classes=None; при ключе у роли legs — [straight]')
+    b_sw, _p, _s = PG.load_pattern([60.07, 8.21, 23.7], R, None)
+    b_st, _p, _s = PG.load_pattern([60.07, 8.21, 23.7], R, ['straight'])
+    check(b_sw['bin'] is not None and b_st['bin'] is not None and b_st.get('pattern_class') == 'straight' and b_sw['bin'] != b_st['bin'], f'тон ножек: без класса бин {b_sw["bin"]} ({b_sw.get("pattern_class")}), с классом straight — {b_st["bin"]}')
+
+    # 12. library_max_de00 (T-63, замена no_grain_groups по имени): ключ меняет решение; светлая плита без близкого бина → ровный тон, тон дерева ножек — зерно
+    white = dict(part(1, photo_sigma=2.0), tone_lab=[92.0, 0.5, 2.0], name='плита')
+    legs = dict(part(2, photo_sigma=2.0), tone_lab=[60.07, 8.21, 23.7], name='ножки')
+    p_off = PG.plan_grain([white, legs], dict(R, library_max_de00=None))
+    p_on = PG.plan_grain([white, legs], dict(R, library_max_de00=12.0))
+    check(p_off[1]['apply'] and p_off[2]['apply'], 'library_max_de00 не задан: любой тон получает ближайший бин (светлая плита тоже — как было)')
+    check((not p_on[1]['apply']) and p_on[1]['reason'] == 'no_bin' and p_on[2]['apply'], f'library_max_de00=12: светлая плита → ровный тон (no_bin), ножки → зерно (бин {p_on[2]["bin"]["bin"]})')
+    odd = dict(part(3, photo_sigma=2.0), tone_lab=[30.0, 40.0, -40.0], name='синяя')
+    q_off = PG.plan_grain([odd], dict(R, library_max_de00=None))
+    q_on = PG.plan_grain([odd], dict(R, library_max_de00=12.0))
+    check(q_off[3]['apply'] and (not q_on[3]['apply']), 'library_max_de00 меняет выход и у цветной детали (без порога — бин дерева на синюю часть, с порогом — ровный тон)')
 
     bad_n = sum(1 for x in OK if not x)
     print(f'\n{len(OK) - bad_n}/{len(OK)} ok')
