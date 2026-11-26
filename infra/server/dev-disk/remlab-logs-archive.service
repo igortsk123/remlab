@@ -8,6 +8,8 @@ Type=oneshot
 Environment=DISK_GUARD=0
 WorkingDirectory=%h/igor/remlab
 ExecStart=/usr/bin/python3 %h/igor/remlab/tools/ops/logs_archive.py --apply --digest
+# удаление со второго диска папок, пролежавших там 14 сут (не держит код/живой прогон/действующий план) — слово владельца TG 3008 (26.11)
+ExecStart=-/usr/bin/python3 %h/igor/remlab/tools/ops/logs_archive.py --prune-hdd --apply --digest
 Nice=15
 IOSchedulingClass=idle
 TimeoutStartSec=6h
