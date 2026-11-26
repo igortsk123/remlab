@@ -80,6 +80,14 @@ class PlanOne(unittest.TestCase):
             p = FR.plan_one(rec(ck(name, 9.0, flag=True)), R)
             self.assertEqual((p['action'], p['class'], p['n_new']), ('reseed', cls, R['n_new_max']), name)
 
+    def test_unnamed_class_from_vlm_is_reseeded_and_lower_priority(self):
+        p = FR.plan_one(rec(ck('vlm_table_shape', 3, flag=True)), R)
+        self.assertEqual((p['action'], p['class']), ('reseed', '?'))
+        p2 = FR.plan_one(rec(ck('vlm_table_shape', 3, flag=True), ck('detached', 1, flag=True)), R)
+        self.assertEqual(p2['class'], 'Л')                                             # названный класс сильнее «?»
+        p3 = FR.plan_one(rec(ck('vlm_table_shape', 3, flag=True), ck('vlm_count_mismatch', 3, flag=True)), R)
+        self.assertEqual((p3['class'], p3['action']), ('Н', 'refuse'))
+
     def test_cannot_check_is_refused_without_reseed(self):
         for r in (rec(ck('glb_sane', None, flag=True)), {'sku': 'x', 'checks': [ck('a'), ck('b')]}, rec(ck('mystery', 1.0, flag=True))):
             p = FR.plan_one(r, R)

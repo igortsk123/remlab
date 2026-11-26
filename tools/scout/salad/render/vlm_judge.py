@@ -39,8 +39,12 @@ KINDS = {
     'no_gaps': 'фасад без щелей: ящики или двери на модели слиты в гладкую плиту, щели между ними едва видны или пропали, а на фото ящики/двери/щели между ними есть (если на фото фасад тоже гладкий — «нет»)',
     'count_mismatch': ('число дверей и ящиков не как на фото: СНАЧАЛА в `photo` перечисли по фото, сколько дверей и сколько ящиков в каждом столбце слева направо (например «двери 3; ящики: слева 2, середина 0, справа 2»), '
                        'потом так же в `model` по кадру модели; `verdict` = «да», если число дверей или раскладка/число ящиков различаются (лишние ящики, пропавшие двери, слитые в одну), иначе «нет»; рельеф и ручки не считай'),
+    'table_shape': ('форма стола не как на фото (T-20261126-99/8): СНАЧАЛА в `photo` опиши по фото число и расположение опор (ножек), форму столешницы (прямоугольная, круглая, овальная, треугольная…), есть ли тонкие рейки или стержни и сколько; '
+                    'потом так же в `model` по кадрам модели; `verdict` = «да», если число опор, их расположение, форма столешницы или число/толщина реек и стержней различаются, либо у модели есть явно лишний объём '
+                    '(подставка, плита, брусок), которого на фото нет; ножка, скрытая на фото за другой ножкой, у модели может быть видна — это не различие; гладкость, цвет и ровность краёв не считай'),
     'skewed_body': 'перекос корпуса: углы корпуса не прямые, крышка или боковые стенки скошены/завалены, линии не параллельны, а на фото корпус прямоугольный (кадры модели сняты с перспективой: вертикали слегка сходятся кверху или книзу даже у идеальной коробки — это НЕ перекос; перекос — это завал стенки в одну сторону или явно непрямой угол крышки)',
 }
+PHOTO_MODEL_KINDS = ('count_mismatch', 'table_shape')                       # виды, где модель сперва описывает фото и кадры (поля photo/model), потом решает
 FRAME_LABELS = {'01_az000_clay.png': 'модель, вид спереди', '02_az000_clay_graze.png': 'модель, вид спереди, боковой свет (тени в щелях)', '03_az090_clay.png': 'модель, вид сбоку',
                 '05_az180_clay.png': 'модель, вид сзади', '07_az225_clay.png': 'модель, вид сзади-сбоку', '09_top40_clay.png': 'модель, вид сверху'}
 
@@ -74,7 +78,7 @@ def parse(txt: str, kinds: list[str]) -> dict:
             nope = [x for x in v['details'] if isinstance(x, dict) and str(x.get('on_photo', '')).strip().lower() in ('нет', 'no')]
             v = dict(v, verdict='да' if nope else 'нет', where=v.get('where') or '; '.join(str(x.get('what', ''))[:30] for x in nope)[:120])
         verd = str(v.get('verdict', '')).strip().lower()
-        if k == 'count_mismatch' and (v.get('photo') or v.get('model')):
+        if k in PHOTO_MODEL_KINDS and (v.get('photo') or v.get('model')):
             v = dict(v, where=f"фото: {str(v.get('photo', ''))[:60]}; модель: {str(v.get('model', ''))[:60]}")
         out[k] = {'verdict': {'да': 'yes', 'нет': 'no', 'неясно': 'unclear', 'yes': 'yes', 'no': 'no', 'unclear': 'unclear'}.get(verd, 'bad:' + verd), 'where': str(v.get('where', ''))[:120]}
     return out
@@ -98,7 +102,7 @@ def ask(sku: str, group: str, kinds: list[str], frames: list[str], photo: str, r
     random.Random(f'{sku}:{run}:{group}').shuffle(items)
     order = '; '.join(f'изображение {i + 1} — {t}' for i, (t, _im) in enumerate(items))
     shape = ', '.join(('"%s": {"details": [{"what": "", "on_photo": "да|нет"}], "verdict": "да|нет|неясно", "where": ""}' % k) if k == 'invented_detail' else
-                      ('"%s": {"photo": "", "model": "", "verdict": "да|нет|неясно", "where": ""}' % k) if k == 'count_mismatch' else ('"%s": {"verdict": "да|нет|неясно", "where": ""}' % k) for k in kinds)
+                      ('"%s": {"photo": "", "model": "", "verdict": "да|нет|неясно", "where": ""}' % k) if k in PHOTO_MODEL_KINDS else ('"%s": {"verdict": "да|нет|неясно", "where": ""}' % k) for k in kinds)
     prompt = PROMPT.format(n=len(items), order=order, kinds='\n'.join(f'- {k}: {KINDS[k]}' for k in kinds), shape=shape)
     content = [{'type': 'text', 'text': prompt}] + [{'type': 'image_url', 'image_url': {'url': enc(im)}} for _t, im in items]
     r = chat(model, [{'role': 'user', 'content': content}], timeout=180, tries=4, direct_fallback=False, temperature=0)
