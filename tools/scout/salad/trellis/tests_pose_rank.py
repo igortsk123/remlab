@@ -482,12 +482,14 @@ _o, _i = PR.front_half_pick(_c(90.0, 0.94, 0.9), [_c(10.0, 0.94, 0.9)], {'starts
 check('front_half_pick: боевая в мёртвой зоне (90°) ищет переднюю как при «зад»', _o['cam']['az'] == 10.0 and _i['axes_before'] == 'мёртвая')
 _o, _i = PR.front_half_pick(_pk, [_c(340.8, 0.9442, 0.9409), _c(20.0, 0.95, 0.95)], {'starts': [_c(330.0, 0.9, 0.5)]}, Rfp)
 check('front_half_pick: из передней половины берётся лучшая по оценке (пул = боевая + кандидаты + старты)', _o['cam']['az'] == 20.0 and _i['n_pool'] == 4)
-_o, _i = PR.front_half_pick(_pk, [_c(340.8, 0.9442, 0.9409)], {'starts': []}, on)
-check('front_half_pick: флаг выкл (по умолчанию) — поза не тронута, info {enabled: False}', _o is _pk and _i == {'enabled': False})
+Rfp_off = copy.deepcopy(Rfp)                                                                      # T-99/10: в pose-rank.json флаг ВКЛ, «выкл» проверяем явным правилом (и env 0 — ниже)
+Rfp_off['flip_always']['corpus_axes']['front_pick']['enabled'] = False
+_o, _i = PR.front_half_pick(_pk, [_c(340.8, 0.9442, 0.9409)], {'starts': []}, Rfp_off)
+check('front_half_pick: флаг выкл в правиле — поза не тронута, info {enabled: False}', _o is _pk and _i == {'enabled': False})
 _o, _i = PR.front_half_pick(_pk, [_c(340.8, 0.9442, 0.9409)], {'starts': []}, on, '1')
 check('front_half_pick: env POSE_FRONT_PICK=1 включает при выкл. правиле; env 0 выключает при вкл. правиле', _o['cam']['az'] == 340.8 and PR.front_half_pick(_pk, [_c(340.8, 0.9442, 0.9409)], {'starts': []}, Rfp, '0')[1] == {'enabled': False})
 check('is_corpus_role: комод/шкаф да, диван/стол нет, пусто нет (от flip_always.enabled не зависит)', PR.is_corpus_role('Комод', on) and PR.is_corpus_role('шкаф-купе', on) and not PR.is_corpus_role('диван', on) and not PR.is_corpus_role('', on) and not PR.is_corpus_role(None, on))
-check('front_half_pick: правило в pose-rank.json выкл. по умолчанию', PR.rules()['flip_always']['corpus_axes']['front_pick']['enabled'] is False and 'front_half_pick' in inspect.getsource(PR) and not re.search(r'\d{8,}', inspect.getsource(PR.front_half_pick)))
+check('front_half_pick: правило в pose-rank.json ВКЛ. (T-99/10, слово директора 26.11; env POSE_FRONT_PICK=0 выключает)', PR.rules()['flip_always']['corpus_axes']['front_pick']['enabled'] is True and 'front_half_pick' in inspect.getsource(PR) and not re.search(r'\d{8,}', inspect.getsource(PR.front_half_pick)))
 
 # T-99/5: v2 — окно «каталог слева» az 300…360 ∪ 0…10 (зеркало 3/4: кандидат справа при фото слева не берётся)
 Rw = copy.deepcopy(Rfp)
@@ -503,7 +505,7 @@ _o, _i = PR.front_half_pick(_c(340.0, 0.98, 0.95), [_c(15.9, 0.99, 0.99)], {'sta
 check('v2: боевая в окне (340) → «согласны», лучший справа не берётся', _o['cam']['az'] == 340.0 and _i['verdict'] == 'согласны')
 _o, _i = PR.front_half_pick(_c(5.0, 0.98, 0.95), [], {'starts': []}, Rw)
 check('v2: граница окна — az 5 и 359 «согласны», az 10,5 и 299 вне окна', _i['verdict'] == 'согласны' and PR.front_half_pick(_c(359.0, 0.9, 0.9), [], {'starts': []}, Rw)[1]['verdict'] == 'согласны' and PR.front_half_pick(_c(10.5, 0.9, 0.9), [], {'starts': []}, Rw)[1]['stop'] and PR.front_half_pick(_c(299.0, 0.9, 0.9), [], {'starts': []}, Rw)[1]['stop'])
-check('v2: в pose-rank.json окно [300, 10], флаг выкл.', PR.rules()['flip_always']['corpus_axes']['front_pick']['az_window_deg'] == [300, 10] and PR.rules()['flip_always']['corpus_axes']['front_pick']['enabled'] is False)
+check('v2: в pose-rank.json окно [300, 10], флаг вкл.', PR.rules()['flip_always']['corpus_axes']['front_pick']['az_window_deg'] == [300, 10] and PR.rules()['flip_always']['corpus_axes']['front_pick']['enabled'] is True)
 
 print('all ok' if not bad else f'FAILED: {bad}')
 sys.exit(1 if bad else 0)
