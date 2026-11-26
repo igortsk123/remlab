@@ -259,6 +259,32 @@ def main():
     res = PGM.resolve_patterns([pm_(1, 'no', [30, 5, 15], 'top', 'Panel'), pm_(3, 'unseen', [64, 5, 15], 'body', 'Panel', card={'Материал корпуса': 'массив'})], pm_on)
     check(res[3]['path'] == 'card' and res[3]['decision'] == 'fiber', 'В: другой материал (тон дальше ΔE 6, не ножки) — не наследует, идёт по карточке')
 
+    # 6. T-93/6: поле карточки по РОЛИ части + запрет «не дерево по карточке»
+    card_arm = {'Каркас': 'массив, фанера, ДВП, ДСП', 'Материал ножек (опор)': 'Массив', 'Материал обивки': 'велюр', 'Материал подлокотников': 'ткань обивки'}
+    res = PGM.resolve_patterns([pm_(1, 'unseen', [60, 5, 15], 'body', 'Armrest Horizontal Rod', card=card_arm)], pm_on)
+    check(res[1]['decision'] == 'flat' and res[1]['path'] == 'default' and res[1]['field']['status'] == 'nofield', f'T-93/6: велюровый подлокотник (роль body) при «Каркас = массив» → ровный: «Каркас» соседняя роль, поля для body нет ({res[1]["why"][:70]})')
+    res = PGM.resolve_patterns([pm_(1, 'unseen', [60, 5, 15], 'armrest', 'Armrest', card=card_arm)], pm_on)
+    check(res[1]['decision'] == 'flat' and res[1]['path'] == 'card' and 'ткань' in res[1]['why'], f'T-93/6: подлокотник по роли armrest (поле «Материал подлокотников = ткань обивки») → ровный, «Каркас = массив» не подставляется ({res[1]["why"][:70]})')
+    res = PGM.resolve_patterns([pm_(1, 'unseen', [60, 5, 15], 'legs', 'Leg', card=card_arm), pm_(2, 'unseen', [60, 5, 15], 'frame', 'Frame', card={'Каркас': 'массив бука'})], pm_on)
+    check(res[1]['decision'] == 'fiber' and res[1]['path'] == 'card' and res[2]['decision'] == 'fiber', 'T-93/6: ножки (legs) → «Материал ножек = Массив» → волокно; каркас (frame) → «Каркас = массив бука» → волокно')
+    res = PGM.resolve_patterns([pm_(1, 'unseen', [60, 5, 15], 'unknown', 'Leg', card=card_arm)], pm_on)
+    check(res[1]['decision'] == 'flat' and res[1]['path'] == 'default' and res[1]['field']['status'] == 'unknown', 'T-93/6: роль unknown (даже у «Leg») → «не видно», поля нет → ровный; имя не источник роли')
+    res = PGM.resolve_patterns([pm_(1, 'unseen', [60, 5, 15], None, 'Leg', card=card_arm), pm_(2, 'unseen', [60, 5, 15], '', 'Panel', card={'Материал корпуса': 'массив'})], pm_on)
+    check(res[1]['field']['status'] == 'legacy' and res[1]['decision'] == 'fiber' and res[2]['decision'] == 'fiber' and res[2]['field']['status'] == 'legacy', 'T-93/6: роль не пришла вовсе (None/пусто) — прежнее правило карточки (по имени ножки; корпус)')
+    res = PGM.resolve_patterns([pm_(1, 'unseen', [60, 5, 15], 'legs', 'Leg', card={'Материал корпуса': 'массив'}), pm_(2, 'unseen', [60, 5, 15], 'top', 'Top', card={'Материал ножек': 'Массив', 'Каркас': 'массив'})], pm_on)
+    check(res[1]['decision'] == 'flat' and res[1]['field']['status'] == 'nofield' and res[2]['decision'] == 'flat' and res[2]['field']['status'] == 'nofield', 'T-93/6: поля для роли в карточке нет → ровный; поле соседней роли не подставляется (ножки ← «корпус», столешница ← «ножек»/«каркас»)')
+    cv = {'Материал обивки': 'Вельвет рубчик', 'Каркас': 'массив'}
+    res = PGM.resolve_patterns([pm_(1, 'fiber', [60, 5, 15], 'seat', 'Seat', card=cv), pm_(2, 'fiber', [60, 5, 15], 'legs', 'Leg', card={'Материал ножек': 'массив'})], pm_on)
+    check(res[1]['decision'] == 'flat' and res[1]['path'] == 'card' and 'запрет' in res[1]['why'] and res[2]['decision'] == 'fiber', 'T-93/6: вельвет с уверенным «есть» по мере → ровный (запрет по карточке этой части); ножки рядом с «есть» — волокно')
+    res = PGM.resolve_patterns([pm_(1, 'fiber', [60, 5, 15], 'legs', 'Leg', card={'Материал ножек': 'массив'}), pm_(2, 'unseen', [60, 5, 15], 'legs', 'Leg', card={'Материал ножек': 'экокожа'})], pm_on)
+    check(res[2]['decision'] == 'flat' and 'запрет' in res[2]['why'], 'T-93/6: запрет действует и на голос материала («есть» ножки не кладёт волокно на часть, чья карточка — экокожа)')
+    check(PGM.has_upholstery('ПВХ пленка, лен', PM) and not PGM.has_upholstery('пленка ПВХ, МДФ 19 мм', PM) and PGM.has_upholstery('Велюр Латте', PM) and not PGM.has_upholstery('массив дуба, фанера, ДСП', PM) and PGM.has_upholstery('рогожка', PM) and PGM.has_upholstery('натуральная кожа', PM),
+          'has_upholstery: ткань/велюр/лен/кожа/рогожка — да; «пленка», массив, ДСП — нет (слова целиком)')
+    fs = PGM.field_summary([{'id': 1, 'role': 'body', 'card': card_arm}, {'id': 2, 'role': 'legs', 'card': card_arm}, {'id': 3, 'role': 'unknown', 'card': card_arm}, {'id': 4, 'role': None, 'card': card_arm}], pm_on)
+    check(fs['groups'] == 4 and fs['field_found'] == 1 and fs['field_not_found'] == 1 and fs['role_unknown'] == 1 and fs['role_missing_legacy'] == 1 and fs['field_not_found_ids'] == ['1:body'], f'field_summary: счётчик по статусам поля ({fs})')
+    plan = PG.plan_grain([dict(base, id=1, role='body', card=card_arm, measure={'verdict': 'unseen', 'why': 'т'})], pm_on)
+    check(not plan[1]['apply'] and plan[1]['reason'] == 'measure_flat' and plan[1]['measure']['field']['status'] == 'nofield', 'plan_grain: решение по роли доходит до записи (measure.field), велюровый подлокотник — measure_flat')
+
     bad_n = sum(1 for x in OK if not x)
     print(f'\n{len(OK) - bad_n}/{len(OK)} ok')
     sys.exit(1 if bad_n else 0)

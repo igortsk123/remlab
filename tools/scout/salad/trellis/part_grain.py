@@ -144,7 +144,7 @@ def plan_grain(parts: list, rules: dict | None = None) -> dict:
             continue
         if mres is not None:
             m_ = mres[pid]
-            rec['measure'] = {k: m_[k] for k in ('decision', 'path', 'why', 'verdict', 'from')}
+            rec['measure'] = {k: m_[k] for k in ('decision', 'path', 'why', 'verdict', 'from', 'field') if k in m_}
             if m_['decision'] != 'fiber':
                 rec['reason'] = 'measure_flat'      # «узор» / «нет» / наследование / карточка-плита: библиотечное волокно не кладём, тон остаётся ровным
                 continue

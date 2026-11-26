@@ -181,6 +181,8 @@ def process(a, rules: dict, d: str, rep: dict) -> None:
     fp, pn = PG.planes_for(V, F)
     if (rules.get('pattern_measure') or {}).get('enabled'):                  # T-20261125-93/3: мера «есть рисунок» / «узор» по фото ДО тона Ш4а (выкл — строка не выполняется)
         rep['pattern_measure'] = measure_parts(d, parts, z, V, F, fp, pn, rules)
+        import part_grain_measure as PGM_
+        rep['pattern_measure_fields'] = PGM_.field_summary(parts, rules)       # T-93/6: счётчик «поле карточки для роли не найдено» / «роль не названа»
     axis_ctx = None
     ac = rules.get('axis_check') or {}
     if ac.get('enabled'):                                                  # T-20261124-57/5: контекст проверки оси зерна (кадр 04, фото) — только отчёт
