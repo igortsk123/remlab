@@ -87,6 +87,22 @@ check(float(bot.astype(float).std()) > 1.0, 'на низе есть узор л�
 check(int(ch.sum()) > 10000 and info['перекрашено_текселей'] == int(ch.sum()), 'маска перекрашенного = число в следе (%d)' % int(ch.sum()))
 check((new[128:] != tex[128:]).any(), 'торец (полосы развёртки) перекрашен')
 check((new != tex).any(), 'включённый ключ меняет выход')
+# T-99/11 шаг 3: своё волокно вдоль кромки (edge_own_grain): выкл — байт в байт как раньше; вкл — торец не копия рисунка лица вниз
+tp_e = copy.deepcopy(tp)
+tp_e['edge_own_grain'] = {'enabled': False, 'k': 1.0}
+new_e0, ch_e0, _i0 = TPL.apply(tex, V, UV, F, G, 0, known, tp_e)
+check((new_e0 == new).all() and (ch_e0 == ch).all(), 'edge_own_grain выкл — байт в байт как без ключа')
+check(TPL.__dict__.get('along_share') is not None and 'edge_own_grain' in rules['thin_plate'] and rules['thin_plate']['edge_own_grain']['enabled'] is False, 'в rules-json edge_own_grain.enabled=false по умолчанию')
+tp_e['edge_own_grain']['enabled'] = True
+new_e1, ch_e1, i1 = TPL.apply(tex, V, UV, F, G, 0, known, tp_e)
+check(i1.get('кромка_своё_волокно', 0) > 100 and (new_e1 != new).any(), 'edge_own_grain вкл меняет выход: торцевых текселей со сдвигом %s' % i1.get('кромка_своё_волокно'))
+check((new_e1[:128, :128] == tex[:128, :128]).all() and (new_e1[:128, 128:] == new[:128, 128:]).all(), 'лицо и низ при edge_own_grain те же')
+strip = (slice(128, 154), slice(0, 64))                              # торец z=0 (полоса k=0): столбцы — вдоль кромки, строки — поперёк (толщина)
+cols = np.tile(np.arange(64), (26, 1)).ravel()
+s_off = TPL.along_share(cols, new[strip][..., 0].ravel().astype(float), 64)
+s_on = TPL.along_share(cols, new_e1[strip][..., 0].ravel().astype(float), 64)
+check(s_off > 0.5 and s_on < 0.5 * s_off, 'доля рисунка «только от места вдоль кромки»: копия лица %.2f → своё волокно %.2f (вертикальные штрихи ушли)' % (s_off, s_on))
+check(float(np.abs(new_e1[strip].astype(float).mean((0, 1)) - tex[:128, :128].astype(float).mean((0, 1))).max()) < 8, 'тон торца при edge_own_grain тот же — средний цвет лица')
 # известные на фото торец — свой
 kn = np.zeros_like(known)
 kn[128:, :] = True

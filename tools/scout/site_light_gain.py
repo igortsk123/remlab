@@ -50,16 +50,16 @@ def multipliers(curve: dict, at_srgb: int = 128) -> list:
 
 
 def remap_lin(x: np.ndarray, curve: dict) -> np.ndarray:
-    """x (N,3) — линейное альбедо, подобранное под свет подгонки (отклик там = тон фото). → альбедо, которое под светом САЙТА даёт ТОТ ЖЕ отклик: f = S⁻¹(N(x)) по каналам;
-    N и S — кривые отклика плашки (серый уровень → линейный цвет кадра), кусочно-линейные, (0,0) добавлен; выше предела отклика сайта — 1,0."""
+    """x (N,3) — линейное альбедо, подобранное под свет подгонки (отклик там = тон фото). → альбедо, которое под светом САЙТА даёт ТОТ ЖЕ отклик по ЯРКОСТИ: Y' = S⁻¹(N(Y)),
+    все каналы умножаются на Y'/Y (цветность — оттенок и насыщенность фото — не меняется; по каналам отдельно свет сайта (тёплое солнце) сдвинул оттенок верха Хостера 74,6° → 80,5°,
+    luma_only Ш4а из-за этого и ввели, T-99/7). N и S — кривые отклика серой плашки (по яркости: среднее трёх каналов), кусочно-линейные, (0,0) добавлен; выше предела отклика сайта — 1,0."""
     a = np.concatenate([[0.0], np.asarray(curve['a'], float)])
-    out = np.empty_like(np.asarray(x, float))
-    for c in range(3):
-        n = np.concatenate([[0.0], np.asarray(curve['neutral'], float)[:, c]])
-        s = np.concatenate([[0.0], np.asarray(curve['site'], float)[:, c]])
-        resp = np.interp(x[:, c], a, n)                                   # отклик под светом подгонки
-        out[:, c] = np.interp(resp, s, a)                                 # какое альбедо даёт такой отклик под светом сайта (s монотонна)
-    return np.clip(out, 0.0, 1.0)
+    n = np.concatenate([[0.0], np.asarray(curve['neutral'], float).mean(1)])
+    s = np.concatenate([[0.0], np.asarray(curve['site'], float).mean(1)])
+    x = np.asarray(x, float)
+    y = 0.2126 * x[:, 0] + 0.7152 * x[:, 1] + 0.0722 * x[:, 2]
+    y2 = np.interp(np.interp(y, a, n), s, a)                              # S⁻¹(N(Y))
+    return np.clip(x * (y2 / np.maximum(y, 1e-6))[:, None], 0.0, 1.0)
 
 
 def remap_srgb8(tex: np.ndarray, mask: np.ndarray, curve: dict) -> np.ndarray:

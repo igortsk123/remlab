@@ -43,9 +43,9 @@ def _raster(uv_img, F, sel, T):
     return m.astype(bool)
 
 
-def _texel_pos(sel, V, uv_img, F, PL, T):
-    """Для граней sel → (ix, iy, X, Z): центры текселей внутри UV-треугольника и их позиция в плане (барицентрически)."""
-    ix_l, iy_l, x_l, z_l = [], [], [], []
+def _texel_pos(sel, V, uv_img, F, PL, T, extra=None):
+    """Для граней sel → (ix, iy, X, Z): центры текселей внутри UV-треугольника и их позиция в плане (барицентрически). extra=UP (индекс оси «вверх») — ещё (номер грани, высота) каждого тексели."""
+    ix_l, iy_l, x_l, z_l, f_l, h_l = [], [], [], [], [], []
     for i in np.nonzero(sel)[0]:
         uv = uv_img[F[i]].astype(np.float64) * T
         x0, x1 = int(np.floor(uv[:, 0].min())), int(np.ceil(uv[:, 0].max()))
@@ -67,12 +67,16 @@ def _texel_pos(sel, V, uv_img, F, PL, T):
         iy_l.append(np.floor(gy[m]).astype(np.int64))
         x_l.append(l0[m] * p3[0, PL[0]] + l1[m] * p3[1, PL[0]] + l2[m] * p3[2, PL[0]])
         z_l.append(l0[m] * p3[0, PL[1]] + l1[m] * p3[1, PL[1]] + l2[m] * p3[2, PL[1]])
+        if extra is not None:
+            f_l.append(np.full(int(m.sum()), i, np.int64))
+            h_l.append(l0[m] * p3[0, extra] + l1[m] * p3[1, extra] + l2[m] * p3[2, extra])
     if not ix_l:
         e = np.zeros(0, np.int64)
-        return e, e, np.zeros(0), np.zeros(0)
+        return (e, e, np.zeros(0), np.zeros(0)) + ((e, np.zeros(0)) if extra is not None else ())
     ix, iy = np.concatenate(ix_l), np.concatenate(iy_l)
     ok = (ix >= 0) & (ix < T) & (iy >= 0) & (iy < T)
-    return ix[ok], iy[ok], np.concatenate(x_l)[ok], np.concatenate(z_l)[ok]
+    base = (ix[ok], iy[ok], np.concatenate(x_l)[ok], np.concatenate(z_l)[ok])
+    return base + ((np.concatenate(f_l)[ok], np.concatenate(h_l)[ok]) if extra is not None else ())
 
 
 def apply(tex, V, uv_img, F, face_group, top_gi: int, known, tp: dict):
@@ -145,11 +149,27 @@ def apply(tex, V, uv_img, F, face_group, top_gi: int, known, tp: dict):
     if len(lx) == 0:
         info['reason'] = 'у лица нет текселей'
         return tex, empty, info
-    sx, sy, sX, sZ = _texel_pos(S, V, uv_img, F, PL, T)
+    eog = tp.get('edge_own_grain') or {}
+    eog_on = bool(eog.get('enabled'))
+    if eog_on:
+        sx, sy, sX, sZ, sF, sH = _texel_pos(S, V, uv_img, F, PL, T, extra=UP)
+    else:
+        sx, sy, sX, sZ = _texel_pos(S, V, uv_img, F, PL, T)
     mm = change[sy, sx]
     sx, sy, sX, sZ = sx[mm], sy[mm], sX[mm], sZ[mm]
     tree = cKDTree(np.stack([lX, lZ], 1))
-    dist, idx = tree.query(np.stack([sX, sZ], 1))
+    qX, qZ = sX, sZ
+    n_unfold = 0
+    if eog_on:                                                         # T-99/11 шаг 3 (Fable 14 п.4): торец берёт от лица тон, а волокно — своё, ВДОЛЬ кромки: рисунок лица «разворачиваем» внутрь на глубину тексели под лицом
+        sF, sH = sF[mm], sH[mm]                                         # (кромка = продолжение лица за угол), а не тянем цвет ближайшей точки лица вниз (вертикальные штрихи)
+        pn = n[sF][:, PL]
+        pl = np.linalg.norm(pn, axis=1)
+        un = side[sF] & ~down[sF] & (pl > 0.3)                          # только торцевые грани с понятной плановой нормалью; низ — как раньше
+        dep = np.clip(y_top - sH, 0.0, t * 1.5) * float(eog.get('k', 1.0))
+        sh = np.where(un, dep / np.maximum(pl, 1e-9), 0.0)[:, None] * (-pn)
+        qX, qZ = sX + sh[:, 0], sZ + sh[:, 1]
+        n_unfold = int(un.sum())
+    dist, idx = tree.query(np.stack([qX, qZ], 1))
     spacing = float(np.median(tree.query(np.stack([lX[::50], lZ[::50]], 1), k=2)[0][:, 1]))
     ok = dist < float(tp['max_pair_steps']) * spacing
     out = tex.copy()
@@ -167,10 +187,25 @@ def apply(tex, V, uv_img, F, face_group, top_gi: int, known, tp: dict):
     changed = done | grow
     info.update(applied=True, тонкая=True, граней_низ=int(down.sum()), граней_торец=int(side.sum()), тексели_плиты=int(R_S.sum()), тексели_общие=int((R_S & R_O).sum()),
                 известных_только_на_низе_снято=int(known_dn.sum()), общих_по_владельцу=int((own & ~known).sum()), для_перекраски=int(change.sum()), перекрашено_цветом_лица=int(done.sum()),
-                не_нашли_пары=int((~ok).sum()), дозаполнено_внутри=int(grow_in.sum()), дозаполнено_зазор=int(grow_gap.sum()), перекрашено_текселей=int(changed.sum()))
+                не_нашли_пары=int((~ok).sum()), кромка_своё_волокно=n_unfold, дозаполнено_внутри=int(grow_in.sum()), дозаполнено_зазор=int(grow_gap.sum()), перекрашено_текселей=int(changed.sum()))
     return out, changed, info
 
 
 def _raster_sub(uv_img, F, sel, T):
     """Покрытие в 2× растре, свёрнутое в сетку T: число подпикселей на тексель (владелец общего тексели)."""
     return _raster(uv_img, F, sel, 2 * T).reshape(T, 2, T, 2).sum((1, 3))
+
+
+def along_share(coord, L, nbins: int = 64) -> float:
+    """Доля дисперсии светлоты L, объяснённая ТОЛЬКО положением вдоль кромки coord (дисперсия средних по бинам / полная) — «вертикальные полоски» (Fable 14 п.4: было 34 %, цель ≤ 15 %).
+    coord, L — одномерные массивы по текселям кромки; бины по квантилям coord (равное число текселей)."""
+    coord = np.asarray(coord, float)
+    L = np.asarray(L, float)
+    if len(L) < 2 * nbins or float(L.var()) < 1e-9:
+        return 0.0
+    edges = np.quantile(coord, np.linspace(0, 1, nbins + 1))
+    b = np.clip(np.searchsorted(edges, coord, side='right') - 1, 0, nbins - 1)
+    cnt = np.bincount(b, minlength=nbins).astype(float)
+    mean = np.bincount(b, weights=L, minlength=nbins) / np.maximum(cnt, 1)
+    between = float((cnt * (mean - L.mean()) ** 2).sum() / len(L))
+    return round(between / float(L.var()), 4)
