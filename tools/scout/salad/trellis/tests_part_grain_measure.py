@@ -268,9 +268,9 @@ def main():
     res = PGM.resolve_patterns([pm_(1, 'unseen', [60, 5, 15], 'legs', 'Leg', card=card_arm), pm_(2, 'unseen', [60, 5, 15], 'frame', 'Frame', card={'Каркас': 'массив бука'})], pm_on)
     check(res[1]['decision'] == 'fiber' and res[1]['path'] == 'card' and res[2]['decision'] == 'fiber', 'T-93/6: ножки (legs) → «Материал ножек = Массив» → волокно; каркас (frame) → «Каркас = массив бука» → волокно')
     res = PGM.resolve_patterns([pm_(1, 'unseen', [60, 5, 15], 'unknown', 'Leg', card=card_arm)], pm_on)
-    check(res[1]['decision'] == 'flat' and res[1]['path'] == 'default' and res[1]['field']['status'] == 'unknown', 'T-93/6: роль unknown (даже у «Leg») → «не видно», поля нет → ровный; имя не источник роли')
+    check(res[1]['decision'] == 'fiber' and res[1]['path'] == 'card' and res[1]['field']['role'] == 'legs' and res[1]['field']['role_src'] == 'name', 'T-93/7: ножка unknown в этапе 03, имя Leg → роль legs по имени (leg_part_words) → поле «Материал ножек = Массив» → волокно')
     res = PGM.resolve_patterns([pm_(1, 'unseen', [60, 5, 15], None, 'Leg', card=card_arm), pm_(2, 'unseen', [60, 5, 15], '', 'Panel', card={'Материал корпуса': 'массив'})], pm_on)
-    check(res[1]['field']['status'] == 'legacy' and res[1]['decision'] == 'fiber' and res[2]['decision'] == 'fiber' and res[2]['field']['status'] == 'legacy', 'T-93/6: роль не пришла вовсе (None/пусто) — прежнее правило карточки (по имени ножки; корпус)')
+    check(res[1]['field']['status'] == 'ok' and res[1]['field']['role_src'] == 'name' and res[1]['decision'] == 'fiber' and res[2]['field']['status'] == 'legacy' and res[2]['path'] == 'legacy' and res[2]['decision'] == 'fiber', 'T-93/7: роли нет (None/пусто): имя Leg → ножки; имя Panel → новое правило молчит, прежнее (card_text по корпусу), путь legacy')
     res = PGM.resolve_patterns([pm_(1, 'unseen', [60, 5, 15], 'legs', 'Leg', card={'Материал корпуса': 'массив'}), pm_(2, 'unseen', [60, 5, 15], 'top', 'Top', card={'Материал ножек': 'Массив', 'Каркас': 'массив'})], pm_on)
     check(res[1]['decision'] == 'flat' and res[1]['field']['status'] == 'nofield' and res[2]['decision'] == 'flat' and res[2]['field']['status'] == 'nofield', 'T-93/6: поля для роли в карточке нет → ровный; поле соседней роли не подставляется (ножки ← «корпус», столешница ← «ножек»/«каркас»)')
     cv = {'Материал обивки': 'Вельвет рубчик', 'Каркас': 'массив'}
@@ -281,9 +281,34 @@ def main():
     check(PGM.has_upholstery('ПВХ пленка, лен', PM) and not PGM.has_upholstery('пленка ПВХ, МДФ 19 мм', PM) and PGM.has_upholstery('Велюр Латте', PM) and not PGM.has_upholstery('массив дуба, фанера, ДСП', PM) and PGM.has_upholstery('рогожка', PM) and PGM.has_upholstery('натуральная кожа', PM),
           'has_upholstery: ткань/велюр/лен/кожа/рогожка — да; «пленка», массив, ДСП — нет (слова целиком)')
     fs = PGM.field_summary([{'id': 1, 'role': 'body', 'card': card_arm}, {'id': 2, 'role': 'legs', 'card': card_arm}, {'id': 3, 'role': 'unknown', 'card': card_arm}, {'id': 4, 'role': None, 'card': card_arm}], pm_on)
-    check(fs['groups'] == 4 and fs['field_found'] == 1 and fs['field_not_found'] == 1 and fs['role_unknown'] == 1 and fs['role_missing_legacy'] == 1 and fs['field_not_found_ids'] == ['1:body'], f'field_summary: счётчик по статусам поля ({fs})')
+    check(fs['groups'] == 4 and fs['field_found'] == 1 and fs['field_not_found'] == 1 and fs['role_unknown_legacy'] == 2 and fs['role_source']['role'] == 2 and fs['role_source']['none'] == 2 and fs['field_not_found_ids'] == ['1:body'], f'field_summary: счётчик по статусам поля и источнику роли ({fs})')
     plan = PG.plan_grain([dict(base, id=1, role='body', card=card_arm, measure={'verdict': 'unseen', 'why': 'т'})], pm_on)
     check(not plan[1]['apply'] and plan[1]['reason'] == 'measure_flat' and plan[1]['measure']['field']['status'] == 'nofield', 'plan_grain: решение по роли доходит до записи (measure.field), велюровый подлокотник — measure_flat')
+
+    # 7. T-93/7: роль по цепочке, прежнее правило при незнании роли, top → столешница/корпус, декор «Цвет = порода»
+    res = PGM.resolve_patterns([pm_(1, 'unseen', [60, 5, 15], 'unknown', 'Support Rod', card={'Материал ножек': 'Массив'}), pm_(2, 'unseen', [60, 5, 15], None, 'Panel', card={'Каркас': 'массив бука'})], pm_on)
+    check(res[1]['decision'] == 'fiber' and res[1]['field']['role_src'] == 'name' and res[2]['path'] == 'legacy' and res[2]['decision'] == 'fiber', 'T-93/7: unknown + имя-ножка → ножки; None без имени-ножки → прежнее правило (по имени «каркас» был волокном), а не строгий ровный')
+    res = PGM.resolve_patterns([dict(pm_(1, 'unseen', [60, 5, 15], 'unknown', 'Panel', card={'Материал корпуса': 'ЛДСП'}), role03='body')], pm_on)
+    check(res[1]['field']['role'] == 'body' and res[1]['field']['role_src'] == 'role03' and res[1]['decision'] == 'flat', 'T-93/7: роль Ш4а unknown → роль этапа 03 (role03) берётся следующей в цепочке')
+    res = PGM.resolve_patterns([dict(pm_(1, 'unseen', [60, 5, 15], 'top', 'Panel', card={'Материал корпуса': 'массив'}), role03='legs')], pm_on)
+    check(res[1]['field']['role'] == 'top' and res[1]['field']['role_src'] == 'role', 'T-93/7: роль Ш4а известна — этап 03 и имя её не перебивают')
+    res = PGM.resolve_patterns([pm_(1, 'unseen', [60, 5, 15], 'body', 'Seat Cushion', card={'Основной материал': 'Дерево'}), pm_(2, 'unseen', [60, 5, 15], 'unknown', 'Seat', card={'Материал корпуса': 'массив'})], pm_on)
+    check(res[1]['decision'] == 'flat' and res[1]['path'] == 'card' and res[2]['decision'] == 'flat', 'T-93/7: недеревянное имя (cushion/seat) по-прежнему ПЕРВЫЙ шаг — подушка с ролью body не берёт «Основной материал = Дерево»')
+    card_top = {'Материал столешницы: Цвет столешницы': 'Бежевый', 'Материал корпуса': 'ЛДСП 16 мм', 'Цвет шкафа: Цвет корпуса': 'Дуб Барбера'}
+    res = PGM.resolve_patterns([pm_(1, 'unseen', [60, 5, 15], 'top', 'Top', card=card_top), pm_(2, 'unseen', [60, 5, 15], 'top', 'Top', card={k: v for k, v in card_top.items() if 'столешн' not in k})], pm_on)
+    check(res[1]['decision'] == 'flat' and res[1]['field']['fields'] == ['Материал столешницы: Цвет столешницы'] and res[2]['decision'] == 'fiber' and res[2]['path'] == 'decor' and 'Цвет шкафа: Цвет корпуса' in res[2]['field']['fields'],
+          'T-93/7: top → поле «столешница» (есть — корпус не смотрим, цвет Бежевый → ровный); поля столешницы нет — «корпус»: ЛДСП + Цвет корпуса = Дуб → декор → волокно')
+    res = PGM.resolve_patterns([pm_(1, 'unseen', [60, 5, 15], 'facade', 'Door', card={'Цвет шкафа: Цвет фасада': 'Дуб Тортуга'}), pm_(2, 'unseen', [60, 5, 15], 'facade', 'Door', card={'Цвет шкафа: Цвет фасада': 'Графит'}),
+                                  pm_(3, 'unseen', [60, 5, 15], 'facade', 'Door', card={'Материал фасада': 'МДФ в пленке ПВХ', 'Цвет шкафа: Цвет фасада': 'Графит'}), pm_(4, 'unseen', [60, 5, 15], 'facade', 'Door', card={'Цвет шкафа: Цвет фасада': 'Серый букле'})], pm_on)
+    check(res[1]['decision'] == 'fiber' and res[1]['path'] == 'decor', 'T-93/7: «Цвет = Дуб Тортуга», не видно → волокно (декор под дерево)')
+    check(res[2]['decision'] == 'flat' and res[3]['decision'] == 'flat' and res[3]['path'] == 'card' and res[4]['decision'] == 'flat', 'T-93/7: «Цвет = Графит» (и «букле», «бук» целым словом нет) → ровный; МДФ ПВХ + графит — плита, ровный')
+    res = PGM.resolve_patterns([pm_(1, 'no', [60, 5, 15], 'facade', 'Door', card={'Цвет шкафа: Цвет фасада': 'Дуб Тортуга'})], pm_on)
+    check(res[1]['decision'] == 'flat' and res[1]['path'] == 'measure', 'T-93/7: фото видит («нет») — решает мера, поле цвета не спрашивается')
+    res = PGM.resolve_patterns([pm_(1, 'unseen', [60, 5, 15], 'facade', 'Door', card={'Материал фасада': 'массив ясеня', 'Цвет шкафа: Цвет фасада': 'Графит'}), pm_(2, 'unseen', [60, 5, 15], 'facade', 'Door', card={'Материал фасада': 'ткань', 'Цвет шкафа: Цвет фасада': 'Дуб'})], pm_on)
+    check(res[1]['decision'] == 'fiber' and res[1]['path'] == 'card' and res[2]['decision'] == 'flat', 'T-93/7: материал «массив» приоритетнее цвета; «ткань» в поле материала — ровный даже при «Цвет = Дуб»')
+    check(PGM.has_decor('Дуб Барбера', PM) and PGM.has_decor('Орех, Белый', PM) and PGM.has_decor('цвет ясень', PM) and not PGM.has_decor('Серый букле', PM) and not PGM.has_decor('Натуральное дерево', PM) and not PGM.has_decor('Графит', PM) and not PGM.has_decor('', PM),
+          'has_decor: порода целым словом — да; «букле», «натуральное дерево», графит — нет')
+    check('decor_species_exact' in PM and 'decor_species_stems' in PM and PM['decor_species_exact'] is not PM['solid_words'], 'decor-список — отдельные ключи rules, не solid_words')
 
     bad_n = sum(1 for x in OK if not x)
     print(f'\n{len(OK) - bad_n}/{len(OK)} ok')

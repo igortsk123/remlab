@@ -10,8 +10,9 @@
      (б) направление относительно панели: медианное отклонение направления полос окон от ближайшей оси панели (3D, через якобиан развёртки грани; оси — `part_grain.plane_axes`) ≥ dev_pattern_min_deg
          при ≥ dev_windows_min окон с известной осью (волокно идёт вдоль оси панели; устойчиво диагональное — узор). Круглая/мелкая плоскость — ось неизвестна (признак «не видно»).
   4. решение `resolve_patterns`: «есть» → волокно; «узор» / «нет» → ровный тон; «не видно» → (1) наследовать от группы того же товара той же семьи (ножки/остальное) с тоном в inherit_de76 и решением;
-     (2) нет — карточка в узком смысле, поле ПО РОЛИ части (T-93/6, `role_card` в rules; роль из этапа 03/Ш4а, не из имени): массив/шпон/порода (solid_words) → волокно, ЛДСП/МДФ/ДСП/ПВХ (board_words) → ровный;
-     роль unknown или поля для роли в карточке нет → ровный; в поле ткань/велюр/кожа → ровный; (3) слова неоднозначны → ровный тон. Запрет: поле ЭТОЙ части — ткань/велюр/кожа → волокна нет и при уверенном «есть». Путь (measure / inherit / card / default) — в записи.
+     (2) нет — карточка в узком смысле, поле ПО РОЛИ части (T-93/6–7, `role_card` в rules; роль цепочкой: Ш4а → этап 03 → имя ножки из leg_part_words): массив/шпон/порода (solid_words) → волокно, «Цвет…» с породой (decor_species_*) → волокно «декор под дерево»,
+     ЛДСП/МДФ/ДСП/ПВХ (board_words) → ровный; роль известна, а поля нет → ровный; в поле ткань/велюр/кожа → ровный; роли нет после цепочки → ПРЕЖНЕЕ правило (card_text по имени, путь legacy); (3) слова неоднозначны → ровный тон.
+     Запрет: поле ЭТОЙ части — ткань/велюр/кожа → волокна нет и при уверенном «есть». Путь (measure / material / inherit / card / decor / legacy / default) — в записи.
 Числа — только из rules; ID товаров в коде нет. Маска изломов (fold_near_mask) НЕ вводится (T-93/2: почти ничего не меняет).
 
   python3 tests_part_grain_measure.py
@@ -270,37 +271,67 @@ def has_upholstery(text: str, pm: dict) -> bool:
     return any(t in exact or t.startswith(stems) for t in re.findall(r'[а-яёa-z]+', (text or '').lower()))
 
 
+def has_decor(text: str, pm: dict) -> bool:
+    """В поле «Цвет…» названа ПОРОДА дерева (дуб, орех, ясень, бук, сосна…) = «декор под дерево» (T-93/7): слова целиком — по началу из decor_species_stems или точно из decor_species_exact (не «букле»)."""
+    stems, exact = tuple(pm['decor_species_stems']), set(pm['decor_species_exact'])
+    return any(t in exact or t.startswith(stems) for t in re.findall(r'[а-яёa-z]+', (text or '').lower()))
+
+
+def part_role(p: dict, rules: dict) -> tuple:
+    """Роль части по цепочке (T-93/7, решение Fable): роль Ш4а (`role`) → роль этапа 03 (`role03`, если приходит отдельно) → имя части по УЖЕ имеющемуся списку leg_part_words (→ legs) → ('', '') «роли нет».
+    Роль, которой нет в карте `role_card` (unknown, пусто, чужая), считается неизвестной. Недеревянные имена (non_wood_part_words) отрабатывает вызывающий ПЕРВЫМ шагом, как и раньше.
+    → (роль, источник: 'role' | 'role03' | 'name' | '')."""
+    rc = rules['pattern_measure'].get('role_card') or {}
+    for key in ('role', 'role03'):
+        r = (p.get(key) or '').strip()
+        if r in rc:
+            return r, key
+    if _name_has(p, rules['leg_part_words']):
+        return 'legs', 'name'
+    return '', ''
+
+
 def role_field(card: dict | None, role: str | None, rules: dict) -> dict:
-    """Поле карточки по РОЛИ части (T-93/6, вердикт Fable (а)); роль — из этапа 03 / Ш4а, имя части не используется.
-    → {'status': 'legacy' | 'unknown' | 'nofield' | 'ok', 'text': str, 'fields': [имена полей], 'role': str}:
-      legacy — роль не пришла (None/''): прежнее правило card_text (поля корпуса/ножек по имени); unknown — роль «unknown» или нет в карте role_card: «не видно», поля нет;
-      nofield — у роли в карте есть ключи, но в карточке такого поля нет (соседней роли НЕ подставляем); ok — поля найдены, text — их значения."""
+    """Поле карточки по РОЛИ части (T-93/6, Fable (а); T-93/7 — роль по цепочке `part_role`). role — уже итоговая роль цепочки ('' — роли нет).
+    → {'status': 'legacy' | 'nofield' | 'ok', 'text': материал-поля, 'color_text': поля «Цвет…», 'fields', 'color_fields', 'role'}:
+      legacy — роли нет после всей цепочки: новое правило молчит, работает прежнее (card_text по имени); nofield — роль известна, но поля в карточке нет (соседней роли НЕ подставляем; для top сперва «столешниц», потом «корпус» — role_card_fallback);
+      ok — поля найдены: материал (имя без «цвет») в text, цвета — отдельно в color_text (декор под дерево — не «массив/шпон»)."""
     pm = rules['pattern_measure']
+    rc = pm.get('role_card') or {}
     r = (role or '').strip()
-    if not r:
-        return {'status': 'legacy', 'text': '', 'fields': [], 'role': ''}
-    keys = (pm.get('role_card') or {}).get(r)
-    if r == 'unknown' or not keys:
-        return {'status': 'unknown', 'text': '', 'fields': [], 'role': r}
-    hit = [(k, v) for k, v in (card or {}).items() if any(s in k.lower() for s in keys)]
-    if not hit:
-        return {'status': 'nofield', 'text': '', 'fields': [], 'role': r}
-    return {'status': 'ok', 'text': ' '.join(str(v).lower() for _k, v in hit), 'fields': [k for k, _v in hit], 'role': r}
+    if r not in rc:
+        return {'status': 'legacy', 'text': '', 'color_text': '', 'fields': [], 'color_fields': [], 'role': ''}
+    card = card or {}
+
+    def hits(keys):
+        return [(k, v) for k, v in card.items() if any(s in k.lower() for s in keys)]
+    h = hits(rc[r])
+    if not h:
+        h = hits((pm.get('role_card_fallback') or {}).get(r) or [])
+    if not h:
+        return {'status': 'nofield', 'text': '', 'color_text': '', 'fields': [], 'color_fields': [], 'role': r}
+    col = [(k, v) for k, v in h if 'цвет' in k.lower()]
+    mat = [(k, v) for k, v in h if 'цвет' not in k.lower()]
+    return {'status': 'ok', 'text': ' '.join(str(v).lower() for _k, v in mat), 'color_text': ' '.join(str(v).lower() for _k, v in col),
+            'fields': [k for k, _v in mat], 'color_fields': [k for k, _v in col], 'role': r}
 
 
 def field_summary(parts: list, rules: dict) -> dict:
-    """Счётчик для отчёта (на каталоге названия полей поплывут): сколько групп по статусам поля карточки; перечень «роль есть, поля нет» и «роль не названа»."""
-    cnt = {'ok': 0, 'nofield': 0, 'unknown': 0, 'legacy': 0}
-    nof, unk = [], []
+    """Счётчик для отчёта (на каталоге названия полей поплывут): группы по статусу поля карточки (найдено / не найдено при известной роли / роли нет → прежнее правило) и по источнику роли; id групп «поле не найдено» и «роли нет»."""
+    cnt = {'ok': 0, 'nofield': 0, 'legacy': 0}
+    src = {'role': 0, 'role03': 0, 'name': 0, '': 0}
+    nof, leg = [], []
     for p in parts:
-        f = role_field(p.get('card'), p.get('role'), rules)
+        r, s = part_role(p, rules)
+        f = role_field(p.get('card'), r, rules)
         cnt[f['status']] += 1
+        src[s] += 1
         if f['status'] == 'nofield':
             nof.append('%s:%s' % (p['id'], f['role']))
-        elif f['status'] == 'unknown':
-            unk.append('%s:%s' % (p['id'], f['role']))
-    return {'groups': len(parts), 'field_found': cnt['ok'], 'field_not_found': cnt['nofield'], 'role_unknown': cnt['unknown'], 'role_missing_legacy': cnt['legacy'],
-            'field_not_found_ids': nof, 'role_unknown_ids': unk}
+        elif f['status'] == 'legacy':
+            leg.append('%s:%s' % (p['id'], (p.get('role') or '-')))
+    return {'groups': len(parts), 'field_found': cnt['ok'], 'field_not_found': cnt['nofield'], 'role_unknown_legacy': cnt['legacy'],
+            'role_source': {'role': src['role'], 'role03': src['role03'], 'name': src['name'], 'none': src['']}, 'field_not_found_ids': nof, 'role_unknown_ids': leg}
 
 
 def card_decision(text: str, pm: dict) -> tuple:
@@ -358,16 +389,17 @@ def _tone_d(a: dict, b: dict) -> float:
 
 
 def resolve_patterns(parts: list, rules: dict) -> dict:
-    """{id части: {'decision': 'fiber'|'flat', 'path': 'measure'|'material'|'inherit'|'card'|'default', 'why', 'verdict', 'from'}}. parts[i]: id, name, role, tone_lab, card, measure (dict из `measure_group` | None).
+    """{id части: {'decision': 'fiber'|'flat', 'path': 'measure'|'material'|'inherit'|'card'|'decor'|'legacy'|'default', 'why', 'verdict', 'from'}}. parts[i]: id, name, role, tone_lab, card, measure (dict из `measure_group` | None).
     Порядок (T-93/4): (1) своя мера — «есть»/«узор»/уверенное «нет» («нет» — только по верхней границе Уилсона, см. measure_group);
     (2) МАТЕРИАЛ товара: уверенное «есть» хотя бы у одной группы материала решает за все группы материала (кроме «узора»); (3) «не видно» наследует от уверенной группы материала, СНАЧАЛА с той же ролью, потом любой;
-    (4) карточка в узком смысле — поле ПО РОЛИ части (T-93/6, `role_field`): роль unknown → «не видно», ровный; поля для роли в карточке нет → ровный (поле соседней роли не подставляется); роль не пришла (None) — прежнее правило;
-    в поле ткань/велюр/кожа → ровный; (5) ровный. Запрет: если поле карточки ЭТОЙ части — ткань/велюр/кожа/вельвет, волокна нет и при уверенном «есть» (мера, материал). Части с именем «не дерево» — только своя мера/карточка (в материал не входят)."""
+    (4) карточка в узком смысле — поле ПО РОЛИ части (T-93/6–7, `part_role` + `role_field`): роль цепочкой Ш4а → 03 → имя ножки; роль ИЗВЕСТНА, а поля для неё нет → ровный (поле соседней роли не подставляется; top: «столешниц», запасное «корпус»);
+    роли нет после цепочки (None/unknown) → ПРЕЖНЕЕ правило (path legacy); «Цвет…» с породой → волокно (path decor); в поле ткань/велюр/кожа → ровный; (5) ровный. Запрет: если поле карточки ЭТОЙ части — ткань/велюр/кожа/вельвет, волокна нет и при уверенном «есть» (мера, материал). Части с именем «не дерево» — только своя мера/карточка (в материал не входят)."""
     pm = rules['pattern_measure']
     out = {}
     mat = material_clusters(parts, rules)
     by_id = {p['id']: p for p in parts}
-    fields = {p['id']: role_field(p.get('card'), p.get('role'), rules) for p in parts}           # T-93/6: поле карточки по роли (не по имени)
+    roles = {p['id']: part_role(p, rules) for p in parts}                                        # T-93/7: роль по цепочке Ш4а → 03 → имя ножки → нет
+    fields = {p['id']: role_field(p.get('card'), roles[p['id']][0], rules) for p in parts}       # T-93/6: поле карточки по роли
     for p in parts:
         m = p.get('measure') or {}
         v = m.get('verdict')
@@ -404,16 +436,21 @@ def resolve_patterns(parts: list, rules: dict) -> dict:
             out[p['id']] = {'decision': 'flat', 'path': 'card', 'why': 'имя части — не дерево (%s)' % p.get('name'), 'verdict': 'unseen', 'from': None}
             continue
         f = fields[p['id']]
-        if f['status'] == 'legacy':                                                              # роль не пришла — прежнее правило карточки
+        if f['status'] == 'legacy':                                                              # роли нет после всей цепочки — новое правило молчит, работает ПРЕЖНЕЕ (T-93/7, Fable)
             dec, path, why = card_decision(card_text(p.get('card'), None, p.get('name', ''), rules), pm)
-        elif f['status'] == 'unknown':
-            dec, path, why = 'flat', 'default', 'роль части «%s» — не названа: поля карточки нет, «не видно» → ровный тон' % (f['role'] or 'unknown')
-        elif f['status'] == 'nofield':
+            path, why = 'legacy', 'роль части не известна (%s) — прежнее правило карточки: %s' % (p.get('role') or 'пусто', why)
+        elif f['status'] == 'nofield':                                                           # роль ИЗВЕСТНА, поля нет — строго ровный
             dec, path, why = 'flat', 'default', 'в карточке нет поля для роли «%s» (соседней роли не подставляем) → ровный тон' % f['role']
         elif has_upholstery(f['text'], pm):
             dec, path, why = 'flat', 'card', 'поле карточки роли «%s» (%s): ткань/велюр/кожа → ровный, волокна нет' % (f['role'], '; '.join(f['fields'])[:60])
+        elif any(w in f['text'] for w in pm['solid_words']):
+            dec, path, why = 'fiber', 'card', 'поле карточки роли «%s» (%s): массив/шпон/порода' % (f['role'], '; '.join(f['fields'])[:60])
+        elif has_decor(f['color_text'], pm):                                                     # «Цвет…» с породой = декор под дерево (T-93/7): при «не видно» волокно
+            dec, path, why = 'fiber', 'decor', 'поле цвета роли «%s» (%s): порода дерева — декор под дерево, волокно разрешено' % (f['role'], '; '.join(f['color_fields'])[:60])
+        elif any(w in f['text'] for w in pm['board_words']):
+            dec, path, why = 'flat', 'card', 'поле карточки роли «%s» (%s): плита (ЛДСП/МДФ/ДСП/ПВХ) — ровный тон' % (f['role'], '; '.join(f['fields'])[:60])
         else:
-            dec, path, why = card_decision(f['text'], pm)
+            dec, path, why = 'flat', 'default', 'поле карточки роли «%s»: материал не назван, цвет без породы — ровный тон' % f['role']
         out[p['id']] = {'decision': dec, 'path': path, 'why': why, 'verdict': 'unseen', 'from': None}
     # запрет (T-93/6): карточка ЭТОЙ части называет ткань/велюр/кожу/вельвет → волокна нет даже при уверенном «есть» по мере и по голосу материала
     for p in parts:
@@ -422,5 +459,5 @@ def resolve_patterns(parts: list, rules: dict) -> dict:
             out[p['id']] = {'decision': 'flat', 'path': 'card', 'verdict': o.get('verdict'), 'from': None,
                             'why': 'запрет: поле карточки роли «%s» (%s) — ткань/велюр/кожа: волокна нет, хотя было «%s» (%s)' % (f['role'], '; '.join(f['fields'])[:60], o['path'], (o.get('why') or '')[:50])}
     for p in parts:
-        out[p['id']]['field'] = {'role': fields[p['id']]['role'], 'status': fields[p['id']]['status'], 'fields': fields[p['id']]['fields'][:4]}
+        out[p['id']]['field'] = {'role': fields[p['id']]['role'], 'role_src': roles[p['id']][1], 'status': fields[p['id']]['status'], 'fields': (fields[p['id']]['fields'] + fields[p['id']]['color_fields'])[:4]}
     return out
