@@ -286,6 +286,14 @@ with tempfile.TemporaryDirectory() as run:
     pl = {i['stage']: i for i in RA.plan(run, 'k', dict(A, product_role='комод'), REAL, CR, only=['07'])}
     ok(pl['07']['steps'][0]['argv'][-1] == '--no-parts-npz', 'только этап 7 без прошедшего 3 → запасной путь')
 
+# 9б. роль товара — всегда в argv камеры 04 (T-99/7 26.11, р.6: без --role pose_fit не включал front_pick у корпусных, перёд верный 2 из 7 → 7 из 7 с ролью)
+ctx9b = RA.make_ctx('/r', 'k', {'native': 'n', 'photo': 'p', 'product_role': 'комод', 'channels': '', 'root': '/x'}, REAL)
+a04 = RA.resolve_steps(REAL['stages']['04'], ctx9b)[0]['argv']
+ok('--role' in a04 and a04[a04.index('--role') + 1] == 'комод', 'план этапа 04 для роли «комод» содержит `--role комод` у pose_fit.py')
+ok(a04[1].endswith('pose_fit.py'), 'первый шаг этапа 04 — pose_fit.py')
+ctx9c = RA.make_ctx('/r', 'k', {'native': 'n', 'photo': 'p', 'product_role': '', 'channels': '', 'root': '/x'}, REAL)
+ok('--role' not in RA.resolve_steps(REAL['stages']['04'], ctx9c)[0]['argv'], 'роли нет → флаг выпадает целиком (пустое значение не уходит в pose_fit)')
+
 # 10. интерпретатор этапа — из правил (`pythons`, `stages.<этап>.python`, `default_python`), не из кода (T-20261121-169/5: 05 нужен venv delight с diffusers)
 HOME = os.path.expanduser('~')
 ctx10 = RA.make_ctx('/r', 'k', {'native': 'n', 'photo': 'p', 'product_role': '', 'channels': '', 'root': '/x'}, REAL)
