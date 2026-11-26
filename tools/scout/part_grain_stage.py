@@ -77,6 +77,53 @@ def group_photo_sigma(L_frame, valid, ids, cos_f, face_group, roles, face_ny, ru
     return out
 
 
+def strip_sigma(L, mask, blur_frac: float, erode_px: int, min_texels: int):
+    """Разброс светлоты «в полосе рисунка»: σ(L − размытие) по текселям mask (эродированной): то, что Fable 14 называет «обычным разбросом в полосе» (мелкая полоса: волокно, не тон и не свет).
+    blur_frac — σ размытия в долях стороны текстуры (15 px при 2048 → 0,0073). → σ или None (мало текселей)."""
+    import cv2
+    T = L.shape[0]
+    L = np.asarray(L, np.float32)
+    hf = L - cv2.GaussianBlur(L, (0, 0), max(1.0, float(blur_frac) * T))
+    k = 2 * int(erode_px) + 1
+    me = cv2.erode(np.asarray(mask, np.uint8), np.ones((k, k), np.uint8)).astype(bool)
+    if int(me.sum()) < int(min_texels):
+        return None
+    return float(hf[me].std())
+
+
+def amp_from_strip(d: str, parts: list, tex_new, rules: dict, rep: dict) -> dict:
+    """T-99/11 шаг 4 (Fable 14 п.3): размах волокна — по ФОТО, не по потолку библиотеки. По каждой применённой группе: σ полосы фото (известные тексели ∩ группа, фото-текстура ДО тона Ш4а)
+    и σ полосы нашей новой текстуры (вся группа); k = clip(цель · σ_фото / σ_наша, 1, k_max) — множитель на размах группы (k ≤ 1 — не гасим: ослаблять — дело предохранителей зерна). → {id: k}."""
+    import part_grain_measure as PGM
+    import tex_visible as TV
+    from PIL import Image
+    cfg = rules['amp_strip']
+    def pick(pre, cur):
+        p_ = os.path.join(d, pre)
+        return p_ if os.path.exists(p_) else os.path.join(d, cur)
+    gp = TV.load_shape(pick('visible.pre-partmaterial.glb', 'visible.glb'))[0]
+    L_ph = PGM.lab_L(np.asarray(gp['tex'])[..., :3])
+    L_new = PGM.lab_L(np.asarray(tex_new)[..., :3])
+    T = L_ph.shape[0]
+    kp = pick('known.pre-partmaterial.png', 'known.png')
+    known = np.asarray(Image.open(kp).convert('L')) > 127 if os.path.exists(kp) else np.zeros((T, T), bool)
+    z = np.load(os.path.join(d, 'part_material_masks.npz'))
+    gm = np.asarray(z['group_map'])
+    out = {}
+    for p in parts:
+        grp = gm == p['id']
+        sf = strip_sigma(L_ph, grp & known, cfg['blur_frac'], cfg['erode_px'], cfg['min_texels'])
+        so = strip_sigma(L_new, grp, cfg['blur_frac'], cfg['erode_px'], cfg['min_texels'])
+        e = {'σ_фото': None if sf is None else round(sf, 3), 'σ_наша': None if so is None else round(so, 3), 'k': 1.0}
+        if sf is not None and so is not None and so > 1e-6:
+            k = float(np.clip(float(cfg['target']) * sf / so, 1.0, float(cfg['k_max'])))
+            e['k'] = round(k, 3)
+            if k > 1.0 + 1e-6:
+                out[p['id']] = k
+        rep.setdefault('amp_strip', {})[str(p['name'])] = e
+    return out
+
+
 def measure_parts(d: str, parts: list, z: dict, V, F, fp, pn, rules: dict) -> dict:
     """Мера группы по ФОТО-текстуре до тона Ш4а (`*.pre-partmaterial.*`; нет — текущие файлы 06): parts[i]['measure'] = `part_grain_measure.measure_group`. → {имя группы: запись} для следа."""
     import part_grain_measure as PGM
@@ -226,6 +273,15 @@ def process(a, rules: dict, d: str, rep: dict) -> None:
         fpz = np.asarray(np.load(pnp)['part']).astype(np.int64)
         face_part = fpz if len(fpz) == nF else None
     new, r = PG.apply_grain(tex, tx, parts, masks, fp, pn, cpu, width, rules, enabled=True, axis_ctx=axis_ctx, face_part=face_part)
+    if (rules.get('amp_strip') or {}).get('enabled'):                     # T-99/11 шаг 4: размах по фото — второй проход с множителем на группу (выкл — строки не выполняются)
+        ks = amp_from_strip(d, parts, new, rules, rep)
+        if ks:
+            plan2 = PG.plan_grain(parts, rules)
+            for pid, k in ks.items():
+                if plan2.get(pid, {}).get('apply') and plan2[pid].get('amp') is not None:
+                    plan2[pid]['amp'] = float(plan2[pid]['amp']) * k
+            new, r = PG.apply_grain(tex, tx, parts, masks, fp, pn, cpu, width, rules, enabled=True, plan=plan2, axis_ctx=axis_ctx, face_part=face_part)
+            rep['amp_strip_applied'] = {str(pid): round(k, 3) for pid, k in ks.items()}
     rep['groups'] = {str(k): dict(v, name=names[k]) for k, v in r['parts'].items()}
     rep.update(applied=r['applied'], skipped=r['skipped'], texels_changed=r['texels_changed'], planes=int(len(pn)))
     tp_mask = None

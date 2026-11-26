@@ -554,6 +554,29 @@ def apply_grain(tex, tx, parts: list, masks: dict, face_plane, plane_normal, cm_
         pp_min = int(rules.get('axis_per_part_min_texels', 200))
         pp_round = float(rules.get('axis_per_part_round_ratio', 1.1))                     # «круглая деталь» — отношение главных осей (дисперсий) ≤ этого
         groups = [int(g) for g in np.unique(fpt[sel])]
+        acx = rules.get('axis_check') or {}
+        swap_by_plane, swap_part = {}, False
+        if acx.get('enabled') and acx.get('apply') and axis_ctx is not None and any(w in str(p.get('name', '')).lower() for w in acx['part_words']):
+            # T-99/11 шаг 4 (Fable 14 п.3): направление волокна — по ФОТО: плоскость с подсказкой фото берёт ту из осей (c1 вдоль / c2 поперёк), что ближе к волокнам фото;
+            # плоскость без подсказки (оборот, низ, не видна) — решение части целиком (взвешенное по числу текселей голосов); нет голосов — как раньше (по форме)
+            votes = {True: 0, False: 0}
+            for g in groups:
+                tg = sel & (fpt == g)
+                if g < 0 or int(tg.sum()) < rules['min_plane_texels']:
+                    continue
+                qg = tx.Q[tg] * scale
+                c1g, c2g, rlg = plane_axes(qg, plane_normal[g], width_axis, rules)
+                v1 = axis_check_plane(qg, plane_normal[g], c1g, rlg, axis_ctx, tx.f[tg], acx, rules)
+                if v1['verdict'] not in ('axis_off_photo', 'axis_ok_photo'):
+                    continue
+                if v1['verdict'] == 'axis_ok_photo':
+                    swap_by_plane[g] = False
+                else:
+                    v2 = axis_check_plane(qg, plane_normal[g], c2g, rlg, axis_ctx, tx.f[tg], acx, rules)
+                    swap_by_plane[g] = bool(v2['verdict'] == 'axis_ok_photo')
+                votes[swap_by_plane[g]] += int(tg.sum())
+            swap_part = votes[True] > votes[False]
+            r['axis_apply'] = {'планы_по_фото': {str(g): ('поперёк→вдоль' if v else 'как было') for g, v in swap_by_plane.items()}, 'голоса_текселей': {'повернуть': votes[True], 'оставить': votes[False]}, 'часть_повёрнута': bool(swap_part)}
         for g in groups:
             tgt = sel & (fpt == g)
             if not tgt.any():
@@ -562,6 +585,8 @@ def apply_grain(tex, tx, parts: list, masks: dict, face_plane, plane_normal, cm_
             nn = tx.N[tgt]
             if g >= 0 and int(tgt.sum()) >= rules['min_plane_texels']:
                 c1, c2, _rl = plane_axes(q, plane_normal[g], width_axis, rules)
+                if acx.get('apply') and acx.get('enabled') and axis_ctx is not None and swap_by_plane.get(g, swap_part):          # шаг 4: ось — по фото (или решению части)
+                    c1, c2 = c2, _unit(np.cross(_unit(plane_normal[g], (0, 1, 0)), c2), (0, 0, 1))
                 ac = rules.get('axis_check') or {}
                 if ac.get('enabled') and axis_ctx is not None and any(w in str(p.get('name', '')).lower() for w in ac['part_words']):      # T-20261124-57/5: только отчёт — зерно и текстуру не меняет
                     r.setdefault('axis', []).append(dict(plane=g, n_texels=int(tgt.sum()), **axis_check_plane(q, plane_normal[g], c1, _rl, axis_ctx, tx.f[tgt], ac, rules)))

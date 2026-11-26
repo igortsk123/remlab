@@ -146,6 +146,19 @@ def main():
     # 6. масштаб по карточке
     cm = PG.cm_per_unit(2.0, {'Габаритные размеры, длина, см': '120', 'Габаритные размеры, высота, см': '75'}, PG.load_rules())
     check(abs(cm - 60.0) < 1e-9 and PG.cm_per_unit(2.0, {}, PG.load_rules()) is None and PG.cm_per_unit(2.0, None, PG.load_rules()) is None, 'cm_per_unit: наибольший габарит карточки / габарит меша; нет карточки → None')
+    # 7. T-99/11 шаг 4: размах по фото (amp_strip) и ось по фото (axis_check.apply) — выключены по умолчанию; strip_sigma
+    rl = PG.load_rules()
+    check((rl.get('amp_strip') or {}).get('enabled') is False and (rl.get('axis_check') or {}).get('apply') is False, 'amp_strip.enabled и axis_check.apply выключены в rules-json (выкл = как в main)')
+    n2 = 256
+    rg = np.random.default_rng(3)
+    base = np.linspace(40, 60, n2 * n2, dtype=np.float32).reshape(n2, n2)
+    m_all = np.ones((n2, n2), bool)
+    s_a = ST.strip_sigma(base + rg.normal(0, 1.0, (n2, n2)).astype(np.float32), m_all, 0.0073, 5, 100)
+    s_b = ST.strip_sigma(base + rg.normal(0, 3.0, (n2, n2)).astype(np.float32), m_all, 0.0073, 5, 100)
+    check(s_a is not None and s_b is not None and 2.4 < s_b / s_a < 3.6, 'strip_sigma растёт с размахом рисунка (σ 1 → 3): %.2f → %.2f; плавный свет (градиент 40…60) в полосу не входит' % (s_a, s_b))
+    check(ST.strip_sigma(base, np.zeros((n2, n2), bool), 0.0073, 5, 100) is None, 'strip_sigma: маска пуста → None (нет оценки)')
+    src_ = open(os.path.join(os.path.dirname(os.path.abspath(__file__)), 'part_grain_stage.py'), encoding='utf-8').read()
+    check("rules.get('amp_strip') or {}).get('enabled')" in src_ and 'plan=plan2' in src_, 'второй проход зерна идёт только под amp_strip.enabled')
     bad = sum(1 for x in OK if not x)
     print(f'\n{len(OK) - bad}/{len(OK)} ok')
     sys.exit(1 if bad else 0)
