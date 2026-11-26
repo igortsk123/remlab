@@ -975,6 +975,41 @@ def face_gate(fin: np.ndarray, ctl: np.ndarray, region: np.ndarray, rules: dict,
     return res
 
 
+def fill_pattern_unknown(tex: np.ndarray, texmap: np.ndarray, painted: np.ndarray, known: np.ndarray, names: list, keep: set, rules: dict) -> tuple[np.ndarray, np.ndarray, dict]:
+    """T-97/1 фаза 6 (rules.pattern_unknown): тексели узорной группы (рисунок фото оставлен, `keep`) БЕЗ фото берут ТОН ГРУППЫ — медиану цвета её известных (фото) текселей в текстуре 06 — вместо светлого заполнителя 06
+    (в 06 такие тексели светлее рисунка: у фасада 30015317 — 17,7 % светлее +5 L, 99 % без фото). Фото-тексели не трогаются ни на байт. Группа с известных < min_known_px — не заливаем (тона нет, причина в отчёте).
+    Залитые тексели входят в `painted` → «тон-только» (07 кладёт фактуру поверх, но не перекрашивает), group_map. → (текстура, painted, {группа: запись}); сторож: доля текселей без фото светлее тона на +guard_dl L до и после."""
+    pu = rules['pattern_unknown']
+    out, pn = tex.copy(), painted.copy()   # правила — rules.pattern_unknown {enabled, min_known_px, guard_dl}
+    info = {}
+    for gi, gn in enumerate(names):
+        if gn not in keep:
+            continue
+        m = texmap == gi
+        kn_g = m & known
+        un_g = m & ~known & ~painted
+        rec = {'известных_текселей': int(kn_g.sum()), 'без_фото': int(un_g.sum())}
+        if kn_g.sum() < int(pu['min_known_px']):
+            rec['залито'] = 0
+            rec['причина'] = 'известных текселей %d < min_known_px %d: тона группы нет' % (int(kn_g.sum()), int(pu['min_known_px']))
+            info[gn] = rec
+            continue
+        col = np.median(tex[kn_g].astype(np.float64), axis=0)
+        col_u8 = np.clip(col + 0.5, 0, 255).astype(np.uint8)
+        l_ref = float(np.median(lab_of(tex[kn_g])[:, 0]))
+        if un_g.any():
+            lu = lab_of(tex[un_g])[:, 0]
+            rec['светлее_до'] = round(float((lu > l_ref + float(pu['guard_dl'])).mean()), 4)
+        out[un_g] = col_u8
+        pn |= un_g
+        if un_g.any():
+            lu2 = lab_of(out[un_g])[:, 0]
+            rec['светлее_после'] = round(float((lu2 > l_ref + float(pu['guard_dl'])).mean()), 4)
+        rec.update(залито=int(un_g.sum()), тон_srgb=[int(x) for x in col_u8], L_известных=round(l_ref, 2))
+        info[gn] = rec
+    return out, pn, info
+
+
 def fit_albedo(names: list, tones: dict, borrowed: dict, keep: set, texmap: np.ndarray, ctl: np.ndarray, render_cam, label_map: np.ndarray, rules: dict) -> tuple[dict, list]:
     """Подбор альбедо по кадру под светом сайта: кадр с камеры фото (`render_cam(tex) → rgb`), метки групп на кадре — label_map (пиксель → группа). Альбедо *= тон фото / тон кадра."""
     fit = rules['fit']

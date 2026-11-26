@@ -552,5 +552,36 @@ check(g_two['fail'] and not g_sum_off['fail'], 'T-97: ключ gate.spot_worst_e
 check(PM.face_gate(hand.copy(), hand, rg4, R, 4.0)['seam_min_len_px'] != PM.face_gate(hand.copy(), hand, rg4, R_on, 4.0)['seam_min_len_px'], 'T-97: ключ gate.seam_min_len_cm меняет длину щели в пикселях')
 check(PM.same_material(L_(74.1, -2.1, -0.7), L_(72.2, -1.8, 7.3), R['same_material'])[0] != PM.same_material(L_(74.1, -2.1, -0.7), L_(72.2, -1.8, 7.3), R_on['same_material'])[0], 'T-97: ключ same_material.neutral_ab меняет вердикт «один материал»')
 
+# ── T-97/1 фаза 6: тексели узорной группы без фото — тоном группы, не заполнителем 06 (rules.pattern_unknown)
+check(R['pattern_unknown']['enabled'] is False, 'T-97 ф.6: по умолчанию выключено (тексели без фото остаются заполнителем 06, как в main)')
+_rng = np.random.default_rng(11)
+_T = 64
+_tm = np.zeros((_T, _T), np.int16)
+_tm[:, 32:] = 1
+_kn = np.zeros((_T, _T), bool)
+_kn[:, :16] = True                                                    # группа 0 («узор»): фото только слева
+_kn[:, 32:] = True
+_tx = np.zeros((_T, _T, 3), np.uint8)
+_tx[:, :32] = (230, 225, 220)                                         # заполнитель 06 — светлый
+_tx[:, :16] = np.clip(np.array([120, 80, 60]) + _rng.integers(-12, 13, (_T, 16, 3)), 0, 255).astype(np.uint8)
+_tx[:, 32:] = (90, 60, 40)
+_pn0 = np.zeros((_T, _T), bool)
+_pn0[:, 32:] = True
+_Rp = _cp.deepcopy(R)
+_Rp['pattern_unknown'].update(enabled=True, min_known_px=100)
+_nt, _np, _inf = PM.fill_pattern_unknown(_tx, _tm, _pn0, _kn, ['узор', 'тон'], {'узор'}, _Rp)
+_un = (_tm == 0) & ~_kn
+check(_inf['узор']['залито'] == int(_un.sum()) and bool((_nt[_un] == _nt[_un][0]).all()), 'T-97 ф.6: все тексели узорной группы без фото = один тон (%d текселей)' % int(_un.sum()))
+check(bool((_nt[_kn] == _tx[_kn]).all()) and bool((_nt[_tm == 1] == _tx[_tm == 1]).all()), 'T-97 ф.6: фото-тексели и чужая группа не тронуты ни на байт')
+check(abs(_nt[_un][0].astype(int) - np.median(_tx[_kn & (_tm == 0)].astype(int), axis=0)).max() <= 1, 'T-97 ф.6: тон = медиана цвета известных текселей группы (%s)' % _inf['узор']['тон_srgb'])
+check(_inf['узор']['светлее_до'] == 1.0 and _inf['узор']['светлее_после'] == 0.0, 'T-97 ф.6: сторож «светлее +5 L»: до 100 %% заполнителя, после 0 %% (%s → %s)' % (_inf['узор']['светлее_до'], _inf['узор']['светлее_после']))
+check(bool(_np[_un].all()) and int(_np.sum()) == int(_pn0.sum() + _un.sum()), 'T-97 ф.6: залитые тексели входят в painted («тон-только»), чужие не добавлены')
+_Rm = _cp.deepcopy(_Rp)
+_Rm['pattern_unknown']['min_known_px'] = 100000
+_nt2, _np2, _inf2 = PM.fill_pattern_unknown(_tx, _tm, _pn0, _kn, ['узор', 'тон'], {'узор'}, _Rm)
+check(np.array_equal(_nt2, _tx) and np.array_equal(_np2, _pn0) and _inf2['узор']['залито'] == 0 and 'тона группы нет' in _inf2['узор']['причина'], 'T-97 ф.6: мало известных текселей — не заливаем, причина в отчёте; ключ min_known_px меняет выход')
+_nt3, _np3, _inf3 = PM.fill_pattern_unknown(_tx, _tm, _pn0, _kn, ['узор', 'тон'], set(), _Rp)
+check(np.array_equal(_nt3, _tx) and not _inf3, 'T-97 ф.6: нет узорных групп (keep пуст) — ничего не меняется')
+
 print('\nИТОГО: %d провалов' % len(FAILS))
 sys.exit(1 if FAILS else 0)
