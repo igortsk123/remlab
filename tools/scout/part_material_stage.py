@@ -212,8 +212,15 @@ def process(a, rules: dict, d: str, rep: dict) -> None:
         PM.render_jobs([{'glb': os.path.join(work, 'it.glb'), 'out': os.path.join(work, 'it-cam.png'), 'orbit': orb_cam, 'size': S}], rules, work)
         return np.asarray(Image.open(os.path.join(work, 'it-cam.png')).convert('RGB'))
 
-    if rules['fit']['hprime']['enabled']:                                      # H′: узкая группа не подгоняется отдельно — общая поправка товара (ключ fit.hprime.enabled)
-        alb, hist, rep['hprime'] = PM.fit_albedo_hprime(names, tones, borrowed, keep, texmap, ctl, render_cam, lm_cam, rules)
+    def render_top(tex: np.ndarray) -> np.ndarray:                              # тот же свет, размер и шероховатость, что render_cam; меняется только orbit (A3g)
+        PM.swap_tex_glb(base, tex, os.path.join(work, 'it.glb'), rough=rules['unlit_roughness'])
+        PM.render_jobs([{'glb': os.path.join(work, 'it.glb'), 'out': os.path.join(work, 'it-top.png'), 'orbit': fit['top_orbit'], 'size': S}], rules, work)
+        return np.asarray(Image.open(os.path.join(work, 'it-top.png')).convert('RGB'))
+
+    if rules['fit']['hprime']['a3g']['enabled'] and not rules['fit']['hprime']['enabled']:
+        raise Abstain('правила: fit.hprime.a3g.enabled требует fit.hprime.enabled')
+    if rules['fit']['hprime']['enabled']:                                      # H′: узкая группа не подгоняется отдельно — общая поправка товара (ключ fit.hprime.enabled); A3g — внутри (fit.hprime.a3g.enabled)
+        alb, hist, rep['hprime'] = PM.fit_albedo_hprime(names, tones, borrowed, keep, texmap, ctl, render_cam, lm_cam, rules, render_top, lm_top)
     else:
         alb, hist = PM.fit_albedo(names, tones, borrowed, keep, texmap, ctl, render_cam, lm_cam, rules)
     tex, painted = PM.compose(ctl, texmap, names, alb, borrowed, keep)

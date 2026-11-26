@@ -173,7 +173,7 @@ want = np.clip(PM.lin2srgb(tones2['верх']['lin']) + 0.5, 0, 255)
 check(np.abs(fr[0, 0].astype(float) - want).max() <= 1.5 and len(hist) == R['fit']['iters'], 'подбор: кадр под светом совпал с тоном фото (потеря света 0,8 скомпенсирована)')
 
 # ── H′ (T-97 шаг 2): узкая группа не подгоняется отдельно — общая поправка товара; ключ fit.hprime.enabled
-Rh = _cp.deepcopy(R); Rh['fit']['hprime'].update(enabled=True, nrel=0.5)
+Rh = _cp.deepcopy(R); Rh['fit']['hprime'].update(enabled=True, nrel=0.4)
 check(R['fit']['hprime']['enabled'] is False, 'H′: по умолчанию выкл (fit.hprime.enabled=false)')
 
 
@@ -192,6 +192,29 @@ check(not np.allclose(alb_h['ножки'], alb_p['ножки']), 'H′: ключ
 Rh0 = _cp.deepcopy(Rh); Rh0['fit']['hprime']['nrel'] = 5.0
 alb_0, _h3, log_0 = PM.fit_albedo_hprime(names2, tones2, {}, set(), texmap, ctl, render_dark, lm_n, Rh0)
 check(log_0['решения']['верх'].get('не_измерено') and np.allclose(alb_0['верх'], tones2['верх']['lin']) and np.allclose(alb_0['ножки'], tones2['ножки']['lin']), 'H′: ни одной надёжной — «не измерено», тон как есть')
+
+# ── A3g (T-97 шаг 4): узкую группу подгоняем по виду сверху, принимаем только если не зажим и ближе к сырому (в кадре камеры) на ≥ gain_min L
+Rg = _cp.deepcopy(Rh); Rg['fit']['hprime']['a3g']['enabled'] = True
+check(R['fit']['hprime']['a3g']['enabled'] is False, 'A3g: по умолчанию выкл (fit.hprime.a3g.enabled=false)')
+lm_top_t = np.zeros((T, T), np.int16); lm_top_t[:, 8:] = 1                          # сверху обе группы широкие
+
+
+def run_a3(fac_top, leg_lin, rules_):
+    tn = {'верх': tones2['верх'], 'ножки': {'own': True, 'lin': np.array(leg_lin)}}
+
+    def rtop(tex_):
+        return np.clip(PM.lin2srgb(PM.srgb2lin(tex_) * np.where(np.arange(T)[None, :, None] < 8, 0.8, fac_top)) + 0.5, 0, 255).astype(np.uint8)
+    return PM.fit_albedo_hprime(names2, tn, {}, set(), texmap, ctl, render_dark, lm_n, rules_, rtop, lm_top_t), tn
+
+
+(alb_a, _ha, log_a), tn_a = run_a3(0.4, [0.2, 0.3, 0.1], Rg)
+(alb_n, _hn, log_n), _tn = run_a3(0.4, [0.2, 0.3, 0.1], Rh)
+check(log_a['решения']['ножки']['A3g_исход'] == 'принято' and log_a['решения']['ножки']['A3g_сокращение_расстояния'] >= Rg['fit']['hprime']['a3g']['gain_min'], 'A3g: подгонка по виду сверху ближе к сырому в кадре камеры на ≥ порога → принято')
+check(not np.allclose(alb_a['ножки'], alb_n['ножки']) and np.allclose(alb_a['верх'], alb_n['верх']), 'A3g: ключ меняет результат (узкая группа ≠ поправка H′), надёжная не тронута')
+(alb_b, _hb, log_b), _tn = run_a3(0.9, [0.2, 0.3, 0.1], Rg)
+check(log_b['решения']['ножки']['A3g_исход'] == 'откат: не ближе' and np.allclose(alb_b['ножки'], alb_n['ножки']), 'A3g: подгонка не ближе → откат на поправку H′')
+(alb_c, _hc, log_c), _tn = run_a3(0.4, [0.9, 0.9, 0.9], Rg)
+check(log_c['решения']['ножки']['A3g_исход'] == 'откат: зажим', 'A3g: альбедо в зажиме (канал ≥ 254) → откат')
 
 # ── A2 (T-97 шаг 3): значение тона — с СЫРОГО фото, 05 — чистильщик; ключи pixels.tone_raw / pixels.cluster_raw
 check(R['pixels']['tone_raw'] is False and R['pixels']['cluster_raw'] is False, 'A2: по умолчанию выкл (pixels.tone_raw, pixels.cluster_raw = false)')

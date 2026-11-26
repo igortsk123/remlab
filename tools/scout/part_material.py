@@ -1003,7 +1003,7 @@ def _luma(lin) -> float:
     return float(0.2126 * lin[0] + 0.7152 * lin[1] + 0.0722 * lin[2])
 
 
-def fit_albedo_hprime(names: list, tones: dict, borrowed: dict, keep: set, texmap: np.ndarray, ctl: np.ndarray, render_cam, label_map: np.ndarray, rules: dict) -> tuple[dict, list, dict]:
+def fit_albedo_hprime(names: list, tones: dict, borrowed: dict, keep: set, texmap: np.ndarray, ctl: np.ndarray, render_cam, label_map: np.ndarray, rules: dict, render_top=None, label_top: np.ndarray | None = None) -> tuple[dict, list, dict]:
     """H′ (rules.fit.hprime): подбор как fit_albedo, затем группы с узкой полоской в кадре камеры (px < nrel × самой большой или < min_frame_px) НЕ держат свой подбор —
     берут общую поправку товара g (медиана с весом px по надёжным группам Y(альбедо)/Y(тон)), применённую к СВОЕМУ тону. Надёжных нет — «не измерено» (тон как есть).
     → (альбедо, история, журнал решений для отчёта)."""
@@ -1043,6 +1043,45 @@ def fit_albedo_hprime(names: list, tones: dict, borrowed: dict, keep: set, texma
         old = [int(x) for x in lin2srgb(alb[gn])]
         alb[gn] = np.asarray(tones[gn]['lin'], float) * gprod
         log['решения'][gn] = {'g': round(gprod, 3), 'tone_было': old, 'tone_стало': [int(x) for x in lin2srgb(alb[gn])]}
+    a3 = hp['a3g']
+    if a3['enabled'] and unrel and render_top is not None:
+        # A3g: узкую в кадре камеры группу подгоняем по ЕЁ кадру с вида сверху (тот же свет и размер, меняется только orbit); принимаем только если не зажим и ближе к сырому
+        ft = render_top(tex)
+        a_top, _h = fit_albedo(names, tones, borrowed, keep, texmap, ctl, render_top, label_top, rules)
+        for gn in unrel:
+            gi = names.index(gn)
+            px, _m = part_pixels(ft, label_top, [gi], fit['erode_px'])
+            ntop = int(len(px))
+            d_ = log['решения'][gn]
+            d_['px_вида_сверху'] = ntop
+            if not (ntop >= float(hp['nrel']) * nmax and ntop >= fit['min_frame_px']):
+                d_['A3g'] = 'мало px сверху — осталась поправка H′'
+                continue
+            d_['A3g_tone_до'] = [int(x) for x in lin2srgb(alb[gn])]
+            cand = np.asarray(a_top[gn], float)
+            s_c = np.asarray(lin2srgb(cand)).reshape(-1)
+            if (s_c >= float(a3['clamp_hi'])).any() or (s_c <= float(a3['clamp_lo'])).any():
+                d_['A3g_исход'] = 'откат: зажим'
+            else:
+                def _lm(ad, gi=gi):
+                    fr_ = render_cam(compose(ctl, texmap, names, ad, borrowed, keep)[0])
+                    px_, _m2 = part_pixels(fr_, label_map, [gi], fit['erode_px'])
+                    if len(px_) < fit['min_frame_px']:
+                        px_, _m2 = part_pixels(fr_, label_map, [gi], 0)
+                    return float(np.asarray(lab_of(px_.reshape(-1, 3)))[:, 0].mean())            # px — sRGB (как у med_lin), не линейные
+                a_c = dict(alb)
+                a_c[gn] = cand
+                l_h, l_c = _lm(dict(alb)), _lm(a_c)
+                l_raw = float(np.asarray(lab_of(np.asarray(lin2srgb(np.asarray(tones[gn]['lin'], float)), float)[None]))[0, 0])
+                gain = abs(l_h - l_raw) - abs(l_c - l_raw)
+                d_.update({'A3g_L_сырое': round(l_raw, 2), 'A3g_L_кадр_камеры_прежнее': round(l_h, 2), 'A3g_L_кадр_камеры_новое': round(l_c, 2), 'A3g_сокращение_расстояния': round(gain, 2), 'A3g_порог': float(a3['gain_min'])})
+                d_['A3g_исход'] = 'принято' if gain >= float(a3['gain_min']) else 'откат: не ближе'
+            if d_['A3g_исход'] == 'принято':
+                alb[gn] = cand
+                d_['A3g'] = 'подогнано по виду сверху'
+            else:
+                d_['A3g'] = 'откат на поправку H′ (%s)' % d_['A3g_исход']
+            d_['A3g_tone_после'] = [int(x) for x in lin2srgb(alb[gn])]
     return alb, hist, log
 
 
