@@ -526,6 +526,8 @@ LAYER_BLUE = (100, 130)      # оттенок размерных линий
 LAYER_SAT = 40              # «цветной» пиксель: насыщенность выше (и яркость > 60)
 LAYER_FURN_MIN = 0.04       # цветная связная фигура мебели: большая сторона не меньше этой доли длинной стороны листа (подписи — мельче)
 LAYER_WALL_COLOURED = 0.25  # цветных длинных толстых штрихов больше — стены цветные (оранжевые/синие), мебель не трогаем
+LAYER_BRIDGE = 0.006         # радиус склейки цветных кусков через разрыв (подпись поверх линии), доля длинной стороны
+LAYER_CLOSE_SPAN = 0.08     # цветная фигура, касающаяся стен в двух местах дальше этой доли друг от друга, замыкает помещение — не стираем
 LAYER_FURN_SIDE = 0.025   # и меньшая сторона не меньше этой доли: цветные цифры и подписи комнат остаются
 DIM_MIN = 0.035             # размерная линия: длина не меньше (доля длинной стороны)
 DIM_TEXT_R = 0.016          # цифра размера должна лежать рядом с серединой линии (доля длинной стороны)
@@ -575,11 +577,39 @@ def separate_layers(bgr):
     if wall_col <= LAYER_WALL_COLOURED:
         thin_col = green & (1 - cv2.dilate(thick, np.ones((3, 3), np.uint8)))           # зелёное, но не толстая заливка/стена
         d = cv2.dilate(thin_col, cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (5, 5)))
+        # стены: тёмные НЕцветные штрихи крупных связных фигур (подписи и мебель сюда не попадают)
+        wall0 = (ink > 0) & (hsv[..., 1] < LAYER_SAT) & (gray < 150)
+        nw, labw, stw, _ = cv2.connectedComponentsWithStats(wall0.astype(np.uint8), connectivity=8)
+        big = [j for j in range(1, nw) if max(stw[j, cv2.CC_STAT_WIDTH], stw[j, cv2.CC_STAT_HEIGHT]) >= 0.15 * L]
+        wall_m = np.isin(labw, big).astype(np.uint8) if big else np.zeros((H, W), np.uint8)
+        wall_d = cv2.dilate(wall_m, cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (7, 7)))
+        # «замыкающие»: цветные куски, связанные через разрывы (подпись поверх линии) в фигуру, чьи концы касаются стен в двух местах далеко друг от друга
+        d2 = cv2.dilate(thin_col, cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (2 * max(3, int(LAYER_BRIDGE * L)) + 1,) * 2))
+        n2, lab2, st2, _ = cv2.connectedComponentsWithStats(d2, connectivity=8)
+        closing = np.zeros((H, W), bool)
+        for j in range(1, n2):
+            x0_, y0_, w2, h2 = st2[j, 0], st2[j, 1], st2[j, 2], st2[j, 3]
+            if max(w2, h2) < LAYER_FURN_MIN * L:
+                continue
+            cj = (lab2[y0_:y0_ + h2, x0_:x0_ + w2] == j)
+            touch = cj & (wall_d[y0_:y0_ + h2, x0_:x0_ + w2] > 0)
+            nt, _, stt, cet = cv2.connectedComponentsWithStats(touch.astype(np.uint8), connectivity=8)
+            ends = [cet[q] for q in range(1, nt) if stt[q, cv2.CC_STAT_AREA] >= 4]
+            long_ax = 0 if w2 >= h2 else 1                                        # вдоль длинной стороны: касания должны быть у ДВУХ КОНЦОВ фигуры
+            ext = max(w2, h2)
+            at_ends = lambda u, v: abs(u[long_ax] - v[long_ax]) >= LAYER_CLOSE_SPAN * L and abs(u[long_ax] - v[long_ax]) >= 0.8 * ext   # noqa: E731
+            if any(at_ends(u, v) and min(u[long_ax], v[long_ax]) <= 0.15 * ext and max(u[long_ax], v[long_ax]) >= 0.85 * ext for k_, u in enumerate(ends) for v in ends[k_ + 1:]):
+                closing[y0_:y0_ + h2, x0_:x0_ + w2] |= cj
         n, lab, st, _ = cv2.connectedComponentsWithStats(d, connectivity=8)
+        kept_walls = 0
         for i in range(1, n):
             w_, h_ = st[i, cv2.CC_STAT_WIDTH], st[i, cv2.CC_STAT_HEIGHT]
             if max(w_, h_) >= LAYER_FURN_MIN * L and min(w_, h_) >= LAYER_FURN_SIDE * L:        # подписи (красное S=5,94, синее H=270) — низкие: не трогаем
+                if closing[lab == i].any():                      # линия замыкает помещение: оба конца у стены (балкон, лоджия) — граница комнаты, не мебель
+                    kept_walls += 1
+                    continue
                 furn[(lab == i) & (thin_col > 0)] = 255
+        info['kept_closing'] = kept_walls
     else:
         info['furniture_skipped'] = f'стены цветные ({wall_col:.2f}) — цвет не трогаем'
     # размерные линии: тонкая прямая, одиночная, цифра у середины

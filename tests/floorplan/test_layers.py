@@ -82,3 +82,17 @@ def test_flag_off_same_object_and_explicit_flag_on(monkeypatch):
     s1, ops1, st1 = cl.clean_sheet_steps(sheet, {'layers': True})
     assert ops1 == ['layers'] and st1 == [] and s1.size == sheet.size and s1 is not sheet
     assert 'FP_CLEAN_LAYERS' not in __import__('os').environ
+
+
+def test_closing_coloured_line_at_wall_is_kept_but_room_furniture_goes():
+    """цветная линия, замыкающая помещение (оба конца у стены — балкон/лоджия), остаётся: это граница, не мебель; стол в комнате уходит"""
+    img = cad_sheet(dims=False, red_text=False)
+    pts = np.array([(500, 67), (500, 200), (760, 200), (760, 67)], np.int32)
+    cv2.polylines(img, [pts], False, GREEN, 2)                                # балкон-ниша у верхней стены: концы на стене
+    cv2.line(img, (630, 200), (630, 205), GREEN, 2)
+    out, info, masks = cl.separate_layers(img)
+    assert out is not None and info.get("kept_closing", 0) >= 1, info
+    box = (slice(60, 215), slice(490, 775))
+    assert share(out[box], GREEN) >= 0.95 * share(img[box], GREEN)            # линия балкона цела
+    room = (slice(290, 380), slice(510, 640))                                 # стол из cad_sheet() в комнате
+    assert share(out[room], GREEN) < 0.05 * max(share(img[room], GREEN), 1)
