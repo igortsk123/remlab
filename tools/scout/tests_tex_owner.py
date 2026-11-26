@@ -170,6 +170,101 @@ def test_stage():
     check(json.load(open(ST.RULES_PATH, encoding='utf-8'))['enabled'] is False, 'в репозитории шаг выключен по умолчанию')
 
 
+def _frame(face3_rgb, show3=True, n=100, own=None):
+    """Кадр камеры на синтетике: грань 3 (без роли, отдана owner группе «верх») — квадрат 50×50 px; грани 0 (верх) и 4 (ножки) — свои квадраты."""
+    ids = np.full((n, n), -1, np.int32)
+    rgb = np.zeros((n, n, 3), np.uint8)
+    h = n // 2
+    if show3:
+        ids[:h, :h] = 3
+        rgb[:h, :h] = face3_rgb
+    ids[h:, :h] = 0
+    rgb[h:, :h] = TONES[0] if own is None else own
+    ids[:h, h:] = 4
+    rgb[:h, h:] = TONES[1]
+    return ids, rgb, np.ones((n, n), bool), np.ones((n, n), np.float32)
+
+
+def test_tone_guard():
+    rules = ST.load_rules()
+    P = np.array([(0, 0, 0), (1, 0, 0), (2, 0, 0), (0, 0, 1), (1, 0, 1), (2, 0, 1), (0, 0, 0), (0, 0, 1), (0, -1, 0), (0, -1, 1)], np.float64)
+    F = np.array([[0, 3, 4], [0, 4, 1], [1, 4, 5], [1, 5, 2], [6, 8, 9], [6, 9, 7]], np.int64)
+    area = TO.face_areas(P, F)
+    _n, comp = TO.panels(P, F, rules['roles']['crease_deg'], rules['roles']['weld_scale'])
+    fg = np.array([0, 0, 0, 2, 1, 1])
+    fg2 = np.array([0, 0, 0, 0, 1, 1])
+    names = ['верх', 'ножки']
+    both = np.array([True, True])
+    ids, rgb, valid, cos = _frame(TONES[0])
+    r = TO.guard_tone(ids, rgb, valid, fg, fg2, comp, area, TONES, both, names, rules, cos)
+    check(not r['стоп'] and r['по_группам']['верх']['вердикт'] == 'ок' and r['по_группам']['верх']['dE2000'] < 1, 'сторож: область owner своего тона — пропуск, ΔE ≈ 0: %s' % r['по_группам'])
+    check(abs(r['доля_отдано_площади'] - float(area[3] / area.sum())) < 1e-3 and 'ножки' not in r['по_группам'], 'доля площади, розданной owner (одна грань из шести): %s' % r['доля_отдано_площади'])
+    ids, rgb, valid, cos = _frame((240, 240, 240))
+    r = TO.guard_tone(ids, rgb, valid, fg, fg2, comp, area, TONES, both, names, rules, cos)
+    check(r['стоп'] and 'роль/группа не сходится с фото' in r['причина'] and r['по_группам']['верх']['вердикт'] == 'стоп' and r['по_группам']['верх']['dE2000'] > 10, 'сторож: область owner белая на фото, тон группы — оранжевый → СТОП с причиной: %s' % r['причина'])
+    r2 = TO.guard_tone(ids, rgb, valid, fg, fg2, comp, area, TONES, both, names, {**rules, 'tone_guard': {**rules['tone_guard'], 'de_max': 99.0}}, cos)
+    check(not r2['стоп'], 'ключ tone_guard.de_max меняет выход: при 99 тот же белый не стоп')
+    ids, rgb, valid, cos = _frame((240, 240, 240), show3=False)
+    r = TO.guard_tone(ids, rgb, valid, fg, fg2, comp, area, TONES, both, names, rules, cos)
+    check(not r['стоп'] and r['по_группам']['верх']['вердикт'].startswith('не проверено') and 'не видна' in r['по_группам']['верх']['вердикт'], 'сторож: область не видна на фото → «не проверено», НЕ стоп: %s' % r['по_группам']['верх']['вердикт'])
+    ids, rgb, valid, cos = _frame((240, 240, 240))
+    r = TO.guard_tone(ids, rgb, valid, fg, fg2, comp, area, TONES, both, names, rules, cos * 0.1)
+    check(not r['стоп'] and 'не видна' in r['по_группам']['верх']['вердикт'], 'сторож: косой угол (cos < cos_min) в тон не считается → «не проверено»')
+    r = TO.guard_tone(ids, rgb, valid, fg, fg2, comp, area, TONES, np.array([False, True]), names, rules, cos)
+    check(not r['стоп'] and r['по_группам']['верх']['вердикт'].startswith('не проверено: узорная'), 'сторож: узорная группа (painted_group=false) не проверяется')
+    r = TO.guard_tone(ids, rgb, valid, fg, fg, comp, area, TONES, both, names, rules, cos)
+    check(not r['стоп'] and r['по_группам'] == {} and r['доля_отдано_площади'] == 0.0, 'сторож: owner ничего не менял — нечего проверять')
+    r = TO.guard_tone(ids, rgb, valid, fg, fg2, comp, area, TONES, both, names, {**rules, 'tone_guard': {**rules['tone_guard'], 'min_area_frac': 0.5}}, cos)
+    check(not r['стоп'] and 'мала' in r['по_группам']['верх']['вердикт'], 'сторож: область меньше min_area_frac не проверяется (ключ меняет выход)')
+    r = TO.guard_tone(ids, rgb, valid, fg, fg2, comp, area, TONES, both, names, {**rules, 'tone_guard': {**rules['tone_guard'], 'bad_min_px': 5000}}, cos)
+    check(not r['стоп'] and r['по_группам']['верх']['вердикт'] == 'ок' and r['по_группам']['верх']['плохих_px'] > 0, 'сторож: плохих пикселей меньше bad_min_px — не стоп, но в следе (ключ меняет выход)')
+    # свет, а не материал: тот же серый материал темнее на ~20 L (другая сторона к свету) — при kl=2.5 пропуск, при kl=1 стоп; эталон — фото своих граней
+    ids, rgb, valid, cos = _frame((85, 85, 85), own=(128, 128, 128))
+    r = TO.guard_tone(ids, rgb, valid, fg, fg2, comp, area, TONES, both, names, rules, cos)
+    r1 = TO.guard_tone(ids, rgb, valid, fg, fg2, comp, area, TONES, both, names, {**rules, 'tone_guard': {**rules['tone_guard'], 'kl': 1.0}}, cos)
+    check(not r['стоп'] and r1['стоп'] and 'фото своих граней' in r['по_группам']['верх']['эталон'], 'сторож: разница только в светлоте — ослабление kl=2.5 пропускает, kl=1 стопит; эталон — фото своих граней группы: dE %s / %s' % (r['по_группам']['верх']['dE2000'], r1['по_группам']['верх']['dE2000']))
+    ids, rgb, valid, cos = _frame((240, 240, 240))
+    valid2 = valid.copy()
+    valid2[50:, :50] = False                                           # своих пикселей группы на фото нет → эталон — тон Ш4а
+    r = TO.guard_tone(ids, rgb, valid2, fg, fg2, comp, area, TONES, both, names, rules, cos)
+    check(r['стоп'] and 'тон Ш4а' in r['по_группам']['верх']['эталон'], 'сторож: своих пикселей группы на фото нет → эталон — тон Ш4а (и белое против оранжевого — стоп)')
+    # стадия: кадр из rel.npz Ш4а; стоп = воздержание шага (в конвейере abstain_is_stop), visible.glb и npz не тронуты
+    for label, kw, want in (('белая область → стоп', dict(face3_rgb=(240, 240, 240)), 'stop'), ('свой тон → пропуск', dict(face3_rgb=TONES[0]), 'pass'), ('область не видна → не проверено', dict(face3_rgb=(240, 240, 240), show3=False), 'unseen')):
+        with tempfile.TemporaryDirectory() as tmp:
+            d = make_run(tmp)
+            i2, c2, v2, k2 = _frame(**kw)
+            os.makedirs(os.path.join(d, '_partmaterial'))
+            np.savez_compressed(os.path.join(d, '_partmaterial', 'rel.npz'), ids=i2, prgb_reg=c2, valid=v2, cosf=k2, known=np.zeros((T, T), bool))
+            vis, npz = os.path.join(d, 'visible.glb'), os.path.join(d, 'part_material_masks.npz')
+            s0, n0 = sha(vis), sha(npz)
+            ST.main(['--run', os.path.join(tmp, 'run'), '--sku', 'sku', '--force'])
+            rep = json.load(open(os.path.join(d, ST.OUT), encoding='utf-8'))
+            tg = rep.get('tone_guard') or {}
+            if want == 'stop':
+                check(bool(rep['abstain']) and 'роль/группа не сходится с фото' in rep['abstain'] and tg.get('стоп') and sha(vis) == s0 and sha(npz) == n0 and not os.path.exists(os.path.join(d, ST.PRE)), 'стадия, %s: воздержание с причиной, visible.glb и npz не тронуты' % label)
+            elif want == 'pass':
+                check(rep['abstain'] is None and tg.get('стоп') is False and sha(vis) != s0, 'стадия, %s: шаг идёт, текстура переписана' % label)
+            else:
+                check(rep['abstain'] is None and tg['по_группам']['верх']['вердикт'].startswith('не проверено') and sha(vis) != s0, 'стадия, %s: шаг идёт, в следе «не проверено»' % label)
+    with tempfile.TemporaryDirectory() as tmp:
+        d = make_run(tmp)
+        ST.main(['--run', os.path.join(tmp, 'run'), '--sku', 'sku', '--force'])
+        rep = json.load(open(os.path.join(d, ST.OUT), encoding='utf-8'))
+        check(rep['abstain'] is None and 'нет фото/позы' in rep['tone_guard']['не_проверено'], 'стадия: нет ни фото+позы, ни rel.npz → «не проверено», шаг идёт как раньше')
+    for bad in ({'de_max': 0}, {'min_px': 0}, {'cos_min': 1.5}):
+        r = json.load(open(ST.RULES_PATH, encoding='utf-8'))
+        r['tone_guard'] = {**r['tone_guard'], **bad}
+        with tempfile.TemporaryDirectory() as tmp:
+            p = os.path.join(tmp, 'r.json')
+            json.dump(r, open(p, 'w', encoding='utf-8'))
+            try:
+                ST.load_rules(p)
+                check(False, 'правила tone_guard вне пределов отвергаются: %s' % bad)
+            except ValueError:
+                check(True, 'правила tone_guard вне пределов отвергаются: %s' % bad)
+    check(json.load(open(ST.RULES_PATH, encoding='utf-8'))['tone_guard']['_why'], 'в правилах tone_guard есть _why')
+
+
 def test_gutter():
     import tex_gutter_stage as GS
     with tempfile.TemporaryDirectory() as tmp:
@@ -240,6 +335,7 @@ def main():
     with tempfile.TemporaryDirectory() as tmp:
         test_owner(tmp)
     test_stage()
+    test_tone_guard()
     test_gutter()
     bad = OK.count(False)
     print('\n%d проверок, провалов: %d' % (len(OK), bad))

@@ -317,7 +317,11 @@
             "--run",
             "{run}",
             "--sku",
-            "{sku}"
+            "{sku}",
+            "--photo",
+            "{photo}",
+            "--pose-run",
+            "{sku_dir}"
           ],
           "heavy": {"prio": 1, "min_gb": 4, "cores": 1},
           "enabled_by": {"file": "tools/scout/rules/tex-owner.json", "key": "enabled"},

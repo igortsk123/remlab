@@ -245,3 +245,97 @@ def guard_unpainted(ids: np.ndarray, gmap: np.ndarray, known: np.ndarray | None)
     if known is not None and known.shape == un.shape:
         d['из_них_не_известно_с_06'] = int((un & ~known).sum())
     return d
+
+
+# ───────────────────────────── сторож: тон ФОТО области ↔ тон группы (T-20261126-121/2) ─────────────────────────────
+
+def face_areas(P: np.ndarray, F: np.ndarray) -> np.ndarray:
+    a, b, c = P[F[:, 0]].astype(np.float64), P[F[:, 1]].astype(np.float64), P[F[:, 2]].astype(np.float64)
+    return 0.5 * np.linalg.norm(np.cross(b - a, c - a), axis=1)
+
+
+
+
+def _de_adj(lab_a: np.ndarray, lab_b: np.ndarray, kl: float) -> float:
+    """ΔE2000 между двумя Lab с ослабленной светлотой: L каждой делится на kl (свет и сторона к камере сдвигают L у того же материала; цвет — нет)."""
+    import part_material as PM
+    a, b = np.array(lab_a, np.float64), np.array(lab_b, np.float64)
+    a[0] /= kl
+    b[0] /= kl
+    return float(PM.de2000(a[None, :], b[None, :])[0])
+
+
+def guard_tone(ids: np.ndarray, rgb: np.ndarray, valid: np.ndarray, fg: np.ndarray, fg2: np.ndarray, comp: np.ndarray, area: np.ndarray, tone_srgb: np.ndarray, painted_group: np.ndarray, names: list,
+               rules: dict, cos: np.ndarray | None = None) -> dict:
+    """Сторож «тон фото области ≠ тон группы». Область группы G, отданная owner = грани, чья роль изменилась шагом 5 (без роли → роль панели, чужая роль → большинство панели) и стала G.
+    Единица проверки — ПАНЕЛЬ (comp, как у шага 5) внутри области: медиана Lab ПИКСЕЛЕЙ ФОТО панели (где видна: valid, cos ≥ cos_min) ↔ эталон группы G = медиана Lab фото её СВОИХ граней (роль Ш4а, не owner; тот же свет),
+    нет своих пикселей (< min_px) — тон Ш4а. ΔE2000 со светлотой, ослабленной в kl раз. Панель дальше de_max — плохая; СТОП, если плохих пикселей ≥ bad_min_px и ≥ bad_min_frac видимых пикселей области
+    (мелкая плохая панель — ножка, ручка, тень — не стоп: нечего красить «ложью», тон мелочи несёт швы/зерно). Область не видна (пикселей < min_px) или мала (< min_area_frac площади изделия) — «не проверено», НЕ стоп.
+    Узорные группы (painted_group=False) не проверяются: их тон owner не красит.
+    → {'стоп': bool, 'причина': str, 'доля_отдано_площади': доля площади, у которой роль сменил owner, 'по_группам': {имя: {...}}}."""
+    import part_material as PM
+    tg = rules['tone_guard']
+    nrole = len(names)
+    fg = np.asarray(fg).astype(int)
+    fg2 = np.asarray(fg2).astype(int)
+    tot = float(area.sum()) or 1.0
+    kl = float(tg['kl'])
+    given = (fg2 >= 0) & (fg2 < nrole) & (fg2 != fg)
+    out = {'доля_отдано_площади': round(float(area[given].sum()) / tot, 4), 'порог_dE2000': float(tg['de_max']), 'по_группам': {}, 'стоп': False, 'причина': ''}
+    ok_px = valid & (ids >= 0) & (True if cos is None else (cos >= float(tg['cos_min'])))
+    fid = np.clip(ids, 0, len(fg) - 1)
+    lab = None
+    bad = []
+    for g in range(nrole):
+        m = given & (fg2 == g)
+        if not m.any():
+            continue
+        row = {'доля_площади': round(float(area[m].sum()) / tot, 4), 'из_них_без_роли': round(float(area[m & ((fg < 0) | (fg >= nrole))].sum()) / tot, 4)}
+        out['по_группам'][names[g]] = row
+        if not painted_group[g]:
+            row['вердикт'] = 'не проверено: узорная группа не красится'
+            continue
+        gv = ok_px & m[fid]
+        row['пикселей_фото'] = int(gv.sum())
+        if row['доля_площади'] < float(tg['min_area_frac']):
+            row['вердикт'] = 'не проверено: область мала'
+            continue
+        if gv.sum() < int(tg['min_px']):
+            row['вердикт'] = 'не проверено: область не видна на фото'
+            continue
+        if lab is None:
+            lab = PM.lab_of(rgb.astype(np.float64))
+        own = ok_px & (fg[fid] == g)
+        if own.sum() >= int(tg['min_px']):
+            ref, row['эталон'] = np.median(lab[own], axis=0), 'фото своих граней группы (%d px)' % int(own.sum())
+        else:
+            ref, row['эталон'] = PM.lab_of(np.asarray(tone_srgb[g], np.float64)), 'тон Ш4а (своих пикселей на фото мало)'
+        row['эталон_Lab'] = [round(float(x), 1) for x in ref]
+        pid = comp[fid[gv]]
+        L = lab[gv]
+        o = np.argsort(pid, kind='stable')
+        pid, L = pid[o], L[o]
+        cuts = np.nonzero(np.diff(pid))[0] + 1
+        pan = []
+        for pp, ll in zip(np.split(pid, cuts), np.split(L, cuts)):
+            if len(pp) < int(tg['panel_min_px']):
+                continue
+            med = np.median(ll, axis=0)
+            pan.append((len(pp), _de_adj(med, ref, kl), med))
+        row['панелей_проверено'] = len(pan)
+        if not pan:
+            row['вердикт'] = 'не проверено: панели области не видны на фото'
+            continue
+        bad_px = sum(n for n, de, _m in pan if de > float(tg['de_max']))
+        worst = max(pan, key=lambda x: x[1])
+        row.update({'dE2000': round(worst[1], 2), 'худшая_панель_px': int(worst[0]), 'тон_худшей_панели_Lab': [round(float(x), 1) for x in worst[2]], 'плохих_px': int(bad_px),
+                    'доля_плохих': round(bad_px / max(int(gv.sum()), 1), 4)})
+        if bad_px >= int(tg['bad_min_px']) and bad_px / max(int(gv.sum()), 1) >= float(tg['bad_min_frac']):
+            row['вердикт'] = 'стоп'
+            bad.append('%s (плохих панелей %.0f %% видимой области, худшая ΔE %.1f > %.1f, область %.1f %% площади)' % (names[g], 100 * row['доля_плохих'], worst[1], float(tg['de_max']), 100 * row['доля_площади']))
+        else:
+            row['вердикт'] = 'ок'
+    if bad:
+        out['стоп'] = True
+        out['причина'] = 'роль/группа не сходится с фото: тон фото области, отданной owner, далёк от тона группы — ' + '; '.join(bad)
+    return out
