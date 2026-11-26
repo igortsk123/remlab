@@ -37,6 +37,9 @@
 и которые названы в ДЕЙСТВУЮЩЕМ плане (`.memory_bank/plans/*.md`, `status:` не completed/cancelled; нет `status:` — действующий). Сухо — всегда: список «удалил бы: N папок,
 X ГБ» (и в обычном сухом прогоне строка итога). Удаляет только `--prune-hdd --apply` (первый запуск — директор после проверки списка): папку на HDD (shutil.rmtree), затем
 висячую ссылку на основном диске (только если она ведёт ровно туда), строка в журнал (что, сколько ГБ). Ссылки, не папки, и всё вне `dst` не трогаются.
+ЗАБЫТЫЕ ЖДУНЫ И СЕРВЕРЫ (T-20261126-96/1, правило `archive.stale_holder_hours` = 12, владелец TG 3008): процесс старше порога, чья командная строка — только ожидание (цикл
+`while/until … sleep` без тяжёлого внутри) либо `python3 -m http.server`, не держатель heavy-slot, папку от ПЕРЕНОСА не держит (процесс не убивается; строка «забытый ждун/сервер — не
+держит: pid, возраст, команда» в выводе и DIGEST). Удаление `--prune-hdd` и снятие рабочих копий держат его, как раньше. Нет ключа в rules — выключено.
 ЗАЩИЩЁННОЕ (T-20261125-75/2): `~/remlab-inputs` (входы наборов: копии + MANIFEST.tsv, tools/ops/inputs_check.py) скрипт НЕ ТРОГАЕТ никогда — ни перенос, ни удаление с HDD; `protected_by` (по realpath: совпадает, внутри или родитель)
 проверяется у src/dst (отказ, код 2), у каждого кандидата, в move_one и prune_one; правило `archive.protected` только добавляет папки. 25.11 вход комода уехал вместе с папкой логов — входам набора там не место.
 Переопределения для проверки: LOGS_ARCHIVE_RULES (файл правил), LOGS_ARCHIVE_REPO (репозиторий для поиска ссылок)."""
@@ -59,7 +62,7 @@ ROOT = os.path.abspath(os.path.join(HERE, '..', '..'))
 RULES_PATH = os.path.join(ROOT, 'tools', 'scout', 'rules', 'dev-disk.json')
 GB = 1024 ** 3
 DEFAULTS = {'src': '~/remlab-logs', 'dst': '/mnt/hdd/remlab-logs-arhiv', 'days': 5, 'min_hdd_free_gb': 50, 'never': [], 'worktrees_block': True, 'refs_exclude': [], 'adaptive': [], 'refs_scope': None, 'memory_paths': None, 'hdd_prune': {'days': 14}, 'protected': [],
-            'monitor_max_h': None, 'grow_alert_gb': None, 'grow_window_h': None, 'grow_top': None, 'grow_alert_every_h': None, 'forecast_window_h': None, 'forecast_warn_h': None}   # T-89: нет ключа в rules — наблюдатели держат как прежде, сторож роста выключен (чисел порогов в коде нет — они в dev-disk.json)
+            'monitor_max_h': None, 'stale_holder_hours': None, 'grow_alert_gb': None, 'grow_window_h': None, 'grow_top': None, 'grow_alert_every_h': None, 'forecast_window_h': None, 'forecast_warn_h': None}   # T-89: нет ключа в rules — наблюдатели держат как прежде, сторож роста выключен (чисел порогов в коде нет — они в dev-disk.json)
 PROTECTED_DEFAULT = ['~/remlab-inputs']   # входы наборов (T-20261125-75/2): не переносить, не удалять; правило `archive.protected` только ДОБАВЛЯЕТ папки
 
 
@@ -286,17 +289,159 @@ def stale_monitor(pid: str, args: list, proc_root: str = '/proc', monitor_max_h:
     return line
 
 
-def proc_snapshot(proc_root: str = '/proc', monitor_max_h: float | None = None, holders: bool = False, heavy_dir: str | None = None) -> list:
-    """ОДНА реализация «что держит папки» (T-89: busy_by и worktree_prune — это она): [{pid, cwd, cmd, fds, pypath, holder}] по всем видимым процессам (кроме себя и забытых
-    наблюдателей tail старше monitor_max_h): cwd, командная строка, открытые файлы, PYTHONPATH из /proc/<pid>/environ (виден только свой пользователь); holders=True добавляет
-    живых держателей heavy-slot (их cmd=). Один обход /proc на любое число папок."""
+# ───────────── забытые ждуны и пробные серверы (T-20261126-96/1; владелец TG 3006→3008 «2. да», решение Fable 26.11) ─────────────
+# 26.11 три забытых процесса 1,7–2,7 суток держали 14 ГБ: два цикла-«ждуна» файла, который уже не появится (`while [ ! -f … ]; do sleep`, `until grep … ; do sleep`), и пробный
+# `python3 -m http.server` с рабочей папкой внутри. Процесс старше `archive.stale_holder_hours` часов, чья командная строка — ТОЛЬКО ожидание (цикл while/until … sleep, где в
+# цикле и после него стоят лишь «лёгкие» команды из WAIT_OK; ни python/node/blender/…, ни записи в файлы) либо `python3 -m http.server`, и который не держатель heavy-slot (и не его
+# потомок), папку от ПЕРЕНОСА на HDD НЕ держит. Процесс не убиваем; в отчёт и DIGEST — «забытый ждун/сервер — не держит: pid, возраст, команда». Послабление — ТОЛЬКО для переноса:
+# `--prune-hdd` (удаление), worktree_prune и снятие рабочих копий держат такой процесс, как раньше (stale_h не передают). Дочерний `sleep N` ждуна (тот же cwd, всегда «свежий») — тоже не держит.
+# Порог — только из rules (None — выключено: держит, как раньше). Условие «в папке нет новых файлов за эти часы» уже даёт `days` (≥ 1 сут > 12 ч).
+STALE_NOTES: list = []                                  # строки «забытый ждун/сервер — не держит» за этот запуск (main печатает и кладёт в DIGEST)
+WAIT_OK = frozenset({'sleep', 'test', '[', '[[', 'ls', 'wc', 'cat', 'grep', 'egrep', 'fgrep', 'pgrep', 'pidof', 'date', 'echo', 'printf', 'cut', 'tr', 'head', 'tail', 'sort', 'uniq',
+                     'stat', 'cd', 'true', 'false', ':', 'basename', 'dirname', 'nproc', 'hostname', 'uptime', 'ps', 'du', 'df', 'touch', 'continue', 'break', 'sed'})   # только читают и ждут: данных не пишут, тяжёлого не считают (`sed` — без -i; `touch` — пустой файл)
+_WAIT_KW = frozenset({'while', 'until', 'do', 'done', 'if', 'then', 'else', 'elif', 'fi', '!', '{', '}'})
+_OK_REDIR = re.compile(r'(?:\d?>>?\s*/dev/null|&>\s*/dev/null|2>&1)')
+_ASSIGN = re.compile(r'^[A-Za-z_][A-Za-z0-9_]*=')
+
+
+def _wait_segments(line: str) -> list | None:
+    """Простые команды строки (токены) — подстановки $(…) раскрыты в свои команды; None — разобрать нельзя или есть запись/ввод из файла (не ждун)."""
+    line = _OK_REDIR.sub(' ', line)
+    line = re.sub(r'\$\(\([^()]*\)\)', 'X', line)          # арифметика $((N+1)) — не команда (заглушка X без пробелов: `N=$(…)` остаётся присваиванием)
+    inner: list = []
+    while True:                                            # $(…) без вложенности: внутреннее — отдельные команды, на месте — заглушка
+        new = re.sub(r'\$\(([^()]*)\)', lambda m: (inner.append(m.group(1)), 'X')[1], line)
+        if new == line:
+            break
+        line = new
+    if '$(' in line or '`' in line or '>' in line or re.search(r'<<|<\(', line):
+        return None                                        # запись в файл, heredoc, подстановка процесса, вложенные $(…) — не ждун; чтение `< файл` (wc -l < f) допустимо
+    segs: list = []
+    for text in [line] + inner:
+        try:
+            lex = shlex.shlex(text, posix=True, punctuation_chars=';&|()')
+            lex.whitespace_split = True
+            toks = list(lex)
+        except ValueError:
+            return None
+        cur: list = []
+        for t in toks:
+            if set(t) <= set(';&|()'):
+                if cur:
+                    segs.append(cur)
+                cur = []
+            else:
+                cur.append(t)
+        if cur:
+            segs.append(cur)
+    return segs
+
+
+def is_wait_cmd(args: list) -> str:
+    """'ждун' — командная строка только ждёт (цикл while/until … sleep N, всё внутри и после — из WAIT_OK, без записи в файлы; `bash -c "…"`, в том числе после `timeout N`);
+    'сервер' — `python3 -m http.server …` (не `--cgi`); '' — всё остальное (осторожно: такой процесс держит как прежде)."""
+    args = list(args)
+    if len(args) > 2 and os.path.basename(args[0]) == 'timeout':
+        args = args[2:]
+    if not args:
+        return ''
+    exe = os.path.basename(args[0]).lstrip('-')
+    if re.fullmatch(r'python[0-9.]*', exe):
+        i = 1
+        while i < len(args) and args[i].startswith('-') and args[i] != '-m':
+            i += 1
+        if i + 1 < len(args) and args[i] == '-m' and args[i + 1] == 'http.server' and '--cgi' not in args:
+            return 'сервер'
+        return ''
+    if exe not in ('bash', 'sh', 'dash', 'zsh'):
+        return ''
+    ci = next((k for k, a in enumerate(args[1:], 1) if re.fullmatch(r'-[a-z]*c[a-z]*', a)), None)
+    if ci is None or ci + 1 >= len(args) or not re.search(r'\b(while|until)\b', args[ci + 1]) or not re.search(r'\bsleep\b', args[ci + 1]):
+        return ''
+    segs = _wait_segments(args[ci + 1])
+    if not segs:
+        return ''
+    loop = slept = False
+    for s in segs:
+        k = 0
+        while k < len(s) and (s[k] in _WAIT_KW or _ASSIGN.match(s[k])):
+            loop = loop or s[k] in ('while', 'until')
+            k += 1
+        if k >= len(s):
+            continue
+        if s[k] == 'for':
+            continue                                       # `for f in список` — заголовок цикла, сам ничего не запускает
+        cmd = os.path.basename(s[k])
+        if cmd not in WAIT_OK:
+            return ''                                      # в строке есть что-то кроме ожидания и чтения (python, rm, mv, node …) — не ждун
+        if cmd == 'tail' and any(_TAIL_FOLLOW.match(a) for a in s[k + 1:]):
+            return ''                                      # tail -f внутри цикла — не ожидание файла
+        if cmd == 'sed' and any(re.fullmatch(r'-[A-Za-z]*i[A-Za-z]*|--in-place.*', a) for a in s[k + 1:]):
+            return ''                                      # sed -i пишет в файл
+        slept = slept or cmd == 'sleep'
+    return 'ждун' if loop and slept else ''
+
+
+def _ppid(pid: str, proc_root: str) -> str:
+    try:
+        st = open(f'{proc_root}/{pid}/stat', encoding='utf-8', errors='replace').read()
+        return st[st.rindex(')') + 2:].split()[1]
+    except (OSError, ValueError, IndexError):
+        return ''
+
+
+def stale_waiters(pids: list, proc_root: str = '/proc', stale_h: float | None = None, heavy_dir: str | None = None) -> set:
+    """Множество pid забытых ждунов/серверов старше stale_h часов, не держателей heavy-slot (и не их потомков), плюс их прямые потомки (`sleep N` в цикле держит cwd ждуна).
+    Пусто — порога нет или таких нет. Строки «не держит» — в STALE_NOTES (один раз на pid)."""
+    if stale_h is None:
+        return set()
+    heavy = {pid for pid, _lb, _ar in holder_cmds(proc_root, heavy_dir)}
+    out: set = set()
+    for p in pids:
+        try:
+            args = [a.decode('utf-8', 'replace') for a in open(f'{proc_root}/{p}/cmdline', 'rb').read().split(b'\0') if a]
+        except OSError:
+            continue
+        kind = is_wait_cmd(args) if args else ''
+        if not kind:
+            continue
+        age = proc_age_h(p, proc_root)
+        if age is None or age <= float(stale_h):
+            continue
+        q, hit = p, False
+        for _ in range(12):                                # держатель heavy-slot — он сам или предок: держит всегда
+            if q in heavy:
+                hit = True
+                break
+            q = _ppid(q, proc_root)
+            if not q or q == '0':
+                break
+        if hit:
+            continue
+        out.add(p)
+        if not any(f'pid {p} ' in n for n in STALE_NOTES):
+            STALE_NOTES.append(f'забытый ждун/сервер — не держит: pid {p} ({age:.0f} ч, {kind}): {" ".join(args)[:90]}')
+    if out:
+        for p in pids:
+            if p not in out and _ppid(p, proc_root) in out:
+                out.add(p)                                 # `sleep N` из цикла-ждуна: тот же cwd, возраст секунды — но это не отдельный процесс
+    return out
+
+
+def proc_snapshot(proc_root: str = '/proc', monitor_max_h: float | None = None, holders: bool = False, heavy_dir: str | None = None, stale_h: float | None = None) -> list:
+    """ОДНА реализация «что держит папки» (T-89: busy_by и worktree_prune — это она): [{pid, cwd, cmd, fds, pypath, holder}] по всем видимым процессам (кроме себя, забытых
+    наблюдателей tail старше monitor_max_h и — только если задан stale_h, то есть при переносе — забытых ждунов/серверов старше stale_h): cwd, командная строка, открытые файлы,
+    PYTHONPATH из /proc/<pid>/environ (виден только свой пользователь); holders=True добавляет живых держателей heavy-slot (их cmd=). Один обход /proc на любое число папок."""
     snap: list = []
     me = os.getpid()
     try:
         pids = [p for p in os.listdir(proc_root) if p.isdigit() and int(p) != me]
     except OSError:
         pids = []
+    stale = stale_waiters(pids, proc_root, stale_h, heavy_dir)
     for p in pids:
+        if p in stale:
+            continue                                            # забытый ждун/сервер (и его sleep) не держит перенос
         base = f'{proc_root}/{p}'
         try:
             raw = open(f'{base}/cmdline', 'rb').read()
@@ -349,10 +494,10 @@ def held_in(path: str, snap: list) -> str:
     return ''
 
 
-def busy_by(path: str, proc_root: str = '/proc', monitor_max_h: float | None = None) -> str:
+def busy_by(path: str, proc_root: str = '/proc', monitor_max_h: float | None = None, stale_h: float | None = None, heavy_dir: str | None = None) -> str:
     """Что держит папку: процесс с cwd/открытым файлом внутри, её именем в командной строке или PYTHONPATH внутри (свои процессы тоже). '' — никто.
-    Забытый наблюдатель (`tail -F … | grep`, старше monitor_max_h) не держит."""
-    return held_in(path, proc_snapshot(proc_root, monitor_max_h))
+    Забытый наблюдатель (`tail -F … | grep`, старше monitor_max_h) не держит; при stale_h (только перенос) не держит и забытый ждун/сервер старше stale_h часов."""
+    return held_in(path, proc_snapshot(proc_root, monitor_max_h, heavy_dir=heavy_dir, stale_h=stale_h))
 
 
 def memory_mentions(names: list, repo: str, paths: list | None = None) -> dict:
@@ -429,7 +574,7 @@ def _file_refs(path: str, rx: re.Pattern, out: dict, why: str, seen: set, depth:
             _file_refs(q, rx, out, why + ' → ' + os.path.basename(q), seen, depth - 1)
 
 
-def live_refs(src: str, proc_root: str = '/proc', heavy_dir: str | None = None, monitor_max_h: float | None = None) -> dict:
+def live_refs(src: str, proc_root: str = '/proc', heavy_dir: str | None = None, monitor_max_h: float | None = None, stale_h: float | None = None) -> dict:
     """{имя папки или шаблон: причина} — что сейчас вход/выход живого прогона. Источники: командная строка КАЖДОГО живого процесса (в том числе держателя heavy-slot и
     процесса из реестра групп Salad — это те же процессы), строка `cmd=` в `holder*` heavy-slot, файлы, названные в этих командных строках (правила `--rules x.json`, списки
     входов): любая строка-путь на src внутри (out_root, base_root, shard_inputs_glob, parts_root, catalog …) — и файлы, на которые они ссылаются. Ничего не читает вне этого."""
@@ -455,7 +600,10 @@ def live_refs(src: str, proc_root: str = '/proc', heavy_dir: str | None = None, 
         pids = [x for x in os.listdir(proc_root) if x.isdigit() and x != me]
     except OSError:
         pids = []
+    stale = stale_waiters(pids, proc_root, stale_h, heavy_dir)         # только при переносе (stale_h): забытый ждун/сервер — не вход и не выход прогона
     for pid in pids:
+        if pid in stale:
+            continue
         try:
             raw = open(f'{proc_root}/{pid}/cmdline', 'rb').read()
         except OSError:
@@ -662,7 +810,9 @@ def candidates(r: dict, repo: str, now: float | None = None, refs=None, busy=Non
             continue
         dirs.append(n)
     referenced = refs(dirs, repo) if refs else repo_refs(dirs, repo, r.get('refs_exclude') or [], r.get('refs_scope'))
-    lv = live() if live else live_refs(r['src'])                     # вход/выход живого прогона — вне зависимости от возраста и памяти
+    sh = r.get('stale_holder_hours')                                 # T-96/1: забытый ждун/сервер не держит ПЕРЕНОС (не удаление с HDD); нет порога — вызовы ровно как раньше
+    kw = {} if sh is None else {'stale_h': sh}
+    lv = live() if live else live_refs(r['src'], **kw)               # вход/выход живого прогона — вне зависимости от возраста и памяти
     dm = docs(dirs, repo) if docs else (memory_mentions([n for n in dirs if n not in referenced], repo, r.get('memory_paths')) if r.get('refs_scope') else {})
     todo = []
     for n in dirs:
@@ -674,7 +824,7 @@ def candidates(r: dict, repo: str, now: float | None = None, refs=None, busy=Non
         if held:
             skipped.append((n, f'вход/выход живого прогона: {held}'))
             continue
-        who = (busy or busy_by)(p)
+        who = (busy or (lambda q: busy_by(q, **kw)))(p)
         if who:
             skipped.append((n, f'занята: {who}'))
             continue
@@ -702,10 +852,12 @@ def move_one(c: dict, r: dict, now: float | None = None, busy=None, rsync=None, 
         return False, f'{n}: уже не папка — пропуск'
     if newest_mtime(p, floor=now - float(r['days']) * 86400) >= now - float(r['days']) * 86400:
         return False, f'{n}: появился свежий файл — пропуск'
-    who = (busy or busy_by)(p)
+    sh = r.get('stale_holder_hours')                                  # T-96/1: перенос — забытый ждун/сервер не держит; нет порога — вызовы как раньше
+    kw = {} if sh is None else {'stale_h': sh}
+    who = (busy or (lambda q: busy_by(q, **kw)))(p)
     if who:
         return False, f'{n}: занята ({who}) — пропуск'
-    held = hold_of(n, (live or (lambda: live_refs(r['src'])))())
+    held = hold_of(n, (live or (lambda: live_refs(r['src'], **kw)))())
     if held:
         return False, f'{n}: стала входом живого прогона ({held}) — пропуск'
     need = c['total'] * 1.1 / GB + float(r['min_hdd_free_gb'])
@@ -1071,6 +1223,11 @@ def main(argv: list) -> int:
         print(f'  оставляю {n}: {why}')
     for ln in MONITOR_NOTES:                                  # T-89: забытые наблюдатели, которые папку не держат (процесс не убит)
         print(f'  {ln}')
+    for ln in STALE_NOTES:                                    # T-96/1: забытые ждуны и пробные серверы — тоже не держат перенос (процесс не убит; гасить — дело владельца/директора)
+        print(f'  {ln}')
+    if STALE_NOTES and apply_ and '--digest' in argv and '--prune-hdd' not in argv:
+        head = 'забытый ждун/сервер — не держит: '
+        print('DIGEST:' + head + '; '.join(n[len(head):] for n in STALE_NOTES)[:420])
     hp_days = float((r.get('hdd_prune') or {}).get('days', 14))
     if hdd_todo or hdd_skipped or '--prune-hdd' in argv:
         ht = sum(c['total'] for c in hdd_todo)

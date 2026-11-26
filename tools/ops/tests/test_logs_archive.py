@@ -709,3 +709,186 @@ def test_rules_default_protected_cannot_be_switched_off_and_file_names_it(tmp_pa
     assert la.rules()['protected'] == ['~/remlab-inputs', '~/other-keep']
     a = _j.load(open(os.path.join(os.path.dirname(la.__file__), '..', 'scout', 'rules', 'dev-disk.json'), encoding='utf-8'))['archive']
     assert '~/remlab-inputs' in a['protected']
+
+
+# ───────────── забытые ждуны и серверы не держат ПЕРЕНОС (T-20261126-96/1; владелец TG 3006→3008, решение Fable 26.11) ─────────────
+WAIT_LOOP = ['bash', '-c', 'cd {d}; while [ ! -f {d}/ALLDONE ]; do sleep 20; done; ls {d}/res_*.json | wc -l; TZ=Europe/London date +%H:%M']
+
+
+@pytest.fixture
+def stale_env(monkeypatch):
+    monkeypatch.setattr(la, 'STALE_NOTES', [])
+    monkeypatch.setattr(la, 'MONITOR_MAX_H', None)
+
+
+def _fp(root, pid, args, age_h=None, ppid=0, cwd=None):
+    """Подделка /proc/<pid>: cmdline, stat (ppid и starttime при age_h; btime = now − 1000 ч), cwd."""
+    d = root / str(pid)
+    d.mkdir(parents=True, exist_ok=True)
+    (d / 'cmdline').write_bytes(b'\0'.join(a.encode() for a in args) + b'\0')
+    (root / 'stat').write_text(f'cpu 1 2 3\nbtime {int(time.time()) - 1000 * 3600}\n')
+    start = int((1000 - age_h) * 3600 * 100) if age_h is not None else 0
+    (d / 'stat').write_text(f'{pid} ({os.path.basename(args[0])}) S {ppid} ' + ' '.join(['0'] * 17) + f' {start} 0 0\n')
+    (d / 'fd').mkdir(exist_ok=True)
+    if cwd:
+        os.symlink(cwd, d / 'cwd')
+
+
+def _world_proc(tmp_path):
+    folder = tmp_path / 'logs' / 't2102-1124'
+    folder.mkdir(parents=True)
+    proc = tmp_path / 'proc'
+    proc.mkdir()
+    hd = tmp_path / 'heavy'
+    hd.mkdir()
+    return folder, proc, hd
+
+
+def test_stale_waiter_over_12h_does_not_hold_but_only_when_threshold_given(tmp_path, stale_env):
+    folder, proc, hd = _world_proc(tmp_path)
+    _fp(proc, 100, [a.format(d=folder) for a in WAIT_LOOP], age_h=60, cwd=str(folder))
+    _fp(proc, 101, ['sleep', '20'], age_h=0.001, ppid=100, cwd=str(folder))                  # `sleep 20` из цикла: cwd тот же, возраст секунды
+    assert 'pid 10' in la.busy_by(str(folder), proc_root=str(proc), heavy_dir=str(hd))         # порога нет (правило выключено) — держит, как раньше
+    assert la.busy_by(str(folder), proc_root=str(proc), stale_h=12, heavy_dir=str(hd)) == ''   # ждун >12 ч и его sleep — не держат
+    assert len(la.STALE_NOTES) == 1 and 'забытый ждун/сервер — не держит: pid 100 (60 ч, ждун)' in la.STALE_NOTES[0] and 'bash -c' in la.STALE_NOTES[0]
+    assert '100' in str(la.stale_waiters(['100', '101'], str(proc), 12, str(hd))) and len(la.STALE_NOTES) == 1   # строка — один раз на pid; процесс не убит
+    assert (proc / '100').is_dir()
+
+
+def test_stale_waiter_under_12h_still_holds(tmp_path, stale_env):
+    folder, proc, hd = _world_proc(tmp_path)
+    _fp(proc, 100, [a.format(d=folder) for a in WAIT_LOOP], age_h=5, cwd=str(folder))
+    assert 'pid 100' in la.busy_by(str(folder), proc_root=str(proc), stale_h=12, heavy_dir=str(hd))
+    assert la.STALE_NOTES == []
+    _fp(proc, 102, [a.format(d=folder) for a in WAIT_LOOP], cwd=str(folder))                  # возраст не прочитать — считаем свежим
+    assert 'pid 10' in la.busy_by(str(folder), proc_root=str(proc), stale_h=12, heavy_dir=str(hd))
+
+
+@pytest.mark.parametrize('line', [
+    'cd {d}; while true; do python3 job.py {d}/x; sleep 20; done',                               # тяжёлое внутри цикла
+    'while [ ! -f {d}/a ]; do node build.js; sleep 5; done',
+    'while [ ! -f {d}/a ]; do sleep 5; done; rm -rf {d}/tmp',                                    # после цикла — удаление
+    'while [ ! -f {d}/a ]; do sleep 5; done > {d}/wait.log',                                     # пишет в файл папки
+    'until grep -q ok {d}/r.log; do sleep 5; done && python3 -I stage.py',
+    'while [ ! -f {d}/a ]; do sleep 5; done; $(python3 x.py)',
+    'sleep 99999',                                                                                # нет цикла: это не ждун по правилу
+])
+def test_loop_with_heavy_or_writes_is_not_a_waiter_and_keeps_holding(tmp_path, stale_env, line):
+    folder, proc, hd = _world_proc(tmp_path)
+    _fp(proc, 100, ['bash', '-c', line.format(d=folder)], age_h=60, cwd=str(folder))
+    assert la.is_wait_cmd(['bash', '-c', line.format(d=folder)]) == ''
+    assert 'pid 100' in la.busy_by(str(folder), proc_root=str(proc), stale_h=12, heavy_dir=str(hd))
+    assert la.STALE_NOTES == []
+
+
+@pytest.mark.parametrize('args,expected', [
+    (['bash', '-c', "cd /x; until [ $(grep -c '^[a-z0-9]*2 {' /x/a.log) -ge 5 ] || ! pgrep -f grain3.py >/dev/null 2>&1; do sleep 15; done; grep -v '^    ' /x/a.log | cut -c1-300; date"], 'ждун'),
+    (['bash', '-c', 'while [ ! -f /x/ALLDONE ]; do sleep 20; done; ls /x/res_*.json | wc -l'], 'ждун'),
+    (['timeout', '3600', 'bash', '-c', 'until [ -f /x/a ]; do sleep 2; done'], 'ждун'),
+    (['bash', '-lc', 'F=~/remlab-logs/t168/b.out; touch $F; N=$(wc -l < $F); while true; do L=$(wc -l < $F); if [ "$L" -gt "$N" ]; then tail -n +$((N+1)) $F | cut -c1-420 | sed "s/^/R10: /"; N=$L; fi; sleep 60; done'], 'ждун'),
+    (['bash', '-lc', 'D=~/x; while true; do for f in $D/*/yaw.txt; do [ -f "$f" ] || continue; echo $f; done; sleep 30; done'], 'ждун'),
+    (['bash', '-lc', 'L=/x; while true; do [ -f $L/a.done ] && echo "done: $(wc -l < $L/a.tsv)" && break; sleep 120; done'], 'ждун'),
+    (['bash', '-lc', 'F=/x/b.out; while true; do sed -i s/a/b/ $F; sleep 5; done'], ''),                 # sed -i пишет
+    (['bash', '-lc', 'D=/x; while true; do k=$(basename $(dirname $D)); sleep 5; done'], 'ждун'),         # вложенные $(…) раскрываются изнутри: всё лёгкое
+    (['bash', '-lc', 'D=/x; while true; do k=$(python3 x.py $(dirname $D)); sleep 5; done'], ''),        # тяжёлое в подстановке — не ждун
+    (['bash', '-lc', 'while true; do case "$a" in *x*) ;; esac; sleep 5; done'], ''),                     # case — не разбираем
+    (['python3', '-m', 'http.server', '8000'], 'сервер'),
+    (['python3', '-u', '-m', 'http.server', '--directory', '/x'], 'сервер'),
+    (['python3', '-m', 'http.server', '--cgi'], ''),                                              # --cgi исполняет скрипты
+    (['python3', '-m', 'pytest'], ''),
+    (['bash', '-c', 'while [ ! -f /x/a ]; do tail -F /x/b.log; done'], ''),                         # tail -F внутри цикла — не ожидание файла
+    (['bash', '-c', 'while [ ! -f /x/a ]; do sleep 1; done; mv /x/a /y'], ''),
+    (['bash', '-c', 'echo "ждём"; sleep 5'], ''),                                                  # без while/until
+    (['ssh', 'host', 'while true; do sleep 1; done'], ''),
+    ([], ''),
+])
+def test_is_wait_cmd(args, expected):
+    assert la.is_wait_cmd(args) == expected
+
+
+def test_stale_http_server_does_not_hold(tmp_path, stale_env):
+    folder, proc, hd = _world_proc(tmp_path)
+    _fp(proc, 200, ['python3', '-m', 'http.server', '8765'], age_h=62, cwd=str(folder))
+    assert 'pid 200' in la.busy_by(str(folder), proc_root=str(proc), heavy_dir=str(hd))
+    assert la.busy_by(str(folder), proc_root=str(proc), stale_h=12, heavy_dir=str(hd)) == ''
+    assert 'pid 200 (62 ч, сервер)' in la.STALE_NOTES[0]
+    _fp(proc, 201, ['python3', '-m', 'http.server', '8766'], age_h=2, cwd=str(folder))
+    assert 'pid 201' in la.busy_by(str(folder), proc_root=str(proc), stale_h=12, heavy_dir=str(hd))   # свежий сервер держит
+
+
+def test_heavy_slot_holder_always_holds_even_if_it_looks_like_a_stale_waiter(tmp_path, stale_env):
+    folder, proc, hd = _world_proc(tmp_path)
+    loop = [a.format(d=folder) for a in WAIT_LOOP]
+    _fp(proc, 300, loop, age_h=90, cwd=str(folder))
+    (hd / 'holder').write_text(f'label=t-wait\npid=300\ncmd=bash -c sleep\nprio=1\n')              # он сам держит слот
+    assert 'pid 300' in la.busy_by(str(folder), proc_root=str(proc), stale_h=12, heavy_dir=str(hd))
+    assert la.STALE_NOTES == []
+    folder2 = tmp_path / 'logs' / 't2'
+    folder2.mkdir()
+    _fp(proc, 310, ['heavy-slot.sh', 't-job', '--', 'x'], age_h=90)                                # предок держит слот, ждун — его потомок
+    (hd / 'holder2').write_text('label=t-job\npid=310\ncmd=heavy-slot.sh t-job -- x\nprio=1\n')
+    _fp(proc, 311, [a.format(d=folder2) for a in WAIT_LOOP], age_h=90, ppid=310, cwd=str(folder2))
+    assert 'pid 311' in la.busy_by(str(folder2), proc_root=str(proc), stale_h=12, heavy_dir=str(hd))
+
+
+def test_transfer_relaxes_but_prune_and_worktree_prune_keep_holding(world, tmp_path, stale_env, monkeypatch):
+    src, dst, repo, r = world
+    folder, proc, hd = _world_proc(tmp_path)
+    mk(src / 'wait-1', {'a': 100}, 9)
+    mk(src / 'free-old', {'a': 100}, 9)
+    _fp(proc, 100, ['bash', '-c', f'while [ ! -f {src}/wait-1/ALLDONE ]; do sleep 20; done'], age_h=60, cwd=str(src / 'wait-1'))
+    orig_busy, orig_live = la.busy_by, la.live_refs
+    monkeypatch.setattr(la, 'busy_by', lambda p, **kw: orig_busy(p, proc_root=str(proc), heavy_dir=str(hd), **kw))
+    monkeypatch.setattr(la, 'live_refs', lambda s, **kw: orig_live(s, proc_root=str(proc), heavy_dir=str(hd), **kw))
+    todo, skipped = la.candidates(r, str(repo), now=NOW)                                         # в правилах порога нет — держит, как раньше
+    assert names(todo) == ['free-old'] and 'живого прогона' in dict(skipped)['wait-1']
+    todo, skipped = la.candidates(dict(r, stale_holder_hours=12), str(repo), now=NOW)             # порог есть — перенос свободен
+    assert names(todo) == ['free-old', 'wait-1'] and la.STALE_NOTES
+    c = {'name': 'wait-1', 'path': str(src / 'wait-1'), 'total': 100, 'freed': 100}
+    ok, line = la.move_one(c, dict(r, days=5, stale_holder_hours=12), now=NOW, rsync=lambda cm: 0)   # и move_one перепроверяет с тем же послаблением
+    assert 'занята' not in line and 'живого прогона' not in line
+    # удаление с HDD: тот же ждун держит папку, как раньше (послабление — только для переноса)
+    assert 'wait-1' in orig_live(str(src), proc_root=str(proc), heavy_dir=str(hd))
+    assert 'wait-1' not in orig_live(str(src), proc_root=str(proc), heavy_dir=str(hd), stale_h=12)
+    dst.mkdir(exist_ok=True)
+    _old_link(src, dst, 'hdd-wait')
+    _fp(proc, 101, ['bash', '-c', f'until [ -f {src}/hdd-wait/OK ]; do sleep 5; done'], age_h=70, cwd=str(tmp_path))
+    hp, hs = la.hdd_candidates(dict(r, hdd_prune={'days': 14}, stale_holder_hours=12), str(repo), now=NOW)
+    assert 'hdd-wait' not in names(hp) and 'живого прогона' in dict(hs)['hdd-wait']
+    # worktree_prune держит так же (stale_h он не передаёт)
+    snap = la.proc_snapshot(str(proc), None, holders=True, heavy_dir=str(hd))
+    assert any(e['pid'] == '101' for e in snap)
+
+
+def test_main_prints_stale_line_and_digest_and_does_not_kill(world, tmp_path, stale_env, monkeypatch, capsys):
+    src, dst, repo, r = world
+    folder, proc, hd = _world_proc(tmp_path)
+    mk(src / 'wait-2', {'a': 100}, 9)
+    _fp(proc, 100, ['bash', '-c', f'while [ ! -f {src}/wait-2/ALLDONE ]; do sleep 20; done'], age_h=60, cwd=str(src / 'wait-2'))
+    orig_busy, orig_live = la.busy_by, la.live_refs
+    monkeypatch.setattr(la, 'busy_by', lambda p, **kw: orig_busy(p, proc_root=str(proc), heavy_dir=str(hd), **kw))
+    monkeypatch.setattr(la, 'live_refs', lambda s, **kw: orig_live(s, proc_root=str(proc), heavy_dir=str(hd), **kw))
+    import json as _j
+    rules_file = tmp_path / 'rules.json'
+    rules_file.write_text(_j.dumps({'archive': {'src': str(src), 'dst': str(dst), 'days': 5, 'min_hdd_free_gb': 0, 'stale_holder_hours': 12}}))
+    monkeypatch.setenv('LOGS_ARCHIVE_RULES', str(rules_file))
+    monkeypatch.setenv('LOGS_ARCHIVE_REPO', str(repo))
+    monkeypatch.setattr(la, 'take_lock', lambda: object())
+    monkeypatch.setattr(la, 'move_one', lambda c, rr, **kw: (True, f'{c["name"]}: ok'))
+    monkeypatch.setattr(la, 'hdd_candidates', lambda *a, **k: ([], []))
+    monkeypatch.setattr(la, 'free_gb', lambda p: 100.0)
+    assert la.main(['--apply', '--digest']) == 0
+    out = capsys.readouterr().out
+    assert 'wait-2' in out and 'забытый ждун/сервер — не держит: pid 100 (60 ч, ждун)' in out
+    assert any(ln.startswith('DIGEST:забытый ждун/сервер — не держит: pid 100') for ln in out.splitlines())
+    assert (proc / '100' / 'cmdline').exists()                                                    # процесс не тронут
+
+
+def test_rules_file_has_stale_holder_hours_and_default_is_off(tmp_path, monkeypatch):
+    import json as _j
+    a = _j.load(open(os.path.join(os.path.dirname(la.__file__), '..', 'scout', 'rules', 'dev-disk.json'), encoding='utf-8'))['archive']
+    assert a['stale_holder_hours'] == 12 and a['monitor_max_h'] == 12
+    p = tmp_path / 'r.json'
+    p.write_text(_j.dumps({'archive': {}}))
+    monkeypatch.setenv('LOGS_ARCHIVE_RULES', str(p))
+    assert la.rules()['stale_holder_hours'] is None                                              # нет ключа — выключено, держит как раньше
