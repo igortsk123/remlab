@@ -47,9 +47,9 @@ def load_rules(path: str = RULES_PATH) -> dict:
     if not (0 <= int(dl['uv_gutter_px']) <= 64) or not (0 < float(dl['guard_dl_max']) < 100):
         raise ValueError('tex-owner.json: dilate вне допустимых пределов (uv_gutter_px 0…64, guard_dl_max > 0)')
     tg = r['tone_guard']
-    if (not (0 < float(tg['de_max']) < 100) or int(tg['min_px']) < 1 or not (0 <= float(tg['min_area_frac']) < 1) or not (0 <= float(tg['cos_min']) < 1) or not (1 <= float(tg['kl']) <= 10)
-            or int(tg['panel_min_px']) < 1 or int(tg['bad_min_px']) < 1 or not (0 <= float(tg['bad_min_frac']) < 1)):
-        raise ValueError('tex-owner.json: tone_guard вне допустимых пределов (de_max 0…100, kl 1…10, min_px/panel_min_px/bad_min_px ≥ 1, min_area_frac/bad_min_frac/cos_min 0…1)')
+    if (not (0 < float(tg['dl_max']) < 100) or not (0 < float(tg['dab_max']) < 200) or int(tg['min_px']) < 1 or not (0 <= float(tg['min_area_frac']) < 1) or not (0 <= float(tg['cos_min']) < 1)
+            or int(tg['panel_min_px']) < 1 or int(tg['panel_min_texels']) < 1 or not (0 <= float(tg['stop_area_frac']) <= 1) or not (0 < float(tg['stop_dl']) < 100) or not (0 < float(tg['stop_dab']) < 200)):
+        raise ValueError('tex-owner.json: tone_guard вне допустимых пределов (dl_max/stop_dl 0…100, dab_max/stop_dab 0…200, min_px/panel_min_px/panel_min_texels ≥ 1, min_area_frac/cos_min 0…1, stop_area_frac 0…1)')
     return r
 
 
@@ -76,18 +76,22 @@ def photo_frame(d: str, src_glb: str, photo: str, pose_run: str) -> tuple:
     return None, None, None, None, 'нет фото/позы и нет rel.npz'
 
 
-def tone_guard_run(rules: dict, d: str, src_glb: str, P, F, fg, fg2, z: dict, names: list, photo: str, pose_run: str) -> dict:
+def tone_guard_run(rules: dict, d: str, src_glb: str, P, F, fg, fg2, z: dict, names: list, photo: str, pose_run: str, tex=None, ids_tex=None) -> dict:
+    """Сторож «не отдавать»: цвет детали до owner (фото, где видна; иначе текстура 06) против тона её группы. Нет кадра фото — проверка по 06 (если есть tex/ids_tex), иначе «не проверено» (всё отдаётся как раньше)."""
     import tex_owner as TO
-    tg = rules['tone_guard']
     area = TO.face_areas(P, F)
     ids, rgb, valid, cosf, how = photo_frame(d, src_glb, photo, pose_run)
-    if ids is None:
-        n = len(names)
-        giv = (fg2 >= 0) & (fg2 < n) & (fg2 != fg)
-        return {'стоп': False, 'причина': '', 'не_проверено': how, 'доля_отдано_площади': round(float(area[giv].sum() / max(float(area.sum()), 1e-20)), 4), 'по_группам': {}}
     rr = rules['roles']
     _n, comp = TO.panels(P, F, float(rr['crease_deg']), float(rr['weld_scale']))
-    res = TO.guard_tone(ids, rgb, valid, fg, fg2, comp, area, np.asarray(z['tone_srgb']), np.asarray(z['painted_group'], bool), names, rules, cosf)
+    if ids is None:
+        if tex is None:
+            n = len(names)
+            giv = (fg2 >= 0) & (fg2 < n) & (fg2 != fg)
+            return {'стоп': False, 'причина': '', 'не_проверено': how, 'доля_отдано_площади': round(float(area[giv].sum() / max(float(area.sum()), 1e-20)), 4), 'по_группам': {}, 'детали': [], 'не_отдать': []}
+        ids = np.full(ids_tex.shape, -1, np.int64)                      # кадра нет — пустой кадр: все панели идут по текстуре 06
+        rgb, valid, cosf = np.zeros(ids.shape + (3,), np.uint8), np.zeros(ids.shape, bool), None
+        how = 'нет фото/позы: только текстура 06 (%s)' % how
+    res = TO.guard_tone(ids, rgb, valid, fg, fg2, comp, area, np.asarray(z['tone_srgb']), np.asarray(z['painted_group'], bool), names, rules, cosf, tex, ids_tex)
     res['кадр'] = how
     return res
 
@@ -122,11 +126,18 @@ def process(rules: dict, d: str, rep: dict, photo: str = '', pose_run: str = '')
         raise Abstain('face_group %d ≠ числу граней 06 %d (меши разошлись)' % (len(fg), len(F)))
     fg2, info = TO.face_roles(P, F, fg, len(names), rules)
     rep['roles'] = info
-    if rules['tone_guard']['enabled']:
-        rep['tone_guard'] = tone_guard_run(rules, d, src, P, F, fg, fg2, z, names, photo, pose_run)
-        if rep['tone_guard']['стоп']:
-            raise Abstain(rep['tone_guard']['причина'])                  # воздержание = СТОП прогона (abstain_is_stop): текстуру и visible.glb не трогаем, 07 не идёт
     ids = TO.owner_ids(UV, F, T, rules)
+    if rules['tone_guard']['enabled']:
+        tgr = tone_guard_run(rules, d, src, P, F, fg, fg2, z, names, photo, pose_run, tex, ids)
+        rep['tone_guard'] = tgr
+        if tgr['стоп']:
+            raise Abstain(tgr['причина'])                                # воздержание = СТОП прогона (abstain_is_stop): текстуру и visible.glb не трогаем, 07 не идёт
+        if tgr['не_отдать']:
+            nd = np.asarray(tgr['не_отдать'], np.int64)
+            fg2 = fg2.copy()
+            fg2[nd] = fg[nd]                                             # «не отдавать»: грани панели остаются с прежней ролью → метки зерна нет, 07 красит их как раньше (sub_tone и др.)
+        tgr['не_отдано_граней'] = len(tgr['не_отдать'])
+        tgr['не_отдать'] = []                                            # индексы в след не пишем (тысячи); строки по панелям — в 'детали'
     new, gmap, per = TO.apply_owner(tex, np.asarray(z['group_map']).copy(), ids, fg2, painted, np.asarray(z['tone_srgb']), names, rules)
     rep['groups'] = per
     kn = None
