@@ -387,6 +387,56 @@ def front_axes(az: float, R: dict) -> str:
     return 'зад' if d > float(C['front_half_deg']) else 'перёд'
 
 
+def is_corpus_role(role: str | None, R: dict) -> bool:
+    """Роль каталога — корпусная (префикс из `flip_always.roles_corpus`); от флага flip_always.enabled не зависит."""
+    r = (role or '').strip().lower()
+    return bool(r) and any(r.startswith(str(x).lower()) for x in (R.get('flip_always') or {}).get('roles_corpus') or [])
+
+
+def front_half_pick(pick: dict, cands: list, ms_info: dict | None, R: dict, env: str | None = None) -> tuple:
+    """T-99/3: подбор камеры 04 корпусных ТОЛЬКО в передней половине осей (`front_axes` == 'перёд'). Поза этапа 04 по силуэту не различает перёд и зад коробки (Модерн, тв-тумба, Теджонс, Рошаль, Монблан-4 встали сзади), оси верны.
+    Кандидаты — боевая + `cands` + стартовые позы мультистарта (уже посчитаны, ничего не считаем заново). Боевая уже в передней половине → «согласны». Иначе лучшая по оценке в передней половине принимается, если её IoU силуэта хуже лучшего
+    боевой (задней) позы не более чем на `front_pick.iou_gap_max`; нет передней или она заметно хуже → поза остаётся и вердикт «СТОП: оси ≠ поза» (товар до покраски не идёт).
+    Флаг `corpus_axes.front_pick.enabled` (или env POSE_FRONT_PICK: 1 — вкл, 0 — выкл; приоритет у env) выкл — (pick, {'enabled': False}) без изменений. → (pick, info)."""
+    C = R['flip_always']['corpus_axes']
+    fp = C.get('front_pick') or {}
+    on = (env == '1') if env in ('0', '1') else bool(fp.get('enabled'))
+    if not on:
+        return pick, {'enabled': False}
+    pool, seen = [], set()
+    for c in [pick] + list(cands or []) + list((ms_info or {}).get('starts') or []):
+        cam = c.get('cam')
+        if not cam:
+            continue
+        key = (round(float(cam['az']), 2), round(float(cam['el']), 2))
+        if key in seen:
+            continue
+        seen.add(key)
+        pool.append(c)
+    az0 = float(pick['cam']['az']) % 360.0
+    ax0 = front_axes(az0, R)
+    info = {'enabled': True, 'az_before': round(az0, 2), 'axes_before': ax0, 'n_pool': len(pool), 'stop': False}
+    if ax0 == 'перёд':
+        info.update({'verdict': 'согласны', 'why': f"боевая поза az {az0:.1f} уже в передней половине осей", 'az_after': round(az0, 2)})
+        return pick, info
+    front = [c for c in pool if front_axes(float(c['cam']['az']), R) == 'перёд']
+    info['n_front'] = len(front)
+    best_iou = float(pick.get('iou', 0.0))                          # сравниваем с боевой (задней), не с максимумом пула: у стартов IoU до уточнения по кромкам выше (Теджонс: 0,0275 против 0,03 из-за этого)
+    if not front:
+        info.update({'stop': True, 'verdict': 'СТОП: оси ≠ поза', 'why': f"az {az0:.1f} — {ax0} половина осей, кандидатов в передней половине нет (нужен старт подбора в передней половине)", 'az_after': round(az0, 2)})
+        return pick, info
+    bf = max(front, key=lambda c: float(c.get('score', -9.0)))
+    gap = round(best_iou - float(bf.get('iou', 0.0)), 4)
+    info.update({'iou_gap': gap, 'front_az': round(float(bf['cam']['az']), 2), 'front_iou': bf.get('iou'), 'front_score': bf.get('score')})
+    if gap <= float(fp['iou_gap_max']):
+        info.update({'verdict': 'перёд по осям (камера 04 переставлена)', 'az_after': round(float(bf['cam']['az']), 2),
+                     'why': f"az {az0:.1f} → {float(bf['cam']['az']):.1f}: передняя половина осей, IoU хуже лучшего на {gap:.4f} (≤ {fp['iou_gap_max']})"})
+        return {**pick, **{k: v for k, v in bf.items() if k not in ('start_az', 'start_el')}, 'front_pick': True, 'cam_before_front_pick': pick['cam']}, info
+    info.update({'stop': True, 'verdict': 'СТОП: оси ≠ поза', 'az_after': round(az0, 2),
+                 'why': f"az {az0:.1f} — {ax0} половина осей; передняя (az {float(bf['cam']['az']):.1f}) заметно хуже по силуэту: IoU хуже на {gap:.4f} (> {fp['iou_gap_max']})"})
+    return pick, info
+
+
 def front_decision(sp: dict, sf: dict, form_votes: dict, R: dict, kind: str = 'soft', az: float | None = None, iou_gap: float | None = None) -> dict:
     """Решение «перёд» для типа с перёдом. Мягкие: голоса flip_decision (силуэт, кромки, цвет, рельеф затенения) + голоса формы; разворот — силуэт перевёрнутой не хуже `sil_drop_max`, «за» ≥ `flip_always.need_votes`, «против» нет.
     Корпусные (T-88, решение по оси): `front_axes(az)` + силуэт + рельеф формы; цвет и кромки в решение не входят (см. шапку патча/правило `flip_always.corpus_axes._why`).

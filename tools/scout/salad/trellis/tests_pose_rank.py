@@ -464,5 +464,30 @@ except Exception as e:                                                # noqa: BL
 src_fa = inspect.getsource(PR.front_kind) + inspect.getsource(PR.front_form_votes) + inspect.getsource(PR.front_decision) + inspect.getsource(PR._flip_always)
 check('код «перёд всегда»: ID товаров не вшиты', not re.search(r'\d{8,}', src_fa))
 
+# T-20261126-99/3: камера 04 корпусных — только в передней половине осей (front_half_pick)
+import copy
+Rfp = copy.deepcopy(on)
+Rfp['flip_always']['corpus_axes']['front_pick'] = {'enabled': True, 'iou_gap_max': 0.03}
+_c = lambda az, iou, sc: {'cam': {'az': az, 'el': 5.0}, 'iou': iou, 'score': sc}                    # noqa: E731
+_pk = _c(160.0, 0.9431, 0.9456)
+_o, _i = PR.front_half_pick(_pk, [_c(340.8, 0.9442, 0.9409)], {'starts': []}, Rfp)
+check('front_half_pick: боевая сзади, передняя не хуже → переставлена, вердикт «перёд по осям», исходная поза в cam_before_front_pick', _o['cam']['az'] == 340.8 and _o.get('front_pick') and _o['cam_before_front_pick']['az'] == 160.0 and not _i['stop'] and _i['az_after'] == 340.8)
+_o, _i = PR.front_half_pick(_c(340.0, 0.98, 0.95), [_c(160.0, 0.97, 0.93)], {'starts': []}, Rfp)
+check('front_half_pick: боевая уже в передней половине → «согласны», поза не тронута', _o['cam']['az'] == 340.0 and _i['verdict'] == 'согласны' and 'front_pick' not in _o)
+_o, _i = PR.front_half_pick(_pk, [_c(340.8, 0.9431 - 0.05, 0.90)], {'starts': []}, Rfp)
+check('front_half_pick: передняя хуже по IoU больше порога → поза остаётся, «СТОП: оси ≠ поза»', _o is _pk and _i['stop'] and _i['verdict'].startswith('СТОП') and _i['iou_gap'] > 0.03)
+_o, _i = PR.front_half_pick(_pk, [_c(170.0, 0.94, 0.9)], {'starts': []}, Rfp)
+check('front_half_pick: кандидатов в передней половине нет → «СТОП», поза не тронута', _o is _pk and _i['stop'] and _i['n_front'] == 0)
+_o, _i = PR.front_half_pick(_c(90.0, 0.94, 0.9), [_c(10.0, 0.94, 0.9)], {'starts': []}, Rfp)
+check('front_half_pick: боевая в мёртвой зоне (90°) ищет переднюю как при «зад»', _o['cam']['az'] == 10.0 and _i['axes_before'] == 'мёртвая')
+_o, _i = PR.front_half_pick(_pk, [_c(340.8, 0.9442, 0.9409), _c(20.0, 0.95, 0.95)], {'starts': [_c(330.0, 0.9, 0.5)]}, Rfp)
+check('front_half_pick: из передней половины берётся лучшая по оценке (пул = боевая + кандидаты + старты)', _o['cam']['az'] == 20.0 and _i['n_pool'] == 4)
+_o, _i = PR.front_half_pick(_pk, [_c(340.8, 0.9442, 0.9409)], {'starts': []}, on)
+check('front_half_pick: флаг выкл (по умолчанию) — поза не тронута, info {enabled: False}', _o is _pk and _i == {'enabled': False})
+_o, _i = PR.front_half_pick(_pk, [_c(340.8, 0.9442, 0.9409)], {'starts': []}, on, '1')
+check('front_half_pick: env POSE_FRONT_PICK=1 включает при выкл. правиле; env 0 выключает при вкл. правиле', _o['cam']['az'] == 340.8 and PR.front_half_pick(_pk, [_c(340.8, 0.9442, 0.9409)], {'starts': []}, Rfp, '0')[1] == {'enabled': False})
+check('is_corpus_role: комод/шкаф да, диван/стол нет, пусто нет (от flip_always.enabled не зависит)', PR.is_corpus_role('Комод', on) and PR.is_corpus_role('шкаф-купе', on) and not PR.is_corpus_role('диван', on) and not PR.is_corpus_role('', on) and not PR.is_corpus_role(None, on))
+check('front_half_pick: правило в pose-rank.json выкл. по умолчанию', PR.rules()['flip_always']['corpus_axes']['front_pick']['enabled'] is False and 'front_half_pick' in inspect.getsource(PR) and not re.search(r'\d{8,}', inspect.getsource(PR.front_half_pick)))
+
 print('all ok' if not bad else f'FAILED: {bad}')
 sys.exit(1 if bad else 0)

@@ -816,6 +816,12 @@ def fit_pose(glb: str, photo_path: str, out_run: str, yaw: float = 0.0, px: int 
         flip_info = None
         import pose_rank as PR0
         import camera_check as CC0
+        fp_info = None
+        _R_fp = PR0.rules()
+        if PR0.is_corpus_role(role, _R_fp):                            # T-20261126-99/3: камера 04 корпусных — в передней половине осей (флаг corpus_axes.front_pick.enabled, по умолчанию выкл.)
+            pick, fp_info = PR0.front_half_pick(pick, cands, ms_info, _R_fp, os.environ.get('POSE_FRONT_PICK'))
+            if fp_info.get('enabled'):
+                log(f"камера 04 корпусной: {fp_info['verdict']} — {fp_info['why']}")
         _fk_role = PR0.front_kind(role, PR0.rules()) if flip_pick is not False else None            # T-20261125-88: тип с перёдом + флаг flip_always — гипотеза az+180° всегда
         if _fk_role or (PR0.rules()['flip_pick']['enabled'] if flip_pick is None else flip_pick):         # перёд/зад (T-20261123-43): силуэт их не различает; при низком согласии кромок — гипотеза az+180°
             R0 = PR0.rules()
@@ -867,7 +873,7 @@ def fit_pose(glb: str, photo_path: str, out_run: str, yaw: float = 0.0, px: int 
         extra = {'pose': {'picked': pick, 'candidates': cands, 'multistart': ms_info, 'iou_frontal_ortho_bbox': round(iou_front, 4), 'fov_deg_canvas': round(float(np.degrees(2 * np.arctan(0.5 / cam['f']))), 2)}}
         reg = write_stages(r, out_run, cam, cv, photo_path, yaw, px, glb, extra)
         pj = os.path.join(out_run, 'pose.json')
-        json.dump({'camera': cam, 'canvas': cv, 'form_box': form_box, 'picked': pick,'candidates': cands, 'multistart': ms_info, 'iou_frontal_ortho_bbox': round(iou_front, 4), 'iou_frame': reg['iou'], 'px': px, 'yaw': yaw, 'textured': tex is not None, 'surf_pick': surf_info, 'rank': rank_info, 'flip_pick': flip_info},
+        json.dump({'camera': cam, 'canvas': cv, 'form_box': form_box, 'picked': pick,'candidates': cands, 'multistart': ms_info, 'iou_frontal_ortho_bbox': round(iou_front, 4), 'iou_frame': reg['iou'], 'px': px, 'yaw': yaw, 'textured': tex is not None, 'surf_pick': surf_info, 'rank': rank_info, 'flip_pick': flip_info, **({'front_pick': fp_info} if fp_info and fp_info.get('enabled') else {})},
                   open(pj, 'w', encoding='utf-8'), ensure_ascii=False, indent=1)
         A_fr = SL.warp_inv(alpha.astype(np.float32), canvas_P(cv, px), (px, px)) > 0.5
         ov = np.zeros((px, px, 3), np.uint8)
