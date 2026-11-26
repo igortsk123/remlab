@@ -615,5 +615,60 @@ class NoRuleOtherChannel(unittest.TestCase):
         self.assertIs(TBL["no_rule_other_channel"]["enabled"], True)
 
 
+NEW_NAMES = {"Cabinet Door": "facade", "Door": "facade", "Cabinet Frame": "body", "Cabinet Shelf": "body", "Shelf Board": "body", "Vertical Back Panel": "body", "Vertical Rear Panel": "body"}
+
+
+class CabinetNames(unittest.TestCase):
+    """T-121/3 (директор 26.11): названия «Cabinet Frame/Shelf/Door» и их близкие (Door, Shelf Board, Vertical Back/Rear Panel) — в словаре моста, с _why. Имя — кандидат: body — без условия геометрии
+    (у типов без body — как у прочих body-имён), facade — по геометрии группы. Старые имена — байт в байт."""
+
+    @staticmethod
+    def without_new():
+        t = json.loads(json.dumps(TBL))
+        for n in NEW_NAMES:
+            del t["map"][n]
+        return t
+
+    def test_names_are_in_the_map_with_role_and_why(self):
+        for n, role in NEW_NAMES.items():
+            self.assertEqual(TBL["map"][n]["role"], role, n)
+            self.assertTrue(TBL["map"][n].get("_why"), f"«{n}»: нет _why")
+
+    def test_case_cabinet_parts_get_roles_instead_of_name_unknown(self):
+        v, f, part = assemble([box(0, 0.5, 0, 1.0, 0.8, 0.5, n=16), box(0, 0.5, 0.27, 0.9, 0.5, 0.04, n=8), box(0, 0.7, 0.30, 0.4, 0.3, 0.01, n=6), box(0.3, 0.3, 0.30, 0.06, 0.03, 0.03, n=3)])
+        ft = feats(v, f, part, {0: "body", 1: "body", 2: "body", 3: "thin"})
+        names = {0: "Cabinet Frame", 1: "Cabinet Door", 2: "Cabinet Shelf", 3: "Handle"}
+        after = pn.bridge_roles(names, ft, TBL, RR, "комод", {"legs", "handles"})
+        before = pn.bridge_roles(names, ft, self.without_new(), RR, "комод", {"legs", "handles"})
+        self.assertEqual((after[0]["role"], after[0]["unknown_reason"]), ("body", None))        # каркас шкафа → корпус
+        self.assertEqual((after[2]["role"], after[2]["unknown_reason"]), ("body", None))        # полка → корпус
+        self.assertNotEqual(after[1]["unknown_reason"], "name_unknown")                          # дверца названа ролью; facade/name_geometry решает геометрия группы
+        self.assertIn("Cabinet Door", after[1]["role_why"])
+        for p in (0, 1, 2):
+            self.assertEqual((before[p]["role"], before[p]["unknown_reason"]), ("unknown", "name_unknown"))   # «до» — этих имён в таблице не было
+        self.assertEqual(after[3]["role"], before[3]["role"])                                    # «Handle» не затронут
+
+    def test_table_group_keeps_no_body_rule(self):
+        v, f, part = table()
+        ft = feats(v, f, part, KINDS5)
+        r = pn.bridge_roles({0: "Cabinet Frame", 1: "Cabinet Shelf", 2: "Leg", 3: "Leg", 4: "Leg"}, ft, TBL, RR, "стол обеденный", {"legs"})
+        for p in (0, 1):
+            self.assertNotEqual(r[p]["role"], "body")                                            # группа table: body не ставим (материал столешницы/ножек назван отдельно)
+            self.assertNotEqual(r[p]["unknown_reason"], "name_unknown")                          # причина теперь честная (body_scope; либо роль по геометрии), а не «имени нет в таблице»
+            self.assertTrue(r[p]["role"] != "unknown" or r[p]["unknown_reason"] == "body_scope")
+
+    def test_old_names_are_byte_for_byte(self):
+        v, f, part = table()
+        ft = feats(v, f, part, KINDS5)
+        for names, product in (({0: "Tabletop", 1: "Leg", 2: "Leg", 3: "Leg", 4: "Leg"}, "столик"), ({0: "Casing", 1: "Shelf", 2: "Back Panel", 3: "Door Panel", 4: "Drawer"}, "комод"),
+                               ({0: "Other", 1: "Frame", 2: "Handle", 3: "", 4: "Bulb"}, "лампа")):
+            a = pn.bridge_roles(names_of(names), ft, TBL, RR, product, {"legs", "handles"})
+            b = pn.bridge_roles(names_of(names), ft, self.without_new(), RR, product, {"legs", "handles"})
+            self.assertEqual(json.dumps(a, sort_keys=True, ensure_ascii=False, default=float), json.dumps(b, sort_keys=True, ensure_ascii=False, default=float), product)
+
+    def test_mode_stays_dry(self):
+        self.assertEqual(TBL["mode"], "dry")                                                     # включение моста — отдельное решение, словарь его не меняет
+
+
 if __name__ == "__main__":
     unittest.main()
