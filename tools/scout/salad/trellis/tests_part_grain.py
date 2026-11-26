@@ -378,6 +378,21 @@ def main():
     check('axis' not in rep_n['parts'][1], 'не-верх (имя без part_words) — проверка не считается')
     check(PG.ang_diff180(10, 170) == 20 and PG.ang_diff180(0, 90) == 90 and PG.ang_diff180(179, 1) == 2, 'ang_diff180: ось — прямая, разница 0…90°')
 
+    # T-99/11 шаг 4 (Fable 14 п.3): axis_check.apply — ось зерна по ФОТО (выкл = как раньше)
+    check(AC.get('apply') is False, 'axis_check.apply: по умолчанию выключен')
+    RP = copy.deepcopy(R)
+    RP['axis_check'] = dict(AC, enabled=True, apply=True)
+    o_v, rp_v = run_axis(RP, tx, tex, ctx_for(L_v))
+    o_v0, _r0 = run_axis(RA, tx, tex, ctx_for(L_v))
+    check(not np.array_equal(o_v, o_v0), 'apply=true, волокна фото поперёк оси формы → текстура МЕНЯЕТСЯ (ось повернута к фото; флаг не «молчит»)')
+    a_v = rp_v['parts'][1]['axis'][0]
+    check(a_v['verdict'] == 'axis_ok_photo' and a_v['d_deg'] < 5, f'после apply ось совпала с волокнами фото ({a_v})')
+    o_h, _rh = run_axis(RP, tx, tex, ctx_for(L_h))
+    check(np.array_equal(o_h, run_axis(RA, tx, tex, ctx_for(L_h))[0]), 'apply=true, ось формы уже по фото → текстура та же байт в байт')
+    o_n, _rn = run_axis(RP, tx, tex, ctx_for(L_n))
+    check(np.array_equal(o_n, run_axis(RA, tx, tex, ctx_for(L_n))[0]), 'apply=true, подсказки фото нет → как раньше (по форме), не гадаем')
+    check(np.array_equal(run_axis(R, tx, tex, ctx_for(L_v))[0], run_axis(dict(RA, axis_check=dict(AC, enabled=False, apply=True)), tx, tex, ctx_for(L_v))[0]), 'apply без enabled → ничего не меняется')
+
     # 9. ключи правил «ось детали» (T-63 р.5d): ВКЛЮЧЁННЫЙ ключ обязан менять выход (молча не включившийся флаг = красный тест)
     nx, ny, T2 = 120, 60, 128
     tx0, tex = plate(nx, ny, T2)
