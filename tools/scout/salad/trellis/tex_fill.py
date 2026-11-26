@@ -115,6 +115,7 @@ FILL = {
     'legs_band': [0.02, 0.20], 'legs_zone': 0.45, 'legs_max_frac': 0.25, 'legs_radius': 1.5, 'legs_grow': 1.7,   # ножка: полоса поиска и верх тела (доли высоты), макс. ширина (доля габарита), цилиндр (×ширины/2), рост сечения → конец ножки
     'legs_shape_tol': 0.25, 'legs_compat_dab': 10.0, 'legs_compat_dl': 35.0, 'legs_min_known': 200,   # группа: форма ±25 %, цвет известного (a,b ≤ 10, L ≤ 35), лучшая ножка — известного не меньше
     'tone_only_use': True,           # run_stage: читать `tone_only.png` из папки этапа 6 (нет файла — прежнее поведение)
+    'tone_only_keep': True,          # T-99/7 (Fable, вопрос 12): тексель с группой-владельцем (тон-только этапа 6: Ш4а/owner) 07 НЕ перекрашивает — группы материала (surface_groups.apply_groups) красят только то, чего владелец не покрыл. False = как раньше (Келвин: цвет ножек залил 99 % столешницы)
     'relief_calib_donor': False,     # Ш6 вариант 2: часть без своего фото берёт калибровку рельефа TRELLIS (σ/p95 чистой ткани) у донора тона той же роли; по умолчанию выкл. (без него рельеф у таких частей = stat)
     'borrow_texture': False,         # Ш6 вариант 1: часть без чистых блоков (нет квилта/блока) берёт микрофактуру у части ТОЙ ЖЕ материальной зоны (роль и тон близки, не узорная); по умолчанию выкл.
     'borrow_luma_only': True,        # заимствованный лоскут даёт только яркость (a/b — нет): цвет остаётся тоном части
@@ -3140,6 +3141,11 @@ def run_stage_once(run: str, sku: str, glb: str, known: list | None = None, part
             if sg_ctx.get('carcass_release'):                                                           # T-20261124-06: спорные видимые «боковые» тексели (фасад на боку) — красит библиотека отделок
                 k_ap = [np.asarray(a, bool) & ~np.asarray(m_, bool) for a, m_ in zip(k_ap, sg_ctx['carcass_release'])]
                 sg_rep['carcass_library_released'] = int(sum(int(np.asarray(m_).sum()) for m_ in sg_ctx['carcass_release']))
+            if _to is not None and (cfg or {}).get('tone_only_keep', FILL['tone_only_keep']):          # T-99/7: тон-только (цвет Ш4а/owner) — «не перекрашивать», как верх top_prior: группа красит остальное
+                _hk1 = sg_ctx.get('hook_keep')
+                _tk = [np.asarray(_to[i_], bool) & ~np.asarray(k_ap[i_], bool) if i_ < len(_to) else np.zeros(np.asarray(k_ap[i_]).shape, bool) for i_ in range(len(geoms))]
+                sg_ctx['hook_keep'] = [_tk[i_] | (np.asarray(_hk1[i_], bool) if _hk1 is not None else False) for i_ in range(len(geoms))]
+                sg_rep['tone_only_kept_texels'] = int(sum(int(m_.sum()) for m_ in _tk))
             _lp = pick.get('legs_protect')
             if _lp is not None:                                                                         # ножки (legs_common_tone): тон — пин группы, паспорт их не перекрашивает (иначе общий тон «части 0» затирает пин)
                 _hk0 = sg_ctx.get('hook_keep')                                                         # «не перекрашивать» (как верх top_prior) — известное и его статистика тела не трогаются

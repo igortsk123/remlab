@@ -1013,6 +1013,7 @@ def fill_pattern_unknown(tex: np.ndarray, texmap: np.ndarray, painted: np.ndarra
 def fit_albedo(names: list, tones: dict, borrowed: dict, keep: set, texmap: np.ndarray, ctl: np.ndarray, render_cam, label_map: np.ndarray, rules: dict) -> tuple[dict, list]:
     """Подбор альбедо по кадру под светом сайта: кадр с камеры фото (`render_cam(tex) → rgb`), метки групп на кадре — label_map (пиксель → группа). Альбедо *= тон фото / тон кадра."""
     fit = rules['fit']
+    luma_only = bool(fit.get('luma_only', False))                  # T-99/7 (Fable, вопрос 12): подбор под свет меняет ТОЛЬКО яркость — один множитель на три канала; оттенок и насыщенность остаются от фото
     alb = {gn: tones[gn]['lin'].copy() for gn in names if tones[gn]['own'] and gn not in borrowed and gn not in keep}
     hist = []
     for _ in range(int(fit['iters'])):
@@ -1028,9 +1029,23 @@ def fit_albedo(names: list, tones: dict, borrowed: dict, keep: set, texmap: np.n
                 continue
             v = med_lin(px)
             row[gn] = round(float(lab_of(lin2srgb(v)[None])[0][0]), 1)
-            alb[gn] = alb[gn] * np.clip(tones[gn]['lin'] / np.maximum(v, 1e-4), fit['clip'][0], fit['clip'][1])
+            if luma_only:
+                m = _luma(tones[gn]['lin']) / max(_luma(v), 1e-4)
+                alb[gn] = alb[gn] * float(np.clip(m, fit['clip'][0], fit['clip'][1]))
+            else:
+                alb[gn] = alb[gn] * np.clip(tones[gn]['lin'] / np.maximum(v, 1e-4), fit['clip'][0], fit['clip'][1])
         hist.append(row)
     return alb, hist
+
+
+def fit_mult(alb: dict, tones: dict) -> dict:
+    """Итоговые множители подбора по каналам R,G,B (альбедо / сырой тон группы, в линейных значениях) и их разброс max/min — строка в отчёт Ш4а и вход проверки «разброс ≤ 1,10» (T-99/7)."""
+    out = {}
+    for gn, a in alb.items():
+        t = np.asarray(tones[gn]['lin'], float)
+        m = np.asarray(a, float) / np.maximum(t, 1e-6)
+        out[gn] = {'rgb': [round(float(x), 3) for x in m], 'spread': round(float(m.max() / max(m.min(), 1e-6)), 3)}
+    return out
 
 
 def _luma(lin) -> float:
