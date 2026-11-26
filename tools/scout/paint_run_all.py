@@ -368,6 +368,13 @@ def execute(run: str, sku: str, a: dict, rules: dict, check_rules: dict, only: l
             log['stages'].append(entry)
             break
         entry['status'] = {p: stage_status(run, sku, p, check_rules)['status'] for p in rules['stages'][name]['produces']}
+        if item['action'] == 'run':                                         # T-99/12: автопроверка «шагов этапа запланировано N, выполнено N» — недобор не молчит (раньше rc≠0 первого шага тихо обрывал Ш4а/зерно), причина в журнале
+            entry['steps_planned'], entry['steps_done'] = len(item['steps']), len(entry['steps'])
+            if entry['steps_done'] < entry['steps_planned']:
+                entry['incomplete'] = 'шагов запланировано %d, выполнено %d: шаг %d вышел с rc=%s%s' % (entry['steps_planned'], entry['steps_done'], entry['steps_done'], entry['steps'][-1]['rc'], '' if not log.get('stopped') else ' (СТОП по воздержанию)')
+                log.setdefault('incomplete', []).append({'stage': name, 'why': entry['incomplete']})
+            if any(s.get('continued_on_soft') for s in entry['steps']):
+                log.setdefault('soft_continued', []).append(name)       # пометка товара: мягкий провал не оборвал шаги этапа (в сводке набора считать такие товары)
         log['stages'].append(entry)
         _save(ctx, log)
     log['finished'] = time.strftime('%Y-%m-%d %H:%M:%S')
@@ -425,6 +432,10 @@ def main(argv: list) -> int:
     log = execute(a.run, a.sku, d, rules, cr, only, a.timeout)
     for e in log['stages']:
         print(e['stage'], e['action'], e['status'], e['why'])
+    for x in log.get('incomplete', []):
+        print('НЕДОБОР ЭТАПА', x['stage'], x['why'])
+    if log.get('soft_continued'):
+        print('МЯГКИЙ ПРОВАЛ, ШАГИ ПРОДОЛЖЕНЫ (continue_steps_on_soft):', ', '.join(log['soft_continued']))
     return 0
 
 

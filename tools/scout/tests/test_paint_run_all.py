@@ -87,6 +87,11 @@ with tempfile.TemporaryDirectory() as run:
 with tempfile.TemporaryDirectory() as run:
     lg = RA.execute(run, 's2b', A, dict(fake_rules(d=d2), continue_steps_on_soft=True), CR)
     ok('step2' in calls(run) and any(s.get('continued_on_soft') for e in lg['stages'] for s in e['steps']), 'continue_steps_on_soft вкл: мягкий провал не обрывает шаги этапа, в журнале continued_on_soft')
+    ok(lg.get('soft_continued') == ['d'] and not lg.get('incomplete') and all(e.get('steps_planned') == e.get('steps_done') for e in lg['stages'] if e['action'] == 'run'), 'T-99/12: товар помечен soft_continued, «шагов запланировано = выполнено», недобора нет')
+with tempfile.TemporaryDirectory() as run:
+    lg = RA.execute(run, 's2c', A, fake_rules(d=d2), CR)
+    dd = [e for e in lg['stages'] if e['stage'] == 'd'][0]
+    ok(dd['steps_planned'] == 2 and dd['steps_done'] == 1 and 'шагов запланировано 2, выполнено 1' in dd['incomplete'] and lg['incomplete'][0]['stage'] == 'd', 'T-99/12: выкл — шаг 2 не выполнен → этап помечен «недобор» с причиной в журнале (не молча)')
 
 # 3. повтор пропускает готовое, --force гонит заново
 with tempfile.TemporaryDirectory() as run:
