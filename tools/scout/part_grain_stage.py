@@ -91,7 +91,7 @@ def strip_sigma(L, mask, blur_frac: float, erode_px: int, min_texels: int):
     return float(hf[me].std())
 
 
-def amp_from_strip(d: str, parts: list, tex_new, rules: dict, rep: dict) -> dict:
+def amp_from_strip(d: str, parts: list, tex_new, rules: dict, rep: dict, tx=None, fp=None, masks=None) -> dict:
     """T-99/11 шаг 4 (Fable 14 п.3): размах волокна — по ФОТО, не по потолку библиотеки. По каждой применённой группе: σ полосы фото (известные тексели ∩ группа, фото-текстура ДО тона Ш4а)
     и σ полосы нашей новой текстуры (вся группа); k = clip(цель · σ_фото / σ_наша, 1, k_max) — множитель на размах группы (k ≤ 1 — не гасим: ослаблять — дело предохранителей зерна). → {id: k}."""
     import part_grain_measure as PGM
@@ -110,16 +110,38 @@ def amp_from_strip(d: str, parts: list, tex_new, rules: dict, rep: dict) -> dict
     z = np.load(os.path.join(d, 'part_material_masks.npz'))
     gm = np.asarray(z['group_map'])
     out = {}
+    planes_img = None
+    if tx is not None and fp is not None:                                  # плоскость на тексель (изображение T×T): размах считаем и по плоскостям (тумба и верх — один «верх» Ш4а, но разный рисунок)
+        planes_img = np.full(T * T, -2, np.int64)
+        planes_img[np.asarray(tx.ti)] = np.asarray(fp)[np.asarray(tx.f)]
+        planes_img = planes_img.reshape(T, T)
+
+    def kk(sf, so):
+        return float(np.clip(float(cfg['target']) * sf / so, 1.0, float(cfg['k_max'])))
     for p in parts:
         grp = gm == p['id']
         sf = strip_sigma(L_ph, grp & known, cfg['blur_frac'], cfg['erode_px'], cfg['min_texels'])
-        so = strip_sigma(L_new, grp, cfg['blur_frac'], cfg['erode_px'], cfg['min_texels'])
+        so = strip_sigma(L_new, grp & known, cfg['blur_frac'], cfg['erode_px'], cfg['min_texels'])
+        if so is None:
+            so = strip_sigma(L_new, grp, cfg['blur_frac'], cfg['erode_px'], cfg['min_texels'])
         e = {'σ_фото': None if sf is None else round(sf, 3), 'σ_наша': None if so is None else round(so, 3), 'k': 1.0}
+        kpart = 1.0
         if sf is not None and so is not None and so > 1e-6:
-            k = float(np.clip(float(cfg['target']) * sf / so, 1.0, float(cfg['k_max'])))
-            e['k'] = round(k, 3)
-            if k > 1.0 + 1e-6:
-                out[p['id']] = k
+            kpart = kk(sf, so)
+            e['k'] = round(kpart, 3)
+        pk = {}
+        if planes_img is not None:
+            e['planes'] = {}
+            for g in np.unique(planes_img[grp]):
+                if g < 0:
+                    continue
+                pm = grp & (planes_img == g) & known
+                sfp, sop = strip_sigma(L_ph, pm, cfg['blur_frac'], cfg['erode_px'], cfg['min_texels']), strip_sigma(L_new, pm, cfg['blur_frac'], cfg['erode_px'], cfg['min_texels'])
+                if sfp is not None and sop is not None and sop > 1e-6:
+                    pk[int(g)] = kk(sfp, sop)
+                    e['planes'][str(int(g))] = {'σ_фото': round(sfp, 3), 'σ_наша': round(sop, 3), 'k': round(pk[int(g)], 3)}
+        if kpart > 1.0 + 1e-6 or any(v > 1.0 + 1e-6 for v in pk.values()):
+            out[p['id']] = {'k': kpart, 'planes': pk}
         rep.setdefault('amp_strip', {})[str(p['name'])] = e
     return out
 
@@ -274,14 +296,15 @@ def process(a, rules: dict, d: str, rep: dict) -> None:
         face_part = fpz if len(fpz) == nF else None
     new, r = PG.apply_grain(tex, tx, parts, masks, fp, pn, cpu, width, rules, enabled=True, axis_ctx=axis_ctx, face_part=face_part)
     if (rules.get('amp_strip') or {}).get('enabled'):                     # T-99/11 шаг 4: размах по фото — второй проход с множителем на группу (выкл — строки не выполняются)
-        ks = amp_from_strip(d, parts, new, rules, rep)
+        ks = amp_from_strip(d, parts, new, rules, rep, tx=tx, fp=fp, masks=masks)
         if ks:
             plan2 = PG.plan_grain(parts, rules)
-            for pid, k in ks.items():
+            for pid, kd in ks.items():
                 if plan2.get(pid, {}).get('apply') and plan2[pid].get('amp') is not None:
-                    plan2[pid]['amp'] = float(plan2[pid]['amp']) * k
+                    plan2[pid]['plane_k'] = {int(g): float(v) for g, v in kd['planes'].items()}
+                    plan2[pid]['plane_k_default'] = float(kd['k'])
             new, r = PG.apply_grain(tex, tx, parts, masks, fp, pn, cpu, width, rules, enabled=True, plan=plan2, axis_ctx=axis_ctx, face_part=face_part)
-            rep['amp_strip_applied'] = {str(pid): round(k, 3) for pid, k in ks.items()}
+            rep['amp_strip_applied'] = {str(pid): {'часть': round(kd['k'], 3), 'плоскости': {str(g): round(v, 3) for g, v in kd['planes'].items()}} for pid, kd in ks.items()}
     rep['groups'] = {str(k): dict(v, name=names[k]) for k, v in r['parts'].items()}
     rep.update(applied=r['applied'], skipped=r['skipped'], texels_changed=r['texels_changed'], planes=int(len(pn)))
     tp_mask = None

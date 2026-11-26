@@ -628,7 +628,10 @@ def apply_grain(tex, tx, parts: list, masks: dict, face_plane, plane_normal, cm_
             lab = np.tile(tone, (int(tgt.sum()), 1))
             if not ((per_part or rules.get('fallback_axis_per_part')) and face_part is not None and g < 0):
                 dl = sample_pat(d['pat'], u_cm, s_cm, tile, key, layers)
-            lab[:, 0] = np.clip(lab[:, 0] + d['amp'] * dl, 0.0, 100.0)
+            amp_eff = d['amp']
+            if d.get('plane_k') is not None and g >= 0:                 # T-99/11 шаг 4: размах по плоскости (amp_strip): множитель плоскости или общий по части
+                amp_eff = d['amp'] * float(d['plane_k'].get(g, d.get('plane_k_default', 1.0)))
+            lab[:, 0] = np.clip(lab[:, 0] + amp_eff * dl, 0.0, 100.0)
             flat[tx.ti[tgt]] = TF.lab2rgb(lab)
             rep['texels_changed'] += int(tgt.sum())
         r.update(planes_used=n_pl_groups, groups=len(groups))
