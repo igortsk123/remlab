@@ -352,6 +352,7 @@
       "outputs": [
         {"file": "08-material/material.glb", "terminal": "итог конвейера покраски: меш забирают приёмка и листы (loop5.py:81, :696) и публикация вне run-all; следующего этапа покраски нет"},
         {"file": "08-material/parts08.npz", "consumers": [{"stage": "09", "via": "code", "script": "tools/scout/paint_check.py", "pattern": "parts08.npz"}]},
+        {"file": "08-material/tone_report.json", "report_only": "отчёт о тоне по шагам (tone_report.py): L/C/h для человека и разбора, ни один этап не читает; порогов нет (T-99/7)"},
         {"file": "08-material/frame.png", "report_only": "контрольный кадр этапа для человека (paint_stage.FRAME), ни один этап его не читает"},
         {"file": "08-material/check.json", "consumers": [{"stage": "09", "via": "code", "script": "tools/scout/paint_check.py", "code": "tools/scout/rules/paint-check.json", "pattern": "08-material"}]}
       ],
@@ -386,6 +387,22 @@
             "min_gb": 4,
             "cores": 2
           }
+        },
+        {
+          "_about": "T-99/7 26.11: ОТЧЁТ о тоне по шагам (L/C/h после 06, Ш4а, owner, зерна, gutter, 07, шва, 08; extra.tone в check.json этапов; 08-material/tone_report.json). Порогов нет, ничего не режет, код выхода всегда 0.",
+          "argv": [
+            "{py}",
+            "{root}/tools/scout/tone_report.py",
+            "run",
+            "--run",
+            "{run}",
+            "--sku",
+            "{sku}",
+            "--photo",
+            "{photo_cam}",
+            "--generator",
+            "{prep_glb}"
+          ]
         }
       ],
       "needs_catalog": true
