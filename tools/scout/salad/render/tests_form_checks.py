@@ -253,8 +253,33 @@ class MaskChecks(unittest.TestCase):
         self.assertFalse(by(FC.mask_checks(self.sku_dir(a, a), 'ваза', rules), 'back_dup_mask')['flag'])
         self.assertFalse(by(FC.mask_checks(self.sku_dir(a, self.noise(6, 30.0)), 'комод', rules), 'back_dup_mask')['flag'])
 
-    def test_no_alpha_frames_gives_nothing(self):
-        self.assertEqual(FC.mask_checks(tempfile.mkdtemp(prefix='tests_fc_none_'), 'шкаф', R), [])
+    def test_no_alpha_frames_is_not_run_not_silent(self):
+        """Нет альфа-кадра — НЕ пусто и не «прошла»: три записи «не выполнена: нет альфа-кадра» (T-20261127-175/Ш0-fix-2)."""
+        ch = FC.mask_checks(tempfile.mkdtemp(prefix='tests_fc_none_'), 'шкаф', R)
+        self.assertEqual([c['name'] for c in ch], list(FC.MASK_NAMES))
+        for c in ch:
+            self.assertTrue(c.get('skipped'))
+            self.assertIsNone(c['value'])
+            self.assertFalse(c['flag'])                                              # OBSERVE: статус формы не меняется
+            self.assertIn('не выполнена: нет альфа-кадра', c['note'])
+
+    def test_run_sku_records_not_run_without_alpha(self):
+        """run_sku без папки альфа-кадров: в записи `not_run` и три «не выполнена»; с кадрами — `not_run` пуст, значения посчитаны."""
+        rec = FC.run_sku('s', None, None, None, RULES)
+        self.assertEqual(rec['not_run'], list(FC.MASK_NAMES))
+        self.assertIn('не выполнена', by(rec['checks'], 'back_relief')['note'])
+        d = self.sku_dir(self.noise(1, 1.0), self.noise(2, 40.0))
+        rec2 = FC.run_sku('s', None, None, None, RULES, alpha_dir=d, role='шкаф')
+        self.assertEqual(rec2['not_run'], [])
+        self.assertIsNotNone(by(rec2['checks'], 'relief_graze')['value'])
+        self.assertIsNotNone(by(rec2['checks'], 'back_relief')['value'])
+
+    def test_no_frames_0_180_is_not_run(self):
+        d = tempfile.mkdtemp(prefix='tests_fc_nof_')
+        os.makedirs(os.path.join(d, 'alpha'))                                        # папка есть, кадров 0°/180° нет
+        ch = FC.mask_checks(d, 'шкаф', R)
+        self.assertEqual([c['name'] for c in ch], list(FC.MASK_NAMES))
+        self.assertTrue(all(c.get('skipped') and 'не выполнена' in c['note'] for c in ch))
 
 
 def card(w=100.0, d=40.0, h=200.0, **kw):

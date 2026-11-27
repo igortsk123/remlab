@@ -10,7 +10,7 @@ T-180/7 (директор 22.11, владелец TG 1373/1376): `--accept` — 
 
   python3 tools/ops/forms_render.py --glbs <папка с GLB форм> --out <папка кадров> (--set set40.json | --ids 99272_1,112923_2) [--max N] [--cores 2] [--samples 16] [--no-slot]
 
-Кадры: `<out>/<товар>/01_az000_clay.png`, `02_az225_clay.png`. GLB ищется как `<товар>*.glb` (предпочтительно `-hd`, свежий) — `find_glb_`. Код 1 — если у кого-то кадров нет (причина — в `<out>/render.log`); код 3 — кадры есть, но Ш0 НЕ ВЫПОЛНЕН (в итоге строка «Ш0 НЕ ВЫПОЛНЕН: причина», T-20261127-175/Ш0-fix: сбой Ш0 раньше терялся молча с 26.11)."""
+Кадры: `<out>/<товар>/01_az000_clay.png`, `02_az225_clay.png`. GLB ищется как `<товар>*.glb` (предпочтительно `-hd`, свежий) — `find_glb_`. Код 1 — если у кого-то кадров нет (причина — в `<out>/render.log`); код 3 — кадры есть, но Ш0 НЕ ВЫПОЛНЕН или часть его проверок не выполнена (нет альфа-кадра: «ИТОГ: проверки Ш0 НЕ ВЫПОЛНЕНЫ …») (в итоге строка «Ш0 НЕ ВЫПОЛНЕН: причина», T-20261127-175/Ш0-fix: сбой Ш0 раньше терялся молча с 26.11)."""
 import argparse
 import json
 import os
@@ -115,7 +115,7 @@ def main() -> int:
     print(f'товаров {len(ids)} · нет формы {len(no_form)} · уже отрисовано {len([s for s in ids if frames_of(out, s, views_of(s), lights)])} · рисую {len(todo)}', flush=True)
     log = os.path.join(out, 'render.log')
     fails = 0
-    gate_rc, gate_why = 0, ''
+    gate_rc, gate_why, nr_line = 0, '', ''
     for s in todo:
         g = find_glb_(glbs, s)
         t0 = time.time()
@@ -127,14 +127,48 @@ def main() -> int:
         ok = bool(frames_of(out, s, views_of(s), lights))
         fails += 0 if ok else 1
         print(f"{'ok ' if ok else 'НЕТ'} {s} rc={rc} {time.time() - t0:.0f} с", flush=True)
-    if a.accept and not a.no_form_gate:                                      # Ш0: кадры приёмки родились здесь — автопроверки формы идут сразу после них (найденный брак код не меняет; сам сбой Ш0 — меняет, код 3)
+    if a.accept and not a.no_form_gate:                                      # Ш0: кадры приёмки родились здесь — автопроверки формы идут сразу после них (найденный брак код не меняет; сбой Ш0 и «проверки не выполнены» — код 3)
         if a.roles:
             roles = dict(json.load(open(os.path.expanduser(a.roles), encoding='utf-8')), **roles)
-        gate_rc, gate_why = run_form_gate_why(out, glbs, [s for s in ids if frames_of(out, s, views_of(s), lights) and not os.path.isfile(os.path.join(out, s, 'form_checks.json'))], roles,
-                                              os.path.expanduser(a.photos), os.path.expanduser(a.vlm_cache), a.no_vlm, a.vlm_all, a.vlm_budget)
+        gate_skus = [s for s in ids if frames_of(out, s, views_of(s), lights) and not os.path.isfile(os.path.join(out, s, 'form_checks.json'))]
+        gate_rc, gate_why = run_form_gate_why(out, glbs, gate_skus, roles, os.path.expanduser(a.photos), os.path.expanduser(a.vlm_cache), a.no_vlm, a.vlm_all, a.vlm_budget)
+        mark_sh0(out, gate_skus, gate_why if gate_rc else '')                      # метка «Ш0 не выполнен» у каждой формы без отчёта (её видит тот, кто решает, отдавать ли в покраску); успех — метку снимает
+        nr_line = not_run_line(out, gate_skus)
+        if nr_line and not gate_rc:                                          # Ш0 прошёл, но часть проверок не выполнена (нет альфа-кадра …) — не «прошла»: строка с причиной и код 3 (менеджер 27.11: 0 не ставить)
+            print(nr_line + ' — код возврата 3', flush=True)
     if gate_rc:                                                          # сбой Ш0 — не молча: строка в итоге и ненулевой код (брак формы по-прежнему не бракуется, но «Ш0 не было» видно)
-        print(f'ИТОГ: Ш0 НЕ ВЫПОЛНЕН: {gate_why} — формы без приёмки, в покраску не отдавать', flush=True)
-    return 1 if fails else (3 if gate_rc else 0)
+        print(f'ИТОГ: Ш0 НЕ ВЫПОЛНЕН: {gate_why} — формы без приёмки, в покраску не отдавать (метка `sh0_not_run.json` в папке формы)', flush=True)
+    return 1 if fails else (3 if (gate_rc or nr_line) else 0)
+
+
+SH0_MARK = 'sh0_not_run.json'                                                        # метка формы: Ш0 по ней не выполнен (причина внутри); нет метки и есть form_checks.json — Ш0 был
+
+
+def mark_sh0(out: str, skus: list, why: str) -> None:
+    """`why` непусто — каждой форме без `form_checks.json` метка «Ш0 не выполнен»; пусто (Ш0 прошёл) — старые метки снимаются. Ошибка записи рендер не роняет."""
+    for s in skus:
+        m = os.path.join(out, s, SH0_MARK)
+        try:
+            if why and not os.path.isfile(os.path.join(out, s, 'form_checks.json')):
+                json.dump({'sku': s, 'sh0': 'не выполнен', 'reason': why}, open(m, 'w', encoding='utf-8'), ensure_ascii=False)
+            elif not why and os.path.isfile(m):
+                os.remove(m)
+        except OSError as exc:
+            print(f'метка Ш0 у {s} не записана: {exc}', flush=True)
+
+
+def not_run_line(out: str, skus: list) -> str:
+    """Строка итога: какие проверки Ш0 не выполнены (нечего было проверять, напр. нет альфа-кадра) и у скольких форм; нет таких — пусто."""
+    names, n = set(), 0
+    for s in skus:
+        try:
+            rec = json.load(open(os.path.join(out, s, 'form_checks.json'), encoding='utf-8'))
+        except (OSError, ValueError):
+            continue
+        if rec.get('not_run'):
+            n += 1
+            names |= set(rec['not_run'])
+    return f"ИТОГ: проверки Ш0 НЕ ВЫПОЛНЕНЫ у {n} из {len(skus)} форм (нечего проверять — не «прошли»): {', '.join(sorted(names))}" if n else ''
 
 
 def gate_python() -> str:
@@ -169,6 +203,8 @@ def run_form_gate_why(out: str, glbs: str, skus: list, roles: dict, photos: str 
     if err:
         sys.stderr.write(err)
         sys.stderr.flush()
+    if p.returncode == 3 and not [s for s in skus if not os.path.isfile(os.path.join(out, s, 'form_checks.json'))]:
+        return 0, ''                                                                 # form_gate сам вернул 3 = «проверки не выполнены» при записанных отчётах: шаг отработал, код 3 ставит `not_run_line`
     if p.returncode:
         tail = [x.strip() for x in err.splitlines() if x.strip()]
         return p.returncode, f'form_gate rc={p.returncode}' + (f': {tail[-1][:200]}' if tail else ' (вывод — выше)')
