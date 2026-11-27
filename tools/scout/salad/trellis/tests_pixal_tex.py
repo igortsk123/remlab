@@ -390,7 +390,7 @@ ok('закрытые веса DINOv3 проверяются бесплатно �
 ok('только 4090, образ тот же', b['container']['resources']['gpu_classes'] == [T.CARD['class_id']] and b['container']['image'] == 'ghcr.io/x/y:t')
 
 tp = tempfile.mkdtemp(prefix='ptxd-')
-json.dump({'a:1': {'input_png_sha256': 'x'}, 'b:2': {'input_png_sha256': 'y'}}, open(os.path.join(tp, 'inputs.json'), 'w'))
+T.CORIGIN.write_test_inputs(tp, ('a:1', 'b:2'))
 
 
 class NoTouchMG:
@@ -407,7 +407,7 @@ base = dict(model='pixal3d-tex', inputs=tp, skus=['a:1'], plan='1024:1', seed=42
 for name, kw in (('без --texture-mesh', {}), ('два товара', {'texture_mesh': shp_glb, 'skus': ['a:1', 'b:2']}), ('неизвестный --tex-align', {'texture_mesh': shp_glb, 'tex_align': 'fit,zzz'})):
     rc = T.run(types.SimpleNamespace(**{**base, **kw}), NoTouchMG(), NoTouchMG())
     ok(f'{name}: отказ (код 2) до обращения к Salad — группа не создаётся, денег 0', rc == 2)
-json.dump({k: {'input_png_sha256': 'x'} for k in ('a:1', 'b:2', 'c:3')}, open(os.path.join(tp, 'inputs.json'), 'w'))      # c:3 есть среди входов, но формы у него нет
+T.CORIGIN.write_test_inputs(tp, ('a:1', 'b:2', 'c:3'))      # c:3 есть среди входов, но формы у него нет
 cat = tempfile.mkdtemp(prefix='shp-')                         # каталог форм: у a:1 есть clean2, у b:2 только clean, у c:3 ничего (T-20261119-06/5/2)
 for fn_ in ('a_1-1024-42-0.clean2.glb', 'b_2-1024-42-0.clean.glb'):
     open(os.path.join(cat, fn_), 'wb').write(b'glTF')

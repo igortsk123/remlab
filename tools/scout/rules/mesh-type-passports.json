@@ -10,9 +10,7 @@
    "route": "hunyuan3d",
    "needs_3d": true,
    "cutout": {
-    "chain_flags": [
-     "attached_prune"
-    ],
+    "chain_flags": [],
     "guards": [
      {
       "name": "headboard_loss",
@@ -91,7 +89,9 @@
    "route": "hunyuan3d",
    "needs_3d": true,
    "cutout": {
-    "chain_flags": [],
+    "chain_flags": [
+     "main_object"
+    ],
     "guards": []
    },
    "paint": {
@@ -184,9 +184,7 @@
    "route": "hunyuan3d",
    "needs_3d": true,
    "cutout": {
-    "chain_flags": [
-     "attached_prune"
-    ],
+    "chain_flags": [],
     "guards": []
    },
    "paint": {
@@ -242,7 +240,6 @@
    "needs_3d": true,
    "cutout": {
     "chain_flags": [
-     "attached_prune",
      "solid_body"
     ],
     "guards": []
@@ -328,7 +325,6 @@
    "needs_3d": true,
    "cutout": {
     "chain_flags": [
-     "attached_prune",
      "solid_body"
     ],
     "guards": []

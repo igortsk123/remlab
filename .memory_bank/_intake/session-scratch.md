@@ -13,4 +13,4 @@
 > только для этого диалога. Значения секретов — НИКОГДА (только в `_secrets/`, вне git).
 
 <!-- SCRATCH START — /memory-check переносит обработанное в банк и усекает до этой метки -->
-- 2026-11-27 — свод выполнен (/memory-check, директор pakardev, 17:4x): вливания 732ec4f33 (T-176) и 2162d7f48 (Брувисы, карта prepush, Ш0-fix-2) — в план Этажей и core/regression-net; блокнот чист
+- 2026-11-27 — свод выполнен (/memory-check, директор pakardev, 21:1x): ADR-0492, уроки 1079–1083, core/etazhi-plans + regression-net + project-state; утренние пункты — _intake/utro-2026-11-28.md; блокнот чист

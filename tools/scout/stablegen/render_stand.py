@@ -37,6 +37,8 @@ ap.add_argument('--only', default='', help='отладка: список вид�
 ap.add_argument('--views', default='', help='T-180/7: свои виды «имя:азимут:угол_места,…» (вместо набора по умолчанию и --only); виды задаёт вызывающий скрипт, констант здесь нет')
 ap.add_argument('--lights', default='key', help='T-180/7: key — свет за камерой (как раньше); graze — боковой скользящий (справа от камеры, низко); «key,graze» — оба, у файлов graze суффикс _graze')
 ap.add_argument('--device', default='CPU', choices=['CPU', 'GPU'], help='T-184/1: CPU — как раньше (по умолчанию, локальные запуски не меняются); GPU — Cycles CUDA на видеокарте ноды Salad; нет CUDA-устройства → код 3, молча на процессор НЕ падаем (деньги)')
+ap.add_argument('--alpha-dir', default='', help='T-184/5: после каждого кадра — тот же кадр с прозрачным фоном и без пола (RGBA, альфа = сама форма, без тени) в эту папку под тем же именем')
+ap.add_argument('--alpha-samples', type=int, default=16, help='проб на кадр с альфой (шума нет — цвет не нужен)')
 a = ap.parse_args(argv)
 T0 = time.time()
 os.makedirs(a.out, exist_ok=True)
@@ -287,4 +289,14 @@ for vi, (name, az, el) in enumerate(views):
             t = time.time()
             bpy.ops.render.render(write_still=True)
             print(f'кадр {n}/{n_total} {name} {mode}: {time.time() - t:.0f} с', flush=True)
+            if a.alpha_dir:                              # маска формы: прозрачный фон, пола нет (тени нет), мало проб (f73aa06e3, T-184/5; Ш0 form_checks.mask_checks читает <товар>/alpha/<то же имя>)
+                os.makedirs(a.alpha_dir, exist_ok=True)
+                keep = (floor.hide_render, sc.render.film_transparent, sc.render.image_settings.color_mode, sc.cycles.samples, sc.cycles.use_denoising)
+                floor.hide_render, sc.render.film_transparent, sc.render.image_settings.color_mode = True, True, 'RGBA'
+                sc.cycles.samples, sc.cycles.use_denoising = a.alpha_samples, False
+                sc.render.filepath = os.path.join(a.alpha_dir, os.path.basename(p))
+                bpy.ops.render.render(write_still=True)
+                floor.hide_render, sc.render.film_transparent, sc.render.image_settings.color_mode = keep[0], keep[1], keep[2]
+                sc.cycles.samples, sc.cycles.use_denoising = keep[3], keep[4]
+                sc.render.filepath = p
 print(f'ГОТОВО {n} кадров за {time.time() - T0:.0f} с, габарит {tuple(round(x, 3) for x in ext)}', flush=True)

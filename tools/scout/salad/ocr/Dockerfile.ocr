@@ -1,0 +1,28 @@
+# ОБРАЗ SALAD «КЭШ СЛОВ OCR» (T-176/ocr-salad): rapidocr 3.10.0 + onnxruntime 1.31.1 НА ПРОЦЕССОРЕ (без CUDA), модели запечены в образ — на ноде ничего не скачивается.
+# Те же версии, что в venv ocr-trial (Python 3.14.4): список — requirements-ocr.txt (pip freeze этого venv как есть, 20 пакетов).
+# Код — ЗАМОРОЖЕННЫЙ снимок 20261126-2234 без правок: words_on_sheet.py + words_rules.json (frozen/SHA256SUMS = SHA256SUMS снимка; стражи — tests_ocr.py и проверка при сборке ниже).
+# Правила набора (Dockerfile.kit-template): основа — по digest (ADR-0137); образ ≈ 0,5 ГиБ ≪ 35; воркер в образ НЕ запекаем — едет в env группы (kit_worker.bundle).
+# Контекст готовит `stage_ocr_code.py <корень репо> <ctx>` (ctx/code/*, ctx/requirements-ocr.txt). Собирает и пушит ведущий/директор (ghcr); digest — из вывода пуша.
+ARG BASE=python@sha256:fc74d22ffd0d5ac395a4b7bdda75a4539758862c49ebf3005647084631e63789
+FROM ${BASE}
+ENV PYTHONUNBUFFERED=1 PIP_NO_CACHE_DIR=1 PIP_DISABLE_PIP_VERSION_CHECK=1
+RUN apt-get update && apt-get install -y --no-install-recommends libgomp1 libglib2.0-0 ca-certificates \
+    && rm -rf /var/lib/apt/lists/*
+COPY requirements-ocr.txt /tmp/requirements-ocr.txt
+RUN pip install -r /tmp/requirements-ocr.txt \
+    && python -c "import importlib.metadata as m; v={p: m.version(p) for p in ('rapidocr','onnxruntime')}; print(v); assert v=={'rapidocr':'3.10.0','onnxruntime':'1.31.1'}, v"
+COPY code/ /opt/ocr/
+ARG GIT_SHA=unknown
+# запекаем модели: rapidocr грузит распознаватель ЛЕНИВО (на пустом листе без текста его нет) — поэтому три загрузчика зовём явно с ТЕМИ ЖЕ параметрами, что у words_on_sheet (_engine),
+# и ещё холостой лист 1500×1500 проходит весь путь (целый лист + плитки); модели падают в папку models/ ЭТОГО слоя
+RUN cd /opt/ocr && python -I -c "import sys; sys.path.insert(0,'/opt/ocr'); import words_on_sheet as W; e=W._engine(); e._load_det_model(); e._load_cls_model(); e._load_rec_model(); print('модели загружены')" \
+    && python -I -c "import cv2,numpy as np; cv2.imwrite('/tmp/blank.png', np.full((1500,1500,3),255,np.uint8))" \
+    && WORDS_FLAGS_CACHE=/tmp/words_flags_build.json python -I /opt/ocr/words_on_sheet.py /tmp/blank.png | tee /tmp/blank.out && test -s /tmp/blank.out \
+    && python -I -c "import os,hashlib,rapidocr; d=os.path.join(os.path.dirname(rapidocr.__file__),'models'); \
+fs=sorted(f for f in os.listdir(d) if f.endswith('.onnx')); assert any('cyrillic' in f for f in fs), fs; \
+print('\n'.join(f+' '+hashlib.sha256(open(os.path.join(d,f),'rb').read()).hexdigest()[:12] for f in fs))" > /opt/MODELS.txt && cat /opt/MODELS.txt
+# сверка кода образа со снимком ВО ВРЕМЯ СБОРКИ (чужой/правленый файл не пройдёт)
+RUN cd /opt/ocr && printf '%s  words_on_sheet.py\n%s  words_rules.json\n' \
+    c46a7d0a1ca05bcc2645ccc32c8c3171ea25f724276858e05b4aac638eb380de 003d2e2be70e62cb5b66f56121b18e6f47b7c8d3e7e4216bd9c0d684257bb710 | sha256sum -c - \
+    && printf 'ocr-cpu image\ncommit=%s\npython=%s\nsnapshot=20261126-2234\n' "$GIT_SHA" "$(python -V 2>&1)" > /opt/BUILD_INFO_OCR.txt
+ENV OCR_CODE=/opt/ocr OCR_WORK=/tmp/ocr

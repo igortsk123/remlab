@@ -1,0 +1,4 @@
+# Файлы образа «кэш слов OCR» (Dockerfile.ocr), пути от корня репозитория. Код — ЗАМОРОЖЕННЫЙ снимок 20261126-2234 (байт в байт, frozen/SHA256SUMS); правка = новый снимок, не этот файл.
+tools/scout/salad/ocr/frozen/words_on_sheet.py
+tools/scout/salad/ocr/frozen/words_rules.json
+tools/scout/salad/ocr/requirements-ocr.txt

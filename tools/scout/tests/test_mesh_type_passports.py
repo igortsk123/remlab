@@ -129,6 +129,7 @@ def chain_roles():
     att = set(ast.literal_eval(_const('salad/components.py', 'ATTACHED_PRUNE_ROLES')))
     body_extra = set(ast.literal_eval(_const('salad/components.py', 'SOLID_BODY_ROLES').right))   # SOLID_SILHOUETTE_ROLES | {…}
     body = sil | body_extra
+    main = set(ast.literal_eval(_const('salad/cutout_one.py', 'MAIN_OBJECT_ROLES')))     # шаг «главный предмет» единого модуля вырезки (T-175/9)
 
     def code_flags(role):     # те же проверки, что в коде: точное `in`, первое слово, `.strip()`
         f = set()
@@ -136,10 +137,10 @@ def chain_roles():
             f.add('grow')
         if role in sil:
             f.add('solid_silhouette')
-        if ((role or '').split()[0] if role else '') in att:
-            f.add('attached_prune')
         if (role or '').strip() in body:
             f.add('solid_body')
+        if ((role or '').split() or [''])[0] in main:
+            f.add('main_object')
         return f
     NAMED = {'ковер': 'алиас `ковёр` без «ё»: код (`role in GROW_ROLES`) его не растит — названное исключение'}
     bad = []
@@ -152,10 +153,12 @@ def chain_roles():
             if got != want:
                 bad.append((name, sorted(want), sorted(got)))
     ok(not bad, 'у каждой роли реестра (и алиаса) chain_flags = то, что делает код' + ('' if not bad else f': {bad}'))
-    in_code = (grow | sil | att | body)
+    in_code = (grow | sil | att | body | main)
     uncovered = sorted(r for r in in_code if MTP.normalize(r) is None)
     ok(uncovered == ['банкетка'], f'роли из наборов кода без паспорта — только названная «банкетка» (в asset-strategies её нет): {uncovered}')
-    ok(set(MTP.CHAIN_FLAGS) == {'grow', 'solid_silhouette', 'attached_prune', 'solid_body'}, 'закрытый список флагов цепочки')
+    ok(set(MTP.CHAIN_FLAGS) == {'grow', 'solid_silhouette', 'solid_body', 'main_object'}, 'закрытый список флагов цепочки (attached_prune убран 27.11)')
+    ok(all('attached_prune' not in p['cutout']['chain_flags'] for p in REG['types'].values()), 'ни у одного типа нет флага attached_prune (шаг убран из цепочки: резал настоящие ножки)')
+    ok(sum(1 for p in REG['types'].values() if 'main_object' in p['cutout']['chain_flags']) == 1 and 'main_object' in REG['types']['стул']['cutout']['chain_flags'], 'main_object — только у типа «стул»')
 
 
 # ------------------------------------------------------------------ синтетические таблицы случаев К1/К3
