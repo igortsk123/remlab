@@ -9,6 +9,7 @@ import hashlib
 import io
 import json
 import os
+import shutil
 import subprocess
 import sys
 import tarfile
@@ -500,6 +501,47 @@ try:
     ok(not _lost, f'срез HEAD: каждый файл правил (rules/*.json, data/flat3d/*.json), названный в коде среза, лежит в code.tar: нет {sorted(_lost)}')
 except CT.CodeTarError as exc:
     ok(False, f'срез HEAD не собран: {exc}')
+
+# ---- T-175/12-дыра (Fable 27.11): МЕТКА НАБОРА ПРАВИЛ среза = метке дерева. Этап на Salad пишет в check.json `rules_label` по тем правилам, что лежат в code.tar; если в метку входит файл, которого
+# в срезе нет (как было бы с services/planner-solver/rules/bedroom.json в include), метка ноды ≠ метки дерева — «проба = ветка» молча не сходится. Считаем так же, как на ноде: python -I rules_label.py
+# ИЗ распакованного среза (его же rules-label.json), против метки дерева.
+def _label_cli(root):
+    r = subprocess.run([sys.executable, '-I', os.path.join(root, 'tools/scout/rules_label.py'), '--root', root, '--json'], capture_output=True, cwd=root, timeout=120)
+    return json.loads(r.stdout.decode('utf-8'))['id'] if r.returncode == 0 else 'ОШИБКА ' + r.stderr.decode('utf-8', 'replace')[-200:]
+
+
+try:
+    _lt_tar = CT.build(ROOT, 'HEAD')['tar']
+    _lt_dir = os.path.join(tmpdir('label-tar'), 'code')
+    shutil.rmtree(_lt_dir, ignore_errors=True)
+    WS.safe_untar(_lt_tar, _lt_dir)
+    _tree_id, _tar_id = _label_cli(ROOT), _label_cli(_lt_dir)
+    ok(len(_tree_id) == 12 and _tree_id == _tar_id, f'метка набора правил среза code.tar = метке дерева ({_tar_id} / {_tree_id}); файлы правил HEAD и их содержимое в срезе те же, что в дереве')
+    # −контроль 1: из среза выпал файл правил → метка среза другая, тест это видит
+    _lt_c1 = os.path.join(tmpdir('label-tar-c1'), 'code')
+    shutil.rmtree(_lt_c1, ignore_errors=True)
+    shutil.copytree(_lt_dir, _lt_c1)
+    _victim = sorted(f for f in os.listdir(os.path.join(_lt_c1, 'tools/scout/rules')) if f.endswith('.json') and f != 'rules-label.json')[0]
+    os.remove(os.path.join(_lt_c1, 'tools/scout/rules', _victim))
+    ok(_label_cli(_lt_c1) != _tree_id, f'−контроль: из среза убрали {_victim} — метка среза ≠ метки дерева (сравнение не слепое)')
+    # −контроль 2: в include метки внесли файл, которого в срезе нет (bedroom.json спальни) — ровно та ошибка, что была в f7bb8d1a1
+    _lt_c2 = os.path.join(tmpdir('label-tar-c2'), 'code')
+    shutil.rmtree(_lt_c2, ignore_errors=True)
+    shutil.copytree(_lt_dir, _lt_c2)
+    _lt_cfg = os.path.join(_lt_c2, 'tools/scout/rules/rules-label.json')
+    _lt_j = json.load(open(_lt_cfg, encoding='utf-8'))
+    _lt_j['include'] = list(_lt_j['include']) + ['services/planner-solver/rules/bedroom.json']
+    json.dump(_lt_j, open(_lt_cfg, 'w', encoding='utf-8'), ensure_ascii=False)
+    _lt_tree2 = os.path.join(tmpdir('label-tree2'), 'tree')
+    shutil.rmtree(_lt_tree2, ignore_errors=True)
+    shutil.copytree(os.path.join(ROOT, 'tools/scout/rules'), os.path.join(_lt_tree2, 'tools/scout/rules'))
+    shutil.copy(os.path.join(ROOT, 'tools/scout/rules_label.py'), os.path.join(_lt_tree2, 'tools/scout/rules_label.py'))
+    os.makedirs(os.path.join(_lt_tree2, 'services/planner-solver/rules'))
+    shutil.copy(os.path.join(ROOT, 'services/planner-solver/rules/bedroom.json'), os.path.join(_lt_tree2, 'services/planner-solver/rules/bedroom.json'))
+    json.dump(_lt_j, open(os.path.join(_lt_tree2, 'tools/scout/rules/rules-label.json'), 'w', encoding='utf-8'), ensure_ascii=False)
+    ok(_label_cli(_lt_c2) != _label_cli(_lt_tree2), '−контроль: в include метки внесён файл вне среза (bedroom.json спальни) — метка среза ≠ метки дерева (так f7bb8d1a1 ломал равенство)')
+except Exception as exc:  # noqa: BLE001
+    ok(False, f'метка среза = метке дерева: проверка не выполнена: {type(exc).__name__}: {exc}')
 
 # ---- T-193/3 (22.11): на Salad 07 считался БЕЗ частей — модулей tools/assets (материал/ножки) не было в срезе, а «частей нет (ModuleNotFoundError)» глоталось заметкой
 PARTS_PY = {'tools/assets/material_parts.py', 'tools/assets/parts_refine.py', 'tools/assets/parts_vote.py', 'tools/assets/part_shapes.py'}
