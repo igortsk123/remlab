@@ -400,7 +400,16 @@ a = {'native': 'n.glb', 'photo': 'p.png', 'catalog': cat, 'prep_glb': form, 'roo
 run = os.path.join(tmp, 'run')
 o = RA.origin_start(run, 'k1', a, None)
 by = {i['item']: i for i in o['items']}
-ok(len(o['items']) == 5 and by['вырезка формы']['status'] == CO.REFUSE, 'с боевыми правилами без единого модуля вырезки готовая форма отказывается («сверить нечем»)')
+ok(len(o['items']) == 5 and by['вырезка формы']['status'] == CO.OK and 'c2' in by['вырезка формы']['reason'], 'с боевыми правилами и модулем вырезки (9.1–9.3, CHAIN_VERSION c2) форма с актуальной версией проходит пункт «вырезка формы»')
+_load = CO.load_rules                                                      # «модуля вырезки нет» — подменой правил В ТЕСТЕ; боевой rules/circle-origin.json не трогаем
+CO.load_rules = lambda *a_, **k_: {**_load(), 'current': {'chain_version': None, 'from': 'tools/scout/salad/нет_такого_модуля.py:CHAIN_VERSION'}}
+try:
+    o_nomod = RA.origin_start(os.path.join(tmp, 'run_nomod'), 'k1', a, None)
+finally:
+    CO.load_rules = _load
+by_nm = {i['item']: i for i in o_nomod['items']}
+ok(len(o_nomod['items']) == 5 and by_nm['вырезка формы']['status'] == CO.REFUSE and 'сверить нечем' in by_nm['вырезка формы']['reason'], 'модуля вырезки нет (подмена правил в тесте) → готовая форма отказывается («сверить нечем», не «пропустить»)')
+ok(CO.load_rules is _load, 'подмена правил снята: боевые правила снова читаются из файла')
 ok(by['камера 04']['status'] == CO.REFUSE and 'не пройдена' in by['камера 04']['reason'], 'готовая форма без --prep-run: этап 04 заблокирован, камеры нет и не будет → отказ')
 ok({i['item']: i for i in RA.origin_start(os.path.join(tmp, 'run0'), 'k1', dict(a, prep_glb=''), None)['items']}['камера 04']['status'] == CO.NA, 'форма строится в этом прогоне: камеру 04 посчитает он сам → не применимо')
 o = RA.origin_start(run, 'k1', a, 'разово, решение директора, проверка')
