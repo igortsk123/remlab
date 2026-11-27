@@ -304,6 +304,66 @@ def fibre_fill(Q: np.ndarray, Ns: np.ndarray, ing: np.ndarray, cover: np.ndarray
     return done
 
 
+def wrap_points(Q: np.ndarray, Ns: np.ndarray, ing: np.ndarray, use: np.ndarray, lab: np.ndarray, v_ax: int, full_below: float, outer_tol: float):
+    """Боковая грань — продолжение ЛИЦА (шпон/доска оборачивает угол): точка боковой грани на расстоянии d от плоскости лица переходит на лицо на расстоянии d от ребра. Так на одной грани рисунок из ОДНОГО источника
+    (лицо), а стык источников — только по ребру детали, а не по краю видимости (за свесом плиты, в тени). Внешняя боковая грань: нормаль по горизонтальной оси ≠ оси лица, на краю детали (внутренние стенки полого корпуса не берутся);
+    если фото само видит её почти целиком (доля use ≥ full_below) — её рисунок прямой, не оборачивается. → (точки Qw (N,3), маска «берётся с лица»)."""
+    ax = np.argmax(np.abs(Ns), axis=1)
+    sg = np.sign(Ns[np.arange(len(Ns)), ax])
+    strong = np.abs(Ns[np.arange(len(Ns)), ax]) >= 0.8
+    wm = np.zeros(len(Q), bool)
+    Qw = Q.copy()
+    if int(use.sum()) < 200:
+        return Qw, wm
+    f = int(np.bincount(ax[use], minlength=3).argmax())
+    fm = use & strong & (ax == f)
+    if int(fm.sum()) < 200:
+        return Qw, wm
+    c_f = float(np.median(Q[fm, f]))
+    for L_ in np.unique(lab[ing]):
+        in_l = ing & (lab == L_)
+        for a in range(3):
+            if a in (f, v_ax):
+                continue
+            for s_ in (-1.0, 1.0):
+                st_ = in_l & strong & (ax == a) & (sg == s_)
+                if int(st_.sum()) < 200:
+                    continue
+                ext = float(Q[st_, a].min()) if s_ < 0 else float(Q[st_, a].max())
+                face = st_ & (np.abs(Q[:, a] - ext) <= outer_tol)
+                if int(face.sum()) < 200 or float(use[face].mean()) >= full_below:
+                    continue
+                Qw[face, f] = c_f
+                dist = np.abs(Q[face, f] - c_f)
+                Qw[face, a] = ext + dist if s_ < 0 else ext - dist
+                wm |= face
+    return Qw, wm
+
+
+def seam_stats(ti: np.ndarray, T: int, island: np.ndarray, tag: np.ndarray, d: np.ndarray, cover: np.ndarray) -> dict:
+    """Проверка «нет рваных границ»: средний перепад детали между соседними текселями развёртки (одна островка, оба покрыты) там, где источник рисунка меняется (tag разный), против перепада внутри одного источника.
+    Резкий скачок вдоль невидимой линии внутри грани = ratio ≫ 1. → {boundary, interior, ratio, pairs_boundary}."""
+    tg = np.full(T * T, -1, np.int16)
+    dd = np.zeros(T * T, np.float32)
+    il = np.full(T * T, -1, np.int64)
+    tg[ti[cover]] = tag[cover]
+    dd[ti[cover]] = d[cover]
+    il[ti] = island
+    tg, dd, il = tg.reshape(T, T), dd.reshape(T, T), il.reshape(T, T)
+    bs, is_, nb, ratios = [], [], 0, []
+    for sl_a, sl_b in (((slice(None), slice(0, -1)), (slice(None), slice(1, None))), ((slice(0, -1), slice(None)), (slice(1, None), slice(None)))):
+        ta, tb = tg[sl_a], tg[sl_b]
+        both = (ta >= 0) & (tb >= 0) & (il[sl_a] == il[sl_b]) & (il[sl_a] >= 0)
+        dif = np.abs(dd[sl_a] - dd[sl_b])
+        bn, it = dif[both & (ta != tb)], dif[both & (ta == tb)]
+        mb_, mi_ = (float(bn.mean()) if len(bn) else 0.0), (float(it.mean()) if len(it) else 0.0)
+        bs.append(mb_)
+        is_.append(mi_)
+        nb += int(len(bn))
+        ratios.append(mb_ / max(mi_, 0.05) if len(bn) else 0.0)                      # в каждом направлении своя пара «стык против внутри» (полосы дерева меняются по-разному вдоль и поперёк)
+    return {'boundary': round(max(bs), 3), 'interior': round(max(is_), 3), 'ratio': round(max(ratios), 2), 'pairs_boundary': nb}
+
+
 def photo_detail_step(tex_in, tone_tex, tx, g: dict, st: dict, Ld, valid, fgrp, names: list, ppc: float, rules: dict, rep: dict, face_n=None, ab_frame=None):
     """T-99/12 шаг 5: рисунок С ФОТО на лице группы (тумба Хостера): слой деталей фото без теней (этап 05) поверх тона Ш4а — только грани в лоб, свет/тени шире blur_cm вычтены.
     Текселю группы, видимому с камеры в лоб и надёжному, — тон Ш4а (tone_tex, до зерна) + деталь фото (L, усилено gain_*); остальным текселям группы остаётся зерно образца. → (текстура, маска «деталь с фото»)."""
@@ -382,9 +442,32 @@ def photo_detail_step(tex_in, tone_tex, tx, g: dict, st: dict, Ld, valid, fgrp, 
     d_full = np.zeros(len(ti), np.float32)                                    # деталь L на каждый занятый тексель (0 там, где фото её не даёт)
     d_full[use] = map_coordinates(D.astype(np.float32), [y[use] - 0.5, x[use] - 0.5], order=1, mode='nearest')
     cover = use.copy()
+    tag = np.zeros(len(ti), np.int8)                                         # откуда рисунок тексела: 1 прямо с фото, 2 зеркало, 3 оборот лица, 4 ближайший, 5 вдоль волокна, 6 ребро
+    tag[use] = 1
+    Qt_all = np.asarray(tx.Q, np.float64)
+    v_ax = fibre_axis(Qt_all, x, y, use, Ns) if (pd.get('fibre_fill') or pd.get('wrap_sides')) else None
+    wmask = np.zeros(len(ti), bool)
+    if pd.get('wrap_sides') and v_ax is not None:
+        Qw, wmask = wrap_points(Qt_all, Ns, ing_t, use, fgrp[f], v_ax, float(pd['wrap_full_below']), float(pd['wrap_outer_tol']))
+        if wmask.any():
+            cover[wmask] = False
+            d_full[wmask] = 0.0
+            tag[wmask] = 0
+            Qwc = np.hstack([Qw[wmask], np.ones((int(wmask.sum()), 1))]) @ M
+            xw, yw, _zw = PF.project(Qwc, fr['cam'])
+            xw, yw = xw * px, yw * px
+            okw = (xw >= 0.5) & (xw <= px - 0.5) & (yw >= 0.5) & (yw <= px - 0.5)
+            xiw, yiw = np.clip(np.floor(xw).astype(np.int64), 0, px - 1), np.clip(np.floor(yw).astype(np.int64), 0, px - 1)
+            okw &= sel[yiw, xiw]
+            iw = np.nonzero(wmask)[0][okw]
+            d_full[iw] = map_coordinates(D.astype(np.float32), [yw[okw] - 0.5, xw[okw] - 0.5], order=1, mode='nearest')
+            cover[iw] = True
+            tag[iw] = 3
+            info['wrap_texels'] = int(len(iw))
+            info['wrap_face_texels'] = int(wmask.sum())
     # зад — зеркало переда: тексель спиной к камере отражается плоскостью посередине между лицом и задом (по оси его нормали) на лицевую грань и берёт деталь оттуда (вид с задней стороны — зеркальное отражение лицевого рисунка)
     if pd.get('mirror_back'):
-        away = ing_t & ((Nc * vw).sum(1) <= -float(pd['plane_cos']))
+        away = ing_t & ((Nc * vw).sum(1) <= -float(pd['plane_cos'])) & ~wmask
         if int(away.sum()) > 0:
             Qt = np.asarray(tx.Q, np.float64)
             ax = np.argmax(np.abs(Ns), axis=1)
@@ -408,6 +491,7 @@ def photo_detail_step(tex_in, tone_tex, tx, g: dict, st: dict, Ld, valid, fgrp, 
                 idx = np.nonzero(mv)[0][okm]
                 d_full[idx] = map_coordinates(D.astype(np.float32), [ym[okm] - 0.5, xm[okm] - 0.5], order=1, mode='nearest')
                 cover[idx] = True
+                tag[idx] = 2
                 info['mirror_back_texels'] = int(len(idx))
     # тексели той же группы и обращённые к камере, но фото их не видело (под свесом плиты, у края, в тени): деталь — от ближайшего покрытого тексела того же островка в пределах fill_texels (вертикальное волокно продолжается)
     fill_n = int(pd.get('fill_texels', 0))
@@ -427,16 +511,18 @@ def photo_detail_step(tex_in, tone_tex, tx, g: dict, st: dict, Ld, valid, fgrp, 
         cand = ing_t & ~cover & ((Nc * vw).sum(1) >= float(pd['plane_cos'])) & (dist.reshape(-1)[ti] <= fill_n) & (isl_img[src.reshape(-1)[ti]] == tx.island) & same_n
         if cand.any():
             d_full[cand] = d_img[src.reshape(-1)[ti[cand]]]
+            tag[cand] = 4
             cover = cover | cand
             info['filled_texels'] = int(cand.sum())
     # грань, которую фото не видело (за плитой, у края, с обратной стороны за пределами зеркала), но той же детали: рисунок — с видимой части ЭТОЙ ЖЕ грани по оси волокна, не старый шум
     if pd.get('fibre_fill'):
-        v_ax = fibre_axis(np.asarray(tx.Q, np.float64), x, y, use, Ns)
         if v_ax is not None:
             nf = fibre_fill(np.asarray(tx.Q, np.float64), Ns, ing_t, cover, d_full, v_ax, float(pd['fibre_weight']), float(pd['fibre_plane_w']), int(pd['fibre_min_pool']), float(pd.get('fibre_corner_max', 0.0)))
             info['fibre_axis'] = int(v_ax)
             info['fibre_filled_texels'] = int(nf.sum())
+            tag[nf & ~cover] = 5
             cover = cover | nf
+    info['seam_check'] = seam_stats(ti, T, tx.island, tag, d_full, cover)
     flat_new = tex_in.reshape(-1, 3).copy()
     base = tone_tex.reshape(-1, 3)[ti[cover]]
     lab = TC.rgb2lab(base.astype(np.float64))

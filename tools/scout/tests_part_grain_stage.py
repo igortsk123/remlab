@@ -199,6 +199,37 @@ def main():
     d3_ = np.concatenate([d_, np.zeros(40, np.float32)])
     nc0 = ST.fibre_fill(Qc2, Nc2, np.ones(len(Qc2), bool), cov2.copy(), d3_, 2, 0.05, 20.0, 200, 0.0)
     check(not bool(nc0[-40:].any()), 'fibre_fill: corner_max=0 — ребро не трогает (как раньше)')
+    # оборот лица: боковая грань берёт рисунок лица (расстояние от лица = расстояние от ребра), внутренняя стенка и верх не трогаются
+    rg2 = np.random.default_rng(5)
+    zz, yy = np.meshgrid(np.linspace(-0.15, 0.15, 40), np.linspace(-0.24, 0.24, 50))
+    front = np.stack([rg2.uniform(-0.24, 0.24, 2000), yy.ravel()[:2000], np.full(2000, -0.15)], 1)       # лицо: z=-0.15, нормаль -z, видно (use)
+    left = np.stack([np.full(zz.size, -0.24), yy.ravel(), zz.ravel()], 1)                                # левая внешняя: x=-0.24, нормаль -x, фото не видит
+    inner = np.stack([np.full(500, -0.22), rg2.uniform(-0.2, 0.2, 500), rg2.uniform(-0.1, 0.1, 500)], 1)  # внутренняя стенка левой: x=-0.22, нормаль +x
+    right = np.stack([np.full(zz.size, 0.24), yy.ravel(), zz.ravel()], 1)                                # правая внешняя: x=+0.24, нормаль +x
+    Qb = np.vstack([front, left, inner, right])
+    Nb = np.vstack([np.tile([0.0, 0.0, -1.0], (len(front), 1)), np.tile([-1.0, 0.0, 0.0], (len(left), 1)), np.tile([1.0, 0.0, 0.0], (len(inner), 1)), np.tile([1.0, 0.0, 0.0], (len(right), 1))])
+    use_b = np.zeros(len(Qb), bool)
+    use_b[: len(front)] = True
+    use_b[len(front) + len(left) + len(inner):] = rg2.uniform(size=len(right)) < 0.3        # правая видна на 30 % (< 0,9) → тоже оборачивается
+    Qw_, wm_ = ST.wrap_points(Qb, Nb, np.ones(len(Qb), bool), use_b, np.zeros(len(Qb), int), 1, 0.9, 0.02)
+    il_ = slice(len(front), len(front) + len(left))
+    check(bool(wm_[il_].all()) and abs(float(np.abs(Qw_[il_, 2] + 0.15).max())) < 1e-9, 'wrap_points: левая внешняя грань → плоскость лица z=-0,15 (%d текс.)' % int(wm_[il_].sum()))
+    check(float(np.abs(Qw_[il_, 0] - (-0.24 + (zz.ravel() + 0.15))).max()) < 1e-9, 'wrap_points: расстояние от ребра = расстоянию от лица (шпон оборачивает угол)')
+    check(not bool(wm_[len(front) + len(left): len(front) + len(left) + len(inner)].any()), 'wrap_points: внутренняя стенка (не на краю детали) не оборачивается')
+    check(bool(wm_[len(front) + len(left) + len(inner):].all()) and float(np.abs(Qw_[len(front) + len(left) + len(inner):, 0] - (0.24 - (zz.ravel() + 0.15))).max()) < 1e-9, 'wrap_points: правая грань (видна 30 %) оборачивается внутрь с другого края')
+    use_full = use_b.copy()
+    use_full[len(front) + len(left) + len(inner):] = True
+    _Qw2, wm2 = ST.wrap_points(Qb, Nb, np.ones(len(Qb), bool), use_full, np.zeros(len(Qb), int), 1, 0.9, 0.02)
+    check(not bool(wm2[len(front) + len(left) + len(inner):].any()), 'wrap_points: грань, которую фото видит целиком (≥ 0,9) — прямой рисунок, не оборачивается')
+    # проверка рваных границ: плавный стык двух источников → ratio ≈ 1; скачок на линии → ratio ≫ 1
+    Tt = 64
+    ti_t = np.arange(Tt * Tt)
+    tag_t = np.where((ti_t % Tt) < 32, 1, 3).astype(np.int8)
+    smooth_d = np.sin(ti_t % Tt / 10.0).astype(np.float32)
+    jump_d = smooth_d + np.where(tag_t == 3, 6.0, 0.0).astype(np.float32)
+    st_ok = ST.seam_stats(ti_t, Tt, np.zeros(Tt * Tt, int), tag_t, smooth_d, np.ones(Tt * Tt, bool))
+    st_bad = ST.seam_stats(ti_t, Tt, np.zeros(Tt * Tt, int), tag_t, jump_d, np.ones(Tt * Tt, bool))
+    check(st_ok['ratio'] < 2.0 and st_bad['ratio'] > 5.0, 'seam_stats: плавный стык ratio %.2f, скачок 6 L на линии ratio %.1f' % (st_ok['ratio'], st_bad['ratio']))
     xs_i = Qs[:, 1] * 100 + 3.0
     ys_i = 500 - Qs[:, 2] * 200                                              # кадр: y вдоль оси 2 (вертикаль), x вдоль оси 1
     check(ST.fibre_axis(Qs, xs_i, ys_i, covered, Ns_) == 2, 'fibre_axis: вертикаль кадра ↔ ось 2 модели')
