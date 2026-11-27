@@ -32,14 +32,14 @@ def test_rules_audit_from_root():
 def sets3_verdict(root, env):
     """Банк sets3.json (tools/scout/, В GIT ЕГО НЕТ — .gitignore) нужен solver_run. (T-175/hvosty)
     → ('есть', None) | ('пропуск', причина) | ('красный', причина).
-    Нет файла и это НЕ CI (переменная CI не задана) — пропуск с причиной: чистая копия/worktree без банка не должна краснеть.
-    Нет файла в CI — КРАСНЫЙ с понятной причиной (в CI банк должен быть; тихий пропуск скрыл бы поломку)."""
+    Нет файла и это НЕ CI (GITHUB_ACTIONS не равна true; одной CI=true мало) — пропуск с причиной: чистая копия/worktree без банка не должна краснеть.
+    Нет файла в CI (GITHUB_ACTIONS=true) — КРАСНЫЙ с понятной причиной (в CI банк должен быть; тихий пропуск скрыл бы поломку)."""
     p = os.path.join(root, 'tools', 'scout', 'sets3.json')
     if os.path.exists(p):
         return 'есть', None
-    in_ci = env.get('CI', '') not in ('', '0', 'false')
+    in_ci = env.get('GITHUB_ACTIONS', '') == 'true'
     if in_ci:
-        return 'красный', 'нет %s, а это CI (CI=%s): банк должен быть — тест не пропускаем, чинить окружение CI' % (p, env.get('CI'))
+        return 'красный', 'нет %s, а это CI (GITHUB_ACTIONS=true): банк должен быть — тест не пропускаем, чинить окружение CI' % p
     return 'пропуск', 'нет sets3.json: %s (его нет в git; чистая копия/worktree) — не CI, пропуск' % p
 
 
