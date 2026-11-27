@@ -266,9 +266,13 @@ test("п.1 страж упал, но роль не директор / право
 });
 
 // Сквозной: НАСТОЯЩИЙ страж (копия файлов из репозитория) в временном корне; гейт зовёт его командой ПО УМОЛЧАНИЮ (без --strazh-cmd).
-function realGuardRepo(overdue) {
+// journalEvents — строки журнала сообщений владельца (формат tools/ops/zhurnal_vladeltsa.py); файл лежит ВНЕ корня репо, страж находит его по $OWNER_JOURNAL (jpath в результате).
+function realGuardRepo(overdue, journalEvents = null) {
   const m = rulesRepo(GREEN);
-  for (const f of ["rules_guard.py", "rule_registry_audit.py", "rule_switch_guard.py"]) m.w(`tools/ops/${f}`, readFileSync(join(REPO, "tools/ops", f), "utf8"));
+  for (const f of ["rules_guard.py", "rule_registry_audit.py", "rule_switch_guard.py", "zhurnal_vladeltsa.py"]) m.w(`tools/ops/${f}`, readFileSync(join(REPO, "tools/ops", f), "utf8"));
+  m.jpath = join(m.root, "..", `journal-${Math.random().toString(36).slice(2)}.jsonl`); // нет события — нет файла: страж честно «?»
+  MADE.push(m.jpath);
+  if (journalEvents) writeFileSync(m.jpath, journalEvents.map((e) => JSON.stringify(e)).join("\n") + "\n");
   m.w("tools/scout/rules/rules-guard.json", readFileSync(join(REPO, "tools/scout/rules/rules-guard.json"), "utf8"));
   const reg = { version: 3, decide_by_max: "2099-01-01", groups: overdue ? { G1: { decide_by: "2020-01-01" } } : {}, rules: overdue ? [{ rule_id: "R-1", state: "trial", group: "G1" }] : [] };
   m.w(RULES_EDIT, JSON.stringify(reg));
@@ -278,8 +282,8 @@ function realGuardRepo(overdue) {
 }
 
 test("п.1 сквозной: настоящий страж не ноль (просрочено 1) → гейт директора блокирует командой по умолчанию", () => {
-  const { root } = realGuardRepo(true);
-  const r = hook(root, transcript(root, [RULES_EDIT]), DIRECTOR, ["--strazh", "--own-edits"]);
+  const { root, jpath } = realGuardRepo(true);
+  const r = hook(root, transcript(root, [RULES_EDIT]), { ...DIRECTOR, OWNER_JOURNAL: jpath }, ["--strazh", "--own-edits"]);
   const d = JSON.parse(r.stdout);
   assert.equal(d.decision, "block", r.stdout + r.stderr);
   assert.match(d.reason, /просрочено 1/);
@@ -287,10 +291,44 @@ test("п.1 сквозной: настоящий страж не ноль (про
 });
 
 test("п.1 сквозной: настоящий страж чистый → гейт не блокирует; строка стража несёт долг", () => {
-  const { root } = realGuardRepo(false);
-  noBlock(hook(root, transcript(root, [RULES_EDIT]), DIRECTOR, ["--strazh", "--own-edits"]));
-  const line = runStrazh(defaultStrazhCmd(root), root).line;
-  assert.match(line, /^правила: просрочено 0, вне реестра: новых 0 \(старый долг \d+\), /, line);
+  const { root, jpath } = realGuardRepo(false);
+  noBlock(hook(root, transcript(root, [RULES_EDIT]), { ...DIRECTOR, OWNER_JOURNAL: jpath }, ["--strazh", "--own-edits"]));
+  process.env.OWNER_JOURNAL = jpath;
+  try {
+    const line = runStrazh(defaultStrazhCmd(root), root).line;
+    assert.match(line, /^правила: просрочено 0, вне реестра: новых 0 \(старый долг \d+\), сообщений владельца без разбора \?, /, line); // журнала нет — «?» (не ноль и не «чисто»)
+  } finally {
+    delete process.env.OWNER_JOURNAL;
+  }
+});
+
+test("п.6 сквозной: в журнале (формат журнала) сообщение ждёт > 2 ч → строка настоящего стража показывает его, гейт директора видит и блокирует по «без разбора»", () => {
+  const ago = (h) => new Date(Date.now() - h * 3600e3).toISOString();
+  const ev = [
+    { t: "msg", bot: "tg-remlab", id: 3612, ts: ago(3), chat: "95903801", user: "igor", tip: "text", nachalo: "Регламент — жду" },
+    { t: "msg", bot: "tg-remlab", id: 3613, ts: ago(0.2), chat: "95903801", user: "igor", tip: "text", nachalo: "свежее" },
+    { t: "msg", bot: "tg-remlab", id: 3614, ts: ago(5), chat: "95903801", user: "igor", tip: "text", nachalo: "закрытое" },
+    { t: "zakryt", bot: "tg-remlab", id: 3614, ts: ago(4), adres: "задача T-20261127-175", kto: "директор" },
+  ];
+  const { root, jpath } = realGuardRepo(false, ev);
+  const env = { ...DIRECTOR, OWNER_JOURNAL: jpath };
+  process.env.OWNER_JOURNAL = jpath;
+  try {
+    const line = runStrazh(defaultStrazhCmd(root), root).line;
+    assert.match(line, /сообщений владельца без разбора 2, /, line); // 3612 и 3613 ждут, 3614 закрыто; «?» больше нет
+    assert.equal(parseStrazh(line)["без разбора"], 2);
+  } finally {
+    delete process.env.OWNER_JOURNAL;
+  }
+  const strict = ["--strazh", "--own-edits", "--strazh-fields", "просрочено,вне реестра,без разбора"];
+  const d = JSON.parse(hook(root, transcript(root, [RULES_EDIT]), env, strict).stdout);
+  assert.equal(d.decision, "block");
+  assert.match(d.reason, /без разбора 2/);
+  // по умолчанию без разбора гейт не держит (держит срок и реестр — их директор закрывает правкой файла правил); число он при этом ВИДИТ в строке
+  noBlock(hook(root, transcript(root, [RULES_EDIT]), env, ["--strazh", "--own-edits"]));
+  // все закрыты — гейт и со строгими полями молчит
+  const closed = realGuardRepo(false, ev.slice(0, 2).concat([{ t: "zakryt", bot: "tg-remlab", id: 3612, ts: ago(1), adres: "P-069", kto: "директор" }, { t: "zakryt", bot: "tg-remlab", id: 3613, ts: ago(1), adres: "P-069", kto: "директор" }]));
+  noBlock(hook(closed.root, transcript(closed.root, [RULES_EDIT]), { ...DIRECTOR, OWNER_JOURNAL: closed.jpath }, strict));
 });
 
 test("п.3 находка аудита от 27.11 дословно: «core/access-and-integrations.md — 3,4 КБ» про чужой .memory_bank/core/... отсеивается", () => {
