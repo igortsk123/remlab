@@ -250,6 +250,46 @@ def detail_bands(Ld, sel, ppc: float, pd: dict):
     return coarse, fine
 
 
+def fibre_axis(Q: np.ndarray, x: np.ndarray, y: np.ndarray, use: np.ndarray, Ns: np.ndarray):
+    """Ось волокна в координатах модели — та из двух осей лицевой плоскости, что идёт по вертикали кадра: по тексам «в лоб» (use) подгоняется линейная карта (Q_a1, Q_a2) → (x, y) кадра, берётся ось с наибольшей долей сдвига по y. Фото мебели прямое (вертикаль кадра = вертикаль изделия). None — не хватает текселей."""
+    if int(use.sum()) < 200:
+        return None
+    ax = np.argmax(np.abs(Ns[use]), axis=1)
+    f = int(np.bincount(ax, minlength=3).argmax())
+    others = [a for a in range(3) if a != f]
+    A = np.hstack([Q[use][:, others], np.ones((int(use.sum()), 1))])
+    cx, *_ = np.linalg.lstsq(A, x[use], rcond=None)
+    cy, *_ = np.linalg.lstsq(A, y[use], rcond=None)
+    share = [abs(cy[k]) / (abs(cx[k]) + abs(cy[k]) + 1e-12) for k in (0, 1)]
+    return others[int(np.argmax(share))]
+
+
+def fibre_fill(Q: np.ndarray, Ns: np.ndarray, ing: np.ndarray, cover: np.ndarray, d_full: np.ndarray, v_ax: int, w_fibre: float, plane_w: float, min_pool: int) -> np.ndarray:
+    """Не покрытым текселям тех же граней (ось нормали и знак те же, не горизонтальные плоскости) — деталь ближайшего покрытого тексела этой плоскости, где расстояние вдоль волокна (ось v_ax) стоит w_fibre от поперечного
+    (рисунок продолжается вдоль волокна: вертикальные полосы, не пятна старого шума), а смещение вдоль нормали (другая глубина — другая панель) — plane_w. Меняет d_full на месте → маска заполненных текселей."""
+    from scipy.spatial import cKDTree
+    ax = np.argmax(np.abs(Ns), axis=1)
+    sg = np.sign(Ns[np.arange(len(Ns)), ax])
+    strong = np.abs(Ns[np.arange(len(Ns)), ax]) >= 0.8
+    done = np.zeros(len(Q), bool)
+    for a in range(3):
+        if a == v_ax:
+            continue
+        h_ax = [k for k in range(3) if k not in (a, v_ax)][0]
+        w = np.zeros(3)
+        w[a], w[h_ax], w[v_ax] = plane_w, 1.0, w_fibre
+        for s_ in (-1.0, 1.0):
+            pool = ing & strong & (ax == a) & (sg == s_) & cover
+            todo = ing & strong & (ax == a) & (sg == s_) & ~cover
+            if int(pool.sum()) < min_pool or not todo.any():
+                continue
+            tree = cKDTree(Q[pool] * w)
+            _, nn = tree.query(Q[todo] * w, k=1)
+            d_full[todo] = d_full[np.nonzero(pool)[0][nn]]
+            done |= todo
+    return done
+
+
 def photo_detail_step(tex_in, tone_tex, tx, g: dict, st: dict, Ld, valid, fgrp, names: list, ppc: float, rules: dict, rep: dict, face_n=None, ab_frame=None):
     """T-99/12 шаг 5: рисунок С ФОТО на лице группы (тумба Хостера): слой деталей фото без теней (этап 05) поверх тона Ш4а — только грани в лоб, свет/тени шире blur_cm вычтены.
     Текселю группы, видимому с камеры в лоб и надёжному, — тон Ш4а (tone_tex, до зерна) + деталь фото (L, усилено gain_*); остальным текселям группы остаётся зерно образца. → (текстура, маска «деталь с фото»)."""
@@ -375,6 +415,14 @@ def photo_detail_step(tex_in, tone_tex, tx, g: dict, st: dict, Ld, valid, fgrp, 
             d_full[cand] = d_img[src.reshape(-1)[ti[cand]]]
             cover = cover | cand
             info['filled_texels'] = int(cand.sum())
+    # грань, которую фото не видело (за плитой, у края, с обратной стороны за пределами зеркала), но той же детали: рисунок — с видимой части ЭТОЙ ЖЕ грани по оси волокна, не старый шум
+    if pd.get('fibre_fill'):
+        v_ax = fibre_axis(np.asarray(tx.Q, np.float64), x, y, use, Ns)
+        if v_ax is not None:
+            nf = fibre_fill(np.asarray(tx.Q, np.float64), Ns, ing_t, cover, d_full, v_ax, float(pd['fibre_weight']), float(pd['fibre_plane_w']), int(pd['fibre_min_pool']))
+            info['fibre_axis'] = int(v_ax)
+            info['fibre_filled_texels'] = int(nf.sum())
+            cover = cover | nf
     flat_new = tex_in.reshape(-1, 3).copy()
     base = tone_tex.reshape(-1, 3)[ti[cover]]
     lab = TC.rgb2lab(base.astype(np.float64))

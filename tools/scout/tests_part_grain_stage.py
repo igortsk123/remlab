@@ -172,6 +172,27 @@ def main():
     check(float(np.std(co_t[mid])) > 1.5, 'detail_bands: полосы 10 см выживают в «крупном» (σ %.2f из 2,8)' % float(np.std(co_t[mid])))
     check(abs(float(np.mean(co_t[mid]))) < 0.5, 'detail_bands: деталь без сдвига тона (среднее ≈ 0: %.2f)' % float(np.mean(co_t[mid])))
     check(float(np.abs(co_t[~sel_]).sum()) == 0.0 and float(np.abs(fi_t[~sel_]).sum()) == 0.0, 'detail_bands: вне маски — ноль')
+    # T-99/12 шаг 5: непокрытые тексели той же грани берут рисунок с видимой части по оси волокна (вертикаль), не старый шум
+    rr = np.random.default_rng(3)
+    gx, gz = np.meshgrid(np.linspace(0, 1, 60), np.linspace(0, 1, 80))        # боковая грань: x — глубина (горизонталь), z — высота (вертикаль, ось 2)
+    side = np.stack([np.zeros(gx.size), gx.ravel(), gz.ravel()], 1)          # нормаль по оси 0
+    Qs = np.vstack([side, side + np.array([0.0, 0.0, 0.0])])[: side.shape[0]]
+    Ns_ = np.tile(np.array([-1.0, 0.0, 0.0]), (len(Qs), 1))
+    stripes_ = np.sin(2 * np.pi * 4 * Qs[:, 1]).astype(np.float32)           # вертикальные полосы: зависят только от глубины (оси 1)
+    covered = Qs[:, 2] < 0.5                                                 # нижняя половина видна, верхняя — за плитой
+    d_ = np.where(covered, stripes_, 0.0).astype(np.float32)
+    ing_ = np.ones(len(Qs), bool)
+    nf_ = ST.fibre_fill(Qs, Ns_, ing_, covered.copy(), d_, 2, 0.05, 20.0, 200)
+    check(int(nf_.sum()) == int((~covered).sum()), 'fibre_fill: заполнены все непокрытые тексели грани (%d)' % int(nf_.sum()))
+    check(float(np.abs(d_[nf_] - stripes_[nf_]).max()) < 0.2, 'fibre_fill: рисунок продолжен вдоль волокна (полосы совпадают с полным, ошибка %.2f)' % float(np.abs(d_[nf_] - stripes_[nf_]).max()))
+    d0_ = np.zeros(len(Qs), np.float32)
+    check(int(ST.fibre_fill(Qs, Ns_, ing_, np.zeros(len(Qs), bool), d0_, 2, 0.05, 20.0, 200).sum()) == 0, 'fibre_fill: нет покрытых текселей — ничего не придумывает')
+    top_n = np.tile(np.array([0.0, 0.0, 1.0]), (len(Qs), 1))                 # горизонтальная плоскость (нормаль по оси волокна) не заполняется
+    check(int(ST.fibre_fill(Qs, top_n, ing_, covered.copy(), d_.copy(), 2, 0.05, 20.0, 200).sum()) == 0, 'fibre_fill: верх/низ (нормаль по оси волокна) не трогает')
+    xs_i = Qs[:, 1] * 100 + 3.0
+    ys_i = 500 - Qs[:, 2] * 200                                              # кадр: y вдоль оси 2 (вертикаль), x вдоль оси 1
+    check(ST.fibre_axis(Qs, xs_i, ys_i, covered, Ns_) == 2, 'fibre_axis: вертикаль кадра ↔ ось 2 модели')
+    check(ST.fibre_axis(Qs, xs_i, ys_i, np.zeros(len(Qs), bool), Ns_) is None, 'fibre_axis: нет текселей «в лоб» → None')
     src_ = open(os.path.join(os.path.dirname(os.path.abspath(__file__)), 'part_grain_stage.py'), encoding='utf-8').read()
     check("rules.get('photo_detail') or {}).get('enabled')" in src_, 'шаг 5 идёт только под photo_detail.enabled')
     check("rules.get('amp_strip') or {}).get('enabled')" in src_ and 'plan=plan2' in src_, 'второй проход зерна идёт только под amp_strip.enabled')
