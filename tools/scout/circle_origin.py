@@ -30,11 +30,13 @@ from __future__ import annotations
 
 import argparse
 import ast
+import glob
 import hashlib
 import json
 import os
 import re
 import sys
+import time
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 ROOT = os.path.abspath(os.path.join(HERE, '..', '..'))
@@ -347,11 +349,12 @@ def check_rules_set(role: str | None, rules: dict, prior: dict | None = None, ex
 
 
 def check_start(sku: str, *, form: str | None = None, record: dict | None = None, card: str | None = None, role: str | None = None, camera: dict | None = None,
-                prior_origin: dict | None = None, expected_label: str | None = None, allow_old: str | None = None, rules: dict | None = None, root: str = ROOT) -> dict:
+                prior_origin: dict | None = None, expected_label: str | None = None, allow_old: str | None = None, rules: dict | None = None, root: str = ROOT,
+                form_required: bool = False) -> dict:
     """→ {ok, items[5], origin{…для журнала}, bypass{reason, items, reasons}|None}. ok=False — круг не стартует."""
     rules = rules or load_rules()
     role = role or (record or {}).get('role') or None
-    cut = check_cutout(form, rules, root)
+    cut = _item(I_CUT, REFUSE, 'в строке входа нет формы (glb): стартер на пачке форму принимает входом, проверить вырезку нечем') if form_required and not form else check_cutout(form, rules, root)
     rec = form_facts(form, rules)
     items = [cut, check_generator(form, sku, rec, rules), check_camera(camera), check_card(record, card, rules),
              check_rules_set(role, rules, (prior_origin or {}).get('rules_label'), expected_label, root)]
@@ -369,6 +372,190 @@ def check_start(sku: str, *, form: str | None = None, record: dict | None = None
     return {'ok': ok, 'sku': sku, 'items': items, 'bypass': bypass,
             'origin': {'form': by[I_CUT].get('record'), 'chain_version': by[I_CUT].get('chain_version'), 'cutout_basis': by[I_CUT].get('how'), 'equiv': by[I_CUT].get('equiv'), 'generator': by[I_GEN].get('generator'), 'form_stage': by[I_GEN].get('stage'),
                        'card_sha': by[I_CARD].get('card_sha'), 'rules_label': by[I_RULES].get('label')}}
+
+
+def catalog_record(catalog: str | None, sku: str) -> dict | None:
+    """Запись товара из выгрузки каталога (список или одна запись {sid, name, role, params}) — как `paint_run_all.product_record`. Нет файла/товара → None."""
+    if not catalog:
+        return None
+    data = _load_json(catalog)
+    for r in data if isinstance(data, list) else ([data] if isinstance(data, dict) else []):
+        if isinstance(r, dict) and r.get('sid') == sku:
+            return {'sid': sku, 'name': r.get('name') or '', 'role': r.get('role') or '', 'params': r.get('params') or {}}
+    return None
+
+
+def camera_fact(pose_run: str | None) -> dict:
+    """Факт камеры 04 по `<pose_run>/04-camera/check.json` — тем же классификатором (`paint_check.classify_stage`), что у paint_run_all. Нет папки/файла — missing (круг, который сам камеру не считает, отказывает)."""
+    sys.path.insert(0, HERE)
+    import paint_check as PC
+    import paint_stage as PS
+    chk = PS.read_check(os.path.join(pose_run, '04-camera')) if pose_run else None
+    st = PC.classify_stage('04-camera', chk, PC.load_rules(), pose_run)
+    return {'status': st['status'], 'reason': st['reason'], 'will_run': False}
+
+
+def find_pose_run(sku: str, row: dict, pose_roots: list | tuple = ()) -> str | None:
+    """Папка камеры этапа 4 товара: поле `pose_run` строки входа, иначе `<корень>/<товар>` и `<корень>/g*/<товар>` из `--pose-root`."""
+    pr = (row or {}).get('pose_run')
+    if pr:
+        return pr
+    for root in pose_roots:
+        root = os.path.expanduser(root)
+        for cand in [os.path.join(root, sku)] + sorted(glob.glob(os.path.join(root, '*', sku))):
+            if os.path.isfile(os.path.join(cand, '04-camera', 'check.json')):
+                return cand
+    return None
+
+
+def gate_rows(rows: dict, *, catalog: str | None = None, allow_old: str | None = None, pose_roots: list | tuple = (), expected_label: str | None = None,
+              rules: dict | None = None, root: str = ROOT) -> dict:
+    """Проверка входа на ПАЧКЕ товаров стартера круга (строки `{товар: {glb, photo, pose_run, extra_in{card.json}}}` — формат inputs.json у stage_trial/loop5): пять вещей по каждому товару тем же `check_start`.
+    → {ok, n, refused: [sku…], results{sku: …}, bypass}. Строка без `glb` (форма не названа) — отказ пункта 1, не пропуск."""
+    rules = rules or load_rules()
+    results = {}
+    for sku, row in rows.items():
+        row = row or {}
+        card = row.get('card') or (row.get('extra_in') or {}).get('card.json')
+        results[sku] = check_start(sku, form=row.get('glb') or None, record=catalog_record(catalog, sku), card=card if card and os.path.isfile(card) else None,
+                                   camera=camera_fact(find_pose_run(sku, row, pose_roots)), expected_label=expected_label, allow_old=allow_old, rules=rules, root=root, form_required=True)
+    refused = [s for s, r in results.items() if not r['ok']]
+    byp = {s: r['bypass'] for s, r in results.items() if r['bypass']}
+    return {'ok': not refused, 'n': len(results), 'refused': refused, 'results': results, 'bypass': byp or None, 'allow_old': allow_old}
+
+
+def render_rows(g: dict) -> str:
+    out = [f"проверка входа круга: товаров {g['n']}, " + ('можно начинать' if g['ok'] else f"КРУГ НЕ СТАРТУЕТ — отказ у {len(g['refused'])}: {', '.join(g['refused'][:8])}{'…' if len(g['refused']) > 8 else ''}")]
+    for sku, r in g['results'].items():
+        bad = [i for i in r['items'] if i['status'] in (REFUSE, BYPASS)]
+        if bad:
+            out.append(f'  {sku}')
+            out += [f"    {'✗ ОТКАЗ' if i['status'] == REFUSE else '⚠ ОБХОД'} {i['item']}: {i['reason']}" for i in bad]
+    if g['bypass']:
+        out.append(f"  ОБХОД ключом --allow-old-origin: «{g['allow_old']}» — у {len(g['bypass'])} товаров (попадёт в origin-check.json и в отчёт)")
+    return '\n'.join(out)
+
+
+def starter_gate(rows: dict, *, who: str, out_dir: str | None = None, dry: bool = False, allow_old: str | None = None, catalog: str | None = None, pose_roots: list | tuple = (),
+                 expected_label: str | None = None, say=print, rules: dict | None = None) -> dict:
+    """ЕДИНЫЕ ВОРОТА СТАРТЕРА КРУГА (T-175/10, условие директора): зовёт каждый стартер (loop5.py, stage_trial.py …) ДО первого платного шага. Печатает итог, пишет `<out_dir>/origin-check.json`
+    (в нём обход и причина — в отчёт); при отказе без обхода — SystemExit(3). `dry` (разбор без запуска) отказ только печатает. Тест-сторож: `tests/test_circle_origin.py` («стартеры круга»)."""
+    g = gate_rows(rows, catalog=catalog, allow_old=allow_old, pose_roots=pose_roots, expected_label=expected_label, rules=rules)
+    say(f'[{who}] ' + render_rows(g))
+    if out_dir:
+        os.makedirs(out_dir, exist_ok=True)
+        with open(os.path.join(out_dir, 'origin-check.json'), 'w', encoding='utf-8') as f:
+            json.dump({'who': who, 'checked': time.strftime('%Y-%m-%d %H:%M:%S'), 'dry': dry, 'ok': g['ok'], 'refused': g['refused'], 'bypass': g['bypass'], 'allow_old': allow_old,
+                       'products': {s: {'ok': r['ok'], 'origin': r['origin'], 'items': [{k: i[k] for k in ('item', 'status', 'reason')} for i in r['items']]} for s, r in g['results'].items()}},
+                      f, ensure_ascii=False, indent=1)
+    if not g['ok'] and not dry:
+        raise SystemExit(3)
+    return g
+
+
+def _is_starter_file(path: str, M: dict) -> bool:
+    """Запускает ли файл круг (признаки — rules/circle-origin.json → starters.markers). Python — по AST (комментарии и строки документации не в счёт), .sh — по строкам кода. Не разбирается → True (проверить нельзя — внести явно)."""
+    try:
+        with open(path, encoding='utf-8') as f:
+            text = f.read()
+    except (OSError, UnicodeDecodeError):
+        return True
+    if path.endswith('.sh'):
+        return any(re.search(M['sh_re'], ln) for ln in text.splitlines() if ln.strip() and not ln.lstrip().startswith('#'))
+    try:
+        tree = ast.parse(text)
+    except SyntaxError:
+        return True
+    for n in ast.walk(tree):
+        if isinstance(n, ast.Import) and any(a.name.split('.')[0] in M['import_modules'] for a in n.names):
+            return True
+        if isinstance(n, ast.ImportFrom) and n.module and n.module.split('.')[0] in M['import_modules']:
+            return True
+        if isinstance(n, ast.Call) and isinstance(n.func, ast.Attribute) and n.func.attr in M['call_attrs']:
+            return True
+        if isinstance(n, ast.Name) and n.id in M['names']:
+            return True
+        if isinstance(n, ast.Constant) and isinstance(n.value, str) and re.search(M['script_re'], n.value):
+            return True
+    return False
+
+
+def scan_starters(root: str = ROOT, rules: dict | None = None) -> list[str]:
+    """Все файлы под `starters.scan_dirs`, что запускают круг (пути от корня репозитория)."""
+    S = (rules or load_rules())['starters']
+    found = []
+    for base in S['scan_dirs']:
+        for dp, dn, fn in os.walk(os.path.join(root, base)):
+            dn[:] = sorted(d for d in dn if d not in S['scan_skip_dirs'])
+            for f in sorted(fn):
+                if f.endswith(('.py', '.sh')) and not f.startswith(tuple(S['scan_skip_prefixes'])) and _is_starter_file(os.path.join(dp, f), S['markers']):
+                    found.append(os.path.relpath(os.path.join(dp, f), root))
+    return found
+
+
+def _dotted(node) -> str:
+    """Имя вызываемого: `f` → «f», `CO.starter_gate` → «CO.starter_gate»; иное (вызов вызова, подписка) — пусто."""
+    parts = []
+    while isinstance(node, ast.Attribute):
+        parts.append(node.attr)
+        node = node.value
+    if isinstance(node, ast.Name):
+        parts.append(node.id)
+        return '.'.join(reversed(parts))
+    return ''
+
+
+def _entry_calls(path: str, entry: str) -> list | None:
+    """Вызовы в функции верхнего уровня `entry`: [(строка, столбец, имя, результат_присвоен)] по порядку в тексте. Только настоящие вызовы (AST): комментарии и строки не в счёт."""
+    try:
+        with open(path, encoding='utf-8') as f:
+            tree = ast.parse(f.read())
+    except (OSError, SyntaxError):
+        return None
+    for fn in tree.body:
+        if isinstance(fn, ast.FunctionDef) and fn.name == entry:
+            assigned = {id(n.value) for n in ast.walk(fn) if isinstance(n, (ast.Assign, ast.AnnAssign)) and isinstance(n.value, ast.Call)}
+            calls = [(n.lineno, n.col_offset, _dotted(n.func), id(n) in assigned) for n in ast.walk(fn) if isinstance(n, ast.Call)]
+            return sorted(calls)
+    return None
+
+
+def starter_problems(root: str = ROOT, rules: dict | None = None) -> list[str]:
+    """СТОРОЖ СТАРТЕРОВ КРУГА (условие директора к №10). Пусто — всё чисто. Иначе строки-причины: стартер не внесён в реестр (ни must_call, ни exempt с причиной); у must_call нет вызова ворот
+    в точке входа; ворота стоят ПОСЛЕ первого запуска; реестр ссылается на несуществующее."""
+    S = (rules or load_rules())['starters']
+    listed = {m['file'] for m in S['must_call']} | {e['file'] for e in S['exempt']}
+    probs = [f'{rel}: запускает круг, но не внесён в реестр стартеров (must_call — зовёт ворота; exempt — с причиной)' for rel in scan_starters(root, rules) if rel not in listed]
+    for e in S['exempt']:
+        if len((e.get('why') or '').strip()) < 20:
+            probs.append(f"{e['file']}: исключение из ворот без причины (≥ 20 знаков)")
+        if not os.path.isfile(os.path.join(root, e['file'])):
+            probs.append(f"{e['file']}: внесён в исключения, но файла нет")
+        elif e.get('wraps'):                                                       # обёртка: должна звать стартер из must_call, иначе исключение — дыра
+            if e['wraps'] not in {m['file'] for m in S['must_call']}:
+                probs.append(f"{e['file']}: обёртка над {e['wraps']}, а его нет среди must_call")
+            with open(os.path.join(root, e['file']), encoding='utf-8') as f:
+                if os.path.basename(e['wraps']) not in f.read():
+                    probs.append(f"{e['file']}: обёртка больше не зовёт {os.path.basename(e['wraps'])}")
+    for m in S['must_call']:
+        p = os.path.join(root, m['file'])
+        if not os.path.isfile(p):
+            probs.append(f"{m['file']}: внесён как стартер, но файла нет")
+            continue
+        calls = _entry_calls(p, m['entry'])
+        if calls is None:
+            probs.append(f"{m['file']}: нет функции входа {m['entry']}()")
+            continue
+        gates = [c for c in calls if c[2] == m['gate'] and (c[3] or not m.get('gate_assigned'))]   # gate_assigned: результат ворот присвоен (в ветке `plan` тот же вызов без присваивания — не старт)
+        if not gates:
+            probs.append(f"{m['file']}: стартер круга без вызова проверки входа (`{m['gate']}(…)` нет в {m['entry']}())")
+        for st in m['start']:
+            starts = [c for c in calls if c[2] == st]
+            if not starts:
+                probs.append(f"{m['file']}: в {m['entry']}() нет запуска `{st}(…)` — реестр устарел")
+            elif gates and starts[0][:2] < gates[0][:2]:
+                probs.append(f"{m['file']}: проверка входа стоит ПОСЛЕ запуска `{st}(…)`")
+    return probs
 
 
 def render(res: dict) -> str:

@@ -353,5 +353,111 @@ pl = RA.plan(os.path.join(tmp, 'run3'), 'k1', dict(a, photo='', prep_glb='', pro
 c07 = [i for i in pl if i['stage'] == '07'][0]['steps'][0]['argv']
 ok('--photo' not in c07, 'фото не задано → флага --photo в 07 нет (без пустого значения)')
 
+print('— стартеры круга: ворота на пачке товаров (loop5, stage_trial)')
+catg = os.path.join(tmp, 'catg.json')
+put(catg, [REC, {'sid': 'k2', 'name': 'Шкаф', 'role': 'шкаф', 'params': {'width': 80}}])
+formg, dg = mkform(eye_accepted=True)
+poseg = os.path.join(tmp, 'pose-k1')
+put(os.path.join(poseg, '04-camera', 'check.json'), {'passed': True, 'metrics': {}})
+g = CO.gate_rows({'k1': {'glb': formg, 'pose_run': poseg}}, catalog=catg, rules=R)
+ok(g['ok'] and g['n'] == 1 and g['refused'] == [], 'пачка из одного товара: форма с записью, камера 04 пройдена, карточка из каталога → ворота открыты')
+g = CO.gate_rows({'k1': {'pose_run': poseg}}, catalog=catg, rules=R)
+ok(not g['ok'] and g['refused'] == ['k1'] and g['results']['k1']['items'][0]['status'] == CO.REFUSE, 'строка входа без формы (glb) → отказ пункта 1, а не пропуск')
+g = CO.gate_rows({'k1': {'glb': formg}}, catalog=catg, rules=R)
+ok(not g['ok'] and 'камера 04' in CO.render_rows(g), 'нет папки камеры этапа 4 (pose_run) → отказ «камера 04 не пройдена»')
+put(os.path.join(tmp, 'poseroot', 'g1', 'k1', '04-camera', 'check.json'), {'passed': True})
+ok(CO.find_pose_run('k1', {}, [os.path.join(tmp, 'poseroot')]) == os.path.join(tmp, 'poseroot', 'g1', 'k1') and CO.find_pose_run('k9', {}, [os.path.join(tmp, 'poseroot')]) is None, '--pose-root: камера ищется в <корень>/<товар> и <корень>/g*/<товар>; нет — None')
+put(os.path.join(tmp, 'pose-k2', '04-camera', 'check.json'), {'passed': False, 'reason': 'силуэт IoU 0.4', 'metrics': {'iou': {'ok': False, 'value': 0.4, 'threshold': 0.8, 'op': '>='}}})
+g = CO.gate_rows({'k1': {'glb': formg, 'pose_run': poseg}, 'k2': {'glb': formg, 'pose_run': os.path.join(tmp, 'pose-k2')}}, catalog=catg, rules=R)
+ok(g['refused'] == ['k2'] and g['n'] == 2, 'пачка из двух: плохая камера у k2 — отказ ровно у него, k1 чист')
+outg = os.path.join(tmp, 'gate-out')
+try:
+    CO.starter_gate({'k2': {'glb': formg, 'pose_run': os.path.join(tmp, 'pose-k2')}}, who='тест', out_dir=outg, catalog=catg, rules=R, say=lambda m: None)
+    code = None
+except SystemExit as e:
+    code = e.code
+ok(code == 3, 'starter_gate при отказе без обхода → SystemExit(3): стартер дальше не идёт')
+rep = json.load(open(os.path.join(outg, 'origin-check.json'), encoding='utf-8'))
+ok(rep['ok'] is False and rep['refused'] == ['k2'] and rep['who'] == 'тест', 'отчёт origin-check.json записан и при отказе')
+g = CO.starter_gate({'k2': {'glb': formg, 'pose_run': os.path.join(tmp, 'pose-k2')}}, who='тест', out_dir=outg, dry=True, catalog=catg, rules=R, say=lambda m: None)
+ok(not g['ok'], 'dry (разбор без запуска): отказ печатается, но стартер не падает')
+g = CO.starter_gate({'k2': {'glb': formg, 'pose_run': os.path.join(tmp, 'pose-k2')}}, who='тест', out_dir=outg, catalog=catg, rules=R, say=lambda m: None, allow_old='разово, решение директора, проверка')
+rep = json.load(open(os.path.join(outg, 'origin-check.json'), encoding='utf-8'))
+ok(g['ok'] and rep['allow_old'].startswith('разово') and 'k2' in (rep['bypass'] or {}), 'обход ключом: ворота открыты, причина и товар — в origin-check.json (для отчёта)')
+try:
+    CO.starter_gate({'k2': {'glb': formg, 'pose_run': os.path.join(tmp, 'pose-k2')}}, who='тест', catalog=catg, rules=R, say=lambda m: None, allow_old='коротко')
+    code = None
+except SystemExit as e:
+    code = e.code
+ok(code == 3, 'обход с причиной короче 10 знаков → всё равно отказ')
+
+print('— стартеры круга: сторож (реестр rules/circle-origin.json → starters)')
+probs = CO.starter_problems()
+ok(not probs, 'боевое дерево: каждый стартер внесён, у каждого must_call вызов ворот стоит до запуска' + (': ' + '; '.join(probs) if probs else ''))
+found = CO.scan_starters()
+ok({'tools/assets/loop5.py', 'tools/scout/salad/stage/stage_trial.py', 'tools/assets/loop5.sh'} <= set(found), 'сканирование tools/ находит loop5.py, loop5.sh и stage_trial.py: ' + ', '.join(found))
+SM = RULES['starters']
+ok({m['file'] for m in SM['must_call']} == {'tools/scout/paint_run_all.py', 'tools/assets/loop5.py', 'tools/scout/salad/stage/stage_trial.py'}, 'стартеры с обязательными воротами: paint_run_all.py, loop5.py, stage_trial.py')
+ok(all(len(e['why']) >= 20 for e in SM['exempt']), 'у каждого исключения причина ≥ 20 знаков')
+
+fake = os.path.join(tmp, 'fake')
+S2 = copy.deepcopy(RULES)
+S2['starters']['must_call'] = [{'file': 'tools/a.py', 'entry': 'main', 'gate': 'CO.starter_gate', 'start': ['go']}]
+S2['starters']['exempt'] = []
+
+
+def fk(rel, text):
+    p = os.path.join(fake, rel)
+    os.makedirs(os.path.dirname(p), exist_ok=True)
+    open(p, 'w', encoding='utf-8').write(text)
+
+
+fk('tools/a.py', 'import circle_origin as CO\nfrom loop5 import x\n\n\ndef main():\n    CO.starter_gate({})\n    go()\n')
+ok(CO.starter_problems(fake, S2) == [], 'модель: ворота до запуска → чисто')
+fk('tools/a.py', 'from loop5 import x\n\n\ndef main():\n    go()\n')
+pr = CO.starter_problems(fake, S2)
+ok(len(pr) == 1 and 'без вызова проверки входа' in pr[0], 'ОТРИЦАТЕЛЬНЫЙ КОНТРОЛЬ: убрали вызов ворот → красный: ' + '; '.join(pr))
+fk('tools/a.py', 'from loop5 import x\n\n\ndef main():\n    go()\n    CO.starter_gate({})\n')
+pr = CO.starter_problems(fake, S2)
+ok(len(pr) == 1 and 'ПОСЛЕ запуска' in pr[0], 'ворота стоят после запуска → красный')
+fk('tools/a.py', 'from loop5 import x\n\n\ndef main():\n    # CO.starter_gate({})\n    """CO.starter_gate("""\n    go()\n')
+ok(any('без вызова' in p for p in CO.starter_problems(fake, S2)), 'вызов только в комментарии/строке → не считается')
+fk('tools/a.py', 'from loop5 import x\n\n\ndef other():\n    CO.starter_gate({})\n\n\ndef main():\n    go()\n')
+ok(any('без вызова' in p for p in CO.starter_problems(fake, S2)), 'вызов в другой функции, не в точке входа → красный')
+fk('tools/a.py', 'import circle_origin as CO\nfrom loop5 import x\n\n\ndef main():\n    CO.starter_gate({})\n    go()\n')
+fk('tools/b.py', 'import subprocess\nsubprocess.run(["python", "tools/assets/loop5.py"])\n')
+pr = CO.starter_problems(fake, S2)
+ok(len(pr) == 1 and 'tools/b.py' in pr[0] and 'не внесён' in pr[0], 'НОВЫЙ стартер (строка-имя скрипта в команде) не внесён в реестр → красный')
+S2['starters']['exempt'] = [{'file': 'tools/b.py', 'why': 'коротко'}]
+ok(any('без причины' in p for p in CO.starter_problems(fake, S2)), 'исключение без причины → красный')
+S2['starters']['exempt'] = [{'file': 'tools/b.py', 'why': 'разбор готового прогона, круг не запускает вовсе'}]
+ok(CO.starter_problems(fake, S2) == [], 'исключение с причиной → чисто')
+os.remove(os.path.join(fake, 'tools', 'b.py'))
+fk('tools/c.py', 'import trellis\nKD.run_probe(a)\n')
+ok(any('tools/c.py' in p for p in CO.starter_problems(fake, S2)), 'общий драйвер платных проб (.run_probe) в новом файле → красный до внесения')
+os.remove(os.path.join(fake, 'tools', 'c.py'))
+S2['starters']['exempt'] = []
+fk('tools/w.sh', '#!/bin/bash\n# запускает loop5.py\nexec python3 something.py "$@"\n')
+ok(CO.starter_problems(fake, S2) == [], '.sh: имя стартера только в комментарии → не стартер')
+fk('tools/w.sh', '#!/bin/bash\nexec python3 /x/loop5.py "$@"\n')
+ok(any('tools/w.sh' in p for p in CO.starter_problems(fake, S2)), '.sh с запуском loop5.py не внесён → красный')
+S2['starters']['exempt'] = [{'file': 'tools/w.sh', 'wraps': 'tools/a.py', 'why': 'обёртка над стартером a.py, ворота внутри него'}]
+ok(any('больше не зовёт' in p for p in CO.starter_problems(fake, S2)), 'обёртка не зовёт заявленный стартер (a.py) → красный')
+fk('tools/w.sh', '#!/bin/bash\nexec python3 /x/loop5.py a.py "$@"\n')
+ok(CO.starter_problems(fake, S2) == [], 'обёртка зовёт заявленный стартер → чисто')
+S2['starters']['exempt'] = [{'file': 'tools/w.sh', 'wraps': 'tools/zzz.py', 'why': 'обёртка над неизвестным стартером, не из must_call'}]
+ok(any('нет среди must_call' in p for p in CO.starter_problems(fake, S2)), 'обёртка над стартером не из must_call → красный')
+
+print('— стартеры круга: проводка loop5 → stage_trial')
+import loop5 as L5  # noqa: E402
+l5r = L5.load_rules()
+c1 = L5.stage_cmd(dict(l5r), 'sha', '07', 0, ['k1'], os.path.join(tmp, 'r5'), 'rid', None, os.path.join(tmp, 'in.json'), False)
+ok('--origin-rows' not in c1 and '--allow-old-origin' not in c1, 'loop5 без ворот-аргументов: команды stage_trial без них (контроль)')
+c2 = L5.stage_cmd(dict(l5r, runtime_origin_args=['--origin-rows', 'rows.json', '--allow-old-origin', 'разово, решение директора']), 'sha', '07', 0, ['k1'], os.path.join(tmp, 'r5'), 'rid', None, os.path.join(tmp, 'in.json'), False)
+ok(c2[c2.index('--origin-rows') + 1] == 'rows.json' and c2[c2.index('--allow-old-origin') + 1].startswith('разово'), 'loop5 передаёт stage_trial строки входа и ключ обхода (ворота работают и на каждой ноде)')
+st_src = open(os.path.join(HERE, '..', 'salad', 'stage', 'stage_trial.py'), encoding='utf-8').read()
+l5_src = open(os.path.join(HERE, '..', '..', 'assets', 'loop5.py'), encoding='utf-8').read()
+ok("'--allow-old-origin'" in st_src and "'--origin-rows'" in st_src and "'--allow-old-origin'" in l5_src, 'ключи --allow-old-origin / --origin-rows есть в CLI stage_trial и loop5')
+
 print('FAIL: %d' % len(FAIL) if FAIL else 'всё ок')
 sys.exit(1 if FAIL else 0)

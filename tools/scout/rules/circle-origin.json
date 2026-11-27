@@ -43,6 +43,34 @@
     "from": "tools/scout/salad/cutout_origin.py:CHAIN_VERSION",
     "_why": "актуальная версия цепочки вырезки: константа в едином модуле (T-175/9 шаг 1; НЕ ASSESSOR_VERSION — она ключ кэша оценки). Пока модуля нет — null/нет файла → сверить нечем → готовая форма отказывается (честный отказ, а не «не знаю → пропустить»). Явное значение сюда — только как временная мера по решению директора."
   },
+  "starters": {
+    "_why": "условие директора к №10 (27.11): КАЖДЫЙ стартер круга зовёт проверку входа до первого платного/долгого шага; список стартеров — здесь, тест-сторож (test_circle_origin.py, «стартеры круга») обходит tools/ и краснеет на любом файле, что запускает круг и не внесён ни в must_call, ни в exempt (с причиной), и на must_call, где вызова ворот нет или он стоит ПОСЛЕ запуска.",
+    "scan_dirs": ["tools"],
+    "scan_skip_dirs": ["__pycache__", "tests", "node_modules", ".git"],
+    "scan_skip_prefixes": ["test_", "tests_"],
+    "markers": {
+      "_why": "признаки «запускает круг» (по AST, не по комментариям): импорт модулей-стартеров, вызов .run_probe( (общий драйвер платных проб Salad), имя STAGE_TRIAL, строка-имя скрипта стартера в списке команды; в .sh — непустая строка кода с именем скрипта-стартера.",
+      "import_modules": ["paint_run_all", "loop5", "stage_trial"],
+      "call_attrs": ["run_probe"],
+      "names": ["STAGE_TRIAL"],
+      "script_re": "^[\\w./~$-]*(paint_run_all|stage_trial|loop5)\\.(py|sh)$",
+      "sh_re": "(paint_run_all|stage_trial|loop5)\\.(py|sh)"
+    },
+    "must_call": [
+      {"file": "tools/scout/paint_run_all.py", "entry": "main", "gate": "origin_start", "gate_assigned": true, "start": ["execute"], "why": "paint_run_all.py run: ворота — origin_start (пять вещей по одному товару), запуск — execute"},
+      {"file": "tools/assets/loop5.py", "entry": "main", "gate": "CO.starter_gate", "start": ["run_round"], "why": "круг «на 5» (Salad через stage_trial, --from 06|07|08, золотые 5 или --all): ворота на пачке до первого захода (--warm-stop и --warm-sweep — обслуживание нод, не старт круга)"},
+      {"file": "tools/scout/salad/stage/stage_trial.py", "entry": "main", "gate": "CO.starter_gate", "start": ["CQ.Queue", "KD.run_probe"], "why": "платная проба этапов 06/07/seam/08 на Salad (зовёт loop5 и руками): ворота до очереди и до создания группы"}
+    ],
+    "exempt": [
+      {"file": "tools/assets/loop5.sh", "wraps": "tools/assets/loop5.py", "why": "обёртка: exec loop5.py (ворота внутри loop5.py); сторож проверяет, что обёртка зовёт именно его и он в must_call"},
+      {"file": "tools/scout/salad/pose/pose_trial.py", "why": "этап 04 (камера по фото) — ДО круга покраски; сама камера входит в проверку (пункт 3), её итог читают ворота стартеров"},
+      {"file": "tools/scout/salad/render/render_trial.py", "why": "кадры формы для приёмки Ш0 — ДО круга; их вердикт (form_checks.json) читают ворота (пункт 2)"},
+      {"file": "tools/scout/salad/parts/parts_trial.py", "why": "этап 03 (части PartLLM) — ДО покраски; результат едет входом в 07, круга не запускает"},
+      {"file": "tools/scout/runpod/ultratex/salad_trial.py", "why": "проба UltraTex (свой spec, не этапы 06–08 конвейера покраски v3): run_probe — общий драйвер, круга покраски не запускает"},
+      {"file": "tools/assets/three_layers.py", "why": "разбор слоёв готового прогона: paint_run_all берётся библиотекой (функции), стартов круга нет"},
+      {"file": "tools/scout/circle_origin.py", "why": "сами ворота: paint_run_all импортируется ради product_record в CLI проверки, круг не запускает"}
+    ]
+  },
   "profile_files": ["tools/scout/rules/rule-registry.json", "tools/scout/rules/mesh-type-passports.json"],
   "_profile_files_why": "пункт 5: метка набора правил круга = sha этих файлов + тип роли + digest паспорта типа (`rules_label` в журнале прогона). Меняются — прогон, начатый по другому набору, продолжать нельзя (экзамен при замороженных правилах). Метку общую для всех отчётов этапов делает T-175/12 (рабочий 4) — тогда считать её тут же из его функции."
 }
