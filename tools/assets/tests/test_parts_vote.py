@@ -372,5 +372,115 @@ class DuplicateFaceMap(unittest.TestCase):
         self.assertNotEqual(blender_faces, int(m["keep"].sum()))
 
 
+class DuplicateGroupScheme(unittest.TestCase):
+    """T-20261127-163/4: учтена только схема TRELLIS — группа РОВНО из двух граней с ОБРАТНОЙ намоткой; иначе `bad_groups` > 0 (этап 03 откажет с причиной)."""
+
+    def test_reversed_pair_is_good_scheme(self):
+        f = DuplicateFaceMap.faces_with_pair(reverse=True)
+        m = pv.duplicate_face_map(f)
+        self.assertEqual((m["n_dup"], m["nonconsecutive"], m["bad_groups"]), (1, 0, 0))
+
+    def test_same_winding_pair_is_bad(self):
+        f = DuplicateFaceMap.faces_with_pair(reverse=False)
+        m = pv.duplicate_face_map(f)
+        self.assertEqual((m["n_dup"], m["bad_groups"]), (1, 1))
+
+    def test_rotated_same_winding_pair_is_bad(self):
+        _, f = strip_mesh(6)
+        f = f.tolist()
+        a, b, c = f[2]
+        f.insert(3, [b, c, a])                                            # та же намотка, вершины по кругу
+        m = pv.duplicate_face_map(np.array(f))
+        self.assertEqual(m["bad_groups"], 1)
+
+    def test_rotated_reversed_pair_is_good(self):
+        _, f = strip_mesh(6)
+        f = f.tolist()
+        a, b, c = f[2]
+        f.insert(3, [c, a, b][::-1])                                      # вершины по кругу и обратный обход
+        m = pv.duplicate_face_map(np.array(f))
+        self.assertEqual((m["n_dup"], m["bad_groups"]), (1, 0))
+
+    def test_group_of_three_is_bad(self):
+        _, f = strip_mesh(6)
+        f = f.tolist()
+        a, b, c = f[2]
+        f.insert(3, [c, b, a])
+        f.insert(4, [a, b, c])                                            # три грани на одних вершинах
+        m = pv.duplicate_face_map(np.array(f))
+        self.assertEqual((m["n_dup"], m["bad_groups"]), (2, 1))
+
+    def test_no_duplicates_has_no_bad_groups(self):
+        _, f = strip_mesh(6)
+        self.assertEqual(pv.duplicate_face_map(f)["bad_groups"], 0)
+
+
+class FaceFingerprint(unittest.TestCase):
+    """T-20261127-163/4: отпечаток грани (площадь, рёбра, расстояние до центра масс) не зависит от поворота/сдвига; перестановка граней его меняет."""
+
+    @staticmethod
+    def blob(n: int = 300, seed: int = 3):
+        rng = np.random.default_rng(seed)
+        v = rng.normal(size=(n * 3, 3)) * np.array([1.0, 0.4, 2.0])
+        f = np.arange(n * 3).reshape(n, 3)
+        return v, f
+
+    @staticmethod
+    def rot(v):
+        c, s = np.cos(0.7), np.sin(0.7)
+        r = np.array([[1, 0, 0], [0, c, -s], [0, s, c]]) @ np.array([[c, 0, s], [0, 1, 0], [-s, 0, c]])
+        return v @ r.T + np.array([5.0, -2.0, 1.5])
+
+    def test_rotation_and_shift_invariant(self):
+        v, f = self.blob()
+        m = pv.fingerprint_match(pv.face_fingerprint(v, f), pv.face_fingerprint(self.rot(v), f))
+        self.assertTrue(m["ok"], m)
+
+    def test_float32_roundtrip_matches(self):
+        v, f = self.blob()
+        a = pv.face_fingerprint(v.astype(np.float32), f)
+        b = pv.face_fingerprint(self.rot(v).astype(np.float32), f)                # Blender держит float32 после поворота
+        self.assertTrue(pv.fingerprint_match(a, b)["ok"])
+
+    def test_swapped_faces_are_caught(self):
+        v, f = self.blob()
+        g = f.copy()
+        g[[10, 200]] = g[[200, 10]]                                       # две грани поменялись местами в порядке
+        m = pv.fingerprint_match(pv.face_fingerprint(v, f), pv.face_fingerprint(v, g))
+        self.assertFalse(m["ok"])
+        self.assertEqual(m["n_bad"], 2)
+        self.assertEqual(m["first_bad"], 10)
+
+    def test_shift_by_one_face_is_caught(self):
+        v, f = self.blob()
+        m = pv.fingerprint_match(pv.face_fingerprint(v, f)[1:], pv.face_fingerprint(v, f)[:-1])
+        self.assertFalse(m["ok"])
+        self.assertGreater(m["n_bad"], 250)
+
+    def test_different_face_count_is_refused(self):
+        v, f = self.blob()
+        fp = pv.face_fingerprint(v, f)
+        self.assertFalse(pv.fingerprint_match(fp, fp[:-1])["ok"])
+
+    def test_pair_removal_matches_blender_that_dropped_either_of_pair(self):
+        _, f = strip_mesh(8)
+        v = np.random.default_rng(1).normal(size=(int(f.max()) + 1, 3))
+        g = f.tolist()
+        g.insert(5, list(reversed(g[4])))                                 # двойник за гранью 4
+        g = np.array(g)
+        m = pv.duplicate_face_map(g)
+        mesh_dedup = pv.face_fingerprint(v, g[m["keep"]])
+        blender_dropped_second = pv.face_fingerprint(self.rot(v), np.delete(g, 5, axis=0))
+        blender_dropped_first = pv.face_fingerprint(self.rot(v), np.delete(g, 4, axis=0))   # снял «первую» из пары — геометрия та же
+        self.assertTrue(pv.fingerprint_match(mesh_dedup, blender_dropped_second)["ok"])
+        self.assertTrue(pv.fingerprint_match(mesh_dedup, blender_dropped_first)["ok"])
+
+    def test_degenerate_faces_do_not_raise(self):
+        v = np.zeros((6, 3))
+        f = np.array([[0, 1, 2], [3, 4, 5]])
+        fp = pv.face_fingerprint(v, f)
+        self.assertTrue(pv.fingerprint_match(fp, fp)["ok"])
+
+
 if __name__ == "__main__":
     unittest.main(verbosity=2)

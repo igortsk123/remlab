@@ -39,7 +39,7 @@ def duplicate_face_map(faces: np.ndarray) -> dict:
     f = np.asarray(faces)
     n = len(f)
     if n < 2:
-        return {"n_dup": 0, "nonconsecutive": 0, "keep": None, "rep": None}
+        return {"n_dup": 0, "nonconsecutive": 0, "bad_groups": 0, "keep": None, "rep": None}
     s = np.sort(f, axis=1)
     order = np.lexsort((s[:, 2], s[:, 1], s[:, 0]))                      # устойчивая: внутри группы номера граней по возрастанию
     ss = s[order]
@@ -47,7 +47,7 @@ def duplicate_face_map(faces: np.ndarray) -> dict:
     new[1:] = (ss[1:] != ss[:-1]).any(axis=1)
     n_dup = int(n - new.sum())
     if n_dup == 0:
-        return {"n_dup": 0, "nonconsecutive": 0, "keep": None, "rep": None}
+        return {"n_dup": 0, "nonconsecutive": 0, "bad_groups": 0, "keep": None, "rep": None}
     gid = np.cumsum(new) - 1
     first_of_group = order[new][gid]
     first = np.empty(n, dtype=np.int64)
@@ -55,8 +55,46 @@ def duplicate_face_map(faces: np.ndarray) -> dict:
     keep = first == np.arange(n)
     pos = np.nonzero(~new)[0]                                             # позиции дублей в отсортированном порядке
     nonconsecutive = int((order[pos] != order[pos - 1] + 1).sum())
+    # T-163/4: учтена только схема TRELLIS — группа РОВНО из двух граней с ОБРАТНОЙ намоткой (двусторонняя плёнка); группа из 3+ или пара с одной намоткой — `bad_groups` (этап откажет)
+    parity = ((f[:, 0] > f[:, 1]).astype(np.int8) + (f[:, 0] > f[:, 2]) + (f[:, 1] > f[:, 2])) % 2   # чётность перестановки (a,b,c) относительно отсортированной = направление обхода
+    size = np.bincount(gid)
+    par_sum = np.bincount(gid, weights=parity[order].astype(np.float64))
+    multi = size > 1
+    bad_groups = int((multi & ((size != 2) | (par_sum != 1))).sum())
     newidx = np.cumsum(keep) - 1
-    return {"n_dup": n_dup, "nonconsecutive": nonconsecutive, "keep": keep, "rep": newidx[first]}
+    return {"n_dup": n_dup, "nonconsecutive": nonconsecutive, "bad_groups": bad_groups, "keep": keep, "rep": newidx[first]}
+
+
+def face_fingerprint(vertices: np.ndarray, faces: np.ndarray) -> np.ndarray:
+    """Отпечаток каждой грани, НЕ зависящий от поворота и сдвига (Blender вращает GLB из Y-вверх в Z-вверх): площадь, три длины рёбер по возрастанию,
+    расстояние центра грани до центра масс поверхности (по площади). float32, форма (граней, 5). T-163/4: сверка порядка граней Blender ↔ меш."""
+    v = np.asarray(vertices, dtype=np.float64)
+    f = np.asarray(faces)
+    a, b, c = v[f[:, 0]], v[f[:, 1]], v[f[:, 2]]
+    area = 0.5 * np.linalg.norm(np.cross(b - a, c - a), axis=1)
+    e = np.sort(np.stack([np.linalg.norm(b - a, axis=1), np.linalg.norm(c - b, axis=1), np.linalg.norm(a - c, axis=1)], axis=1), axis=1)
+    cent = (a + b + c) / 3.0
+    tot = float(area.sum())
+    com = (cent * area[:, None]).sum(axis=0) / tot if tot > 0 else cent.mean(axis=0)
+    dist = np.linalg.norm(cent - com, axis=1)
+    return np.concatenate([area[:, None], e, dist[:, None]], axis=1).astype(np.float32)
+
+
+def fingerprint_match(fp_a: np.ndarray, fp_b: np.ndarray, rel: float = 1e-4, abs_len: float = 1e-6) -> dict:
+    """Сверка отпечатков грань к грани (одинаковый порядок). Допуск каждой клетки = rel·значение + абсолютный: длины (рёбра, расстояние) — abs_len·диагональ;
+    площадь — abs_len·диагональ·(наибольшее ребро грани) (у сливера площадь ≈ 0, а погрешность вершин float32 — нет). Диагональ — удвоенное макс. расстояние до центра масс.
+    Замер T-163/4 на 5 реальных формах (в т.ч. с дублями): расхождение Blender ↔ меш 0 (побитно), сдвиг порядка на 1 грань ловится у 99,96 % граней; допуск — запас на неточные повороты/масштаб узлов.
+    Число граней разное → ok=False. Возвращает {ok, n_bad, first_bad, max_rel}."""
+    if fp_a.shape != fp_b.shape:
+        return {"ok": False, "n_bad": -1, "first_bad": None, "max_rel": None, "why": f"форма {fp_a.shape} ≠ {fp_b.shape}"}
+    a, b = fp_a.astype(np.float64), fp_b.astype(np.float64)
+    diag = 2.0 * max(float(a[:, 4].max()), float(b[:, 4].max()), 1e-12)
+    tol = np.full(a.shape, abs_len * diag)
+    tol[:, 0] = abs_len * diag * np.maximum(a[:, 3], b[:, 3])
+    diff = np.abs(a - b)
+    bad = (diff > (tol + rel * np.maximum(np.abs(a), np.abs(b)))).any(axis=1)
+    rel_err = (diff / np.maximum(np.maximum(np.abs(a), np.abs(b)), tol)).max(axis=1)
+    return {"ok": not bool(bad.any()), "n_bad": int(bad.sum()), "first_bad": (int(np.argmax(bad)) if bad.any() else None), "max_rel": float(rel_err.max()) if len(rel_err) else 0.0}
 
 
 def label_map(masks: list[np.ndarray], object_mask: np.ndarray, rules: dict) -> np.ndarray:

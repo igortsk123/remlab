@@ -97,7 +97,16 @@ for v in R['views']:
 if n_views_cap:
     views = views[:n_views_cap]
 
-info = {'faces': nf, 'triangles_only': tri, 'size': size, 'f_px': f_px, 'views': []}
+info = {'faces': nf, 'triangles_only': tri, 'size': size, 'f_px': f_px, 'mesh_objects': len(meshes), 'views': []}   # mesh_objects>1: облёт берёт только первый — этап 03 откажет (T-163/4)
+if tri:                                                                   # отпечаток каждой грани (не зависит от поворота): сверка порядка граней Blender ↔ меш (T-163/4); формулы — parts_vote.face_fingerprint
+    ta, tb, tc = vco[fv[:, 0]], vco[fv[:, 1]], vco[fv[:, 2]]
+    farea = 0.5 * np.linalg.norm(np.cross(tb - ta, tc - ta), axis=1)
+    fedge = np.sort(np.stack([np.linalg.norm(tb - ta, axis=1), np.linalg.norm(tc - tb, axis=1), np.linalg.norm(ta - tc, axis=1)], axis=1), axis=1)
+    fcent = (ta + tb + tc) / 3.0
+    com = (fcent * farea[:, None]).sum(axis=0) / farea.sum() if farea.sum() > 0 else fcent.mean(axis=0)
+    fdist = np.linalg.norm(fcent - com, axis=1)
+    np.savez_compressed(os.path.join(out, 'faces_fp.npz'), fp=np.concatenate([farea[:, None], fedge, fdist[:, None]], axis=1).astype(np.float32))
+    info['faces_fp'] = 'faces_fp.npz'
 if not tri:
     json.dump(info, open(os.path.join(out, 'orbit.json'), 'w'), ensure_ascii=False)
     print('ORBIT FAIL not triangles')

@@ -12,6 +12,7 @@ from __future__ import annotations
 import argparse
 import json
 import os
+import shutil
 import sys
 import time
 
@@ -178,19 +179,40 @@ def run(args) -> int:
     t0 = time.time()
     sdir = ps.stage_dir(args.run, args.sku, "03-parts")
     os.makedirs(sdir, exist_ok=True)
+    for stale in ("parts.npz", "parts.json"):                            # T-163/4: файлы прежнего прогона не должны пережить новый отказ — читатели открывают их по факту наличия
+        if os.path.exists(os.path.join(sdir, stale)):
+            os.remove(os.path.join(sdir, stale))
+    shutil.rmtree(os.path.join(sdir, "refused"), ignore_errors=True)
     info = json.load(open(os.path.join(args.orbit, "orbit.json"), encoding="utf-8"))
     mesh = mp.load_mesh(args.glb)
     nf_full = len(mesh.faces)
     fmap = pv.duplicate_face_map(mesh.faces)                              # парные дубли граней (TRELLIS): Blender их снимает при импорте — работаем на меше без дублей, в parts.npz раскладываем обратно
-    dedup = fmap["n_dup"] > 0 and fmap["nonconsecutive"] == 0
+    dedup = fmap["n_dup"] > 0 and fmap["nonconsecutive"] == 0 and fmap["bad_groups"] == 0
+    if fmap["n_dup"] > 0 and not dedup:                                   # учтена только схема TRELLIS: пара подряд с обратной намоткой; иное — не гадаем, отказ с причиной
+        why = (f"дубли граней вне схемы «пара подряд с обратной намоткой»: дублей {fmap['n_dup']}, не подряд {fmap['nonconsecutive']}, групп не из двух обратных граней {fmap['bad_groups']} "
+               f"— порядок граней Blender не доказан")
+        ps.write_check(sdir, "03-parts", args.sku, passed=False, reason=why, seconds=time.time() - t0, face_map={"duplicate_faces": fmap["n_dup"], "nonconsecutive": fmap["nonconsecutive"], "bad_groups": fmap["bad_groups"]})
+        return 1
     if dedup:
         mesh_full = mesh
         mesh = mesh_full.copy()
         mesh.update_faces(fmap["keep"])
     nf = len(mesh.faces)
+    if int(info.get("mesh_objects", 1)) != 1:                             # облёт берёт первый mesh-объект, а меш (`force="mesh"`) склеивает все — порядок граней не доказан
+        ps.write_check(sdir, "03-parts", args.sku, passed=False, reason=f"в GLB {info.get('mesh_objects')} mesh-объектов: облёт Blender берёт один, порядок граней без карты не доказан", seconds=time.time() - t0)
+        return 1
     if info["faces"] != nf:
         why = f"число граней Blender {info['faces']} ≠ меша {nf_full}" + (f" (дублей граней меша {fmap['n_dup']}, из них не подряд {fmap['nonconsecutive']}; после карты {nf})" if fmap["n_dup"] else "")
         ps.write_check(sdir, "03-parts", args.sku, passed=False, reason=why, seconds=time.time() - t0)
+        return 1
+    fp_file = os.path.join(args.orbit, info.get("faces_fp") or "faces_fp.npz")      # отпечатки граней Blender (площадь, рёбра, расстояние до центра масс): счёта мало — сверяем порядок грань к грани
+    if not os.path.exists(fp_file):
+        ps.write_check(sdir, "03-parts", args.sku, passed=False, reason="в облёте нет отпечатков граней (faces_fp.npz — облёт старой версии): порядок граней Blender ↔ меш не доказан, перегнать облёт", seconds=time.time() - t0)
+        return 1
+    fpm = pv.fingerprint_match(np.load(fp_file)["fp"], pv.face_fingerprint(mesh.vertices, mesh.faces))
+    if not fpm["ok"]:
+        ps.write_check(sdir, "03-parts", args.sku, passed=False, seconds=time.time() - t0, face_fingerprint=fpm,
+                       reason=f"порядок граней Blender ≠ меша: по отпечатку не совпало {fpm['n_bad']} из {nf} граней (первая — {fpm['first_bad']}){'; ' + fpm['why'] if fpm.get('why') else ''}")
         return 1
     has_tex, tex_std = input_colour(mesh)
     ok_in, why_in = pv.colour_verdict(has_tex, tex_std, rules)
@@ -218,19 +240,22 @@ def run(args) -> int:
     res = pv.run_vote(regions, viss, weights, mesh.vertices, mesh.faces, rules)
     part = res["part"]
     vote_part, vote_agree = part.copy(), res["agree"].copy()
+    degraded: list[dict] = []                                         # T-163/4 (fail-closed): сбой блока, меняющего части/данные следующих этапов, = отказ этапа с причиной, не тихое «прошёл»
     lab_face = None
-    try:                                                              # цвет граней — для слияния пёстрых кусков по цвету
+    try:                                                              # цвет граней — для слияния пёстрых кусков по цвету (цветная текстура уже подтверждена входной проверкой — сбой здесь не штатный)
         import parts_colour as pcol
         tex0 = np.array(mesh.visual.material.baseColorTexture.convert("RGB"))
         lab_face = pcol.rgb_to_lab(pcol.face_rgb(np.array(mesh.visual.uv), mesh.faces, tex0))
-    except Exception:
+    except Exception as e:
         lab_face = None
+        degraded.append({"block": "lab_face", "error": str(e)[:200]})
     refine_rep = {}
     try:
         part, refine_rep = pr.refine(part, mesh.vertices, mesh.faces, res["adj"], lab_face, rules, res["agree"], res["seen_any"])
         res["agree"] = pv.final_agreement(res["acc"], res["raw_part"], part)
-    except Exception as e:                                           # доводка не удалась — остаются части голосования, причина в check.json
+    except Exception as e:                                           # доводка не удалась — части голосования остаются для диагностики, но этап отказывает
         refine_rep = {"error": str(e)[:200]}
+        degraded.append({"block": "refine", "error": refine_rep["error"]})
     q = pv.quality(part, res["agree"], res["seen_any"], rules, refine_rep.get("linear_in_blob_part_share"))
     # геометрия ножек
     rec = geom = None
@@ -240,8 +265,9 @@ def run(args) -> int:
         legs = mp.legs_face_mask(mesh, rec)
         geom = pv.geometry_overlap(part, legs, rules)
         geom["status"] = rec.get("status")
-    except Exception as e:  # геометрия не ответила — части остаются, сверки нет
+    except Exception as e:  # техническая ошибка сверки с геометрией ножек (штатный «unsure» — не ошибка, он в geom["status"]) — отказ этапа
         geom = {"error": str(e)[:200]}
+        degraded.append({"block": "geometry", "error": geom["error"]})
     colours, mixed = {}, []
     try:                                                              # цвет частей по текстуре входа — сверка «в части два разных цвета»; сбой не роняет этап
         import parts_colour as pcol
@@ -250,6 +276,7 @@ def run(args) -> int:
         mixed = pcol.mixed_parts(colours, rules)
     except Exception as e:
         colours = {"error": str(e)[:160]}
+        degraded.append({"block": "colours", "error": colours["error"]})
     # роли частей = каналы материала каталога (parts_roles; правила tools/scout/rules/part-roles.json): тип и каналы товара — из аргументов, камера — только если этап 4 passed
     roles, feats, roles_sum = {}, {}, {}
     try:
@@ -266,8 +293,9 @@ def run(args) -> int:
                 unk[r_["unknown_reason"]] = unk.get(r_["unknown_reason"], 0) + 1
         roles_sum = {"known_role_area_share": pro.known_role_area_share(feats, roles), "group": pro.group_of(args.product_role), "product_role": args.product_role,
                      "channels": sorted(filter(None, (args.channels or "").split(","))), "camera": args.cam_az is not None, "unknown_reasons": unk}
-    except Exception as e:                                           # роли не посчитались — части остаются, причина в check.json
+    except Exception as e:                                           # роли не посчитались (штатный «unknown» у части — не ошибка) — отказ этапа
         roles_sum = {"error": str(e)[:200]}
+        degraded.append({"block": "roles", "error": roles_sum["error"]})
     ids, cnt = np.unique(part[part >= 0], return_counts=True)
     mo_by: dict = {}
     for o in refine_rep.get("merged_orphan", []):                      # след правила «сирота → в соседа» (доля площади < refine.orphan_max_area_share)
@@ -285,11 +313,17 @@ def run(args) -> int:
     if dedup:                                                         # parts.npz — по числу граней МЕША (читатели 07/08 сверяют с GLB): метка дубля = метка его пары
         rep = fmap["rep"]
         out_part, out_agree, out_vote_part, out_vote_agree, out_seen = part[rep], res["agree"][rep], vote_part[rep], vote_agree[rep], res["seen_any"][rep]
-    np.savez_compressed(os.path.join(sdir, "parts.npz"), part=out_part.astype(np.int16), agree=out_agree.astype(np.float16),
+    passed = bool(q["ok"]) and not degraded
+    reason = q["reason"] if not degraded else "; ".join(x for x in [q["reason"] if not q["ok"] else "", "сбой блока(ов) этапа: " + "; ".join(f"{d['block']}: {d['error']}" for d in degraded)] if x)
+    # ОДНО правило для всех читателей (07/08/part_material/part_grain/three_layers/tex_fill): parts.npz и parts.json есть В ПАПКЕ ЭТАПА ТОЛЬКО у прошедшего этапа (passed=True).
+    # Отказ — диагностика уходит в `refused/` (читатели её не открывают): иначе 08 подхватывал части непрошедшего 3.
+    odir = sdir if passed else os.path.join(sdir, "refused")
+    os.makedirs(odir, exist_ok=True)
+    np.savez_compressed(os.path.join(odir, "parts.npz"), part=out_part.astype(np.int16), agree=out_agree.astype(np.float16),
                         vote_part=out_vote_part.astype(np.int16), vote_agree=out_vote_agree.astype(np.float16), seen=out_seen)   # vote_* — до доводки: доводку можно переиграть без SAM2
     json.dump({"faces": nf_full, "n_views": len(names), "regions_per_view": per_view_regions, "n_parts_raw": res["n_parts_raw"], "parts": parts, "geometry": geom, "refine": refine_rep, "roles": roles_sum,
-               **({"face_map": face_map_note} if face_map_note else {})},
-              open(os.path.join(sdir, "parts.json"), "w", encoding="utf-8"), ensure_ascii=False, indent=1)
+               "degraded": degraded, **({"face_map": face_map_note} if face_map_note else {})},
+              open(os.path.join(odir, "parts.json"), "w", encoding="utf-8"), ensure_ascii=False, indent=1)
     tiles = [paint_frame(args.orbit, n, part, u, v, vis, rgb, mask) for (n, rgb, mask, u, v, vis) in (frames[0:8:2] if len(frames) >= 8 else frames[:4])]
     pids = [int(q) for q in np.unique(part[part >= 0])][:12]
     Image.fromarray(add_legend(np.concatenate(tiles, axis=1), [(f"part {q}", PALETTE[q % len(PALETTE)]) for q in pids])).save(os.path.join(sdir, "frame.png"))
@@ -309,10 +343,10 @@ def run(args) -> int:
     if "linear_in_blob_part_share" in q:
         metrics["linear_in_blob_part_share"] = {"value": q["linear_in_blob_part_share"], "threshold": rules["check"]["max_linear_in_blob"], "op": "<=",
                                                 "ok": q["linear_in_blob_part_share"] <= rules["check"]["max_linear_in_blob"]}
-    ps.write_check(sdir, "03-parts", args.sku, passed=q["ok"], metric={"name": "n_parts", **metrics["n_parts"]}, reason=q["reason"], metrics=metrics, seconds=time.time() - t0,
-                   outputs=["parts.npz", "parts.json"], frame="frame.png", faces_seen_by_views_share=q["faces_seen_by_views_share"], part_face_shares=q["part_face_shares"], geometry=geom, mixed_colour_parts=mixed, refine=refine_rep, roles_summary=roles_sum,
-                   **({"face_map": face_map_note} if face_map_note else {}))
-    print(json.dumps({"ok": q["ok"], "reason": q["reason"], "n_parts": q["n_parts"], "agree": q["frames_agreement_mean"], "with_part": q["faces_with_part_share"], "geometry": geom and {k: v for k, v in geom.items() if k != "roles"}}, ensure_ascii=False))
+    ps.write_check(sdir, "03-parts", args.sku, passed=passed, metric={"name": "n_parts", **metrics["n_parts"]}, reason=reason, metrics=metrics, seconds=time.time() - t0,
+                   outputs=(["parts.npz", "parts.json"] if passed else []), frame="frame.png", faces_seen_by_views_share=q["faces_seen_by_views_share"], part_face_shares=q["part_face_shares"], geometry=geom, mixed_colour_parts=mixed, refine=refine_rep, roles_summary=roles_sum,
+                   degraded=degraded, face_fingerprint=fpm, **({"diagnostics": "refused/"} if not passed else {}), **({"face_map": face_map_note} if face_map_note else {}))
+    print(json.dumps({"ok": passed, "reason": reason, "n_parts": q["n_parts"], "agree": q["frames_agreement_mean"], "with_part": q["faces_with_part_share"], "geometry": geom and {k: v for k, v in geom.items() if k != "roles"}}, ensure_ascii=False))
     return 0
 
 
