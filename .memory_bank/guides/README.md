@@ -18,6 +18,7 @@ source: manual
 | Оркестрация: составы до 24.11, эксперименты, замеры, снятые правила дословно | `guides/orchestration-history.md` |
 | Обход директора — что проверить каждые 5/30 мин, принципы, самопроверка сообщения | `guides/pamyatka-obhoda.md` |
 | Приёмка работника и кода — порядок, шаблон вердикта | `guides/review-checklist.md` |
+| Вопрос советнику (Fable/Codex): шаблон, поле «что уже пробовали (поиск по банку)», «сверено с банком» в ответе | `guides/sovetnik-vopros-shablon.md` (`tools/ops/bank_search.py`, `question_lint.py`) |
 | Как исполнитель ведёт подплан коммерческого плана | `guides/execution-playbook.md` |
 | Полный протокол план → «деплой» | `guides/agent-workflow.md` |
 | Стандарты кода; чеклист ревью | `guides/code-standards.md` · `guides/review-rules.md` |
