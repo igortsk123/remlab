@@ -22,7 +22,7 @@
     "fibre_weight": 0.05,
     "fibre_plane_w": 20.0,
     "fibre_min_pool": 200,
-    "fibre_corner_max": 0.05,
+    "fibre_corner_max": 0.15,
     "blur_cm": 4.5,
     "split_cm": 1.0,
     "fine_cm": 0.35,
