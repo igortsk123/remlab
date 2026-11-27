@@ -6,7 +6,7 @@
 
 ЧТО ЭТО.
   метка  — первые 12 знаков sha256 ВСЕХ файлов правил набора (по умолчанию `tools/scout/rules/**.json`, кроме перечисленных в `rules/rules-label.json:exclude`):
-           путь от корня + содержимое. JSON берётся КАНОНИЧЕСКИ (ключи по алфавиту, без пробелов, ключи на «_» — комментарии `_about/_why` — не в счёт):
+           путь от корня + содержимое. JSON берётся КАНОНИЧЕСКИ (ключи по алфавиту, без пробелов, ТЕКСТОВЫЕ ключи на «_» — комментарии `_about/_why` — не в счёт; «_»-ключ с числом/флагом/объектом — данные, в счёте):
            перенос строк, порядок ключей и правка комментария метку не двигают, значение числа/флага — двигает. Плюс переменные окружения из `env`, если выставлены
            (`DELIGHT_RULES`, `SHADOW_LEAK`, …): они подменяют правило мимо файла, поэтому входят в метку и видны в отчёте.
   отчёт  — `paint_stage.write_check` кладёт в КАЖДЫЙ `check.json` поле `rules_label` = {id, n, env, root}, `paint_run_all` — в `run_all.json` ту же запись.
@@ -22,6 +22,8 @@
   rules_label.py --expect ID [--root КОРЕНЬ]              код 1, если метка дерева ≠ ID
   rules_label.py --diff A B [--declared к1,к2|--declared-file f.json] [--json]
                                                            разница деревьев списком ключей; --declared — ключи, которым РАЗРЕШЕНО отличаться (флаги пробы): прочие — «не объявлено», код 1
+  rules_label.py --env-check [--root КОРЕНЬ]             сторож окружения (код 1: скрипт конвейера читает переменную, которой нет в env / env_ignore)
+  rules_label.py --env-table [--root КОРЕНЬ]             то же + таблица «переменная → файл:строка → env / не влияет → причина»
   rules_label.py --selftest
 В коде: `from rules_label import label, field, diff_trees`.
 """
@@ -49,10 +51,16 @@ def load_cfg(path: str = CFG_PATH) -> dict:
     return cfg
 
 
+def _is_comment(k, v) -> bool:
+    """Комментарий — ключ на «_» с ТЕКСТОМ (`_about`, `_why`). Ключ на «_» с числом/флагом/объектом/списком — ДАННЫЕ (`_default: 0`, `_any: {…}`): входит в метку
+    (T-20261127-175/12-дыра: раньше все «_»-ключи считались комментариями, и правка `_default` метку не двигала)."""
+    return str(k).startswith('_') and isinstance(v, str)
+
+
 def _strip(o):
-    """Убрать ключи-комментарии («_about», «_why») на любой глубине."""
+    """Убрать ключи-комментарии (только текстовые «_about», «_why») на любой глубине; «_»-ключи с данными остаются."""
     if isinstance(o, dict):
-        return {k: _strip(v) for k, v in o.items() if not str(k).startswith('_')}
+        return {k: _strip(v) for k, v in o.items() if not _is_comment(k, v)}
     if isinstance(o, list):
         return [_strip(v) for v in o]
     return o
@@ -88,14 +96,15 @@ def _canon(path: str):
 
 
 def _env_part(cfg: dict) -> dict:
-    """Выставленные переменные из `env`: имя → значение; у «путь к правилам» (…RULES) добавляется sha файла, на который указывает."""
+    """Выставленные переменные из `env`: имя → значение; у «путь к файлу правил» (`env_files` и всё на …RULES) добавляется sha файла, на который указывает."""
     out = {}
+    files = set(cfg.get('env_files') or [])
     for name in cfg.get('env') or []:
         v = os.environ.get(name)
         if v is None:
             continue
         item = {'value': v}
-        if name.endswith('RULES') and os.path.isfile(v):
+        if (name in files or name.endswith('RULES')) and os.path.isfile(v):
             item['sha'] = hashlib.sha256(_canon(v)[0]).hexdigest()[:12]
         out[name] = item
     return out
@@ -228,6 +237,168 @@ def render(diffs: list[dict], declared=None, name_a='A', name_b='B') -> list[str
     return lines
 
 
+# ───────────── сторож окружения (T-20261127-175/12-дыра) ─────────────
+# Метка видит только переменные из `env`. Скрипт конвейера прочёл новую переменную, а в конфиге её нет → метка молчит, хотя результат уже другой.
+# Сторож по AST читает все скрипты рецепта `paint-run-all.json` и то, что они импортируют (кроме `env_stop`), и для КАЖДОГО чтения окружения требует запись:
+# `env` (влияет на результат → в метку) или `env_ignore` {имя: причина} (не влияет: путь, ключ, отладка, потоки, кэш). Нет записи / нет причины → находка.
+_ENV_ATTRS = ('get', 'pop', 'setdefault')
+
+
+def _is_environ(n) -> bool:
+    """Узел — `os.environ` / `environ` / `(os.environ if env is None else env)` (так прячут окружение за подменой в тестах)."""
+    import ast
+    if isinstance(n, ast.Attribute):
+        return n.attr == 'environ'
+    if isinstance(n, ast.Name):
+        return n.id == 'environ'
+    if isinstance(n, ast.IfExp):
+        return _is_environ(n.body) or _is_environ(n.orelse)
+    return False
+
+
+def env_reads(path: str) -> list:
+    """Чтения окружения в файле → [(имя | None, строка)]; None — имя не литерал (`environ.get(k)`). Ловит `os.environ[..]`, `.get/.pop/.setdefault`, `os.getenv`, `getenv`,
+    `'X' in os.environ`, в т.ч. через подмену `(os.environ if env is None else env).get('X')`."""
+    import ast
+    with open(path, encoding='utf-8') as f:
+        tree = ast.parse(f.read(), path)
+    res = []
+
+    def lit(a):
+        return (a.value if isinstance(a, ast.Constant) and isinstance(a.value, str) else None)
+    for n in ast.walk(tree):
+        a = None
+        hit = False
+        if isinstance(n, ast.Call):
+            fn = n.func
+            if isinstance(fn, ast.Attribute) and ((fn.attr in _ENV_ATTRS and _is_environ(fn.value)) or (fn.attr == 'getenv' and isinstance(fn.value, ast.Name) and fn.value.id == 'os')):
+                hit, a = True, (n.args[0] if n.args else None)
+            elif isinstance(fn, ast.Name) and fn.id == 'getenv':
+                hit, a = True, (n.args[0] if n.args else None)
+        elif isinstance(n, ast.Subscript) and _is_environ(n.value):
+            hit, a = True, n.slice
+        elif isinstance(n, ast.Compare) and any(isinstance(o, (ast.In, ast.NotIn)) for o in n.ops) and any(_is_environ(c) for c in n.comparators):
+            hit, a = True, n.left
+        if hit:
+            res.append((lit(a) if a is not None else None, n.lineno))
+    return sorted(res, key=lambda t: (t[1], str(t[0])))
+
+
+def _py_names(root: str) -> dict:
+    """имя модуля → [пути .py от корня] по `tools/` (без тестов, node_modules)."""
+    idx: dict = {}
+    for dp, dn, fn in os.walk(os.path.join(root, 'tools')):
+        dn[:] = [d for d in dn if d not in ('node_modules', '__pycache__', '.git', 'tests')]
+        for f in fn:
+            if f.endswith('.py') and not f.startswith(('test_', 'tests_')):
+                idx.setdefault(f[:-3], []).append(os.path.relpath(os.path.join(dp, f), root).replace(os.sep, '/'))
+    return idx
+
+
+def _imported(path: str) -> set:
+    import ast
+    with open(path, encoding='utf-8') as f:
+        tree = ast.parse(f.read(), path)
+    out = set()
+    for n in ast.walk(tree):
+        if isinstance(n, ast.Import):
+            out |= {a.name.split('.')[-1] for a in n.names} | {a.name.split('.')[0] for a in n.names}
+        elif isinstance(n, ast.ImportFrom):
+            if n.module:
+                out |= {n.module.split('.')[0], n.module.split('.')[-1]}
+            out |= {a.name for a in n.names}
+    return out
+
+
+def conveyor_files(root: str, cfg: dict | None = None) -> tuple:
+    """→ (файлы конвейера от корня, находки). Старт — скрипты `{root}/….py` из рецепта `cfg.env_recipe`; дальше — импорты (одноимённые модули — ближайший по пути, при ничьей все);
+    файлы из `cfg.env_stop` (путь → причина) не открываются и дальше не идут; из `cfg.env_leaf` — открываются, но их импорты не разворачиваются; `cfg.env_extra` (путь → причина) — добавочные стартовые скрипты (форма, вырезка). Рецепт или скрипт не открылся / не разобрался — находка (сторож не слепнет молча)."""
+    cfg = cfg or load_cfg()
+    stop, leaf = set((cfg.get('env_stop') or {}).keys()), set((cfg.get('env_leaf') or {}).keys())
+    rec_rel = cfg.get('env_recipe') or 'tools/scout/rules/paint-run-all.json'
+    gaps, start = [], []
+    try:
+        with open(os.path.join(root, rec_rel), encoding='utf-8') as f:
+            rec = json.load(f)
+        for st in (rec.get('stages') or {}).values():
+            for step in st.get('steps', []):
+                for tok in step.get('argv') or []:
+                    if isinstance(tok, str) and tok.startswith('{root}/') and tok.endswith('.py'):
+                        start.append(tok[len('{root}/'):])
+    except (OSError, ValueError) as e:
+        return [], [f'рецепт {rec_rel} не прочитан ({type(e).__name__}) — сторож окружения слеп']
+    start += [x for x in (cfg.get('env_extra') or {}) if isinstance(x, str)]   # скрипты формы/вырезки вне рецепта покраски (путь → причина)
+    idx = _py_names(root)
+    seen, queue = set(), sorted(set(start))
+    while queue:
+        rel = queue.pop()
+        if rel in seen or rel in stop:
+            continue
+        seen.add(rel)
+        if rel in leaf:                                 # читается сам, но его импорты дальше не идут (тянут каталог/комнаты/демо)
+            continue
+        try:
+            names = _imported(os.path.join(root, rel))
+        except (OSError, SyntaxError) as e:
+            gaps.append(f'{rel}: скрипт конвейера не разобран ({type(e).__name__}) — сторож окружения его не видит')
+            continue
+        here = os.path.dirname(rel)
+        for m in sorted(names):
+            cands = idx.get(m) or []
+            if len(cands) > 1:
+                score = {c: len(os.path.commonpath([os.path.dirname(c) or '.', here or '.'])) for c in cands}
+                best = max(score.values())
+                cands = [c for c in cands if score[c] == best]
+            for c in cands:
+                if c not in seen:
+                    queue.append(c)
+    return sorted(seen), gaps
+
+
+def env_gaps(root: str | None = None, cfg: dict | None = None) -> list:
+    """Сторож окружения: пусто = каждое чтение окружения в скриптах конвейера учтено. Находка — строка «ИМЯ — файл:строка — …» (имя и место видны в красной проверке).
+    Учтено = имя в `cfg.env` (входит в метку) ИЛИ в `cfg.env_ignore` с непустой причиной. Динамическое чтение (имя не литерал) — запись `<динамическое>:файл.py` в `env_ignore`.
+    Имя в обоих списках, запись `env_ignore` без причины — тоже находки."""
+    root = os.path.abspath(root or ROOT)
+    cfg = cfg or load_cfg(os.path.join(root, 'tools', 'scout', 'rules', 'rules-label.json'))
+    env, ign = set(cfg.get('env') or []), (cfg.get('env_ignore') or {})
+    files, gaps = conveyor_files(root, cfg)
+    for name, why in sorted(ign.items()):
+        if not isinstance(why, str) or not why.strip():
+            gaps.append(f'{name} — запись в env_ignore без причины (одной строкой: почему переменная не влияет на результат)')
+        if name in env:
+            gaps.append(f'{name} — одновременно в env и в env_ignore: определитесь, влияет ли она на результат')
+    for rel in files:
+        try:
+            reads = env_reads(os.path.join(root, rel))
+        except (OSError, SyntaxError) as e:
+            gaps.append(f'{rel}: не разобран ({type(e).__name__})')
+            continue
+        for name, ln in reads:
+            if name is None:
+                if f'<динамическое>:{os.path.basename(rel)}' not in ign:
+                    gaps.append(f'<динамическое чтение> — {rel}:{ln} — имя переменной не литерал; запишите «<динамическое>:{os.path.basename(rel)}» в env_ignore с причиной')
+            elif name not in env and name not in ign:
+                gaps.append(f'{name} — {rel}:{ln} — скрипт конвейера читает переменную, которой нет ни в env, ни в env_ignore (rules/rules-label.json): метка её не видит')
+    return gaps
+
+
+def env_table(root: str | None = None, cfg: dict | None = None) -> list:
+    """Таблица для отчёта: [(имя, 'env'|'не влияет'|'НЕТ ЗАПИСИ', причина, 'файл:строка; …')] по всем читаемым в конвейере переменным."""
+    root = os.path.abspath(root or ROOT)
+    cfg = cfg or load_cfg(os.path.join(root, 'tools', 'scout', 'rules', 'rules-label.json'))
+    env, ign = set(cfg.get('env') or []), (cfg.get('env_ignore') or {})
+    files, _ = conveyor_files(root, cfg)
+    where: dict = {}
+    for rel in files:
+        try:
+            for name, ln in env_reads(os.path.join(root, rel)):
+                where.setdefault(name or f'<динамическое>:{os.path.basename(rel)}', []).append(f'{rel}:{ln}')
+        except (OSError, SyntaxError):
+            pass
+    return [(n, 'env' if n in env else ('не влияет' if n in ign else 'НЕТ ЗАПИСИ'), ign.get(n, ''), '; '.join(w)) for n, w in sorted(where.items())]
+
+
 def main(argv: list) -> int:
     import argparse
     ap = argparse.ArgumentParser(description='Метка набора правил и разница двух деревьев списком ключей (T-175/12)')
@@ -237,8 +408,20 @@ def main(argv: list) -> int:
     ap.add_argument('--diff', nargs=2, metavar=('A', 'B'), help='сравнить два дерева (A — проба/ветка, B — основная копия)')
     ap.add_argument('--declared', default='', help='ключи, которым разрешено отличаться (через запятую)')
     ap.add_argument('--declared-file', default='', help='JSON-список таких ключей')
+    ap.add_argument('--env-check', action='store_true', help='сторож окружения: код 1, если скрипт конвейера читает переменную без записи в env / env_ignore')
+    ap.add_argument('--env-table', action='store_true', help='таблица «переменная → файл:строка → env / не влияет → причина» по скриптам конвейера')
     ap.add_argument('--selftest', action='store_true')
     a = ap.parse_args(argv)
+    if a.env_check or a.env_table:
+        root = os.path.abspath(a.root or ROOT)
+        if a.env_table:
+            for n, kind, why, wh in env_table(root):
+                print(f'{n} | {kind} | {why} | {wh}')
+        gaps = env_gaps(root)
+        for g in gaps:
+            print('✗', g, file=sys.stderr)
+        print(f'сторож окружения: {"красный, находок " + str(len(gaps)) if gaps else "чисто"}')
+        return 1 if gaps else 0
     if a.selftest:
         print('самопроверка — tools/scout/tests/test_rules_label.py')
         return 0
