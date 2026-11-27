@@ -338,6 +338,13 @@ def group_tones(prgb: np.ndarray, pp: np.ndarray, names: list, cosf: np.ndarray,
     return out
 
 
+def lab_to_lin(lab) -> np.ndarray:
+    """Линейный RGB (0…1) из Lab (L 0…100, a, b) — через 8-бит sRGB, как остальной код Ш4а."""
+    import cv2
+    v = np.array([[[np.clip(lab[0] * 255.0 / 100.0, 0, 255), np.clip(lab[1] + 128.0, 0, 255), np.clip(lab[2] + 128.0, 0, 255)]]], np.uint8)
+    return srgb2lin(cv2.cvtColor(v, cv2.COLOR_LAB2RGB).reshape(3))
+
+
 def merge_tones(tones: dict, rules: dict) -> dict:
     """T-99/12 шаг 3 (Fable 19 §4): части одного материала (по тону: оттенок в hue_deg, |ΔL| ≤ max_dl, у обеих цвет C > c_min) — ОДИН тон: каждая деталь — один голос (по числу пикселей верх, видимый вскользь,
     проиграл бы ножкам), тон = среднее своих тонов (Lab и линейный). Выкл (`rules.tone_merge.enabled=false`) — не вызывается. → {группа: {'with', 'lab_before', 'lab_after'}}; у тона метка 'merged_with'."""
@@ -353,10 +360,25 @@ def merge_tones(tones: dict, rules: dict) -> dict:
                 continue
             if abs(hue_diff(hue_of(la), hue_of(lb))) > float(tm['hue_deg']) or abs(la[0] - lb[0]) > float(tm['max_dl']):
                 continue
+            lin_a, lin_b = np.asarray(tones[a]['lin'], float), np.asarray(tones[b]['lin'], float)
+            gl = {}
+            ca, cb = chroma(la), chroma(lb)
+            if tm.get('glare_from_mate') and abs(hue_diff(hue_of(la), hue_of(lb))) <= float(tm['glare_hue_deg']):      # отблеск: у части того же оттенка насыщенность ниже на chroma_drop и больше (видна вскользь) — берёт насыщенность напарника, светлота своя
+                for g, (lo, co, cm) in ((a, (la, ca, cb)), (b, (lb, cb, ca))):
+                    if co <= (1.0 - float(tm['glare_chroma_drop'])) * cm:
+                        h = np.radians(hue_of(lo))
+                        new = np.array([lo[0], cm * np.cos(h), cm * np.sin(h)])
+                        gl[g] = [round(float(x), 1) for x in lo]
+                        if g == a:
+                            la, lin_a = new, lab_to_lin(new)
+                        else:
+                            lb, lin_b = new, lab_to_lin(new)
             lab_m = (la + lb) / 2.0
-            lin_m = (np.asarray(tones[a]['lin'], float) + np.asarray(tones[b]['lin'], float)) / 2.0
+            lin_m = (lin_a + lin_b) / 2.0
             for g, lo in ((a, la), (b, lb)):
                 out[g] = {'with': b if g == a else a, 'lab_before': [round(float(x), 1) for x in lo], 'lab_after': [round(float(x), 1) for x in lab_m]}
+                if g in gl:
+                    out[g]['glare_chroma_from_mate'] = {'lab_own': gl[g]}
                 tones[g]['lab'], tones[g]['lin'], tones[g]['merged_with'] = lab_m.copy(), lin_m.copy(), (b if g == a else a)
     return out
 

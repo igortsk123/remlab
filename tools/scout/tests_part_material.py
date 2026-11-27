@@ -624,6 +624,14 @@ check(set(rm) == {'верх', 'ножки'} and np.allclose(tm['верх']['lab'
 tz = {'верх': {'own': True, 'lab': np.array([62.8, 26.7, 20.0]), 'lin': np.array([0.3, 0.2, 0.1])}, 'ножки': {'own': True, 'lab': np.array([40.0, 5.0, -40.0]), 'lin': np.array([0.05, 0.05, 0.2])}}
 check(PM.merge_tones(tz, Rm) == {} and abs(tz['верх']['lab'][0] - 62.8) < 1e-9, 'T-99/12: разные оттенки — тоны не трогаем')
 check(PM.merge_tones(copy.deepcopy(tm), R) == {}, 'T-99/12: выкл — слияние ничего не делает')
+Rgm = json.loads(json.dumps(Rm)); Rgm['tone_merge']['glare_from_mate'] = True
+tg = {'верх': {'own': True, 'lab': np.array([63.4, 4.6, 16.9]), 'lin': PM.lab_to_lin([63.4, 4.6, 16.9])}, 'ножки': {'own': True, 'lab': np.array([58.0, 9.6, 26.6]), 'lin': PM.lab_to_lin([58.0, 9.6, 26.6])}}
+c_top0, c_leg0 = PM.chroma(tg['верх']['lab']), PM.chroma(tg['ножки']['lab'])
+rg_ = PM.merge_tones(tg, Rgm)
+check('glare_chroma_from_mate' in rg_['верх'] and 'glare_chroma_from_mate' not in rg_['ножки'] and abs(PM.chroma(tg['верх']['lab']) - c_leg0) < 4 and c_top0 < c_leg0 * 0.75, 'T-99/12: отблеск верха — насыщенность берётся у напарника (C %.1f → %.1f), у напарника нет' % (c_top0, PM.chroma(tg['верх']['lab'])))
+check(np.allclose(tg['верх']['lin'], tg['ножки']['lin']) and abs(PM.lab_of(PM.lin2srgb(tg['верх']['lin']))[0] - 60.7) < 1.5, 'T-99/12: общий тон после отблеска — одна яркость (L ≈ 60,7)')
+tm2 = {'верх': {'own': True, 'lab': np.array([62.8, 26.7, 20.0]), 'lin': np.array([0.30, 0.20, 0.10])}, 'ножки': {'own': True, 'lab': np.array([58.0, 28.2, 19.0]), 'lin': np.array([0.26, 0.17, 0.08])}}
+check('glare_chroma_from_mate' not in PM.merge_tones(tm2, Rgm).get('верх', {}), 'T-99/12: насыщенность близка (не бледнее на ¼) — не отблеск')
 tmm = {'верх': dict(tm['верх'], merged_with='ножки'), 'ножки': dict(tm['ножки'], merged_with='верх')}
 check(PM.material_ids(['верх', 'ножки'], tmm, {}, R) == [0, 0], 'T-99/12: слитые тоны — один номер материала для карты граней 07')
 
