@@ -52,6 +52,11 @@ rules0 = json.load(open(HERE + '/storozh_rules.json', encoding='utf-8'))
 check(rules0['labels_frame']['enabled'] is True and rules0['labels_total_not_room']['enabled'] is True, 'выключатели labels_frame и labels_total_not_room — по умолчанию ВКЛ (директор 27.11); выключение — одна строка enabled=false')
 check(all(len(v) >= 3 for v in RAW.values()), 'свои копии подписей прочитаны (fixtures/vlm2/<лист>/labels5.json)', {k: len(v) for k, v in RAW.items()})
 
+check(rules0['walls_fail']['mode'] == 'on' and rules0['walls_fail']['wide_line']['enabled'] is True and rules0['walls_fail']['windows']['enabled'] is True and rules0['overlay_fail']['partial_alarm']['enabled'] is True,
+      'база пакета по умолчанию ВКЛ: walls_fail.mode=on, wide_line (2б а), windows (2в), partial_alarm (2г)', (rules0['walls_fail']['mode'], rules0['walls_fail']['wide_line'].get('enabled'), rules0['walls_fail']['windows'].get('enabled'), rules0['overlay_fail']['partial_alarm'].get('enabled')))
+check(rules0['walls_fail']['pale_line']['enabled'] is False, 'pale_line (2б б) в базу не входит — выкл (круг отклонён по потерям)')
+check(rules0['demote_to_info']['enabled'] is True, 'demote_to_info (круг 3) вкл')
+
 # ---- 1. сетка → пиксели на известных листах
 fx = {sid: RE.parse_labels(sid, 'labels5', frame='grid1000') for sid in SIZES}
 w, h = SIZES['kazan-14772418']
