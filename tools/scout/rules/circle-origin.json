@@ -25,7 +25,10 @@
     "verdict_paths": ["{dir}/form_checks.json", "{dir}/{sku}/form_checks.json", "{stem}.form_checks.json"],
     "_verdict_paths_why": "вердикт приёмки формы Ш0 (tools/scout/salad/render/form_checks.py пишет <кадры>/<sku>/form_checks.json: status pass | needs_review | camera_or_mask_uncertain | shape_reject). Либо вложен в запись происхождения (ключ form_checks).",
     "accept_status": ["pass"],
-    "_accept_status_why": "Ш0 «пройдена» = status pass либо директор принял глазом (P-064): `eye_accepted: true` в записи происхождения. Остальное — отказ с флагами; обход ключом."
+    "known_status": ["pass", "needs_review", "shape_reject", "camera_or_mask_uncertain"],
+    "required_checks": ["glb_sane"],
+    "_sh0_why": "Ш0 читается ТОЛЬКО из записи form_checks.json рядом с формой (директор 27.11): нет файла, битый/пустой, status не из known_status, checks (что вызвано) пуст или без required_checks, запись чужого товара — отказ «Ш0 не пройдена». eye_accepted и вложенный в запись происхождения вердикт НЕ читаются: путь forms_render --accept молча сбоил с кодом 0, «пройдена» не подразумевается.",
+    "_accept_status_why": "Ш0 «пройдена» = status pass в записи form_checks.json (см. _sh0_why). Остальное — отказ с флагами; обход ключом."
   },
   "equiv": {
     "thresholds": {"far_px_max": 30, "far_area_pct_max": 0.02, "mismatch_pct_max": 1.0, "alpha_min": 127, "far_dist_px": 2},

@@ -9,8 +9,9 @@
     цепочки в ней == актуальной («вход актуален»); ИЛИ есть запись «вход равнозначен: да» против АКТУАЛЬНОЙ версии (`cutout_equiv.py`: её пишет программа сравнения двух вырезок, проверка пересчитывает
     хеши и числа; сменилась версия — сравнение пересчитывается само; не сошлось/подделка — отказ) — в отчёте круга «вход равнозначен», не «актуален» (вердикт Fable по cut9). Форму, что строит этот
     же прогон текущим кодом, проверять нечего.
- 2. ГЕНЕРАТОР И Ш0 — в записи назван генератор и ступень формы (генератор из разрешённых: TRELLIS.2; Hunyuan и прочие — отказ), и приёмка формы Ш0 (`form_checks.json`: status == pass,
-    либо директор принял глазом — `eye_accepted` в записи) пройдена.
+ 2. ГЕНЕРАТОР И Ш0 — в записи назван генератор и ступень формы (генератор из разрешённых: TRELLIS.2; Hunyuan и прочие — отказ), и приёмка формы Ш0 ПРОЧИТАНА из записи `form_checks.json`
+    рядом с формой (status == pass и список вызванных проверок `checks` непуст); нет записи, она битая/пустая/чужого товара, status не pass — отказ «Ш0 не пройдена». Ни `eye_accepted`, ни вложенный
+    в запись происхождения `form_checks` не читаются: «пройдена» не подразумевается (директор 27.11: путь forms_render --accept молча сбоил с кодом 0).
  3. КАМЕРА 04 — этап 04 этого прогона прошёл (check.json ok/soft); ещё не считался и этот же прогон его посчитает — «не применимо» (гейты этапов не пустят 05+ без неё); не считался и не будет — отказ.
  4. КАРТОЧКА И ТИП — у товара есть запись каталога (иначе карточки нет, 07 идёт без роли — `no_type`, причина Avalon 27.11), в ней непустые название и роль и ≥ 1 параметра, роль даёт тип в паспортах
     (`paint_policy`: нет типа — правила типа не сработают); лежащая в прогоне `card.json` совпадает с карточкой из ТЕКУЩЕЙ записи каталога.
@@ -207,36 +208,60 @@ def check_equivalence(form: str, want: str | None, src: str, rules: dict) -> dic
 
 
 def form_facts(form: str | None, rules: dict) -> dict | None:
-    """Факты о форме для пункта 2: запись происхождения, дополненная блоком `form` записи «вход равнозначен» (генератор, ступень, eye_accepted — со слов того, кто писал запись)."""
+    """Факты о форме для пункта 2: запись происхождения, дополненная блоком `form` записи «вход равнозначен» (только генератор и ступень — со слов того, кто писал запись)."""
     if not form or not os.path.exists(form):
         return None
     rec = find_form_record(form, rules)[0]
     _p, eq = find_equiv_record(form, rules)
     blk = (eq or {}).get('form')
-    if isinstance(blk, dict) and blk:                                                # из блока — только генератор и ступень; Ш0 (eye_accepted, form_checks) рукой в записи сравнения не принимается
+    if isinstance(blk, dict) and blk:                                                # из блока — только генератор и ступень; Ш0 (eye_accepted, form_checks) в записи сравнения НЕ читается вовсе
         rec = {**{k: v for k, v in blk.items() if k not in ('eye_accepted', 'form_checks')}, **(rec or {})}
-    for p in _paths((rules.get('form') or {}).get('meta_paths') or [], form):         # метка самой формы: генератор, ступень, принято глазом (запись вырезки их не несёт — её читает T-175/9)
+    for p in _paths((rules.get('form') or {}).get('meta_paths') or [], form):         # метка самой формы: генератор и ступень (запись вырезки их не несёт — её читает T-175/9)
         meta = _load_json(p)
         if isinstance(meta, dict):
-            rec = {**{k: v for k, v in meta.items() if k in ('generator', 'stage', 'form_stage', 'eye_accepted')}, **(rec or {})}
+            rec = {**{k: v for k, v in meta.items() if k in ('generator', 'stage', 'form_stage')}, **(rec or {})}
             break
     return rec
 
 
-def find_verdict(form: str, sku: str, rec: dict | None, rules: dict) -> tuple:
-    """Вердикт Ш0 (`form_checks.json`: status): (статус|None, флаги, где). Сначала запись в записи формы (`form_checks`), потом `form.verdict_paths`."""
-    emb = (rec or {}).get('form_checks')
-    if isinstance(emb, dict) and emb.get('status'):
-        return str(emb['status']), emb.get('flags'), 'в записи происхождения'
-    for p in _paths((rules.get('form') or {}).get('verdict_paths') or [], form, sku):
+def read_verdict(form: str, sku: str, rules: dict) -> dict:
+    """Вердикт Ш0 — ПРОЧИТАННЫЙ из записи `form_checks.json` рядом с формой (`form.verdict_paths`), не подразумеваемый (директор 27.11). → {status, flags, called, where, problem}.
+    problem (None — запись годная): нет файла; файл не читается/не словарь/пуст; нет status или он не из известных; список `checks` (что вызвано) пуст или без обязательных проверок
+    (`form.required_checks`); запись чужого товара (`sku` не совпал). Первая найденная запись решает — «поискать другую, где лучше» нет."""
+    F = rules.get('form') or {}
+    paths = _paths(F.get('verdict_paths') or [], form, sku)
+    for p in paths:
+        if not os.path.isfile(p):
+            continue
+        out = {'status': None, 'flags': None, 'called': [], 'where': p, 'problem': None}
         d = _load_json(p)
-        if isinstance(d, dict) and d.get('status'):
-            return str(d['status']), d.get('flags'), p
-    return None, None, ''
+        if not isinstance(d, dict) or not d:
+            out['problem'] = f'запись Ш0 {p} битая или пустая'
+            return out
+        st = d.get('status')
+        out['status'], out['flags'] = (str(st) if st else None), d.get('flags')
+        if not st or str(st) not in (F.get('known_status') or []):
+            out['problem'] = f'в записи Ш0 {p} нет status или он неизвестный («{st}»; известны {F.get("known_status")})'
+            return out
+        checks = d.get('checks')
+        called = [str(c.get('name')) for c in checks if isinstance(c, dict) and c.get('name')] if isinstance(checks, list) else []
+        out['called'] = called
+        if not called:
+            out['problem'] = f'в записи Ш0 {p} не названо ни одной вызванной проверки (checks пуст) — вердикт ничем не подтверждён'
+            return out
+        miss = [n for n in F.get('required_checks') or [] if n not in called]
+        if miss:
+            out['problem'] = f'в записи Ш0 {p} не вызваны обязательные проверки: {miss}'
+            return out
+        if d.get('sku') not in (None, '', sku) and str(d.get('sku')).replace(':', '_') != sku.replace(':', '_'):
+            out['problem'] = f'запись Ш0 {p} — другого товара («{d.get("sku")}», а круг по «{sku}»)'
+            return out
+        return out
+    return {'status': None, 'flags': None, 'called': [], 'where': '', 'problem': 'нет записи form_checks.json (искал: ' + ', '.join(paths) + ')'}
 
 
 def check_generator(form: str | None, sku: str, rec: dict | None, rules: dict) -> dict:
-    """Пункт 2: генератор разрешён, ступень названа, приёмка Ш0 пройдена (status из разрешённых либо `eye_accepted`)."""
+    """Пункт 2: генератор разрешён, ступень названа, Ш0 ПРОЧИТАНА из form_checks.json (status из разрешённых и список вызванных проверок). Ни `eye_accepted`, ни вложенного вердикта в записи происхождения нет."""
     if not form:
         return _item(I_GEN, NA, 'готовой формы нет: форма строится в этом прогоне')
     F = rules.get('form') or {}
@@ -249,14 +274,12 @@ def check_generator(form: str | None, sku: str, rec: dict | None, rules: dict) -
     bad = [x for x in F.get('denied_generators') or [] if x in g]
     if bad or (F.get('allowed_generators') and not any(x in g for x in F['allowed_generators'])):
         return _item(I_GEN, REFUSE, f'генератор формы «{gen}» (ступень «{stage}») не разрешён: разрешены {F.get("allowed_generators")}, запрещены {F.get("denied_generators")}')
-    st, flags, where = find_verdict(form, sku, rec, rules)
-    if rec.get('eye_accepted'):
-        return _item(I_GEN, OK, f'генератор «{gen}», ступень «{stage}»; Ш0: принята глазом (eye_accepted)', generator=gen, stage=stage)
-    if st is None:
-        return _item(I_GEN, REFUSE, f'генератор «{gen}», ступень «{stage}»; вердикта Ш0 нет (form_checks.json не найден или без status) — приёмка формы не пройдена')
-    if st not in (F.get('accept_status') or ['pass']):
-        return _item(I_GEN, REFUSE, f'Ш0 не пройдена: status «{st}» (флаги: {flags}); допустимо {F.get("accept_status") or ["pass"]} либо eye_accepted ({where})')
-    return _item(I_GEN, OK, f'генератор «{gen}», ступень «{stage}»; Ш0 {st} ({where})', generator=gen, stage=stage)
+    v = read_verdict(form, sku, rules)
+    if v['problem']:
+        return _item(I_GEN, REFUSE, f'генератор «{gen}», ступень «{stage}»; Ш0 не пройдена: {v["problem"]}')
+    if v['status'] not in (F.get('accept_status') or ['pass']):
+        return _item(I_GEN, REFUSE, f'Ш0 не пройдена: status «{v["status"]}» (флаги: {v["flags"]}); допустимо {F.get("accept_status") or ["pass"]} ({v["where"]})')
+    return _item(I_GEN, OK, f'генератор «{gen}», ступень «{stage}»; Ш0 {v["status"]}, вызвано проверок: {len(v["called"])} ({v["where"]})', generator=gen, stage=stage, sh0={'status': v['status'], 'called': v['called'], 'where': v['where']})
 
 
 def check_camera(fact: dict | None) -> dict:
@@ -370,7 +393,7 @@ def check_start(sku: str, *, form: str | None = None, record: dict | None = None
     ok = not any(i['status'] == REFUSE for i in items)
     by = {i['item']: i for i in items}
     return {'ok': ok, 'sku': sku, 'items': items, 'bypass': bypass,
-            'origin': {'form': by[I_CUT].get('record'), 'chain_version': by[I_CUT].get('chain_version'), 'cutout_basis': by[I_CUT].get('how'), 'equiv': by[I_CUT].get('equiv'), 'generator': by[I_GEN].get('generator'), 'form_stage': by[I_GEN].get('stage'),
+            'origin': {'form': by[I_CUT].get('record'), 'chain_version': by[I_CUT].get('chain_version'), 'cutout_basis': by[I_CUT].get('how'), 'equiv': by[I_CUT].get('equiv'), 'generator': by[I_GEN].get('generator'), 'sh0': by[I_GEN].get('sh0'), 'form_stage': by[I_GEN].get('stage'),
                        'card_sha': by[I_CARD].get('card_sha'), 'rules_label': by[I_RULES].get('label')}}
 
 

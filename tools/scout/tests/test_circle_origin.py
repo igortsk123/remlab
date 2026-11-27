@@ -52,6 +52,14 @@ GOOD = {'chain_version': 'c2', 'cutout_method': 'chain_shape', 'mask_source': 'b
 n_case = [0]
 
 
+def sh0rec(sku='k1', status='pass', flags=None, checks=None, **kw):
+    """Запись Ш0 в формате `form_checks.run_sku`: {sku, observe, block, checks[{name, flag…}], auto, status, flags}; checks=None — две вызванные проверки (glb_sane, open_edges)."""
+    d = {'sku': sku, 'observe': True, 'block': [], 'checks': [{'name': 'glb_sane', 'flag': False}, {'name': 'open_edges', 'flag': False}] if checks is None else checks,
+         'auto': 'ok', 'status': status, 'flags': flags or []}
+    d.update(kw)
+    return d
+
+
 def mkform(**extra):
     """Новая папка с формой и записью происхождения (GOOD + extra; значение None убирает поле) — случаи не мешают друг другу."""
     n_case[0] += 1
@@ -196,9 +204,10 @@ ok(r['status'] == CO.REFUSE and 'c1' in r['reason'], 'тот же формат �
 put(os.path.join(d6, 'inputs.json'), {'112923:55': {'origin': {k: v for k, v in R2F.items() if k != 'mask'}}})
 r = CO.check_cutout(form6, R)
 ok(r['status'] == CO.REFUSE and 'mask_source' in r['reason'] and 'weights_version' in r['reason'], 'в записи нет mask → отказ: не названы источник маски и версия весов')
-put(form6[:-4] + '.form.json', {'generator': 'trellis2', 'stage': 'out30-v3', 'eye_accepted': True, 'status': 'pass'})
+put(form6[:-4] + '.form.json', {'generator': 'trellis2', 'stage': 'out30-v3'})
+put(os.path.join(d6, 'form_checks.json'), sh0rec(sku='112923_55'))
 put(os.path.join(d6, 'inputs.json'), {'112923:55': {'origin': R2F}})
-ok(CO.check_generator(form6, '112923_55', CO.form_facts(form6, R), R)['status'] == CO.OK, 'генератор и ступень — из метки формы (`<форма>.form.json`), запись вырезки их не несёт; eye_accepted оттуда принимается')
+ok(CO.check_generator(form6, '112923_55', CO.form_facts(form6, R), R)['status'] == CO.OK, 'генератор и ступень — из метки формы (`<форма>.form.json`), запись вырезки их не несёт; Ш0 читается из form_checks.json рядом')
 rr = CO.load_rules()
 v, src = CO.current_chain_version(rr, CO.ROOT)
 ok('cutout_origin.py:CHAIN_VERSION' in (rr['current']['from'] or ''), 'актуальная версия читается константой CHAIN_VERSION из `tools/scout/salad/cutout_origin.py` (файл и имя — у рабочего 2): ' + str(src))
@@ -214,23 +223,47 @@ ok(CE.verify(fk, 'c2')[0] == 'forged' and 'pixels_sha256' in CE.verify(fk, 'c2')
 
 print('— 2. генератор и Ш0')
 form, d = mkform()
-put(os.path.join(d, 'form_checks.json'), {'status': 'pass', 'flags': []})
+put(os.path.join(d, 'form_checks.json'), sh0rec())
 r = CO.check_generator(form, 'k1', CO.form_facts(form, R), R)
 ok(r['status'] == CO.OK and 'TRELLIS' in r['reason'], 'TRELLIS.2 + Ш0 pass → ok')
 for bad_status in ('needs_review', 'shape_reject', 'camera_or_mask_uncertain'):
-    put(os.path.join(d, 'form_checks.json'), {'status': bad_status, 'flags': ['bottom_gap']})
+    put(os.path.join(d, 'form_checks.json'), sh0rec(status=bad_status, flags=['bottom_gap']))
     r = CO.check_generator(form, 'k1', CO.form_facts(form, R), R)
     ok(r['status'] == CO.REFUSE and bad_status in r['reason'] and 'bottom_gap' in r['reason'], 'Ш0 «%s» → отказ с флагами' % bad_status)
-put(os.path.join(d, 'k1', 'form_checks.json'), {'status': 'pass'})
+put(os.path.join(d, 'k1', 'form_checks.json'), sh0rec())
 os.remove(os.path.join(d, 'form_checks.json'))
 ok(CO.check_generator(form, 'k1', CO.form_facts(form, R), R)['status'] == CO.OK, 'вердикт Ш0 в <папка>/<sku>/form_checks.json найден')
 shutil.rmtree(os.path.join(d, 'k1'))
 r = CO.check_generator(form, 'k1', CO.form_facts(form, R), R)
-ok(r['status'] == CO.REFUSE and 'вердикта Ш0 нет' in r['reason'], 'вердикта Ш0 нет → отказ (приёмка не пройдена)')
-form2, d2 = mkform(eye_accepted=True)
-ok(CO.check_generator(form2, 'k1', CO.form_facts(form2, R), R)['status'] == CO.OK, 'Ш0 принята глазом директора (eye_accepted в записи) → ok')
+ok(r['status'] == CO.REFUSE and 'нет записи form_checks.json' in r['reason'], 'вердикта Ш0 нет → отказ (приёмка не пройдена)')
+form2, d2 = mkform(eye_accepted=True, form_checks={'status': 'pass', 'flags': []})
+r = CO.check_generator(form2, 'k1', CO.form_facts(form2, R), R)
+ok(r['status'] == CO.REFUSE and 'Ш0 не пройдена' in r['reason'] and 'нет записи form_checks.json' in r['reason'], 'eye_accepted и вложенный в запись происхождения вердикт НЕ читаются: без form_checks.json рядом с формой → отказ «Ш0 не пройдена» (директор 27.11)')
+r = CO.check_generator(form, 'k1', CO.form_facts(form, R), R)
+ok(r['status'] == CO.REFUSE and 'Ш0 не пройдена' in r['reason'] and 'нет записи' in r['reason'] and 'k1' in r['reason'], 'форма без form_checks → отказ «Ш0 не пройдена: нет записи» и список мест, где искал')
+fcp = os.path.join(d, 'form_checks.json')
+for what, body in (('пустой файл', ''), ('битый JSON', '{"status": "pa'), ('JSON не словарь', '[1, 2]'), ('пустой словарь', '{}')):
+    open(fcp, 'w', encoding='utf-8').write(body)
+    r = CO.check_generator(form, 'k1', CO.form_facts(form, R), R)
+    ok(r['status'] == CO.REFUSE and 'Ш0 не пройдена' in r['reason'] and 'битая или пустая' in r['reason'], 'запись Ш0: %s → отказ «Ш0 не пройдена»' % what)
+for what, body, frag in (('нет status', {k: v for k, v in sh0rec().items() if k != 'status'}, 'нет status'), ('неизвестный status', sh0rec(status='ok'), 'неизвестный'),
+                         ('status пуст', sh0rec(status=''), 'нет status'), ('checks нет (ничего не вызвано)', {k: v for k, v in sh0rec().items() if k != 'checks'}, 'не названо ни одной'),
+                         ('checks пуст', sh0rec(checks=[]), 'не названо ни одной'), ('checks без имён', sh0rec(checks=[{'flag': False}, 5]), 'не названо ни одной'),
+                         ('нет обязательной glb_sane', sh0rec(checks=[{'name': 'open_edges', 'flag': False}]), 'обязательные проверки'), ('чужой товар', sh0rec(sku='другой'), 'другого товара')):
+    put(fcp, body)
+    r = CO.check_generator(form, 'k1', CO.form_facts(form, R), R)
+    ok(r['status'] == CO.REFUSE and 'Ш0 не пройдена' in r['reason'] and frag in r['reason'], 'запись Ш0 с дефектом «%s» → отказ «Ш0 не пройдена»' % what)
+put(fcp, sh0rec(status='pass'))
+r = CO.check_generator(form, 'k1', CO.form_facts(form, R), R)
+ok(r['status'] == CO.OK and 'вызвано проверок: 2' in r['reason'] and r.get('sh0', {}).get('called') == ['glb_sane', 'open_edges'], 'годная запись: ok, в итоге — статус и ЧТО ВЫЗВАНО (glb_sane, open_edges), путь к записи')
+put(fcp, sh0rec(sku='112923:1'))
+ok(CO.check_generator(form, '112923_1', CO.form_facts(form, R), R)['status'] == CO.OK, 'sku в записи с «:» совпадает с «_»-видом id товара круга')
+put(fcp, sh0rec())
+res = CO.check_start('k1', form=form, record=REC, camera={'status': 'ok', 'reason': ''}, rules=R)
+ok(res['origin']['sh0']['status'] == 'pass' and res['origin']['sh0']['called'] == ['glb_sane', 'open_edges'], 'в журнал круга (origin.sh0) идут статус Ш0 и список вызванного')
+os.remove(fcp)
 form3, d3 = mkform(generator='Hunyuan3D-2.1')
-put(os.path.join(d3, 'form_checks.json'), {'status': 'pass'})
+put(os.path.join(d3, 'form_checks.json'), sh0rec())
 r = CO.check_generator(form3, 'k1', CO.form_facts(form3, R), R)
 ok(r['status'] == CO.REFUSE and 'не разрешён' in r['reason'] and 'Hunyuan' in r['reason'], 'форма Hunyuan → отказ (ADR-0455, TG 2029)')
 form4, d4 = mkform(generator=None, stage=None)
@@ -240,7 +273,7 @@ ok(CO.check_generator(None, 'k1', None, R)['status'] == CO.NA, 'формы не�
 form5, d5 = mkform(chain_version='c1', generator=None, stage=None)
 put(form5[:-4] + '.equiv.json', dict(rec, form={'generator': 'trellis2', 'stage': 'out30-v3', 'eye_accepted': True}))
 r = CO.check_generator(form5, 'k1', CO.form_facts(form5, R), R)
-ok(r['status'] == CO.REFUSE and 'вердикта Ш0 нет' in r['reason'] and 'trellis2' in r['reason'],'ОТРИЦАТЕЛЬНЫЙ КОНТРОЛЬ: генератор/ступень берутся из блока form записи «равнозначен», а eye_accepted и Ш0 оттуда НЕ принимаются (рукой Ш0 не обойти) → отказ')
+ok(r['status'] == CO.REFUSE and 'нет записи form_checks.json' in r['reason'] and 'trellis2' in r['reason'],'ОТРИЦАТЕЛЬНЫЙ КОНТРОЛЬ: генератор/ступень берутся из блока form записи «равнозначен», а eye_accepted и Ш0 оттуда НЕ принимаются (рукой Ш0 не обойти) → отказ')
 
 print('— 3. камера 04')
 ok(CO.check_camera({'status': 'ok', 'reason': 'все пороги'})['status'] == CO.OK, 'check.json ok → ok')
@@ -297,7 +330,7 @@ ok(CO.rules_label('комод', R, fake_root)['id'] != l1, 'правка фай�
 
 print('— старт целиком и обход')
 form, d = mkform()
-put(os.path.join(d, 'form_checks.json'), {'status': 'pass'})
+put(os.path.join(d, 'form_checks.json'), sh0rec())
 CAM = {'status': 'ok', 'reason': 'ok'}
 res = CO.check_start('k1', form=form, record=REC, card=None, camera=CAM, rules=R)
 ok(res['ok'] and res['bypass'] is None and len(res['items']) == 5 and res['origin']['chain_version'] == 'c2' and res['origin']['rules_label']['id'] and res['origin']['generator'], 'всё чисто → ok, пять пунктов, origin для журнала заполнен')
@@ -305,7 +338,7 @@ ok([i['item'] for i in res['items']] == ['вырезка формы', 'гене�
 txt = CO.render(res)
 ok('1.' in txt and '5.' in txt and 'можно начинать' in txt, 'вывод: пять строк с номерами')
 formo, do = mkform(chain_version='c1')
-put(os.path.join(do, 'form_checks.json'), {'status': 'pass'})
+put(os.path.join(do, 'form_checks.json'), sh0rec())
 res = CO.check_start('k1', form=formo, record=REC, camera=CAM, rules=R)
 ok(not res['ok'] and 'КРУГ НЕ СТАРТУЕТ' in CO.render(res) and 'старая' in CO.render(res), 'форма старой вырезки → круг не стартует')
 ok(not CO.check_start('k1', form=formo, record=REC, camera=CAM, rules=R, allow_old='')['ok'], 'обход с пустой причиной → всё равно отказ')
@@ -356,7 +389,8 @@ ok('--photo' not in c07, 'фото не задано → флага --photo в 0
 print('— стартеры круга: ворота на пачке товаров (loop5, stage_trial)')
 catg = os.path.join(tmp, 'catg.json')
 put(catg, [REC, {'sid': 'k2', 'name': 'Шкаф', 'role': 'шкаф', 'params': {'width': 80}}])
-formg, dg = mkform(eye_accepted=True)
+formg, dg = mkform()
+put(os.path.join(dg, 'form_checks.json'), sh0rec())
 poseg = os.path.join(tmp, 'pose-k1')
 put(os.path.join(poseg, '04-camera', 'check.json'), {'passed': True, 'metrics': {}})
 g = CO.gate_rows({'k1': {'glb': formg, 'pose_run': poseg}}, catalog=catg, rules=R)
