@@ -74,7 +74,7 @@ export function ownRulesEdits(own) {
 
 const FIELDS = {
   "просрочено": /просрочено\s*[:=]?\s*(\d+)/i,
-  "вне реестра": /вне реестра\s*[:=]?\s*(\d+)/i,
+  "вне реестра": /вне реестра\s*[:=]?\s*(?:новых\s*)?(\d+)/i, // и «вне реестра 0», и «вне реестра: новых 0 (старый долг 167)» — долг в счёт гейта не входит
   "без разбора": /без разбора\s*[:=]?\s*(\d+)/i,
   "на удаление": /на удаление\s*[:=]?\s*(\d+)/i,
 };
@@ -102,31 +102,58 @@ export function strazhVerdict(parsed, blockFields = DEFAULT_BLOCK_FIELDS) {
   return { block: bad.length > 0, bad };
 }
 
-/** Запуск стража без оболочки: cmd — массив [исполняемый, аргументы…]; первая непустая строка stdout. null — не запускался/упал/таймаут. */
+/** Запуск стража без оболочки: cmd — массив [исполняемый, аргументы…]. → {line, code, why}:
+ *  line — первая непустая строка stdout (страж с `--check` при «не ноль» возвращает код 1, но строка в stdout — её читаем);
+ *  code — код возврата (0 / число / «таймаут» / «сигнал X» / код ошибки запуска); why — причина, если строки нет. «Не ответил» не прячем: вызывающий пишет её в блок. */
 export function runStrazh(cmd, cwd, timeoutMs = 20000) {
+  const first = (s) => (typeof s === "string" ? s.split("\n").find((l) => l.trim()) ?? null : null);
   try {
     const out = execFileSync(cmd[0], cmd.slice(1), { cwd, encoding: "utf8", timeout: timeoutMs, stdio: ["ignore", "pipe", "ignore"] });
-    return out.split("\n").find((l) => l.trim()) ?? null;
+    return { line: first(out), code: 0 };
   } catch (e) {
-    // страж может вернуть код ≠ 0 при «не ноль» — строка всё равно в stdout
-    const o = typeof e?.stdout === "string" ? e.stdout : "";
-    return o.split("\n").find((l) => l.trim()) ?? null;
+    const code = e?.code === "ETIMEDOUT" ? "таймаут" : typeof e?.status === "number" ? e.status : e?.signal ? `сигнал ${e.signal}` : (e?.code ?? "?");
+    return { line: first(e?.stdout), code };
   }
 }
 
-/** Команда стража по умолчанию: tools/ops/rules_guard.py --line; файла нет — null (страж ещё не влит → проверка молчит). */
+/** Команда стража по умолчанию: tools/ops/rules_guard.py --check (строка-счётчик — первая строка stdout, код 1 при «не ноль»; ключа `--line` у стража нет —
+ *  Fable proverka-t175-3 § 2 п.1: гейт звал его и молчал). Файла нет — null (страж не влит → проверка молчит). */
 export function defaultStrazhCmd(root) {
   const f = join(root, "tools", "ops", "rules_guard.py");
-  return existsSync(f) ? ["python3", f, "--line"] : null;
+  return existsSync(f) ? ["python3", f, "--check"] : null;
+}
+
+/** Ответ стража → {ok, parsed, line, silent: текст «страж не ответил: …» или null}. Строки нет или в ней нет ни одного счётчика — страж не ответил
+ *  (пустой вывод при коде 2 — падение, а не «чисто»): гейт НЕ молчит, а называет код. */
+export function strazhAnswer(res) {
+  const parsed = parseStrazh(res?.line);
+  if (parsed) return { ok: true, parsed, line: res.line.trim(), silent: null };
+  const code = res?.code ?? "?";
+  const what = res?.line ? `вывод не разобран: «${res.line.trim().slice(0, 80)}»` : "пустой вывод";
+  return { ok: false, parsed: null, line: res?.line ?? null, silent: `страж не ответил: код ${code}, ${what}` };
+}
+
+/** Путь p назван в тексте находки: целиком или без приставки `.memory_bank/` (аудит банка называет файл без неё: «core/x.md — 3,4 КБ»).
+ *  Слева от совпадения не должно быть символа пути — иначе «a/core/x.md» сошёл бы за «core/x.md». */
+export function mentions(text, p) {
+  const forms = [p];
+  if (p.startsWith(".memory_bank/")) forms.push(p.slice(".memory_bank/".length));
+  return forms.some((f) => {
+    if (!f) return false;
+    for (let i = text.indexOf(f); i !== -1; i = text.indexOf(f, i + 1)) {
+      if (i === 0 || !/[\w./-]/.test(text[i - 1])) return true;
+    }
+    return false;
+  });
 }
 
 /** Проблемы memory-audit, относящиеся ТОЛЬКО к чужим незакоммиченным файлам, — исключить: проблема «чужая», если называет чужой грязный
- *  файл и не называет ни одного своего. Проблема без путей — общая, остаётся. */
+ *  файл (с приставкой `.memory_bank/` или без неё) и не называет ни одного своего. Проблема без путей — общая, остаётся. */
 export function dropForeignProblems(problems, dirtyAll, own) {
   const foreign = dirtyAll.filter((p) => !isOwn(p, own));
   return problems.filter((pr) => {
-    const namesForeign = foreign.some((f) => pr.includes(f));
-    const namesOwn = [...(own ?? [])].some((o) => pr.includes(o));
+    const namesForeign = foreign.some((f) => mentions(pr, f));
+    const namesOwn = [...(own ?? [])].some((o) => mentions(pr, o));
     return !(namesForeign && !namesOwn);
   });
 }
