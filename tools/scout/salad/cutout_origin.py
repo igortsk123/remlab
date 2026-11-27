@@ -21,16 +21,17 @@ import os
 import re
 import subprocess
 
-CHAIN_VERSION = 'c1'                   # версия единой цепочки `cutout_one.cut_shape` (см. выше; НЕ ASSESSOR_VERSION)
+CHAIN_VERSION = 'c2'                   # версия единой цепочки `cutout_one.cut_shape` (см. выше; НЕ ASSESSOR_VERSION). c2 (27.11, решение Fable по 9.3): «хвосты у пола» убраны, у пар стульев берётся левый
 ORIGIN_FORMAT = 1                      # версия формата записи
 METHOD = 'cutout_one'                  # способ вырезки (единственный разрешённый для входа формы)
 MASK_SOURCE = 'birefnet-full-cpu-fp32'  # источник сырой маски входа формы: ПОЛНАЯ BiRefNet на ЦП, float32 (fal-Light — только ночная оценка)
 BIREFNET_REPO = 'ZhengPeng7/BiRefNet'
 # Ревизия закреплена полным хешем (T-46/3): без неё transformers тянет свежий код автора и исполняет его без проверки. Смена — только с пробой.
 BIREFNET_REVISION = 'e2bf8e4460fc8fa32bba5ea4d94b3233d367b0e4'
-STEPS_ALL = ('attached_prune', 'main_object')   # необязательные шаги старой цепочки, перенесённые в единый модуль (по умолчанию выключены)
+STEPS_ALL = ('main_object',)           # необязательные шаги старой цепочки в едином модуле: только «главный предмет» (роль «стул»); «хвосты у пола» убраны — резали настоящие ножки
 PNG_KEY = 'remlab.origin'              # ключ текстовой метки внутри PNG
-FIELDS = ('format', 'method', 'chain_version', 'steps', 'mask', 'code', 'photo_sha256', 'pixels_sha256', 'created')
+PICKS = ('none', 'larger_of_two', 'left_of_two')   # шаг «главный предмет»: не резал / взят больший из пары / взят один из двух РАВНЫХ — левый
+FIELDS = ('format', 'method', 'chain_version', 'steps', 'pick', 'mask', 'code', 'photo_sha256', 'pixels_sha256', 'created')
 
 
 def code_version(root: str | None = None) -> str:
@@ -51,7 +52,7 @@ def pixels_sha256(img) -> str:
     return hashlib.sha256(f'{im.width}x{im.height}:RGBA:'.encode() + im.tobytes()).hexdigest()
 
 
-def build(raw: bytes, steps=(), now: datetime.datetime | None = None, code: str | None = None, *, shape=None, pixels: str | None = None) -> dict:
+def build(raw: bytes, steps=(), now: datetime.datetime | None = None, code: str | None = None, *, shape=None, pixels: str | None = None, pick: str = 'none') -> dict:
     """Запись происхождения входа, сделанного из фото `raw` (исходные байты) единой цепочкой с набором шагов `steps`; `shape` — готовая вырезка полного холста (RGBA) или (для тестов) готовый `pixels` — хеш содержимого."""
     if shape is None and pixels is None:
         raise ValueError('нужна готовая вырезка (shape) — хеш её содержимого входит в запись')
@@ -59,8 +60,10 @@ def build(raw: bytes, steps=(), now: datetime.datetime | None = None, code: str 
     bad = [s for s in st if s not in STEPS_ALL]
     if bad:
         raise ValueError(f'неизвестные шаги цепочки {bad}: допустимо {STEPS_ALL}')
+    if pick not in PICKS:
+        raise ValueError(f'pick={pick!r}: допустимо {PICKS}')
     now = now or datetime.datetime.now(datetime.timezone.utc)
-    return {'format': ORIGIN_FORMAT, 'method': METHOD, 'chain_version': CHAIN_VERSION, 'steps': st,
+    return {'format': ORIGIN_FORMAT, 'method': METHOD, 'chain_version': CHAIN_VERSION, 'steps': st, 'pick': pick,
             'mask': {'source': MASK_SOURCE, 'repo': BIREFNET_REPO, 'revision': BIREFNET_REVISION},
             'code': code if code is not None else code_version(),
             'photo_sha256': hashlib.sha256(raw).hexdigest(),
@@ -85,6 +88,8 @@ def check(origin) -> list[str]:
     st = origin.get('steps')
     if not isinstance(st, list) or any(s not in STEPS_ALL for s in st):
         errs.append(f'steps={st!r}: допустимо подмножество {STEPS_ALL}')
+    if origin.get('pick') not in PICKS:
+        errs.append(f'pick={origin.get("pick")!r}: допустимо {PICKS}')
     m = origin.get('mask')
     if not isinstance(m, dict) or (m.get('source'), m.get('repo'), m.get('revision')) != (MASK_SOURCE, BIREFNET_REPO, BIREFNET_REVISION):
         errs.append(f'источник маски {m!r} ≠ {{source: {MASK_SOURCE}, repo: {BIREFNET_REPO}, revision: {BIREFNET_REVISION[:8]}…}}')

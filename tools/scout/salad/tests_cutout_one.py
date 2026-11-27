@@ -124,17 +124,34 @@ def ncomp(shape, thr=128):
 
 
 def test_old_chain_steps():
-    print('2. два шага старой цепочки: за флагом, по умолчанию выключены')
+    print('2. шаги старой цепочки (решение Fable 27.11): main_object — за флагом, левый при равных; «хвосты у пола» — только счётчик «срезал бы»')
     pair = [(40, 60, 130, 200), (170, 70, 270, 200)]                   # два одинаковых по площади предмета рядом (пара стульев)
     photo, net = scene(pair)
     s0, _ = CO1.cut_shape(photo, net, role='стул')
     s1, i1 = CO1.cut_shape(photo, net, role='стул', steps=('main_object',))
     ok(ncomp(s0) == 2 and ncomp(s1) == 1 and i1.get('dual_object_trimmed') is True, f'пара стульев: без шага {ncomp(s0)} предмета, с шагом {ncomp(s1)} (dual_object_trimmed)')
+    # равные площади (12 600 и 13 000 px, 0,97 ≥ EQUAL_SHARE) → ЛЕВЫЙ, хотя правый на 3 % больше; в записи — «взят один из двух, левый»
+    left_px = int((np.asarray(s1)[..., 3][:, :150] > 40).sum())
+    right_px = int((np.asarray(s1)[..., 3][:, 150:] > 40).sum())
+    ok(left_px > 5000 and right_px == 0 and i1.get('picked') == 'left_of_two', f'равные пары → левый (слева {left_px} px, справа {right_px}), picked={i1.get("picked")}')
+    s1b, i1b = CO1.cut_shape(photo, net, role='стул', steps=('main_object',))
+    ok(np.array_equal(np.asarray(s1), np.asarray(s1b)) and i1['picked'] == i1b['picked'], 'два запуска подряд на одном входе — побайтно одна вырезка')
+    mph, mnet = Image.fromarray(np.asarray(photo)[:, ::-1].copy()), Image.fromarray(np.asarray(net)[:, ::-1].copy(), 'RGBA')       # зеркало: теперь БОЛЬШИЙ стул слева
+    sm, im = CO1.cut_shape(mph, mnet, role='стул', steps=('main_object',))
+    ok(int((np.asarray(sm)[..., 3][:, :150] > 40).sum()) > 5000 and int((np.asarray(sm)[..., 3][:, 150:] > 40).sum()) == 0 and im.get('picked') == 'left_of_two',
+       'зеркальная пара: опять левый (выбор не зависит от того, какой из двух чуть больше)')
+    uph, unet = scene([(40, 60, 130, 200), (170, 120, 240, 200)])          # второй заметно меньше (доля ≈ 0,44 < EQUAL_SHARE) → больший (передний), не «левый»
+    su, iu = CO1.cut_shape(uph, unet, role='стул', steps=('main_object',))
+    ok(iu.get('picked') == 'larger_of_two' and int((np.asarray(su)[..., 3][:, 150:] > 40).sum()) == 0, f'разные площади → больший (picked={iu.get("picked")}, второй/первый={iu.get("second_share")})')
     ok(i1.get('chain') == {'version': CO.CHAIN_VERSION, 'steps': ['main_object']}, 'у входа формы в отчёте: версия цепочки и набор шагов')
     s2, _ = CO1.cut_shape(photo, net, role='стол обеденный', steps=('main_object',))
     ok(ncomp(s2) == 2, 'у другой роли (стол) шаг «главный предмет» не режет — одобрено владельцем только для стульев')
-    s3, i3 = CO1.cut_shape(photo, net, role='стул', steps=('attached_prune',))
-    ok(ncomp(s3) == 2 and i3['chain']['steps'] == ['attached_prune'], 'шаги независимы: attached_prune пару стульев не трогает')
+    try:
+        CO1.cut_shape(photo, net, role='стул', steps=('attached_prune',))
+        ok(False, 'шага attached_prune в модуле нет — отказ')
+    except ValueError as e:
+        ok('attached_prune' in str(e), 'шага «хвосты у пола» в модуле нет (steps=(attached_prune,) → ValueError с причиной)')
+    ok(CO.STEPS_ALL == ('main_object',) and CO.CHAIN_VERSION == 'c2', 'допустим только шаг main_object; версия цепочки c2')
 
     sofa = [(90, 40, 230, 110)]                                        # тело дивана, под ним у пола — тонкая перемычка и обломок (тень/артефакт)
     photo, net = scene(sofa, bridge=(158, 110, 160, 132))
@@ -145,14 +162,21 @@ def test_old_chain_steps():
 
     def tail_px(sh):
         return int((np.asarray(sh)[132:142, 148:172, 3] > 128).sum())
-    a0, _ = CO1.cut_shape(photo, net, role='диван')
-    a1, ia = CO1.cut_shape(photo, net, role='диван', steps=('attached_prune',))
-    ok(tail_px(a0) > 100 and tail_px(a1) == 0 and ia['components'].get('attached_pruned') == 1, f'хвост у пола дивана: без шага {tail_px(a0)} px, с шагом {tail_px(a1)} px (attached_pruned=1)')
-    b1, _ = CO1.cut_shape(photo, net, role='стол', steps=('attached_prune',))
-    ok(tail_px(b1) > 100, 'у роли не из белого списка (стол) хвост не срезается — белый список ролей внутри prune_attached сохранён')
+    a0, ia = CO1.cut_shape(photo, net, role='диван')
+    w = ia.get('attached_prune_would') or {}
+    ok(tail_px(a0) > 100, f'хвост у пола дивана ОСТАЁТСЯ в маске (шаг убран): {tail_px(a0)} px')
+    ok(w.get('applied') is False and w.get('pieces') == 1 and w.get('would_cut_px', 0) > 100, f'счётчик «срезал бы» считает хвост, а не молчит нулём: {w}')
+    a0b, _ = CO1.cut_shape(photo, net, role='диван', steps=('main_object',))
+    ok(np.array_equal(np.asarray(a0), np.asarray(a0b)), 'диван: шаг main_object (роль не «стул») и счётчик маску не меняют')
+    b0, ib = CO1.cut_shape(photo, net, role='стол')
+    wb = ib.get('attached_prune_would') or {}
+    ok(tail_px(b0) > 100 and wb.get('would_cut_px') == 0 and wb.get('pieces') == 0, 'роль не из белого списка (стол): счётчик 0 — белый список внутри prune_attached сохранён, хвост остаётся')
+    c0, ic = CO1.cut_shape(*scene([(90, 40, 230, 110)]), role='диван')
+    wc = ic.get('attached_prune_would') or {}
+    ok(wc.get('would_cut_px') == 0 and wc.get('mask_px', 0) > 5000 and 'skip' in wc, f'диван без хвоста: счётчик 0, поле есть (молчаливого «нет поля» нет): {wc}')
+    ok(set(wc) >= {'applied', 'pieces', 'would_cut_px', 'blocked_px', 'skip', 'mask_px'}, 'счётчик «срезал бы»: все поля на месте')
     body0 = int((np.asarray(a0)[40:110, 90:230, 3] > 128).sum())
-    body1 = int((np.asarray(a1)[40:110, 90:230, 3] > 128).sum())
-    ok(abs(body0 - body1) <= 5, f'тело дивана шагом не задето ({body0} → {body1} px)')
+    ok(body0 > 8000, f'тело дивана цело ({body0} px)')
     try:
         CO1.cut_shape(photo, net, role='диван', steps=('teleport',))
         ok(False, 'неизвестный шаг отвергается')
@@ -170,7 +194,7 @@ def test_origin():
     print('3. метка происхождения')
     shape = tiny_shape()
     raw = b'photo-bytes'
-    o = CO.build(raw, ('attached_prune', 'main_object'), code='abc1234', shape=shape)
+    o = CO.build(raw, ('main_object',), code='abc1234', shape=shape, pick='left_of_two')
     ok(CO.check(o) == [] and o['chain_version'] == CO.CHAIN_VERSION and o['method'] == 'cutout_one', 'свежая запись актуальна')
     ok(set(o) == set(CO.FIELDS), f'поля записи = {CO.FIELDS}')
     ok(o['photo_sha256'] == __import__('hashlib').sha256(raw).hexdigest() and o['pixels_sha256'] == CO.pixels_sha256(shape), 'хеш фото — от исходных байтов, хеш вырезки — от пикселей')
@@ -220,6 +244,8 @@ def test_origin():
         open(os.path.join(td, 'e_5.rgba.png'), 'wb').write(data[:len(data) // 2])
         ok(CO.check_png(os.path.join(td, 'e_5.rgba.png'), entry) != [], 'обрезанный PNG — отказ (метка или sha не сходятся)')
         ok(CO.check_png(os.path.join(td, 'нет-такого.png'), entry) != [], 'файла нет вовсе — отказ')
+        ok(any('pick' in e for e in CO.check(dict(o, pick='right'))) and any('нет полей' in e for e in CO.check({k: v for k, v in o.items() if k != 'pick'})), 'метка: pick вне списка / без pick — отказ')
+        ok(any('версия цепочки' in e for e in CO.check(dict(o, chain_version='c1'))), 'метка прежней версии c1 — отказ (результат для пар изменился)')
         for bad_origin in ('строка', 5, [], {}, {'format': 1}, dict(o, code='unknown'), dict(o, created='вчера'), dict(o, steps=['сам-придумал'])):
             ok(CO.check(bad_origin) != [], f'check({str(bad_origin)[:40]}): негодная метка — отказ с причиной')
         ok(CO.inputs_errors(None, ['a:1'], td) != [] and CO.inputs_errors({'a:1': 'x'}, ['a:1']) != [], 'inputs.json пустой/кривой — отказ')
@@ -235,6 +261,7 @@ def test_make_input_uses_one_module():
     buf = io.BytesIO()
     photo.save(buf, 'PNG')
     shape, cut, info, origin = CO1.make_input(buf.getvalue(), 'комод', net=net)
+    ok(origin['pick'] == 'none', 'у комода шаг «главный предмет» не резал: pick=none')
     ok(CO.check(origin) == [] and origin['steps'] == sorted(CO.STEPS_ALL) and origin['pixels_sha256'] == CO.pixels_sha256(shape), 'запись актуальна, шаги — все, хеш вырезки = хеш shape')
     ok(info['chain']['version'] == CO.CHAIN_VERSION and cut.size[0] <= shape.size[0], 'отчёт несёт версию цепочки; обрезанная копия есть')
 

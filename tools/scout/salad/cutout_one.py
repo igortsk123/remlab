@@ -8,17 +8,19 @@
 ЧТО ЗДЕСЬ
   mask_cpu(img)                       — ЕДИНСТВЕННАЯ копия сырой маски на ЦП: полная BiRefNet, float32, ревизия закреплена (`cutout_origin.BIREFNET_REVISION`).
                                         (прежние копии: `cutout_sync.mask_local` и `trellis/make_inputs.cpu_cutout` — теперь вызывают её)
-  cut_shape(src, net, role, steps=()) — цепочка до обрезки: гибрид → связность → заливка дыр → (хвосты у пола) → щели → студийный белый фон → коллаж → кромка →
+  cut_shape(src, net, role, steps=()) — цепочка до обрезки: гибрид → связность → заливка дыр → (счётчик «срезал бы» хвосты у пола) → щели → студийный белый фон → коллаж → кромка →
                                         (главный предмет) → мягкий край. Возвращает (RGBA на полном холсте, info).
   chain_cut(src, net, role, steps=()) — то же + обрезанная копия, вердикт маски, `photo` (то, что раньше делал `cutout_sync.chain`): (shape, cut, info).
   crop_box(shape)                     — рамка обрезки (зеркало `PRE.trim_alpha`).
 
-ДВА ШАГА СТАРОЙ ЦЕПОЧКИ (решение директора 27.11) — не потеряны, а за флагом `steps`, по умолчанию ВЫКЛЮЧЕНЫ (ночная оценка байт-в-байт прежняя):
-  'attached_prune' — `components.prune_attached`: хвосты, прилипшие тонкой перемычкой у пола (внутри — белый список массивных ролей и нижняя зона);
-  'main_object'    — `preprocess._pick_main_object`: пара одинаковых предметов в кадре → оставить один (только роль «стул»; одобрено владельцем 30.08).
-Вход формы (`trellis/make_inputs.py`) включает оба: так он даёт то, что давала старая цепочка, и ничего не теряется молча. Замер rab-3 на 9 белофоновых товарах
-(`~/remlab-logs/t172-v/cut9/OTCHET.md`): оба шага на них не срабатывают (различий в зоне «низ» 0 px, второго предмета нет) — «снять по замеру» эти девять не доказывают;
-решение «оставить флагом» принято поэтому. Привязка к паспорту типа (`cutout.chain_flags`) — отдельным коммитом: файлы паспортов и `salad/` в одном коммите нельзя (тест (е)).
+ШАГИ СТАРОЙ ЦЕПОЧКИ (решение Fable 27.11 по замеру 9.3, `~/remlab-logs/fable-1126/reshenie-t175-93.md`):
+  'main_object' — за флагом `steps` (ночная оценка байт-в-байт прежняя; вход формы включает): пара ОДИНАКОВЫХ предметов в кадре → оставить один; только роль «стул»
+                  (`MAIN_OBJECT_ROLES`, флаг `main_object` в паспорте типа). Выбор предсказуемый: при равных площадях (меньший ≥ EQUAL_SHARE большего) — ЛЕВЫЙ по bbox.x
+                  (иначе один и тот же вход давал разные вырезки от запуска к запуску), иначе — больший (передний). Что взято — `info['picked']` и `origin['pick']`.
+  «хвосты у пола» (`components.prune_attached`) — из цепочки УБРАНЫ везде, и у входа формы: на трудных фото хвостов не нашёл ни одного, зато срезал настоящие ножки
+                  (кресло Alex — 5 % площади, ножка дивана — 188 px). Не терять наблюдение: `info['attached_prune_would']` — сколько шаг срезал бы, если бы работал (маску НЕ меняет);
+                  считает ночная оценка и вход формы — на 200 фото (9.6) и в ночи покажет настоящий хвост, если он есть. Вернуть шаг — только с условием «срез вне зоны ножек».
+Старый боевой генератор форм (`preprocess._cut_chain`) до шага 9.6 продолжает резать старой цепочкой — этим модулем не затронут.
 
 Версия цепочки — `cutout_origin.CHAIN_VERSION` (НЕ `preprocess.ASSESSOR_VERSION`: та — ключ кэша оценок пула).
 """
@@ -44,6 +46,7 @@ BIREFNET_REVISION = CO.BIREFNET_REVISION
 
 # Роли, у которых работает шаг «главный предмет» (одобрено владельцем 30.08 — только стулья). Читает тест паспортов: у типа с флагом `main_object` в `chain_flags` роль обязана быть здесь, и наоборот.
 MAIN_OBJECT_ROLES = ('стул',)
+EQUAL_SHARE = 0.95      # меньший компонент ≥ этой доли большего — «равные» (пара одинаковых): берётся левый, а не больший
 
 _LOCAL = None
 
@@ -69,6 +72,35 @@ def mask_cpu(img: Image.Image) -> Image.Image:
     out = src.convert('RGBA')
     out.putalpha(Image.fromarray((pred.numpy() * 255).astype(np.uint8)).resize(src.size))
     return out
+
+
+def pick_main_object(cut: Image.Image) -> tuple[Image.Image, dict]:
+    """Шаг «главный предмет»: пара одинаковых предметов (два крупных компонента, меньший ≥ 40 % большего, их bbox по X почти не пересекаются — как у старого
+    `preprocess._pick_main_object`) → оставить ОДИН. Отличие от старого: при РАВНЫХ площадях (меньший ≥ EQUAL_SHARE большего) берётся ЛЕВЫЙ по bbox.x — результат
+    не зависит от того, какой из двух стульев случайно на несколько пикселей больше; иначе — больший (передний), как раньше. Не пара → (cut, {})."""
+    from scipy import ndimage
+    a = np.asarray(cut)[..., 3] > 40
+    lab, n = ndimage.label(a)
+    if n < 2:
+        return cut, {}
+    sizes = ndimage.sum(a, lab, range(1, n + 1))
+    order = np.argsort(sizes)[::-1]
+    if sizes[order[1]] < 0.40 * sizes[order[0]]:
+        return cut, {}
+    boxes = ndimage.find_objects(lab)
+    i1, i2 = int(order[0]), int(order[1])
+    b1, b2 = boxes[i1], boxes[i2]
+    x1a, x1b, x2a, x2b = b1[1].start, b1[1].stop, b2[1].start, b2[1].stop
+    if max(0, min(x1b, x2b) - max(x1a, x2a)) / max(1, min(x1b - x1a, x2b - x2a)) > 0.25:
+        return cut, {}
+    share = float(sizes[i2] / sizes[i1])
+    if share >= EQUAL_SHARE:
+        keep, picked = (i1 if (x1a, x1b, i1) <= (x2a, x2b, i2) else i2) + 1, 'left_of_two'
+    else:
+        keep, picked = i1 + 1, 'larger_of_two'
+    arr = np.asarray(cut).copy()
+    arr[..., 3] = np.where(lab == keep, arr[..., 3], 0)
+    return Image.fromarray(arr, 'RGBA'), {'dual_object_trimmed': True, 'second_share': round(share, 2), 'picked': picked}
 
 
 def cut_shape(src: Image.Image, net: Image.Image, role: str | None = None, steps=()) -> tuple[Image.Image, dict]:
@@ -110,11 +142,14 @@ def cut_shape(src: Image.Image, net: Image.Image, role: str | None = None, steps
     # дыры внутри тела корпусной мебели (светлые фасады «как фон», T-20261119-104/3): замкнутые телом возвращаются; стул/стеллаж/стол не трогаются
     cleaned, bh = components.fill_body_holes(cleaned, np.asarray(refined)[..., :3], role=role)
     comp.update(bh)
-    # (шаг старой цепочки, только steps∋attached_prune) хвосты, прилипшие тонкой перемычкой (артефакт у пола → обломок-призрак в меше); внутри белый список
-    # массивных ролей и нижняя зона — люстры/тонкое не трогаются. До `close_edge_gaps`: иначе замыкание щелей успело бы склеить хвост с телом.
-    if 'attached_prune' in steps:
-        cleaned, att = components.prune_attached(cleaned, role=role)
-        comp.update(att)
+    # СЧЁТЧИК «срезал бы» (решение Fable 27.11): шаг «хвосты у пола» из цепочки убран (резал ножки), но наблюдение сохранено — считаем, сколько он срезал бы, МАСКУ НЕ МЕНЯЕМ
+    # (результат шага выбрасывается). `would_cut_px` — сколько срезал бы; `blocked_px` — нашёл куски, но их больше потолка шага (8 % маски) — не срезал бы; 0 у обоих — не нашёл.
+    wc, wi = components.prune_attached(cleaned, role=role)
+    fgpx = int((np.asarray(cleaned) > 0.5).sum())
+    sh = float(wi.get('attached_share', 0.0))
+    info['attached_prune_would'] = {'applied': False, 'pieces': int(wi.get('attached_pruned', 0)), 'would_cut_px': int(round(sh * fgpx)) if wi.get('attached_pruned') else 0,
+                                    'blocked_px': int(round(sh * fgpx)) if wi.get('attached_skip') == 'cut_share' else 0, 'skip': wi.get('attached_skip'), 'mask_px': fgpx}
+    del wc
     # щели 1–2 px у кромки (светлое на белом рвётся «пунктиром», T-20261119-104/2); внутренние дырки и пустоты от 3 px остаются.
     # С известным фоном — только пикселями «не фон» (T-104/5: белая крупа вокруг трубки торшера склеивалась в «бусины»).
     t0 = time.time()
@@ -148,9 +183,9 @@ def cut_shape(src: Image.Image, net: Image.Image, role: str | None = None, steps
     is_col, why, feats = collage.is_collage(np.asarray(src).astype(np.float32), cleaned)
     info['collage'] = {'verdict': bool(is_col), 'why': why, 'features': feats}
     shape = PRE.defringe(refined, info)
-    # (шаг старой цепочки, только steps∋main_object) пара одинаковых предметов в кадре → один; срез одобрен владельцем только для стульев (30.08)
+    # (шаг старой цепочки, только steps∋main_object) пара одинаковых предметов в кадре → один, при равных — левый; срез одобрен владельцем только для стульев (30.08)
     if 'main_object' in steps and ((role or '').split() or [''])[0] in MAIN_OBJECT_ROLES:
-        shape, dual = PRE._pick_main_object(shape)
+        shape, dual = pick_main_object(shape)
         info.update(dual)
     # мягкий край по известному белому фону (аналитика, T-104/5): α = min(α, α_цвет) в полосе кромки, цвет — F; F ≈ B → α сети не трогаем
     if act:
@@ -210,4 +245,4 @@ def make_input(raw: bytes, role: str | None, steps=CO.STEPS_ALL, net: Image.Imag
     if net is None:
         net = mask_cpu(src)
     shape, cut, info = chain_cut(src, net, role=role, steps=steps)
-    return shape, cut, info, CO.build(raw, steps, shape=shape)
+    return shape, cut, info, CO.build(raw, steps, shape=shape, pick=info.get('picked', 'none'))
