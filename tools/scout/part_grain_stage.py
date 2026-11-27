@@ -264,7 +264,7 @@ def fibre_axis(Q: np.ndarray, x: np.ndarray, y: np.ndarray, use: np.ndarray, Ns:
     return others[int(np.argmax(share))]
 
 
-def fibre_fill(Q: np.ndarray, Ns: np.ndarray, ing: np.ndarray, cover: np.ndarray, d_full: np.ndarray, v_ax: int, w_fibre: float, plane_w: float, min_pool: int, corner_max: float = 0.0, reflect: bool = False) -> np.ndarray:
+def fibre_fill(Q: np.ndarray, Ns: np.ndarray, ing: np.ndarray, cover: np.ndarray, d_full: np.ndarray, v_ax: int, w_fibre: float, plane_w: float, min_pool: int, corner_max: float = 0.0, reflect: float = 0.0, strip: float = 0.03) -> np.ndarray:
     """Не покрытым текселям тех же граней (ось нормали и знак те же, не горизонтальные плоскости) — деталь ближайшего покрытого тексела этой плоскости, где расстояние вдоль волокна (ось v_ax) стоит w_fibre от поперечного
     (рисунок продолжается вдоль волокна: вертикальные полосы, не пятна старого шума), а смещение вдоль нормали (другая глубина — другая панель) — plane_w. Меняет d_full на месте → маска заполненных текселей."""
     from scipy.spatial import cKDTree
@@ -285,15 +285,17 @@ def fibre_fill(Q: np.ndarray, Ns: np.ndarray, ing: np.ndarray, cover: np.ndarray
                 continue
             tree = cKDTree(Q[pool] * w)
             Qt_ = Q[todo].copy()
-            if reflect:
-                # тексели вне поперечного размаха видимой части грани (бок, которого фото не видело): берётся не крайний столбец (плоская полоса копий одного столбца),
-                # а рисунок видимой части, отражённый в её размах (треугольная волна) — настоящий рисунок, без шва у границы
-                h0_, h1_ = float(np.percentile(Q[pool, h_ax], 0.5)), float(np.percentile(Q[pool, h_ax], 99.5))
-                span_ = h1_ - h0_
-                if span_ > 1e-3:
-                    t_ = np.mod(Qt_[:, h_ax] - h0_, 2.0 * span_)
-                    out_ = (Qt_[:, h_ax] < h0_) | (Qt_[:, h_ax] > h1_)
-                    Qt_[out_, h_ax] = h0_ + np.where(t_ <= span_, t_, 2.0 * span_ - t_)[out_]
+            gap_ = np.zeros(int(todo.sum()), bool)
+            if reflect > 0:
+                # щель в видимой части грани (бок, которого фото не видело): копия ближайшего столбца даёт плоскую полосу (тёмный/светлый штрих шире рисунка) — шов с соседним рисунком.
+                # Тексели с разрывом до видимой части > reflect берут столбец видимой части со случайной (детерминированной) шириной полосок 1 см: рисунок того же характера, без плоской полосы
+                d1_, _n1 = tree.query(Qt_ * w, k=1)
+                gap_ = d1_ > float(reflect)
+                if gap_.any():
+                    h0_, h1_ = float(np.percentile(Q[pool, h_ax], 0.5)), float(np.percentile(Q[pool, h_ax], 99.5))
+                    cell_ = np.floor(Qt_[gap_, h_ax] / max(float(strip), 1e-3))
+                    rnd_ = np.mod(np.sin(cell_ * 12.9898 + 78.233 * (a + 1)) * 43758.5453, 1.0)
+                    Qt_[np.nonzero(gap_)[0], h_ax] = h0_ + rnd_ * (h1_ - h0_)
             _, nn = tree.query(Qt_ * w, k=1)
             d_full[todo] = d_full[np.nonzero(pool)[0][nn]]
             done |= todo
@@ -554,7 +556,7 @@ def photo_detail_step(tex_in, tone_tex, tx, g: dict, st: dict, Ld, valid, fgrp, 
     # грань, которую фото не видело (за плитой, у края, с обратной стороны за пределами зеркала), но той же детали: рисунок — с видимой части ЭТОЙ ЖЕ грани по оси волокна, не старый шум
     if pd.get('fibre_fill'):
         if v_ax is not None:
-            nf = fibre_fill(np.asarray(tx.Q, np.float64), Ns, ing_t, cover, d_full, v_ax, float(pd['fibre_weight']), float(pd['fibre_plane_w']), int(pd['fibre_min_pool']), float(pd.get('fibre_corner_max', 0.0)), bool(pd.get('fibre_reflect', False)))
+            nf = fibre_fill(np.asarray(tx.Q, np.float64), Ns, ing_t, cover, d_full, v_ax, float(pd['fibre_weight']), float(pd['fibre_plane_w']), int(pd['fibre_min_pool']), float(pd.get('fibre_corner_max', 0.0)), float(pd.get('fibre_gap', 0.0)), float(pd.get('fibre_strip', 0.03)))
             info['fibre_axis'] = int(v_ax)
             info['fibre_filled_texels'] = int(nf.sum())
             tag[nf & ~cover] = 5

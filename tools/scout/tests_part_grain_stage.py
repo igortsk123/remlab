@@ -189,9 +189,9 @@ def main():
     d_h0 = np.where(cov_h, stripes_, 0.0).astype(np.float32)
     d_h1 = d_h0.copy()
     ST.fibre_fill(Qs, Ns_, ing_, cov_h.copy(), d_h0, 2, 0.05, 20.0, 200)
-    ST.fibre_fill(Qs, Ns_, ing_, cov_h.copy(), d_h1, 2, 0.05, 20.0, 200, 0.0, True)
+    ST.fibre_fill(Qs, Ns_, ing_, cov_h.copy(), d_h1, 2, 0.05, 20.0, 200, 0.0, 0.02)
     far = ~cov_h & (Qs[:, 1] > 0.5)
-    check(float(np.std(d_h0[far])) < 0.05 and float(np.std(d_h1[far])) > 0.4, 'fibre_fill: без отражения — плоская полоса копий крайнего столбца (σ %.2f), с отражением — рисунок видимой части (σ %.2f)' % (float(np.std(d_h0[far])), float(np.std(d_h1[far]))))
+    check(float(np.std(d_h0[far])) < 0.05 and float(np.std(d_h1[far])) > 0.4, 'fibre_fill: без fibre_gap — плоская полоса копий крайнего столбца (σ %.2f), с ним — рисунок видимой части (σ %.2f)' % (float(np.std(d_h0[far])), float(np.std(d_h1[far]))))
     d0_ = np.zeros(len(Qs), np.float32)
     check(int(ST.fibre_fill(Qs, Ns_, ing_, np.zeros(len(Qs), bool), d0_, 2, 0.05, 20.0, 200).sum()) == 0, 'fibre_fill: нет покрытых текселей — ничего не придумывает')
     top_n = np.tile(np.array([0.0, 0.0, 1.0]), (len(Qs), 1))                 # горизонтальная плоскость (нормаль по оси волокна) не заполняется
