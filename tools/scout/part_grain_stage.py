@@ -371,10 +371,11 @@ def sel_margin(ingrp: np.ndarray, er0: int, er: int) -> np.ndarray:
     sel0 = cv2.erode(m, np.ones((2 * er0 + 1, 2 * er0 + 1), np.uint8)).astype(bool) if er0 > 0 else ingrp.astype(bool)
     if er <= er0:
         return sel0
-    k = np.ones((2 * er + 1, 2 * er + 1), np.uint8)
-    core = cv2.erode(m, k).astype(bool)
-    near_core = cv2.dilate(core.astype(np.uint8), k).astype(bool)
-    return core | (sel0 & ~near_core)
+    dt = cv2.distanceTransform(m, cv2.DIST_L2, 5)                              # расстояние до края грани; толщина детали вокруг пикселя ≈ 2·max(dt) по окрестности
+    kk = np.ones((4 * er + 1, 4 * er + 1), np.uint8)
+    thick = cv2.dilate(dt, kk)
+    thin = thick < 1.5 * er                                                     # узкая деталь: полутолщина < 1.5·er (кромка плиты 2–3 см при er≈1,3 см)
+    return np.where(thin, sel0, dt > er)
 
 
 def photo_detail_step(tex_in, tone_tex, tx, g: dict, st: dict, Ld, valid, fgrp, names: list, ppc: float, rules: dict, rep: dict, face_n=None, ab_frame=None):
