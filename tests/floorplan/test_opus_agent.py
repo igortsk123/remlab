@@ -36,7 +36,7 @@ print(json.dumps({'type': 'system', 'subtype': 'init', 'apiKeySource': os.enviro
 st = 'allowed' if mode != 'limit-event' else 'rejected'
 print(json.dumps({'type': 'rate_limit_event', 'rate_limit_info': {'status': st, 'resetsAt': 1796295600, 'rateLimitType': 'five_hour'}}))
 res = {'type': 'result', 'subtype': 'success', 'is_error': False, 'result': '```json\\n{"version": 1}\\n```', 'stop_reason': 'end_turn', 'total_cost_usd': 0.17,
-       'usage': {'input_tokens': 2, 'cache_creation_input_tokens': (over if not img else 5201), 'cache_read_input_tokens': 0, 'output_tokens': 123}}
+       'usage': {'input_tokens': 2, 'cache_creation_input_tokens': (over if not img else 5201), 'cache_read_input_tokens': 0, 'output_tokens': 123, 'output_tokens_details': {'thinking_tokens': 2100}}}
 if mode == 'empty':
     res['result'] = '  '
 if mode == 'refusal':
@@ -283,3 +283,88 @@ def test_parse_stream_ignores_garbage():
     p = AG.parse_stream('мусор\n{"type":"result","result":"x"}\n[1]\n')
     assert p['result']['result'] == 'x' and p['init'] is None
     assert AG.parse_stream('')['result'] is None
+
+
+# ---- правка 27.11 (после 15:50): усилие параметром, ключи запуска, счёт исходов, подписи labels5 при агенте, входные картинки b и d ----
+def test_launch_keys_rule_build_cmd():
+    """ПРАВИЛО (директор/Fable 27.11): без этих ключей каждый claude -p поднимает Telegram-плагин и выбивает канал владельца. Убрали любой — красный."""
+    cmd = AG.build_cmd('claude')
+    assert cmd[cmd.index('--setting-sources') + 1] == ''
+    assert '--strict-mcp-config' in cmd
+    assert cmd[cmd.index('--tools') + 1] == ''
+    assert '--bare' not in cmd and '--no-session-persistence' in cmd
+
+
+def test_telegram_state_dir_and_keys_not_in_launch_env(env):
+    env.mp.setenv('TELEGRAM_STATE_DIR', '/x')
+    env.mp.setenv('ANTHROPIC_API_KEY', 'k')
+    assert AG.one('kazan-1__b', 'opus', PROMPT, IMG)
+    seen = env.seen()['env']
+    assert 'TELEGRAM_STATE_DIR' not in seen and 'ANTHROPIC_API_KEY' not in seen
+    _, removed = AG.clean_env({'TELEGRAM_STATE_DIR': '/x', 'PATH': '/bin'})
+    assert removed == ['TELEGRAM_STATE_DIR']
+
+
+def test_effort_default_param_and_journal(env):
+    assert AG.EFFORT == 'medium'
+    AG.set_effort('high')
+    try:
+        assert AG.one('kazan-1__b', 'opus', PROMPT, IMG)
+        a = env.seen()['argv']
+        assert a[a.index('--effort') + 1] == 'high'
+        r = env.rows()[0]
+        assert r['effort'] == 'high' and r['thinking_tokens'] == 2100
+    finally:
+        AG.set_effort('medium')
+
+
+def test_effort_invalid_says_so():
+    with pytest.raises(AG.AgentStop, match='не из'):
+        AG.set_effort('turbo')
+    assert AG.EFFORT == 'medium'
+
+
+def test_effort_line_numbers_not_just_name():
+    rows = [{'ok': True, 'thinking_tokens': 2000}, {'ok': True, 'thinking_tokens': 2200}, {'ok': False, 'thinking_tokens': 9999}, {'ok': True}]
+    s = AG.effort_line(rows)
+    assert s == 'усилие medium; рассуждений на лист: агент 2100 (по 2 листам) / платный 5800'
+    assert 'нет данных' in AG.effort_line([])
+
+
+def test_count_outcomes_verified_needs_laid():
+    """kazan-14793283 run2: «проверено» при «не легло» — в верные НЕ идёт."""
+    def row(v, st):
+        return {'opus': v, 'overlay': {'overlay_status': st} if st else {}}
+    rows = [row('проверено', 'легло'), row('проверено', 'не легло'), row('проверено', 'частично'), row('проверено', None),
+            row('звонок: П4', 'легло'), row('отказ: пустой ответ', None), row('сбой разбора: x', None)]
+    c = AG.count_outcomes(rows)
+    assert c['верно (проверено И легло)'] == 1
+    assert c['проверено, но не легло/частично/не проверено'] == 3
+    assert c['звонок'] == 1 and c['отказ/прочее'] == 2 and c['всего'] == 7
+    assert 'верно (проверено И легло) 1' in AG.outcomes_line(rows)
+
+
+def test_labels5_budget_cap_three_and_refusal():
+    assert AG.labels5_budget(None, 33.0) == 3.0                    # по умолчанию $3
+    assert AG.labels5_budget(1.5, 33.0) == 1.5
+    assert AG.labels5_budget(3.0, 2.0) == 2.0                      # не больше остатка общего потолка
+    with pytest.raises(AG.AgentStop, match='больше допустимых'):
+        AG.labels5_budget(3.5, 33.0)                               # сверх 3 — отказ с причиной
+
+
+def test_labels5_stops_over_cap_with_reason():
+    assert AG.labels5_may_call(0.0, 3.0) is None
+    assert AG.labels5_may_call(2.92, 3.0) is None                  # 2,92 + 0,07 ≤ 3
+    assert AG.labels5_may_call(2.94, 3.0) is not None              # 2,94 + 0,07 > 3 — стоп
+    assert 'потолок шага $3.00' in AG.labels5_may_call(2.95, 3.0)
+    assert 'потолок шага' in AG.labels5_may_call(3.5, 3.0)
+
+
+def test_save_input_jpegs_both_names_same_bytes(tmp_path):
+    from PIL import Image                                          # нет PIL — тест падает громко, не пропускается
+    im = Image.new('RGB', (40, 30), (200, 100, 50))
+    paths = AG.save_input_jpegs(im, str(tmp_path), 'kazan-11904669')
+    assert [os.path.basename(p) for p in paths] == ['kazan-11904669__b.jpg', 'kazan-11904669__d.jpg']
+    assert open(paths[0], 'rb').read() == open(paths[1], 'rb').read()
+    with pytest.raises(AG.AgentStop, match='ни одной'):
+        AG.save_input_jpegs(im, str(tmp_path), 'x', variants=())

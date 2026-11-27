@@ -24,7 +24,11 @@ import threading
 import time
 
 MODEL = 'claude-opus-5-5'
-EFFORT = 'low'                                       # одно значение на всю пачку; платный вызов шёл без рассуждений — ближайшее к нему
+EFFORTS = ('low', 'medium', 'high', 'xhigh', 'max')  # допустимые значения `claude --effort` (2.1.332)
+EFFORT = 'medium'                                    # одно значение на всю пачку (директор 27.11 14:31: замер 3 листа — рассуждений ×0,81 от платного, high ×1,27); меняется set_effort / --agent-effort
+PAID_THINK = 5800                                    # рассуждений на лист у платного Opus (замер директора 26–27.11) — для строки шапки
+LABELS5_CAP_MAX = 3.0                                # потолок шага подписей labels5 при агенте, $ (задание 27.11)
+LABELS5_WORST = 0.07                                 # худший замеренный вызов labels5 ($0,054) с запасом
 SYSTEM = 'You are a helpful assistant.'              # нейтральный системный запрос (ваш пустой запрос программа не принимает как «нет»)
 TIMEOUT = 600
 MAX_OUT = '32000'                                    # как у платного пути (R.MAX_TOK = 32000 в run_sb100)
@@ -32,7 +36,7 @@ OVERHEAD_MAX = 1000                                  # накладные вхо
 FIVE_PAUSE = 70                                      # % пятичасового окна: с этого — пауза до сброса
 WEEK_STOP = 60                                       # % недели: с этого — стоп пачки
 MAX_FAILS = 3                                        # отказов вызова подряд — стоп пачки
-KEY_RX = re.compile(r'(API_?KEY|TOKEN|SECRET|GATEWAY|ANTHROPIC|OPENAI|VERCEL|GEMINI|GOOGLE_API|CREDENTIAL|PASSWORD)', re.I)
+KEY_RX = re.compile(r'(API_?KEY|TOKEN|SECRET|GATEWAY|ANTHROPIC|OPENAI|VERCEL|GEMINI|GOOGLE_API|CREDENTIAL|PASSWORD|TELEGRAM)', re.I)   # TELEGRAM_STATE_DIR: без неё claude -p не поднимает Telegram-плагин и не выбивает канал владельца (27.11)
 LIMIT_RX = re.compile(r'(usage limit|rate limit|limit reached|limit will reset|quota|overloaded_limit|5-hour limit|weekly limit)', re.I)
 NO_ADDENDUM = 'нет добавки из объявления (dlya_llm)'
 
@@ -184,6 +188,7 @@ def preflight(out_dir, effort=None):
     info = {'вход': 'подписка', 'apiKeySource': src, 'версия': ver, 'путь': claude, 'модель': MODEL, 'усилие': effort or EFFORT, 'системный запрос': SYSTEM,
             'накладные входные токены': over, 'убраны из окружения': removed, 'пустая папка': CWD, 'лимит п5/сброс5/п7/сброс7': list(nums),
             'ключи': build_cmd('claude', effort)[1:]}
+    info['усилие'] = effort or EFFORT
     STATE.update(version=ver, removed=removed, preflight=info)
     os.makedirs(out_dir, exist_ok=True)
     with open(out_dir + '/agent-preflight.json', 'w', encoding='utf-8') as f:
@@ -249,7 +254,7 @@ def one(cid, key, prompt, img):
             u = res.get('usage') or {}
             rec.update(sec=round(time.time() - t0, 1), finish=res.get('stop_reason'), usd_list=round(res.get('total_cost_usd') or 0.0, 5),
                        tokens_in=(u.get('input_tokens') or 0) + (u.get('cache_creation_input_tokens') or 0) + (u.get('cache_read_input_tokens') or 0),
-                       tokens_out=u.get('output_tokens'), usage=u, attempts=attempt)
+                       tokens_out=u.get('output_tokens'), thinking_tokens=(u.get('output_tokens_details') or {}).get('thinking_tokens'), usage=u, attempts=attempt)
             raw = res.get('result') or ''
             rec['chars'] = len(raw)
             if not raw.strip():
@@ -282,6 +287,74 @@ def one(cid, key, prompt, img):
 
 def spent_total():
     return 0.0
+
+
+def set_effort(effort):
+    """Усилие рассуждения на всю пачку; не из списка `claude --effort` — AgentStop с причиной (а не молчаливое «low»)."""
+    global EFFORT
+    if effort not in EFFORTS:
+        raise AgentStop('усилие %r не из %s' % (effort, ', '.join(EFFORTS)))
+    EFFORT = effort
+    return EFFORT
+
+
+def effort_line(rows):
+    """Строка шапки таблицы: усилие и расхождение числом — рассуждений на лист у агента (среднее по прогону) против платного PAID_THINK. rows — строки calls.jsonl."""
+    th = [r['thinking_tokens'] for r in rows if r.get('ok') and isinstance(r.get('thinking_tokens'), (int, float))]
+    mean = ('%d (по %d листам)' % (round(sum(th) / len(th)), len(th))) if th else 'нет данных (ни одного успешного вызова)'
+    return 'усилие %s; рассуждений на лист: агент %s / платный %d' % (EFFORT, mean, PAID_THINK)
+
+
+def count_outcomes(rows):
+    """Три исхода шага Б. «Без правки и верно» = сторож сказал «проверено» И наложение «легло» (иначе «проверено» при «не легло» завышало бы долю).
+    rows — строки таблицы run_sb100: {'opus': вердикт, 'overlay': {'overlay_status': …}}."""
+    c = {'всего': 0, 'верно (проверено И легло)': 0, 'проверено, но не легло/частично/не проверено': 0, 'звонок': 0, 'отказ/прочее': 0}
+    for r in rows:
+        c['всего'] += 1
+        v = r.get('opus') or ''
+        st = (r.get('overlay') or {}).get('overlay_status')
+        if v.startswith('проверено'):
+            c['верно (проверено И легло)' if st == 'легло' else 'проверено, но не легло/частично/не проверено'] += 1
+        elif v.startswith('звонок'):
+            c['звонок'] += 1
+        else:
+            c['отказ/прочее'] += 1
+    return c
+
+
+def outcomes_line(rows):
+    c = count_outcomes(rows)
+    return 'исходы: ' + ' · '.join('%s %d' % (k, v) for k, v in c.items())
+
+
+def labels5_budget(arg_cap, total_cap, spent_models=0.0):
+    """Потолок шага подписей labels5 при агенте: не больше LABELS5_CAP_MAX ($3) и не больше остатка общего потолка; больше — отказ с причиной."""
+    if arg_cap is None:
+        arg_cap = LABELS5_CAP_MAX
+    if arg_cap > LABELS5_CAP_MAX + 1e-9:
+        raise AgentStop('--labels5-cap %.2f больше допустимых $%.2f при агенте — отказ' % (arg_cap, LABELS5_CAP_MAX))
+    return min(arg_cap, total_cap - spent_models)
+
+
+def labels5_may_call(spent, budget):
+    """Можно ли ещё звать labels5: потрачено + худший вызов ≤ потолка; иначе — причина остановки (строка), можно — None."""
+    if spent + LABELS5_WORST > budget:
+        return 'подписи: потолок шага $%.2f (потрачено $%.3f)' % (budget, spent)
+    return None
+
+
+def save_input_jpegs(im, a_dir, sid, variants=('b', 'd')):
+    """Входной JPEG листа под обоими именами (<лист>__b.jpg и __d.jpg: тот же файл; q92): замороженный сторож читает __d.jpg, хотя GPT при агенте не зовём.
+    im — PIL-картинка (уже без прозрачности). Возвращает список записанных путей; нет ни одного — AgentStop."""
+    os.makedirs(a_dir + '/input', exist_ok=True)
+    out = []
+    for v in variants:
+        p = '%s/input/%s__%s.jpg' % (a_dir, sid, v)
+        im.convert('RGB').save(p, 'JPEG', quality=92)
+        out.append(p)
+    if not out:
+        raise AgentStop('ни одной входной картинки листа %s не сохранено' % sid)
+    return out
 
 
 def attach(R, out_dir):
