@@ -261,6 +261,8 @@ def photo_detail_step(tex_in, tone_tex, tx, g: dict, st: dict, Ld, valid, fgrp, 
     info = {'applied': False, 'groups': pd['groups'], 'ppc_frame': round(float(ppc), 2)}
     rep['photo_detail'] = info
     gi = [i for i, n in enumerate(names) if n in pd['groups']]
+    if 'внутренность' in pd['groups']:                                         # Ш4а метит корпус/тумбу («Cabinet Frame/Door/Shelf») как внутренность (метка len(names)) — тон ей берётся из соседей, рисунка нет: рисунок с фото кладём и сюда
+        gi.append(len(names))
     if not gi:
         info['reason'] = 'нет групп %s среди %s' % (pd['groups'], names)
         return tex_in, None
@@ -311,6 +313,10 @@ def photo_detail_step(tex_in, tone_tex, tx, g: dict, st: dict, Ld, valid, fgrp, 
     flat_new = tex_in.reshape(-1, 3).copy()
     base = tone_tex.reshape(-1, 3)[ti[use]]
     lab = TC.rgb2lab(base.astype(np.float64))
+    if pd.get('flat_base'):                                                    # основа — ровный тон группы (медиана видимых в лоб текселей), не шум/«шерсть» прежней текстуры: рисунок — только деталь фото
+        med = np.median(lab, axis=0)
+        info['flat_base_lab'] = [round(float(v), 1) for v in med]
+        lab = np.tile(med, (len(lab), 1))
     lab[:, 0] = np.clip(lab[:, 0] + d_t, 0.0, 100.0)
     import tex_fill as TF
     rgb = TF.lab2rgb(lab)

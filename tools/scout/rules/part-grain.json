@@ -7,6 +7,7 @@
   "photo_detail": {
     "enabled": false,
     "groups": ["ножки"],
+    "flat_base": false,
     "blur_cm": 4.5,
     "split_cm": 1.0,
     "fine_cm": 0.35,
