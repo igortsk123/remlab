@@ -364,6 +364,19 @@ def seam_stats(ti: np.ndarray, T: int, island: np.ndarray, tag: np.ndarray, d: n
     return {'boundary': round(max(bs), 3), 'interior': round(max(is_), 3), 'ratio': round(max(ratios), 2), 'pairs_boundary': nb}
 
 
+def sel_margin(ingrp: np.ndarray, er0: int, er: int) -> np.ndarray:
+    """Маска надёжных пикселей грани: у широкой грани (тумба) отступ er от края (полутень у свеса плиты и тени шире маски 05 → тёмная рваная бахрома); узкая деталь (кромка плиты 2–3 см, уже 2·er) отступом не съедается — у неё малый отступ er0."""
+    import cv2
+    m = ingrp.astype(np.uint8)
+    sel0 = cv2.erode(m, np.ones((2 * er0 + 1, 2 * er0 + 1), np.uint8)).astype(bool) if er0 > 0 else ingrp.astype(bool)
+    if er <= er0:
+        return sel0
+    k = np.ones((2 * er + 1, 2 * er + 1), np.uint8)
+    core = cv2.erode(m, k).astype(bool)
+    near_core = cv2.dilate(core.astype(np.uint8), k).astype(bool)
+    return core | (sel0 & ~near_core)
+
+
 def photo_detail_step(tex_in, tone_tex, tx, g: dict, st: dict, Ld, valid, fgrp, names: list, ppc: float, rules: dict, rep: dict, face_n=None, ab_frame=None):
     """T-99/12 шаг 5: рисунок С ФОТО на лице группы (тумба Хостера): слой деталей фото без теней (этап 05) поверх тона Ш4а — только грани в лоб, свет/тени шире blur_cm вычтены.
     Текселю группы, видимому с камеры в лоб и надёжному, — тон Ш4а (tone_tex, до зерна) + деталь фото (L, усилено gain_*); остальным текселям группы остаётся зерно образца. → (текстура, маска «деталь с фото»)."""
@@ -391,7 +404,7 @@ def photo_detail_step(tex_in, tone_tex, tx, g: dict, st: dict, Ld, valid, fgrp, 
         return tex_in, None
     er = max(int(pd['edge_px']), int(round(float(pd.get('edge_cm', 0.0)) * ppc)))                # край видимой грани отступаем на edge_cm: у свеса плиты полутень шире тени 05 — высокочастотный слой там даёт тёмную рваную бахрому по краю (виден на задней стенке под плитой)
     info['edge_px_used'] = er
-    sel = cv2.erode(ingrp.astype(np.uint8), np.ones((2 * er + 1, 2 * er + 1), np.uint8)).astype(bool) if er > 0 else ingrp
+    sel = sel_margin(ingrp, int(pd['edge_px']), er)
     coarse, fine = detail_bands(Ld, sel, ppc, pd)
     D = np.clip(float(pd['gain_coarse']) * coarse + float(pd['gain_fine']) * fine, -float(pd['clip_L']), float(pd['clip_L']))
     T = tx.T
