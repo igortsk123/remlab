@@ -17,8 +17,8 @@ import { readFileSync, existsSync, readdirSync } from "node:fs";
 import { resolve, join } from "node:path";
 import { runChecks, THRESHOLD_KEYS } from "./memory-audit.mjs";
 import {
-  ownEditedPaths, onlyOwn, porcelainPath, isOwn, ownRulesEdits, parseStrazh, strazhVerdict,
-  runStrazh, strazhAnswer, defaultStrazhCmd, dropForeignProblems, DEFAULT_BLOCK_FIELDS,
+  readOwnEdits, mayHoldRules, onlyOwn, porcelainPath, isOwn, ownRulesEdits, parseStrazh, strazhVerdict,
+  runStrazh, strazhAnswer, strazhNotFound, STRAZH_REL, defaultStrazhCmd, dropForeignProblems, DEFAULT_BLOCK_FIELDS,
 } from "./stop-gate-own.mjs";
 
 const args = process.argv.slice(2);
@@ -28,8 +28,9 @@ const blockMode = args.includes("--block");
 //                 незакоммиченная правка в общей копии и чужие находки аудита сессию не блокируют; стенограммы нет → не блокируем;
 //   --strazh      у директора (REMLAB_ROLE=директор) и только если он правил файлы правил и они не закоммичены: запускает страж
 //                 (tools/ops/rules_guard.py --check или --strazh-cmd "<команда>") и блокирует при «просрочено»/«вне реестра» > 0
-//                 (--strazh-fields «просрочено,вне реестра,без разбора,на удаление» — чем блокировать). Стража нет в дереве — молчим;
-//                 страж есть, но упал/пустой вывод/нет счётчиков — блок «страж не ответил: код N» (молчать нельзя — так проверка тихо отваливается).
+//                 (--strazh-fields «просрочено,вне реестра,без разбора,на удаление» — чем блокировать). Стража нет в дереве — блок «страж не найден: путь»;
+//                 страж упал/пустой вывод/нет счётчиков — блок «страж не ответил: код N»; страж сказал «реестр не читается» — блок с причиной
+//                 (молчать нельзя — так проверка тихо отваливается).
 const ownMode = args.includes("--own-edits");
 const strazhMode = args.includes("--strazh");
 const argVal = (flag) => {
@@ -89,28 +90,56 @@ try {
   process.exit(0);
 }
 // Свои правки сессии (из стенограммы) — только если включён один из флагов T-175/5.
-const own = ownMode || strazhMode ? ownEditedPaths(hookInput.transcript_path, root) : null;
+const transcriptRead = ownMode || strazhMode ? readOwnEdits(hookInput.transcript_path, root) : null;
+const own = transcriptRead ? transcriptRead.own : null;
 const dirtyPaths = dirtyAll.map(porcelainPath);
+
+// Стенограмма не прочиталась (длинная/битая/нет) — «свои правки» неизвестны; это НЕ «правок нет» (27.11: у директора 1,29 ГБ → гейт и страж молчали).
+// Директору — блок, если есть что проверять (незакоммиченные файлы правил при --strazh; чужие/свои несохранённые при --own-edits); остальным — предупреждение в stderr.
+if (transcriptRead && !own) {
+  const rulesDirty = dirtyPaths.filter(mayHoldRules);
+  const need = (strazhMode && rulesDirty.length > 0) || (ownMode && changed.length > 0);
+  if (blockMode && process.env.REMLAB_ROLE === "директор" && need) {
+    console.log(
+      JSON.stringify({
+        decision: "block",
+        reason:
+          `Гейт: стенограмма не читается: ${transcriptRead.why}. Что правила именно эта сессия, не определить, а в дереве есть несохранённое ` +
+          `(${(strazhMode && rulesDirty.length ? rulesDirty : changed.map(porcelainPath)).slice(0, 3).join(", ")}) — проверка «своих правок» и стража молчать не может: ` +
+          `почини чтение (tools/stop-gate-own.mjs, readOwnEdits) или закоммить/верни эти файлы, затем завершай.`,
+      })
+    );
+    process.exit(0);
+  }
+  console.error(`session-reminder: стенограмма не читается: ${transcriptRead.why} — гейт «только свои правки» и строка стража в этом ответе не работают`);
+} else if (transcriptRead?.skipped) {
+  console.error(`session-reminder: в стенограмме пропущено слишком длинных строк: ${transcriptRead.skipped} (свои правки в них не учтены)`);
+}
 
 // Строка стража — только у директора и только по его правкам файлов правил, ещё не закоммиченных (чужие сессии и рабочие не трогаем).
 if (strazhMode && process.env.REMLAB_ROLE === "директор" && blockMode) {
   const myRules = ownRulesEdits(own).filter((p) => dirtyPaths.some((d) => d === p || (d.endsWith("/") && p.startsWith(d))));
   if (myRules.length) {
     const cmd = strazhCmdArg ? strazhCmdArg.split(/\s+/).filter(Boolean) : defaultStrazhCmd(root);
-    const answer = cmd ? strazhAnswer(runStrazh(cmd, root)) : null; // cmd нет — страж не влит, молчим; команда есть, а ответа нет — НЕ молчим
-    const line = answer?.line ?? null;
-    if (answer && !answer.ok) {
+    // нет файла стража (команды по умолчанию) — НЕ молчим: «страж не найден: путь» (Fable 27 (в)); есть команда, а ответа нет — «не ответил»; реестр не читается — свой блок
+    const answer = cmd ? strazhAnswer(runStrazh(cmd, root)) : strazhNotFound(join(root, STRAZH_REL));
+    const line = answer.line ?? null;
+    if (!answer.ok) {
+      const tail =
+        answer.kind === "registry"
+          ? `починить tools/scout/rules/rule-registry.json (валидный JSON с rules и groups; git diff покажет, что сломалось) и завершать — пока реестр не читается, сроки и выключатели не проверены.`
+          : answer.kind === "switches"
+            ? `починить настройки/порог сторожа выключателей (tools/scout/rules/switch-settings.json, switch-guard-threshold.json; python3 tools/ops/rule_switch_guard.py покажет, чего нет) и завершать — пока он не работает, «вне реестра» не измерено.`
+            :`а проверить их нечем — почини страж (python3 tools/ops/rules_guard.py --check) и завершай; молча пропускать нельзя.`;
       console.log(
         JSON.stringify({
           decision: "block",
-          reason:
-            `Гейт стража правил: ${answer.silent}. Ты правил файлы правил (${myRules.slice(0, 3).join(", ")}${myRules.length > 3 ? ", …" : ""}), ` +
-            `а проверить их нечем — почини страж (python3 tools/ops/rules_guard.py --check) и завершай; молча пропускать нельзя.`,
+          reason: `Гейт стража правил: ${answer.silent}. Ты правил файлы правил (${myRules.slice(0, 3).join(", ")}${myRules.length > 3 ? ", …" : ""}), ` + tail,
         })
       );
       process.exit(0);
     }
-    const verdict = strazhVerdict(answer?.parsed ?? null, strazhFields.length ? strazhFields : DEFAULT_BLOCK_FIELDS);
+    const verdict = strazhVerdict(answer.parsed, strazhFields.length ? strazhFields : DEFAULT_BLOCK_FIELDS);
     if (verdict.block) {
       console.log(
         JSON.stringify({
