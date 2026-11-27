@@ -1,20 +1,21 @@
 {
   "_about": "T-20261127-175/10: правила проверки входа перед кругом покраски — ПЯТЬ вещей (tools/scout/circle_origin.py; зовёт paint_run_all.py run). Формат записи происхождения ФОРМЫ определяет T-175/9 (шаг 2, рабочий 2: способ и версия цепочки вырезки, источник маски и версия весов, версия кода, хеш фото, дата) — ВРЕМЕННО здесь предположение; когда рабочий 2 опишет формат в OTCHET-9.md, подгоняем ЭТОТ файл (пути записи, имена полей, синонимы, генератор/ступень), код не меняется.",
   "form": {
-    "record_paths": ["{stem}.origin.json", "{dir}/origin.json", "{dir}/inputs.json#origin"],
+    "record_paths": ["{stem}.origin.json", "{dir}/origin.json", "{dir}/inputs.json#{sku_colon}.origin", "{dir}/inputs.json#{sku}.origin", "{dir}/inputs.json#origin"],
+    "meta_paths": ["{stem}.form.json", "{dir}/form.json"],
     "_record_paths_why": "где искать запись происхождения готовой формы: рядом с файлом формы (<форма>.origin.json), в её папке (origin.json) либо ключ origin в inputs.json (`путь#ключ`). Первая найденная и непустая побеждает.",
     "fields": {
       "chain_version": ["chain_version", "cutout.chain_version", "cutout_chain_version"],
       "cutout_method": ["cutout_method", "cutout.method", "method"],
       "mask_source": ["mask_source", "mask.source", "mask_src"],
-      "weights_version": ["weights_version", "mask.weights_version", "weights"],
-      "code_version": ["code_version", "code.version", "code_sha", "git_sha"],
+      "weights_version": ["weights_version", "mask.revision", "mask.weights_version", "weights"],
+      "code_version": ["code_version", "code", "code.version", "code_sha", "git_sha"],
       "photo_sha256": ["photo_sha256", "photo.sha256", "photo_hash"],
       "date": ["date", "created", "created_utc"],
       "generator": ["generator", "form.generator", "form_generator"],
       "form_stage": ["stage", "form.stage", "form_stage", "ladder_stage"]
     },
-    "required": ["chain_version", "mask_source", "code_version", "photo_sha256", "date"],
+    "required": ["chain_version", "mask_source", "weights_version", "code_version", "photo_sha256", "date"],
     "_required_why": "пять полей Fable 29 § 3: способ/версия цепочки, источник маски, версия кода, хеш фото, дата. Нет любого — отказ (пункт 1). Генератор и ступень — пункт 2.",
     "allowed_generators": ["trellis"],
     "denied_generators": ["hunyuan"],
@@ -39,7 +40,7 @@
   },
   "current": {
     "chain_version": null,
-    "from": "tools/scout/salad/cutout_chain.py:CHAIN_VERSION",
+    "from": "tools/scout/salad/cutout_origin.py:CHAIN_VERSION",
     "_why": "актуальная версия цепочки вырезки: константа в едином модуле (T-175/9 шаг 1; НЕ ASSESSOR_VERSION — она ключ кэша оценки). Пока модуля нет — null/нет файла → сверить нечем → готовая форма отказывается (честный отказ, а не «не знаю → пропустить»). Явное значение сюда — только как временная мера по решению директора."
   },
   "profile_files": ["tools/scout/rules/rule-registry.json", "tools/scout/rules/mesh-type-passports.json"],

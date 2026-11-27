@@ -47,7 +47,7 @@ RULES = CO.load_rules()
 R = copy.deepcopy(RULES)
 R['current'] = {'chain_version': 'c2', 'from': None}
 REC = {'sid': 'k1', 'name': 'Комод Тест', 'role': 'комод', 'params': {'width': 90}}
-GOOD = {'chain_version': 'c2', 'cutout_method': 'chain_shape', 'mask_source': 'birefnet-full@w1', 'code_version': 'abc1234', 'photo_sha256': 'f' * 64, 'date': '2026-11-27',
+GOOD = {'chain_version': 'c2', 'cutout_method': 'chain_shape', 'mask_source': 'birefnet-full@w1', 'weights_version': 'rev-e2bf8e', 'code_version': 'abc1234', 'photo_sha256': 'f' * 64, 'date': '2026-11-27',
         'generator': 'TRELLIS.2 out30-v3', 'stage': 'out30-v3'}
 n_case = [0]
 
@@ -81,7 +81,7 @@ form, d = mkform(photo_sha256=None, date=None)
 r = CO.check_cutout(form, R)
 ok(r['status'] == CO.REFUSE and 'photo_sha256' in r['reason'] and 'date' in r['reason'], 'не хватает полей → отказ с перечнем')
 form, d = mkform()
-put(form[:-4] + '.origin.json', {'cutout': {'chain_version': 'c2', 'method': 'chain_shape'}, 'mask': {'source': 'm'}, 'code': {'version': 'v'}, 'photo': {'sha256': 'a'}, 'created': 'x'})
+put(form[:-4] + '.origin.json', {'cutout': {'chain_version': 'c2', 'method': 'chain_shape'}, 'mask': {'source': 'm', 'revision': 'r'}, 'code': {'version': 'v'}, 'photo': {'sha256': 'a'}, 'created': 'x'})
 ok(CO.check_cutout(form, R)['status'] == CO.OK, 'вложенные имена-синонимы из rules (cutout.chain_version, mask.source …) читаются')
 form, d = mkform()
 os.remove(form[:-4] + '.origin.json')
@@ -178,6 +178,39 @@ put(EQ, rec)
 r = CO.check_cutout(form, R6)
 ok(r['status'] == CO.REFUSE and 'НЕ равнозначны' in r['reason'], 'пересчёт против новой версии не сошёлся (проволока) → отказ, форму строить заново')
 ok(CE.verify(json.load(open(EQ, encoding='utf-8')), 'c3')[0] == 'not_equal', 'и запись после пересчёта честно хранит «нет»')
+
+print('— формат рабочего 2 (OTCHET-9: inputs.json → <sku>.origin, format 1)')
+ok(CO.sku_of('/x/112923_55-n1024.glb') == '112923_55' and CO.sku_of('112923_55.hd.rgba.png') == '112923_55', 'id товара берётся из имени формы (суффикс -n1024 и .hd.rgba.png отрезаются)')
+d6 = os.path.join(tmp, 'rab2')
+os.makedirs(d6)
+form6 = os.path.join(d6, '112923_55-n1024.glb')
+open(form6, 'wb').write(b'glb')
+R2F = {'format': 1, 'method': 'cutout_one', 'chain_version': 'c2', 'steps': ['main_object'], 'mask': {'source': 'birefnet-full-cpu-fp32', 'repo': 'ZhengPeng7/BiRefNet', 'revision': 'e2bf8e4460fc'},
+       'code': 'abc123def', 'photo_sha256': 'a' * 64, 'pixels_sha256': 'b' * 64, 'created': '2026-11-27T12:00:00Z'}
+put(os.path.join(d6, 'inputs.json'), {'112923:55': {'input_png_sha256': 'c' * 64, 'origin': R2F}, '112923:56': {'origin': dict(R2F, chain_version='c1')}})
+r = CO.check_cutout(form6, R)
+ok(r['status'] == CO.OK and r['chain_version'] == 'c2' and 'inputs.json#112923:55.origin' in r['record'], 'запись рабочего 2 (inputs.json, ключ «112923:55», поле origin) читается ровно в его формате: mask.revision → версия весов, code, created')
+put(os.path.join(d6, 'inputs.json'), {'112923:55': {'origin': dict(R2F, chain_version='c1')}})
+r = CO.check_cutout(form6, R)
+ok(r['status'] == CO.REFUSE and 'c1' in r['reason'], 'тот же формат с chain_version c1 при актуальной c2 → отказ')
+put(os.path.join(d6, 'inputs.json'), {'112923:55': {'origin': {k: v for k, v in R2F.items() if k != 'mask'}}})
+r = CO.check_cutout(form6, R)
+ok(r['status'] == CO.REFUSE and 'mask_source' in r['reason'] and 'weights_version' in r['reason'], 'в записи нет mask → отказ: не названы источник маски и версия весов')
+put(form6[:-4] + '.form.json', {'generator': 'trellis2', 'stage': 'out30-v3', 'eye_accepted': True, 'status': 'pass'})
+put(os.path.join(d6, 'inputs.json'), {'112923:55': {'origin': R2F}})
+ok(CO.check_generator(form6, '112923_55', CO.form_facts(form6, R), R)['status'] == CO.OK, 'генератор и ступень — из метки формы (`<форма>.form.json`), запись вырезки их не несёт; eye_accepted оттуда принимается')
+rr = CO.load_rules()
+v, src = CO.current_chain_version(rr, CO.ROOT)
+ok('cutout_origin.py:CHAIN_VERSION' in (rr['current']['from'] or ''), 'актуальная версия читается константой CHAIN_VERSION из `tools/scout/salad/cutout_origin.py` (файл и имя — у рабочего 2): ' + str(src))
+pxa, pxb = os.path.join(d6, 'pa.png'), os.path.join(d6, 'pb.png')
+png(pxa, [(10, 150, 10, 170)])
+png(pxb, [(11, 150, 10, 170)])
+ok(len(CE.pixels_sha256(pxa)) == 64 and CE.pixels_sha256(pxa) != CE.pixels_sha256(pxb), 'pixels_sha256 (хеш содержимого, как у рабочего 2) считается и различает вырезки')
+rec_px = CE.build_record(pxa, pxb, 'c2')
+ok(rec_px['new']['pixels_sha256'] == CE.pixels_sha256(pxb) and CE.verify(rec_px, 'c2')[0] == 'equal', 'в записи «равнозначен» — хеш файла и хеш содержимого новой вырезки; проверка проходит')
+fk = copy.deepcopy(rec_px)
+fk['new']['pixels_sha256'] = '0' * 64
+ok(CE.verify(fk, 'c2')[0] == 'forged' and 'pixels_sha256' in CE.verify(fk, 'c2')[1], 'вписанный рукой pixels_sha256 → forged')
 
 print('— 2. генератор и Ш0')
 form, d = mkform()

@@ -45,6 +45,17 @@ def sha256_file(path: str) -> str:
     return h.hexdigest()
 
 
+def pixels_sha256(path: str) -> str:
+    """Хеш СОДЕРЖИМОГО вырезки — тот же, что `origin.pixels_sha256` у T-175/9 (`cutout_origin.pixels_sha256`): sha256 от «<ширина>x<высота>:RGBA:» + байты RGBA полного холста. Не зависит от даты, меток и
+    кодировщика PNG: одна вырезка в любом файле — один хеш (хеш ФАЙЛА `sha256` — для «файл подменили»)."""
+    from PIL import Image
+    im = Image.open(path).convert('RGBA')
+    h = hashlib.sha256()
+    h.update(f'{im.size[0]}x{im.size[1]}:RGBA:'.encode('ascii'))
+    h.update(im.tobytes())
+    return h.hexdigest()
+
+
 def code_version() -> str:
     """Хеш этого файла + git HEAD (если репо) — версия кода сравнения."""
     v = sha256_file(os.path.abspath(__file__))[:12]
@@ -95,7 +106,7 @@ def build_record(old_png: str, new_png: str, against: str, th: dict | None = Non
     return {'schema': SCHEMA, 'kind': 'equivalence',
             'photo': {'path': photo, 'sha256': sha256_file(photo) if photo and os.path.exists(photo) else None},
             'old': {'path': os.path.abspath(old_png), 'sha256': sha256_file(old_png), 'chain': old_chain or 'неизвестна'},
-            'new': {'path': os.path.abspath(new_png), 'sha256': sha256_file(new_png), 'chain_version': new_chain_version or against},
+            'new': {'path': os.path.abspath(new_png), 'sha256': sha256_file(new_png), 'pixels_sha256': pixels_sha256(new_png), 'chain_version': new_chain_version or against},
             'against_chain_version': against, 'numbers': res['numbers'], 'thresholds': {**DEFAULT_TH, **(th or {})}, 'equal': res['equal'], 'why': res['why'],
             'code_version': code_version(), 'date': datetime.date.today().isoformat()}
 
@@ -110,6 +121,8 @@ def verify(rec: dict, current: str | None, th: dict | None = None) -> tuple:
             return 'forged', f'файла {part} нет: {p}', {}
         if sha256_file(p) != (rec[part] or {}).get('sha256'):
             return 'forged', f'хеш {part} не совпал с файлом {p}: запись не от этого файла (подмена/подделка)', {}
+    if (rec['new'] or {}).get('pixels_sha256') and pixels_sha256(rec['new']['path']) != rec['new']['pixels_sha256']:
+        return 'forged', f'хеш содержимого новой вырезки (pixels_sha256) не совпал с файлом {rec["new"]["path"]}', {}
     if not current:
         return 'stale', 'актуальная версия цепочки не определена — сравнивать не с чем', {}
     if rec.get('against_chain_version') != current or (rec.get('new') or {}).get('chain_version') != current:

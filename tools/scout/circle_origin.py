@@ -33,6 +33,7 @@ import ast
 import hashlib
 import json
 import os
+import re
 import sys
 
 HERE = os.path.dirname(os.path.abspath(__file__))
@@ -101,9 +102,22 @@ def current_chain_version(rules: dict, root: str = ROOT) -> tuple:
     return None, 'актуальная версия цепочки не задана'
 
 
+def sku_of(form: str) -> str:
+    """id товара из имени формы: `<sku>-n1024.glb` / `<sku>.glb` / `<sku>.hd.rgba.png` → <sku> (суффиксы размера и вырезки отрезаются)."""
+    b = os.path.basename(form)
+    for suf in ('.glb', '.hd.rgba.png', '.rgba.png', '.png'):
+        if b.endswith(suf):
+            b = b[: -len(suf)]
+            break
+    return re.sub(r'-n\d+$', '', b)
+
+
 def _paths(tpls: list, form: str, sku: str = '') -> list:
+    """Подстановки: {form} {stem} {dir} {sku} (id из имени формы, если не задан) {sku_colon} (первое «_» → «:» — ключ в inputs.json: `112923:267…`)."""
     d, stem = os.path.dirname(form), os.path.splitext(form)[0]
-    return [t.replace('{form}', form).replace('{stem}', stem).replace('{dir}', d).replace('{sku}', sku) for t in tpls]
+    sku = sku or sku_of(form)
+    colon = sku.replace('_', ':', 1)
+    return [t.replace('{form}', form).replace('{stem}', stem).replace('{dir}', d).replace('{sku_colon}', colon).replace('{sku}', sku) for t in tpls]
 
 
 def find_form_record(form: str, rules: dict) -> tuple:
@@ -199,6 +213,11 @@ def form_facts(form: str | None, rules: dict) -> dict | None:
     blk = (eq or {}).get('form')
     if isinstance(blk, dict) and blk:                                                # из блока — только генератор и ступень; Ш0 (eye_accepted, form_checks) рукой в записи сравнения не принимается
         rec = {**{k: v for k, v in blk.items() if k not in ('eye_accepted', 'form_checks')}, **(rec or {})}
+    for p in _paths((rules.get('form') or {}).get('meta_paths') or [], form):         # метка самой формы: генератор, ступень, принято глазом (запись вырезки их не несёт — её читает T-175/9)
+        meta = _load_json(p)
+        if isinstance(meta, dict):
+            rec = {**{k: v for k, v in meta.items() if k in ('generator', 'stage', 'form_stage', 'eye_accepted')}, **(rec or {})}
+            break
     return rec
 
 
