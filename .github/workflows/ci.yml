@@ -40,6 +40,7 @@ jobs:
         run: |
           node --test tests/memory-project-audit.test.mjs
           node --test tests/session-reminder-role.test.mjs   # Stop-хук: у рабочего (REMLAB_ROLE=рабочий) не требует /memory-check (P-037, T-20261123-23)
+          node --test tests/stop-gate-own.test.mjs   # Stop-хук: гейт судит только свои правки сессии (--own-edits), строка стража — только у директора и только по его правкам файлов правил (--strazh); чужие сессии — 0 ложных блокировок (T-20261127-175/5)
           node --test tests/rules-lint.test.mjs   # линтер реестра правил P-NNN: дубль id, active без approval_ref, цикл замен, истёкший trial, P вне индекса, бюджет слоя (T-20261120-148/3)
           node tools/hooks/guard-bash.test.mjs   # сторож Bash: pkill/pgrep -f и heredoc/herestring вне кавычек — отказ, кавычки/арифметика/комментарий — пропуск, fail-open (T-20261126-guard-heredoc)
           node tools/rules-lint.mjs --check .   # реестр правил: ошибка блокирует всегда (не зависит от gate-mode); бюджет слоя — по режиму в rules/lint-config.json

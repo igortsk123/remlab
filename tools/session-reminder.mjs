@@ -16,9 +16,27 @@ import { execFileSync } from "node:child_process";
 import { readFileSync, existsSync, readdirSync } from "node:fs";
 import { resolve, join } from "node:path";
 import { runChecks, THRESHOLD_KEYS } from "./memory-audit.mjs";
+import {
+  ownEditedPaths, onlyOwn, porcelainPath, isOwn, ownRulesEdits, parseStrazh, strazhVerdict,
+  runStrazh, defaultStrazhCmd, dropForeignProblems, DEFAULT_BLOCK_FIELDS,
+} from "./stop-gate-own.mjs";
 
 const args = process.argv.slice(2);
 const blockMode = args.includes("--block");
+// T-20261127-175/5 (Fable 27 § 2–3), оба флага выключены по умолчанию — без них хук работает как раньше:
+//   --own-edits   гейт судит ТОЛЬКО по файлам, которые ЭТА сессия правила Edit/Write (из стенограммы stdin.transcript_path); чужая
+//                 незакоммиченная правка в общей копии и чужие находки аудита сессию не блокируют; стенограммы нет → не блокируем;
+//   --strazh      у директора (REMLAB_ROLE=директор) и только если он правил файлы правил и они не закоммичены: запускает страж
+//                 (tools/ops/rules_guard.py --line или --strazh-cmd "<команда>") и блокирует при «просрочено»/«вне реестра» > 0
+//                 (--strazh-fields «просрочено,вне реестра,без разбора,на удаление» — чем блокировать). Страж не влит/упал — молчим.
+const ownMode = args.includes("--own-edits");
+const strazhMode = args.includes("--strazh");
+const argVal = (flag) => {
+  const i = args.indexOf(flag);
+  return i !== -1 && i + 1 < args.length ? args[i + 1] : null;
+};
+const strazhCmdArg = argVal("--strazh-cmd");
+const strazhFields = (argVal("--strazh-fields") ?? "").split(",").map((s) => s.trim()).filter(Boolean);
 // Пороговые флаги audit пробрасываются в runChecks (все 11 — тот же словарь, что у CLI). Проекту
 // с нестандартными бюджетами флаги в команде хука больше не нужны: runChecks сам читает
 // project-owned `.memory_bank/_kit/audit-flags.txt` (v1.8); флаг в команде — точечное переопределение.
@@ -34,7 +52,7 @@ for (const [flag, key] of Object.entries(THRESHOLD_FLAGS)) {
     auditOpts[key] = Number(args[i + 1]);
 }
 const flagValueIdx = new Set(
-  Object.keys(THRESHOLD_FLAGS)
+  [...Object.keys(THRESHOLD_FLAGS), "--strazh-cmd", "--strazh-fields", "--scratch-fresh-days"]
     .map((f) => args.indexOf(f))
     .filter((i) => i !== -1)
     .map((i) => i + 1)
@@ -58,18 +76,43 @@ if (hookInput.stop_hook_active) process.exit(0);
 if (process.env.REMLAB_ROLE === "рабочий") process.exit(0);
 
 let changed = [];
+let dirtyAll = [];
 try {
   const out = execFileSync("git", ["-C", root, "status", "--porcelain"], {
     encoding: "utf8",
     stdio: ["ignore", "pipe", "ignore"],
   });
-  changed = out
-    .split("\n")
-    .filter(Boolean)
-    .filter((l) => !l.slice(3).startsWith(".memory_bank/"));
+  dirtyAll = out.split("\n").filter(Boolean);
+  changed = dirtyAll.filter((l) => !l.slice(3).startsWith(".memory_bank/"));
 } catch {
   process.exit(0);
 }
+// Свои правки сессии (из стенограммы) — только если включён один из флагов T-175/5.
+const own = ownMode || strazhMode ? ownEditedPaths(hookInput.transcript_path, root) : null;
+const dirtyPaths = dirtyAll.map(porcelainPath);
+
+// Строка стража — только у директора и только по его правкам файлов правил, ещё не закоммиченных (чужие сессии и рабочие не трогаем).
+if (strazhMode && process.env.REMLAB_ROLE === "директор" && blockMode) {
+  const myRules = ownRulesEdits(own).filter((p) => dirtyPaths.some((d) => d === p || (d.endsWith("/") && p.startsWith(d))));
+  if (myRules.length) {
+    const cmd = strazhCmdArg ? strazhCmdArg.split(/\s+/).filter(Boolean) : defaultStrazhCmd(root);
+    const line = cmd ? runStrazh(cmd, root) : null;
+    const verdict = strazhVerdict(parseStrazh(line), strazhFields.length ? strazhFields : DEFAULT_BLOCK_FIELDS);
+    if (verdict.block) {
+      console.log(
+        JSON.stringify({
+          decision: "block",
+          reason:
+            `Гейт стража правил: ${line.trim()} → ${verdict.bad.join(", ")}. Ты правил файлы правил (${myRules.slice(0, 3).join(", ")}${myRules.length > 3 ? ", …" : ""}) — ` +
+            `доведи реестр и сроки до нуля (правило в реестр, решение или один перенос срока с причиной), затем завершай.`,
+        })
+      );
+      process.exit(0);
+    }
+  }
+}
+
+if (ownMode) changed = onlyOwn(changed, own); // чужие и неизвестные (нет стенограммы) правки гейт не считает
 if (!changed.length) process.exit(0);
 
 // Блокнот захвата на ходу: пуст (нет строк после метки SCRATCH START) ИЛИ — при --scratch-fresh-days N
@@ -127,7 +170,9 @@ try {
 } catch {
   /* нет .memory_bank / сбой — не считаем грязным */
 }
-const auditDirty = !!(audit && !audit.fatal && !audit.ok);
+if (ownMode && audit && !audit.fatal && !audit.ok)
+  audit = { ...audit, problems: dropForeignProblems(audit.problems, dirtyPaths, own) }; // находки, названные только про чужие незакоммиченные файлы, сессию не держат
+const auditDirty = !!(audit && !audit.fatal && (ownMode ? audit.problems.length > 0 : !audit.ok));
 const scratchWhy = scratchProblem();
 const empty = !!scratchWhy;
 const plan = activePlan();
