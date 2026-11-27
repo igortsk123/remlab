@@ -30,24 +30,20 @@ UK = ROOT / "tools" / "scout" / "uk-bedrooms.json"
 sys.path.insert(0, str(ROOT / "tools" / "scout"))
 import rules_label  # noqa: E402  (стандартная библиотека; тот же файл, что считает метку набора правил)
 
-NOTE_OBJECTS = ("_meta",)
-
-
-def _only_text(v) -> bool:
-    return isinstance(v, str) or (isinstance(v, dict) and all(_only_text(x) for x in v.values()))
+# Один список на метку и на этот тест — `tools/scout/rules/rules-label.json` (T-175/12-дыра, замечание Fable 27.11): text_data (текстовые «_»-ключи с данными) и
+# note_objects (объект-пометка `_meta`, КРОМЕ ключей-данных: `_meta.engine` — движок солвера спальни, читает planner/bedroom_checks.py:74).
+_CFG = rules_label.load_cfg()
+DATA_NAMES = rules_label.text_data_names(_CFG)
+NOTES = rules_label.note_objects(_CFG)
 
 
 def _is_note(k, v) -> bool:
-    return rules_label._is_comment(k, v) or (k in NOTE_OBJECTS and isinstance(v, dict) and _only_text(v))
+    return rules_label._is_comment(k, v, DATA_NAMES) or rules_label.is_note_object(k, v, NOTES)
 
 
 def _no_notes(o):
-    """Убрать пометки на любой глубине; правка пояснения хеш не двигает (T-175: пометка _meta → _about уже раз уронила сборку, 27.11)."""
-    if isinstance(o, dict):
-        return {k: _no_notes(v) for k, v in o.items() if not _is_note(k, v)}
-    if isinstance(o, list):
-        return [_no_notes(v) for v in o]
-    return o
+    """Убрать пометки на любой глубине; правка пояснения хеш не двигает (T-175: пометка _meta → _about уже раз уронила сборку, 27.11). Ключи-данные из note_objects (`_meta.engine`) остаются."""
+    return rules_label._strip(o, DATA_NAMES, NOTES)
 
 
 # эталон: sha256(json.dumps(<файл до 09.11 БЕЗ пометок>, sort_keys=True, ensure_ascii=False)) по коммиту cabfe9fc (main на старте
@@ -211,6 +207,25 @@ def test_etalon_red_on_rule_change(name):
     e = _without_additions(name, copy.deepcopy(cur))
     e["_meta"] = {"source": "текст", "limit": 5}                           # объект на «_» с не-текстом — данные
     assert _h(_no_notes(e)) != FROZEN[name], f"{name}: _meta с числом не заметил"
+
+
+def test_meta_engine_is_data_not_note():
+    """`_meta.engine` в bedroom.json — ДАННЫЕ (движок солвера спальни, planner/bedroom_checks.py:74), а не пометка (замечание Fable 27.11, та же дыра, что `_default`):
+    смена движка двигает хеш (метка набора правил и этот хеш видят её), правка текста `_meta.about` / `_engine_why` — нет; а без `engine` объект остаётся пометкой."""
+    cur = json.loads((ROOT / "services/planner-solver/rules/bedroom.json").read_text(encoding="utf-8"))
+    assert "engine" in cur["_meta"] and "engine" in NOTES.get("_meta", ()), "engine должен стоять в rules-label.json note_objects"
+    h0 = _h(_no_notes(cur))
+    other = copy.deepcopy(cur)
+    other["_meta"]["engine"] = "items" if cur["_meta"]["engine"] != "items" else "groups"
+    assert _h(_no_notes(other)) != h0, "смена _meta.engine хеш не двинула — слепое пятно"
+    text = copy.deepcopy(cur)
+    text["_meta"]["about"] = "совсем другое описание"
+    text["_meta"]["_engine_why"] = "другое пояснение"
+    text["_meta"]["roles_note"] = "иное примечание"
+    assert _h(_no_notes(text)) == h0, "правка пояснений в _meta двинула хеш"
+    no_engine = copy.deepcopy(cur)
+    no_engine["_meta"].pop("engine")
+    assert "_meta" not in _no_notes(no_engine), "без engine объект из одних текстов — пометка"
 
 
 @pytest.mark.parametrize("name", sorted(FROZEN))

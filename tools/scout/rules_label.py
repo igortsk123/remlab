@@ -64,12 +64,37 @@ def _is_comment(k, v, data=frozenset()) -> bool:
     return str(k).startswith('_') and isinstance(v, str) and k not in data
 
 
-def _strip(o, data=frozenset()):
-    """Убрать ключи-комментарии (текстовые «_about», «_why», кроме `text_data`) на любой глубине; «_»-ключи с данными остаются."""
+def note_objects(cfg: dict | None = None) -> dict:
+    """Объекты-пометки `{имя: [ключи-данные внутри]}` (`rules-label.json:note_objects`): `_meta` в services/planner-solver/rules/bedroom.json — пометка (источник, описание, примечание о ролях),
+    но внутри лежит `engine` — движок солвера спальни, его читает planner/bedroom_checks.py:74 (T-175/12-дыра, замечание Fable 27.11). Объект из одних текстов — пометка, КРОМЕ перечисленных ключей."""
+    return dict((cfg if cfg is not None else load_cfg()).get('note_objects') or {})
+
+
+def _only_text(v) -> bool:
+    return isinstance(v, str) or (isinstance(v, dict) and all(_only_text(x) for x in v.values()))
+
+
+def is_note_object(k, v, notes) -> bool:
+    """Объект-пометка: имя в `note_objects`, значение — объект, и всё в нём, кроме перечисленных ключей-данных, — тексты (число/флаг/список внутри — это уже данные, объект не пометка)."""
+    return bool(notes) and k in notes and isinstance(v, dict) and all(_only_text(x) for kk, x in v.items() if kk not in (notes[k] or ()))
+
+
+def _strip(o, data=frozenset(), notes=None):
+    """Убрать ключи-комментарии (текстовые «_about», «_why», кроме `text_data`) и объекты-пометки (`note_objects`, оставляя в них ключи-данные) на любой глубине; «_»-ключи с данными остаются."""
     if isinstance(o, dict):
-        return {k: _strip(v, data) for k, v in o.items() if not _is_comment(k, v, data)}
+        out = {}
+        for k, v in o.items():
+            if _is_comment(k, v, data):
+                continue
+            if is_note_object(k, v, notes):
+                kept = {kk: _strip(x, data, notes) for kk, x in v.items() if kk in (notes[k] or ())}
+                if kept:
+                    out[k] = kept
+                continue
+            out[k] = _strip(v, data, notes)
+        return out
     if isinstance(o, list):
-        return [_strip(v, data) for v in o]
+        return [_strip(v, data, notes) for v in o]
     return o
 
 
@@ -91,12 +116,12 @@ def rule_files(root: str, cfg: dict | None = None) -> list[str]:
     return sorted(out)
 
 
-def _canon(path: str, data_names=frozenset()):
+def _canon(path: str, data_names=frozenset(), notes=None):
     """→ (каноническое представление для хеша, разобранный JSON или None). Не разобрался — байты как есть (метка не валит этап)."""
     with open(path, 'rb') as f:
         raw = f.read()
     try:
-        data = _strip(json.loads(raw.decode('utf-8')), data_names)
+        data = _strip(json.loads(raw.decode('utf-8')), data_names, notes)
         return json.dumps(data, sort_keys=True, ensure_ascii=False, separators=(',', ':')).encode('utf-8'), data
     except (ValueError, UnicodeDecodeError):
         return raw, None
@@ -112,7 +137,7 @@ def _env_part(cfg: dict) -> dict:
             continue
         item = {'value': v}
         if (name in files or name.endswith('RULES')) and os.path.isfile(v):
-            item['sha'] = hashlib.sha256(_canon(v, text_data_names(cfg))[0]).hexdigest()[:12]
+            item['sha'] = hashlib.sha256(_canon(v, text_data_names(cfg), note_objects(cfg))[0]).hexdigest()[:12]
         out[name] = item
     return out
 
@@ -122,9 +147,9 @@ def label(root: str | None = None, cfg: dict | None = None) -> dict:
     root = os.path.abspath(root or ROOT)
     cfg = cfg or load_cfg()
     h, n, files = hashlib.sha256(), 0, {}
-    data = text_data_names(cfg)
+    data, notes = text_data_names(cfg), note_objects(cfg)
     for rel in rule_files(root, cfg):
-        canon, _ = _canon(os.path.join(root, rel), data)
+        canon, _ = _canon(os.path.join(root, rel), data, notes)
         h.update(rel.encode('utf-8') + b'\0' + canon + b'\0')
         files[rel] = hashlib.sha256(canon).hexdigest()[:12]
         n += 1
@@ -163,9 +188,9 @@ def _flatten(o, prefix='') -> dict:
 def _tree_keys(root: str, cfg: dict) -> dict:
     """→ {путь_файла: {ключ.через.точку: значение} | None (не JSON)}."""
     out = {}
-    names = text_data_names(cfg)
+    names, notes = text_data_names(cfg), note_objects(cfg)
     for rel in rule_files(root, cfg):
-        _c, data = _canon(os.path.join(root, rel), names)
+        _c, data = _canon(os.path.join(root, rel), names, notes)
         out[rel] = _flatten(data) if data is not None else None
     return out
 
@@ -322,6 +347,47 @@ def text_key_gaps(root: str | None = None, cfg: dict | None = None) -> list:
     scan = [d for d in (cfg.get('code_roots') or ['tools', 'services', 'lib', 'app', 'components']) if os.path.isdir(os.path.join(root, d))]
     if not scan:
         gaps.append(f'в корне {root} нет ни одной папки кода из code_roots — сторож текстовых «_»-ключей слеп (ничего не проверено)')
+    notes = note_objects(cfg)
+    if notes:   # объекты-пометки: перечисленный ключ-данные должен существовать (иначе запись устарела); код не читает из объекта-пометки ключ, которого нет в списке данных
+        present: dict = {}
+        for rel in rule_files(root, cfg):
+            try:
+                with open(os.path.join(root, rel), encoding='utf-8') as f:
+                    doc = json.load(f)
+            except (OSError, ValueError):
+                continue
+            stack = [doc]
+            while stack:
+                o = stack.pop()
+                if isinstance(o, dict):
+                    for k, v in o.items():
+                        if k in notes and isinstance(v, dict):
+                            present.setdefault(k, set()).update(v)
+                        stack.append(v)
+                elif isinstance(o, list):
+                    stack.extend(o)
+        for nm, dk in sorted(notes.items()):
+            for key in dk or ():
+                if key not in present.get(nm, ()):
+                    gaps.append(f'{nm}.{key} — запись в note_objects устарела: такого ключа в объекте «{nm}» файлов правил нет (убрать запись или вернуть ключ)')
+        chain = {nm: re.compile(r'(?:\.get\(\s*|\[\s*)[\'"]' + re.escape(nm) + r'[\'"][^)\]]*[\)\]]\s*(?:\.get\(\s*|\[\s*)[\'"](\w+)[\'"]') for nm in notes}
+        for top in scan:
+            for dp, dn, fn in os.walk(os.path.join(root, top)):
+                dn[:] = sorted(d for d in dn if d not in _CODE_SKIP)
+                for f in sorted(fn):
+                    if not f.endswith(_CODE_EXT) or f.startswith(('test_', 'tests_')):
+                        continue
+                    try:
+                        with open(os.path.join(dp, f), encoding='utf-8') as fh:
+                            lines = fh.read().split('\n')
+                    except (OSError, UnicodeDecodeError):
+                        continue
+                    for i, ln in enumerate(lines, 1):
+                        for nm, rx in chain.items():
+                            for m in rx.finditer(ln):
+                                if m.group(1) in present.get(nm, ()) and m.group(1) not in (notes[nm] or ()):
+                                    gaps.append(f'{nm}.{m.group(1)} — {os.path.relpath(os.path.join(dp, f), root).replace(os.sep, "/")}:{i} — код читает ключ из объекта-пометки «{nm}» файла правил, '
+                                                f'а метка считает его пометкой; данные → rules-label.json note_objects {{"{nm}": [..., "{m.group(1)}"]}}')
     reads = _code_reads(root, [n for n in keys if n not in known], scan)
     for n, where in sorted(reads.items()):
         f, p, _v = keys[n][0]
