@@ -62,5 +62,16 @@ pl = PG.plan_grain(alt, R)
 check(pl[0]['bin']['bin'] == name and pl[0].get('pick') and pl[0]['apply'] is not False, 'plan_grain: ключ pick → образец %s' % name)
 check('pick' not in base[0] and base[0]['bin']['bin'] != name or base[0]['bin']['bin'] == name, 'plan_grain без pick: путь по тону (ключа pick в записи нет)')
 check(json.dumps({k: v for k, v in base[0].items() if k not in ('pat',)}, default=str) == json.dumps({k: v for k, v in PG.plan_grain(copy.deepcopy(parts), R)[0].items() if k not in ('pat',)}, default=str), 'без pick результат повторяем')
+# путь wood_always (боевой): тот же ключ pick ведёт образец
+Rw = copy.deepcopy(R)
+Rw['wood_always']['enabled'] = True
+pw = [dict(part(0, [67.4, 9.8, 15.9], sigma=3.0, card={'Материал столешницы': 'массив ясеня'}), tone_sigma=0.0, n_texels=5000, is_wood=True)]
+pw[0]['pick'] = {'bin': name, 'dist': 0.0, 'source': 'own', 'from': 0, 'passport': {'clarity': 0, 'stroke_cm': 0, 'coarse': 0}, 'sample': {'clarity': 0, 'stroke_cm': 0, 'coarse': 0}}
+plw = PG.plan_grain(copy.deepcopy(pw), Rw)
+check(plw[0].get('apply') and plw[0]['bin']['bin'] == name and plw[0].get('pick'), 'plan_grain (wood_always): ключ pick → образец %s' % name)
+pw0 = [dict(pw[0])]
+pw0[0].pop('pick')
+plw0 = PG.plan_grain(copy.deepcopy(pw0), Rw)
+check('pick' not in plw0[0], 'plan_grain (wood_always) без pick: путь по тону, ключа pick нет')
 print('ИТОГО: %d провалов' % OK.count(False))
 sys.exit(1 if False in OK else 0)

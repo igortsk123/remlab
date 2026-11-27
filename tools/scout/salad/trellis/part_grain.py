@@ -337,7 +337,14 @@ def plan_wood_always(parts: list, rules: dict) -> dict:
             continue
         b, pat, pstd = load_pattern(tone, rules, wa['photo_classes'])
         note = ''
-        if pat is None:                                               # бин дальше лимита ΔE00 — ближайший straight без лимита, с пометкой
+        if p.get('pick'):                                             # T-99/12 шаг 2: образец по рисунку фото (rules.pattern_pick), не по тону; нет ключа 'pick' — путь по тону без изменений
+            nm = p['pick']['bin']
+            v = lib['items'][nm]
+            pat, pstd = pattern_of_bin(nm, v.get('grain_axis'))
+            b = {'bin': nm, 'dE00': round(float(TP._de(tone, v['lab'])), 1), 'tile_cm': v.get('tile_cm'), 'grain_axis': v.get('grain_axis')}
+            rec['pick'] = {k: p['pick'][k] for k in ('dist', 'source', 'from', 'passport', 'sample')}
+            note = 'образец по рисунку фото'
+        if pat is None:                                             # бин дальше лимита ΔE00 — ближайший straight без лимита, с пометкой
             near = b.get('nearest')
             nm = near if near in names else _nearest_bin(lib, names, tone)
             pat, pstd = pattern_of_bin(nm, lib['items'][nm].get('grain_axis'))
@@ -364,6 +371,9 @@ def plan_wood_always(parts: list, rules: dict) -> dict:
         else:
             nm, sig_t, note = _pick_reserve(w['material_text'] + ' ' + w['color_text'], tone, lib, rows, wa)
             src, note = 'reserve', 'запас (' + note + ')'
+        if p.get('pick'):                                             # T-99/12 шаг 2: образец по рисунку фото материала (один на материал)
+            nm, note = p['pick']['bin'], note + ' + образец по рисунку фото'
+            rec['pick'] = {k: p['pick'][k] for k in ('dist', 'source', 'from', 'passport', 'sample')}
         v = lib['items'][nm]
         pat, pstd = pattern_of_bin(nm, v.get('grain_axis'))
         sig_t = max(sig_t, fl)
