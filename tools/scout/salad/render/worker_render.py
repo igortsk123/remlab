@@ -194,7 +194,7 @@ class Pool:
             self._refresh()
             out = os.path.join(j['dir'], 'out')
             fdir = os.path.join(out, 'f')
-            cmd = self.fr.render_cmd(os.path.join(j['dir'], 'in.glb'), fdir, views, lights, int(p['samples']), self.c['threads'], p.get('shade') or 'orig')
+            cmd = self.fr.render_cmd(os.path.join(j['dir'], 'in.glb'), fdir, views, lights, int(p['samples']), self.c['threads'], p.get('shade') or 'orig', alpha=bool(p.get('alpha')))      # по ИМЕНИ: воркер едет в env группы, а forms_render — в образе (другой SHA); позиционный 7-й параметр у образа f73aa06e3 — `empty`
             cmd = [x for x in cmd]
             cmd += ['--device', self.c['device']]
             # размер кадра: render_cmd задаёт 1200×900; другое — только явным параметром драйвера
@@ -209,6 +209,8 @@ class Pool:
             got = self.fr.frames_of(out, 'f', views, lights)
             if not got:
                 raise RuntimeError(f"кадров меньше ожидаемого {total}: {count_png(fdir)}; {tail(os.path.join(j['dir'], 'render.log'), 200)}")
+            if p.get('alpha') and not self.fr.frames_of(fdir, self.fr.ALPHA_SUB, views, lights):
+                raise RuntimeError(f"кадров с альфой меньше {total}: {count_png(os.path.join(fdir, self.fr.ALPHA_SUB))}")
             data = pack_zip(fdir, {'render.log': os.path.join(j['dir'], 'render.log')})
             zp = os.path.join(j['dir'], 'result.zip')
             open(zp, 'wb').write(data)
@@ -289,7 +291,7 @@ class RenderHandler(KW.KitHandler):
         if not 1 <= samples <= 256 or w < 0 or h < 0 or w > 4096 or h > 4096 or (w == 0) != (h == 0) or b.get('shade', 'orig') not in ('orig', 'recalc', 'flat'):
             self.send_json(400, {'error': 'samples 1…256; w и h вместе, ≤4096; shade orig|recalc|flat'})
             return True
-        j = self.pool.submit(jid, glb, {'views': views, 'lights': lights, 'samples': samples, 'w': w, 'h': h, 'shade': b.get('shade', 'orig')})
+        j = self.pool.submit(jid, glb, {'views': views, 'lights': lights, 'samples': samples, 'w': w, 'h': h, 'shade': b.get('shade', 'orig'), 'alpha': bool(b.get('alpha'))})
         self.send_json(202, {'job_id': jid, 'status': j['status']})
         return True
 

@@ -3,7 +3,7 @@ tier: 1
 topic: regression-net
 scope: Регресс-защита — тесты, CI, гардрейлы
 tier2: "../../docs/tech-spec-ts-stack.md"
-updated: 2026-11-18
+updated: 2026-11-27
 importance: high
 source: manual
 status: working
@@ -14,7 +14,7 @@ review_after: 2026-12-05
 
 # Regression Net — Tier 1
 
-> Ошибки ловит автоматика. «Цель» = НЕ реализовано.
+> «Цель» = НЕ реализовано.
 
 ## Есть в коде
 - **Unit (Vitest):** на БД (skipIf без `TEST_DATABASE_URL`) — `pg-repository.test.ts`,
@@ -22,8 +22,7 @@ review_after: 2026-12-05
 - **e2e:** CI — `e2e/*.spec.ts`; пути ошибок — `smoke.spec.ts`, `embed.spec.ts`.
   Живые проверки прода — `e2e/live/*.live.ts`, ночной шаг `demo_live`.
 - **Цепочка каталога (ADR-0242):** `tools/scout/tests_chain.py` `--selftest` (CI) / `--live` (шаг `chain_checks` → `WARN:`);
-  правила — `tools/scout/catalog_rules.py`.
-- **Конвейер на одноразовой базе:** `tools/scout/tests/pipeline_chain_dbtest.py`, шаг `chain_dbtest`.
+  правила — `tools/scout/catalog_rules.py`; на одноразовой базе — `pipeline_chain_dbtest.py`.
 - **Стенд паритета комнат:** `tools/scout/parity_living.py --room living|bedroom|hall` — до/после правки общего конвейера
   на замороженных данных (`parity_guard.py`, `tools/scout/rules/parity-living.json`); код 3 — эталон старше данных.
 - **CI (`ci.yml`, 7 job):** gate (postgres; memory-project-audit → селфтесты → typecheck → lint → test → build → e2e), plan-evidence, db-init, planner, draft-image,
@@ -36,7 +35,7 @@ review_after: 2026-12-05
   пары RU/EN /demo — `tools/ops/demo-i18n-scan.mjs --check` (CI).
 - **Гарантии памяти (ADR-0055):** два аудита + хуки (`.claude/settings.json`): гард Bash (ADR-0195),
   SessionStart/Stop/PreCompact/PostToolUse (`tools/code-touch-hint.mjs`).
-- **Грабля:** флоу — e2e тем же коммитом; шаг CI и инструмент — одним (урок 414); `bank_*` — `test_bank_spec_golden.py --record`.
+- **Грабля:** флоу — e2e тем же коммитом; шаг CI и инструмент — одним (урок 414); `bank_*` — `test_bank_spec_golden.py --record`; тест с внешней программой — и в `env -i`, пустой HOME (1080).
 
 ## Цель (спека §12) — НЕ реализовано
 - Ставки работ (`lib/pricing/works.ts`) без confidence; нет product-matching, гардрейлов стоимости генерации;

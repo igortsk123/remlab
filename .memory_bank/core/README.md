@@ -41,7 +41,7 @@
 | `partners.md` | partners | Застройщик, ЖК, квартира, цена — данные | `../completed_plans/b2b-06-apartment-as-data.md` | 2026-11-18 |
 | `photo-render.md` | photo-render | Фото по кнопке — рендер, «Улучшить», машина Salad | `../domain/viz-fidelity-playbook.md` | 2026-11-19 |
 | `pipeline-order.md` | pipeline-order | Порядок конвейера — от фида до расстановки | `../domain/pipeline-order-details.md` | 2026-11-19 |
-| `regression-net.md` | regression-net | Регресс-защита — тесты, CI, гардрейлы | `../../docs/tech-spec-ts-stack.md` | 2026-11-18 |
+| `regression-net.md` | regression-net | Регресс-защита — тесты, CI, гардрейлы | `../../docs/tech-spec-ts-stack.md` | 2026-11-27 |
 | `room-measurement.md` | room-measurement | Замер комнаты по фото | `../domain/room-measurement.md` | 2026-11-18 |
 | `room-templates.md` | room-templates | Шаблоны комнат — порядок, паспорт, листы | `../domain/room-templates.md` | 2026-11-18 |
 | `stablegen-paint.md` | stablegen-paint | Покраска мешей v3 — этапы, код, статус | `../plans/paint-photo-fill-01.md` | 2026-11-23 |

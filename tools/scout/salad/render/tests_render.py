@@ -50,7 +50,11 @@ for v in [x.split(':')[0] for x in g('--views').split(',')]:
         n += 1
         if b'PARTIAL' in glb and n == 3:
             continue
-        open(os.path.join(out, f"{n:02d}_{v}_clay" + ('_graze' if lt == 'graze' else '') + '.png'), 'wb').write(b'\x89PNG\r\n\x1a\n' + b'0' * 64)
+        nm = f"{n:02d}_{v}_clay" + ('_graze' if lt == 'graze' else '') + '.png'
+        open(os.path.join(out, nm), 'wb').write(b'\x89PNG\r\n\x1a\n' + b'0' * 64)
+        if '--alpha-dir' in a and b'NOALPHA' not in glb:
+            os.makedirs(g('--alpha-dir'), exist_ok=True)
+            open(os.path.join(g('--alpha-dir'), nm), 'wb').write(b'\x89PNG\r\n\x1a\n' + b'2' * 64)
 '''
 
 
@@ -375,6 +379,91 @@ class PureTests(unittest.TestCase):
         miss = os.path.join(tmp, 'miss')
         os.makedirs(os.path.join(miss, 's'))
         self.assertFalse(CR.compare(miss, ref, ['s'], rules)['s']['ok'])      # нет кадров — не совпало
+
+
+class AlphaMaskTests(unittest.TestCase):
+    """Маска = сама форма (T-184/5): флаг доходит до Blender, кадры с альфой едут в zip, нет их — отказ; маска по альфе не берёт тень."""
+
+    def test_render_cmd_flag(self):
+        import forms_render as FR
+        self.assertNotIn('--alpha-dir', FR.render_cmd('a.glb', '/o', ('az000',), ('key',), 4, 1))
+        cmd = FR.render_cmd('a.glb', '/o', ('az000',), ('key',), 4, 1, alpha=True)
+        self.assertEqual(cmd[cmd.index('--alpha-dir') + 1], os.path.join('/o', FR.ALPHA_SUB))
+
+    def test_worker_passes_alpha_by_name_across_image_versions(self):
+        """Воркер едет в env группы, forms_render — в образе другого SHA: у образа f73aa06e3 `render_cmd(…, shade, empty, alpha)`. Позиционная передача дала бы «empty», а не «alpha» → кадров с альфой нет, задание падает. Имя параметра — единственное, что общее."""
+        import types
+        import forms_render as FR
+        seen = {}
+
+        def old_render_cmd(glb, out, views, lights, samples, cores, shade='orig', empty=False, alpha=False):
+            seen['empty'], seen['alpha'] = empty, alpha
+            return FR.render_cmd(glb, out, views, lights, samples, cores, shade, alpha=alpha)
+        c = make_cfg(tempfile.mkdtemp(prefix='tests_render_skew_'))
+        fr = types.SimpleNamespace(render_cmd=old_render_cmd, frames_of=FR.frames_of, ALPHA_SUB=FR.ALPHA_SUB)
+        pool = WR.Pool(KW.State(), c, fr)
+        pool.submit('s1', GLB, dict(PARAMS, alpha=True))
+        self.assertTrue(wait_for(pool, ['s1']))
+        self.assertEqual(pool.jobs['s1']['status'], 'done', pool.jobs['s1'].get('error'))
+        self.assertEqual((seen['empty'], seen['alpha']), (False, True))
+
+    def test_stand_alpha_pass_is_wired(self):
+        """Blender в тесте — заглушка, сам проход проверит только живой пробник; здесь — что стенд принимает флаг и делает именно альфа-кадр: прозрачный фон, пола нет, снятие в --alpha-dir под тем же именем, настройки возвращены."""
+        with open(os.path.join(REPO, 'tools/scout/stablegen/render_stand.py'), encoding='utf-8') as f:
+            src = f.read()
+        i = src.index('if a.alpha_dir:')
+        blk = src[i:i + 1500]
+        for must in ("--alpha-dir", "floor.hide_render, sc.render.film_transparent, sc.render.image_settings.color_mode = True, True, 'RGBA'", 'sc.cycles.use_denoising = a.alpha_samples, False',
+                     'os.path.join(a.alpha_dir, os.path.basename(p))', 'bpy.ops.render.render(write_still=True)', 'sc.render.filepath = p'):
+            self.assertIn(must, src if must == '--alpha-dir' else blk, must)
+        self.assertLess(src.index('bpy.ops.render.render(write_still=True)'), i)                 # основной кадр снят ДО прохода: цвета и тени обычного кадра не меняются
+
+    def run_job(self, glb, alpha=True):
+        tmp = tempfile.mkdtemp(prefix='tests_render_alpha_')
+        c = make_cfg(tmp)
+        pool = WR.Pool(KW.State(), c, WR.load_forms_render(c))
+        pool.submit('a1', glb, dict(PARAMS, alpha=alpha))
+        self.assertTrue(wait_for(pool, ['a1']))
+        return pool.jobs['a1']
+
+    def test_alpha_frames_in_zip(self):
+        j = self.run_job(GLB)
+        self.assertEqual(j['status'], 'done', j.get('error'))
+        names = zipfile.ZipFile(io.BytesIO(open(j['zip'], 'rb').read())).namelist()
+        self.assertEqual(sum(1 for n in names if n.startswith('alpha/')), 4)
+
+    def test_no_alpha_without_flag(self):
+        names = zipfile.ZipFile(io.BytesIO(open(self.run_job(GLB, alpha=False)['zip'], 'rb').read())).namelist()
+        self.assertFalse(any(n.startswith('alpha/') for n in names))
+
+    def test_missing_alpha_frames_fail(self):
+        j = self.run_job(GLB + b'NOALPHA')
+        self.assertEqual(j['status'], 'failed')
+        self.assertIn('с альфой', j['error'])
+
+    def test_mask_vs_alpha_excludes_shadow(self):
+        try:
+            import numpy as np
+        except ImportError:
+            self.skipTest('нет numpy')
+        import compare_render as CR
+        rules = CR.load_rules()
+        h, w = 90, 120
+        alpha = np.zeros((h, w), np.int16)
+        alpha[20:70, 40:80] = 255                                    # сама форма
+        shadow = np.zeros((h, w), bool)
+        shadow[62:70, 0:120] = True                                   # длинная тень на полу
+        with_shadow = np.logical_or(alpha > 0, shadow)
+        m = CR.mask_vs_alpha(alpha, rules['alpha_min'])
+        self.assertEqual(int(np.logical_and(m, ~(alpha > 0)).sum()), 0)                  # вне формы маска пуста
+        self.assertGreater(int(np.logical_and(with_shadow, ~(alpha > 0)).sum()), 0)      # а маска «по кадру с полом» тень берёт
+        al_half = alpha.copy()
+        al_half[25:30, 40:80] = 20                                   # стекло: слабое покрытие всё равно форма
+        self.assertTrue(CR.mask_vs_alpha(al_half, rules['alpha_min'])[26, 50])
+        img = np.zeros((h, w, 3), np.int16)
+        self.assertEqual(CR.frame_metrics(img, img, rules, (alpha, alpha))['iou'], 1.0)
+        moved = np.roll(alpha, 12, axis=1)
+        self.assertLess(CR.frame_metrics(img, img, rules, (alpha, moved))['iou'], rules['iou_min'])
 
 
 if __name__ == '__main__':
