@@ -75,6 +75,10 @@
  },
  "settings": {
   "tools/scout/rules/part-llm-roles.json#map.*": "карта «имя части → класс»: данные сопоставления, не выключатель",
-  "tools/scout/rules/paint-run-all.json#stages.*.needs_catalog": "условие шага (нужен каталог) — свойство шага, не правило товара"
+  "tools/scout/rules/paint-run-all.json#stages.*.needs_catalog": "условие шага (нужен каталог) — свойство шага, не правило товара",
+  "tools/scout/rules/paint-surface-checks.json#*.soft": "`soft` у мерки = жёсткость проверки: false — ЖЁСТКАЯ (блокирует, paint_surface_checks.py:817–831), true — мягкая; False — штатное значение, не «выключено» (T-175/В-реестр)",
+  "tools/scout/rules/mesh-queue-demo.json#set_items.enabled": "очередь мешей для /demo (добавлять товары наборов комнаты) — не конвейер покраски и не правило типа (T-175/В-реестр)",
+  "tools/scout/rules/mesh-ready.json#photo_current.others": "готовность мешей по актуальному фото (учитывать не только банк) — учёт каталога/очереди, не конвейер покраски (T-175/В-реестр)",
+  "tools/scout/rules/upholstery.json#enabled": "признак ткани обивки в каталоге/онбординге (ADR-0330): пишет в свою таблицу, ждёт приёмки выборки 50 ведущим; не конвейер покраски (T-175/В-реестр)"
  }
 }

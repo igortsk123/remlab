@@ -16,7 +16,7 @@
   • trial/proposed с объявленными, но НЕ существующими путями/символами — ошибка (битая ссылка);
   • типы паспорта без политики покраски (`paint.hidden_pattern`) — «тип без политики» (ошибка при `--strict-types`; в CI включено, А1 влит);
   • реестр версии ≥ 3 (T-20261124-54/2, решение директора 24.11): у каждого `trial` — `group` из `groups`; у группы (или у самого правила) — `decide_by` (ГГГГ-ММ-ДД, не позже
-    `decide_by_max` реестра) и `enable_if` (условие включения ЧИСЛОМ — в тексте есть цифра); групп вида «держать» не больше `groups_max`; у `retired` — `retired_reason`.
+    `decide_by_max` реестра) и `enable_if` (условие включения ЧИСЛОМ — в тексте есть цифра); групп вида «держать» не больше `groups_max`; групп `kind=enable` («кандидаты на включение») не больше `enable_groups_max` (отдельный потолок, решение Fable 27.11; ключа нет — ошибка); у `retired` — `retired_reason`.
     Срок вышел (decide_by < сегодня по Лондону), а правило всё ещё trial — ОШИБКА класса «срок/условие решения» (T-20261127-173; раньше печаталось, rc=0 — 27.11 четыре группы
     дошли до срока незамеченными). Выход: решить (включить/снять группу) либо ОДИН раз перенести: `decide_by_moved` (кто, когда, почему) + `decide_by_prev` (прежняя дата);
     дата не позже `decide_by_max`; перенос без причины или без prev — ошибка; ВТОРОЙ перенос — ошибка (при `--base HEAD^1`: в базе уже есть decide_by_prev, а срок снова сдвинут);
@@ -396,6 +396,13 @@ def audit(registry_path: str = REGISTRY, passports_path: str = PASSPORTS, ci_pat
         hold = [gid for gid in used_groups if gid in groups and (groups[gid] or {}).get('kind') != 'enable']
         if isinstance(reg.get('groups_max'), int) and len(hold) > reg['groups_max']:
             add('реестр', C_DEADLINE, 'групп «держать» с trial-правилами %d > groups_max %d: %s' % (len(hold), reg['groups_max'], ', '.join(sorted(hold))), True)
+        # второй замок рядом (решение Fable 27.11, T-175/В-реестр): группы «кандидаты на включение» (kind=enable) — свой потолок, иначе любую пробу назвали бы «кандидатом» и groups_max ничего не ограничивал
+        enable_groups = sorted(gid for gid, g in groups.items() if isinstance(g, dict) and g.get('kind') == 'enable')
+        emax = reg.get('enable_groups_max')
+        if not isinstance(emax, int) or isinstance(emax, bool):
+            add('реестр', C_DEADLINE, 'нет enable_groups_max (число) — потолок групп «кандидаты на включение» (kind=enable); сейчас таких групп %d' % len(enable_groups), True)
+        elif len(enable_groups) > emax:
+            add('реестр', C_DEADLINE, 'групп «кандидаты на включение» (kind=enable) %d > enable_groups_max %d: %s' % (len(enable_groups), emax, ', '.join(enable_groups)), True)
 
     for r in rules:
         rid = str(r.get('rule_id') or '?')

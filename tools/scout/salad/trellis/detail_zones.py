@@ -172,31 +172,7 @@ def detail_zones(lab: list, known: list, part_map: list, roles: dict, policy: di
                 put('facade_hardware', 'Z3:пятна чужого тона', pg, note=f'пятен {k}')
             else:
                 rep['facade_hardware']['reason'] = 'no_evidence'
-    # --- Z2+тон: подушка — часть другого тона, не из служебных ролей, доля в пределах
-    if 'pillows' in want and R['pillows'].get('enabled'):
-        pc = R['pillows']
-        cnt, med = {}, {}
-        for g in range(n):
-            pm, kk, lb = np.asarray(part_map[g]), np.asarray(known[g], bool), np.asarray(lab[g], np.float64)
-            for p in {int(x) for x in np.unique(pm) if x >= 0}:
-                m = pm == p
-                cnt[p] = cnt.get(p, 0) + int(m.sum())
-                km = m & kk
-                if int(km.sum()) >= R['blob']['min_known']:
-                    med.setdefault(p, []).append(lb[km])
-        med = {p: np.median(np.concatenate(v), axis=0) for p, v in med.items()}
-        body = [p for p in cnt if role_of(p) not in pc['roles_skip'] and p in med]
-        cand = []
-        if body:
-            main = max(body, key=lambda p: cnt[p])
-            for p in body:
-                s = cnt[p] / total
-                if p != main and pc['share'][0] <= s <= pc['share'][1] and float(_de(med[p], med[main])) >= pc['dE_min']:
-                    cand.append(p)
-        if cand:
-            put('pillows', 'Z2:часть другого тона', [np.isin(np.asarray(part_map[g]), cand) for g in range(n)], note=f'частей {len(cand)}')
-        else:
-            rep['pillows']['reason'] = 'no_evidence'
+    # подушки: признак «часть другого тона» удалён 27.11 (T-175/В-чистка, ложные зоны на листах 23.11) — вид в `not_implemented`, воздержание
     for k in want:                                                          # то, что не умеем: честное воздержание
         if rep[k]['status'] != 'zone' and rep[k]['reason'] is None:
             rep[k]['reason'] = 'not_implemented' if k in R['not_implemented'] else 'no_evidence'

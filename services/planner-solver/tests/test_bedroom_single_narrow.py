@@ -26,7 +26,8 @@ UK = ROOT / "tools" / "scout" / "uk-bedrooms.json"
 # задачи T-20261109-07). Меняется только осознанно — тогда прежние записи правились, а не дополнялись.
 FROZEN = {
     "services/planner-solver/rules/bedroom.json": "8027995af1880c2e087051e76844473f73a49bb3ac9bcc7f9db113413a95b555",
-    "tools/scout/rules/bedroom-composition.json": "324077eac29fc35848cf300b211a3b6359c122aada49b299cd5a734548e2f50a",
+    # 27.11 осознанно: пометка _meta (объект) → _about (строка, тот же текст), правила побайтно те же (870ad0174, T-175)
+    "tools/scout/rules/bedroom-composition.json": "32acf826ddbd310f1bf0c32d956f80b3e05550ad0c685e85eb703257c2654e0c",
     "tools/scout/rules/bedroom-roles.json": "955a0fe64471429456d658a2ed404b1378feda0be7fde3d37516462d74b7f6df",
 }
 # ровно эти добавки (раздел → ключ); всё прочее — прежнее
