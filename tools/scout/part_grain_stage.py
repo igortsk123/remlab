@@ -264,7 +264,7 @@ def fibre_axis(Q: np.ndarray, x: np.ndarray, y: np.ndarray, use: np.ndarray, Ns:
     return others[int(np.argmax(share))]
 
 
-def fibre_fill(Q: np.ndarray, Ns: np.ndarray, ing: np.ndarray, cover: np.ndarray, d_full: np.ndarray, v_ax: int, w_fibre: float, plane_w: float, min_pool: int, corner_max: float = 0.0) -> np.ndarray:
+def fibre_fill(Q: np.ndarray, Ns: np.ndarray, ing: np.ndarray, cover: np.ndarray, d_full: np.ndarray, v_ax: int, w_fibre: float, plane_w: float, min_pool: int, corner_max: float = 0.0, reflect: bool = False) -> np.ndarray:
     """Не покрытым текселям тех же граней (ось нормали и знак те же, не горизонтальные плоскости) — деталь ближайшего покрытого тексела этой плоскости, где расстояние вдоль волокна (ось v_ax) стоит w_fibre от поперечного
     (рисунок продолжается вдоль волокна: вертикальные полосы, не пятна старого шума), а смещение вдоль нормали (другая глубина — другая панель) — plane_w. Меняет d_full на месте → маска заполненных текселей."""
     from scipy.spatial import cKDTree
@@ -284,7 +284,17 @@ def fibre_fill(Q: np.ndarray, Ns: np.ndarray, ing: np.ndarray, cover: np.ndarray
             if int(pool.sum()) < min_pool or not todo.any():
                 continue
             tree = cKDTree(Q[pool] * w)
-            _, nn = tree.query(Q[todo] * w, k=1)
+            Qt_ = Q[todo].copy()
+            if reflect:
+                # тексели вне поперечного размаха видимой части грани (бок, которого фото не видело): берётся не крайний столбец (плоская полоса копий одного столбца),
+                # а рисунок видимой части, отражённый в её размах (треугольная волна) — настоящий рисунок, без шва у границы
+                h0_, h1_ = float(np.percentile(Q[pool, h_ax], 0.5)), float(np.percentile(Q[pool, h_ax], 99.5))
+                span_ = h1_ - h0_
+                if span_ > 1e-3:
+                    t_ = np.mod(Qt_[:, h_ax] - h0_, 2.0 * span_)
+                    out_ = (Qt_[:, h_ax] < h0_) | (Qt_[:, h_ax] > h1_)
+                    Qt_[out_, h_ax] = h0_ + np.where(t_ <= span_, t_, 2.0 * span_ - t_)[out_]
+            _, nn = tree.query(Qt_ * w, k=1)
             d_full[todo] = d_full[np.nonzero(pool)[0][nn]]
             done |= todo
     # скруглённые рёбра/фаски (нормаль между двумя гранями, |N|max < 0.8 — в плоскости не попали): деталь ближайшего покрытого тексела (не верх/низ) без привязки к плоскости, в пределах corner_max
@@ -544,7 +554,7 @@ def photo_detail_step(tex_in, tone_tex, tx, g: dict, st: dict, Ld, valid, fgrp, 
     # грань, которую фото не видело (за плитой, у края, с обратной стороны за пределами зеркала), но той же детали: рисунок — с видимой части ЭТОЙ ЖЕ грани по оси волокна, не старый шум
     if pd.get('fibre_fill'):
         if v_ax is not None:
-            nf = fibre_fill(np.asarray(tx.Q, np.float64), Ns, ing_t, cover, d_full, v_ax, float(pd['fibre_weight']), float(pd['fibre_plane_w']), int(pd['fibre_min_pool']), float(pd.get('fibre_corner_max', 0.0)))
+            nf = fibre_fill(np.asarray(tx.Q, np.float64), Ns, ing_t, cover, d_full, v_ax, float(pd['fibre_weight']), float(pd['fibre_plane_w']), int(pd['fibre_min_pool']), float(pd.get('fibre_corner_max', 0.0)), bool(pd.get('fibre_reflect', False)))
             info['fibre_axis'] = int(v_ax)
             info['fibre_filled_texels'] = int(nf.sum())
             tag[nf & ~cover] = 5
