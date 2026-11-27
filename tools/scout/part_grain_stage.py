@@ -375,7 +375,8 @@ def sel_margin(ingrp: np.ndarray, er0: int, er: int) -> np.ndarray:
     kk = np.ones((4 * er + 1, 4 * er + 1), np.uint8)
     thick = cv2.dilate(dt, kk)
     thin = thick < 1.5 * er                                                     # узкая деталь: полутолщина < 1.5·er (кромка плиты 2–3 см при er≈1,3 см)
-    return np.where(thin, sel0, dt > er)
+    core = cv2.erode(m, np.ones((2 * er + 1, 2 * er + 1), np.uint8)).astype(bool)      # квадратное ядро: рваная граница маски съедается надёжнее круга
+    return np.where(thin, sel0, core)
 
 
 def photo_detail_step(tex_in, tone_tex, tx, g: dict, st: dict, Ld, valid, fgrp, names: list, ppc: float, rules: dict, rep: dict, face_n=None, ab_frame=None):
