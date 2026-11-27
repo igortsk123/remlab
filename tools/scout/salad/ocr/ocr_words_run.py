@@ -42,7 +42,8 @@ SHEET_EXT = ('jpeg', 'jpg', 'png')
 
 def rules_ver() -> str:
     """Версия правил — как words_on_sheet.rules_ver(): sha256 words_rules.json, 12 знаков."""
-    return hashlib.sha256(open(os.path.join(FROZEN, 'words_rules.json'), 'rb').read()).hexdigest()[:12]
+    with open(os.path.join(FROZEN, 'words_rules.json'), 'rb') as f:
+        return hashlib.sha256(f.read()).hexdigest()[:12]
 
 
 def sheet_sha(path: str) -> str:

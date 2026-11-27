@@ -3,6 +3,7 @@
 Равны должны быть words, found, n_lines (conf — в таблице, допуск ±0,01 только для показа). Расхождение хоть на одном листе, лист без записи в кэше (или с записью под другой версией правил) — КОД 1 и
 «КЭШ ВЫБРОСИТЬ, считать локально»: локальный OCR остаётся запасным. С `--discard` кэш при этом ПЕРЕИМЕНУЕТСЯ в `<кэш>.DISCARDED-<время>` (не удаляется; читатель увидит пустое место и посчитает сам).
 Сломанная проверка (нет листов/venv, мало листов, OCR упал) — код 2 с причиной, НЕ «0 расхождений». Всё сошлось — код 0.
+Среди контрольных — хотя бы один лист со словами (по кэшу); нет такого среди N случайных — добирается ещё один (N+1) со словами; в наборе таких нет — предупреждение в выводе.
 Случайность воспроизводима: выбор печатается вместе с `--seed` (по умолчанию — от времени, значение в выводе).
 
 Запуск (после заполнения кэша на Salad, ПОСЛЕ вскрытия свежих листов):
@@ -40,6 +41,23 @@ def pick(ids: list[str], n: int, seed: int) -> list[str]:
     if len(uniq) < n:
         raise ControlError(f'для контроля нужно {n} листов, в списке {len(uniq)}')
     return sorted(random.Random(seed).sample(uniq, n))
+
+
+def add_words_sheet(chosen: list[str], ids: list[str], cache: dict, dirs: list[str], rules: str, seed: int) -> tuple[list[str], str]:
+    """Условие менеджера 27.11 (Fable): среди контрольных хотя бы один лист СО СЛОВАМИ (по записи кэша). Нет — добираем шестой случайный лист со словами
+    (воспроизводимо по seed). Листов со словами в наборе нет вообще — ничего не добавляем, но говорим об этом (контроль слепой на ветку «слова найдены»).
+    → (список id, пояснение для вывода)."""
+    def has_words(sid):
+        p = RUN.find_sheet(sid, dirs)
+        e = cache.get(RUN.sheet_sha(p)) if p else None
+        return bool(e and e.get('rules') == rules and e.get('words'))
+    if any(has_words(s) for s in chosen):
+        return chosen, ''
+    pool = [s for s in sorted(set(ids)) if s not in chosen and has_words(s)]
+    if not pool:
+        return chosen, 'ВНИМАНИЕ: в наборе нет листов со словами по кэшу — контроль не проверяет ветку «слова найдены»'
+    extra = random.Random(seed + 1).choice(pool)
+    return sorted(chosen + [extra]), f'среди {len(chosen)} случайных не было листа со словами — добран шестой: {extra}'
 
 
 def local_ocr(path: str, python: str = LOCAL_PY, script: str = WORDS_PY, timeout: int = 600) -> dict:
@@ -101,8 +119,11 @@ def run(a, ocr_fn=local_ocr) -> int:
         with open(a.ids, encoding='utf-8') as f:
             ids = [ln.strip() for ln in f if ln.strip() and not ln.startswith('#')]
         seed = a.seed if a.seed is not None else int(time.time())
-        chosen = pick(ids, a.n, seed)
-        rows = check(cache, chosen, [d for d in a.sheets_dirs.split(',') if d], RUN.rules_ver(), ocr_fn)
+        dirs = [d for d in a.sheets_dirs.split(',') if d]
+        chosen, note = add_words_sheet(pick(ids, a.n, seed), ids, cache, dirs, RUN.rules_ver(), seed)
+        if note:
+            print(note)
+        rows = check(cache, chosen, dirs, RUN.rules_ver(), ocr_fn)
     except (ControlError, OSError, ValueError, subprocess.TimeoutExpired) as exc:
         print(f'КОНТРОЛЬ НЕ ВЫПОЛНЕН (код 2): {type(exc).__name__}: {exc}', file=sys.stderr)
         return 2

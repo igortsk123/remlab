@@ -166,6 +166,59 @@ class T(unittest.TestCase):
             f.write('#!/bin/sh\necho \'{"words": true, "found": ["кухня"], "conf": 1, "n_lines": 3, "cache": false}\'\n')
         self.assertEqual(C.local_ocr('x.png', python=fake)['n_lines'], 3)
 
+    def only_words(self, with_words):
+        """Оставить слова только у листов из with_words (и в кэше, и в «локальной правде»)."""
+        for sid in self.env.ids:
+            p = os.path.join(self.env.dir, sid, 'plan.png')
+            w = sid in with_words
+            self.env.truth[p].update(words=w, found=['кухня'] if w else [], conf=0.9 if w else 0)
+            self.env.cache[RUN.sheet_sha(p)].update(words=w, found=['кухня'] if w else [], conf=0.9 if w else 0)
+        self.env.save()
+
+    def seed_where(self, sid, included):
+        for s in range(1, 200):
+            if (sid in C.pick(self.env.ids, 5, s)) == included:
+                return s
+        self.fail('нет подходящего зерна')
+
+    def test_adds_sixth_sheet_with_words_when_none_chosen(self):
+        self.only_words({'sh-7'})
+        seed = self.seed_where('sh-7', False)
+        rc, out, _ = run(self.env.args(seed=seed), self.env.ocr)
+        self.assertEqual(rc, 0, out)
+        self.assertIn('добран шестой: sh-7', out)
+        self.assertIn('совпало 6 из 6', out)
+        self.assertIn('| sh-7 |', out)
+
+    def test_no_extra_when_a_words_sheet_is_already_chosen(self):
+        self.only_words({'sh-7'})
+        rc, out, _ = run(self.env.args(seed=self.seed_where('sh-7', True)), self.env.ocr)
+        self.assertEqual(rc, 0)
+        self.assertIn('совпало 5 из 5', out)
+        self.assertNotIn('добран', out)
+
+    def test_no_words_anywhere_warns_and_stays_five(self):
+        self.only_words(set())
+        rc, out, _ = run(self.env.args(), self.env.ocr)
+        self.assertEqual(rc, 0)
+        self.assertIn('нет листов со словами', out)
+        self.assertIn('совпало 5 из 5', out)
+
+    def test_negative_control_mismatch_on_the_added_sixth_sheet_is_rc1(self):
+        self.only_words({'sh-7'})
+        seed = self.seed_where('sh-7', False)
+        bad = os.path.join(self.env.dir, 'sh-7', 'plan.png')
+        loc = lambda p: {**self.env.truth[p], 'found': []} if p == bad else self.env.ocr(p)
+        rc, out, err = run(self.env.args(seed=seed), loc)
+        self.assertEqual(rc, 1, out)
+        self.assertIn('sh-7', err)
+
+    def test_added_sheet_is_reproducible_by_seed(self):
+        self.only_words({'sh-3', 'sh-7'})
+        a = C.add_words_sheet(C.pick(self.env.ids, 5, 3), self.env.ids, self.env.cache, [self.env.dir], RULES, 3)
+        b = C.add_words_sheet(C.pick(self.env.ids, 5, 3), self.env.ids, self.env.cache, [self.env.dir], RULES, 3)
+        self.assertEqual(a, b)
+
     def test_uses_frozen_module_and_same_helpers(self):
         self.assertTrue(C.WORDS_PY.endswith(os.path.join('frozen', 'words_on_sheet.py')))
         self.assertTrue(os.path.exists(C.WORDS_PY))
