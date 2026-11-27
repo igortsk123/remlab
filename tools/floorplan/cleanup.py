@@ -40,6 +40,105 @@ def flag_rect() -> bool:
     return os.environ.get('FP_CLEAN_RECT', '0') == '1'
 
 
+def flag_deskew() -> bool:
+    return os.environ.get('FP_CLEAN_DESKEW', '0') == '1'
+
+
+# ---------------- (0) доворот повёрнутого листа (T-171/vhod, план Fable otvet-33 задача 6) ----------------
+DESKEW_MIN = 1.5         # главный угол линий меньше — лист ровный, не трогаем
+DESKEW_MAX = 30.0        # больше — не доворот (план «под 45°» — вопрос другого шага), не трогаем
+DESKEW_RESID = 1.0       # после поворота угол пересчитан: остаток ≥ этого → откат (оценка угла грубая)
+DESKEW_SHARE_MIN = 0.15  # доля длины линий на главном угле и поперёк него (±1,5°): меньше — главного угла у листа нет (рукописный/круглый план)
+DESKEW_BALANCE_MIN = 0.04  # …и слабая из двух сторон не меньше этой доли: у плана стены идут в обе стороны, у линейки/рамки листа — в одну
+DESKEW_MIN_SEGS = 12
+
+
+def _fold90(a):
+    """угол отрезка 0…180 → −45…45 (по модулю 90°)"""
+    return (np.asarray(a, np.float64) + 45.0) % 90.0 - 45.0
+
+
+def main_angle(gray):
+    """→ (θ | None, info). θ — главный угол линий листа по модулю 90°, градусы −45…45; «+» — линии идут вниз вправо (по часовой в картинке, y вниз).
+    Гистограмма длины линий, шаг 0,5°, окно ±1°, потом уточнение средним по длине в окне ±1,5°. Нет линий / нет главного угла — None с причиной."""
+    segs = _segments(gray)
+    info = {'segs': int(len(segs))}
+    if len(segs) < DESKEW_MIN_SEGS:
+        info['reason'] = f'мало линий ({len(segs)})'
+        return None, info
+    a0, ln = _ang(segs), _len(segs)
+    a = _fold90(a0)
+    tot = max(float(ln.sum()), 1e-9)
+    hist = np.zeros(180)
+    for ai, li in zip(a, ln):
+        hist[int((ai + 45.0) * 2) % 180] += li
+    sm = np.convolve(np.concatenate([hist[-2:], hist, hist[:2]]), np.ones(5) / 5, mode='valid')
+    cands = []                                                # до 4 самых высоких пиков, разнесённых > 3°: рамки листа и линейки не должны прятать угол плана
+    for b in np.argsort(sm)[::-1]:
+        p = (float(b) + 0.5) / 2 - 45.0
+        if all(abs(float(_fold90(p - c))) > 3.0 for c in cands):
+            cands.append(p)
+        if len(cands) == 4:
+            break
+    best = None
+    for p in cands:
+        near = np.abs(_fold90(a - p)) <= 1.5
+        if not near.any():
+            continue
+        th = float(np.average(_fold90(a[near] - p) + p, weights=ln[near]))
+        d = a0 - th
+        l1 = float(ln[np.abs((d + 90.0) % 180.0 - 90.0) <= 1.5].sum())      # вдоль θ
+        l2 = float(ln[np.abs(d % 180.0 - 90.0) <= 1.5].sum())               # поперёк (θ + 90°)
+        sc = min(l1, l2)                                      # у плана есть оба семейства стен; у линейки листа — одно
+        if best is None or sc > best[0]:
+            best = (sc, th, l1, l2)
+    if best is None:
+        info['reason'] = 'главного угла нет'
+        return None, info
+    _, theta, l1, l2 = best
+    share, balance = (l1 + l2) / tot, min(l1, l2) / tot
+    info['theta'], info['share'], info['balance'] = round(theta, 2), round(share, 3), round(balance, 3)
+    if share < DESKEW_SHARE_MIN or balance < DESKEW_BALANCE_MIN:
+        info['reason'] = f'главного угла нет: на нём {share:.2f} длины линий (< {DESKEW_SHARE_MIN}), слабая сторона {balance:.2f} (< {DESKEW_BALANCE_MIN})'
+        return None, info
+    return theta, info
+
+
+def deskew_lines(bgr):
+    """→ (повёрнутый | None, info). Лист поворачивается на главный угол линий (холст расширяется, поле белое); info['H'] — матрица исходный лист → выход.
+    Не применяется: лист ровный (< DESKEW_MIN), угол > DESKEW_MAX, главного угла нет, после поворота остаток ≥ DESKEW_RESID."""
+    H0, W0 = bgr.shape[:2]
+    k = min(1.0, RECT_WORK / max(H0, W0))
+    small = cv2.resize(bgr, (round(W0 * k), round(H0 * k)), interpolation=cv2.INTER_AREA) if k < 1 else bgr
+    theta, info = main_angle(cv2.cvtColor(small, cv2.COLOR_BGR2GRAY))
+    info['ok'] = False
+    if theta is None:
+        return None, info
+    if abs(theta) < DESKEW_MIN:
+        info['reason'] = f'лист ровный: главный угол {theta:.2f}° (< {DESKEW_MIN}°)'
+        return None, info
+    if abs(theta) > DESKEW_MAX:
+        info['reason'] = f'главный угол {theta:.1f}° (> {DESKEW_MAX:.0f}°)'
+        return None, info
+    M = cv2.getRotationMatrix2D((W0 / 2.0, H0 / 2.0), theta, 1.0)       # «+» угол = против часовой: линия, идущая вниз вправо на θ, становится горизонтальной
+    c, s = abs(M[0, 0]), abs(M[0, 1])
+    nW, nH = int(np.ceil(H0 * s + W0 * c)), int(np.ceil(H0 * c + W0 * s))
+    M[0, 2] += nW / 2.0 - W0 / 2.0
+    M[1, 2] += nH / 2.0 - H0 / 2.0
+    out = cv2.warpAffine(bgr, M, (nW, nH), flags=cv2.INTER_CUBIC, borderMode=cv2.BORDER_CONSTANT, borderValue=(255, 255, 255))
+    ks = min(1.0, RECT_WORK / max(nH, nW))
+    out_s = cv2.resize(out, (round(nW * ks), round(nH * ks)), interpolation=cv2.INTER_AREA) if ks < 1 else out
+    resid, info2 = main_angle(cv2.cvtColor(out_s, cv2.COLOR_BGR2GRAY))
+    info['angle_deg'] = round(theta, 2)
+    if resid is None or abs(resid) >= DESKEW_RESID:
+        info['reason'] = f'после поворота остаток {"?" if resid is None else round(resid, 2)}° (≥ {DESKEW_RESID}°) — откат'
+        return None, info
+    info['residual_deg'] = round(resid, 2)
+    info['ok'] = True
+    info['H'] = np.vstack([M, [0, 0, 1.0]]).tolist()
+    return out, info
+
+
 # ---------------- (а) выпрямление по линиям ----------------
 def _segments(gray):
     h, w = gray.shape
@@ -679,9 +778,20 @@ def separate_layers(bgr):
     return out, info, {'furniture': furn, 'dims': dims}
 
 
-def clean_bgr(bgr, rectify=True, background=True, lines=False, grid=False, layers=False):
-    """→ (bgr, ops, info). ops ⊂ ['rectify', 'background', 'grid', 'layers', 'lines']; ничего не применилось — тот же массив."""
+def clean_bgr(bgr, rectify=True, background=True, lines=False, grid=False, layers=False, deskew=False):
+    """→ (bgr, ops, info). ops ⊂ ['deskew', 'rectify', 'background', 'grid', 'layers', 'lines']; ничего не применилось — тот же массив."""
     ops, info, cur = [], {}, bgr
+    if deskew:                                                # доворот — первым: выпрямление ниже видит уже ровный лист (≥ 0,80 на осях → пропуск)
+        d_, inf = deskew_lines(cur)
+        info['deskew'] = {k: v for k, v in inf.items() if k != 'H'}
+        if d_ is not None:
+            cur = d_
+            ops.append('deskew')
+            info['deskew_H'] = inf['H']
+    if rectify:
+        if 'deskew_H' in info:                                # после доворота выпрямление не шагает: две геометрии подряд — матрицы не склеены
+            info['rect'] = {'ok': False, 'reason': 'лист довёрнут (deskew) — выпрямление не применяется'}
+            rectify = False
     if rectify:
         w_, inf = rectify_lines(cur)
         info['rect'] = {k: v for k, v in inf.items() if k != 'H'}
@@ -720,20 +830,24 @@ def clean_sheet_steps(sheet, flags=None):
     """PIL RGB → (PIL RGB, ops, steps). steps — геометрия для обратного преобразования (исходный лист ← выход):
     [{'op': 'rectify', 'H': 3×3 исходный→выход, 'in': [W, H], 'out': [w, h]}]; фон и усиление линий геометрию не меняют. Выключено/не применилось — тот же объект, [], []."""
     if flags is None:
-        rect, bg, ln, gr, ly = flag_rect(), flag_bg(), flag_lines(), flag_grid(), flag_layers()
+        rect, bg, ln, gr, ly, dk = flag_rect(), flag_bg(), flag_lines(), flag_grid(), flag_layers(), flag_deskew()
     else:                                                     # явный набор (служба с потоками): окружение не читаем
-        rect, bg, ln, gr, ly = (bool(flags.get(k)) for k in ('rect', 'bg', 'lines', 'grid', 'layers'))
-    if not (rect or bg or ln or gr or ly):
+        rect, bg, ln, gr, ly, dk = (bool(flags.get(k)) for k in ('rect', 'bg', 'lines', 'grid', 'layers', 'deskew'))
+    if not (rect or bg or ln or gr or ly or dk):
         return sheet, [], []
     from PIL import Image
     try:
         bgr = cv2.cvtColor(np.asarray(sheet.convert('RGB')), cv2.COLOR_RGB2BGR)
-        out, ops, info = clean_bgr(bgr, rectify=rect, background=bg, lines=ln, grid=gr, layers=ly)
+        out, ops, info = clean_bgr(bgr, rectify=rect, background=bg, lines=ln, grid=gr, layers=ly, deskew=dk)
     except Exception:  # noqa: BLE001 — чистка не должна ронять разбор: лист как есть
         return sheet, [], []
     if not ops:
         return sheet, [], []
     steps = []
+    if 'deskew' in ops and 'deskew_H' in info:
+        d = info['deskew']
+        steps.append({'op': 'deskew', 'H': info['deskew_H'], 'angle_deg': d['angle_deg'], 'residual_deg': d['residual_deg'],
+                      'in': [bgr.shape[1], bgr.shape[0]], 'out': [out.shape[1], out.shape[0]]})
     if 'rectify' in ops and 'rect_H' in info:
         steps.append({'op': 'rectify', 'H': info['rect_H'], 'in': [bgr.shape[1], bgr.shape[0]], 'out': [out.shape[1], out.shape[0]]})
     return Image.fromarray(cv2.cvtColor(out, cv2.COLOR_BGR2RGB)), ops, steps

@@ -1,6 +1,8 @@
 """Одношаговый вход листа (T-20261126-98/4, Fable otvet-5): весь вход одним вызовом `run(sheet, flags=None)`.
 
 Что делает по порядку (каждый шаг за своим флагом, по умолчанию ВЫКЛ):
+  0. доворот повёрнутого листа      deskew (FP_CLEAN_DESKEW; главный угол линий 1,5…30° → поворот, угол в паспорт `source.inputDeskewDeg`;
+                                    меняет геометрию → шаг 'deskew' в inputTransform; после него rect не применяется)
   1. выпрямление по линиям         rect   (FP_CLEAN_RECT; меняет геометрию → шаг 'rectify' в inputTransform)
   2. чистка фона скана             bg     (FP_CLEAN_BG)
   3. снятие сетки «в клетку»       grid   (FP_CLEAN_GRID)
@@ -17,7 +19,7 @@ import os
 import apartment_cut
 import cleanup
 
-ENV = {'rect': 'FP_CLEAN_RECT', 'bg': 'FP_CLEAN_BG', 'grid': 'FP_CLEAN_GRID', 'lines': 'FP_CLEAN_LINES', 'layers': 'FP_CLEAN_LAYERS', 'cut': 'FP_CUT_APT'}
+ENV = {'deskew': 'FP_CLEAN_DESKEW', 'rect': 'FP_CLEAN_RECT', 'bg': 'FP_CLEAN_BG', 'grid': 'FP_CLEAN_GRID', 'lines': 'FP_CLEAN_LINES', 'layers': 'FP_CLEAN_LAYERS', 'cut': 'FP_CUT_APT'}
 
 
 def flag_all() -> bool:
@@ -39,4 +41,5 @@ def run(sheet, flags=None):
     if cut.get('status') == 'cut':
         ops = list(ops) + ['cut']
         steps = list(steps) + [{'op': 'crop', **cut['transform']}]
-    return {'sheet': sheet, 'ops': ops, 'steps': steps, 'cut': cut}
+    deg = next((s['angle_deg'] for s in steps if s.get('op') == 'deskew'), None)
+    return {'sheet': sheet, 'ops': ops, 'steps': steps, 'cut': cut, 'deskew_deg': deg}
