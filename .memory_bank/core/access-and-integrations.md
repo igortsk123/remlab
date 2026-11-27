@@ -38,6 +38,6 @@ review_after: 2026-12-05
   GHCR — единственная копия образа (ADR-0232), вход `GHCR_TOKEN` (Tier 2). `HF_TOKEN` (DINOv3, 18.11) — Tier 2 § env_keys.
 - **RunPod (19.11):** карты ≥40 ГБ, ключ в `_secrets/` — Tier 2.
 - **GitHub, логи CI (19.11):** ключ на чтение Actions до ≈17.02.2027 — Tier 2 § GitHub.
-- **Гдеслон (03.09):** фиды первичны (`original_picture`, `article`, описание), API — комиссия;
-  id округлён (связь по `article`), `available` бесполезен — ADR-0171.
+- **Гдеслон (03.09):** фиды первичны, API — комиссия; связь по `article` (id округлён) — ADR-0171.
 - **Telegram `@remlabservice_bot`:** токен в `tools/scout/.env.alert` (+ сторож каталога на сервере); клиентский бот, UptimeRobot — Tier 2.
+- **Tectly (27.11):** 0/3 — не покупать; Tier 2.

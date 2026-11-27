@@ -453,3 +453,7 @@ base 2833 против 85 у `gpt-4o`, то есть в долларах как 
 - Напоминание владельцу обновить ключ — user-таймер systemd `github-token-remind.timer` (10.02.2027 10:00 Лондон, `tools/scout/alert.sh`).
 - Без ключа видны только аннотации `::error::` (`.github/workflows/ci.yml`: шаги test_mesh_photo и memory-project-audit) — публичны через API check-runs.
 - Дальше: сигнал «CI красный» сам прикладывает строки ошибки (план задач П1.100).
+
+## Tectly — распознавание планов (27.11.2026, владелец TG 3546–3580)
+- **Tectly (27.11):** распознавание планов по API (вход Basic → токен 12 ч, проект → документ → план → этаж); ключи — `_secrets/ACCESS.md` § Tectly и `~/.config/remlab/tectly.env`; бесплатные попытки израсходованы (3 листа, 0/3 пригодны) — не покупать; скрипт `~/remlab-logs/tectly/tectly_run3.py`.
+- API: OpenAPI `https://platform.tectly.com/api/v1/api-docs/spec/service`; `POST /issue-authentication-token` (Basic KEY:SECRET) → JWT 12 ч; `POST /projects` → `POST /projects/{id}/documents` (multipart `document`) → `GET /documents/{id}` → `/document-pages/{id}` → `/plans/{id}` → `/floors/{id}/walls|rooms|wall-openings|scale-lines`; координаты — доли внутри `pageSection`. Кадры наложения — `~/remlab-logs/tectly/kadry/`, `overlay.py`.
