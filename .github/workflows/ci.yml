@@ -406,6 +406,7 @@ jobs:
       - run: python tools/scout/mesh_grey_top.py --selftest
       - run: python tools/scout/mesh_quarantine.py --selftest
       - run: python tools/scout/tests/test_grey_soft.py   # серая крышка — МЯГКИЙ карантин по всем мешам детектора (owner+sha), статус ревизии не меняется, auto_release не блокирует, удержание болванок от прополки (T-20261119-101/3)
+      - run: python tools/scout/tests/test_mesh_quarantine_manual.py   # ручная строка карантина --manual (T-20261127-175/brovis): пишется с glb_sha16 и причиной, повтор не дублирует, нет причины/модели/БД → код ≠ 0, hard_sql её вычитает; отрицательный контроль (строку убрали → товар вернулся; запись молча не легла → отказ)
       - run: python tools/scout/salad/tests_accept_finish.py
       - run: python tools/scout/form_flat.py --selftest
       - run: pip install shapely && python tools/scout/tests/test_family_colour_feed.py   # (shapely — trial_demo → trial_room; в scout-orient его нет, CI красный с 2cd4032b) вариант семьи на чужой модели другого цвета не идёт в «Заменить» /demo и тура: подкраска от модели, строгий порог, отметка без замера, свой меш в спрос («Латте» зелёная, T-20261112-89)
