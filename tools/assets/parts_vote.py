@@ -29,6 +29,36 @@ def load_rules(path: str = RULES_PATH) -> dict:
         return json.load(f)
 
 
+def duplicate_face_map(faces: np.ndarray) -> dict:
+    """Карта «грань меша ↔ грань Blender» при парных дублях (T-20261126-163/3): TRELLIS отдаёт пары соседних граней с одним и тем же набором из 3 вершин
+    (обычно обратная намотка = двусторонняя плёнка), Blender при импорте GLB снимает лишнюю из пары, и число граней сходится только после снятия дублей.
+    Дубль — грань, чей отсортированный набор вершин уже был у грани с меньшим номером; остаётся ПЕРВАЯ из группы. Учтённой считается группа из подряд идущих номеров
+    (порядок оставшихся граней тогда один и тот же, какую бы из пары ни снял Blender); дубль не в ряд с предыдущим членом группы — `nonconsecutive` (не учтён, этап откажет).
+    Нет дублей → {"n_dup": 0, "nonconsecutive": 0, "keep": None, "rep": None} (тождественная карта, прежний путь без изменений).
+    keep — маска оставляемых граней меша (длина = граней меша); rep[i] — номер грани в МЕШЕ БЕЗ ДУБЛЕЙ (= грань Blender) для i-й грани меша (дубль → номер её пары)."""
+    f = np.asarray(faces)
+    n = len(f)
+    if n < 2:
+        return {"n_dup": 0, "nonconsecutive": 0, "keep": None, "rep": None}
+    s = np.sort(f, axis=1)
+    order = np.lexsort((s[:, 2], s[:, 1], s[:, 0]))                      # устойчивая: внутри группы номера граней по возрастанию
+    ss = s[order]
+    new = np.ones(n, dtype=bool)
+    new[1:] = (ss[1:] != ss[:-1]).any(axis=1)
+    n_dup = int(n - new.sum())
+    if n_dup == 0:
+        return {"n_dup": 0, "nonconsecutive": 0, "keep": None, "rep": None}
+    gid = np.cumsum(new) - 1
+    first_of_group = order[new][gid]
+    first = np.empty(n, dtype=np.int64)
+    first[order] = first_of_group
+    keep = first == np.arange(n)
+    pos = np.nonzero(~new)[0]                                             # позиции дублей в отсортированном порядке
+    nonconsecutive = int((order[pos] != order[pos - 1] + 1).sum())
+    newidx = np.cumsum(keep) - 1
+    return {"n_dup": n_dup, "nonconsecutive": nonconsecutive, "keep": keep, "rep": newidx[first]}
+
+
 def label_map(masks: list[np.ndarray], object_mask: np.ndarray, rules: dict) -> np.ndarray:
     """Маски кадра → карта областей (−1 — нет). Крупные рисуются первыми, мелкие поверх; считается только то, что внутри предмета (`object_mask`)."""
     area_obj = max(1, int(object_mask.sum()))

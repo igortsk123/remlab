@@ -314,5 +314,63 @@ class PartsVote(unittest.TestCase):
         self.assertLessEqual(sum(len(v["az_deg"]) for v in RULES["orbit"]["views"]), 14)
 
 
+class DuplicateFaceMap(unittest.TestCase):
+    """T-20261126-163/3: пары граней с тем же набором вершин (обратная намотка, как у TRELLIS) — карта грань меша ↔ грань Blender."""
+
+    @staticmethod
+    def faces_with_pair(n: int = 8, at: int = 3, reverse: bool = True):
+        _, f = strip_mesh(n)
+        f = f.tolist()
+        twin = list(reversed(f[at])) if reverse else list(f[at])
+        f.insert(at + 1, twin)                                            # двойник сразу за гранью at
+        return np.array(f, dtype=np.int64)
+
+    def test_no_duplicates_identity(self):
+        _, f = strip_mesh(6)
+        m = pv.duplicate_face_map(f)
+        self.assertEqual((m["n_dup"], m["nonconsecutive"]), (0, 0))
+        self.assertIsNone(m["keep"])
+        self.assertIsNone(m["rep"])
+
+    def test_reversed_pair(self):
+        f = self.faces_with_pair(reverse=True)                            # было 16 граней, стало 17: грань 4 — двойник грани 3 с обратной намоткой
+        m = pv.duplicate_face_map(f)
+        self.assertEqual((m["n_dup"], m["nonconsecutive"]), (1, 0))
+        self.assertEqual(int(m["keep"].sum()), len(f) - 1)
+        self.assertFalse(bool(m["keep"][4]))
+        self.assertTrue(bool(m["keep"][3]))
+        rep = m["rep"]
+        self.assertEqual(int(rep[4]), int(rep[3]))                        # двойник → номер своей пары
+        self.assertEqual(int(rep[5]), 4)                                  # дальше нумерация сдвинута на 1 — как у Blender
+        self.assertEqual(int(rep.max()) + 1, len(f) - 1)
+        self.assertTrue(np.array_equal(rep[:4], np.arange(4)))
+
+    def test_same_winding_pair_is_also_duplicate(self):
+        m = pv.duplicate_face_map(self.faces_with_pair(reverse=False))
+        self.assertEqual((m["n_dup"], m["nonconsecutive"]), (1, 0))
+
+    def test_labels_of_pair_match_after_expansion(self):
+        f = self.faces_with_pair()
+        m = pv.duplicate_face_map(f)
+        part_dedup = np.arange(int(m["keep"].sum())) % 3                   # метки на меше без дублей
+        full = part_dedup[m["rep"]]
+        self.assertEqual(len(full), len(f))                                # число граней МЕША
+        self.assertEqual(int(full[4]), int(full[3]))                       # метка второй грани пары = метка пары
+        self.assertTrue(np.array_equal(full[m["keep"]], part_dedup))      # остальные — как были
+
+    def test_nonconsecutive_duplicate_is_not_accounted(self):
+        _, f = strip_mesh(8)
+        f = np.concatenate([f, f[2:3][:, ::-1]])                          # двойник грани 2 — в самом конце, не подряд
+        m = pv.duplicate_face_map(f)
+        self.assertEqual((m["n_dup"], m["nonconsecutive"]), (1, 1))
+
+    def test_run_refuses_when_count_not_matching(self):
+        """Строгая проверка: после карты число не сошлось (Blender снял что-то ещё) — отказ, как раньше (проверка в parts_sam.run сравнивает info['faces'] с числом после карты)."""
+        f = self.faces_with_pair()
+        m = pv.duplicate_face_map(f)
+        blender_faces = len(f) - 2                                         # Blender снял на 1 больше, чем дубли
+        self.assertNotEqual(blender_faces, int(m["keep"].sum()))
+
+
 if __name__ == "__main__":
     unittest.main(verbosity=2)
