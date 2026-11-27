@@ -713,7 +713,11 @@ step photo_speed "$PY" ../ops/photo-speed.py --digest
 # шаг · коммит» по публичному API GitHub; красный — WARN:ci_status (шаг warn, не FAIL); API не ответил — «неизвестно», без WARN
 step ci_status bash ../ops/ci-status.sh --digest
 # живая проверка демо на проде после публикации (b2b-12): стили, кадры, замена, ссылка, английский
-step demo_live bash ../ops/demo-live.sh
+# ПОД ОЧЕРЕДЬЮ ТЯЖЁЛЫХ ПРОГОНОВ (T-20261127-175/demo-live-slot): playwright-браузер (headless_shell 10+ мин, замер ≈2,7 ядра) шёл МИМО heavy-slot —
+# на pakardev нагрузка 27 на 16 ядер. Заявка: 3 ГБ, 3 ядра (без `--cores` вывелось бы 6 — «Playwright рисует 3D процессором»; здесь живая проверка
+# страниц, замер 2,7), ждать очередь до часа — у самого шага своего таймаута нет (менеджер 27.11). Не дождался (код 124) — шаг FAIL и строка ERROR с причиной
+# «очередь heavy-slot занята больше N мин», не молча; число секунд одно — последним аргументом (`$0`). Сторож `tools/ops/heavy_slot_guard.py` держит это в CI
+step demo_live bash -c 'bash ../ops/heavy-slot.sh demo-live --min-gb 3 --cores 3 --timeout "$0" -- bash ../ops/demo-live.sh; rc=$?; [ "$rc" -eq 124 ] && echo "ERROR:demo_live: очередь heavy-slot занята больше $(($0 / 60)) мин — живая проверка демо не запускалась"; exit "$rc"' 3600
 
 # 8. ЕЖЕНЕДЕЛЬНО (понедельник): полный перегон размещаемости всех сетов — решение владельца
 # 2026-08-07 («прогон по остаткам раз в неделю достаточно»). Отчёт: solver-check-report.json.
