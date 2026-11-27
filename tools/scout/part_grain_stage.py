@@ -264,7 +264,7 @@ def fibre_axis(Q: np.ndarray, x: np.ndarray, y: np.ndarray, use: np.ndarray, Ns:
     return others[int(np.argmax(share))]
 
 
-def fibre_fill(Q: np.ndarray, Ns: np.ndarray, ing: np.ndarray, cover: np.ndarray, d_full: np.ndarray, v_ax: int, w_fibre: float, plane_w: float, min_pool: int, corner_max: float = 0.0, reflect: float = 0.0, strip: float = 0.03) -> np.ndarray:
+def fibre_fill(Q: np.ndarray, Ns: np.ndarray, ing: np.ndarray, cover: np.ndarray, d_full: np.ndarray, v_ax: int, w_fibre: float, plane_w: float, min_pool: int, corner_max: float = 0.0, reflect: float = 0.0, strip: float = 0.03, pool_ok=None) -> np.ndarray:
     """Не покрытым текселям тех же граней (ось нормали и знак те же, не горизонтальные плоскости) — деталь ближайшего покрытого тексела этой плоскости, где расстояние вдоль волокна (ось v_ax) стоит w_fibre от поперечного
     (рисунок продолжается вдоль волокна: вертикальные полосы, не пятна старого шума), а смещение вдоль нормали (другая глубина — другая панель) — plane_w. Меняет d_full на месте → маска заполненных текселей."""
     from scipy.spatial import cKDTree
@@ -280,6 +280,8 @@ def fibre_fill(Q: np.ndarray, Ns: np.ndarray, ing: np.ndarray, cover: np.ndarray
         w[a], w[h_ax], w[v_ax] = plane_w, 1.0, w_fibre
         for s_ in (-1.0, 1.0):
             pool = ing & strong & (ax == a) & (sg == s_) & cover
+            if pool_ok is not None and int((pool & pool_ok).sum()) >= min_pool:
+                pool = pool & pool_ok          # источник — «глубокие» тексели видимой части (не у её края: там деталь смещена градиентом света/тени, копия даёт тёмную/светлую полосу шире рисунка)
             todo = ing & strong & (ax == a) & (sg == s_) & ~cover
             if int(pool.sum()) < min_pool or not todo.any():
                 continue
@@ -556,7 +558,13 @@ def photo_detail_step(tex_in, tone_tex, tx, g: dict, st: dict, Ld, valid, fgrp, 
     # грань, которую фото не видело (за плитой, у края, с обратной стороны за пределами зеркала), но той же детали: рисунок — с видимой части ЭТОЙ ЖЕ грани по оси волокна, не старый шум
     if pd.get('fibre_fill'):
         if v_ax is not None:
-            nf = fibre_fill(np.asarray(tx.Q, np.float64), Ns, ing_t, cover, d_full, v_ax, float(pd['fibre_weight']), float(pd['fibre_plane_w']), int(pd['fibre_min_pool']), float(pd.get('fibre_corner_max', 0.0)), float(pd.get('fibre_gap', 0.0)), float(pd.get('fibre_strip', 0.03)))
+            pool_ok = None
+            if float(pd.get('fibre_deep_cm', 0.0)) > 0:
+                import cv2
+                dist_e = cv2.distanceTransform(sel_s.astype(np.uint8), cv2.DIST_L2, 3)
+                pool_ok = (tag == 1) & (dist_e[yi, xi] >= float(pd['fibre_deep_cm']) * ppc)
+                info['fibre_pool_deep'] = int(pool_ok.sum())
+            nf = fibre_fill(np.asarray(tx.Q, np.float64), Ns, ing_t, cover, d_full, v_ax, float(pd['fibre_weight']), float(pd['fibre_plane_w']), int(pd['fibre_min_pool']), float(pd.get('fibre_corner_max', 0.0)), float(pd.get('fibre_gap', 0.0)), float(pd.get('fibre_strip', 0.03)), pool_ok)
             info['fibre_axis'] = int(v_ax)
             info['fibre_filled_texels'] = int(nf.sum())
             tag[nf & ~cover] = 5
