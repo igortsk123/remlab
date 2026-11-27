@@ -172,6 +172,39 @@ test("п.8 гейт: стенограмма не читается → дирек
   }
 });
 
+test("❓4: число пропущенных слишком длинных строк — В СТРОКЕ гейта (причина блока), не только в stderr: 1 длинная строка → «пропущено строк: 1»; без длинных строк пометки нет", () => {
+  const longLine = JSON.stringify({ message: { content: [{ type: "text", text: "я".repeat(5000) }] } });
+  const mkTr = (root, files, withLong) => {
+    const p = transcript(root, files);
+    if (withLong) writeFileSync(p, readFileSync(p, "utf8") + longLine + "\n");
+    return p;
+  };
+  const env = { ...DIRECTOR, STOP_GATE_MAX_LINE_BYTES: "1000" };
+  { // блок стража
+    const { root, cmd } = rulesRepo(RED);
+    const d = JSON.parse(hook(root, mkTr(root, [RULES_EDIT], true), env, ["--strazh", "--strazh-cmd", cmd, "--own-edits"]).stdout);
+    assert.equal(d.decision, "block");
+    assert.match(d.reason, /просрочено 2/);
+    assert.ok(d.reason.includes("пропущено строк: 1"), d.reason);
+    const c = JSON.parse(hook(root, mkTr(root, [RULES_EDIT], false), env, ["--strazh", "--strazh-cmd", cmd, "--own-edits"]).stdout); // контроль: длинных строк нет — пометки нет
+    assert.doesNotMatch(c.reason, /пропущено строк/);
+  }
+  { // блок гейта памяти (без --strazh)
+    const { root } = mk();
+    const d = JSON.parse(hook(root, mkTr(root, ["mine.txt"], true), env, ["--own-edits"]).stdout);
+    assert.equal(d.decision, "block");
+    assert.match(d.reason, /Гейт памяти/);
+    assert.ok(d.reason.includes("пропущено строк: 1"), d.reason);
+  }
+  { // блока нет (страж зелёный) — число всё равно видно: строка мягкого напоминания + stderr-предупреждение осталось
+    const { root, cmd } = rulesRepo(GREEN);
+    const r = hook(root, mkTr(root, [RULES_EDIT], true), env, ["--strazh", "--strazh-cmd", cmd, "--own-edits"]);
+    assert.doesNotMatch(r.stdout, /"decision"/, "блока нет: " + r.stdout);
+    assert.ok(r.stdout.includes("пропущено строк: 1"), r.stdout);
+    assert.match(r.stderr, /пропущено слишком длинных строк: 1/);
+  }
+});
+
 test("п.9 хук целиком на длинной стенограмме при малых пределах (STOP_GATE_CHUNK_BYTES=16): свои правки найдены → страж виден, блок «просрочено 2»", () => {
   const { root, cmd } = rulesRepo(RED);
   const tr = mixedTranscript(root, ["tools/scout/rules/rule-registry.json", "mine.txt"], { filler: 60 });

@@ -93,6 +93,9 @@ try {
 const transcriptRead = ownMode || strazhMode ? readOwnEdits(hookInput.transcript_path, root) : null;
 const own = transcriptRead ? transcriptRead.own : null;
 const dirtyPaths = dirtyAll.map(porcelainPath);
+// Строки стенограммы длиннее предела пропущены (свои правки в них не учтены) — число видно В СТРОКЕ гейта (в причине блока и в напоминании), а не только в stderr (Fable 27, ❓4 → правка).
+const skipNote = transcriptRead?.skipped ? `пропущено строк: ${transcriptRead.skipped} (длиннее предела, свои правки в них не учтены)` : "";
+const withSkip = (reason) => (skipNote ? `${reason} [стенограмма: ${skipNote}]` : reason);
 
 // Стенограмма не прочиталась (длинная/битая/нет) — «свои правки» неизвестны; это НЕ «правок нет» (27.11: у директора 1,29 ГБ → гейт и страж молчали).
 // Директору — блок, если есть что проверять (незакоммиченные файлы правил при --strazh; чужие/свои несохранённые при --own-edits); остальным — предупреждение в stderr.
@@ -103,10 +106,11 @@ if (transcriptRead && !own) {
     console.log(
       JSON.stringify({
         decision: "block",
-        reason:
+        reason: withSkip(
           `Гейт: стенограмма не читается: ${transcriptRead.why}. Что правила именно эта сессия, не определить, а в дереве есть несохранённое ` +
-          `(${(strazhMode && rulesDirty.length ? rulesDirty : changed.map(porcelainPath)).slice(0, 3).join(", ")}) — проверка «своих правок» и стража молчать не может: ` +
-          `почини чтение (tools/stop-gate-own.mjs, readOwnEdits) или закоммить/верни эти файлы, затем завершай.`,
+            `(${(strazhMode && rulesDirty.length ? rulesDirty : changed.map(porcelainPath)).slice(0, 3).join(", ")}) — проверка «своих правок» и стража молчать не может: ` +
+            `почини чтение (tools/stop-gate-own.mjs, readOwnEdits) или закоммить/верни эти файлы, затем завершай.`
+        ),
       })
     );
     process.exit(0);
@@ -134,7 +138,7 @@ if (strazhMode && process.env.REMLAB_ROLE === "директор" && blockMode) {
       console.log(
         JSON.stringify({
           decision: "block",
-          reason: `Гейт стража правил: ${answer.silent}. Ты правил файлы правил (${myRules.slice(0, 3).join(", ")}${myRules.length > 3 ? ", …" : ""}), ` + tail,
+          reason: withSkip(`Гейт стража правил: ${answer.silent}. Ты правил файлы правил (${myRules.slice(0, 3).join(", ")}${myRules.length > 3 ? ", …" : ""}), ` + tail),
         })
       );
       process.exit(0);
@@ -144,9 +148,10 @@ if (strazhMode && process.env.REMLAB_ROLE === "директор" && blockMode) {
       console.log(
         JSON.stringify({
           decision: "block",
-          reason:
+          reason: withSkip(
             `Гейт стража правил: ${line.trim()} → ${verdict.bad.join(", ")}. Ты правил файлы правил (${myRules.slice(0, 3).join(", ")}${myRules.length > 3 ? ", …" : ""}) — ` +
-            `доведи реестр и сроки до нуля (правило в реестр, решение или один перенос срока с причиной), затем завершай.`,
+              `доведи реестр и сроки до нуля (правило в реестр, решение или один перенос срока с причиной), затем завершай.`
+          ),
         })
       );
       process.exit(0);
@@ -230,9 +235,10 @@ if (blockMode && plan && (empty || auditDirty)) {
   console.log(
     JSON.stringify({
       decision: "block",
-      reason:
+      reason: withSkip(
         `Гейт памяти (план ${plan.file}: ${plan.status}; изменено файлов вне .memory_bank/: ${changed.length}). ` +
-        `Запусти /memory-check и доведи audit до «чисто», затем завершай. Причина: ${why.join("; ")}`,
+          `Запусти /memory-check и доведи audit до «чисто», затем завершай. Причина: ${why.join("; ")}`
+      ),
     })
   );
   process.exit(0);
@@ -242,6 +248,7 @@ if (blockMode && plan && (empty || auditDirty)) {
 console.log(
   `⚠ Похоже, в сессии была содержательная работа (изменено файлов вне .memory_bank/: ${changed.length}).`
 );
+if (skipNote) console.log(`  Стенограмма: ${skipNote}.`);
 if (empty) {
   console.log(`  ${scratchWhy}.`);
   console.log("  Запусти /memory-check (разнесёт решения по .memory_bank/) — иначе факты сессии потеряются.");
