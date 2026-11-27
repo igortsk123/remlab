@@ -10,6 +10,7 @@ from __future__ import annotations
 import copy
 import hashlib
 import json
+import sys
 from pathlib import Path
 
 import pytest
@@ -22,13 +23,40 @@ from planner.validate import validate
 ROOT = Path(__file__).resolve().parents[3]
 UK = ROOT / "tools" / "scout" / "uk-bedrooms.json"
 
-# эталон: sha256(json.dumps(<файл до 09.11>, sort_keys=True, ensure_ascii=False)) по коммиту cabfe9fc (main на старте
+# Что такое «пометка» — то же правило, что в метке набора правил (tools/scout/rules_label.py:_is_comment): ключ на «_» с ТЕКСТОМ (`_about`, `_why`, `_note`) на любой
+# глубине; «_»-ключ с числом/флагом/списком — ДАННЫЕ и в хеш входит. Единственное добавление здесь — объект-пометка `_meta` (в этих файлах он был до 27.11 и до сих пор
+# стоит в bedroom.json): пометкой он считается, только если внутри один текст (Fable 27.11: источник/описание/примечание о ролях, данных там не было); положили в него
+# число или список — это данные, хеш краснеет.
+sys.path.insert(0, str(ROOT / "tools" / "scout"))
+import rules_label  # noqa: E402  (стандартная библиотека; тот же файл, что считает метку набора правил)
+
+NOTE_OBJECTS = ("_meta",)
+
+
+def _only_text(v) -> bool:
+    return isinstance(v, str) or (isinstance(v, dict) and all(_only_text(x) for x in v.values()))
+
+
+def _is_note(k, v) -> bool:
+    return rules_label._is_comment(k, v) or (k in NOTE_OBJECTS and isinstance(v, dict) and _only_text(v))
+
+
+def _no_notes(o):
+    """Убрать пометки на любой глубине; правка пояснения хеш не двигает (T-175: пометка _meta → _about уже раз уронила сборку, 27.11)."""
+    if isinstance(o, dict):
+        return {k: _no_notes(v) for k, v in o.items() if not _is_note(k, v)}
+    if isinstance(o, list):
+        return [_no_notes(v) for v in o]
+    return o
+
+
+# эталон: sha256(json.dumps(<файл до 09.11 БЕЗ пометок>, sort_keys=True, ensure_ascii=False)) по коммиту cabfe9fc (main на старте
 # задачи T-20261109-07). Меняется только осознанно — тогда прежние записи правились, а не дополнялись.
+# 27.11 (fix/bedroom-etalon-hash): хеш считается БЕЗ пометок — прежние значения (с пометками) 8027995a…/32acf826…/955a0fe6… заменены; правила те же.
 FROZEN = {
-    "services/planner-solver/rules/bedroom.json": "8027995af1880c2e087051e76844473f73a49bb3ac9bcc7f9db113413a95b555",
-    # 27.11 осознанно: пометка _meta (объект) → _about (строка, тот же текст), правила побайтно те же (870ad0174, T-175)
-    "tools/scout/rules/bedroom-composition.json": "32acf826ddbd310f1bf0c32d956f80b3e05550ad0c685e85eb703257c2654e0c",
-    "tools/scout/rules/bedroom-roles.json": "955a0fe64471429456d658a2ed404b1378feda0be7fde3d37516462d74b7f6df",
+    "services/planner-solver/rules/bedroom.json": "eb408846ca6cd364e8728e588eaef75c4c7af97f6667a2f0c31c3a0644948660",
+    "tools/scout/rules/bedroom-composition.json": "32c49f69f3a057b7a9f3cf334b76ca45dfd987ac8eedc49949abc9a7fce39f73",
+    "tools/scout/rules/bedroom-roles.json": "ee8c5eb0dbf81c932403b31483852e7e3ebf02d2f05c5a15afae12e34e052867",
 }
 # ровно эти добавки (раздел → ключ); всё прочее — прежнее
 ADDED = {
@@ -138,7 +166,72 @@ def _drop_t31(name: str, d: dict) -> dict:
 @pytest.mark.parametrize("name", sorted(FROZEN))
 def test_old_entries_unchanged(name):
     cur = json.loads((ROOT / name).read_text(encoding="utf-8"))
-    assert _h(_without_additions(name, cur)) == FROZEN[name], f"{name}: прежние записи изменились — добавлять, не править"
+    assert _h(_no_notes(_without_additions(name, cur))) == FROZEN[name], f"{name}: прежние записи изменились — добавлять, не править"
+
+
+def _frozen_ok(name: str, cur: dict) -> bool:
+    return _h(_no_notes(_without_additions(name, copy.deepcopy(cur)))) == FROZEN[name]
+
+
+@pytest.mark.parametrize("name", sorted(FROZEN))
+def test_etalon_red_on_rule_change(name):
+    """Сломал — покраснело: поменяли ПРАВИЛО (число, текст значения, ключ, ключ на «_» с данными) → эталон красный; без этого теста хеш мог бы молчать."""
+    cur = json.loads((ROOT / name).read_text(encoding="utf-8"))
+    assert _frozen_ok(name, cur)                                           # исходное — зелёное (иначе контроль ничего не доказывает)
+
+    def leaf(o):                                                           # первый числовой лист вне пометок
+        if isinstance(o, dict):
+            for k, v in o.items():
+                if _is_note(k, v):
+                    continue
+                if isinstance(v, (int, float)) and not isinstance(v, bool):
+                    return o, k
+                r = leaf(v)
+                if r:
+                    return r
+        elif isinstance(o, list):
+            for v in o:
+                r = leaf(v)
+                if r:
+                    return r
+        return None
+
+    base = _without_additions(name, copy.deepcopy(cur))
+    found = leaf(base)
+    assert found is not None, f"{name}: в файле нет числового значения правила — контроль ничего не доказывает"
+    h0, k0 = found
+    h0[k0] = h0[k0] + 1                                                    # правило поменяли
+    assert _h(_no_notes(base)) != FROZEN[name], f"{name}: правка числа правила эталон не заметил"
+    c = _without_additions(name, copy.deepcopy(cur))
+    c["_default"] = 0                                                      # «_»-ключ с ЧИСЛОМ — данные, как в метке правил
+    assert _h(_no_notes(c)) != FROZEN[name], f"{name}: «_»-ключ с данными не заметил"
+    d = _without_additions(name, copy.deepcopy(cur))
+    d["новое_правило"] = {"x": 1}                                          # добавили ключ
+    assert _h(_no_notes(d)) != FROZEN[name], f"{name}: добавленный ключ не заметил"
+    e = _without_additions(name, copy.deepcopy(cur))
+    e["_meta"] = {"source": "текст", "limit": 5}                           # объект на «_» с не-текстом — данные
+    assert _h(_no_notes(e)) != FROZEN[name], f"{name}: _meta с числом не заметил"
+
+
+@pytest.mark.parametrize("name", sorted(FROZEN))
+def test_etalon_green_on_note_change(name):
+    """Поменяли ПОМЕТКУ → эталон зелёный: переписали/добавили/убрали `_about`, `_why`, текстовый `_meta` на любой глубине."""
+    cur = json.loads((ROOT / name).read_text(encoding="utf-8"))
+    assert _frozen_ok(name, cur)
+    a = _without_additions(name, copy.deepcopy(cur))
+    a["_about"] = "совсем другой текст пояснения"
+    a["_новая_пометка_why"] = "ещё одна"
+    a["_meta"] = {"source": "другой источник", "description": "другое описание", "roles": {"примечание": "иначе"}}
+    assert _h(_no_notes(a)) == FROZEN[name], f"{name}: правка пометки двинула эталон"
+    b = _without_additions(name, copy.deepcopy(cur))
+    for k in [k for k, v in b.items() if k.startswith("_") and isinstance(v, str)]:
+        b.pop(k)                                                           # пометок вообще нет
+    b.pop("_meta", None)
+    assert _h(_no_notes(b)) == FROZEN[name], f"{name}: удаление пометок двинуло эталон"
+    for sec in b.values():                                                 # вложенные пометки (в разделах) — тоже не в счёт
+        if isinstance(sec, dict):
+            sec["_вложенная_why"] = "пояснение внутри раздела"
+    assert _h(_no_notes(b)) == FROZEN[name], f"{name}: вложенная пометка двинула эталон"
 
 
 def test_additions_are_last_keys():
