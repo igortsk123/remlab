@@ -79,6 +79,8 @@ check(len(CALLS) == 1 and CALLS[0]['b'] and CALLS[0]['c'] and res.get('ext_calle
 check(CALLS[0]['labels'] == ['plan-clean.json/d', 'plan-clean.json/b', 'plan.json/d', 'plan.json/b'] and CALLS[0]['sid'] == 'лист-1', 'варианты — в порядке мерки: plan-clean d/b, plan d/b', CALLS)
 check(CALLS[0]['plans'] == [PC, PC, P, P] and CALLS[0]['imgs'] == ['d.jpg', 'b.jpg', 'd.jpg', 'b.jpg'], 'в вариантах — свой план (plan-clean / plan) и своя картинка (d / b), не перепутаны', CALLS)
 check(S.ExtStop is X.ExtStop, 'storozh.ExtStop — то же исключение, что ext.ExtStop (вызывающий ловит одно)')
+res, st = call(dict(OV_QUIET, вход='как есть (4c не лучше)'), rules(win=True))
+check(len(CALLS) == 1 and CALLS[0]['c'], 'вход «как есть (4c не лучше)» — тоже «как есть» (префикс, решение директора 27.11): числа считаются', (CALLS, st))
 # ---- 1. все три выкл → ничего не считаем и не классифицируем
 res, st = call(OV_HIT, rules())
 check(not CALLS and res is OV_HIT and st == {}, 'все три выключателя выкл → числа не считаются, ov тот же', (CALLS, st))
@@ -99,7 +101,7 @@ check(len(CALLS) == 1 and CALLS[0]['b'] and CALLS[0]['c'], '2б + 2в вмест
 # ---- 4. «не применяется» + пометка, прогон идёт (настоящий ext.with_ext_numbers): наложения нет / не «легло» / вход не «как есть»
 X.with_ext_numbers = REAL
 for nm, ov, why in (('нет наложения (ov пуст)', None, 'нет наложения'), ('«частично»', dict(OV_HIT, overlay_status='частично'), 'не «легло»'), ('«не легло»', dict(OV_HIT, overlay_status='не легло'), 'не «легло»'),
-                    ('вход не «как есть»', dict(OV_HIT, вход='вырезка'), 'вход не «как есть»')):
+                    ('вход не «как есть»', dict(OV_HIT, вход='вырезка'), 'вход не «как есть»'), ('вход «4c»', dict(OV_HIT, вход='4c'), 'вход не «как есть»')):
     err = stops(lambda: call(ov, S.RULES))
     res, st = (None, None) if err else call(ov, S.RULES)
     ok = err is None and st['лист_для_ext'] == 'не применяется' and st['ext2b'].startswith('не применяется') and st['ext2c'].startswith('не применяется') and why in st['причина']
