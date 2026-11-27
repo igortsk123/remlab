@@ -264,7 +264,7 @@ def fibre_axis(Q: np.ndarray, x: np.ndarray, y: np.ndarray, use: np.ndarray, Ns:
     return others[int(np.argmax(share))]
 
 
-def fibre_fill(Q: np.ndarray, Ns: np.ndarray, ing: np.ndarray, cover: np.ndarray, d_full: np.ndarray, v_ax: int, w_fibre: float, plane_w: float, min_pool: int) -> np.ndarray:
+def fibre_fill(Q: np.ndarray, Ns: np.ndarray, ing: np.ndarray, cover: np.ndarray, d_full: np.ndarray, v_ax: int, w_fibre: float, plane_w: float, min_pool: int, corner_max: float = 0.0) -> np.ndarray:
     """Не покрытым текселям тех же граней (ось нормали и знак те же, не горизонтальные плоскости) — деталь ближайшего покрытого тексела этой плоскости, где расстояние вдоль волокна (ось v_ax) стоит w_fibre от поперечного
     (рисунок продолжается вдоль волокна: вертикальные полосы, не пятна старого шума), а смещение вдоль нормали (другая глубина — другая панель) — plane_w. Меняет d_full на месте → маска заполненных текселей."""
     from scipy.spatial import cKDTree
@@ -287,6 +287,20 @@ def fibre_fill(Q: np.ndarray, Ns: np.ndarray, ing: np.ndarray, cover: np.ndarray
             _, nn = tree.query(Q[todo] * w, k=1)
             d_full[todo] = d_full[np.nonzero(pool)[0][nn]]
             done |= todo
+    # скруглённые рёбра/фаски (нормаль между двумя гранями, |N|max < 0.8 — в плоскости не попали): деталь ближайшего покрытого тексела (не верх/низ) без привязки к плоскости, в пределах corner_max
+    if corner_max > 0:
+        nv_ = np.abs(Ns[:, v_ax]) < 0.8
+        rest = ing & ~cover & ~done & nv_
+        pool2 = ing & (cover | done) & nv_
+        if rest.any() and int(pool2.sum()) >= min_pool:
+            w2 = np.ones(3)
+            w2[v_ax] = w_fibre
+            tree2 = cKDTree(Q[pool2] * w2)
+            dist2, nn2 = tree2.query(Q[rest] * w2, k=1, distance_upper_bound=corner_max)
+            ok2 = np.isfinite(dist2)
+            idx_r = np.nonzero(rest)[0][ok2]
+            d_full[idx_r] = d_full[np.nonzero(pool2)[0][nn2[ok2]]]
+            done[idx_r] = True
     return done
 
 
@@ -419,7 +433,7 @@ def photo_detail_step(tex_in, tone_tex, tx, g: dict, st: dict, Ld, valid, fgrp, 
     if pd.get('fibre_fill'):
         v_ax = fibre_axis(np.asarray(tx.Q, np.float64), x, y, use, Ns)
         if v_ax is not None:
-            nf = fibre_fill(np.asarray(tx.Q, np.float64), Ns, ing_t, cover, d_full, v_ax, float(pd['fibre_weight']), float(pd['fibre_plane_w']), int(pd['fibre_min_pool']))
+            nf = fibre_fill(np.asarray(tx.Q, np.float64), Ns, ing_t, cover, d_full, v_ax, float(pd['fibre_weight']), float(pd['fibre_plane_w']), int(pd['fibre_min_pool']), float(pd.get('fibre_corner_max', 0.0)))
             info['fibre_axis'] = int(v_ax)
             info['fibre_filled_texels'] = int(nf.sum())
             cover = cover | nf

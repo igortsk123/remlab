@@ -189,6 +189,16 @@ def main():
     check(int(ST.fibre_fill(Qs, Ns_, ing_, np.zeros(len(Qs), bool), d0_, 2, 0.05, 20.0, 200).sum()) == 0, 'fibre_fill: нет покрытых текселей — ничего не придумывает')
     top_n = np.tile(np.array([0.0, 0.0, 1.0]), (len(Qs), 1))                 # горизонтальная плоскость (нормаль по оси волокна) не заполняется
     check(int(ST.fibre_fill(Qs, top_n, ing_, covered.copy(), d_.copy(), 2, 0.05, 20.0, 200).sum()) == 0, 'fibre_fill: верх/низ (нормаль по оси волокна) не трогает')
+    corner = np.stack([np.full(40, -0.01), np.linspace(0.3, 0.7, 40), np.linspace(0.0, 1.0, 40)], 1)    # скруглённое ребро рядом с гранью: нормаль 45° (|N|max < 0.8)
+    Qc2 = np.vstack([Qs, corner])
+    Nc2 = np.vstack([Ns_, np.tile(np.array([-0.7071, -0.7071, 0.0]), (40, 1))])
+    cov2 = np.concatenate([covered, np.zeros(40, bool)])
+    d2_ = np.concatenate([d_, np.zeros(40, np.float32)])
+    nc_ = ST.fibre_fill(Qc2, Nc2, np.ones(len(Qc2), bool), cov2.copy(), d2_, 2, 0.05, 20.0, 200, 0.05)
+    check(bool(nc_[-40:].all()), 'fibre_fill: скруглённое ребро (нормаль 45°) получает деталь ближайшей грани (%d/40)' % int(nc_[-40:].sum()))
+    d3_ = np.concatenate([d_, np.zeros(40, np.float32)])
+    nc0 = ST.fibre_fill(Qc2, Nc2, np.ones(len(Qc2), bool), cov2.copy(), d3_, 2, 0.05, 20.0, 200, 0.0)
+    check(not bool(nc0[-40:].any()), 'fibre_fill: corner_max=0 — ребро не трогает (как раньше)')
     xs_i = Qs[:, 1] * 100 + 3.0
     ys_i = 500 - Qs[:, 2] * 200                                              # кадр: y вдоль оси 2 (вертикаль), x вдоль оси 1
     check(ST.fibre_axis(Qs, xs_i, ys_i, covered, Ns_) == 2, 'fibre_axis: вертикаль кадра ↔ ось 2 модели')
