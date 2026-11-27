@@ -5,8 +5,10 @@
 Действует после перезапуска сервера плагина (перезапуск вкладки `tg-*` или `/mcp reconnect plugin:telegram:telegram`).
 
 ДОБАВЛЯЕТ (два куска, каждый — между маркерами `// >>> zhurnal-vladeltsa …` и `// <<< zhurnal-vladeltsa`):
-  1. В `handleInbound` (после перехвата ответов на разрешения, до «typing»): каждое входящее сообщение допущенного отправителя → строка `{"t":"msg",…}` в
-     `<папка состояния бота>/zhurnal.jsonl` (формат и команды — `tools/ops/zhurnal_vladeltsa.py`). Сбой записи приём сообщений не останавливает.
+  1. В `handleInbound` (после перехвата ответов на разрешения, до «typing»): каждое входящее сообщение допущенного отправителя → строка `{"t":"msg","bot":<имя папки состояния>,…}` в
+     `~/.local/state/remlab/owner-journal/journal.jsonl` (один файл на машину; формат и команды — `tools/ops/zhurnal_vladeltsa.py`). Модель не участвует. Сбой записи приём не останавливает.
+     ВКЛЮЧЕНИЕ — файл настроек бота `~/.config/zhurnal-vladeltsa/<бот>.json` = {"owner":"<id владельца>","panel":true}: без файла бот молчит; пишется только отправитель с id owner
+     (`access.json` плагина не трогаем); panel — напоминание ещё и строкой в панель tmux сессии бота (`zhurnal-vladeltsa panel`).
      Команды бота (/limit, /plan …) сюда не доходят — их отвечает код раньше.
   2. В `onStart` бота (один раз за процесс): раз в 10 минут `zhurnal-vladeltsa proverit` → ждущие разбора дольше 2 ч → напоминание в чат, откуда пришло сообщение.
      Нет `~/.local/bin/zhurnal-vladeltsa` — тихо ничего не делает.
@@ -37,11 +39,16 @@ CLOSE = '// <<< zhurnal-vladeltsa'
 ANCHOR_MSG = '  // Typing indicator — signals "processing" until we reply (or ~5s elapses).'
 BLOCK_MSG = f"""  {OPEN} (T-20261127-175/4): журнал сообщений владельца — строка «ждёт разбора» на каждое входящее; сбой записи приём не останавливает.
   try {{
-    if (msgId != null) {{
+    // включение — файл настроек бота ~/.config/zhurnal-vladeltsa/<бот>.json {{"owner":"<id владельца>","panel":true}}; нет файла — молчит; пишется только владелец
+    const zhBot = STATE_DIR.split(sep).filter(Boolean).pop() ?? 'bot'
+    const zhCfg = JSON.parse(readFileSync(join(homedir(), '.config/zhurnal-vladeltsa', zhBot + '.json'), 'utf8'))
+    if (msgId != null && zhCfg.owner && String(from.id) === String(zhCfg.owner)) {{
       const zhTip = attachment?.kind ?? (downloadImage ? 'photo' : 'text')
       const zhNachalo = text.replace(/\\s+/g, ' ').trim().slice(0, 80)
       const zhTs = new Date((ctx.message?.date ?? 0) * 1000).toISOString()
-      writeFileSync(join(STATE_DIR, 'zhurnal.jsonl'), JSON.stringify({{ t: 'msg', id: msgId, ts: zhTs, chat: chat_id, user: from.username ?? String(from.id), tip: zhTip, nachalo: zhNachalo }}) + '\\n', {{ flag: 'a' }})
+      const zhDir = join(homedir(), '.local/state/remlab/owner-journal')
+      mkdirSync(zhDir, {{ recursive: true }})
+      writeFileSync(join(zhDir, 'journal.jsonl'), JSON.stringify({{ t: 'msg', bot: zhBot, id: msgId, ts: zhTs, chat: chat_id, user: from.username ?? String(from.id), tip: zhTip, nachalo: zhNachalo }}) + '\\n', {{ flag: 'a' }})
     }}
   }} catch {{}}
   {CLOSE}
@@ -55,12 +62,17 @@ BLOCK_TIMER = f"""          {OPEN} (T-20261127-175/4): раз в 10 минут �
           if (!zhG.__zhurnalTimer) {{
             zhG.__zhurnalTimer = setInterval(async () => {{
               try {{
+                const zhBot = STATE_DIR.split(sep).filter(Boolean).pop() ?? 'bot'
+                const zhCfg = JSON.parse(readFileSync(join(homedir(), '.config/zhurnal-vladeltsa', zhBot + '.json'), 'utf8'))   // нет файла настроек — молчит
                 const {{ execFile }} = await import('child_process')
+                const zhCmd = join(homedir(), '.local/bin/zhurnal-vladeltsa')
                 const zhOut = await new Promise<string>(resolve => {{
-                  execFile(join(homedir(), '.local/bin/zhurnal-vladeltsa'), ['--dir', STATE_DIR, 'proverit'], {{ encoding: 'utf8', timeout: 20000 }},
-                    (_err, out) => resolve(String(out ?? '')))
+                  execFile(zhCmd, ['--bot', zhBot, 'proverit'], {{ encoding: 'utf8', timeout: 20000 }}, (_err, out) => resolve(String(out ?? '')))
                 }})
-                for (const n of JSON.parse(zhOut.trim() || '[]')) await bot.api.sendMessage(n.chat, n.text).catch(() => {{}})
+                for (const n of JSON.parse(zhOut.trim() || '[]')) {{
+                  await bot.api.sendMessage(n.chat, n.text).catch(() => {{}})
+                  if (zhCfg.panel) execFile(zhCmd, ['panel', n.text], {{ timeout: 20000 }}, () => {{}})   // и строкой в панель tmux сессии бота ($TMUX_PANE)
+                }}
               }} catch {{}}
             }}, 10 * 60 * 1000)
           }}
@@ -73,7 +85,7 @@ BLOCK_RE = re.compile(r'[ ]*' + re.escape(OPEN) + r'.*?' + re.escape(CLOSE) + r'
 def patch_text(s: str) -> tuple[str, list[str]]:
     """Возвращает (новый текст, что сделано). Падает ValueError, если нужного якоря нет."""
     done: list[str] = []
-    if 'zhurnal.jsonl' not in s:
+    if 'owner-journal' not in s:
         if s.count(ANCHOR_MSG) != 1:
             raise ValueError('якорь записи (Typing indicator в handleInbound) не найден или не один — плагин изменился, патч вручную')
         s = s.replace(ANCHOR_MSG, BLOCK_MSG + ANCHOR_MSG)
@@ -92,20 +104,28 @@ def unpatch_text(s: str) -> tuple[str, int]:
 
 
 def install_cli(bindir: str, proba: bool) -> str:
-    src = os.path.join(HERE, 'zhurnal_vladeltsa.py')
-    dst = os.path.join(bindir, 'zhurnal-vladeltsa')
-    new = open(src, encoding='utf-8').read()
-    old = open(dst, encoding='utf-8').read() if os.path.isfile(dst) else None
-    if old == new:
-        return f'команда уже стоит: {dst}'
-    if proba:
-        return f'ПРОБА: поставил бы команду {dst}'
-    os.makedirs(bindir, exist_ok=True)
-    if old is not None:
-        shutil.copy2(dst, f"{dst}.bak-{time.strftime('%Y%m%d-%H%M%S')}")
-    open(dst, 'w', encoding='utf-8').write(new)
-    os.chmod(dst, os.stat(dst).st_mode | stat.S_IXUSR | stat.S_IXGRP | stat.S_IXOTH)
-    return f'команда поставлена: {dst}'
+    """Ставит рядом с tg-patch-limit две команды: zhurnal-vladeltsa (журнал) и tg-patch-zhurnal (этот патчер — стабильный путь для вызова из tg-patch-limit)."""
+    msgs = []
+    for fname, cmd in (('zhurnal_vladeltsa.py', 'zhurnal-vladeltsa'), ('tg_patch_zhurnal.py', 'tg-patch-zhurnal')):
+        src = os.path.join(HERE, fname)
+        dst = os.path.join(bindir, cmd)
+        if not os.path.isfile(src):          # запущен из ~/.local/bin (как tg-patch-zhurnal): исходников рядом нет, команды уже стоят
+            continue
+        new = open(src, encoding='utf-8').read()
+        old = open(dst, encoding='utf-8').read() if os.path.isfile(dst) else None
+        if old == new:
+            msgs.append(f'команда уже стоит: {dst}')
+            continue
+        if proba:
+            msgs.append(f'ПРОБА: поставил бы команду {dst}')
+            continue
+        os.makedirs(bindir, exist_ok=True)
+        if old is not None:
+            shutil.copy2(dst, f"{dst}.bak-{time.strftime('%Y%m%d-%H%M%S')}")
+        open(dst, 'w', encoding='utf-8').write(new)
+        os.chmod(dst, os.stat(dst).st_mode | stat.S_IXUSR | stat.S_IXGRP | stat.S_IXOTH)
+        msgs.append(f'команда поставлена: {dst}')
+    return '\n'.join(msgs)
 
 
 def main(argv: list[str] | None = None) -> int:
