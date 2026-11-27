@@ -70,13 +70,47 @@ def thick_ink(gray):
     return 255 - op
 
 
-def main_angle(gray, thick=True):
+DESKEW_PAGE_FRAC = 0.8   # отрезок длиннее этой доли возможной хорды листа вдоль себя — линия страницы/рамка/чёрная полоса, не стена плана (круг 6, продолжение)
+DESKEW_PAGE = True       # отсев линий страницы включён (False — как в замере 27.11 22:30)
+DESKEW_FALLBACK = True   # толстых штрихов не хватило (план из мелкого растра, стены не «толстые») — второй проход по всем линиям, тоже без линий страницы
+
+
+def drop_page_lines(segs, shape):
+    """отбрасывает отрезки длиннее DESKEW_PAGE_FRAC от самой длинной хорды листа в их направлении: линии бумаги, рамка, чёрная полоса дают ложный «главный угол» 0°
+    (kazan-13345066: план наклонён на 20°, а длинные горизонтали листа тянут угол к 0°). Стена наклонённого плана такой длины не бывает."""
+    if len(segs) == 0:
+        return segs
+    h, w = shape[:2]
+    a = np.radians(_ang(segs))
+    chord = np.minimum(w / np.maximum(np.abs(np.cos(a)), 1e-6), h / np.maximum(np.abs(np.sin(a)), 1e-6))
+    return segs[_len(segs) <= DESKEW_PAGE_FRAC * chord]
+
+
+def main_angle(gray, thick=True, page=None, fallback=None):
+    """→ (θ | None, info). Главный угол листа: проход по толстым штрихам, а если угла нет — запасной проход по всем линиям (оба без линий страницы).
+    page / fallback — выключатели (None → DESKEW_PAGE / DESKEW_FALLBACK); page=False, fallback=False — как было в замере круга 6 от 27.11 22:30."""
+    page = DESKEW_PAGE if page is None else page
+    fallback = DESKEW_FALLBACK if fallback is None else fallback
+    theta, info = _main_angle_pass(gray, thick, page)
+    if theta is None and thick and fallback:
+        theta2, info2 = _main_angle_pass(gray, False, page)
+        info2['pass'] = 'все линии'
+        info2['thick_reason'] = info.get('reason')
+        if theta2 is not None:
+            return theta2, info2
+        info['all_reason'] = info2.get('reason')
+    return theta, info
+
+
+def _main_angle_pass(gray, thick, page):
     """→ (θ | None, info). θ — главный угол линий листа по модулю 90°, градусы −45…45; «+» — линии идут вниз вправо (по часовой в картинке, y вниз).
     Линии — длинные ТОЛСТЫЕ штрихи (`thick_ink`; thick=False — все линии, как было до otvet-36). Гистограмма длины линий, шаг 0,5°, окно ±1°, потом уточнение
     средним по длине в окне ±1,5°. Нет линий / нет главного угла — None с причиной."""
     if thick:
         gray = thick_ink(gray)
     segs = _segments(gray)
+    if page:
+        segs = drop_page_lines(segs, gray.shape)
     info = {'segs': int(len(segs))}
     if len(segs) < DESKEW_MIN_SEGS:
         info['reason'] = f'мало линий ({len(segs)})'
@@ -119,14 +153,75 @@ def main_angle(gray, thick=True):
     return theta, info
 
 
+PERSP_MIN = 3.0          # градусов: разность углов семейств линий (ножницы, сходимость) от этого — вид «перспектива» (фото под углом), НЕ поворот. На подборе (228 листов): 2° — «верно» 6/57, контроль 0/10; 3° — 4/57, 0/10; 4° — 3/57, 0/10
+DESKEW_PERSP_VETO = True # у «перспективы» лист НЕ доворачивается (один поворот её не лечит; круг 6, продолжение, директор 27.11 22:18); False — как V2 до запрета
+PERSP_MIN_SEGS = 3       # отрезков в каждой половине для сравнения
+PERSP_BAND = 12.0        # в счёт идут линии не дальше этого от оси плана (доминирующей ориентации и поперёк неё), градусов
+
+
+def _wmedian(v, w):
+    o = np.argsort(v)
+    v, w = np.asarray(v)[o], np.asarray(w)[o]
+    c = np.cumsum(w)
+    return float(v[min(int(np.searchsorted(c, c[-1] / 2.0)), len(v) - 1)])
+
+
+def perspective(gray):
+    """→ (перспектива: bool, info). Вид «перспектива» (круг 6, продолжение): лист снят под углом — линии одного семейства идут под разным углом в разных частях листа,
+    а у повёрнутого листа все параллельны. Считает (по тем же штрихам, что угол, без линий страницы): ножницы = угол горизонталей − угол вертикалей (поворот даёт 0),
+    сходимость горизонталей (низ − верх) и вертикалей (право − лево). Любая разность ≥ PERSP_MIN → перспектива. Только признак в info — лист НЕ доворачивается."""
+    segs = drop_page_lines(_segments(thick_ink(gray)), gray.shape)
+    if len(segs) < DESKEW_MIN_SEGS:
+        segs = drop_page_lines(_segments(gray), gray.shape)
+    info = {'segs': int(len(segs))}
+    if len(segs) < DESKEW_MIN_SEGS:
+        info['reason'] = f'мало линий ({len(segs)})'
+        return False, info
+    a0 = _ang(segs)
+    ln = _len(segs)
+    fa = _fold90(a0)                                       # доминирующая ориентация листа p: пик гистограммы длины по модулю 90° (оси плана — вокруг p и p + 90°)
+    hist = np.zeros(180)
+    for ai, li in zip(fa, ln):
+        hist[int((ai + 45.0) * 2) % 180] += li
+    sm = np.convolve(np.concatenate([hist[-3:], hist, hist[:3]]), np.ones(7) / 7, mode='valid')
+    p = (float(np.argmax(sm)) + 0.5) / 2 - 45.0
+    rel = (a0 - p + 90.0) % 180.0 - 90.0                   # угол относительно p, (−90, 90]
+    famA = np.abs(rel) < 45.0                              # «горизонтали» плана
+    dev = np.where(famA, rel, rel - 90.0 * np.sign(rel))   # отклонение от своей оси
+    keep = np.abs(dev) <= PERSP_BAND                       # только линии, близкие к осям: кривые, текст, мебель, диагонали — не считаются
+    cx, cy = (segs[:, 0] + segs[:, 2]) / 2.0, (segs[:, 1] + segs[:, 3]) / 2.0
+    u = cx * np.cos(np.radians(p)) + cy * np.sin(np.radians(p))        # координаты в осях плана: u — поперёк «вертикалей», v — поперёк «горизонталей»
+    v = -cx * np.sin(np.radians(p)) + cy * np.cos(np.radians(p))
+    out = {'p': p}
+    A, B = famA & keep, ~famA & keep
+    if A.sum() >= PERSP_MIN_SEGS and B.sum() >= PERSP_MIN_SEGS:
+        out['shear'] = _wmedian(dev[A], ln[A]) - _wmedian(dev[B], ln[B])
+    for name, fam, pos in (('conv_h', A, v), ('conv_v', B, u)):
+        idx = np.where(fam)[0]
+        if len(idx) < 2 * PERSP_MIN_SEGS:
+            continue
+        mid = float(np.median(pos[idx]))
+        lo, hi = idx[pos[idx] <= mid], idx[pos[idx] > mid]
+        if len(lo) >= PERSP_MIN_SEGS and len(hi) >= PERSP_MIN_SEGS:
+            out[name] = _wmedian(dev[hi], ln[hi]) - _wmedian(dev[lo], ln[lo])
+    p = out.pop('p')
+    info['p'] = round(p, 2)
+    info.update({k: round(x, 2) for k, x in out.items()})
+    worst = max((abs(v) for v in out.values()), default=0.0)
+    info['worst'] = round(worst, 2)
+    return worst >= PERSP_MIN, info
+
+
 def deskew_lines(bgr):
     """→ (повёрнутый | None, info). Лист поворачивается на главный угол линий (холст расширяется, поле белое); info['H'] — матрица исходный лист → выход.
     Не применяется: лист ровный (< DESKEW_MIN), угол > DESKEW_MAX, главного угла нет, после поворота остаток ≥ DESKEW_RESID."""
     H0, W0 = bgr.shape[:2]
     k = min(1.0, RECT_WORK / max(H0, W0))
     small = cv2.resize(bgr, (round(W0 * k), round(H0 * k)), interpolation=cv2.INTER_AREA) if k < 1 else bgr
-    theta, info = main_angle(cv2.cvtColor(small, cv2.COLOR_BGR2GRAY))
+    gsmall = cv2.cvtColor(small, cv2.COLOR_BGR2GRAY)
+    theta, info = main_angle(gsmall)
     info['ok'] = False
+    info['perspective'], info['persp'] = perspective(gsmall)       # вид «перспектива» — признак, лист не меняет
     if theta is None:
         return None, info
     if abs(theta) < DESKEW_MIN:
@@ -134,6 +229,9 @@ def deskew_lines(bgr):
         return None, info
     if abs(theta) > DESKEW_MAX:
         info['reason'] = f'главный угол {theta:.1f}° (> {DESKEW_MAX:.0f}°)'
+        return None, info
+    if DESKEW_PERSP_VETO and info.get('perspective'):
+        info['reason'] = f'перспектива (разность углов линий {info["persp"].get("worst")}° ≥ {PERSP_MIN}°) — не доворачиваем'
         return None, info
     M = cv2.getRotationMatrix2D((W0 / 2.0, H0 / 2.0), theta, 1.0)       # «+» угол = против часовой: линия, идущая вниз вправо на θ, становится горизонтальной
     c, s = abs(M[0, 0]), abs(M[0, 1])

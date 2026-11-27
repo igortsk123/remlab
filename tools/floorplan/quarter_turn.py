@@ -25,6 +25,44 @@ def chars_score(items):
     return s
 
 
+LETTERS_MIN = 15     # круг 6, продолжение: если буквами (кириллица, слова ≥ 3 букв) уверенно прочитано не меньше стольких символов — решают буквы, иначе — все символы
+WORD_MIN = 3         # …слово — не короче стольких кириллических букв
+
+
+def letters_score(items):
+    """items: [(текст, уверенность[, бокс])] → число уверенно прочитанных КИРИЛЛИЧЕСКИХ букв в словах ≥ WORD_MIN букв (взвешено уверенностью).
+    Цифры, размеры, значки в счёт не идут: перевёрнутые цифры читаются почти как прямые, перевёрнутые слова — нет."""
+    import re
+    s = 0.0
+    for it in items:
+        txt, sc = str(it[0]), float(it[1])
+        if sc < CONF_MIN:
+            continue
+        for w in re.findall(r'[а-яёА-ЯЁ]+', txt):
+            if len(w) >= WORD_MIN:
+                s += len(w) * sc
+    return s
+
+
+def choose_hybrid(chars, letters):
+    """chars, letters: {k: оценка} → (k, info). Буквы, если их хватает (лучший поворот ≥ LETTERS_MIN), иначе все символы (`choose`). k=0 — не трогаем.
+    Повороты k=1,2,3 сравниваются с исходным (k=0); по буквам — тот же порог GAIN."""
+    best_k = max((0, 1, 2, 3), key=lambda k: float(letters.get(k, 0.0)))
+    best = float(letters.get(best_k, 0.0))
+    if best >= LETTERS_MIN:
+        info = {'mode': 'буквы', 'letters': {int(k): round(float(v), 1) for k, v in letters.items()}, 'scores': {int(k): round(float(v), 1) for k, v in chars.items()}}
+        s0 = float(letters.get(0, 0.0))
+        if best_k == 0 or best < GAIN * max(s0, 1.0):
+            info['reason'] = f'буквы: исходный лист читается не хуже ({s0:.0f} против {best:.0f}, нужно ×{GAIN:g})'
+            return 0, info
+        info['k'], info['turn'] = best_k, ROT_NAME[best_k]
+        return best_k, info
+    k, info = choose(chars)
+    info['mode'] = 'символы'
+    info['letters'] = {int(kk): round(float(v), 1) for kk, v in letters.items()}
+    return k, info
+
+
 def choose(scores):
     """scores: {0: s0, 1: s1, 2: s2, 3: s3} → (k, info). k=0 — не трогаем."""
     s0 = float(scores.get(0, 0.0))
@@ -62,8 +100,11 @@ def matrix(k, W0, H0):
 def quarter_turn(bgr, scorer):
     """scorer(k, img_bgr) → оценка поворота k (для k=0 — исходный лист). → (повёрнутый | None, info). Не применяется — None с причиной."""
     H0, W0 = bgr.shape[:2]
-    scores = {k: float(scorer(k, rotate_k(bgr, k))) for k in (0, 1, 2, 3)}
-    k, info = choose(scores)
+    raw = {k: scorer(k, rotate_k(bgr, k)) for k in (0, 1, 2, 3)}
+    if all(isinstance(v, (tuple, list)) for v in raw.values()):      # оценщик вернул (символы, буквы) — решает choose_hybrid
+        k, info = choose_hybrid({kk: float(v[0]) for kk, v in raw.items()}, {kk: float(v[1]) for kk, v in raw.items()})
+    else:
+        k, info = choose({kk: float(v) for kk, v in raw.items()})
     info['ok'] = False
     if k == 0:
         return None, info
