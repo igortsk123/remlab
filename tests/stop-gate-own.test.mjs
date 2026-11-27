@@ -8,7 +8,7 @@ import { tmpdir } from "node:os";
 import { join, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
 import { spawnSync } from "node:child_process";
-import { ownEditedPaths, readOwnEdits, onlyOwn, parseStrazh, strazhVerdict, dropForeignProblems, porcelainPath, defaultStrazhCmd, runStrazh, strazhAnswer, mentions } from "../tools/stop-gate-own.mjs";
+import { ownEditedPaths, readOwnEdits, transcriptFromInput, ownFromList, onlyOwn, parseStrazh, strazhVerdict, dropForeignProblems, porcelainPath, defaultStrazhCmd, runStrazh, strazhAnswer, mentions } from "../tools/stop-gate-own.mjs";
 
 const REPO = join(dirname(fileURLToPath(import.meta.url)), "..");
 const TMP_BASE = process.env.REMLAB_TMP || tmpdir();
@@ -144,7 +144,8 @@ test("п.8 гейт: стенограмма не читается → дирек
     // не директор / менеджер: без блока, но с предупреждением в stderr
     for (const env of [{}, { REMLAB_ROLE: "менеджер" }]) {
       const o = hook(root, dir(root), env, ["--strazh", "--strazh-cmd", cmd, "--own-edits"]);
-      assert.equal(o.stdout.trim(), "", JSON.stringify(env) + o.stdout);
+      assert.doesNotMatch(o.stdout, /"decision"/, JSON.stringify(env) + o.stdout); // блока нет, но предупреждение ВИДНО в ответе (systemMessage), не только в stderr
+      assert.match(JSON.parse(o.stdout).systemMessage, /стенограмма не читается: EISDIR/);
       assert.match(o.stderr, /стенограмма не читается: EISDIR/);
     }
     // только --strazh: решает ОДНО — есть ли несохранённые файлы правил; `?? tools/` (git сворачивает каталог) — возможный файл правил, блок
@@ -162,13 +163,47 @@ test("п.8 гейт: стенограмма не читается → дирек
     spawnSync("git", ["add", "-A"], { cwd: root });
     spawnSync("git", ["-c", "user.name=t", "-c", "user.email=t@t", "commit", "-qm", "x"], { cwd: root });
     const r = hook(root, dir(root), DIRECTOR, ["--strazh", "--strazh-cmd", cmd, "--own-edits"]);
-    assert.equal(r.stdout.trim(), "", r.stdout);
+    assert.doesNotMatch(r.stdout, /"decision"/, r.stdout); // не блок; «не читается» при этом видно
+    assert.match(r.stdout, /стенограмма не читается/);
   }
   { // только --own-edits (без --strazh): в дереве есть несохранённое — директору блок
     const { root } = mk();
     const d = JSON.parse(hook(root, dir(root), DIRECTOR, ["--own-edits"]).stdout);
     assert.equal(d.decision, "block");
     assert.match(d.reason, /стенограмма не читается/);
+  }
+});
+
+test("❓4: число пропущенных слишком длинных строк — В СТРОКЕ гейта (причина блока), не только в stderr: 1 длинная строка → «пропущено строк: 1»; без длинных строк пометки нет", () => {
+  const longLine = JSON.stringify({ message: { content: [{ type: "text", text: "я".repeat(5000) }] } });
+  const mkTr = (root, files, withLong) => {
+    const p = transcript(root, files);
+    if (withLong) writeFileSync(p, readFileSync(p, "utf8") + longLine + "\n");
+    return p;
+  };
+  const env = { ...DIRECTOR, STOP_GATE_MAX_LINE_BYTES: "1000" };
+  { // блок стража
+    const { root, cmd } = rulesRepo(RED);
+    const d = JSON.parse(hook(root, mkTr(root, [RULES_EDIT], true), env, ["--strazh", "--strazh-cmd", cmd, "--own-edits"]).stdout);
+    assert.equal(d.decision, "block");
+    assert.match(d.reason, /просрочено 2/);
+    assert.ok(d.reason.includes("пропущено строк: 1"), d.reason);
+    const c = JSON.parse(hook(root, mkTr(root, [RULES_EDIT], false), env, ["--strazh", "--strazh-cmd", cmd, "--own-edits"]).stdout); // контроль: длинных строк нет — пометки нет
+    assert.doesNotMatch(c.reason, /пропущено строк/);
+  }
+  { // блок гейта памяти (без --strazh)
+    const { root } = mk();
+    const d = JSON.parse(hook(root, mkTr(root, ["mine.txt"], true), env, ["--own-edits"]).stdout);
+    assert.equal(d.decision, "block");
+    assert.match(d.reason, /Гейт памяти/);
+    assert.ok(d.reason.includes("пропущено строк: 1"), d.reason);
+  }
+  { // блока нет (страж зелёный) — число всё равно видно: строка мягкого напоминания + stderr-предупреждение осталось
+    const { root, cmd } = rulesRepo(GREEN);
+    const r = hook(root, mkTr(root, [RULES_EDIT], true), env, ["--strazh", "--strazh-cmd", cmd, "--own-edits"]);
+    assert.doesNotMatch(r.stdout, /"decision"/, "блока нет: " + r.stdout);
+    assert.ok(r.stdout.includes("пропущено строк: 1"), r.stdout);
+    assert.match(r.stderr, /пропущено слишком длинных строк: 1/);
   }
 });
 
@@ -205,7 +240,8 @@ test("--own-edits: сессия ничего не правила (все пра�
 test("--own-edits: стенограммы нет — «не знаю» ≠ блок", () => {
   const { root } = mk();
   const r = hook(root, null, {}, ["--own-edits"]);
-  assert.equal(r.stdout.trim(), "");
+  assert.doesNotMatch(r.stdout, /"decision"/); // не блок; «не знаю» при этом видно (systemMessage)
+  assert.match(JSON.parse(r.stdout).systemMessage, /не получил путь к стенограмме/);
 });
 
 test("--own-edits: сессия правила свой файл + блокнот пуст — блок, как у обычного гейта", () => {
@@ -522,4 +558,99 @@ test("п.3 mentions: путь с приставкой и без; кусок чу
   assert.equal(mentions("архив/core/a.md — 1 КБ", ".memory_bank/core/a.md"), false);
   assert.equal(mentions("core/b.md", ".memory_bank/core/a.md"), false);
   assert.equal(mentions("mine.txt: плохо", "mine.txt"), true);
+});
+
+// ── гейт на common (T-175, 27.11): стенограмма на ОДНОЙ машине, хук (node) — на другой, через `r`. Обёртка tools/ops/stop_own_edits.py вынимает свои правки на стороне стенограммы ──
+const WRAP = join(REPO, "tools/ops/stop_own_edits.py");
+const HOOK = join(REPO, "tools/session-reminder.mjs");
+const FOREIGN = "/home/common-нет-такой-машины/.claude/projects/x/нет.jsonl"; // путь стенограммы с «другой машины»: здесь его нет
+function envOf(env) {
+  const e = { ...process.env, ...env };
+  if (!("REMLAB_ROLE" in env)) delete e.REMLAB_ROLE;
+  return e;
+}
+function hookIn(root, inputObj, env, args) { // голый хук: JSON на stdin как есть
+  return spawnSync("node", [HOOK, root, "--block", ...args], { encoding: "utf8", env: envOf(env), input: JSON.stringify(inputObj) });
+}
+function viaWrap(root, inputObj, env, args) { // обёртка → node (на боевой машине между ними стоит `r`: он просто пересылает stdin)
+  return spawnSync("python3", [WRAP, "node", HOOK, root, "--block", ...args], { encoding: "utf8", env: envOf(env), input: JSON.stringify(inputObj) });
+}
+
+test("гейт на common п.1: transcriptFromInput — список от обёртки (абсолютные пути → относительные, чужие каталоги вон), «why» обёртки, иначе — сама стенограмма", () => {
+  const { root } = mk();
+  const a = transcriptFromInput({ transcript_path: FOREIGN, own_edits_abs: [join(root, "mine.txt"), "/other/x.md", "sub/b.md", ""], own_meta: { skipped: 2, bytes: 9 } }, root);
+  assert.deepEqual([...a.own].sort(), ["mine.txt", "sub/b.md"]);
+  assert.equal(a.skipped, 2);
+  const w = transcriptFromInput({ transcript_path: FOREIGN, own_meta: { why: "PermissionError: нет прав (/x)" } }, root);
+  assert.equal(w.own, null);
+  assert.match(w.why, /обёртка на стороне стенограммы: PermissionError/);
+  const direct = transcriptFromInput({ transcript_path: transcript(root, ["mine.txt"]) }, root); // путь виден хуку (pakardev) — читает сам
+  assert.deepEqual([...direct.own], ["mine.txt"]);
+  assert.equal(transcriptFromInput({ transcript_path: FOREIGN }, root).own, null); // чужой путь без обёртки — «не читается», как раньше
+  assert.deepEqual([...ownFromList([], root).own], []); // пустой список = «правок нет» (не null): обёртка прочла и ничего не нашла
+});
+
+test("гейт на common п.1/п.3: чужой путь стенограммы + обёртка → «свои правки» найдены (страж виден директору); без обёртки на том же вводе — «не читается» (отрицательный контроль)", () => {
+  const { root, cmd } = rulesRepo(RED);
+  const own = transcript(root, [RULES_EDIT]); // стенограмма «на этой машине»
+  const args = ["--strazh", "--strazh-cmd", cmd, "--own-edits"];
+  const a = JSON.parse(hookIn(root, { transcript_path: own }, DIRECTOR, args).stdout); // а) обе стороны на одной машине: голый хук читает сам
+  assert.match(a.reason, /просрочено 2/);
+  const b = JSON.parse(hookIn(root, { transcript_path: FOREIGN }, DIRECTOR, args).stdout); // б) «чужой» путь, обёртки нет → блок «не читается»
+  assert.match(b.reason, /стенограмма не читается/);
+  const c = JSON.parse(viaWrap(root, { transcript_path: own }, DIRECTOR, args).stdout); // в) обёртка передала список → как в (а)
+  assert.match(c.reason, /просрочено 2/);
+  assert.doesNotMatch(c.reason, /не читается/);
+  const none = viaWrap(root, { transcript_path: transcript(root, ["mine.txt"]) }, DIRECTOR, args); // г) правок файлов правил нет → страж молчит (свои правки реально отфильтрованы)
+  assert.doesNotMatch(none.stdout, /просрочено/, none.stdout);
+});
+
+test("гейт на common п.1: не директор — «только свои правки»: результат обёртки = голого хука; сессия, ничего не правившая, чужие грязные файлы не получает", () => {
+  const { root } = mk(); // mine.txt и foreign.txt оба несохранённые
+  const mineOnly = transcript(root, ["mine.txt"]);
+  const bare = hookIn(root, { transcript_path: mineOnly }, {}, ["--own-edits"]);
+  const wrap = viaWrap(root, { transcript_path: mineOnly }, {}, ["--own-edits"]);
+  assert.equal(wrap.stdout, bare.stdout, "обёртка не меняет ответ хука, когда путь виден");
+  assert.equal(JSON.parse(wrap.stdout).decision, "block");
+  const nothing = viaWrap(root, { transcript_path: transcript(root, []) }, {}, ["--own-edits"]);
+  assert.doesNotMatch(nothing.stdout, /"decision"/, nothing.stdout);
+});
+
+test("гейт на common п.2: «стенограмма не читается» у НЕ директора — видно в ответе хука (systemMessage), без блока; код 0", () => {
+  const { root } = mk();
+  const r = viaWrap(root, { transcript_path: join(root, "нет-такого.jsonl") }, {}, ["--own-edits"]);
+  assert.equal(r.status, 0);
+  const o = JSON.parse(r.stdout);
+  assert.ok(!("decision" in o), "блока нет: " + r.stdout);
+  assert.match(o.systemMessage, /стенограмма не читается: обёртка на стороне стенограммы: FileNotFoundError/);
+  assert.match(r.stderr, /стенограмма не читается/); // stderr — как и раньше
+  const quiet = viaWrap(mk().root, { transcript_path: transcript(root, []) }, {}, ["--strazh"]); // всё прочиталось, нечего сказать — шум не добавляем
+  assert.doesNotMatch(quiet.stdout, /systemMessage/, quiet.stdout);
+});
+
+test("гейт на common п.2: длинная строка через обёртку — «пропущено строк: 1» в причине блока; куски по 16 байт дают тот же список правок", () => {
+  const { root, cmd } = rulesRepo(RED);
+  const long = JSON.stringify({ message: { content: [{ type: "text", text: "я".repeat(5000) }] } });
+  const tr = transcript(root, [RULES_EDIT]);
+  writeFileSync(tr, readFileSync(tr, "utf8") + long + "\n");
+  const env = { ...DIRECTOR, STOP_GATE_MAX_LINE_BYTES: "1000", STOP_GATE_CHUNK_BYTES: "16" };
+  const d = JSON.parse(viaWrap(root, { transcript_path: tr }, env, ["--strazh", "--strazh-cmd", cmd, "--own-edits"]).stdout);
+  assert.equal(d.decision, "block");
+  assert.match(d.reason, /просрочено 2/);
+  assert.ok(d.reason.includes("пропущено строк: 1"), d.reason);
+});
+
+test("гейт на common: обёртка сама ломается громко — нет команды → код 2 и причина; команда не запускается → 127 и причина; код и вывод команды проходят как есть", () => {
+  const none = spawnSync("python3", [WRAP], { encoding: "utf8", input: "{}" });
+  assert.equal(none.status, 2);
+  assert.match(none.stderr, /нет команды/);
+  const bad = spawnSync("python3", [WRAP, "/нет/такой/команды"], { encoding: "utf8", input: "{}" });
+  assert.equal(bad.status, 127);
+  assert.match(bad.stderr, /команда не запустилась/);
+  const pass = spawnSync("python3", [WRAP, "sh", "-c", "cat >/dev/null; echo out; echo err >&2; exit 3"], { encoding: "utf8", input: '{"transcript_path":""}' });
+  assert.equal(pass.status, 3);
+  assert.equal(pass.stdout.trim(), "out");
+  assert.equal(pass.stderr.trim(), "err");
+  const raw = spawnSync("python3", [WRAP, "cat"], { encoding: "utf8", input: "не json" });
+  assert.equal(raw.stdout, "не json"); // не JSON — идёт как есть
 });

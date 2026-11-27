@@ -48,10 +48,6 @@ def zones(role, sc, roles=None, card=None, rules=None):
     return DZ.detail_zones(lab, kn, pm, roles or {}, pol(role), card, rules or R)
 
 
-import copy  # noqa: E402
-RP = copy.deepcopy(R)
-RP['pillows']['enabled'] = True                                                  # проверка кода признака под флагом (в правилах по умолчанию выключен)
-
 
 # 1. в коде нет чисел порогов и ID товаров
 src = open(os.path.join(HERE, 'detail_zones.py'), encoding='utf-8').read()
@@ -73,15 +69,11 @@ for cy in range(20, 240, 20):
         sd[0][0][cy, cx] = (15.0, 5.0, 10.0)                                      # рисунок «горох»: 121 тёмная точка
 rt = zones('диван', sd)
 ok(rt['report']['buttons']['status'] == 'abstain' and rt['report']['buttons']['reason'] in ('texture', 'no_evidence'), 'диван с рисунком-горохом: ямки тонут в узоре → воздержание (не пуговицы)')
-# 3. подушка (под флагом): часть другого тона → зона; тот же тон — воздержание; служебная роль (ножки) — не подушка
+# 3. подушка: признак «часть другого тона» удалён (ложные зоны на листах 23.11) — вид остаётся в not_implemented, воздержание
 pt = {1: (100, 180, 60, 190)}
-ok(zones('диван', scene(parts=pt, part_tones={1: (80.0, 20.0, 30.0)}))['report']['pillows']['reason'] == 'not_implemented', 'подушки по тону части выключены правилом (ложные зоны на листах) — воздержание not_implemented')
-r2 = zones('диван', scene(parts=pt, part_tones={1: (80.0, 20.0, 30.0)}), rules=RP)
-ok(r2['report']['pillows']['status'] == 'zone' and r2['zones']['pillows'][0][100:180, 60:190].all() and not r2['zones']['pillows'][0][:50].any(), 'диван: часть другого тона (доля в пределах) → зона pillows')
-r2s = zones('диван', scene(parts=pt), rules=RP)
-ok(r2s['report']['pillows']['reason'] == 'no_evidence', 'диван: та же ткань и тон — подушку по тону не отличить, воздержание')
-r2l = zones('диван', scene(parts=pt, part_tones={1: (80.0, 20.0, 30.0)}), roles={1: 'legs'}, rules=RP)
-ok(r2l['report']['pillows']['status'] == 'abstain', 'диван: часть с ролью legs — не подушка')
+r2 = zones('диван', scene(parts=pt, part_tones={1: (80.0, 20.0, 30.0)}))
+ok(r2['report']['pillows']['reason'] == 'not_implemented' and r2['report']['pillows']['status'] == 'abstain' and not r2['zones']['pillows'][0].any(), 'подушки по тону части не считаются (признак удалён) — воздержание not_implemented, зоны нет')
+ok('pillows' not in R, 'в правилах detail-zones нет блока pillows (удалён вместе с кодом признака)')
 
 # 4. комод: фурнитура по роли handles (Z1) и по пятнам; рельеф двери — по роли facade; нет роли — no_facade_part
 sc3 = scene(parts={2: (10, 30, 100, 160), 3: (40, 120, 20, 200)})

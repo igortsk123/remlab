@@ -132,6 +132,38 @@ def test_no_threshold_or_settings_file_is_error():
     assert any('нет файла настроек' in e for e in run(d)['errors'])
 
 
+def test_registry_name_missing_in_file_is_error():
+    """T-175/В-реестр ❓3: реестр называет выключатель, которого в файле правил нет (удалили/опечатка) — сторож говорит, код ≠0 и причина в строке."""
+    ok = {'rules': [{'rule_id': 'R-A-1', 'flag': 'tools/scout/rules/a.json#enabled', 'flags': ['tools/scout/rules/a.json#nested.on', 'tools/scout/rules/a.json#mode']}], 'groups': {}}
+    d = world(registry=ok)
+    assert not [e for e in run(d)['errors'] if 'которого нет' in e] and cli(d, '--check') == 0       # целое — молчит
+    cases = {'a.json#enabledX': 'нет ключа', 'a.json#nested.off': 'нет ключа', 'gone.json#enabled': 'gone.json нет', 'a.json': 'нет «#»'}
+    for name, why in cases.items():
+        reg = {'rules': [{'rule_id': 'R-A-1', 'flag': None, 'flags': ['tools/scout/rules/' + name]}], 'groups': {}}
+        d = world(registry=reg, threshold=thr(3, A_SWITCHES))
+        errs = [e for e in run(d)['errors'] if 'которого нет' in e]
+        assert len(errs) == 1 and why in errs[0] and name in errs[0], (name, errs)
+        assert cli(d, '--check') == 1, name
+    reg = {'rules': [], 'groups': {'G1': {'flags': ['tools/scout/rules/a.json#nested.gone']}}}              # и в flags группы
+    assert any('которого нет' in e for e in run(world(registry=reg, threshold=thr(3, A_SWITCHES)))['errors'])
+    d = world(files={'a.json': FILE_A, 'b.json': {'x': {'k.dot': True}}}, registry={'rules': [{'rule_id': 'R-B-1', 'flag': 'tools/scout/rules/b.json#x.k.dot'}], 'groups': {}},
+              settings={'scan': [RULES + 'a.json'], 'skip_files': {RULES + 'b.json': 'тест'}, 'settings': {}}, threshold=thr(3, A_SWITCHES))
+    assert not [e for e in run(d)['errors'] if 'которого нет' in e], run(d)['errors']                          # ключ с точкой внутри имени находится
+    broken = os.path.join(d, RULES, 'b.json')
+    open(broken, 'w').write('{not json')
+    assert any('не читается как JSON' in e for e in run(d)['errors']) and cli(d, '--check') == 1
+
+
+def test_registry_unreadable_is_error_not_silence():
+    """Реестр пропал/сломан — не «0 находок», а ошибка с причиной."""
+    d = world(threshold=thr(3, A_SWITCHES))
+    os.remove(os.path.join(d, RULES, 'rule-registry.json'))
+    errs = run(d)['errors']
+    assert any('реестр' in e and 'не читается' in e for e in errs) and cli(d, '--check') == 1, errs
+    open(os.path.join(d, RULES, 'rule-registry.json'), 'w').write('{нет')
+    assert any('реестр' in e and 'не читается' in e for e in run(d)['errors'])
+
+
 def test_real_repo_is_clean_and_threshold_matches():
     """Боевой репозиторий: все файлы правил отнесены; новых выключателей вне реестра и списка нет; число не выше порога."""
     res = SG.guard()

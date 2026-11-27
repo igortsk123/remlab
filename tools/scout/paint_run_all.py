@@ -272,6 +272,16 @@ def card_gaps(rules: dict, root: str | None = None) -> list:
     return gaps
 
 
+def env_gaps(rules: dict | None = None, root: str | None = None) -> list:
+    """Сторож окружения (T-20261127-175/12-дыра): скрипт этого рецепта (и то, что он импортирует) читает переменную окружения, которой нет ни в `rules-label.json:env`
+    (влияет на результат → входит в метку набора правил), ни в `env_ignore` (с причиной) → строка-находка «ИМЯ — файл:строка — …»; пусто = каждое чтение учтено.
+    Сама проверка — `rules_label.env_gaps` (по AST); здесь — точка входа рядом с `card_gaps`, чтобы оба сторожа рецепта гонялись одним тестом."""
+    root = root or os.path.abspath(os.path.join(HERE, '..', '..'))
+    sys.path.insert(0, HERE)
+    import rules_label as RL
+    return RL.env_gaps(root)
+
+
 def _heavy(step: dict, name: str, ctx: dict, rules: dict) -> list:
     h = step.get('heavy')
     if not h:

@@ -13,11 +13,11 @@
 // один раз на попытку завершения). Не git-репо / git недоступен → молчим (exit 0).
 // Подключение — пресеты settings-presets/* (hooks.Stop) или tools/stop-hook.example.json.
 import { execFileSync } from "node:child_process";
-import { readFileSync, existsSync, readdirSync } from "node:fs";
+import { readFileSync, existsSync, readdirSync, writeSync } from "node:fs";
 import { resolve, join } from "node:path";
 import { runChecks, THRESHOLD_KEYS } from "./memory-audit.mjs";
 import {
-  readOwnEdits, mayHoldRules, onlyOwn, porcelainPath, isOwn, ownRulesEdits, parseStrazh, strazhVerdict,
+  transcriptFromInput, mayHoldRules, onlyOwn, porcelainPath, isOwn, ownRulesEdits, parseStrazh, strazhVerdict,
   runStrazh, strazhAnswer, strazhNotFound, STRAZH_REL, defaultStrazhCmd, dropForeignProblems, DEFAULT_BLOCK_FIELDS,
 } from "./stop-gate-own.mjs";
 
@@ -31,6 +31,18 @@ const blockMode = args.includes("--block");
 //                 (--strazh-fields «просрочено,вне реестра,без разбора,на удаление» — чем блокировать). Стража нет в дереве — блок «страж не найден: путь»;
 //                 страж упал/пустой вывод/нет счётчиков — блок «страж не ответил: код N»; страж сказал «реестр не читается» — блок с причиной
 //                 (молчать нельзя — так проверка тихо отваливается).
+// Предупреждения хука, которые должны быть ВИДНЫ без блока (стенограмма не читается / пропущены строки): если хук сам ничего не печатает в stdout, на выходе печатаем одно
+// JSON-сообщение {"systemMessage": …} (его показывает харнесс); если печатал (блок JSON или текст напоминания) — их строки уже внутри, второй JSON не добавляем.
+const hookNotes = [];
+let stdoutUsed = false;
+const rawLog = console.log.bind(console);
+console.log = (...a) => {
+  stdoutUsed = true;
+  rawLog(...a);
+};
+process.on("exit", () => {
+  if (!stdoutUsed && hookNotes.length) writeSync(1, JSON.stringify({ systemMessage: `session-reminder: ${hookNotes.join("; ")}` }) + "\n");
+});
 const ownMode = args.includes("--own-edits");
 const strazhMode = args.includes("--strazh");
 const argVal = (flag) => {
@@ -90,9 +102,12 @@ try {
   process.exit(0);
 }
 // Свои правки сессии (из стенограммы) — только если включён один из флагов T-175/5.
-const transcriptRead = ownMode || strazhMode ? readOwnEdits(hookInput.transcript_path, root) : null;
+const transcriptRead = ownMode || strazhMode ? transcriptFromInput(hookInput, root) : null;
 const own = transcriptRead ? transcriptRead.own : null;
 const dirtyPaths = dirtyAll.map(porcelainPath);
+// Строки стенограммы длиннее предела пропущены (свои правки в них не учтены) — число видно В СТРОКЕ гейта (в причине блока и в напоминании), а не только в stderr (Fable 27, ❓4 → правка).
+const skipNote = transcriptRead?.skipped ? `пропущено строк: ${transcriptRead.skipped} (длиннее предела, свои правки в них не учтены)` : "";
+const withSkip = (reason) => (skipNote ? `${reason} [стенограмма: ${skipNote}]` : reason);
 
 // Стенограмма не прочиталась (длинная/битая/нет) — «свои правки» неизвестны; это НЕ «правок нет» (27.11: у директора 1,29 ГБ → гейт и страж молчали).
 // Директору — блок, если есть что проверять (незакоммиченные файлы правил при --strazh; чужие/свои несохранённые при --own-edits); остальным — предупреждение в stderr.
@@ -103,18 +118,22 @@ if (transcriptRead && !own) {
     console.log(
       JSON.stringify({
         decision: "block",
-        reason:
+        reason: withSkip(
           `Гейт: стенограмма не читается: ${transcriptRead.why}. Что правила именно эта сессия, не определить, а в дереве есть несохранённое ` +
-          `(${(strazhMode && rulesDirty.length ? rulesDirty : changed.map(porcelainPath)).slice(0, 3).join(", ")}) — проверка «своих правок» и стража молчать не может: ` +
-          `почини чтение (tools/stop-gate-own.mjs, readOwnEdits) или закоммить/верни эти файлы, затем завершай.`,
+            `(${(strazhMode && rulesDirty.length ? rulesDirty : changed.map(porcelainPath)).slice(0, 3).join(", ")}) — проверка «своих правок» и стража молчать не может: ` +
+            `почини чтение (tools/stop-gate-own.mjs, readOwnEdits) или закоммить/верни эти файлы, затем завершай.`
+        ),
       })
     );
     process.exit(0);
   }
-  console.error(`session-reminder: стенограмма не читается: ${transcriptRead.why} — гейт «только свои правки» и строка стража в этом ответе не работают`);
+  const m = `стенограмма не читается: ${transcriptRead.why} — гейт «только свои правки» и строка стража в этом ответе не работают`;
+  hookNotes.push(m); // видно владельцу/менеджеру без блока (systemMessage на выходе или строка напоминания), не только stderr
+  console.error(`session-reminder: ${m}`);
 } else if (transcriptRead?.skipped) {
   console.error(`session-reminder: в стенограмме пропущено слишком длинных строк: ${transcriptRead.skipped} (свои правки в них не учтены)`);
 }
+if (skipNote) hookNotes.push(`стенограмма: ${skipNote}`);
 
 // Строка стража — только у директора и только по его правкам файлов правил, ещё не закоммиченных (чужие сессии и рабочие не трогаем).
 if (strazhMode && process.env.REMLAB_ROLE === "директор" && blockMode) {
@@ -134,7 +153,7 @@ if (strazhMode && process.env.REMLAB_ROLE === "директор" && blockMode) {
       console.log(
         JSON.stringify({
           decision: "block",
-          reason: `Гейт стража правил: ${answer.silent}. Ты правил файлы правил (${myRules.slice(0, 3).join(", ")}${myRules.length > 3 ? ", …" : ""}), ` + tail,
+          reason: withSkip(`Гейт стража правил: ${answer.silent}. Ты правил файлы правил (${myRules.slice(0, 3).join(", ")}${myRules.length > 3 ? ", …" : ""}), ` + tail),
         })
       );
       process.exit(0);
@@ -144,9 +163,10 @@ if (strazhMode && process.env.REMLAB_ROLE === "директор" && blockMode) {
       console.log(
         JSON.stringify({
           decision: "block",
-          reason:
+          reason: withSkip(
             `Гейт стража правил: ${line.trim()} → ${verdict.bad.join(", ")}. Ты правил файлы правил (${myRules.slice(0, 3).join(", ")}${myRules.length > 3 ? ", …" : ""}) — ` +
-            `доведи реестр и сроки до нуля (правило в реестр, решение или один перенос срока с причиной), затем завершай.`,
+              `доведи реестр и сроки до нуля (правило в реестр, решение или один перенос срока с причиной), затем завершай.`
+          ),
         })
       );
       process.exit(0);
@@ -230,9 +250,10 @@ if (blockMode && plan && (empty || auditDirty)) {
   console.log(
     JSON.stringify({
       decision: "block",
-      reason:
+      reason: withSkip(
         `Гейт памяти (план ${plan.file}: ${plan.status}; изменено файлов вне .memory_bank/: ${changed.length}). ` +
-        `Запусти /memory-check и доведи audit до «чисто», затем завершай. Причина: ${why.join("; ")}`,
+          `Запусти /memory-check и доведи audit до «чисто», затем завершай. Причина: ${why.join("; ")}`
+      ),
     })
   );
   process.exit(0);
@@ -242,6 +263,7 @@ if (blockMode && plan && (empty || auditDirty)) {
 console.log(
   `⚠ Похоже, в сессии была содержательная работа (изменено файлов вне .memory_bank/: ${changed.length}).`
 );
+for (const n of hookNotes) console.log(`  ${n.charAt(0).toUpperCase()}${n.slice(1)}.`);
 if (empty) {
   console.log(`  ${scratchWhy}.`);
   console.log("  Запусти /memory-check (разнесёт решения по .memory_bank/) — иначе факты сессии потеряются.");

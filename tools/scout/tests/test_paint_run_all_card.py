@@ -80,5 +80,17 @@ ok(pol.get('type') == 'стол обеденный' and not pol.get('reason'), f
 pol0 = MTP.paint_policy('стол')
 ok(pol0.get('reason') == 'no_type', 'роль без типа в паспортах («стол») → по-прежнему no_type: вторая причина воздержаний — каталог ролей, не рецепт')
 
+# 5. сторож окружения рядом со сторожем карточки (T-175/12-дыра): скрипты рецепта читают только учтённые переменные (метка видит их все)
+eg = RA.env_gaps(REAL, ROOT)
+ok(eg == [], 'боевой рецепт: каждое чтение окружения в скриптах конвейера есть в rules-label.json (env / env_ignore с причиной): ' + '; '.join(eg[:3]))
+import rules_label as RL  # noqa: E402
+cfg0 = RL.load_cfg(os.path.join(ROOT, 'tools', 'scout', 'rules', 'rules-label.json'))
+cfg1 = dict(cfg0, env=[x for x in cfg0['env'] if x != 'POSE_JUNCTION'])
+g1 = RL.env_gaps(ROOT, cfg1)
+ok(len(g1) == 1 and 'POSE_JUNCTION' in g1[0] and 'pose_fit.py:' in g1[0], 'убрал POSE_JUNCTION из env → красный с именем и файлом:строкой: ' + (g1[0] if g1 else '—'))
+cfg2 = dict(cfg0, env_ignore={k: v for k, v in cfg0['env_ignore'].items() if k != 'THREADS'})
+g2 = RL.env_gaps(ROOT, cfg2)
+ok(len(g2) == 1 and 'THREADS' in g2[0] and 'paint_delight.py:' in g2[0], 'убрал THREADS из «не влияет» → красный: ' + (g2[0] if g2 else '—'))
+
 print(f'paint_run_all_card: ошибок {FAIL}')
 sys.exit(1 if FAIL else 0)
