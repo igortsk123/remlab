@@ -1,9 +1,8 @@
 {
  "_about": "Порог сторожа выключателей (T-20261127-173): число выключателей вне реестра и вне списка настроек только убывает. known — их имена на дату записи. Опустить — `python tools/ops/rule_switch_guard.py --lower`; поднять — только правкой, решение директора.",
- "max_uncovered": 167,
+ "max_uncovered": 163,
  "known": [
   "data/flat3d/material-recipes.json#glass_tone.keep_map.on",
-  "data/flat3d/material-recipes.json#glass_tone.keep_map.shift",
   "data/flat3d/material-recipes.json#part_photo.apply",
   "data/flat3d/material-recipes.json#sheen_tint.on",
   "data/flat3d/parts-sam-rules.json#refine.islands.enabled",
@@ -23,10 +22,7 @@
   "tools/scout/rules/camera-check.json#vertical_axis.check_enabled",
   "tools/scout/rules/camera-check.json#vertical_axis.enabled",
   "tools/scout/rules/camera-check.json#white_plate.enabled",
-  "tools/scout/rules/detail-zones.json#pillows.enabled",
-  "tools/scout/rules/edge-sharpen.json#back_panel.front_by_relief.enabled",
   "tools/scout/rules/edge-sharpen.json#back_panel.paint_gate.mode",
-  "tools/scout/rules/edge-sharpen.json#back_panel.tight_edge.enabled",
   "tools/scout/rules/form-checks.json#observe",
   "tools/scout/rules/form-checks.json#thresholds.approx_flag",
   "tools/scout/rules/form-checks.json#thresholds.back_dup_flag",
