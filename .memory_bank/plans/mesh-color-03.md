@@ -2,9 +2,11 @@
 workstream: mesh
 slug: mesh-color-03
 title: Цвет мешей сразу правильный — опыты по кругу «покрасил → снял с ракурсов → сравнил с фото → поправил», поиск методики (К8 room-conveyor-02)
-status: in_progress
+status: partial
+pause_reason: "методику цвета ведёт конвейер покраски v3 (plans/paint-photo-fill-01.md, пробный товар plans/paint-trial-item-01.md, Fable 14–19) — опыты этого плана поглощены"
+resume_trigger: "владелец вернёт задачу «цвет сразу правильный» отдельно от покраски v3"
 created: 2026-11-06
-updated: 2026-11-12
+updated: 2026-11-27
 parent_plan: room-conveyor-02
 ---
 
