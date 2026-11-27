@@ -172,7 +172,7 @@ def check_cutout(form: str | None, rules: dict, root: str = ROOT) -> dict:
         return _item(I_CUT, REFUSE, f'в записи происхождения ({where}) не хватает полей: {", ".join(miss)}')
     if not want:
         return _item(I_CUT, REFUSE, f'сверить нечем: актуальная версия цепочки не определена ({src}); единый модуль вырезки (T-175/9) не влит')
-    return _item(I_CUT, REFUSE, f'вырезка формы старая: версия цепочки «{have}», актуальная «{want}» ({src}); способ «{_field(rec, "cutout_method", rules) or "?"}», дата «{_field(rec, "date", rules) or "?"}»; записи «вход равнозначен» нет')
+    return _item(I_CUT, REFUSE, f'вход устарел: вырезка формы старая, версия цепочки «{have}», актуальная «{want}» ({src}); способ «{_field(rec, "cutout_method", rules) or "?"}», дата «{_field(rec, "date", rules) or "?"}»; записи «вход равнозначен» нет')
 
 
 def find_equiv_record(form: str, rules: dict) -> tuple:
