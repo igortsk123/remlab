@@ -1,0 +1,12 @@
+[Unit]
+Description=remlab: страж правил — строка «просрочено / вне реестра / без разбора / на удаление» и Telegram (T-20261127-175/3)
+Documentation=file:%h/igor/remlab/tools/ops/rules_guard.py
+
+[Service]
+Type=oneshot
+WorkingDirectory=%h/igor/remlab
+# --notify: состояние, Telegram по правилам, line.txt и report.json в ~/.local/state/remlab/rules-guard/. Читает только репозиторий и журнал; кода правил не меняет.
+ExecStart=/usr/bin/python3 %h/igor/remlab/tools/ops/rules_guard.py --notify
+Nice=15
+IOSchedulingClass=idle
+TimeoutStartSec=10min

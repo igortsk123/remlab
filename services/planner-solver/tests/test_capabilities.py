@@ -19,7 +19,7 @@ def _row(**kw):
 
 
 def test_rules_have_provenance_and_versions():
-    assert R['_meta']['version'] and len(R['_meta']['provenance']) > 40
+    assert R['rules_version'] and 'provenance:' in R['_about'] and len(R['_about']) > 40
     for k in ('bench', 'daybed', 'shallow_storage', 'extension_mechanism', 'dining_seat', 'seats'):
         assert '_why' in R[k] or k in ('seats',), k
     assert R['extension_mechanism']['status'] == 'sleeping'

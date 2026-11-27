@@ -233,6 +233,55 @@ def resolve_files(stage: dict, ctx: dict) -> dict:
     return files
 
 
+def _script_flags(path: str) -> set:
+    """Флаги командной строки скрипта: строковые константы `--…` в вызовах add_argument (разбор кода, без запуска и импорта)."""
+    import ast
+    with open(path, encoding='utf-8') as f:
+        tree = ast.parse(f.read(), filename=path)
+    flags = set()
+    for n in ast.walk(tree):
+        if isinstance(n, ast.Call) and isinstance(n.func, ast.Attribute) and n.func.attr == 'add_argument':
+            flags.update(a.value for a in n.args if isinstance(a, ast.Constant) and isinstance(a.value, str) and a.value.startswith('--'))
+    return flags
+
+
+def card_gaps(rules: dict, root: str | None = None) -> list:
+    """Сторож карточки (T-20261127-174/2): шаг, чей скрипт принимает флаг карточки (`rules.card_flags`), а в рецепте его нет, — строка-находка; пусто = всё передано.
+    Скрипты из `rules.card_exempt` (по имени файла, с причиной) пропускаются. Скрипт не найден или не разобрался — тоже находка (сторож не слепнет молча).
+    Флаги берутся по всему файлу скрипта (все подкоманды): лишнее срабатывание лечится записью в `card_exempt` с причиной, не пропуском."""
+    root = root or os.path.abspath(os.path.join(HERE, '..', '..'))
+    flags, exempt = rules.get('card_flags') or [], rules.get('card_exempt') or {}
+    gaps = []
+    for sname, st in rules['stages'].items():
+        for i, step in enumerate(st.get('steps', [])):
+            argv = step.get('argv') or []
+            for tok in argv:
+                if not (tok.startswith('{root}/') and tok.endswith('.py')):
+                    continue
+                base = os.path.basename(tok)
+                if base in exempt:
+                    continue
+                try:
+                    have = _script_flags(os.path.join(root, tok[len('{root}/'):]))
+                except (OSError, SyntaxError) as e:
+                    gaps.append(f'{sname}/шаг {i}: {base}: скрипт не разобран ({type(e).__name__})')
+                    continue
+                for fl in flags:
+                    if fl in have and not any(a == fl and j + 1 < len(argv) and argv[j + 1].startswith('{') for j, a in enumerate(argv)):
+                        gaps.append(f'{sname}/шаг {i}: {base} принимает {fl}, в рецепте его нет')
+    return gaps
+
+
+def env_gaps(rules: dict | None = None, root: str | None = None) -> list:
+    """Сторож окружения (T-20261127-175/12-дыра): скрипт этого рецепта (и то, что он импортирует) читает переменную окружения, которой нет ни в `rules-label.json:env`
+    (влияет на результат → входит в метку набора правил), ни в `env_ignore` (с причиной) → строка-находка «ИМЯ — файл:строка — …»; пусто = каждое чтение учтено.
+    Сама проверка — `rules_label.env_gaps` (по AST); здесь — точка входа рядом с `card_gaps`, чтобы оба сторожа рецепта гонялись одним тестом."""
+    root = root or os.path.abspath(os.path.join(HERE, '..', '..'))
+    sys.path.insert(0, HERE)
+    import rules_label as RL
+    return RL.env_gaps(root)
+
+
 def _heavy(step: dict, name: str, ctx: dict, rules: dict) -> list:
     h = step.get('heavy')
     if not h:
@@ -328,7 +377,7 @@ def _run_step(step: dict, name: str, ctx: dict, rules: dict, timeout: int, use_h
 
 def execute(run: str, sku: str, a: dict, rules: dict, check_rules: dict, only: list | None = None, timeout: int = 3600) -> dict:
     """Выполнить по порядку; перед каждым этапом гейт считается заново по ФАКТИЧЕСКИМ check.json (не по плану)."""
-    log = {'sku': sku, 'run': run, 'stages': [], 'started': time.strftime('%Y-%m-%d %H:%M:%S')}
+    log = {'sku': sku, 'run': run, 'stages': [], 'started': time.strftime('%Y-%m-%d %H:%M:%S'), 'rules_label': PS._rules_label()}   # метка набора правил круга (T-175/12): та же запись, что в check.json этапов
     ctx = make_ctx(run, sku, a, rules)
     os.makedirs(ctx['work'], exist_ok=True)
     for name in rules['order']:

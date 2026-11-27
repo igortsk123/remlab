@@ -7,6 +7,8 @@
 ЧТО ЗНАЧИТ «ВЫКЛЮЧАТЕЛЬ». Лист JSON-файла из области сторожа (`scan` в `switch-settings.json`; списки внутри файлов — данные, не обходятся; ключи с `_` — комментарии),
 который — булево (true/false) ИЛИ режим: ключ `mode`/`state` со значением off/on/observe/dry/shadow/enforce/active. Имя — `файл.json#a.b.c` (как поле `flag` реестра).
 
+ОБРАТНОЕ НАПРАВЛЕНИЕ (T-175/В-реестр): каждое имя из `flag`/`flags[]` реестра обязано существовать в файле правил (файл, ключ) — иначе после удаления выключателя запись молча остаётся и числится «охваченной»; реестр не читается — ошибка.
+
 КАЖДЫЙ ВЫКЛЮЧАТЕЛЬ — ЛИБО В РЕЕСТРЕ, ЛИБО В СПИСКЕ «ОБЫЧНЫХ НАСТРОЕК»:
   • реестр: имя (или его родитель-блок) — в поле `flag` правила или в `flags: [...]` правила/группы `rule-registry.json`;
   • список: `settings` в `tools/scout/rules/switch-settings.json` — «имя или шаблон (`*` — любая часть) → почему это не правило» (причина обязательна).
@@ -131,6 +133,39 @@ def in_registry(name: str, flags: set) -> bool:
     return any(name == f or name.startswith(f + '.') for f in flags)
 
 
+def _resolve(d, parts) -> bool:
+    """Есть ли в JSON путь parts (ключ может сам содержать точку; число — индекс списка)."""
+    if not parts:
+        return True
+    for i in range(1, len(parts) + 1):
+        k = '.'.join(parts[:i])
+        if isinstance(d, dict) and k in d and _resolve(d[k], parts[i:]):
+            return True
+    if isinstance(d, list) and parts[0].isdigit() and int(parts[0]) < len(d):
+        return _resolve(d[int(parts[0])], parts[1:])
+    return False
+
+
+def dead_flags(root: str, flags: set) -> list:
+    """Имена из реестра (`flag`, `flags[]`), которых нет в файле правил: [(имя, причина)]. Запись про выключатель, которого уже нет, — ложное «охвачено» (T-175/В-реестр, ❓3)."""
+    out = []
+    for n in sorted(flags):
+        if '#' not in n:
+            out.append((n, 'нет «#» — имя должно быть «файл.json#путь.к.ключу»'))
+            continue
+        f, p = n.split('#', 1)
+        fp = os.path.join(root, f)
+        if not os.path.isfile(fp):
+            out.append((n, 'файла %s нет' % f))
+            continue
+        d = _load(fp)
+        if d is None:
+            out.append((n, 'файл %s не читается как JSON' % f))
+        elif not _resolve(d, p.split('.')):
+            out.append((n, 'в файле нет ключа «%s»' % p))
+    return out
+
+
 def guard(root: str = ROOT, registry_path: str = REGISTRY, settings_path: str = SETTINGS, threshold_path: str = THRESHOLD) -> dict:
     """→ {'switches', 'in_registry', 'in_settings', 'uncovered': [{name, value}], 'max', 'errors': [...], 'hints': [...], 'unclassified': [...]}."""
     cfg = _load(settings_path)
@@ -147,7 +182,12 @@ def guard(root: str = ROOT, registry_path: str = REGISTRY, settings_path: str = 
     for k, why in settings.items():
         if not (isinstance(why, str) and why.strip()):
             res['errors'].append('settings «%s»: нет причины (почему это настройка, а не правило)' % k)
-    flags = registry_flags(_load(registry_path))
+    reg = _load(registry_path)
+    if not isinstance(reg, dict):
+        res['errors'].append('реестр %s не читается (нет файла или не JSON) — без него охват выключателей не проверить' % _rel(root, registry_path))
+    flags = registry_flags(reg)
+    for n, why in dead_flags(root, flags):
+        res['errors'].append('реестр называет выключатель, которого нет: %s — %s (удалён из файла правил? убери имя из flag/flags записи реестра или поправь опечатку)' % (n, why))
     res['switches'] = len(sw)
     unc = []
     for name, v in sw.items():

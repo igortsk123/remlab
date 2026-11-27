@@ -28,8 +28,10 @@ tools/scout/paint_stage.py
 tools/scout/pattern_metric.py
 tools/scout/pipeline.py
 tools/scout/remlab_tmp.py
+tools/scout/rules_label.py
 tools/scout/rules/camera-check.json
 tools/scout/rules/pose-rank.json
+tools/scout/rules/rules-label.json
 tools/scout/rules/tex-coverage.json
 tools/scout/asset_strategy.py
 tools/scout/back_relief.py
@@ -43,3 +45,4 @@ tools/scout/rules/edge-sharpen.json
 tools/scout/rules/asset-strategies.json
 tools/scout/rules/mesh-type-passports.json
 tools/scout/rules/plate-strip.json
+tools/scout/rules/paint-run-all.json
