@@ -98,5 +98,3 @@ tools/scout/rules/rule-registry.json
 tools/scout/rules/type-policy-effect.json
 tools/scout/salad/trellis/detail_zones.py
 tools/scout/rules/detail-zones.json
-tools/scout/rules_label.py
-tools/scout/rules/rules-label.json
