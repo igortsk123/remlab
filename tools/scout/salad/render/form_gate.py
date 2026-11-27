@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Шаг form_gate (Ш0, T-184/9, директор 22.11): GLB + кадры приёмки → `<out>/<sku>/form_checks.json` + строка сводки `<out>/form_gate.tsv`. OBSERVE: ничего не бракует и не меняет код возврата рендера.
+"""Шаг form_gate (Ш0, T-184/9, директор 22.11): GLB + кадры приёмки → `<out>/<sku>/form_checks.json` + строка сводки `<out>/form_gate.tsv`. OBSERVE: найденный брак ничего не бракует и код возврата рендера не меняет; сам сбой Ш0 — меняет (`forms_render`: «Ш0 НЕ ВЫПОЛНЕН: причина», код 3).
 Зовётся в конце `tools/ops/forms_render.py --accept` (флаг `--no-form-gate` выключает) — кадры приёмки рождаются там, значит Ш0 идёт сразу после них для любой новой формы; можно и отдельно:
   python form_gate.py --out <папка кадров приёмки> --glbs <папка GLB> --skus a,b [--roles roles.json] [--photos DIR] [--vlm-cache DIR] [--rules F]
 Проверки — `form_checks.run_sku` (пороги и виды — `tools/scout/rules/form-checks.json`). Оценщик по картинке (vlm_judge, платный, ответы кэшируются) идёт САМ: фото — `--photos` или рядом с прогоном (`find_photo`), кэш — `--vlm-cache` или `<out>/vlm-cache`;
@@ -46,8 +46,8 @@ def gate(out: str, glbs: str, skus: list[str], roles: dict | None = None, photos
     import form_reseed as FR
     import vlm_judge as VJ
     if find_glb is None:
-        import forms_render as FR
-        find_glb = FR.find_glb_
+        import forms_render as FRN                                                        # своё имя: `FR` ниже — form_reseed (annotate); общее имя перекрывало его и роняло Ш0 (T-20261127-175/Ш0-fix)
+        find_glb = FRN.find_glb_
     rules = FC.load_rules(rules_path) if rules_path else FC.load_rules()
     J = rules.get('vlm_judge') or {}
     roles = roles or {}
