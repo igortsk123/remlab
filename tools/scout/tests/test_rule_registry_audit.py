@@ -176,7 +176,7 @@ def test_retired_skips_code_checks():
     assert errs == 0, res
 
 
-V3 = {'version': 3, 'decide_by_max': '2026-12-01', 'groups_max': 2,
+V3 = {'version': 3, 'decide_by_max': '2026-12-01', 'groups_max': 2, 'enable_groups_max': 1,
       'groups': {'G1': {'decide_by': '2026-11-27', 'enable_if': 'рисунок прошёл у ≥ 4 из 11'},
                  'G2': {'decide_by': '2026-12-01', 'enable_if': 'медиана ≤ 10 %'},
                  'K': {'kind': 'enable', 'decide_by': '2026-11-27', 'enable_if': 'на 29: 0 отказов'}}}
@@ -318,6 +318,22 @@ def test_v3_rule_own_deadline_overrides_group_and_is_checked():
     assert errs == 0 and not dl(res), text
     res, _, errs, _ = run([trial(group='K', enable_if='лучше')], reg=V3, today=D(2026, 11, 25))
     assert errs == 1
+
+
+def test_v3_enable_groups_have_own_limit():
+    """Решение Fable 27.11 (T-175/В-реестр): группы kind=enable — свой потолок enable_groups_max; лишняя группа «кандидаты» или пропавший ключ — красный, а не молчание."""
+    rules = [trial(rule_id='R-A-1', group='K')]
+    res, _, errs, _ = run(rules, reg=V3, today=D(2026, 11, 25))
+    assert errs == 0, res                                                                      # одна группа enable = потолок 1
+    two = dict(V3, groups=dict(V3['groups'], K2={'kind': 'enable', 'decide_by': '2026-12-01', 'enable_if': 'на 100: ≥ 3 : 1'}))
+    res, _, errs, _ = run(rules, reg=two, today=D(2026, 11, 25))
+    assert errs == 1 and 'enable_groups_max 1' in res['problems'][0]['why'] and 'K2' in res['problems'][0]['why'], res      # вторая группа enable (даже без своих trial-правил) считается
+    assert run(rules, reg=dict(two, enable_groups_max=2), today=D(2026, 11, 25))[2] == 0
+    nokey = {k: v for k, v in V3.items() if k != 'enable_groups_max'}                          # ключ убрали — потолок не отключается молча
+    res, _, errs, _ = run(rules, reg=nokey, today=D(2026, 11, 25))
+    assert errs == 1 and 'нет enable_groups_max' in res['problems'][0]['why'], res
+    res, _, errs, _ = run(rules, reg=dict(V3, enable_groups_max='3'), today=D(2026, 11, 25))   # не число — тоже ошибка
+    assert errs == 1 and 'нет enable_groups_max' in res['problems'][0]['why'], res
 
 
 def test_v3_hold_groups_limit_enable_group_not_counted():

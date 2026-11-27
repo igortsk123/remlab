@@ -135,9 +135,13 @@
       "test_negative": "tools/scout/stablegen/tests_edge_sharpen.py::test_stage_policy_refusal_leaves_files",
       "run_id": null,
       "flag": "tools/scout/rules/edge-sharpen.json#back_panel.enabled",
+      "flags": [
+        "tools/scout/rules/paint-fill.json#ultratex.enabled",
+        "tools/scout/rules/ref-zone.json#apply_to_fill"
+      ],
       "check_field": "06-visible.rules",
       "enabled": null,
-      "note": "ВЫКЛЮЧЕНО по факту (T-20261124-04, Д2): выключатель tools/scout/rules/edge-sharpen.json#back_panel.enabled=false; шаг для допущенного типа пишет воздержание «припарковано» и зад не трогает; run_id нет. Ждёт прогона на 100+ body и решения директора (24.11, T-43/9): на 21 новых body с пробными порогами сработало 2 из 21 (6020, 6402), воздержалось по шуму сетки 5, отказ этапа 6 у 13, камера 1; остаётся дефект «рельеф ящиков ниже полосы depth» (мерка steep по полосам высоты — кандидат, plans/mesh-type-rules-01.md журнал 24.11). Пробные пороги и триггер — только в trial-ветке trial/t43-9-thresholds, в main не влиты. История T-43/3…T-43/6 — plans/mesh-type-rules-01.md и git-журнал этого поля.",
+      "note": "НА УДАЛЕНИЕ ВМЕСТЕ С ЭТИМ ШАГОМ (решение Fable 27.11, T-175/В-реестр): в flags — два выключателя UltraTex (paint-fill.json#ultratex.enabled, ref-zone.json#apply_to_fill); их исход известен заранее (удалить с кодом), мерить на экзамене нечем, в счёт «включаем или снимаем» группы GP не идут. ВЫКЛЮЧЕНО по факту (T-20261124-04, Д2): выключатель tools/scout/rules/edge-sharpen.json#back_panel.enabled=false; шаг для допущенного типа пишет воздержание «припарковано» и зад не трогает; run_id нет. Ждёт прогона на 100+ body и решения директора (24.11, T-43/9): на 21 новых body с пробными порогами сработало 2 из 21 (6020, 6402), воздержалось по шуму сетки 5, отказ этапа 6 у 13, камера 1; остаётся дефект «рельеф ящиков ниже полосы depth» (мерка steep по полосам высоты — кандидат, plans/mesh-type-rules-01.md журнал 24.11). Пробные пороги и триггер — только в trial-ветке trial/t43-9-thresholds, в main не влиты. История T-43/3…T-43/6 — plans/mesh-type-rules-01.md и git-журнал этого поля.",
       "retired_reason": "СНЯТО (24.11, T-20261124-54/2, решение директора; таблица T-54/1 строка 1, ~/remlab-logs/t2454-1124/report.md): замер без пользы: перегон t243body — «крапинки», применено 7, воздержалось 4; на 21 новом body сработало 2 из 21; выключатель back_panel.enabled=false, runtime=off; рельеф ящика решает модель «панель→роль→материал→источник тона» (Р5). 25.11 (T-20261125-80, влито def8923e0): найдена причина вреда — у 4 из 11 корпусных круга 29 az 04 перевёрнут, «зад» по камере = настоящий фасад; в main под флагами ВЫКЛ (байт в байт) — front_by_relief (edge-sharpen.json#front_by_relief.enabled: выравнивать только при «фасад на стороне камеры», воздержание = не трогать) и tight_edge (склон у кромок 0,03–9,4 % → 0 %, но кромка зад|бок зубчатее: Рошаль rms 0,34 → 0,67 px — ворота не пройдены). Вернуть в trial — после второго сигнала стороны в 04 (р.6) и починки кромки (T-20261125-86)."
     },
     {
@@ -1322,7 +1326,7 @@
     },
     {
       "rule_id": "R-DRY-PROBES-SWITCHES",
-      "title": "Пробы и «сухие» режимы без срока (ворота камеры 04 и приёмки формы Ш0 в режиме «только наблюдает», роли dry, шов/зеркало 07, 06-tex-visible и др.), 46 выключателей — держатель группы GP; включая UltraTex (ultratex.enabled, ref-zone.apply_to_fill): удаляется кодом отдельной задачей",
+      "title": "Пробы и «сухие» режимы без срока (ворота камеры 04 и приёмки формы Ш0 в режиме «только наблюдает», роли dry, шов/зеркало 07, 06-tex-visible и др.), 44 выключателя — держатель группы GP",
       "state": "trial",
       "source": [
         "T-20261127-175/В-реестр (решение Fable 27.11 п.б, ~/remlab-logs/fable-1126/reshenie-t175-vykl.md)",
@@ -1361,7 +1365,6 @@
         "tools/scout/rules/paint-fill.json#seam.enabled",
         "tools/scout/rules/paint-fill.json#seam.poisson",
         "tools/scout/rules/paint-fill.json#surface_groups.gate",
-        "tools/scout/rules/paint-fill.json#ultratex.enabled",
         "tools/scout/rules/paint-run-all.json#soft_camera.enabled",
         "tools/scout/rules/paint-surface-checks.json#cold_spots.enabled",
         "tools/scout/rules/part-llm-roles.json#mode",
@@ -1374,7 +1377,6 @@
         "tools/scout/rules/pose-rank.json#camera_refine_v2.enabled",
         "tools/scout/rules/pose-rank.json#flip_always.enabled",
         "tools/scout/rules/pose-rank.json#flip_always.flip_refit.enabled",
-        "tools/scout/rules/ref-zone.json#apply_to_fill",
         "tools/scout/rules/ref-zone.json#sibling_tone.consensus_enabled",
         "tools/scout/rules/tex-visible.json#back_prune_panels",
         "tools/scout/rules/tex-visible.json#depth_band_tilt",
@@ -1391,7 +1393,7 @@
       ],
       "check_field": null,
       "enabled": null,
-      "note": "Запись-держатель: чтобы у каждой живой пробы был срок решения (группа GP, 12.12) и она считалась в реестре. Включать блокирующими без размеченных товаров нельзя — разметку даст экзамен на 100. Поимённо — flags[].",
+      "note": "Запись-держатель: у каждой живой пробы — срок решения (группа GP, 12.12) и запись в реестре. Включать блокирующими без размеченных товаров нельзя — разметку даст экзамен на 100; условия включения — по каждой проверке отдельно (enable_if группы GP, решение Fable 27.11). Разнесено по описаниям в файлах правил (окончательно — кодом при разметке экзамена, Fable: «разнести рабочему»). ОСТАНАВЛИВАЮТ товар (строки 1–3 условия; 9): camera-check.json#edge_angle.enforce, camera-check.json#junction.enforce, flat3d/sides-eval.json#back_tone.enforce, form-checks.json#thresholds.approx_flag, form-checks.json#thresholds.back_dup_flag, form-checks.json#thresholds.leg_wave_flag, form-checks.json#thresholds.stitch_flag, paint-fill.json#surface_groups.gate, paint-surface-checks.json#cold_spots.enabled. ТОЛЬКО ОТЧЁТ / МЕТКА, ничего не останавливают и результат не меняют (4; ❓ — по какой строке условия их мерить): camera-check.json#az_sigma.enabled, camera-check.json#form_verdict.enabled, camera-check.json#white_plate.enabled, form-checks.json#thresholds.dims_dia_axes. МЕНЯЮТ РЕЗУЛЬТАТ, «сухой → рабочий» (строка 4; 31): camera-check.json#legs_match.block_photo, camera-check.json#vertical_axis.enabled, flat3d/material-recipes.json#part_photo.apply, flat3d/parts-sam-rules.json#refine.islands.enabled, paint-fill.json#mirror_enabled, paint-fill.json#seam.enabled, paint-fill.json#seam.poisson, paint-run-all.json#soft_camera.enabled, part-llm-roles.json#mode, part-llm-roles.json#name_relax.enabled, part-roles.json#decision.legs_guard.mode, part-roles.json#decision.no_front_same_channel.mode, part-roles.json#decision.similar_to_trusted.mode, part-roles.json#decision.single_class_support.mode, part-roles.json#decision.unseen_adopt.mode, pose-rank.json#camera_refine_v2.enabled, pose-rank.json#flip_always.enabled, pose-rank.json#flip_always.flip_refit.enabled, ref-zone.json#sibling_tone.consensus_enabled, tex-visible.json#back_prune_panels, tex-visible.json#depth_band_tilt, tex-visible.json#edge_bg_inward, tex-visible.json#edge_bg_local, tex-visible.json#edge_bg_rule_inward, tex-visible.json#tone_glare, tex-visible.json#tone_plane_ref, tex-visible.json#z_buffer_depth_all, top-prior.json#enabled, top-prior.json#mode, top-prior.json#stage07.retint_native, top-prior.json#stage07.synth_candidate.massive_enabled. UltraTex ×2 в эту группу НЕ входят — «на удаление» вместе с back_panel (flags записи R-BACKPANEL-06).",
       "group": "GP"
     }
   ],
@@ -1450,14 +1452,16 @@
       "enable_if": "ступень «10 столов без ошибок» (лестница владельца TG 3522/3524) пройдена: 10 из 10 столов без ошибок на Хостере и Келвине при включённых флагах варианта А; прошла — флаги удаляются, поведение обычное, без выключателя; не прошла — группа снимается (retired, флаги выкл). Не закрыта к 05.12 — не переносится молча: директор пишет владельцу, что ступень отстаёт (решение Fable 27.11)"
     },
     "GP": {
-      "title": "Пробы и «сухие» режимы без срока: ворота 04 и Ш0 «только наблюдает», роли dry, 06/07 (46)",
+      "title": "Пробы и «сухие» режимы без срока: ворота 04 и Ш0 «только наблюдает», роли dry, 06/07 (44)",
       "kind": "enable",
       "decide_by": "2026-12-12",
-      "enable_if": "экзамен на 100 даёт размеченные товары: проверка включается блокирующей, только если на ≥ 100 товарах ложных срабатываний ≤ 5 из 100 (порог — гипотеза, утвердить директору); режим dry → on — если «до → после» на тех же 100 не хуже по 5 признакам; не выполнено к 12.12 — снять группу (retired, флаги выкл). Первый срок новой группы, не перенос"
+      "enable_if": "экзамен на 100 даёт размеченные товары (глаз: хороший / брак). На самом экзамене все проверки группы только НАБЛЮДАЮТ (правила заморожены); включение — после него, по таблице. Условия — по КАЖДОЙ проверке отдельно: (1) ложные остановки — срабатывание на товаре, который глаз признал хорошим: не больше 5 на каждые 100 хороших; (2) польза: срабатываний на настоящем браке не меньше 2 штук и «по делу» не меньше 2 из каждых 3 срабатываний; (3) все включаемые остановки вместе зря останавливают не больше 10 из 100 хороших — не помещаются: включать по убыванию доли «по делу», пока не вышли за 10, остальные снять; (4) режимы, что меняют результат («сухой → рабочий»): на тех же 100 «лучше : хуже» не меньше 3 : 1 и ни один товар не хуже больше чем на 10 процентных пунктов. Не сработала ни разу на 100 — данных нет, блокирующей не становится, снимается (выключатель и код уходят); сработала, но числа не прошла — снимается; на границе (4–7 ложных) — решать по кадрам срабатываний, не по числу; числа предварительные (решение Fable 27.11). Не выполнено к 12.12 — снять группу (retired, флаги выкл). Первый срок новой группы, не перенос"
     }
   },
   "decide_by_max": "2026-12-12",
   "_decide_by_max_why": "Поднят 2026-12-01 → 2026-12-12 27.11 (T-20261127-175/В-реестр, решение Fable п.б): мерка новых групп GA (05.12) и GP (12.12) — экзамен на 100; это ПЕРВЫЙ срок новых групп, а не перенос старых — сроки G1–G8 и K29 остались 2026-12-01.",
   "groups_max": 8,
-  "_trial_deadline_rule": "Пробные правила живут группами (groups): у группы decide_by (не позже decide_by_max = 2026-12-12) и enable_if — условие включения ЧИСЛОМ по 5 признакам или частной мерке на круге 29. Нет решения к decide_by — снять ВСЮ группу (state=retired, retired_reason, выключатель off). Групп «держать» не больше groups_max=8; группа kind=enable — кандидаты в active, включаются только замером «до → после» на тех же 29 (правило 24.11). Свод: ревью Fable, владелец 24.11; T-20261124-54/1 (таблица) и 54/2 (реестр). Проверка — tools/ops/rule_registry_audit.py (класс «срок/условие решения»); решение по группе принимает директор."
+  "enable_groups_max": 3,
+  "_enable_groups_max_why": "Решение Fable 27.11 (T-175/В-реестр, reshenie-t175-reestr.md): группы «кандидаты на включение» (kind=enable) — свой потолок рядом с groups_max, не его подъём; сейчас таких групп ровно три (K29, GA, GP). Без него любую пробу можно было бы назвать «кандидатом», и groups_max ничего не ограничивал. Проверка — rule_registry_audit.py (ключа нет или групп больше — ошибка).",
+  "_trial_deadline_rule": "Пробные правила живут группами (groups): у группы decide_by (не позже decide_by_max = 2026-12-12) и enable_if — условие включения ЧИСЛОМ по 5 признакам или частной мерке на круге 29. Нет решения к decide_by — снять ВСЮ группу (state=retired, retired_reason, выключатель off). Групп «держать» не больше groups_max=8; группа kind=enable — кандидаты в active, включаются только замером «до → после» на тех же 29 (правило 24.11) — или по мерке группы, записанной в её enable_if (GA — «10 столов без ошибок», GP — экзамен на 100); групп kind=enable не больше enable_groups_max=3. Свод: ревью Fable, владелец 24.11; T-20261124-54/1 (таблица) и 54/2 (реестр). Проверка — tools/ops/rule_registry_audit.py (класс «срок/условие решения»); решение по группе принимает директор."
 }
