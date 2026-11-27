@@ -1,0 +1,15 @@
+# remlab-rules-guard.timer — страж правил каждые 30 минут (T-20261127-175/3; Fable 27: «запускается системным расписанием, не сессией»).
+# Ставит МЕНЕДЖЕР (рабочий только готовит файлы); до этого файл лежит в репозитории и ничего не делает.
+#   cp infra/server/rules-guard/remlab-rules-guard.{service,timer} ~/.config/systemd/user/
+#   systemctl --user daemon-reload && systemctl --user enable --now remlab-rules-guard.timer
+# Проверка без отправки: python3 tools/ops/rules_guard.py   (печатает строку, ничего не пишет и не шлёт)
+[Unit]
+Description=remlab: страж правил каждые 30 минут
+
+[Timer]
+OnCalendar=*-*-* *:00,30:00
+RandomizedDelaySec=60
+Persistent=true
+
+[Install]
+WantedBy=timers.target
