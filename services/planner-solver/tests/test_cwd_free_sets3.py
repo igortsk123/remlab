@@ -1,7 +1,6 @@
-"""T-175/hvosty (а): test_cwd_free::test_solver_from_root без sets3.json — пропуск с причиной, пока GITHUB_ACTIONS не равна true; при GITHUB_ACTIONS=true — красный с понятной причиной.
+"""T-175/hvosty: test_cwd_free::test_solver_from_root без tools/scout/sets3.json — ВСЕГДА пропуск с причиной (красной ветки нет; решение директора/Fable 27.11, цикл 2).
+Причина: prepush сам ставит CI=true и GITHUB_ACTIONS=true (prepush_check.py) — любая «красная по окружению» ветка краснела бы в каждом worktree без банка.
 Тест не зависит от ~/venvs/scout (у test_cwd_free модуль целиком пропускается без него): проверяем решение и саму функцию-тест на подставном корне и окружении."""
-import os
-
 import pytest
 
 from tests import test_cwd_free as T
@@ -15,37 +14,28 @@ def _root(tmp_path, with_bank):
     return str(tmp_path)
 
 
-def test_no_bank_not_ci_is_skip_with_reason(tmp_path):
-    v, why = T.sets3_verdict(_root(tmp_path, False), {})
-    assert v == 'пропуск' and 'нет sets3.json' in why and 'не CI' in why
-    assert T.sets3_verdict(_root(tmp_path, False), {'GITHUB_ACTIONS': ''})[0] == 'пропуск'
-    assert T.sets3_verdict(_root(tmp_path, False), {'GITHUB_ACTIONS': 'false'})[0] == 'пропуск'
-    # одной CI=true мало (владелец условия: красный ТОЛЬКО при GITHUB_ACTIONS=true) — отрицательный контроль прежнего поведения
-    assert T.sets3_verdict(_root(tmp_path, False), {'CI': 'true'})[0] == 'пропуск'
+def test_no_bank_is_skip_with_reason(tmp_path):
+    v, why = T.sets3_verdict(_root(tmp_path, False))
+    assert v == 'пропуск' and 'нет sets3.json' in why and 'prepush' in why
 
 
-def test_no_bank_in_ci_is_red_with_reason(tmp_path):
-    v, why = T.sets3_verdict(_root(tmp_path, False), {'GITHUB_ACTIONS': 'true'})
-    assert v == 'красный' and 'GITHUB_ACTIONS=true' in why and 'sets3.json' in why and 'не пропускаем' in why
+def test_bank_present_runs(tmp_path):
+    assert T.sets3_verdict(_root(tmp_path, True)) == ('есть', None)
 
 
-def test_bank_present_runs_everywhere(tmp_path):
-    root = _root(tmp_path, True)
-    assert T.sets3_verdict(root, {}) == ('есть', None)
-    assert T.sets3_verdict(root, {'GITHUB_ACTIONS': 'true'}) == ('есть', None)
-
-
-def test_solver_test_itself_skips_outside_ci(tmp_path, monkeypatch):
+@pytest.mark.parametrize('env', [
+    {},
+    {'CI': 'true'},
+    {'GITHUB_ACTIONS': 'true'},                       # настоящий CI без банка — тоже пропуск (решение: красной ветки нет)
+    {'CI': 'true', 'GITHUB_ACTIONS': 'true'},         # то, что ставит prepush_check.py
+])
+def test_solver_test_itself_skips_without_bank_in_any_env(tmp_path, monkeypatch, env):
+    """Именно функция-тест: чистая копия без sets3.json под prepush-окружением (CI=true, GITHUB_ACTIONS=true) → пропуск, не красный.
+    Отрицательный контроль: вернуть ветку «GITHUB_ACTIONS=true → pytest.fail» — случаи с GITHUB_ACTIONS станут красными."""
     monkeypatch.setattr(T, 'ROOT', _root(tmp_path, False))
-    monkeypatch.delenv('GITHUB_ACTIONS', raising=False)
-    monkeypatch.setenv('CI', 'true')   # CI без GITHUB_ACTIONS — по-прежнему пропуск
+    for k in ('CI', 'GITHUB_ACTIONS'):
+        monkeypatch.delenv(k, raising=False)
+    for k, v in env.items():
+        monkeypatch.setenv(k, v)
     with pytest.raises(pytest.skip.Exception, match='нет sets3.json'):
-        T.test_solver_from_root()
-
-
-def test_solver_test_itself_fails_in_ci(tmp_path, monkeypatch):
-    """Именно ЭТОТ тест краснеет, если убрать условие GITHUB_ACTIONS в sets3_verdict (отрицательный контроль)."""
-    monkeypatch.setattr(T, 'ROOT', _root(tmp_path, False))
-    monkeypatch.setenv('GITHUB_ACTIONS', 'true')
-    with pytest.raises(pytest.fail.Exception, match='GITHUB_ACTIONS=true'):
         T.test_solver_from_root()

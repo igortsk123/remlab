@@ -29,26 +29,20 @@ def test_rules_audit_from_root():
     assert r.returncode == 0, r.stderr[-500:]
 
 
-def sets3_verdict(root, env):
-    """Банк sets3.json (tools/scout/, В GIT ЕГО НЕТ — .gitignore) нужен solver_run. (T-175/hvosty)
-    → ('есть', None) | ('пропуск', причина) | ('красный', причина).
-    Нет файла и это НЕ CI (GITHUB_ACTIONS не равна true; одной CI=true мало) — пропуск с причиной: чистая копия/worktree без банка не должна краснеть.
-    Нет файла в CI (GITHUB_ACTIONS=true) — КРАСНЫЙ с понятной причиной (в CI банк должен быть; тихий пропуск скрыл бы поломку)."""
+def sets3_verdict(root):
+    """Банк sets3.json (tools/scout/, В GIT ЕГО НЕТ — .gitignore) нужен solver_run. (T-175/hvosty, решение 27.11: красной ветки нет)
+    → ('есть', None) | ('пропуск', причина). Нет файла — ВСЕГДА пропуск с причиной (чистая копия, worktree, prepush, CI без банка):
+    окружение (CI, GITHUB_ACTIONS) не смотрим — prepush сам ставит GITHUB_ACTIONS=true и иначе краснел бы в любом worktree без банка."""
     p = os.path.join(root, 'tools', 'scout', 'sets3.json')
     if os.path.exists(p):
         return 'есть', None
-    in_ci = env.get('GITHUB_ACTIONS', '') == 'true'
-    if in_ci:
-        return 'красный', 'нет %s, а это CI (GITHUB_ACTIONS=true): банк должен быть — тест не пропускаем, чинить окружение CI' % p
-    return 'пропуск', 'нет sets3.json: %s (его нет в git; чистая копия/worktree) — не CI, пропуск' % p
+    return 'пропуск', 'нет sets3.json: %s (его нет в git; чистая копия/worktree/prepush/CI без банка) — пропуск' % p
 
 
 def test_solver_from_root():
-    verdict, why = sets3_verdict(ROOT, os.environ)
+    verdict, why = sets3_verdict(ROOT)
     if verdict == 'пропуск':
         pytest.skip(why)
-    if verdict == 'красный':
-        pytest.fail(why)
     r = _run_from_root([os.path.join(SCOUT, 'solver_run.py'), '1', '--v3'],
                        timeout=600)
     assert r.returncode == 0, (r.stdout[-300:] + r.stderr[-300:])
