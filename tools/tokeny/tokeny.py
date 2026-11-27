@@ -84,9 +84,13 @@ Cena = tuple[float, float, float, float, float]  # $ за 1 млн, в поря�
 # Прайс API за 1 млн токенов: вход, запись кэша 5 мин, 1 ч, чтение кэша, ответ.
 # Источник: прайс 2026-10, skill claude-api (Fable 5 и Haiku 5.5 — по таблице задания
 # `tokeny-ceny/1`; у Haiku цена для запроса до 100 тыс. токенов).
+# Fable 5.2 — официальный прайс https://platform.claude.com/docs/en/about-claude/pricing (таблица «Model pricing»,
+# прочитан 2026-11-27, T-20261127-170/1): $8 вход / $10 кэш 5 мин / $16 кэш 1 ч / $0,20 чтение кэша (×0,025 входа) /
+# $40 ответ; надбавки за длинный контекст у Fable нет. Раньше модели в прайсе не было — шла по запасной цене Opus 5.5.
 CENY: dict[str, Cena] = {
     "claude-opus-5-5": (4.0, 5.0, 8.0, 0.20, 20.0),
     "claude-opus-5": (5.0, 6.25, 10.0, 0.50, 25.0),
+    "claude-fable-5-2": (8.0, 10.0, 16.0, 0.20, 40.0),
     "claude-fable-5-1": (10.0, 12.5, 20.0, 0.25, 50.0),
     "claude-fable-5": (10.0, 12.5, 20.0, 0.25, 50.0),
     "claude-sonnet-5-5": (2.0, 2.5, 4.0, 0.10, 10.0),  # чтение кэша $0,10 (skill claude-api, 17.11)
@@ -101,7 +105,8 @@ SEGMENTY = ("planirovanie", "realizaciya", "proverka", "ispravleniya", "dorabotk
 NAZVANIE = {"planirovanie": "планирование", "realizaciya": "реализация", "proverka": "проверка",
             "ispravleniya": "исправления (проверка ведущего)", "dorabotka": "доработка (владелец)",
             "prochee": "прочее", "ne_razmecheno": "не размечено"}
-ROLI = {"vedushchiy": "ведущий", "ispolnitel": "исполнитель", "neizvestno": "неизвестно"}
+ROLI = {"vedushchiy": "ведущий", "ispolnitel": "исполнитель", "sovetnik": "советник", "neizvestno": "неизвестно"}
+ROLI_KARTY = ("vedushchiy", "ispolnitel", "sovetnik")  # что можно задать в `--rol`
 FAZY = ("план", "проверка", "доработка", "прочее")  # отметки `tools/tokeny/faza`
 OKNO = timedelta(hours=2)
 DOPUSK_OKNA = 3600  # с: `resets_at` одного окна лимита у разных сессий
@@ -125,6 +130,10 @@ BEZ_ID = "без ID"  # приблизительный режим: сообще�
 PODPIS = re.compile(r"^\[([^\]\n]{1,60})\]")
 VEDUSCHIY = re.compile(r"lead|ведущ|главн", re.IGNORECASE)
 ISPOLNITEL = re.compile(r"worker|рабоч|исполн|implementer", re.IGNORECASE)
+# Советник (Fable, сессия `remlab-sovetnik-fable`, P-075): по имени сессии и по подписи исходящих (`[Fable]`, `[советник …]`) —
+# `sovetnik|советник` всегда, одно `fable` — только без слов ведущего/исполнителя («fable-lead» — ведущий на Fable, не советник).
+SOVETNIK = re.compile(r"sovetnik|советник", re.IGNORECASE)
+FABLE = re.compile(r"fable", re.IGNORECASE)
 PRAVKI = re.compile(r"правк|changes", re.IGNORECASE)
 CHANGES = re.compile(r"changes\s+required", re.IGNORECASE)
 OTCHET_BEZ_ID = re.compile(r"^(?:\[[^\]\n]{1,60}\]\s*)?claude-[a-z0-9.-]+\s*$")  # формат отчёта
@@ -582,18 +591,28 @@ class Razmetchik:
         return sost if j == 0 or self.sbrosy[j - 1] <= posl else NE_RAZMECHENO
 
 
+def sovetnik_li(tekst: str) -> bool:
+    """Имя сессии или подпись советника: `sovetnik|советник`, либо `fable` без слов ведущего/исполнителя."""
+    return SOVETNIK.search(tekst) is not None or (
+        FABLE.search(tekst) is not None and not VEDUSCHIY.search(tekst) and not ISPOLNITEL.search(tekst))
+
+
 def rol_sessii(f: Fayl, karta: dict[str, str]) -> tuple[str, str]:
     """Роль и признак: карта `--rol` → имя сессии → большинство подписей исходящих."""
     if f.sessiya[:8] in karta:
         return karta[f.sessiya[:8]], "карта --rol"
     for imya in sorted(f.imena):
+        if sovetnik_li(imya):
+            return "sovetnik", "имя сессии"
         if ISPOLNITEL.search(imya):
             return "ispolnitel", "имя сессии"
         if VEDUSCHIY.search(imya):
             return "vedushchiy", "имя сессии"
     golosa: Counter[str] = Counter()
     for p, n in f.podpisi.items():
-        if ISPOLNITEL.search(p):
+        if sovetnik_li(p):
+            golosa["sovetnik"] += n
+        elif ISPOLNITEL.search(p):
             golosa["ispolnitel"] += n
         elif VEDUSCHIY.search(p):
             golosa["vedushchiy"] += n
@@ -1613,16 +1632,20 @@ def otchet(stroki: list[Stroka], proekt: str, s: date, po: date, kontr: dict[str
     return "\n".join(out) + "\n", sovpalo
 
 
-VED, ISP = "Ведущий", "Исполнители"
+VED, ISP, SOV = "Ведущий", "Исполнители", "Советник"
 KLETKI = ((VED, "планирование"), (VED, "проверка"), (VED, "перепроверка после правок"),
           (VED, "постановка и проверка доработки"), (VED, "прочее"), (ISP, "реализация"),
-          (ISP, "исправления"), (ISP, "доработка"), ("Без метки", "не размечено"))
+          (ISP, "исправления"), (ISP, "доработка"), ("Без метки", "не размечено"),
+          (SOV, "советы"))
 KLETKA = {"planirovanie": KLETKI[0], "prochee": KLETKI[4], "realizaciya": KLETKI[5],
           "ispravleniya": KLETKI[6], "ne_razmecheno": KLETKI[8]}
 
 
 def kletka(x: Stroka) -> tuple[str, str]:
-    """Клетка сетки: проверка делится по циклу, доработка — на ведущего и исполнителей."""
+    """Клетка сетки: ответы советника — отдельно (сегментов у него нет); проверка делится по циклу,
+    доработка — на ведущего и исполнителей."""
+    if x.rol == "sovetnik":
+        return KLETKI[9]
     if x.segment == "proverka":
         return KLETKI[2] if (x.cikl or 0) >= 2 else KLETKI[1]
     if x.segment == "dorabotka":
@@ -1714,6 +1737,17 @@ def stroki_zadach(d: list[Stroka], nazv: dict[str, str] | None, vsego: float) ->
     top = sorted(po_zadache.items(), key=lambda p: (-p[1], p[0]))[:3]
     return (["Самые дорогие задачи:" if top else "Задач с ID за эти сутки нет."]
             + [f"{i}. {z} — {dollary(v)}, {procent(v, vsego)} % суток" for i, (z, v) in enumerate(top, 1)])
+
+
+def stroka_sovetnika(d: list[Stroka], nedelya: list[Stroka], den: date) -> list[str]:
+    """«Советник Fable: $X за сутки (N ответов), $Y за неделю (M ответов)» — деньги советника отдельной строкой (P-075).
+    Неделя — 7 суток по Лондону, заканчивая `den`. Советника в проекте нет (ни за сутки, ни за неделю) — строки нет, не «$0»."""
+    sov_n = [x for x in za_period(nedelya, den - timedelta(days=6), den) if x.rol == "sovetnik"]
+    if not sov_n:
+        return []
+    sov_d = [x for x in d if x.rol == "sovetnik"]
+    return [f"Советник Fable: {dollary(stoimost(sov_d))} за сутки ({len(sov_d)} ответов), "
+            f"{dollary(stoimost(sov_n))} за неделю ({len(sov_n)} ответов)."]
 
 
 def data_po_russki(den: date) -> str:
@@ -1839,13 +1873,16 @@ def svodka(stroki: list[Stroka], proekt: str, den: date, vygruzki: list[Vygruzka
            ozhidaem: list[str] | None = None, zamery: Path | None = None,
            bitye: list[str] | None = None, nazv: dict[str, str] | None = None,
            otrezki: dict[str, list[Otrezok]] | None = None, taymery: dict[str, str] | None = None,
-           seychas: datetime | None = None, zhdem_procent: dict[str, str] | None = None) -> str:
+           seychas: datetime | None = None, zhdem_procent: dict[str, str] | None = None,
+           nedelya: list[Stroka] | None = None) -> str:
     """6–12 строк простым текстом для Telegram: сутки по Лондону; все доли — от $ по прайсу.
 
     Из выгрузок (`--sobrat`): строки по машинам и «нет данных» по ожидаемым машинам, цена памяти; известно время
     таймера машины (`taymery`, `vremena_vygruzok`) — вместо «нет данных» когда выгрузка будет или что не пришла;
     с журналом замеров памяти — напоминание о просроченном замере; с доской (`nazv`) — дорогие задачи;
-    `otrezki` — ступеньки учёток по машинам для «На 1 % недели» и «Вне наших машин» (`otrezki_po_mashinam`)."""
+    `otrezki` — ступеньки учёток по машинам для «На 1 % недели» и «Вне наших машин» (`otrezki_po_mashinam`);
+    `nedelya` — строки 7 суток для строки советника (нет — берутся `stroki`, у сводки из выгрузок одних суток — неделя
+    из выгрузок папки, `main`)."""
     d = za_period(stroki, den, den)
     vsego = stoimost(d)
     kletki = setka(d)
@@ -1866,7 +1903,9 @@ def svodka(stroki: list[Stroka], proekt: str, den: date, vygruzki: list[Vygruzka
              + stroka_tokenov(d, vygruzki, den) + stroka_nedeli(vygruzki, ozhidaem or [], den, zhdem)
              if vygruzki is not None else []),
            *bez_ceny(d),
-           f"{VED}: {doli(VED)}.", f"{ISP}: {doli(ISP)}.", stroka_peredelok(kletki, vsego)]
+           f"{VED}: {doli(VED)}.", f"{ISP}: {doli(ISP)}.",
+           *stroka_sovetnika(d, stroki if nedelya is None else nedelya, den),
+           stroka_peredelok(kletki, vsego)]
     out += (stroka_limita(d, proekt)
             + (stroki_na_procent(otrezki, ozhidaem, zhdem_procent, seychas) if otrezki is not None else [])
             + stroki_zadach(d, nazv, vsego))
@@ -1885,7 +1924,7 @@ def argumenty(argv: list[str] | None) -> argparse.Namespace:
     p.add_argument("--fazy", help="журнал фаз (по умолчанию "
                    "<TOKENY_PROEKTY>/<проект>/data/logs/tokeny/fazy.tsv)")
     p.add_argument("--rol", action="append", default=[],
-                   help="<id8>=vedushchiy|ispolnitel (повторяемый)")
+                   help="<id8>=vedushchiy|ispolnitel|sovetnik (повторяемый)")
     p.add_argument("--priblizitelno", action="store_true", help="разметка дней до меток")
     p.add_argument("--s", type=date.fromisoformat, help="первый день, ГГГГ-ММ-ДД (Лондон)")
     p.add_argument("--po", type=date.fromisoformat, help="последний день, ГГГГ-ММ-ДД (Лондон)")
@@ -1918,8 +1957,8 @@ def main(argv: list[str] | None = None) -> int:
     karta: dict[str, str] = {}
     for x in a.rol:
         sid, _, rol = x.partition("=")
-        if len(sid) != 8 or rol not in ("vedushchiy", "ispolnitel"):
-            soobshit(f"--rol {x}: нужно <id8>=vedushchiy|ispolnitel", oshibka=True)
+        if len(sid) != 8 or rol not in ROLI_KARTY:
+            soobshit(f"--rol {x}: нужно <id8>={'|'.join(ROLI_KARTY)}", oshibka=True)
             return 2
         karta[sid] = rol
     segodnya = london(datetime.now(UTC))
@@ -1996,9 +2035,13 @@ def main(argv: list[str] | None = None) -> int:
         papka_v = Path(a.papka_vygruzok) if a.papka_vygruzok else koren_proekta(a.proekt) / "data" / "logs" / "tokeny"
         taymery = vremena_vygruzok(papka_v, a.proekt) if vygruzki is not None else None
         seychas = datetime.now(UTC)
+        nedelya = (skleit(sorted(p for dd in range(7) for p in papka_v.glob(f"*-{den - timedelta(days=dd)}.json")),
+                          a.proekt, [])[0]  # строка советника: 7 суток из выгрузок папки; битые — пропуск, это справка
+                   if vygruzki is not None and papka_v.is_dir() else None)
         sys.stdout.write(svodka(stroki, a.proekt, den, vygruzki, ozhidaem, zamery, bitye,
                                 nazvaniya(doska, den) if doska else None, otr, taymery, seychas,
-                                zhdem_na_procent(papka_v, taymery, segodnya, den, seychas) if taymery else None))
+                                zhdem_na_procent(papka_v, taymery, segodnya, den, seychas) if taymery else None,
+                                nedelya))
         return 0
 
     po = a.po or max(a.s or segodnya, segodnya)
