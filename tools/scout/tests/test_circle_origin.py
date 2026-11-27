@@ -434,7 +434,17 @@ ok(by['камера 04']['status'] == CO.REFUSE and 'не пройдена' in b
 ok({i['item']: i for i in RA.origin_start(os.path.join(tmp, 'run0'), 'k1', dict(a, prep_glb=''), None)['items']}['камера 04']['status'] == CO.NA, 'форма строится в этом прогоне: камеру 04 посчитает он сам → не применимо')
 o = RA.origin_start(run, 'k1', a, 'разово, решение директора, проверка')
 ok(o['ok'] and o['bypass'], 'ключ --allow-old-origin пропускает и помечает обход')
-log = RA.execute(run, 'k1', dict(a, prep_glb=''), RA.load_rules(), RA.PC.load_rules(), ['01-02'], 5, origin=o)
+real_procs, steps_seen = [], []                                              # тест решает про СТАРТ круга и журнал обхода, настоящих этапов (Blender и др.) не запускает — в CI их нет (CI main красный на bc067fce0)
+_sp, _rs = RA.subprocess.run, RA._run_step
+RA.subprocess.run = lambda *a_, **k_: (real_procs.append(str(a_[0] if a_ else k_.get('args'))[:120]), RA.subprocess.CompletedProcess(a_[0] if a_ else [], 97, '', 'запуск процесса запрещён тестом'))[1]   # сторож: любой настоящий запуск — не исполняется, а считается
+RA._run_step = lambda step, name, ctx, rules, timeout, use_heavy: (steps_seen.append(name), {'cmd': step['argv'], 'rc': 97, 'seconds': 0.0, 'tail': 'подмена в тесте: этап не запускается'})[1]
+try:
+    log = RA.execute(run, 'k1', dict(a, prep_glb=''), RA.load_rules(), RA.PC.load_rules(), ['01-02'], 5, origin=o)
+finally:
+    RA.subprocess.run, RA._run_step = _sp, _rs
+ok(RA.subprocess.run is _sp and RA._run_step is _rs, 'подмены запуска сняты после случая')
+ok(not real_procs, 'тест не запускает настоящие процессы этапов (запусков subprocess.run: %d %s) — иначе в CI без Blender падение FileNotFoundError' % (len(real_procs), real_procs[:1]))
+ok(steps_seen, 'после обхода круг дошёл до шага этапа 01–02 (шаг подменён, не выполнен): %s' % steps_seen[:1])
 ok(log.get('origin', {}).get('bypass', {}).get('reason', '').startswith('разово'), 'обход попал в журнал прогона (log.origin.bypass.reason)')
 ok(log['origin'].get('rules_label', {}).get('id') == o['origin']['rules_label']['id'], 'метка набора правил записана в журнал прогона')
 o2 = RA.origin_start(run, 'k1', dict(a, prep_glb=''), None)
