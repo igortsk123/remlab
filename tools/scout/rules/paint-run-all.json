@@ -8,6 +8,11 @@
   "pythons": {"scout": "venvs/scout/bin/python", "delight": "venvs/delight/bin/python"},
   "_pythons_about": "Интерпретаторы шагов — от домашней папки. По умолчанию (`default_python`) — scout; этап с полем `python` берёт другой. 05-delight: Marigold IID требует diffusers, а он тянет huggingface_hub новее, чем в scout (там живёт сервис кадров) — отдельный venv delight (как собрать — tools/ops/requirements-delight.txt; T-20261121-169/5).",
   "default_python": "scout",
+  "card_flags": ["--card", "--card-json", "--product-json"],
+  "_card_flags_about": "T-20261127-174/2, ОБЩЕЕ ПРАВИЛО: скрипт шага, чей argparse принимает карточку/запись товара (эти флаги), получает её в рецепте ({card} или {work}/product.json). Нет в рецепте → сторож paint_run_all.card_gaps (tests/test_paint_run_all_card.py, CI) красный: шаг молча работал без типа (07: no_type у всех правил типа). Новый шаг/флаг карточки — добавить сюда флаг или в card_exempt причину.",
+  "card_exempt": {
+    "tex_visible.py": "--product-json нужен только для «зад корпусной» внутри самого tex_visible (Salad-путь stage_trial); в run-all зад — отдельный шаг 06/back_panel_stage с --product-role, второй вызов дал бы двойную правку зада"
+  },
   "camera_stage": "04-camera",
   "order": [
     "01-02",
@@ -395,13 +400,17 @@
             "run_stage",
             "{run}",
             "{sku}",
-            "{parts_args}"
+            "{parts_args}",
+            "--card-json",
+            "{card}"
           ],
           "heavy": {
             "prio": 1,
             "min_gb": 4,
             "cores": 2
-          }
+          },
+          "write_files": {"{work}/card.json": "$card_flat"},
+          "_about": "T-20261127-174/2: карточка товара (плоская work/card.json: name, role + params, как у зерна) — 07 берёт из неё роль → паспорт типа (политика невидимых сторон, правила по типу), класс материала верха (top_prior). Без карточки все типовые правила 07 писали «воздержался: тип не определён (no_type)», хук верха — top_skip=no_card. Нет записи каталога (--catalog) — флаг выпадает целиком, файл не пишется (как у зерна). Файл пишет и сам этот шаг: 06 может быть пропущен как готовый."
         }
       ],
       "_about": "вход по умолчанию — <sku>/06-visible/{visible.glb, known*.png, check.json} и <sku>/03-parts/parts.npz (р.3, f137a675); rc 0 = отработал (отказ тоже 0), rc 2 = сбой; выход 07-fill/{filled.glb, report.json, frame.png, check.json}"
