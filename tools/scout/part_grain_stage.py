@@ -250,7 +250,7 @@ def detail_bands(Ld, sel, ppc: float, pd: dict):
     return coarse, fine
 
 
-def photo_detail_step(tex_in, tone_tex, tx, g: dict, st: dict, Ld, valid, fgrp, names: list, ppc: float, rules: dict, rep: dict):
+def photo_detail_step(tex_in, tone_tex, tx, g: dict, st: dict, Ld, valid, fgrp, names: list, ppc: float, rules: dict, rep: dict, face_n=None):
     """T-99/12 шаг 5: рисунок С ФОТО на лице группы (тумба Хостера): слой деталей фото без теней (этап 05) поверх тона Ш4а — только грани в лоб, свет/тени шире blur_cm вычтены.
     Текселю группы, видимому с камеры в лоб и надёжному, — тон Ш4а (tone_tex, до зерна) + деталь фото (L, усилено gain_*); остальным текселям группы остаётся зерно образца. → (текстура, маска «деталь с фото»)."""
     import cv2
@@ -276,19 +276,25 @@ def photo_detail_step(tex_in, tone_tex, tx, g: dict, st: dict, Ld, valid, fgrp, 
     D = np.clip(float(pd['gain_coarse']) * coarse + float(pd['gain_fine']) * fine, -float(pd['clip_L']), float(pd['clip_L']))
     T = tx.T
     F = np.asarray(g['F'], np.int64)
-    fm = TV.face_maps(st, len(F))
+    import pose_fit as PF
+    fr, why_fr = TV.cube_frame([g], st)
+    if fr is None:
+        info['reason'] = 'нет камеры для проекции: %s' % why_fr
+        return tex_in, None
     ti, f = tx.ti, tx.f
-    ty_, tx_ = ti // T, ti % T
-    ut, vt = (tx_ + 0.5) / T, (ty_ + 0.5) / T
-    du, dv = ut - fm['mu'][f], vt - fm['mv'][f]
-    x = fm['mx'][f] + fm['ax'][f] * du + fm['bx'][f] * dv
-    y = fm['my'][f] + fm['ay'][f] * du + fm['by'][f] * dv
-    inside = fm['ok'][f] & (x >= 0.5) & (x <= px - 0.5) & (y >= 0.5) & (y <= px - 0.5) & np.isin(fgrp[f], gi)
-    xi, yi = np.clip(np.floor(x).astype(np.int64), 0, px - 1), np.clip(np.floor(y).astype(np.int64), 0, px - 1)
-    use = inside & sel[yi, xi] & (ids[yi, xi] == f)                      # пиксель кадра под тексель — той же грани и внутри «в лоб»
+    # точка тексела (кадр P) → куб камеры: подобие по вершинам (to_cube — масштаб/сдвиг/поворот), затем проекция камерой этапа 4; грани линейной картой не берём — на мелких треугольниках (22 тыс. граней) она не строится
+    A = np.hstack([np.asarray(tx.P, np.float64), np.ones((len(tx.P), 1))])
+    M, *_ = np.linalg.lstsq(A, np.asarray(fr['P'], np.float64), rcond=None)
+    Qc = np.hstack([tx.Q, np.ones((len(tx.Q), 1))]) @ M
+    xs_, ys_, _Zq = PF.project(Qc, fr['cam'])
+    x, y = xs_ * px, ys_ * px
     ing_t = np.isin(fgrp[f], gi)
-    info['funnel'] = {'texels_group': int(ing_t.sum()), 'face_map_ok': int((fm['ok'][f] & ing_t).sum()), 'inside_frame': int((inside).sum()), 'on_sel': int((inside & sel[yi, xi]).sum()), 'same_face': int(use.sum()),
-                      'faces_group': int(np.isin(fgrp, gi).sum()), 'faces_visible_in_sel': int(len(np.unique(ids[sel]))), 'sel_px': int(sel.sum()), 'ingrp_px': int(ingrp.sum())}
+    inside = (x >= 0.5) & (x <= px - 0.5) & (y >= 0.5) & (y <= px - 0.5) & ing_t
+    xi, yi = np.clip(np.floor(x).astype(np.int64), 0, px - 1), np.clip(np.floor(y).astype(np.int64), 0, px - 1)
+    fpx = ids[yi, xi]
+    same_pl = (face_n[fpx] * tx.N).sum(1) >= float(pd['plane_cos'])        # тот же наклон, что у грани под пикселем (спиной к камере и чужая плоскость не берутся)
+    use = inside & sel[yi, xi] & np.isin(fgrp[fpx], gi) & same_pl
+    info['funnel'] = {'texels_group': int(ing_t.sum()), 'inside_frame': int(inside.sum()), 'on_sel': int((inside & sel[yi, xi]).sum()), 'same_plane': int(use.sum()), 'sel_px': int(sel.sum()), 'ingrp_px': int(ingrp.sum())}
     n_use = int(use.sum())
     info.update(texels_in_group=int((np.isin(fgrp[f], gi)).sum()), texels_with_detail=n_use)
     if n_use == 0:
@@ -452,7 +458,7 @@ def process(a, rules: dict, d: str, rep: dict) -> None:
                 src_d = '05-delight (без теней)'
             else:
                 Ld_, src_d = Lf, 'фото как есть (05 нет)'
-            new, pd_mask = photo_detail_step(new, tex, tx, g, st, Ld_, valid, fgrp, names, ppc_pd, rules, rep)
+            new, pd_mask = photo_detail_step(new, tex, tx, g, st, Ld_, valid, fgrp, names, ppc_pd, rules, rep, face_n=n3)
             rep['photo_detail']['source'] = src_d
     tp_mask = None
     if (rules.get('thin_plate') or {}).get('enabled'):                      # T-97/1 ф.7: тонкая плита — низ и торец тоном и волокном лица (выкл — строки не выполняются)
