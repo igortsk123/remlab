@@ -34,6 +34,12 @@ import cutout_one as CO1  # noqa: E402
 import cutout_origin as CO  # noqa: E402
 import mask_cache as MC  # noqa: E402
 
+# Тесты не зависят от диска машины: «мало места» в mask_cache.put сравнивает free_gb(папка теста) с порогом dev-disk.json (15 ГБ), а папки тестов — во
+# временном каталоге (tmpfs /tmp сотни МБ, диск раннера 14–20 ГБ) → кэш молча не писал и тесты краснели по случайности. Поэтому везде «места достаточно»;
+# единственный, кто проверяет порог, — test_low_disk (подменяет free_gb сам, `patched` вернёт эту заглушку).
+FREE_GB_PLENTY = 1000.0
+MC.free_gb = lambda path: FREE_GB_PLENTY
+
 bad = []
 
 
