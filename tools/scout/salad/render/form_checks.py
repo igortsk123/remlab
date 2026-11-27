@@ -9,7 +9,7 @@
   detached      · доля площади крупных частей БЕЗ касания (зазор > detached_gap габарита) с главным куском, прямо или цепочкой кусков (T-175/Ш0-дыры, 27.11) · «крупный оторванный кусок»
   sil_iou/extra/miss/legs · контур кадра против маски фото и нижняя полоса (ножки) — из этапа 04 камеры (--pose-roots), пороги оттуда же · «Наплыв … меняет контур», «Пропали ножки»
   sil_extra~/sil_miss~/legs~ · то же приближённо (ортогональный силуэт GLB при лучшем азимуте), когда позы нет; только значения (approx_flag: false)
-  holes         · грубые лишние сквозные просветы в силуэте против фото, форма — С РАКУРСА ФОТО (азимут и высота камеры по лучшему IoU, `holes_elev`; 27.11) (приближение)  · «Дыры, рваный фасад»
+  holes         · грубые лишние сквозные просветы в силуэте против фото (приближение)  · «Дыры, рваный фасад»
   relief        · много мелкого рельефа на кадре 0° — рваный, «изъеденный» фасад   · «Дыры, рваный фасад»
   back_dup      · кадр 0° и кадр 180° (прямо или зеркально) совпадают по рельефу    · «фасад продублирован на задней стенке» (ловит только точную копию)
   legs_match    · ножки: компоненты нижней полосы маски фото ↔ формы парой по центрам, ошибка ножки ÷ её толщина, пол, число ножек (T-191/3: legs_check.py, пороги — camera-check.json legs_match; силуэт IoU этого не видит) · «Пропали ножки», «ножки не там»
@@ -165,16 +165,12 @@ def surface_points(m, n: int, seed: int = 0) -> np.ndarray:
     return np.asarray(trimesh.sample.sample_surface(m, n, seed=seed)[0], float)
 
 
-def sil_at(pts: np.ndarray, az_deg: float, grid: int = 384, elev_deg: float = 0.0) -> np.ndarray:
-    """Ортогональный силуэт облака точек поверхности при повороте вокруг вертикали (Y вверх; az 0 — смотрим с +Z, как камера az000 после импорта glTF в Blender). Дыры от разрежения закрываются на 2 шага.
-    `elev_deg` — камера приподнята над горизонтом (взгляд сверху вниз): ближние к камере точки уходят вниз кадра (y' = y·cos e − глубина·sin e); 0 — вид строго сбоку, как раньше."""
+def sil_at(pts: np.ndarray, az_deg: float, grid: int = 384) -> np.ndarray:
+    """Ортогональный силуэт облака точек поверхности при повороте вокруг вертикали (Y вверх; az 0 — смотрим с +Z, как камера az000 после импорта glTF в Blender). Дыры от разрежения закрываются на 2 шага."""
     from scipy import ndimage
     a = math.radians(az_deg)
     x = pts[:, 0] * math.cos(a) + pts[:, 2] * math.sin(a)
     y = pts[:, 1]
-    if elev_deg:
-        e = math.radians(elev_deg)
-        y = y * math.cos(e) - (-pts[:, 0] * math.sin(a) + pts[:, 2] * math.cos(a)) * math.sin(e)
     k = (grid - 5) / max(float(x.max() - x.min()), float(y.max() - y.min()), 1e-9)
     ix, iy = ((x - x.min()) * k + 2).astype(int), ((y.max() - y) * k + 2).astype(int)
     img = np.zeros((int(iy.max()) + 3, int(ix.max()) + 3), bool)
@@ -193,45 +189,6 @@ def best_front(pts: np.ndarray, photo: np.ndarray, R: dict) -> tuple[np.ndarray,
         if iou > best[0]:
             best = (iou, float(az), s)
     return best[2], best[1]
-
-
-def best_view(pts: np.ndarray, photo: np.ndarray, R: dict) -> tuple[np.ndarray, float, float, float]:
-    """Ракурс ФОТО (директор 27.11, P-064): азимут И высота камеры, при которых ортогональный внешний контур формы лучше всего совпадает с маской фото (IoU заполненных силуэтов с пропорциями; перебор
-    `az_step` × `holes_elev`); среди видов с IoU не хуже лучшего на `holes_view_tol` берётся тот, где у формы БОЛЬШЕ просветов (консервативно: не маскировать дыру подбором позы). Фото снято сверху
-    3/4 — столешница закрывает подстолье, и просвет формы с боковой проекции (elev 0) несравним с просветом фото. → (силуэт, азимут, высота камеры, IoU)."""
-    cand = view_candidates(pts, photo, R)
-    top = max(c[0] for c in cand)
-    near = [c for c in cand if c[0] >= top - float(R['holes_view_tol'])]
-    best = max(near, key=lambda c: (c[4], c[0]))                    # среди почти равных по IoU — вид с БОЛЬШИМ просветом формы: подбор позы не должен «закрывать» настоящее окно (Codex 27.11)
-    return best[3], best[1], best[2], best[0]
-
-
-def view_candidates(pts: np.ndarray, photo: np.ndarray, R: dict) -> list[tuple]:
-    """Все виды сетки `holes_elev` × `az_step`: (IoU ЗАПОЛНЕННЫХ силуэтов с пропорциями, азимут, высота, силуэт, доля просветов формы на нём). IoU — по внешнему контуру (`fill_holes` у обоих): окна формы не
-    участвуют в выборе позы, иначе максимум IoU поворачивал бы вид так, чтобы лишнее окно сузилось (рама против сплошного щита: 195° вместо 180°)."""
-    pf = fill_holes(photo)
-    out = []
-    for el in R['holes_elev']:
-        for az in range(0, 360, int(R['az_step'])):
-            s = sil_at(pts, az, elev_deg=el)
-            hv = norm(s)
-            out.append((iou_keep_aspect(fill_holes(s), pf), float(az), float(el), s, float((fill_holes(hv) & ~hv).sum()) / max(float(hv.sum()), 1.0)))
-    return out
-
-
-def iou_keep_aspect(a: np.ndarray, b: np.ndarray, h: int = SIL_N) -> float:
-    """IoU двух силуэтов с СОХРАНЕНИЕМ пропорций (оба к высоте `h`, по центру на общем холсте): `norm` растягивает до квадрата, и тонкая рама сбоку «совпадала» бы с квадратным щитом."""
-    def fit(m):
-        w = int(min(max(round(h * m.shape[1] / max(m.shape[0], 1)), 4), 4 * h))
-        return np.asarray(Image.fromarray((m * 255).astype(np.uint8)).resize((w, h), Image.BILINEAR)) > 127
-    x, y = fit(a), fit(b)
-    W = max(x.shape[1], y.shape[1])
-
-    def pad(m):
-        o = (W - m.shape[1]) // 2
-        return np.pad(m, ((0, 0), (o, W - m.shape[1] - o)))
-    x, y = pad(x), pad(y)
-    return float((x & y).sum()) / max(float((x | y).sum()), 1.0)
 
 
 def photo_mask(path: str, alpha_min: int = 127) -> np.ndarray:
@@ -254,7 +211,7 @@ def fill_holes(mask: np.ndarray) -> np.ndarray:
     return ndimage.binary_fill_holes(mask)
 
 
-def sil_checks(front: np.ndarray, photo: np.ndarray, R: dict, az: float = 0.0, view: tuple | None = None) -> list[dict]:
+def sil_checks(front: np.ndarray, photo: np.ndarray, R: dict, az: float = 0.0) -> list[dict]:
     """ПРИБЛИЖЕНИЕ без позы камеры: ортогональный силуэт формы при лучшем азимуте против маски фото (фото снято в 3/4 с перспективой — тонкие ножки и контур считаются грубо).
     Пороги `sil_*` флагают только грубое; точная сверка — `pose_checks` (этап 04 камеры) там, где он есть. `approx_flag: false` — только значения."""
     fl = bool(R.get('approx_flag', False))
@@ -266,11 +223,9 @@ def sil_checks(front: np.ndarray, photo: np.ndarray, R: dict, az: float = 0.0, v
     ar = math.log((front.shape[1] / front.shape[0]) / (photo.shape[1] / photo.shape[0]))
     ctx = f'IoU {iou:.3f} при азимуте {az:.0f}° (приближение, ортогонально), пропорции формы/фото {math.exp(ar):.2f}'
     out = [check('sil_extra~', extra, R['sil_extra'], fl and extra > R['sil_extra'], ctx), check('sil_miss~', miss, R['sil_miss'], fl and miss > R['sil_miss'], ctx)]
-    hv = norm(view[0]) if view is not None else a                                    # просветы — с ракурса ФОТО (best_view); без ракурса — как раньше, с лучшего азимута
-    ha = float((fill_holes(hv) & ~hv).sum()) / max(float(hv.sum()), 1.0)             # сквозные просветы внутри силуэта
+    ha = float((fill_holes(a) & ~a).sum()) / max(float(a.sum()), 1.0)                # сквозные просветы внутри силуэта
     hb = float((fill_holes(b) & ~b).sum()) / max(float(b.sum()), 1.0)
-    vw = f'ракурс фото: азимут {view[1]:.0f}°, камера {view[2]:.0f}° над горизонтом, IoU {view[3]:.3f}' if view is not None else 'ракурс не оценён — вид сбоку'
-    out.append(check('holes', ha - hb, R['holes_extra'], ha - hb > R['holes_extra'], f'просветов у формы {ha:.3f}, у фото {hb:.3f} (грубые сквозные дыры; приближение); {vw}'))
+    out.append(check('holes', ha - hb, R['holes_extra'], ha - hb > R['holes_extra'], f'просветов у формы {ha:.3f}, у фото {hb:.3f} (грубые сквозные дыры; приближение)'))
     ra, rb = runs(a, R), runs(b, R)
     out.append(check('legs~', ra - rb, 0, fl and ra < rb, f'опор в нижней полосе: форма {ra}, фото {rb} (приближение)'))
     return out
@@ -780,7 +735,7 @@ def run_sku(sku: str, glb: str | None, photo: str | None, frames: str | None, ru
                 bad = guarded('силуэты по фото: подготовка (маска фото, облако точек)', prep)
                 rec['checks'] += bad
                 if not bad:
-                    rec['checks'] += guarded('holes', lambda: sil_checks(st['fs'], st['pm'], R, st['az'], view=best_view(st['pts'], st['pm'], R)))
+                    rec['checks'] += guarded('holes', lambda: sil_checks(st['fs'], st['pm'], R, st['az']))
 
                     def thin_part():
                         st['thin'] = sil_at(surface_points(m, int(R['thin_points']), seed=3), st['az'], int(R['thin_grid']))

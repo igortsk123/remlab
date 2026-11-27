@@ -1265,32 +1265,6 @@
       "group": "G7"
     },
     {
-      "rule_id": "R-FORM-HOLES-VIEW",
-      "title": "Ш0: просвет формы (holes) считать С РАКУРСА ФОТО — азимут и высота камеры по лучшему IoU с маской фото (с пропорциями), а не с фиксированного бокового вида",
-      "state": "trial",
-      "source": [
-        "T-20261127-175 / задание Ш0-дыры (директор 27.11, P-064: Грейтон 112923_…011216 — просвет формы 0,523 против 0,183 у фото ложный: фото снято сверху 3/4, столешница закрывает подстолье)",
-        "OTCHET-sh0-obhod.md (rab-9, 27.11)"
-      ],
-      "applies": {
-        "types": [
-          "all"
-        ]
-      },
-      "executor": "р.9 (T-20261127-175)",
-      "consumer": "tools/scout/salad/render/form_checks.py:best_view",
-      "runtime": "observe",
-      "test": "tools/scout/salad/render/tests_form_checks.py",
-      "test_positive": "tools/scout/salad/render/tests_form_checks.py::test_real_hole_seen_from_photo_camera_is_flagged_positive",
-      "test_negative": "tools/scout/salad/render/tests_form_checks.py::test_table_seen_from_above_is_not_false_hole_negative_control",
-      "run_id": null,
-      "flag": null,
-      "check_field": null,
-      "enabled": null,
-      "note": "Порог holes_extra 0,3 НЕ тронут. Новый параметр — rules/form-checks.json: holes_elev [0, 15, 30, 45] (высоты камеры над горизонтом, град.; перебор вместе с азимутом az_step). Высота камеры ОЦЕНИВАЕТСЯ по маске фото (точной позы этапа 04 в form_checks нет; лучше — брать её из check.json этапа 04, не сделано). Вид выбирается по IoU ЗАПОЛНЕННЫХ силуэтов с пропорциями (окна формы в выборе не участвуют), среди видов не хуже лучшего на holes_view_tol 0,02 — с БОЛЬШИМ просветом формы (по замечанию Codex: подбор позы не должен закрывать настоящее окно). Остальные приближённые силуэтные проверки (sil_extra~, sil_miss~, legs~, thin_*) по-прежнему на лучшем азимуте с высоты 0 — не менялись. holes в block не входит (observe).",
-      "group": "G7"
-    },
-    {
       "rule_id": "R-FILL-GATE-08",
       "title": "08 идёт только при наличии 07 того же товара (нет папки/check.json, сбой этапа — стоп); красный 07 по порогам 08 не останавливает, вердикт 07 — замечанием в отчёте 08",
       "state": "trial",

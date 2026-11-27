@@ -796,10 +796,9 @@ class DetachedTouch(unittest.TestCase):
     """Правило detached на все товары (директор 27.11, P-064): «парящий» = БЕЗ касания (зазор > detached_gap габарита) с главным куском, прямо или цепочкой; не «вне габарита главного»."""
 
     def test_params_in_rules(self):
-        for k in ('detached_gap', 'detached_share', 'detached_piece_min', 'detached_samples', 'detached_bridge_min', 'detached_nodes', 'holes_elev', 'holes_view_tol'):
+        for k in ('detached_gap', 'detached_share', 'detached_piece_min', 'detached_samples', 'detached_bridge_min', 'detached_nodes'):
             self.assertIn(k, R)
         self.assertEqual((R['detached_gap'], R['detached_share'], R['detached_piece_min']), (0.01, 0.03, 0.01))       # пороги НЕ подняты (директор)
-        self.assertIn(0, R['holes_elev'])
 
     def test_base_disk_touching_stem_is_not_floating_negative_control(self):
         m = disk_table(0.0)
@@ -854,80 +853,6 @@ class DetachedTouch(unittest.TestCase):
         self.assertEqual(FC.detached(m, R), FC.detached(m, R))
 
 
-def plate_table():
-    """Столешница-плита 1×1 на четырёх тонких ножках с перекладинами (как Грейтон): сбоку между ножками, плитой и перекладиной — замкнутое окно (просвет формы), сверху 3/4 плита закрывает подстолье."""
-    parts = [box((1.0, 0.04, 1.0), (0, 0.52, 0))]
-    for sx in (-1, 1):
-        for sz in (-1, 1):
-            parts.append(box((0.05, 0.5, 0.05), (sx * 0.45, 0.25, sz * 0.45)))
-    for sz in (-1, 1):
-        parts.append(box((0.85, 0.04, 0.04), (0, 0.1, sz * 0.45)))
-    return trimesh.util.concatenate(parts)
-
-
-def frame_panel():
-    """Рама 1×1 с настоящим сквозным окном 0,6×0,6 (4 планки)."""
-    return trimesh.util.concatenate([box((0.2, 1.0, 0.1), (-0.4, 0.5, 0)), box((0.2, 1.0, 0.1), (0.4, 0.5, 0)),
-                                     box((0.6, 0.2, 0.1), (0, 0.9, 0)), box((0.6, 0.2, 0.1), (0, 0.1, 0))])
-
-
-class HolesFromPhotoView(unittest.TestCase):
-    """holes на все товары (директор 27.11): просвет формы — С РАКУРСА ФОТО (азимут + высота камеры по IoU), а не с фиксированного бокового вида."""
-
-    def test_table_seen_from_above_is_not_false_hole_negative_control(self):
-        pts = FC.surface_points(plate_table(), 150000)
-        photo = FC.crop(FC.sil_at(pts, 0.0, elev_deg=40.0))                           # «фото» с камеры сверху: плита закрывает подстолье
-        fs, az = FC.best_front(pts, photo, R)
-        old = by(FC.sil_checks(fs, photo, R, az), 'holes')
-        self.assertTrue(old['flag'], f'контроль: боковой вид даёт ложный просвет {old}')
-        view = FC.best_view(pts, photo, R)
-        self.assertGreaterEqual(view[2], 30.0, view[1:])                                # высота камеры восстановлена из фото
-        new = by(FC.sil_checks(fs, photo, R, az, view=view), 'holes')
-        self.assertFalse(new['flag'], new)
-        self.assertIn('ракурс фото', new['note'])
-
-    def test_real_hole_seen_from_photo_camera_is_flagged_positive(self):
-        pts = FC.surface_points(frame_panel(), 150000)
-        full = np.ones((100, 100), bool)                                               # фото — сплошной щит без окна
-        fs, az = FC.best_front(pts, full, R)
-        view = FC.best_view(pts, full, R)
-        c = by(FC.sil_checks(fs, full, R, az, view=view), 'holes')
-        self.assertTrue(c['flag'], c)
-        self.assertGreater(c['value'], R['holes_extra'])
-
-    def test_view_keeps_aspect_thin_frame_edge_on_does_not_match_square_photo(self):
-        pts = FC.surface_points(frame_panel(), 100000)
-        view = FC.best_view(pts, np.ones((100, 100), bool), R)
-        self.assertLessEqual(min(abs(view[1] - 0.0), abs(view[1] - 180.0), abs(view[1] - 360.0)), 30.0, view[1:])   # около фронта/тыла, не торец (90°): у торца пропорции 1:10
-        self.assertGreater(view[3], 0.6)
-        edge = FC.sil_at(pts, 90.0)
-        self.assertLess(FC.iou_keep_aspect(edge, np.ones((100, 100), bool)), 0.3)
-
-    def test_view_choice_never_hides_hole_among_near_ties(self):
-        """Codex 27.11: максимум IoU поворачивал раму так, что окно сужалось (195° вместо 180°). Теперь IoU — по заполненным силуэтам, а среди почти равных видов берётся с БОЛЬШИМ просветом."""
-        pts = FC.surface_points(frame_panel(), 100000)
-        full = np.ones((100, 100), bool)
-        cand = FC.view_candidates(pts, full, R)
-        top = max(c[0] for c in cand)
-        near = [c for c in cand if c[0] >= top - R['holes_view_tol']]
-        s, az, el, iou = FC.best_view(pts, full, R)
-        hv = FC.norm(s)
-        chosen = float((FC.fill_holes(hv) & ~hv).sum()) / float(hv.sum())
-        self.assertAlmostEqual(chosen, max(c[4] for c in near), places=6)
-        self.assertGreater(len(near), 1)                                                  # near-tie существует: тест не пустой
-        self.assertGreater(chosen, 0.3)
-
-    def test_sil_at_elevation_zero_is_the_old_side_view(self):
-        pts = FC.surface_points(plate_table(), 40000)
-        self.assertTrue((FC.sil_at(pts, 30.0) == FC.sil_at(pts, 30.0, elev_deg=0.0)).all())
-
-    def test_without_view_old_behaviour(self):
-        form = np.ones((100, 100), bool)
-        form[10:90, 10:90] = False
-        self.assertTrue(by(FC.sil_checks(form, np.ones((100, 100), bool), R, 0.0), 'holes')['flag'])
-        self.assertIn('вид сбоку', by(FC.sil_checks(form, np.ones((100, 100), bool), R, 0.0), 'holes')['note'])
-
-
 class CheckFailsLoudly(unittest.TestCase):
     """«Проверка сломана/не запустилась → говорит об этом» (урок дня 27.11): запись check_failed с причиной, статус needs_review (не shape_reject), main() → код 3 и строка с причиной."""
 
@@ -950,7 +875,7 @@ class CheckFailsLoudly(unittest.TestCase):
 
     def test_holes_crash_is_reported(self):
         from unittest import mock
-        with mock.patch.object(FC, 'best_view', side_effect=ValueError('пустая маска')):
+        with mock.patch.object(FC, 'sil_checks', side_effect=ValueError('пустая маска')):
             rec = FC.run_sku('s1', os.path.join(self.d, 's1-hd.glb'), os.path.join(self.d, 's1.hd.rgba.png'), None, RULES)
         self.assertIn('ПРОВЕРКА НЕ ВЫПОЛНЕНА: holes: ValueError: пустая маска', by(rec['checks'], FC.FAILED)['note'])
         self.assertNotIn('holes', [c['name'] for c in rec['checks']])                    # молчаливого «holes ок» нет
