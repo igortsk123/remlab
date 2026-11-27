@@ -117,6 +117,28 @@ export function readOwnEdits(transcriptPath, root, opts = {}) {
   }
 }
 
+/** Свои правки, уже вынутые из стенограммы на ДРУГОЙ машине (common: стенограмма лежит там, хук идёт через `r` на pakardev, где её нет). Обёртка `tools/ops/stop_own_edits.py`
+ *  читает стенограмму на своей стороне и кладёт в stdin-JSON хука `own_edits_abs` (абсолютные пути) и `own_meta` ({skipped, bytes} или {why}). Пути → относительно root, чужие каталоги — вон. */
+export function ownFromList(list, root, meta = {}) {
+  const own = new Set();
+  for (const p of list) {
+    if (typeof p !== "string" || !p) continue;
+    const abs = isAbsolute(p) ? p : resolve(root, p);
+    const rel = relative(root, abs).split("\\").join("/");
+    if (!rel.startsWith("..")) own.add(rel);
+  }
+  return { own, why: null, skipped: Number(meta?.skipped) || 0, bytes: Number(meta?.bytes) || 0, source: "обёртка" };
+}
+
+/** Откуда брать свои правки: список от обёртки (own_edits_abs) → он; обёртка не смогла прочесть (own_meta.why) → «не читается» с её причиной (она знает больше, чем «файла нет» на этой машине);
+ *  иначе — сама стенограмма по transcript_path (pakardev и всё, где путь виден хуку). → {own|null, why, skipped, bytes, source}. */
+export function transcriptFromInput(hookInput, root, opts = {}) {
+  const meta = hookInput?.own_meta && typeof hookInput.own_meta === "object" ? hookInput.own_meta : null;
+  if (Array.isArray(hookInput?.own_edits_abs)) return ownFromList(hookInput.own_edits_abs, root, meta ?? {});
+  if (meta?.why) return { own: null, why: `обёртка на стороне стенограммы: ${String(meta.why).slice(0, 160)}`, skipped: 0, bytes: 0, source: "обёртка" };
+  return { ...readOwnEdits(hookInput?.transcript_path, root, opts), source: "хук" };
+}
+
 /** Относительные (к root) пути файлов, которые сессия правила инструментами Edit/Write. null — стенограммы нет/не читается (причину даёт readOwnEdits). */
 export function ownEditedPaths(transcriptPath, root, opts = {}) {
   return readOwnEdits(transcriptPath, root, opts).own;
