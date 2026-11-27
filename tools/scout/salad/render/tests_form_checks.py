@@ -766,5 +766,152 @@ class LegWave(unittest.TestCase):
         self.assertTrue((before == m).all())
 
 
+def old_bbox_rule(m, R: dict) -> bool:
+    """Прежнее правило detached (до 27.11) — для отрицательного контроля: тест обязан различать «вне габарита главного» и «без касания»."""
+    comps = trimesh.graph.connected_components(m.face_adjacency, nodes=np.arange(len(m.faces)), min_len=1)
+    area = m.area_faces
+    order = sorted(range(len(comps)), key=lambda i: -float(area[comps[i]].sum()))
+    main = m.vertices[np.unique(m.faces[comps[order[0]]])]
+    gap = R['detached_gap'] * float(np.linalg.norm(m.extents))
+    lo, hi = main.min(0) - gap, main.max(0) + gap
+    tot_far = 0.0
+    for i in order[1:]:
+        sh = float(area[comps[i]].sum()) / float(area.sum())
+        v = m.vertices[np.unique(m.faces[comps[i]])]
+        if sh >= R['detached_piece_min'] and (np.any(v.max(0) < lo) or np.any(v.min(0) > hi)):
+            tot_far += sh
+    return tot_far > R['detached_share']
+
+
+def disk_table(gap: float = 0.0):
+    """Стол «плита + стойка + диск основания»: плита сверху (главный кусок), стойка, диск основания; куски раздельные. `gap` — зазор между стойкой и диском основания."""
+    top = box((1.0, 0.04, 1.0), (0, 1.0, 0))
+    base = box((0.8, 0.04, 0.8), (0, 0.02, 0))
+    y0 = 0.04 + gap
+    stem = box((0.1, 0.98 - y0, 0.1), (0, (0.98 + y0) / 2, 0))
+    return trimesh.util.concatenate([top, stem, base])
+
+
+class DetachedTouch(unittest.TestCase):
+    """Правило detached на все товары (директор 27.11, P-064): «парящий» = БЕЗ касания (зазор > detached_gap габарита) с главным куском, прямо или цепочкой; не «вне габарита главного»."""
+
+    def test_params_in_rules(self):
+        for k in ('detached_gap', 'detached_share', 'detached_piece_min', 'detached_samples', 'detached_bridge_min', 'detached_nodes'):
+            self.assertIn(k, R)
+        self.assertEqual((R['detached_gap'], R['detached_share'], R['detached_piece_min']), (0.01, 0.03, 0.01))       # пороги НЕ подняты (директор)
+
+    def test_base_disk_touching_stem_is_not_floating_negative_control(self):
+        m = disk_table(0.0)
+        self.assertTrue(old_bbox_rule(m, R), 'контроль: прежнее правило флагало бы диск основания — тест должен это различать')
+        c = FC.detached(m, R)
+        self.assertFalse(c['flag'], c)
+        self.assertEqual(c['value'], 0.0, c)
+
+    def test_base_with_gap_over_one_percent_is_floating_positive(self):
+        c = FC.detached(disk_table(0.03), R)                                       # 3 / 174 = 1,7 % диагонали
+        self.assertTrue(c['flag'], c)
+        self.assertGreater(c['value'], R['detached_share'], c)
+        self.assertIn('парящих', c['note'])
+
+    def test_gap_under_one_percent_counts_as_touching(self):
+        self.assertFalse(FC.detached(disk_table(0.008), R)['flag'])                # 0,46 % диагонали — касание
+
+    def test_pair_touching_each_other_but_not_main_is_floating(self):
+        body = box((1, 0.4, 0.4), (0, 0.5, 0))
+        a, b = box((0.3, 0.3, 0.3), (3.0, 3.0, 3.0)), box((0.3, 0.3, 0.3), (3.3, 3.0, 3.0))
+        c = FC.detached(trimesh.util.concatenate([body, a, b]), R)
+        self.assertTrue(c['flag'], c)
+        self.assertIn('парящих (без касания с главным, зазор > 1 % габарита) 2', c['note'])
+
+    def test_chain_through_two_tiny_pieces_is_touching(self):
+        """Codex 27.11: мелкие куски сами не опрашивались — цепочка main → пылинка → пылинка → крупный кусок не находилась (ложный блок). Теперь опрашиваются куски от detached_bridge_min."""
+        body = box((1, 0.4, 0.4), (0, 0.5, 0))
+        t1, t2 = box((0.03, 0.03, 0.03), (0.515, 0.5, 0)), box((0.03, 0.03, 0.03), (0.545, 0.5, 0))
+        far = box((0.3, 0.3, 0.3), (0.71, 0.5, 0))
+        m = trimesh.util.concatenate([body, t1, t2, far])
+        self.assertFalse(FC.detached(m, R)['flag'], FC.detached(m, R))
+        self.assertTrue(FC.detached(trimesh.util.concatenate([body, t1, far]), R)['flag'])       # звено выбито — между t1 и far зазор: парит
+
+    def test_chain_through_tiny_piece_is_touching(self):
+        body = box((1, 0.4, 0.4), (0, 0.5, 0))
+        tiny = box((0.02, 0.02, 0.02), (0.51, 0.5, 0))                              # мостик ниже detached_piece_min: в долю не идёт, но касается обоих
+        far = box((0.3, 0.3, 0.3), (0.67, 0.5, 0))
+        self.assertFalse(FC.detached(trimesh.util.concatenate([body, tiny, far]), R)['flag'])
+        self.assertTrue(FC.detached(trimesh.util.concatenate([body, far]), R)['flag'])       # без мостика зазор 2 % диагонали — парит
+
+    def test_legs_touching_body_still_fine_and_dust_ignored(self):
+        body = box((1, 0.4, 0.4), (0, 0.5, 0))
+        leg = box((0.05, 0.3, 0.05), (0.4, 0.15, 0))
+        dust = box((0.02, 0.02, 0.02), (3.0, 3.0, 3.0))
+        self.assertFalse(FC.detached(trimesh.util.concatenate([body, leg, dust]), R)['flag'])
+
+    def test_single_piece_is_clean(self):
+        self.assertEqual(FC.detached(box(), R)['value'], 0.0)
+
+    def test_deterministic(self):
+        m = disk_table(0.03)
+        self.assertEqual(FC.detached(m, R), FC.detached(m, R))
+
+
+class CheckFailsLoudly(unittest.TestCase):
+    """«Проверка сломана/не запустилась → говорит об этом» (урок дня 27.11): запись check_failed с причиной, статус needs_review (не shape_reject), main() → код 3 и строка с причиной."""
+
+    def setUp(self):
+        self.d = tempfile.mkdtemp(prefix='tests_fc_fail_')
+        box().export(os.path.join(self.d, 's1-hd.glb'))
+        a = np.zeros((100, 200, 4), np.uint8)
+        a[:, :, 3] = 255
+        Image.fromarray(a).save(os.path.join(self.d, 's1.hd.rgba.png'))
+
+    def test_detached_crash_is_reported_not_swallowed(self):
+        from unittest import mock
+        with mock.patch.object(FC, 'detached', side_effect=RuntimeError('нет scipy')):
+            rec = FC.run_sku('s1', os.path.join(self.d, 's1-hd.glb'), None, None, RULES)
+        c = by(rec['checks'], FC.FAILED)
+        self.assertTrue(c['flag'])
+        self.assertIn('ПРОВЕРКА НЕ ВЫПОЛНЕНА: detached: RuntimeError: нет scipy', c['note'])
+        self.assertEqual(rec['status'], 'needs_review')                                  # сломанный код не бракует форму
+        self.assertEqual(FC.failed_skus([rec]), ['s1'])
+
+    def test_holes_crash_is_reported(self):
+        from unittest import mock
+        with mock.patch.object(FC, 'sil_checks', side_effect=ValueError('пустая маска')):
+            rec = FC.run_sku('s1', os.path.join(self.d, 's1-hd.glb'), os.path.join(self.d, 's1.hd.rgba.png'), None, RULES)
+        self.assertIn('ПРОВЕРКА НЕ ВЫПОЛНЕНА: holes: ValueError: пустая маска', by(rec['checks'], FC.FAILED)['note'])
+        self.assertNotIn('holes', [c['name'] for c in rec['checks']])                    # молчаливого «holes ок» нет
+
+    def test_photo_prep_crash_is_reported(self):
+        """Codex 27.11: photo_mask/surface_points/best_front были вне защиты — исключение валило весь запуск без записи. Теперь — check_failed с причиной."""
+        from unittest import mock
+        glb, ph = os.path.join(self.d, 's1-hd.glb'), os.path.join(self.d, 's1.hd.rgba.png')
+        for name, exc in (('photo_mask', OSError('битый PNG')), ('surface_points', MemoryError('нет памяти')), ('best_front', ValueError('пустая маска'))):
+            with mock.patch.object(FC, name, side_effect=exc):
+                rec = FC.run_sku('s1', glb, ph, None, RULES)
+            c = by(rec['checks'], FC.FAILED)
+            self.assertIn('ПРОВЕРКА НЕ ВЫПОЛНЕНА: силуэты по фото: подготовка', c['note'], name)
+            self.assertIn(type(exc).__name__, c['note'], name)
+            self.assertEqual(rec['status'], 'needs_review', name)
+
+    def test_corrupt_photo_file_is_reported_not_crash(self):
+        bad = os.path.join(self.d, 'bad.png')
+        open(bad, 'wb').write(b'not a png')
+        rec = FC.run_sku('s1', os.path.join(self.d, 's1-hd.glb'), bad, None, RULES)
+        self.assertIn('ПРОВЕРКА НЕ ВЫПОЛНЕНА', by(rec['checks'], FC.FAILED)['note'])
+        self.assertEqual(FC.failed_skus([rec]), ['s1'])
+
+    def test_main_returns_3_with_reason_and_0_when_healthy(self):
+        import contextlib
+        import io
+        from unittest import mock
+        argv = ['form_checks.py', '--glbs', self.d, '--photos', self.d, '--skus', 's1', '--out', os.path.join(self.d, 'out')]
+        buf = io.StringIO()
+        with mock.patch.object(sys, 'argv', argv), mock.patch.object(FC, 'detached', side_effect=RuntimeError('сломано')), contextlib.redirect_stdout(buf):
+            rc = FC.main()
+        self.assertEqual(rc, 3)
+        self.assertIn('ПРОВЕРКА НЕ ВЫПОЛНЕНА у 1 из 1: s1', buf.getvalue())
+        with mock.patch.object(sys, 'argv', argv), contextlib.redirect_stdout(io.StringIO()):
+            self.assertEqual(FC.main(), 0)
+
+
 if __name__ == '__main__':
     unittest.main(verbosity=1)
