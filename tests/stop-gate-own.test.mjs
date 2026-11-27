@@ -466,6 +466,22 @@ test("п.6 сквозной: в журнале (формат журнала) с�
   noBlock(hook(closed.root, transcript(closed.root, [RULES_EDIT]), { ...DIRECTOR, OWNER_JOURNAL: closed.jpath }, strict));
 });
 
+test("урок дня: сломана ПРОВЕРКА внутри стража (нет настроек/порога сторожа выключателей, нет файла настроек самого стража) → гейт директора блокирует с причиной, не «0» и не молчание", () => {
+  for (const [how, rm, re] of [
+    ["нет настроек сторожа выключателей", "tools/scout/rules/switch-settings.json", /сторож выключателей не работает \(нет файла настроек/],
+    ["нет порога сторожа выключателей", "tools/scout/rules/switch-guard-threshold.json", /сторож выключателей не работает \(нет порога/],
+    ["нет файла настроек самого стража", "tools/scout/rules/rules-guard.json", /страж не ответил: код 1, пустой вывод/],
+  ]) {
+    const { root, jpath } = realGuardRepo(false);
+    rmSync(join(root, rm));
+    const r = hook(root, transcript(root, [RULES_EDIT]), { ...DIRECTOR, OWNER_JOURNAL: jpath }, ["--strazh", "--own-edits"]);
+    const d = JSON.parse(r.stdout || "{}");
+    assert.equal(d.decision, "block", `${how}: ${r.stdout}${r.stderr}`);
+    assert.match(d.reason, re, how);
+    assert.doesNotMatch(d.reason, /вне реестра \d/, how);
+  }
+});
+
 test("п.(б) сквозной: реестр не читается (нет файла / битый) → настоящий страж говорит «реестр не читается», гейт директора блокирует с причиной, а не «вне реестра N»", () => {
   for (const [how, body] of [["битый JSON", "{не json"], ["нет файла", null]]) {
     const { root, jpath } = realGuardRepo(false);

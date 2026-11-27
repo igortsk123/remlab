@@ -128,7 +128,9 @@ if (strazhMode && process.env.REMLAB_ROLE === "директор" && blockMode) {
       const tail =
         answer.kind === "registry"
           ? `починить tools/scout/rules/rule-registry.json (валидный JSON с rules и groups; git diff покажет, что сломалось) и завершать — пока реестр не читается, сроки и выключатели не проверены.`
-          : `а проверить их нечем — почини страж (python3 tools/ops/rules_guard.py --check) и завершай; молча пропускать нельзя.`;
+          : answer.kind === "switches"
+            ? `починить настройки/порог сторожа выключателей (tools/scout/rules/switch-settings.json, switch-guard-threshold.json; python3 tools/ops/rule_switch_guard.py покажет, чего нет) и завершать — пока он не работает, «вне реестра» не измерено.`
+            :`а проверить их нечем — почини страж (python3 tools/ops/rules_guard.py --check) и завершай; молча пропускать нельзя.`;
       console.log(
         JSON.stringify({
           decision: "block",

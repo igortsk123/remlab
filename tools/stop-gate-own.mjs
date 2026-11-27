@@ -223,6 +223,9 @@ export function strazhAnswer(res) {
   // реестр не читается: страж ответил, но «просрочено»/«вне реестра» не измерил (там «?») — это не «0» и не ответ-счётчик; блок с причиной (kind "registry")
   const reg = /реестр не читается\s*\(([^)]*)\)/.exec(res?.line ?? "");
   if (reg) return { ok: false, parsed: null, line: res.line.trim(), kind: "registry", silent: `реестр правил не читается (${reg[1].trim().slice(0, 100)}) — сроки и выключатели не измерены` };
+  // сторож выключателей не отработал (нет настроек/порога): «вне реестра»/«на удаление» там «?», а не 0 — тоже не ответ-счётчик
+  const sw = /сторож выключателей не работает\s*\(([^)]*)\)/.exec(res?.line ?? "");
+  if (sw) return { ok: false, parsed: null, line: res.line.trim(), kind: "switches", silent: `сторож выключателей не работает (${sw[1].trim().slice(0, 100)}) — «вне реестра» и «на удаление» не измерены` };
   const parsed = parseStrazh(res?.line);
   if (parsed) return { ok: true, parsed, line: res.line.trim(), silent: null };
   if (res?.code === "ENOENT") return strazhNotFound(res.cmd ?? "?"); // команда стража не нашлась в системе (нет python3 / указанного файла)

@@ -125,7 +125,12 @@ def switches(root: str) -> dict:
     known = set(thr.get('known') or [])
     new = sorted(u['name'] for u in res['uncovered'] if u['name'] not in known)
     over = max(0, len(res['uncovered']) - res['max']) if isinstance(res.get('max'), int) else 0
-    return {'new': new, 'over': over, 'unclassified': list(res['unclassified']), 'uncovered': res['uncovered'], 'max': res.get('max'), 'errors': list(res['errors'])}
+    # сторож сам не отработал (нет файла настроек / нет порога) → его «0 новых» ничего не значит; находки («НОВЫЙ выключатель…», «порог превышен») — не поломка, их считают счётчики
+    broken = None
+    if res.get('max') is None:
+        e0 = next((e for e in res['errors'] if e.startswith(('нет файла настроек', 'нет порога'))), 'порог не прочитан')
+        broken = e0.split(' (')[0]
+    return {'new': new, 'over': over, 'unclassified': list(res['unclassified']), 'uncovered': res['uncovered'], 'max': res.get('max'), 'errors': list(res['errors']), 'broken': broken}
 
 
 def off_remove(uncovered: list, state: dict, today: 'datetime.date', off_days: int) -> tuple:
@@ -156,7 +161,8 @@ def read_journal(path: str, now: 'datetime.datetime', old_hours: float) -> dict:
         events = ZV.read_events(path)
         with open(path, encoding='utf-8') as f:
             nonblank = sum(1 for ln in f if ln.strip())
-    except OSError:
+    except (OSError, ValueError) as e:     # нет доступа / не UTF-8: журнал не прочитан — «?», причина в `error` (а не «0 ждущих» и не падение без строки)
+        out['error'] = '%s: %s' % (type(e).__name__, str(e)[:80])
         return out
     out['exists'] = True
     out['bad'] = max(0, nonblank - len(events))
@@ -194,21 +200,23 @@ def evaluate(root: str, cfg: dict, state: dict, now: 'datetime.datetime', today:
     rerr = registry_problem(reg)
     dl = [] if rerr else deadlines(reg, today)
     overdue = [d for d in dl if d['days_left'] < 0]
-    sw = {'new': [], 'over': 0, 'unclassified': [], 'uncovered': [], 'max': None, 'errors': []} if rerr else switches(root)
+    sw = {'new': [], 'over': 0, 'unclassified': [], 'uncovered': [], 'max': None, 'errors': [], 'broken': None} if rerr else switches(root)
+    serr = sw['broken']   # сторож выключателей не отработал (нет настроек/порога): «вне реестра» и «на удаление» НЕ меряются — не «0»
+    nomeas = bool(rerr or serr)
     m_items = sw['new'] + ['файл правил не отнесён: %s' % f for f in sw['unclassified']]
     m = max(len(sw['new']), sw['over']) + len(sw['unclassified'])
-    if rerr:
+    if nomeas:
         due, seen = [], dict(state.get('off_first_seen') if isinstance(state.get('off_first_seen'), dict) else {})
     else:
         due, seen = off_remove(sw['uncovered'], state, today, int(cfg['off_days']))
     j = read_journal(journal_path or os.environ.get('OWNER_JOURNAL') or cfg['journal_path'], now, float(cfg['unreviewed_hours']))
     res = {
-        'now': now.isoformat(), 'today': today.isoformat(), 'registry_error': rerr,
+        'now': now.isoformat(), 'today': today.isoformat(), 'registry_error': rerr, 'switch_error': None if rerr else serr,
         'overdue': None if rerr else len(overdue), 'overdue_items': ['%s — срок %s, прошло %d дн.' % (d['what'], d['decide_by'].isoformat(), -d['days_left']) for d in overdue],
-        'outside': None if rerr else m, 'outside_items': m_items, 'outside_old': None if rerr else max(0, len(sw['uncovered']) - len(sw['new'])), 'outside_max': sw['max'], 'switch_errors': sw['errors'],
+        'outside': None if nomeas else m, 'outside_items': m_items, 'outside_old': None if nomeas else max(0, len(sw['uncovered']) - len(sw['new'])), 'outside_max': sw['max'], 'switch_errors': sw['errors'],
         'unreviewed': len(j['pending']) if j['exists'] else None, 'unreviewed_old': len(j['old']), 'unreviewed_items': ['%s: %s' % (x['n'], x['text']) for x in j['pending']],
-        'journal': {'exists': j['exists'], 'path': j['path'], 'bad': j['bad']},
-        'off_remove': None if rerr else len(due), 'off_remove_items': due, 'off_first_seen': seen,
+        'journal': {'exists': j['exists'], 'path': j['path'], 'bad': j['bad'], 'error': j.get('error')},
+        'off_remove': None if nomeas else len(due), 'off_remove_items': due, 'off_first_seen': seen,
         'deadlines': [{'what': d['what'], 'gid': d['gid'], 'decide_by': d['decide_by'].isoformat(), 'days_left': d['days_left'], 'rules': d['rules']} for d in dl],
     }
     res['line'] = line_of(res)
@@ -220,12 +228,15 @@ def line_of(res: dict) -> str:
     if res.get('registry_error'):
         # три счётчика, зависящих от реестра, не мерятся — «?»; гейт директора по «реестр не читается» блокирует (tools/stop-gate-own.mjs: strazhAnswer)
         return 'правила: реестр не читается (%s), просрочено ?, вне реестра: ? (старый долг ?), сообщений владельца без разбора %s, выключателей на удаление ?' % (res['registry_error'], k)
+    if res.get('switch_error'):
+        # реестр цел — «просрочено» мерится; сторож выключателей не отработал — его два счётчика «?»
+        return 'правила: сторож выключателей не работает (%s), просрочено %d, вне реестра: ? (старый долг ?), сообщений владельца без разбора %s, выключателей на удаление ?' % (res['switch_error'], res['overdue'], k)
     return 'правила: просрочено %d, вне реестра: новых %d (старый долг %d), сообщений владельца без разбора %s, выключателей на удаление %d' % (
         res['overdue'], res['outside'], res['outside_old'], k, res['off_remove'])
 
 
 def is_clean(res: dict) -> bool:
-    return not (res.get('registry_error') or res['overdue'] or res['outside'] or res['off_remove'] or res['unreviewed'] or res['unreviewed_old'])
+    return not (res.get('registry_error') or res.get('switch_error') or res['overdue'] or res['outside'] or res['off_remove'] or res['unreviewed'] or res['unreviewed_old'])
 
 
 def details(res: dict) -> list:
@@ -237,10 +248,14 @@ def details(res: dict) -> list:
             out.append('  · %s: …и ещё %d' % (title, len(res[key]) - 8))
     if res.get('registry_error'):
         out.append('  · реестр правил не читается (tools/scout/rules/rule-registry.json): %s — сроки и выключатели не меряются, починить файл' % res['registry_error'])
+    elif res.get('switch_error'):
+        out.append('  · сторож выключателей не работает (tools/ops/rule_switch_guard.py): %s — «вне реестра» и «на удаление» не меряются, починить файл' % res['switch_error'])
     else:
         out.append('  справка: вне реестра старых %d из порога %s (только убывают — сторож выключателей); срок ближайшей группы: %s' % (
             res['outside_old'], res['outside_max'], min((d['decide_by'] for d in res['deadlines']), default='—')))
-    if not res['journal']['exists']:
+    if res['journal'].get('error'):
+        out.append('  · журнал сообщений владельца не читается (%s): %s — K не мерится' % (res['journal']['path'], res['journal']['error']))
+    elif not res['journal']['exists']:
         out.append('  справка: журнала сообщений владельца нет (%s) — K не мерится (задача 175/4)' % res['journal']['path'])
     elif res['journal']['bad']:
         out.append('  справка: в журнале %d нечитаемых строк (пропущены)' % res['journal']['bad'])
@@ -261,7 +276,8 @@ def plan_alerts(res: dict, state: dict, now: 'datetime.datetime', cfg: dict) -> 
     again = float(cfg['realert_hours']) * 3600
     due_lines, marks = [], []
     # реестр не читается — свой счётчик (1 = сломан), тот же срок «дольше alert_after_min» и повтор; три остальных при этом None и сбрасываются вместе с «since»
-    for key, val, title, items in (('registry', 1 if res.get('registry_error') else 0, 'реестр не читается', [res.get('registry_error') or '']),):
+    for key, val, title, items in (('registry', 1 if res.get('registry_error') else 0, 'реестр не читается', [res.get('registry_error') or '']),
+                                   ('switch_tool', 1 if res.get('switch_error') else 0, 'сторож выключателей не работает', [res.get('switch_error') or ''])):
         if not val:
             since.pop(key, None)
             continue
