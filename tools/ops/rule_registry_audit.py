@@ -17,7 +17,9 @@
   • типы паспорта без политики покраски (`paint.hidden_pattern`) — «тип без политики» (ошибка при `--strict-types`; в CI включено, А1 влит);
   • реестр версии ≥ 3 (T-20261124-54/2, решение директора 24.11): у каждого `trial` — `group` из `groups`; у группы (или у самого правила) — `decide_by` (ГГГГ-ММ-ДД, не позже
     `decide_by_max` реестра) и `enable_if` (условие включения ЧИСЛОМ — в тексте есть цифра); групп вида «держать» не больше `groups_max`; у `retired` — `retired_reason`.
-    Срок вышел, а правило всё ещё trial — класс «срок/условие решения» (не ошибка, в отчёт обхода): по правилу реестра группа без решения снимается целиком;
+    Срок вышел (decide_by < сегодня по Лондону), а правило всё ещё trial — ОШИБКА класса «срок/условие решения» (T-20261127-173; раньше печаталось, rc=0 — 27.11 четыре группы
+    дошли до срока незамеченными). Выход: решить (включить/снять группу) либо ОДИН раз перенести: `decide_by_moved` (кто, когда, почему) + `decide_by_prev` (прежняя дата);
+    дата не позже `decide_by_max`; перенос без причины или без prev — ошибка; ВТОРОЙ перенос — ошибка (при `--base HEAD^1`: в базе уже есть decide_by_prev, а срок снова сдвинут);
   • `--run <папка прогона>` — СТРУКТУРНО: у active в `*/<этап>/check.json` (этап — до точки в `check_field`) в `extra.rules[]` есть записи правила: rule_id, type,
     digest паспорта типа (= `mesh_type_passports.digest_of`) и `applied: true` либо `abstain` с причиной. Пустой охват (нет check.json / нет записей правила) = ошибка;
     применимые типы, встреченные в прогоне, но без записи правила = ошибка.
@@ -273,8 +275,58 @@ def _date(s) -> 'datetime.date | None':
         return None
 
 
+def london_today() -> 'datetime.date':
+    """Сегодня по Лондону (владелец и сроки решений — по лондонскому времени); нет tzdata — дата машины."""
+    try:
+        import zoneinfo
+        return datetime.datetime.now(zoneinfo.ZoneInfo('Europe/London')).date()
+    except Exception:  # noqa: BLE001
+        return datetime.date.today()
+
+
+MOVE_REASON_MIN = 15          # «причина» переноса короче — это отписка, не причина
+
+
+def check_move(what: str, obj: dict, base_obj, add, rid: str, dmax=None) -> None:
+    """Перенос срока решения — ОДИН раз и с причиной (T-20261127-173, Fable 27 § 3 п.1; владелец «жёстко автоматически»).
+    Формат: `decide_by_moved` (текст: кто, когда, почему) + `decide_by_prev` (прежняя дата, раньше нынешней). Одно без другого, короткая причина, перенос «назад» — ошибка.
+    С базой (`--base`, прежняя версия реестра в git): срок сдвинут позже, а в базе уже есть `decide_by_prev` — ВТОРОЙ перенос, ошибка; первый — только если
+    `decide_by_prev` = прежний срок базы и причина записана. Без базы по одному файлу второй перенос не виден — это в отчёте `notes`."""
+    if not isinstance(obj, dict):
+        return
+    cur = obj.get('decide_by')
+    has_prev, has_moved = 'decide_by_prev' in obj, 'decide_by_moved' in obj
+    moved = obj.get('decide_by_moved')
+    if isinstance(moved, (list, dict)) and len(moved) > 1:
+        add(rid, C_DEADLINE, '%s: decide_by_moved — несколько записей: перенос допускается один раз' % what, True)
+    elif has_moved and not (isinstance(moved, str) and len(moved.strip()) >= MOVE_REASON_MIN):
+        add(rid, C_DEADLINE, '%s: перенос срока без причины (decide_by_moved — текст «кто, когда, почему», от %d знаков)' % (what, MOVE_REASON_MIN), True)
+    if has_moved and not has_prev:
+        add(rid, C_DEADLINE, '%s: есть decide_by_moved, нет decide_by_prev (прежняя дата срока)' % what, True)
+    if has_prev and not has_moved:
+        add(rid, C_DEADLINE, '%s: есть decide_by_prev, нет decide_by_moved — перенос без причины' % what, True)
+    if has_prev:
+        pd, cd = _date(obj.get('decide_by_prev')), _date(cur)
+        if pd is None:
+            add(rid, C_DEADLINE, '%s: decide_by_prev — не дата ГГГГ-ММ-ДД' % what, True)
+        elif cd is not None and pd >= cd:
+            add(rid, C_DEADLINE, '%s: decide_by_prev %s не раньше decide_by %s — перенос только вперёд' % (what, obj.get('decide_by_prev'), cur), True)
+    if not isinstance(base_obj, dict):
+        return
+    bd, cd = _date(base_obj.get('decide_by')), _date(cur)
+    if bd is None or cd is None or cd <= bd:
+        return
+    if 'decide_by_prev' in base_obj:
+        add(rid, C_DEADLINE, '%s: ВТОРОЙ перенос срока (%s → %s; первый уже был, прежний срок %s) — не принимается: реши (включи/сними) или снимай группу' %
+            (what, base_obj.get('decide_by'), cur, base_obj.get('decide_by_prev')), True)
+    elif obj.get('decide_by_prev') != base_obj.get('decide_by') or not has_moved:
+        add(rid, C_DEADLINE, '%s: срок сдвинут %s → %s без записи: нужны decide_by_prev=%s и decide_by_moved (кто, когда, почему)' %
+            (what, base_obj.get('decide_by'), cur, base_obj.get('decide_by')), True)
+
+
 def check_deadline(what: str, decide_by, enable_if, dmax, today, add, rid: str, trial: bool = True) -> None:
-    """Срок решения и условие числом у группы/правила (реестр v3). Нет срока/условия или срок позже `decide_by_max` — ошибка; срок вышел у живого trial — класс без ошибки."""
+    """Срок решения и условие числом у группы/правила (реестр v3). Нет срока/условия или срок позже `decide_by_max` — ошибка; срок вышел у живого trial — ОШИБКА
+    (T-20261127-173: раньше печаталось и сборка проходила — 27.11 четыре группы дошли до срока незамеченными). Выход один: решить (active/retired) или перенести один раз (check_move)."""
     d = _date(decide_by)
     if d is None:
         add(rid, C_DEADLINE, '%s: нет decide_by (ГГГГ-ММ-ДД)' % what, True)
@@ -282,16 +334,37 @@ def check_deadline(what: str, decide_by, enable_if, dmax, today, add, rid: str, 
         if dmax and _date(dmax) and d > _date(dmax):
             add(rid, C_DEADLINE, '%s: decide_by %s позже decide_by_max %s' % (what, decide_by, dmax), True)
         if trial and d < today:
-            add(rid, C_DEADLINE, '%s: срок решения %s вышел — решения нет, по правилу реестра снять всю группу' % (what, decide_by), False)
+            add(rid, C_DEADLINE, '%s: срок решения %s вышел (сегодня %s) — реши (включи или сними всю группу) либо один раз перенеси с причиной (decide_by_prev + decide_by_moved)' %
+                (what, decide_by, today.isoformat()), True)
     if not (isinstance(enable_if, str) and re.search(r'\d', enable_if)):
         add(rid, C_DEADLINE, '%s: enable_if должно быть условием числом (в тексте нет цифры)' % what, True)
 
 
+def load_base_registry(root: str, base_ref: str, registry_path: str = REGISTRY):
+    """Реестр в базовой версии git (`--base`, напр. HEAD^1 — первый родитель: база PR/предыдущий main) → (dict | None, заметка). Нет git/ссылки — (None, почему)."""
+    rel = os.path.relpath(registry_path, root).replace(os.sep, '/')
+    try:
+        p = subprocess.run(['git', '-C', root, 'show', '%s:%s' % (base_ref, rel)], capture_output=True, text=True, timeout=30)
+    except Exception as e:  # noqa: BLE001
+        return None, 'git недоступен: %s' % e
+    if p.returncode != 0:
+        return None, 'не прочитан %s:%s (%s)' % (base_ref, rel, (p.stderr or '').strip()[:120])
+    try:
+        return json.loads(p.stdout), ''
+    except ValueError as e:
+        return None, 'база не JSON: %s' % e
+
+
 def audit(registry_path: str = REGISTRY, passports_path: str = PASSPORTS, ci_path: str = CI, root: str = ROOT, run_dir: str = '',
-          today: 'datetime.date | None' = None) -> dict:
-    """→ {'rules': n, 'problems': [{rule_id, cls, why, error}], 'by_state': {...}}. error=True — валит CI. today — для проверки сроков (по умолчанию сегодня)."""
-    today = today or datetime.date.today()
-    out = {'problems': [], 'by_state': {}, 'rules': 0}
+          today: 'datetime.date | None' = None, base_registry: 'dict | None' = None) -> dict:
+    """→ {'rules': n, 'problems': [{rule_id, cls, why, error}], 'by_state': {...}, 'notes': [...]}. error=True — валит CI. today — для проверки сроков (по умолчанию сегодня по Лондону).
+    base_registry — прежняя версия реестра (для проверки «перенос срока — один раз»); без неё второй перенос по одному файлу не виден (заметка в notes)."""
+    today = today or london_today()
+    out = {'problems': [], 'by_state': {}, 'rules': 0, 'notes': []}
+    if base_registry is None:
+        out['notes'].append('база не задана (--base): «второй перенос срока» по истории не проверен; формат переноса — проверен')
+    base_groups = (base_registry.get('groups') if isinstance(base_registry, dict) and isinstance(base_registry.get('groups'), dict) else {})
+    base_rules = {r.get('rule_id'): r for r in ((base_registry or {}).get('rules') or []) if isinstance(r, dict)}
     try:
         reg = json.loads(_read(registry_path))
     except ValueError as e:
@@ -319,6 +392,7 @@ def audit(registry_path: str = REGISTRY, passports_path: str = PASSPORTS, ci_pat
         used_groups = {r.get('group') for r in rules if r.get('state') == 'trial'}
         for gid, g in groups.items():
             check_deadline('группа %s' % gid, (g or {}).get('decide_by'), (g or {}).get('enable_if'), dmax, today, add, 'группа %s' % gid, gid in used_groups)
+            check_move('группа %s' % gid, g, base_groups.get(gid), add, 'группа %s' % gid, dmax)
         hold = [gid for gid in used_groups if gid in groups and (groups[gid] or {}).get('kind') != 'enable']
         if isinstance(reg.get('groups_max'), int) and len(hold) > reg['groups_max']:
             add('реестр', C_DEADLINE, 'групп «держать» с trial-правилами %d > groups_max %d: %s' % (len(hold), reg['groups_max'], ', '.join(sorted(hold))), True)
@@ -361,6 +435,8 @@ def audit(registry_path: str = REGISTRY, passports_path: str = PASSPORTS, ci_pat
                 add(rid, C_DEADLINE, 'trial без группы из groups (group=%r) — у каждого пробного правила есть срок решения и условие' % (gid,), True)
             elif 'decide_by' in r or 'enable_if' in r:                  # свой срок/условие правила — поверх группы; иначе всё сказано в группе (проверена выше)
                 check_deadline('правило (группа %s)' % gid, r.get('decide_by', g.get('decide_by')), r.get('enable_if', g.get('enable_if')), dmax, today, add, rid)
+                if r.get('decide_by') != g.get('decide_by') or 'decide_by_moved' in r or 'decide_by_prev' in r:   # срок, равный сроку группы, — её срок: перенос записан у группы
+                    check_move('правило (группа %s)' % gid, r, base_rules.get(rid), add, rid, dmax)
         if st == 'retired':
             continue
         active = st == 'active'
@@ -445,6 +521,9 @@ def report(res: dict, strict_types: bool = False) -> tuple:
         lines.append('■ %s — %d' % (cls, len(by[cls])))
         for p, err in by[cls]:
             lines.append('  %s %s: %s' % ('✗' if err else '·', p['rule_id'], p['why']))
+    for n in res.get('notes') or []:
+        lines.append('')
+        lines.append('заметка: %s' % n)
     lines.append('')
     lines.append('ИТОГ: ошибок %d%s' % (errs, '' if errs else ' — реестр чист (active-правила проверены по поведению: код вызывается, включён, парные тесты в CI)'))
     return '\n'.join(lines), errs
@@ -474,8 +553,14 @@ def main(argv=None) -> int:
     ap.add_argument('--root', default=ROOT, help='корень репозитория (для тестов на заглушках)')
     ap.add_argument('--passports', default=PASSPORTS)
     ap.add_argument('--ci', default=CI)
+    ap.add_argument('--base', default='', metavar='REF', help='git-ссылка прежней версии реестра (CI: HEAD^1) — проверка «перенос срока только один раз»')
     a = ap.parse_args(argv)
-    res = audit(registry_path=a.registry, passports_path=a.passports, ci_path=a.ci, root=a.root, run_dir=a.run)
+    base, base_note = (None, '')
+    if a.base:
+        base, base_note = load_base_registry(a.root, a.base, a.registry)
+    res = audit(registry_path=a.registry, passports_path=a.passports, ci_path=a.ci, root=a.root, run_dir=a.run, base_registry=base)
+    if a.base and base is None:
+        res['notes'] = [n for n in res['notes'] if not n.startswith('база не задана')] + ['база --base %s не прочитана: %s — второй перенос по истории НЕ проверен' % (a.base, base_note)]
     res['run_checked'] = bool(a.run)
     text, errs = report(res, a.strict_types)
     print(text)

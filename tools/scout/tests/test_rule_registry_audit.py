@@ -40,9 +40,10 @@ def world(rules, ci='run: python tests/t.py', code=CODE, caller=CALLER, test=TES
     return d
 
 
-def run(rules, run_dir='', today=None, **kw):
+def run(rules, run_dir='', today=None, base=None, **kw):
     d = world(rules, **kw)
-    res = RA.audit(os.path.join(d, 'reg.json'), os.path.join(d, 'pass.json'), os.path.join(d, 'ci.yml'), d, run_dir, today=today)
+    res = RA.audit(os.path.join(d, 'reg.json'), os.path.join(d, 'pass.json'), os.path.join(d, 'ci.yml'), d, run_dir, today=today,
+                   base_registry=dict(base, rules=[r for r in rules]) if base is not None else None)
     text, errs = RA.report(res)
     return res, text, errs, d
 
@@ -213,11 +214,103 @@ def test_v3_group_deadline_and_condition_by_number():
     assert 'нет decide_by' in ' | '.join(p['why'] for p in res['problems']) and errs == 1
 
 
-def test_v3_overdue_group_is_class_not_error():
+def test_v3_overdue_group_is_error():
+    """T-20261127-173: срок решения вышел (decide_by < сегодня) у живого trial — ОШИБКА сборки (было: печаталось, rc=0 — 27.11 четыре группы дошли до срока незамеченными)."""
     res, text, errs, _ = run([trial()], reg=V3, today=D(2026, 11, 28))
-    assert errs == 0 and any('вышел' in p['why'] for p in res['problems'] if p['cls'] == RA.C_DEADLINE), text
+    assert errs == 1 and ('R-T-1', RA.C_DEADLINE, False) not in classes(res) and any('вышел' in p['why'] and p['error'] for p in dl(res)), text
+    res, text, errs, _ = run([trial()], reg=V3, today=D(2026, 11, 27))                  # в сам день срока ещё можно решить: ошибка со следующего дня
+    assert errs == 0, text
+    res, text, errs, _ = run([trial(group='K', decide_by='2026-11-27', enable_if='≥ 2 из 3 исправлены')], reg=V3, today=D(2026, 11, 28))   # срок у правила — тоже
+    assert errs >= 1 and any('вышел' in p['why'] for p in dl(res)), text
     res, text, errs, _ = run([rule(state='retired', retired_reason='снято')], reg=V3, today=D(2027, 1, 1))   # у снятого срок не нужен
     assert errs == 0 and not res['problems'], text
+    res, text, errs, _ = run([rule(state='proposed')], reg=V3, today=D(2027, 1, 1))     # группа без trial-правил не краснеет (decide_by у неё не живой)
+    assert errs == 0, text
+
+
+MOVED = '27.11 директор: мерка группы — круг 29, он не гоняется до «10 столов без ошибок»; решить в чистке правил или снять'
+
+
+def moved_reg(g1, **kw):
+    reg = dict(V3, decide_by_max='2026-12-31', groups=dict(V3['groups'], G1=dict({'enable_if': 'рисунок прошёл у ≥ 4 из 11'}, **g1)))
+    reg.update(kw)
+    return reg
+
+
+def test_v3_one_move_with_reason_is_ok():
+    reg = moved_reg({'decide_by': '2026-12-01', 'decide_by_prev': '2026-11-27', 'decide_by_moved': MOVED})
+    res, text, errs, _ = run([trial()], reg=reg, today=D(2026, 11, 28))
+    assert errs == 0 and not dl(res), text
+
+
+def test_v3_move_without_reason_or_prev_is_error():
+    for g1, frag in (({'decide_by': '2026-12-01', 'decide_by_prev': '2026-11-27'}, 'без причины'),                       # prev без причины
+                     ({'decide_by': '2026-12-01', 'decide_by_prev': '2026-11-27', 'decide_by_moved': 'потом'}, 'без причины'),   # отписка
+                     ({'decide_by': '2026-12-01', 'decide_by_moved': MOVED}, 'нет decide_by_prev'),                       # причина без прежней даты
+                     ({'decide_by': '2026-12-01', 'decide_by_prev': 'вчера', 'decide_by_moved': MOVED}, 'не дата'),
+                     ({'decide_by': '2026-12-01', 'decide_by_prev': '2026-12-05', 'decide_by_moved': MOVED}, 'только вперёд'),
+                     ({'decide_by': '2026-12-01', 'decide_by_prev': '2026-11-27', 'decide_by_moved': [MOVED, MOVED]}, 'несколько записей')):
+        res, text, errs, _ = run([trial()], reg=moved_reg(g1), today=D(2026, 11, 25))
+        assert errs >= 1 and any(frag in p['why'] for p in dl(res)), (g1, text)
+
+
+def test_v3_move_beyond_decide_by_max_is_error():
+    reg = moved_reg({'decide_by': '2027-01-15', 'decide_by_prev': '2026-12-01', 'decide_by_moved': MOVED})
+    res, text, errs, _ = run([trial()], reg=reg, today=D(2026, 11, 28))
+    assert errs >= 1 and any('позже decide_by_max' in p['why'] for p in dl(res)), text
+
+
+def test_v3_second_move_against_base_is_error_first_move_needs_record():
+    first = {'decide_by': '2026-11-27'}                                                  # в базе срока ещё не двигали
+    once = {'decide_by': '2026-12-01', 'decide_by_prev': '2026-11-27', 'decide_by_moved': MOVED}
+    # первый перенос с записью — ок
+    res, text, errs, _ = run([trial()], reg=moved_reg(once), today=D(2026, 11, 28), base=moved_reg(first))
+    assert errs == 0, text
+    # первый перенос без записи (дату поменяли молча) — ошибка
+    res, text, errs, _ = run([trial()], reg=moved_reg({'decide_by': '2026-12-01'}), today=D(2026, 11, 28), base=moved_reg(first))
+    assert errs >= 1 and any('без записи' in p['why'] for p in dl(res)), text
+    # запись есть, но prev не равен прежнему сроку базы — ошибка
+    res, text, errs, _ = run([trial()], reg=moved_reg(dict(once, decide_by_prev='2026-11-20')), today=D(2026, 11, 28), base=moved_reg(first))
+    assert errs >= 1 and any('без записи' in p['why'] for p in dl(res)), text
+    # второй перенос: в базе уже есть decide_by_prev, срок снова позже — ошибка, хоть prev и moved «обновлены»
+    twice = {'decide_by': '2026-12-10', 'decide_by_prev': '2026-12-01', 'decide_by_moved': MOVED + ' (второй раз)'}
+    res, text, errs, _ = run([trial()], reg=moved_reg(twice), today=D(2026, 11, 28), base=moved_reg(once))
+    assert errs >= 1 and any('ВТОРОЙ перенос' in p['why'] for p in dl(res)), text
+    # срок не менялся (запись первого переноса уже в базе) — ок; сдвиг срока раньше — не перенос
+    res, text, errs, _ = run([trial()], reg=moved_reg(once), today=D(2026, 11, 28), base=moved_reg(once))
+    assert errs == 0, text
+    res, text, errs, _ = run([trial()], reg=moved_reg(dict(once, decide_by='2026-11-30')), today=D(2026, 11, 28), base=moved_reg(once))
+    assert errs == 0, text
+
+
+def test_v3_rule_level_move_is_checked_and_group_date_inherits():
+    reg = moved_reg({'decide_by': '2026-12-01', 'decide_by_prev': '2026-11-27', 'decide_by_moved': MOVED})
+    res, text, errs, _ = run([trial(decide_by='2026-12-01')], reg=reg, today=D(2026, 11, 28))                 # срок правила = сроку группы: перенос записан у группы
+    assert errs == 0, text
+    res, text, errs, _ = run([trial(decide_by='2026-12-05', decide_by_prev='2026-12-01')], reg=reg, today=D(2026, 11, 28))   # своя запись без причины
+    assert errs >= 1 and any('без причины' in p['why'] for p in dl(res)), text
+
+
+def test_audit_main_base_reads_git_and_flags_second_move():
+    """--base REF: прежняя версия реестра из git (CI: HEAD^1); не прочитана — заметка в отчёте, не молчание."""
+    import subprocess
+    far = {'decide_by_max': '2099-12-31'}                                         # даты в далёком будущем: тест не краснеет от «сегодня»
+    once = {'decide_by': '2099-12-01', 'decide_by_prev': '2099-11-27', 'decide_by_moved': MOVED}
+    twice = {'decide_by': '2099-12-10', 'decide_by_prev': '2099-12-01', 'decide_by_moved': MOVED + ' (второй раз)'}
+    d = world([trial()], reg=moved_reg(once, **far))
+    git = ['git', '-C', d, '-c', 'user.email=t@t', '-c', 'user.name=t']
+    subprocess.run(git + ['init', '-q'], check=True)
+    subprocess.run(git + ['add', 'reg.json'], check=True)
+    subprocess.run(git + ['commit', '-q', '-m', 'base'], check=True)
+    json.dump(dict(moved_reg(twice, **far), rules=[trial()]), open(os.path.join(d, 'reg.json'), 'w'), ensure_ascii=False)
+    base = ['--registry', os.path.join(d, 'reg.json'), '--root', d, '--passports', os.path.join(d, 'pass.json'), '--ci', os.path.join(d, 'ci.yml')]
+    assert RA.main(['--check', '--base', 'HEAD'] + base) == 1                     # сдвиг поверх уже записанного переноса
+    assert RA.main(['--check'] + base) == 0                                       # без базы по одному файлу второй перенос не виден (форма записи корректна)
+    assert RA.main(['--check', '--base', 'нет-такой-ссылки'] + base) == 0         # база не прочитана — не падаем, но в отчёте заметка
+    res = RA.audit(os.path.join(d, 'reg.json'), os.path.join(d, 'pass.json'), os.path.join(d, 'ci.yml'), d, today=D(2026, 11, 28))
+    assert any('база не задана' in n for n in res['notes'])
+    base_reg, note = RA.load_base_registry(d, 'нет-такой-ссылки', os.path.join(d, 'reg.json'))
+    assert base_reg is None and note
 
 
 def test_v3_rule_own_deadline_overrides_group_and_is_checked():
