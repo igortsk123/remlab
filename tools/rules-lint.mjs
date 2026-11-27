@@ -13,7 +13,13 @@
 //   RULES-INDEX      P нет в rules/INDEX.md или в .claude/rules/00-operating-index.md, лишние строки, статус в INDEX ≠ файлу
 //   RULES-BUDGET     постоянный слой (CLAUDE.md + .memory_bank/INDEX.md + .claude/rules/*.md без paths:) > лимита;
 //                    режим error|warn и дата включения ошибки — в конфиге; с MEMORY.md авто-памяти — отдельное предупреждение
-import { readFileSync, existsSync, readdirSync } from "node:fs";
+//   RULES-LIMIT      (T-20261127-175/6, Fable 27 § 2) действующих правил (active+trial) больше предела (limits.max_active, 20): новое не пропускаем,
+//                    пока одно не слито или не снято
+//   RULES-MANUAL     «вручную» (enforcement: только manual) без поля `counter:` — счётчик, который это ручное проверяет (имя, не заглушка; путь
+//                    в нём должен существовать); режим warn|error и дата включения ошибки — manual.mode / manual.error_from в конфиге
+//   RULES-VIOLATIONS журнал нарушений `.memory_bank/rules/violations.jsonl` ({id,date,what}; запись — `--add-violation P-NNN "что"`): id должен
+//                    быть правилом; «вручную» с ≥ manual.max_violations (2) нарушений — ошибка: автопроверка (enforcement ≠ manual) или слить/снять
+import { readFileSync, existsSync, readdirSync, appendFileSync } from "node:fs";
 import { join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { homedir } from "node:os";
@@ -28,6 +34,8 @@ const DEFAULT_CONFIG = {
     with_memory: { mode: "warn" },
     memory_md_candidates: [],
   },
+  limits: { max_active: 20, count_statuses: ["active", "trial"] },
+  manual: { mode: "error", max_violations: 2 },
 };
 const P_ID = /^P-\d{3}$/;
 // основание правила: TG-номер (допустимо «TG tamara 842»), номер ADR или `legacy:<источник>`
@@ -53,7 +61,74 @@ function loadConfig(root) {
   const f = join(root, ".memory_bank", "rules", "lint-config.json");
   if (!existsSync(f)) return { cfg: DEFAULT_CONFIG, note: "lint-config.json нет — значения по умолчанию" };
   const j = JSON.parse(read(f));
-  return { cfg: { ...DEFAULT_CONFIG, ...j, budget: { ...DEFAULT_CONFIG.budget, ...(j.budget || {}) } } };
+  return {
+    cfg: {
+      ...DEFAULT_CONFIG,
+      ...j,
+      budget: { ...DEFAULT_CONFIG.budget, ...(j.budget || {}) },
+      limits: { ...DEFAULT_CONFIG.limits, ...(j.limits || {}) },
+      manual: { ...DEFAULT_CONFIG.manual, ...(j.manual || {}) },
+    },
+  };
+}
+
+// «Вручную» без автоматики: все части enforcement (через ; , +) — manual. Смешанные («manual;script:…») автоматику имеют.
+export function isPureManual(enforcement) {
+  const parts = (enforcement || "").split(/[;,+]/).map((s) => s.trim()).filter(Boolean);
+  return parts.length > 0 && parts.every((p) => /^manual\b/i.test(p));
+}
+
+const COUNTER_PLACEHOLDER = /^(—|-|–|нет|none|n\/a|manual|вручную|tbd|todo)$/i;
+const PATH_TOKEN = /[\p{L}\p{N}_@.\/-]+\.(?:py|mjs|js|sh|json|jsonl|md|yml|yaml)(?![\p{L}\p{N}_])/gu;
+
+// Счётчик «вручную»: назван (не пусто, не заглушка) и — если ссылается на путь внутри репозитория — путь существует. Возвращает null или причину.
+export function counterProblem(counter, root) {
+  const c = (counter || "").trim();
+  if (!c) return "поле counter: пусто — назови счётчик, который проверяет это ручное правило";
+  if (c.length < 4 || COUNTER_PLACEHOLDER.test(c)) return `counter «${c}» — заглушка, назови счётчик (например «rules_guard: просрочено» или «violations.jsonl»)`;
+  for (const m of c.matchAll(PATH_TOKEN)) {
+    const p = m[0];
+    if (p.startsWith("~") || p.startsWith("/") || p.startsWith("http")) continue;
+    if (/^violations\.jsonl$/.test(p)) continue; // журнал нарушений — создаётся при первой записи
+    if (!existsSync(join(root, p)) && !existsSync(join(root, ".memory_bank", "rules", p))) return `counter ссылается на «${p}», а такого файла в репозитории нет`;
+  }
+  return null;
+}
+
+const VIOLATIONS_FILE = (root) => join(root, ".memory_bank", "rules", "violations.jsonl");
+
+// Журнал нарушений: [{id,date,what}], ошибки разбора — отдельно (строка журнала битая → ошибка линтера, а не молчаливый пропуск)
+export function readViolations(root) {
+  const f = VIOLATIONS_FILE(root);
+  const items = [];
+  const bad = [];
+  if (!existsSync(f)) return { items, bad };
+  read(f).split("\n").forEach((line, i) => {
+    if (!line.trim()) return;
+    try {
+      const o = JSON.parse(line);
+      if (!o || typeof o.id !== "string") throw new Error("нет id");
+      items.push(o);
+    } catch {
+      bad.push(i + 1);
+    }
+  });
+  return { items, bad };
+}
+
+// Записать нарушение правила: id должен быть действующим правилом. → {count, max, manual, over}
+export function addViolation(root, id, what, today) {
+  root = resolve(root);
+  const f = join(root, ".memory_bank", "rules", `${id}.md`);
+  if (!P_ID.test(id) || !existsSync(f)) throw new Error(`правила ${id} нет в .memory_bank/rules/`);
+  const fm = parseFrontmatter(read(f));
+  if (!["active", "trial"].includes(fm.rule_status || "")) throw new Error(`${id}: rule_status «${fm.rule_status}» — нарушение записывается только действующему правилу`);
+  if (!what || !what.trim()) throw new Error("нужно описание нарушения (что именно, где)");
+  appendFileSync(VIOLATIONS_FILE(root), JSON.stringify({ id, date: today || todayISO(), what: what.trim() }) + "\n");
+  const { cfg } = loadConfig(root);
+  const count = readViolations(root).items.filter((x) => x.id === id).length;
+  const manual = isPureManual(fm.enforcement);
+  return { count, max: cfg.manual.max_violations, manual, over: manual && count >= cfg.manual.max_violations };
 }
 
 // Постоянный слой в байтах: что уходит в каждую сессию без запроса.
@@ -197,6 +272,33 @@ export function lintRules(root, opts = {}) {
       warnings.push(`RULES-TRIAL ${r.file} — review_after ${f.review_after} истёк — пересмотреть правило`);
   }
 
+  // 3б) T-20261127-175/6 (Fable 27 § 2): предел числа действующих, счётчик у «вручную», журнал нарушений
+  {
+    const counted = rules.filter((r) => cfg.limits.count_statuses.includes(r.fm.rule_status || ""));
+    if (counted.length > cfg.limits.max_active)
+      errors.push(`RULES-LIMIT действующих правил (${cfg.limits.count_statuses.join("+")}) ${counted.length} > ${cfg.limits.max_active}: новое не пропускается, пока одно не слито или не снято`);
+    const mm = cfg.manual;
+    const manualAsError = mm.mode === "warn" && mm.error_from && today >= mm.error_from ? true : mm.mode !== "warn";
+    const viol = readViolations(root);
+    for (const n of viol.bad) errors.push(`RULES-VIOLATIONS violations.jsonl:${n} — строка не разбирается (нужен JSON {id,date,what})`);
+    const byRule = new Map();
+    for (const v of viol.items) {
+      if (!byId.has(v.id)) errors.push(`RULES-VIOLATIONS violations.jsonl — нарушение несуществующего правила ${v.id}`);
+      else byRule.set(v.id, (byRule.get(v.id) || 0) + 1);
+    }
+    for (const r of counted) {
+      if (!isPureManual(r.fm.enforcement)) continue;
+      const why = counterProblem(r.fm.counter, root);
+      if (why) {
+        const when = !manualAsError && mm.error_from ? ` — режим warn, станет ошибкой с ${mm.error_from}` : "";
+        (manualAsError ? errors : warnings).push(`RULES-MANUAL ${r.file} — «вручную» без счётчика: ${why}${when}`);
+      }
+      const nv = byRule.get(r.fm.id) || 0;
+      if (nv >= mm.max_violations)
+        errors.push(`RULES-VIOLATIONS ${r.file} — «вручную» нарушено ${nv} раз (предел ${mm.max_violations}): сделать автопроверку (enforcement ≠ manual, с ссылкой на код) или слить/снять правило`);
+    }
+  }
+
   // 4) supersedes / superseded_by
   const next = new Map(); // A → B: A заменено B
   const edge = (a, b) => {
@@ -313,8 +415,22 @@ const isMain = process.argv[1] && resolve(process.argv[1]) === fileURLToPath(imp
 if (isMain) {
   const args = process.argv.slice(2);
   const ti = args.indexOf("--today");
-  const positional = args.filter((a, i) => !a.startsWith("--") && !(i > 0 && args[i - 1] === "--today"));
+  const vi = args.indexOf("--add-violation"); // --add-violation P-NNN "что нарушено" → строка в violations.jsonl (T-175/6)
+  const positional = args.filter(
+    (a, i) => !a.startsWith("--") && !(i > 0 && args[i - 1] === "--today") && !(vi >= 0 && (i === vi + 1 || i === vi + 2))
+  );
   const root = resolve(positional[0] ?? process.cwd());
+  if (vi >= 0) {
+    try {
+      const r = addViolation(root, args[vi + 1] || "", args[vi + 2] || "", ti >= 0 ? args[ti + 1] : undefined);
+      console.log(`[rules-lint] записано: ${args[vi + 1]} — нарушений ${r.count}${r.manual ? ` из ${r.max} допустимых при «вручную»` : ""}`);
+      if (r.over) console.log(`[rules-lint] ⚠ предел достигнут: сделать автопроверку или слить/снять ${args[vi + 1]} (иначе --check упадёт)`);
+      process.exit(0);
+    } catch (e) {
+      console.log(`[rules-lint] ✗ ${e.message}`);
+      process.exit(2);
+    }
+  }
   const res = lintRules(root, { today: ti >= 0 ? args[ti + 1] : undefined });
   console.log(`[rules-lint] root=${root}`);
   if (res.skipped) {

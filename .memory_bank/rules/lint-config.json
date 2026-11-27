@@ -11,5 +11,16 @@
     "without_memory": { "mode": "warn", "error_from": "2026-11-27" },
     "with_memory": { "mode": "warn", "limit_kb": 20 },
     "memory_md_candidates": ["~/.claude/projects/-home-pakar-igor-remlab/memory/MEMORY.md"]
+  },
+  "limits": {
+    "_about": "T-20261127-175/6 (Fable 27 § 2): предел числа действующих правил работы — новое не пропускается, пока одно не слито или не снято. Считаются rule_status из count_statuses; сейчас 18 active.",
+    "max_active": 20,
+    "count_statuses": ["active", "trial"]
+  },
+  "manual": {
+    "_about": "T-20261127-175/6: правило «вручную» (enforcement только manual) обязано назвать счётчик (поле counter:), который это ручное проверяет; журнал нарушений .memory_bank/rules/violations.jsonl (запись: node tools/rules-lint.mjs --add-violation P-NNN \"что\"); нарушено max_violations раз при «вручную» — автопроверка или слить/снять. Счётчик — предупреждение до error_from (11 правил «вручную» получают counter: директором), потом ошибка; предел нарушений — ошибка сразу (журнал пуст).",
+    "mode": "warn",
+    "error_from": "2026-12-04",
+    "max_violations": 2
   }
 }
