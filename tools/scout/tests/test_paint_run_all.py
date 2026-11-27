@@ -256,7 +256,7 @@ with tempfile.TemporaryDirectory() as run:
     ok(len(pl) == 8 and acts['07'] == 'run' and acts['08'] == 'blocked' and acts['09'] == 'run' and acts['01-02'] == 'run', 'настоящий план строится без запуска: 07 подключён; 08 без каталога заблокирован, 09 идёт')
     c07 = [i for i in pl if i['stage'] == '07'][0]['steps'][0]['argv']
     sku_dir = os.path.join(run, 'k')
-    ok(c07[-5:] == ['run_stage', run, 'k', '--parts-npz', os.path.join(sku_dir, '03-parts', 'parts.npz')], 'этап 3 в плане идёт → этап 7 берёт его части явным --parts-npz (основной путь)')
+    ok(c07[-7:] == ['run_stage', run, 'k', '--photo', 'p.png', '--parts-npz', os.path.join(sku_dir, '03-parts', 'parts.npz')], 'этап 3 в плане идёт → этап 7 берёт его части явным --parts-npz (основной путь)')
 
 # 9. этап 7: части этапа 3 — основной путь, геометрия — запасной (только если 3 отказ/нет)
 def c07_of(run, sku='k'):

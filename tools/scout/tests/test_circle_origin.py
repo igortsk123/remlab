@@ -1,0 +1,324 @@
+"""Проверка входа перед кругом покраски — ПЯТЬ вещей — `circle_origin.py` + запись «вход равнозначен» `cutout_equiv.py` (T-20261127-175/10).
+Запуск: python3 tools/scout/tests/test_circle_origin.py   (нужны numpy, pillow, opencv — как в CI-job planner)"""
+import copy
+import json
+import os
+import shutil
+import sys
+
+HERE = os.path.dirname(os.path.abspath(__file__))
+sys.path.insert(0, os.path.join(HERE, '..'))
+sys.path.insert(0, os.path.join(HERE, '..', '..', 'assets'))
+import remlab_tmp  # noqa: E402
+remlab_tmp.use('test_circle_origin')
+import tempfile  # noqa: E402
+import numpy as np  # noqa: E402
+from PIL import Image  # noqa: E402
+import circle_origin as CO  # noqa: E402
+import cutout_equiv as CE  # noqa: E402
+import paint_run_all as RA  # noqa: E402
+
+FAIL = []
+
+
+def ok(cond, msg):
+    print(('  ok  ' if cond else '  FAIL ') + msg)
+    if not cond:
+        FAIL.append(msg)
+
+
+def put(path, obj):
+    os.makedirs(os.path.dirname(path), exist_ok=True)
+    with open(path, 'w', encoding='utf-8') as f:
+        json.dump(obj, f, ensure_ascii=False)
+
+
+def png(path, rects, canvas=(200, 200)):
+    """Вырезка RGBA: белый предмет-прямоугольники на прозрачном; rects — [(y0, y1, x0, x1)]."""
+    a = np.zeros(canvas + (4,), np.uint8)
+    for y0, y1, x0, x1 in rects:
+        a[y0:y1, x0:x1] = (200, 100, 50, 255)
+    os.makedirs(os.path.dirname(path), exist_ok=True)
+    Image.fromarray(a, 'RGBA').save(path)
+
+
+tmp = tempfile.mkdtemp(prefix='circle-origin-')
+RULES = CO.load_rules()
+R = copy.deepcopy(RULES)
+R['current'] = {'chain_version': 'c2', 'from': None}
+REC = {'sid': 'k1', 'name': 'Комод Тест', 'role': 'комод', 'params': {'width': 90}}
+GOOD = {'chain_version': 'c2', 'cutout_method': 'chain_shape', 'mask_source': 'birefnet-full@w1', 'code_version': 'abc1234', 'photo_sha256': 'f' * 64, 'date': '2026-11-27',
+        'generator': 'TRELLIS.2 out30-v3', 'stage': 'out30-v3'}
+n_case = [0]
+
+
+def mkform(**extra):
+    """Новая папка с формой и записью происхождения (GOOD + extra; значение None убирает поле) — случаи не мешают друг другу."""
+    n_case[0] += 1
+    d = os.path.join(tmp, 'c%d' % n_case[0])
+    os.makedirs(d)
+    f = os.path.join(d, 'k1-n1024.glb')
+    open(f, 'wb').write(b'glb')
+    rec = {k: v for k, v in {**GOOD, **extra}.items() if v is not None}
+    put(f[:-4] + '.origin.json', rec)
+    return f, d
+
+
+print('— 1. вырезка формы')
+f0 = os.path.join(tmp, 'x.glb')
+ok(CO.check_cutout(None, R)['status'] == CO.NA, 'формы нет (строится в прогоне) → не применимо, не отказ')
+ok(CO.check_cutout(os.path.join(tmp, 'нет.glb'), R)['status'] == CO.REFUSE, 'файла формы нет → отказ')
+open(f0, 'wb').write(b'glb')
+r = CO.check_cutout(f0, R)
+ok(r['status'] == CO.REFUSE and 'нет записи происхождения' in r['reason'] and 'равнозначен' in r['reason'], 'форма без записи → отказ с причиной (старый make_hd_inputs / черновик)')
+form, d = mkform()
+r = CO.check_cutout(form, R)
+ok(r['status'] == CO.OK and r['chain_version'] == 'c2' and 'вход актуален' in r['reason'], 'версия = актуальной → «вход актуален»')
+form, d = mkform(chain_version='c1')
+r = CO.check_cutout(form, R)
+ok(r['status'] == CO.REFUSE and 'c1' in r['reason'] and 'c2' in r['reason'] and 'chain_shape' in r['reason'], 'ОТРИЦАТЕЛЬНЫЙ КОНТРОЛЬ: форма старой вырезки → отказ, видно «c1», «c2», способ')
+form, d = mkform(photo_sha256=None, date=None)
+r = CO.check_cutout(form, R)
+ok(r['status'] == CO.REFUSE and 'photo_sha256' in r['reason'] and 'date' in r['reason'], 'не хватает полей → отказ с перечнем')
+form, d = mkform()
+put(form[:-4] + '.origin.json', {'cutout': {'chain_version': 'c2', 'method': 'chain_shape'}, 'mask': {'source': 'm'}, 'code': {'version': 'v'}, 'photo': {'sha256': 'a'}, 'created': 'x'})
+ok(CO.check_cutout(form, R)['status'] == CO.OK, 'вложенные имена-синонимы из rules (cutout.chain_version, mask.source …) читаются')
+form, d = mkform()
+os.remove(form[:-4] + '.origin.json')
+put(os.path.join(d, 'inputs.json'), {'origin': GOOD})
+ok(CO.check_cutout(form, R)['record'].endswith('inputs.json#origin'), 'запись в inputs.json#origin найдена')
+form, d = mkform()
+R2 = copy.deepcopy(R)
+R2['current'] = {'chain_version': None, 'from': 'tools/scout/salad/нет_такого.py:CHAIN_VERSION'}
+r = CO.check_cutout(form, R2)
+ok(r['status'] == CO.REFUSE and 'сверить нечем' in r['reason'], 'актуальная версия не определена → «сверить нечем», не «пропустить»')
+cv = os.path.join(tmp, 'cutout_chain.py')
+open(cv, 'w').write("CHAIN_VERSION = 'c2'\nOTHER = 1\n")
+R3 = copy.deepcopy(R)
+R3['current'] = {'chain_version': None, 'from': 'cutout_chain.py:CHAIN_VERSION'}
+ok(CO.current_chain_version(R3, tmp)[0] == 'c2' and CO.check_cutout(form, R3, tmp)['status'] == CO.OK, 'актуальная версия читается константой из файла (разбором, без импорта)')
+
+print('— 1б. «вход равнозначен» (запись пишет программа сравнения)')
+form, d = mkform(chain_version='c1')                       # форма старой вырезки …
+oldp, newp = os.path.join(d, 'old.rgba.png'), os.path.join(d, 'new.rgba.png')
+png(oldp, [(10, 150, 10, 170)])
+png(newp, [(11, 150, 10, 170)])                            # … новая отличается кромкой на 1 px
+rec = CE.build_record(oldp, newp, 'c2', photo=f0, old_chain='make_hd_inputs')
+ok(rec['equal'] and rec['numbers']['far_px'] == 0 and rec['numbers']['mismatch_pct'] < 1 and rec['code_version'] and rec['date'] and rec['old']['sha256'] and rec['new']['sha256'],
+   'сдвиг кромки на 1 px → «равнозначен: да»; в записи числа, хеши, версия кода, дата: ' + str(rec['numbers']))
+EQ = form[:-4] + '.equiv.json'
+put(EQ, rec)
+r = CO.check_cutout(form, R)
+ok(r['status'] == CO.OK and 'вход равнозначен' in r['reason'] and 'актуален' not in r['reason'].split('(не')[0] and r['how'] == 'равнозначен', 'старая версия + запись «равнозначен» → проходит, в отчёте «вход равнозначен», не «актуален»: ' + r['reason'][:90])
+# порог: тонкая деталь далеко от другой маски — мало площади, но расстояние ловит
+png(newp, [(10, 150, 10, 170), (160, 199, 100, 102)])      # проволока 2×40 px = 80 px (0,8 % площади, но > 30 px и далеко)
+rec2 = CE.build_record(oldp, newp, 'c2')
+ok(not rec2['equal'] and rec2['numbers']['far_px'] > 30 and rec2['numbers']['mismatch_pct'] < 1.5, 'потерянная/добавленная проволока → «равнозначен: нет» по расстоянию: far_px=%d' % rec2['numbers']['far_px'])
+put(EQ, rec2)
+r = CO.check_cutout(form, R)
+ok(r['status'] == CO.REFUSE and 'НЕ равнозначны' in r['reason'], 'запись «нет» → отказ')
+png(newp, [(10, 150, 10, 170), (10, 150, 170, 178)])       # 3×100 px — несовпадение 3 % > 1 %
+rec3 = CE.build_record(oldp, newp, 'c2')
+ok(not rec3['equal'] and rec3['numbers']['mismatch_pct'] > 1, 'несовпадение > 1 % площади → «нет» (второе условие)')
+# каждое из трёх условий порога ловит своё и ТОЛЬКО своё (иначе снятие одного не заметно)
+png(newp, [(10, 150, 10, 170), (160, 164, 100, 103)])      # 12 px далеко (≤ 30), но 0,054 % > 0,02 % площади; несовпадение мало
+t = CE.compare(oldp, newp)
+ok(not t['equal'] and t['numbers']['far_px'] <= 30 and t['numbers']['far_area_pct'] > 0.02 and t['numbers']['mismatch_pct'] < 1 and 'площади' in t['why'] and 'пикселей различия' not in t['why'], 'условие «≤ 0,02 %% площади» ловит своё: far_px=%d, %s %%' % (t['numbers']['far_px'], t['numbers']['far_area_pct']))
+big_old, big_new = os.path.join(d, 'big-old.png'), os.path.join(d, 'big-new.png')
+png(big_old, [(10, 700, 10, 590)], (800, 600))
+png(big_new, [(10, 700, 10, 590), (710, 750, 100, 101)], (800, 600))   # 40 px далеко (> 30), но 0,01 % ≤ 0,02 % площади
+t = CE.compare(big_old, big_new)
+ok(not t['equal'] and t['numbers']['far_px'] > 30 and t['numbers']['far_area_pct'] <= 0.02 and 'пикселей различия' in t['why'] and 'площади' not in t['why'], 'условие «≤ 30 px» ловит своё: far_px=%d, %s %%' % (t['numbers']['far_px'], t['numbers']['far_area_pct']))
+png(newp, [(10, 150, 10, 172)])                            # кромка шире на 2 px вдоль всего края: 1,25 % несовпадения, но ничего дальше 2 px
+t = CE.compare(oldp, newp)
+ok(not t['equal'] and t['numbers']['far_px'] == 0 and t['numbers']['mismatch_pct'] > 1 and 'несовпадение' in t['why'], 'условие «несовпадение ≤ 1 %%» ловит своё: far_px=0, %s %%' % t['numbers']['mismatch_pct'])
+png(newp, [(11, 150, 10, 170)])
+# подделки
+fake = dict(rec2, equal=True)
+put(EQ, fake)
+png(newp, [(10, 150, 10, 170), (160, 199, 100, 102)])
+fake['new']['sha256'] = CE.sha256_file(newp)
+put(EQ, fake)
+r = CO.check_cutout(form, R)
+ok(r['status'] == CO.REFUSE and 'не прошла проверку' in r['reason'] and 'вписана не программой' in r['reason'], 'ОТРИЦАТЕЛЬНЫЙ КОНТРОЛЬ: «equal: true» вписан рукой при плохих числах → отказ (итог пересчитывается)')
+png(newp, [(11, 150, 10, 170)])
+put(EQ, rec)
+png(newp, [(11, 150, 10, 170), (160, 199, 100, 102)])      # файл подменён уже ПОСЛЕ записи
+r = CO.check_cutout(form, R)
+ok(r['status'] == CO.REFUSE and 'хеш new не совпал' in r['reason'], 'ОТРИЦАТЕЛЬНЫЙ КОНТРОЛЬ: подделанный хеш (файл подменён после записи) → отказ')
+png(newp, [(11, 150, 10, 170)])
+forged = copy.deepcopy(rec)
+forged['old']['sha256'] = '0' * 64
+put(EQ, forged)
+ok('хеш old не совпал' in CO.check_cutout(form, R)['reason'], 'хеш в записи вписан рукой → отказ')
+os.remove(oldp)
+put(EQ, rec)
+ok('файла old нет' in CO.check_cutout(form, R)['reason'], 'файл вырезки пропал → отказ')
+png(oldp, [(10, 150, 10, 170)])
+# смена версии цепочки
+put(EQ, rec)
+R4 = copy.deepcopy(R)
+R4['current'] = {'chain_version': 'c3', 'from': None}
+r = CO.check_cutout(form, R4)
+ok(r['status'] == CO.REFUSE and 'устарела' in r['reason'] and 'пересчёт не удался' in r['reason'] and 'c2' in r['reason'] and 'c3' in r['reason'], 'ОТРИЦАТЕЛЬНЫЙ КОНТРОЛЬ: версия цепочки сменилась, команды пересчёта нет → отказ «запись устарела» (не пропускает)')
+gen = os.path.join(tmp, 'recut.py')
+open(gen, 'w').write("import shutil, sys\nshutil.copy(sys.argv[1], sys.argv[2])\n")
+equal_png, wire_png = os.path.join(tmp, 'recut-equal.png'), os.path.join(tmp, 'recut-wire.png')
+png(equal_png, [(10, 151, 10, 170)])
+png(wire_png, [(10, 150, 10, 170), (160, 199, 100, 102)])
+R5 = copy.deepcopy(R4)
+R5['equiv'] = dict(R5.get('equiv') or {}, recompute_cmd=[sys.executable, gen, equal_png, '{out}'])
+put(EQ, rec)
+r = CO.check_cutout(form, R5)
+now = json.load(open(EQ, encoding='utf-8'))
+ok(r['status'] == CO.OK and 'пересчитана сама' in r['reason'] and now['against_chain_version'] == 'c3' and now['new']['path'].endswith('.new-c3.png'), 'версия сменилась → сравнение пересчиталось само против c3, запись переписана, проходит: ' + r['reason'][-70:])
+R6 = copy.deepcopy(R4)
+R6['equiv'] = dict(R6.get('equiv') or {}, recompute_cmd=[sys.executable, gen, wire_png, '{out}'])
+put(EQ, rec)
+r = CO.check_cutout(form, R6)
+ok(r['status'] == CO.REFUSE and 'НЕ равнозначны' in r['reason'], 'пересчёт против новой версии не сошёлся (проволока) → отказ, форму строить заново')
+ok(CE.verify(json.load(open(EQ, encoding='utf-8')), 'c3')[0] == 'not_equal', 'и запись после пересчёта честно хранит «нет»')
+
+print('— 2. генератор и Ш0')
+form, d = mkform()
+put(os.path.join(d, 'form_checks.json'), {'status': 'pass', 'flags': []})
+r = CO.check_generator(form, 'k1', CO.form_facts(form, R), R)
+ok(r['status'] == CO.OK and 'TRELLIS' in r['reason'], 'TRELLIS.2 + Ш0 pass → ok')
+for bad_status in ('needs_review', 'shape_reject', 'camera_or_mask_uncertain'):
+    put(os.path.join(d, 'form_checks.json'), {'status': bad_status, 'flags': ['bottom_gap']})
+    r = CO.check_generator(form, 'k1', CO.form_facts(form, R), R)
+    ok(r['status'] == CO.REFUSE and bad_status in r['reason'] and 'bottom_gap' in r['reason'], 'Ш0 «%s» → отказ с флагами' % bad_status)
+put(os.path.join(d, 'k1', 'form_checks.json'), {'status': 'pass'})
+os.remove(os.path.join(d, 'form_checks.json'))
+ok(CO.check_generator(form, 'k1', CO.form_facts(form, R), R)['status'] == CO.OK, 'вердикт Ш0 в <папка>/<sku>/form_checks.json найден')
+shutil.rmtree(os.path.join(d, 'k1'))
+r = CO.check_generator(form, 'k1', CO.form_facts(form, R), R)
+ok(r['status'] == CO.REFUSE and 'вердикта Ш0 нет' in r['reason'], 'вердикта Ш0 нет → отказ (приёмка не пройдена)')
+form2, d2 = mkform(eye_accepted=True)
+ok(CO.check_generator(form2, 'k1', CO.form_facts(form2, R), R)['status'] == CO.OK, 'Ш0 принята глазом директора (eye_accepted в записи) → ok')
+form3, d3 = mkform(generator='Hunyuan3D-2.1')
+put(os.path.join(d3, 'form_checks.json'), {'status': 'pass'})
+r = CO.check_generator(form3, 'k1', CO.form_facts(form3, R), R)
+ok(r['status'] == CO.REFUSE and 'не разрешён' in r['reason'] and 'Hunyuan' in r['reason'], 'форма Hunyuan → отказ (ADR-0455, TG 2029)')
+form4, d4 = mkform(generator=None, stage=None)
+r = CO.check_generator(form4, 'k1', CO.form_facts(form4, R), R)
+ok(r['status'] == CO.REFUSE and 'generator' in r['reason'] and 'stage' in r['reason'], 'генератор и ступень не названы → отказ')
+ok(CO.check_generator(None, 'k1', None, R)['status'] == CO.NA, 'формы нет → не применимо')
+form5, d5 = mkform(chain_version='c1', generator=None, stage=None)
+put(form5[:-4] + '.equiv.json', dict(rec, form={'generator': 'trellis2', 'stage': 'out30-v3', 'eye_accepted': True}))
+r = CO.check_generator(form5, 'k1', CO.form_facts(form5, R), R)
+ok(r['status'] == CO.REFUSE and 'вердикта Ш0 нет' in r['reason'] and 'trellis2' in r['reason'],'ОТРИЦАТЕЛЬНЫЙ КОНТРОЛЬ: генератор/ступень берутся из блока form записи «равнозначен», а eye_accepted и Ш0 оттуда НЕ принимаются (рукой Ш0 не обойти) → отказ')
+
+print('— 3. камера 04')
+ok(CO.check_camera({'status': 'ok', 'reason': 'все пороги'})['status'] == CO.OK, 'check.json ok → ok')
+ok(CO.check_camera({'status': 'soft', 'reason': 'нижняя полоса'})['status'] == CO.OK, 'мягко прошла → ok')
+r = CO.check_camera({'status': 'refused', 'reason': 'силуэт IoU 0.4'})
+ok(r['status'] == CO.REFUSE and 'IoU' in r['reason'], 'камера отказана → отказ с причиной')
+ok(CO.check_camera({'status': 'missing', 'will_run': True})['status'] == CO.NA, 'ещё не считалась, этот прогон посчитает → не применимо')
+ok(CO.check_camera({'status': 'missing', 'will_run': False})['status'] == CO.REFUSE, 'не считалась и не будет → отказ')
+ok(CO.check_camera(None)['status'] == CO.NA, 'прогон не передан → не применимо')
+
+print('— 4. карточка и тип')
+ok(CO.check_card(None, None)['status'] == CO.REFUSE and 'no_type' in CO.check_card(None, None)['reason'], 'нет записи каталога → отказ (причина Avalon)')
+c = CO.check_card(REC, None)
+ok(c['status'] == CO.OK and c['card_sha'] and c['type'], 'запись есть, роль «комод» → тип «%s» → ok' % c.get('type'))
+ok(CO.check_card({'name': 'Х', 'role': '', 'params': {'w': 1}}, None)['status'] == CO.REFUSE, 'пустая роль → отказ «карточка пустая»')
+ok('пустая' in CO.check_card({'name': '', 'role': 'комод', 'params': {'w': 1}}, None)['reason'], 'пустое название → «карточка пустая»')
+ok('параметров' in CO.check_card({'name': 'Х', 'role': 'комод', 'params': {}}, None, R)['reason'], 'нет параметров → отказ')
+r = CO.check_card({'name': 'Х', 'role': 'стол', 'params': {'w': 1}}, None)
+ok(r['status'] == CO.REFUSE and 'тип' in r['reason'], 'роль без типа в паспортах («стол») → отказ')
+card = os.path.join(tmp, 'work', 'card.json')
+put(card, CO.flat_card(REC))
+ok(CO.check_card(REC, card)['status'] == CO.OK, 'card.json = текущая запись каталога → ok')
+put(card, dict(CO.flat_card(REC), width=70))
+c = CO.check_card(REC, card)
+ok(c['status'] == CO.REFUSE and 'width' in c['reason'], 'card.json старая (width другой) → отказ с именем поля')
+
+print('— 5. набор правил')
+lab = CO.rules_label('комод', R)
+p = CO.check_rules_set('комод', R)
+ok(p['status'] == CO.OK and lab['type'] and lab['id'] and p['label']['id'] == lab['id'], 'метка набора: тип «%s», id %s' % (lab['type'], lab['id']))
+ok(CO.check_rules_set('комод', R, {'id': 'другой'})['status'] == CO.REFUSE and 'новый прогон' in CO.check_rules_set('комод', R, {'id': 'другой'})['reason'], 'прежняя метка другая → отказ «продолжать нельзя»')
+ok(CO.check_rules_set('комод', R, {'id': lab['id']})['status'] == CO.OK, 'та же метка → ok')
+ok(CO.check_rules_set('комод', R, None, 'ожидаемая-другая')['status'] == CO.REFUSE, 'ожидаемая метка (замороженный набор) ≠ текущей → отказ')
+ok(CO.check_rules_set('комод', R, None, lab['id'])['status'] == CO.OK, 'ожидаемая = текущей → ok')
+_orig_set = CO.set_label
+CO.set_label = lambda root=CO.ROOT: 'метка-aaa'
+la = CO.rules_label('комод', R)
+CO.set_label = lambda root=CO.ROOT: 'метка-bbb'
+lb = CO.rules_label('комод', R)
+pb = CO.check_rules_set('комод', R, {'id': la['id']})
+CO.set_label = _orig_set
+ok(la['set'] == 'метка-aaa' and lb['set'] == 'метка-bbb' and la['id'] == lb['id'] and pb['status'] == CO.OK, 'метка №12 (rules_label.id) только пишется в журнал (set), в решение не входит: другая метка №12 — тот же id круга, отказа нет (менеджер 27.11: у неё дыра по env)')
+Rm = copy.deepcopy(R)
+Rm['profile_files'] = ['tools/scout/rules/нет-такого.json']
+ok(CO.check_rules_set('комод', Rm)['status'] == CO.REFUSE, 'файла правил нет → отказ')
+fake_root = os.path.join(tmp, 'root')
+os.makedirs(os.path.join(fake_root, 'tools', 'scout', 'rules'))
+for rel in R['profile_files']:
+    shutil.copy(os.path.join(CO.ROOT, rel), os.path.join(fake_root, rel))
+l1 = CO.rules_label('комод', R, fake_root)['id']
+with open(os.path.join(fake_root, R['profile_files'][0]), 'a', encoding='utf-8') as fh:
+    fh.write('\n')
+ok(CO.rules_label('комод', R, fake_root)['id'] != l1, 'правка файла правил меняет метку набора')
+
+print('— старт целиком и обход')
+form, d = mkform()
+put(os.path.join(d, 'form_checks.json'), {'status': 'pass'})
+CAM = {'status': 'ok', 'reason': 'ok'}
+res = CO.check_start('k1', form=form, record=REC, card=None, camera=CAM, rules=R)
+ok(res['ok'] and res['bypass'] is None and len(res['items']) == 5 and res['origin']['chain_version'] == 'c2' and res['origin']['rules_label']['id'] and res['origin']['generator'], 'всё чисто → ok, пять пунктов, origin для журнала заполнен')
+ok([i['item'] for i in res['items']] == ['вырезка формы', 'генератор и Ш0', 'камера 04', 'карточка и тип', 'набор правил'], 'пункты названы и пронумерованы как в плане Fable')
+txt = CO.render(res)
+ok('1.' in txt and '5.' in txt and 'можно начинать' in txt, 'вывод: пять строк с номерами')
+formo, do = mkform(chain_version='c1')
+put(os.path.join(do, 'form_checks.json'), {'status': 'pass'})
+res = CO.check_start('k1', form=formo, record=REC, camera=CAM, rules=R)
+ok(not res['ok'] and 'КРУГ НЕ СТАРТУЕТ' in CO.render(res) and 'старая' in CO.render(res), 'форма старой вырезки → круг не стартует')
+ok(not CO.check_start('k1', form=formo, record=REC, camera=CAM, rules=R, allow_old='')['ok'], 'обход с пустой причиной → всё равно отказ')
+ok(not CO.check_start('k1', form=formo, record=REC, camera=CAM, rules=R, allow_old='короткая')['ok'], 'обход с причиной короче 10 знаков → отказ')
+res = CO.check_start('k1', form=formo, record=REC, camera=CAM, rules=R, allow_old='разовая пачка 9 товаров T-172, решение директора')
+ok(res['ok'] and res['bypass']['items'] == ['вырезка формы'] and 'пачка' in res['bypass']['reason'], 'обход ключом с причиной → ok, обойдён «вырезка формы», причина в отчёте')
+ok('ОБХОД' in CO.render(res) and 'run_all.json' in CO.render(res), 'вывод называет обход и что он попадёт в run_all.json')
+res = CO.check_start('k1', form=formo, record=None, camera={'status': 'refused', 'reason': 'x'}, rules=R, allow_old='всё сразу, разово, решение директора')
+ok(res['ok'] and {'вырезка формы', 'камера 04', 'карточка и тип'} <= set(res['bypass']['items']), 'обход покрывает все отказавшие пункты и называет их')
+for k in ('вход равнозначен',):
+    put(formo[:-4] + '.equiv.json', rec)
+    png(oldp, [(10, 150, 10, 170)])
+    png(newp, [(11, 150, 10, 170)])
+    put(formo[:-4] + '.equiv.json', CE.build_record(oldp, newp, 'c2'))
+    res = CO.check_start('k1', form=formo, record=REC, camera=CAM, rules=R)
+    ok(res['ok'] and res['origin']['cutout_basis'] == 'равнозначен' and res['origin']['equiv']['far_px'] == 0 and 'вход равнозначен' in CO.render(res), 'форма старой вырезки + запись «равнозначен» → круг идёт, в журнале основание «равнозначен» и числа')
+
+print('— проводка в paint_run_all')
+cat = os.path.join(tmp, 'cat.json')
+put(cat, [REC])
+form, d = mkform()
+a = {'native': 'n.glb', 'photo': 'p.png', 'catalog': cat, 'prep_glb': form, 'root': tmp}
+run = os.path.join(tmp, 'run')
+o = RA.origin_start(run, 'k1', a, None)
+by = {i['item']: i for i in o['items']}
+ok(len(o['items']) == 5 and by['вырезка формы']['status'] == CO.REFUSE, 'с боевыми правилами без единого модуля вырезки готовая форма отказывается («сверить нечем»)')
+ok(by['камера 04']['status'] == CO.REFUSE and 'не пройдена' in by['камера 04']['reason'], 'готовая форма без --prep-run: этап 04 заблокирован, камеры нет и не будет → отказ')
+ok({i['item']: i for i in RA.origin_start(os.path.join(tmp, 'run0'), 'k1', dict(a, prep_glb=''), None)['items']}['камера 04']['status'] == CO.NA, 'форма строится в этом прогоне: камеру 04 посчитает он сам → не применимо')
+o = RA.origin_start(run, 'k1', a, 'разово, решение директора, проверка')
+ok(o['ok'] and o['bypass'], 'ключ --allow-old-origin пропускает и помечает обход')
+log = RA.execute(run, 'k1', dict(a, prep_glb=''), RA.load_rules(), RA.PC.load_rules(), ['01-02'], 5, origin=o)
+ok(log.get('origin', {}).get('bypass', {}).get('reason', '').startswith('разово'), 'обход попал в журнал прогона (log.origin.bypass.reason)')
+ok(log['origin'].get('rules_label', {}).get('id') == o['origin']['rules_label']['id'], 'метка набора правил записана в журнал прогона')
+o2 = RA.origin_start(run, 'k1', dict(a, prep_glb=''), None)
+ok(o2['items'][4]['status'] == CO.OK and 'прежней' in o2['items'][4]['reason'], 'повторный старт в том же прогоне: метка совпала с журнальной')
+o3 = RA.origin_start(run, 'k1', dict(a, prep_glb=''), None, expected_label='чужая-метка')
+ok(o3['items'][4]['status'] == CO.REFUSE, 'ключ --rules-label с чужой меткой → отказ набора правил')
+src = open(os.path.join(HERE, '..', 'paint_run_all.py'), encoding='utf-8').read()
+ok('--allow-old-origin' in src and '--rules-label' in src, 'в CLI paint_run_all есть ключи --allow-old-origin и --rules-label')
+rules_all = RA.load_rules()
+pl = RA.plan(os.path.join(tmp, 'run2'), 'k1', dict(a, prep_glb='', product_role='комод'), rules_all, RA.PC.load_rules())
+c07 = [i for i in pl if i['stage'] == '07'][0]['steps'][0]['argv']
+ok('--photo' in c07 and c07[c07.index('--photo') + 1] == 'p.png', 'сырое фото в шаге 07: --photo p.png стоит в команде')
+pl = RA.plan(os.path.join(tmp, 'run3'), 'k1', dict(a, photo='', prep_glb='', product_role='комод'), rules_all, RA.PC.load_rules())
+c07 = [i for i in pl if i['stage'] == '07'][0]['steps'][0]['argv']
+ok('--photo' not in c07, 'фото не задано → флага --photo в 07 нет (без пустого значения)')
+
+print('FAIL: %d' % len(FAIL) if FAIL else 'всё ок')
+sys.exit(1 if FAIL else 0)

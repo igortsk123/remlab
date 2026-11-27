@@ -40,6 +40,7 @@
   "tools/scout/rules/price-*.json": "цены и сегменты — каталог, не покраска и не конвейер меша",
   "tools/scout/rules/openai_prices.json": "прайс модели — данные",
   "tools/scout/rules/catalog-*.json": "каталог товаров — не покраска и не конвейер меша",
+  "tools/scout/rules/circle-origin.json": "T-175/10: формат записи происхождения формы и откуда брать актуальную версию цепочки — данные проверки старта круга; выключателей нет (отказ снимается только ключом --allow-old-origin с причиной в журнал)",
   "tools/scout/rules/capabilities.json": "возможности товаров (посадочные места и т.п.) — каталог",
   "tools/scout/rules/canon-facts.json": "канонические факты — данные",
   "tools/scout/rules/practice_priors.json": "априорные данные расстановки",

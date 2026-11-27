@@ -1,0 +1,47 @@
+{
+  "_about": "T-20261127-175/10: правила проверки входа перед кругом покраски — ПЯТЬ вещей (tools/scout/circle_origin.py; зовёт paint_run_all.py run). Формат записи происхождения ФОРМЫ определяет T-175/9 (шаг 2, рабочий 2: способ и версия цепочки вырезки, источник маски и версия весов, версия кода, хеш фото, дата) — ВРЕМЕННО здесь предположение; когда рабочий 2 опишет формат в OTCHET-9.md, подгоняем ЭТОТ файл (пути записи, имена полей, синонимы, генератор/ступень), код не меняется.",
+  "form": {
+    "record_paths": ["{stem}.origin.json", "{dir}/origin.json", "{dir}/inputs.json#origin"],
+    "_record_paths_why": "где искать запись происхождения готовой формы: рядом с файлом формы (<форма>.origin.json), в её папке (origin.json) либо ключ origin в inputs.json (`путь#ключ`). Первая найденная и непустая побеждает.",
+    "fields": {
+      "chain_version": ["chain_version", "cutout.chain_version", "cutout_chain_version"],
+      "cutout_method": ["cutout_method", "cutout.method", "method"],
+      "mask_source": ["mask_source", "mask.source", "mask_src"],
+      "weights_version": ["weights_version", "mask.weights_version", "weights"],
+      "code_version": ["code_version", "code.version", "code_sha", "git_sha"],
+      "photo_sha256": ["photo_sha256", "photo.sha256", "photo_hash"],
+      "date": ["date", "created", "created_utc"],
+      "generator": ["generator", "form.generator", "form_generator"],
+      "form_stage": ["stage", "form.stage", "form_stage", "ladder_stage"]
+    },
+    "required": ["chain_version", "mask_source", "code_version", "photo_sha256", "date"],
+    "_required_why": "пять полей Fable 29 § 3: способ/версия цепочки, источник маски, версия кода, хеш фото, дата. Нет любого — отказ (пункт 1). Генератор и ступень — пункт 2.",
+    "allowed_generators": ["trellis"],
+    "denied_generators": ["hunyuan"],
+    "_generators_why": "формы конвейера — TRELLIS.2 (ADR-0455, out30-v3 без плиты; владелец 23.11 TG 2029: модели Hunyuan в отработке конвейера не показывать). Совпадение по подстроке в нижнем регистре.",
+    "equiv_paths": ["{stem}.equiv.json", "{dir}/equiv.json"],
+    "_equiv_paths_why": "запись «вход равнозначен» (пишет программа tools/scout/cutout_equiv.py, не рука; вердикт Fable по cut9): форма проходит и при старой версии вырезки, если есть запись «равнозначен: да» против АКТУАЛЬНОЙ версии, хеши совпали с файлами, числа пересчитались так же. Блок form в записи — генератор/ступень/eye_accepted для пункта 2.",
+    "verdict_paths": ["{dir}/form_checks.json", "{dir}/{sku}/form_checks.json", "{stem}.form_checks.json"],
+    "_verdict_paths_why": "вердикт приёмки формы Ш0 (tools/scout/salad/render/form_checks.py пишет <кадры>/<sku>/form_checks.json: status pass | needs_review | camera_or_mask_uncertain | shape_reject). Либо вложен в запись происхождения (ключ form_checks).",
+    "accept_status": ["pass"],
+    "_accept_status_why": "Ш0 «пройдена» = status pass либо директор принял глазом (P-064): `eye_accepted: true` в записи происхождения. Остальное — отказ с флагами; обход ключом."
+  },
+  "equiv": {
+    "thresholds": {"far_px_max": 30, "far_area_pct_max": 0.02, "mismatch_pct_max": 1.0, "alpha_min": 127, "far_dist_px": 2},
+    "_thresholds_why": "Fable (proverka-t175-cut9 § 3), оба условия вместе: пикселей различия дальше 2 px от другой маски ≤ 30 И ≤ 0,02 % площади; несовпадение масок ≤ 1 %. Главное — расстояние, не доля: доля ловит кромку и не видит тонкую деталь (проволока, ножка). Цвет — только запись, на итог не влияет. Предварительные: перепроверить на 200 фото (шаг 9.6).",
+    "recompute_cmd": null,
+    "_recompute_cmd_why": "команда пересчёта при смене версии цепочки: список argv с {photo} (исходное фото из записи) и {out} (куда положить новую вырезку RGBA). null — единый модуль вырезки T-175/9 ещё не влит: устаревшая запись отказывает, а не пропускает. Когда модуль появится — прописать его вызов здесь."
+  },
+  "card": {
+    "required_fields": ["name", "role"],
+    "min_params": 1,
+    "_why": "пункт 4 плана Fable: карточка есть, непустая (название и роль, ≥ 1 параметра — размеры нужны зерну), роль даёт тип в паспорте (paint_policy)."
+  },
+  "current": {
+    "chain_version": null,
+    "from": "tools/scout/salad/cutout_chain.py:CHAIN_VERSION",
+    "_why": "актуальная версия цепочки вырезки: константа в едином модуле (T-175/9 шаг 1; НЕ ASSESSOR_VERSION — она ключ кэша оценки). Пока модуля нет — null/нет файла → сверить нечем → готовая форма отказывается (честный отказ, а не «не знаю → пропустить»). Явное значение сюда — только как временная мера по решению директора."
+  },
+  "profile_files": ["tools/scout/rules/rule-registry.json", "tools/scout/rules/mesh-type-passports.json"],
+  "_profile_files_why": "пункт 5: метка набора правил круга = sha этих файлов + тип роли + digest паспорта типа (`rules_label` в журнале прогона). Меняются — прогон, начатый по другому набору, продолжать нельзя (экзамен при замороженных правилах). Метку общую для всех отчётов этапов делает T-175/12 (рабочий 4) — тогда считать её тут же из его функции."
+}
