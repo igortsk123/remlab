@@ -364,19 +364,17 @@ def seam_stats(ti: np.ndarray, T: int, island: np.ndarray, tag: np.ndarray, d: n
     return {'boundary': round(max(bs), 3), 'interior': round(max(is_), 3), 'ratio': round(max(ratios), 2), 'pairs_boundary': nb}
 
 
-def sel_margin(ingrp: np.ndarray, er0: int, er: int) -> np.ndarray:
-    """Маска надёжных пикселей грани: у широкой грани (тумба) отступ er от края (полутень у свеса плиты и тени шире маски 05 → тёмная рваная бахрома); узкая деталь (кромка плиты 2–3 см, уже 2·er) отступом не съедается — у неё малый отступ er0."""
+def sel_margin(ingrp: np.ndarray, er0: int, er: int, wide: np.ndarray = None) -> np.ndarray:
+    """Маска надёжных пикселей грани: малый отступ er0 от края везде; у граней wide (корпус/тумба под свесом плиты) — большой отступ er от края САМОЙ ЭТОЙ грани (полутень свеса и тени шире маски 05 → тёмная рваная бахрома по верху задней и боковой стенки).
+    Кромка и верх плиты (другая группа) большим отступом не съедаются — у них штрих держится на краю. wide=None — большой отступ везде."""
     import cv2
     m = ingrp.astype(np.uint8)
     sel0 = cv2.erode(m, np.ones((2 * er0 + 1, 2 * er0 + 1), np.uint8)).astype(bool) if er0 > 0 else ingrp.astype(bool)
     if er <= er0:
         return sel0
-    dt = cv2.distanceTransform(m, cv2.DIST_L2, 5)                              # расстояние до края грани; толщина детали вокруг пикселя ≈ 2·max(dt) по окрестности
-    kk = np.ones((4 * er + 1, 4 * er + 1), np.uint8)
-    thick = cv2.dilate(dt, kk)
-    thin = thick < 1.5 * er                                                     # узкая деталь: полутолщина < 1.5·er (кромка плиты 2–3 см при er≈1,3 см)
-    core = cv2.erode(m, np.ones((2 * er + 1, 2 * er + 1), np.uint8)).astype(bool)      # квадратное ядро: рваная граница маски съедается надёжнее круга
-    return np.where(thin, sel0, core)
+    w = ingrp.astype(bool) if wide is None else (ingrp & wide)
+    core = cv2.erode(w.astype(np.uint8), np.ones((2 * er + 1, 2 * er + 1), np.uint8)).astype(bool)
+    return (sel0 & ~w) | core
 
 
 def photo_detail_step(tex_in, tone_tex, tx, g: dict, st: dict, Ld, valid, fgrp, names: list, ppc: float, rules: dict, rep: dict, face_n=None, ab_frame=None):
@@ -406,7 +404,7 @@ def photo_detail_step(tex_in, tone_tex, tx, g: dict, st: dict, Ld, valid, fgrp, 
         return tex_in, None
     er = max(int(pd['edge_px']), int(round(float(pd.get('edge_cm', 0.0)) * ppc)))                # край видимой грани отступаем на edge_cm: у свеса плиты полутень шире тени 05 — высокочастотный слой там даёт тёмную рваную бахрому по краю (виден на задней стенке под плитой)
     info['edge_px_used'] = er
-    sel = sel_margin(ingrp, int(pd['edge_px']), er)
+    sel = sel_margin(ingrp, int(pd['edge_px']), er, fgrp[ids] == len(names))                # большой отступ — группе «внутренность» (корпус/тумба, метка len(names) в Ш4а)
     coarse, fine = detail_bands(Ld, sel, ppc, pd)
     D = np.clip(float(pd['gain_coarse']) * coarse + float(pd['gain_fine']) * fine, -float(pd['clip_L']), float(pd['clip_L']))
     T = tx.T

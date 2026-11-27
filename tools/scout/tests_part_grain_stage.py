@@ -243,11 +243,13 @@ def main():
     check(ST.fibre_axis(Qs, xs_i, ys_i, np.zeros(len(Qs), bool), Ns_) is None, 'fibre_axis: нет текселей «в лоб» → None')
     src_ = open(os.path.join(os.path.dirname(os.path.abspath(__file__)), 'part_grain_stage.py'), encoding='utf-8').read()
     gm = np.zeros((200, 200), bool)
-    gm[20:180, 20:120] = True                                                  # широкая грань 100 px
-    gm[20:180, 130:150] = True                                                 # узкая деталь 20 px (кромка)
-    sm_ = ST.sel_margin(gm, 3, 12)
-    check(bool(sm_[100, 25:30].sum() == 0) and bool(sm_[100, 40]) and bool(sm_[100, 140]) and bool(sm_[100, 131 + 3 - 3 + 3] or sm_[100, 140]), 'sel_margin: у широкой грани отступ 12 px, узкая деталь (20 px) не съедена')
-    check(int(sm_[:, 125:155].sum()) > 0.6 * int(gm[:, 125:155].sum()) * 0.5, 'sel_margin: узкая деталь сохраняет заметную долю площади')
+    gm[20:180, 20:120] = True                                                  # широкая грань (корпус) 100 px
+    gm[20:180, 130:150] = True                                                 # кромка плиты 20 px (другая группа)
+    wide_ = np.zeros_like(gm)
+    wide_[:, :125] = True
+    sm_ = ST.sel_margin(gm, 3, 12, wide_)
+    check(bool(sm_[100, 20:32].sum() == 0) and bool(sm_[100, 40]) and bool(sm_[30, 60] == 0) and bool(sm_[100, 135]), 'sel_margin: у корпуса отступ 12 px от края, кромка плиты (другая группа) — только малый отступ')
+    check(int(sm_[:, 130:150].sum()) > 0.6 * int(gm[:, 130:150].sum()), 'sel_margin: кромка плиты сохраняет > 60 %% площади (%d из %d)' % (int(sm_[:, 130:150].sum()), int(gm[:, 130:150].sum())))
     check("sel_s[yim, xim]" in src_ and "sel_s[yiw, xiw]" in src_ and pdr.get('sel_smooth_px', 0) >= 3, 'зеркало и оборот берут рисунок из гладкой маски sel_s (медиана маски: гладкий край), не из рваной')
     import cv2 as _cv
     rg3 = np.random.default_rng(7)
