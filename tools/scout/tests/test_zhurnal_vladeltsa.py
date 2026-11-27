@@ -50,13 +50,14 @@ def main():
     ok(Z.cmd_schet(j, 0, None, T0) == 4 and Z.cmd_schet(j, 120, None, T0) == 2 and Z.cmd_schet(j, 500, None, T0) == 0, 'счёт: все / старше 2 ч (3612, 3615) / старше 500 мин')
 
     # закрытие: только с адресом
-    for bad in ('', 'готово', 'задача', 'P-12', 'ADR-1', 'просто так'):
+    # «разобрано» — только с пояснением (Fable 27, proverka-t175-4 § 2 п.2): одно слово / пустые знаки / «—» / слишком коротко — отказ
+    for bad in ('', 'готово', 'задача', 'P-12', 'ADR-1', 'просто так', 'разобрано', 'разобрано  ', 'разобрано —', 'разобрано: ок', 'разобрано да да да'):
         try:
             Z.check_adres(bad)
             ok(False, f'адрес «{bad}» должен отклоняться')
         except ValueError:
             ok(True, f'отрицательный контроль: адрес «{bad}» отклонён')
-    for good in ('задача T-20261127-175', 'задача T-20261127-175/4', 'P-069', 'ADR-0488', 'план rules-registry-01', 'разобрано', 'разобрано — вопрос без действия'):
+    for good in ('задача T-20261127-175', 'задача T-20261127-175/4', 'P-069', 'ADR-0488', 'план rules-registry-01', 'разобрано — вопрос без действия', 'разобрано благодарность, действия не требует'):
         try:
             Z.check_adres(good)
             ok(True, f'адрес «{good}» принят')
@@ -67,7 +68,10 @@ def main():
     rc, out = Z.cmd_zakryt(j, '3999', 'P-069')
     ok(rc == 2 and 'нет в журнале' in out and Z.cmd_schet(j, 0, None, T0) == 3, 'номера нет в журнале — отказ, ничего не закрыто')
     rc, out = Z.cmd_zakryt(j, '3613-3614', 'разобрано')
-    ok(rc == 0 and Z.cmd_schet(j, 0, None, T0) == 1, 'диапазон 3613-3614 закрыт')
+    ok(rc == 2 and 'пояснения' in out and Z.cmd_schet(j, 0, None, T0) == 3, '«разобрано» без пояснения — отказ, код 2, ничего не закрыто')
+    rc, out = Z.cmd_zakryt(j, '3613-3614', 'разобрано вопрос про сроки, действия нет')
+    ok(rc == 0 and Z.cmd_schet(j, 0, None, T0) == 1, 'диапазон 3613-3614 закрыт с пояснением')
+    ok({r['id']: r['adres'] for r in Z.fold(Z.read_events(j))}[3613] == 'разобрано вопрос про сроки, действия нет', 'пояснение сохранено в адресе закрытия')
     rc, out = Z.cmd_zakryt(j, '3612', 'ADR-0488')
     rows = {r['id']: r for r in Z.fold(Z.read_events(j))}
     ok(rc == 0 and rows[3612]['adres'] == 'ADR-0488', 'повторное закрытие перекрывает прежний адрес')
@@ -104,11 +108,11 @@ def main():
     msg(j3, 50, 10, bot='tg-tamara')
     msg(j3, 51, 10, bot='tg-remlab')
     ok(Z.cmd_schet(j3, 0, None, T0) == 3 and Z.cmd_schet(j3, 0, 'tg-tamara', T0) == 1, 'два бота: счёт по всем (3) и по одному (1)')
-    rc, out = Z.cmd_zakryt(j3, '50', 'разобрано')
+    rc, out = Z.cmd_zakryt(j3, "50", "разобрано без действий, тест")
     ok(rc == 2 and '--bot' in out and Z.cmd_schet(j3, 0, None, T0) == 3, 'номер у двух ботов — отказ, просит --bot, ничего не закрыто')
-    rc, out = Z.cmd_zakryt(j3, '51', 'разобрано')
+    rc, out = Z.cmd_zakryt(j3, "51", "разобрано без действий, тест")
     ok(rc == 0 and Z.cmd_schet(j3, 0, None, T0) == 2, 'номер только у одного бота — закрывается без --bot')
-    rc, out = Z.cmd_zakryt(j3, '50', 'разобрано', 'tg-tamara')
+    rc, out = Z.cmd_zakryt(j3, "50", "разобрано без действий, тест", "tg-tamara")
     ok(rc == 0 and Z.cmd_schet(j3, 0, 'tg-remlab', T0) == 1 and Z.cmd_schet(j3, 0, 'tg-tamara', T0) == 0, 'с --bot закрыт только этот бот, второй ждёт')
 
     # голосовое: расшифровка попадает в начало строки
@@ -135,11 +139,13 @@ def main():
     ok(r.returncode == 2, 'CLI: ручная запись без --bot — отказ')
     r = cli(j6, 'zakryt', '3700', 'нечто')
     ok(r.returncode == 2 and cli(j6, 'schet').stdout.strip() == '1', 'отрицательный контроль CLI: закрытие без допустимого адреса — код 2, строка ждёт')
+    r = cli(j6, 'zakryt', '3700', 'разобрано')
+    ok(r.returncode == 2 and 'пояснения' in r.stderr and cli(j6, 'schet').stdout.strip() == '1', 'отрицательный контроль CLI: «разобрано» без пояснения — код 2, строка ждёт (Fable 27 п.2)')
     r = cli(j6, 'zakryt', '3700', 'P-070', 'своё', 'пояснение')
     ok(r.returncode == 0 and cli(j6, 'schet').stdout.strip() == '0', 'CLI: закрытие с адресом и пояснением')
     r = cli(j6, 'proverit', '--proba')
     ok(r.returncode == 0 and json.loads(r.stdout) == [], 'CLI: proverit печатает JSON-список')
-    r = cli(j6, 'zakryt', '1', 'разобрано')
+    r = cli(j6, "zakryt", "1", "разобрано", "без", "действий,", "тест")
     ok(r.returncode == 2 and 'нет в журнале' in r.stderr + r.stdout, 'CLI: неизвестный номер — код 2')
     home = tempfile.mkdtemp(prefix='zhv-home-')
     env = {k: v for k, v in os.environ.items() if k not in ('OWNER_JOURNAL',)}
