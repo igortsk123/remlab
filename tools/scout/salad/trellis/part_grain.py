@@ -177,6 +177,12 @@ def plan_grain(parts: list, rules: dict | None = None) -> dict:
                 rec['reason'] = 'measure_flat'      # «узор» / «нет» / наследование / карточка-плита: библиотечное волокно не кладём, тон остаётся ровным
                 continue
         b, pat, pstd = load_pattern(p['tone_lab'], rules, p.get('classes'))
+        if p.get('pick'):                                            # T-99/12 шаг 2: образец по рисунку фото (rules.pattern_pick); нет ключа 'pick' — путь по тону без изменений
+            nm = p['pick']['bin']
+            v = _library(TP.load_rules())['items'][nm]
+            pat, pstd = pattern_of_bin(nm, v.get('grain_axis'))
+            b = {'bin': nm, 'dE00': round(float(TP._de(p['tone_lab'], v['lab'])), 1), 'tile_cm': v.get('tile_cm'), 'grain_axis': v.get('grain_axis')}
+            rec['pick'] = {k: p['pick'][k] for k in ('dist', 'source', 'from', 'passport', 'sample')}
         rec['bin'] = {k: b.get(k) for k in ('bin', 'dE00', 'tile_cm', 'grain_axis')}
         if pat is None:
             rec['reason'] = 'no_bin'

@@ -77,6 +77,37 @@ def group_photo_sigma(L_frame, valid, ids, cos_f, face_group, roles, face_ny, ru
     return out
 
 
+def pick_by_passport(d: str, parts: list, rules: dict, rep: dict, Lf, valid, st, fgrp, roles: list, face_ny, photo_shape, names: list) -> None:
+    """T-99/12 шаг 2: паспорт рисунка фото по группам (кадр 04, px/см кадра = px_per_cm фото из Ш4а × масштаб кадра; доля крупного — по фото без теней этапа 05, если оно есть) →
+    `part_grain_pick.pick` кладёт в каждую часть p['pick'] (образец по рисунку, один на материал); `plan_grain` берёт его вместо бина по тону. Нет px_per_cm/паспортов — ничего не кладёт (путь по тону), причина в следе."""
+    import part_grain_pick as PK
+    from PIL import Image
+    import tex_coverage as TC
+    import tex_visible as TV
+    pj = os.path.join(d, 'part_material.json')
+    ppc_photo = 0.0
+    if os.path.exists(pj):
+        with open(pj, encoding='utf-8') as fh:
+            ppc_photo = float(json.load(fh).get('px_per_cm') or 0.0)
+    if ppc_photo <= 0:
+        rep['pattern_pick'] = {'note': 'нет px_per_cm в part_material.json — образец по тону'}
+        return
+    px = int(st['px'])
+    ppc = ppc_photo * px / float(max(photo_shape[0], photo_shape[1]))
+    Ld = None
+    dp = os.path.join(d, '..', '05-delight', 'delight.rgba.png')
+    if os.path.exists(dp):
+        rgb, _ok = TV.photo_to_frame(np.asarray(Image.open(dp).convert('RGBA')), st['P'], px)
+        Ld = TC.rgb2lab(rgb.reshape(-1, 3)).reshape(px, px, 3)[..., 0]
+    pas = PK.group_passports(Lf, valid, st['ids'], st['cos'], fgrp, roles, face_ny, ppc, Ld)
+    pk = PK.pick(parts, pas, rules, ppc)
+    for p in parts:
+        if p['id'] in pk:
+            p['pick'] = pk[p['id']]
+    rep['pattern_pick'] = {'px_per_cm_frame': round(ppc, 2), 'no_shadow_photo': Ld is not None, 'passports': {names[g]: v for g, v in pas.items()},
+                           'picked': {str(p['id']): {k: v for k, v in pk[p['id']].items()} for p in parts if p['id'] in pk}}
+
+
 def strip_sigma(L, mask, blur_frac: float, erode_px: int, min_texels: int):
     """Разброс светлоты «в полосе рисунка»: σ(L − размытие) по текселям mask (эродированной): то, что Fable 14 называет «обычным разбросом в полосе» (мелкая полоса: волокно, не тон и не свет).
     blur_frac — σ размытия в долях стороны текстуры (15 px при 2048 → 0,0073). → σ или None (мало текселей)."""
@@ -275,6 +306,8 @@ def process(a, rules: dict, d: str, rep: dict) -> None:
     if not parts:
         raise Abstain('Ш4а не покрасил ни одной группы (painted_group пуст)')
     fp, pn = PG.planes_for(V, F)
+    if (rules.get('pattern_pick') or {}).get('enabled'):                    # T-99/12 шаг 2: образец библиотеки по РИСУНКУ фото, один на материал (выкл — строки не выполняются, выбор по тону как раньше)
+        pick_by_passport(d, parts, rules, rep, Lf, valid, st, fgrp, roles, n3[:, 1], np.asarray(ph).shape, names)
     if (rules.get('pattern_measure') or {}).get('enabled'):                  # T-20261125-93/3: мера «есть рисунок» / «узор» по фото ДО тона Ш4а (выкл — строка не выполняется)
         rep['pattern_measure'] = measure_parts(d, parts, z, V, F, fp, pn, rules)
         import part_grain_measure as PGM_

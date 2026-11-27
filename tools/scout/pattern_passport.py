@@ -6,7 +6,7 @@
 Четвёртым числом остаётся старая «сила» (σ мелкого рисунка; paint_t99 / part_grain.photo_hf_sigma) — не главное.
 Пороги (наша/фото) — rules/pattern-passport.json, стартовые (Fable 19: названы по двум товарам, проверить на 7–8 столах). ID товаров в коде нет.
 Считать только на гранях, которые фото видит в лоб (cos ≥ …), по фото без теней (этап 05, если есть) — иначе тень под столешницей сойдёт за «дугу».
-  pattern_passport.py measure <run> <photo.rgba.png> <glb> [--tag имя] [--json out.json] [--card-px-per-cm N]   фото против нашей текстуры в кадре камеры 04, по частям (верх плиты / кромка / тумба)
+  pattern_passport.py measure <run> <photo.rgba.png> <glb> [--tag имя] [--json out.json] [--card-px-per-cm N] [--delight фото_без_теней.png]   фото против нашей текстуры в кадре камеры 04, по частям (верх плиты / кромка / тумба)
 Модуль без побочных эффектов: чистые функции (passport / ratios / verdict) используют шаг 2 (выбор образца по рисунку) и отчёты."""
 from __future__ import annotations
 
@@ -151,7 +151,7 @@ def distance(a: dict, b: dict, R: dict) -> float:
 
 
 # ------------------------------------------------------------------ CLI: фото против нашей текстуры в кадре камеры 04 ----------------------------------
-def _measure(run: str, photo: str, glb: str, tag: str, ppc_photo: float | None):
+def _measure(run: str, photo: str, glb: str, tag: str, ppc_photo: float | None, delight: str | None = None):
     sys.path[:0] = [HERE, os.path.join(HERE, 'salad', 'trellis')]
     import tex_coverage as TC
     import tex_visible as TV
@@ -171,6 +171,11 @@ def _measure(run: str, photo: str, glb: str, tag: str, ppc_photo: float | None):
     Lp = TC.rgb2lab(prgb.reshape(-1, 3)).reshape(px, px, 3)[..., 0]
     ours = TV.frame_from_tex(st, geoms, [np.asarray(g['tex'])[..., :3].astype(np.uint8)])
     Lo = TC.rgb2lab(ours.reshape(-1, 3)).reshape(px, px, 3)[..., 0]
+    Ld = None
+    if delight:                                                       # фото без теней (этап 05): по нему — «доля крупного» (тень под столешницей иначе сойдёт за дугу)
+        dph = np.asarray(Image.open(delight).convert('RGBA'))
+        drgb, _ok = TV.photo_to_frame(dph, st['P'], st['px'])
+        Ld = TC.rgb2lab(drgb.reshape(-1, 3)).reshape(px, px, 3)[..., 0]
     ids = st['ids']
     fid = np.clip(ids, 0, len(F) - 1)
     valid = st['mask'] & okp & (ids >= 0)
@@ -193,6 +198,10 @@ def _measure(run: str, photo: str, glb: str, tag: str, ppc_photo: float | None):
         if pp is None:
             out[nm] = {'вывод': 'мало пикселей грани в лоб', 'пикселей': int(er0.sum())}
             continue
+        if Ld is not None:
+            pd_ = passport(Ld, m, ppc, pp['angle'], R)
+            if pd_ is not None:
+                pp = dict(pp, coarse=pd_['coarse'], coarse_with_shadows=pp['coarse'])
         po = passport(Lo, m, ppc, pp['angle'], R)                     # наша — вдоль того же угла волокна, что нашло фото
         rt = ratios(po, pp)
         out[nm] = {'фото': pp, 'наша': po, 'наша/фото': rt, 'вердикт': verdict(rt, R)}
@@ -204,7 +213,7 @@ def main(argv: list | None = None) -> int:
     if len(a) >= 4 and a[0] == 'measure':
         tag = a[a.index('--tag') + 1] if '--tag' in a else os.path.basename(a[3])
         ppc = float(a[a.index('--card-px-per-cm') + 1]) if '--card-px-per-cm' in a else None
-        res = _measure(a[1], a[2], a[3], tag, ppc)
+        res = _measure(a[1], a[2], a[3], tag, ppc, a[a.index('--delight') + 1] if '--delight' in a else None)
         if '--json' in a:
             with open(a[a.index('--json') + 1], 'w', encoding='utf-8') as f:
                 json.dump(res, f, ensure_ascii=False, indent=1)
