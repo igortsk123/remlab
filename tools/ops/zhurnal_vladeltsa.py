@@ -18,7 +18,7 @@
 
 КОМАНДЫ (`--bot` — только этот бот; без него — все боты файла):
   zhurnal-vladeltsa spisok [--vse]                  # ждущие разбора (--vse — и закрытые), время по Лондону, возраст
-  zhurnal-vladeltsa zakryt <№|№-№|№,№,…> <адрес>    # адрес: «задача T-ГГГГММДД-N», «P-NNN», «ADR-NNNN», «план <имя>» или «разобрано» (+ пояснение после пробела)
+  zhurnal-vladeltsa zakryt <№|№-№|№,№,…> <адрес>    # адрес: «задача T-ГГГГММДД-N», «P-NNN», «ADR-NNNN», «план <имя>» или «разобрано <почему не задача и не правило>» (пояснение ≥ 10 знаков ОБЯЗАТЕЛЬНО, иначе код 2)
   zhurnal-vladeltsa tekst <№> <расшифровка…>        # голосовому сообщению — текст (после stt), чтобы в списке было видно, о чём
   zhurnal-vladeltsa schet [--starshe-min N]         # одно число: ждущих разбора (только старше N минут: 120 — «сообщений без разбора дольше 2 ч», строка стража правил)
   zhurnal-vladeltsa proverit [--poroh-min 120] [--povtor-min 120] [--proba]   # JSON [{"bot","chat","text","ids"}] напоминаний; пишет `napom` (плагин шлёт и ничего не помнит)
@@ -46,6 +46,7 @@ POROH_MIN = 120      # ждёт разбора дольше — напомина
 POVTOR_MIN = 120     # повторное напоминание тому же чату — не чаще
 NACHALO = 80
 # адрес закрытия: куда ушло слово владельца
+RAZOBRANO_MIN = 10   # знаков пояснения после «разобрано» (как у «N/A: причина» в приёмке)
 ADRES_RE = re.compile(r'^(задача\s+T-\d{8}-\d+[\w./-]*|P-\d{3}|ADR-\d{4}|план\s+\S+|разобрано)(\s+.*)?$')
 
 
@@ -148,7 +149,12 @@ def parse_ids(spec: str) -> list[int]:
 def check_adres(a: str) -> str:
     a = ' '.join(a.split())
     if not ADRES_RE.match(a):
-        raise ValueError('адрес закрытия: «задача T-ГГГГММДД-N», «P-NNN», «ADR-NNNN», «план <имя>» или «разобрано» (после адреса можно пояснение)')
+        raise ValueError('адрес закрытия: «задача T-ГГГГММДД-N», «P-NNN», «ADR-NNNN», «план <имя>» или «разобрано <почему не задача и не правило>» (после остальных адресов пояснение необязательно)')
+    if a.startswith('разобрано'):                                  # «разобрано» одним словом — лазейка: всё закрывается без следа (Fable 27, proverka-t175-4 § 2 п.2)
+        why = re.sub(r'^[\s—–:;,.-]+', '', a[len('разобрано'):])
+        if len(why) < RAZOBRANO_MIN:
+            raise ValueError(f'«разобрано» требует пояснения — почему слово владельца не задача и не правило (не короче {RAZOBRANO_MIN} знаков): '
+                             'zhurnal-vladeltsa zakryt <№> разобрано <пояснение>')
     return a
 
 
@@ -167,7 +173,10 @@ def resolve_bot(events: list[dict], ids: list[int], bot: str | None) -> str:
 
 def cmd_zakryt(path: str, spec: str, adres: str, bot: str | None = None, kto: str = 'директор') -> tuple[int, str]:
     ids = parse_ids(spec)
-    adres = check_adres(adres)
+    try:
+        adres = check_adres(adres)                                 # плохой адрес / «разобрано» без пояснения — отказ (2), ничего не закрыто
+    except ValueError as e:
+        return 2, str(e)
     ev = read_events(path)
     try:
         bot = resolve_bot(ev, ids, bot)
@@ -237,7 +246,7 @@ def cmd_proverit(path: str, poroh_min: float = POROH_MIN, povtor_min: float = PO
             lines.append(f"• №{r['id']} {ts.astimezone(LONDON).strftime('%H:%M')} ({age_text((t - ts).total_seconds() / 60)}): {r['nachalo']}")
         if len(rs) > len(shown):
             lines.append(f'… и ещё {len(rs) - len(shown)}')
-        lines.append('Директор: закрыть — zhurnal-vladeltsa zakryt <№> <задача T-… | P-… | ADR-… | разобрано>')
+        lines.append('Директор: закрыть — zhurnal-vladeltsa zakryt <№> <задача T-… | P-… | ADR-… | разобрано <почему не задача и не правило>>')
         out.append({'bot': b, 'chat': chat, 'text': '\n'.join(lines), 'ids': [r['id'] for r in rs]})
         if zapisat:
             append(path, {'t': 'napom', 'bot': b, 'chat': chat, 'ts': t.isoformat(timespec='seconds'), 'ids': [r['id'] for r in rs]})
