@@ -40,7 +40,7 @@ class Rules(unittest.TestCase):
         self.assertEqual(sorted(RULES['block']), ['detached', 'glb_sane', 'open_edges'])          # block — только GLB-проверки с 0 ложных на 27 годных (T-184/7)
         for k in ('alpha_min', 'mask_erode', 'relief_graze', 'back_relief', 'back_dup_mask', 'flat_back_roles'):
             self.assertIn(k, R)
-        for k in ('min_extent', 'open_edge_share', 'detached_share', 'detached_piece_min', 'detached_gap', 'az_step', 'sil_points', 'holes_extra', 'leg_band', 'leg_fill', 'leg_min_w',
+        for k in ('min_extent', 'open_edge_share', 'detached_share', 'detached_piece_min', 'detached_gap', 'az_step', 'sil_points', 'holes_extra', 'holes_table_legs', 'holes_table_iou', 'leg_band', 'leg_fill', 'leg_min_w',
                   'back_dup_corr', 'bd_win', 'bd_sigma', 'bd_energy', 'relief_energy', 'sil_extra', 'sil_miss'):
             self.assertIn(k, R)
 
@@ -112,6 +112,49 @@ class Silhouette(unittest.TestCase):
         ch = FC.sil_checks(form, photo, R, 0.0)
         self.assertTrue(by(ch, 'holes')['flag'])
         self.assertFalse(by(FC.sil_checks(photo, photo, R, 0.0), 'holes')['flag'])
+
+    def table_form(self):
+        """Стол на 4 ножках с перекладинами: столешница сверху, 4 ножки, две перекладины → просветы между ножками (как у формы, ложно звонившей)."""
+        f = np.zeros((100, 100), bool)
+        f[:10] = True
+        for x in (0, 30, 60, 90):
+            f[10:, x:x + 10] = True
+        f[50:60] = True
+        f[75:85] = True
+        return f
+
+    def weak_photo(self):
+        p = np.zeros((100, 100), bool)
+        p[:30, 20:80] = True                                                      # фото со слабо похожим силуэтом (IoU формы < 0,5), у фото просветов нет
+        return p
+
+    def test_holes_table_on_legs_poor_iou_does_not_ring(self):
+        form = self.table_form()
+        self.assertEqual(FC.runs(FC.norm(form), R), 4)
+        h = by(FC.sil_checks(form, self.weak_photo(), R, 75.0), 'holes')
+        self.assertGreater(h['value'], R['holes_extra'])                         # значение пишется честно
+        self.assertFalse(h['flag'])
+        self.assertTrue(h.get('would_flag'))
+        self.assertIn('НЕ звонит', h['note'])
+
+    def test_holes_table_good_iou_still_rings(self):
+        form = self.table_form()
+        photo = np.ones((100, 100), bool)                                        # фото — сплошная плита во весь кадр: IoU с формой ≈ 0,58 ≥ порога, просветы формы — настоящая дыра
+        h = by(FC.sil_checks(form, photo, R, 0.0), 'holes')
+        self.assertGreater(h['value'], R['holes_extra'])
+        self.assertTrue(h['flag'])                                                # IoU ≥ порога → правило не включается
+        self.assertNotIn('would_flag', h)
+
+    def test_holes_real_hole_without_legs_still_rings(self):
+        form = np.ones((100, 100), bool)
+        form[10:90, 10:90] = False                                               # настоящая сквозная дыра, опор нет (рамка)
+        h = by(FC.sil_checks(form, self.weak_photo(), R, 0.0), 'holes')          # IoU низкий, но опор < 3 → правило не включается
+        self.assertTrue(h['flag'])
+        self.assertNotIn('would_flag', h)
+
+    def test_holes_table_rule_is_configurable(self):
+        off = dict(R, holes_table_legs=99)
+        self.assertTrue(by(FC.sil_checks(self.table_form(), self.weak_photo(), off, 75.0), 'holes')['flag'])
 
     def test_legs_runs(self):
         m = np.zeros((100, 100), bool)

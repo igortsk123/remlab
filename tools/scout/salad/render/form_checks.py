@@ -225,7 +225,17 @@ def sil_checks(front: np.ndarray, photo: np.ndarray, R: dict, az: float = 0.0) -
     out = [check('sil_extra~', extra, R['sil_extra'], fl and extra > R['sil_extra'], ctx), check('sil_miss~', miss, R['sil_miss'], fl and miss > R['sil_miss'], ctx)]
     ha = float((fill_holes(a) & ~a).sum()) / max(float(a.sum()), 1.0)                # сквозные просветы внутри силуэта
     hb = float((fill_holes(b) & ~b).sum()) / max(float(b.sum()), 1.0)
-    out.append(check('holes', ha - hb, R['holes_extra'], ha - hb > R['holes_extra'], f'просветов у формы {ha:.3f}, у фото {hb:.3f} (грубые сквозные дыры; приближение)'))
+    legs = runs(a, R)
+    raw = ha - hb > R['holes_extra']
+    table = raw and legs >= R['holes_table_legs'] and iou < R['holes_table_iou']      # стол/стул на ножках при неточном ракурсе: просветы между ножками и перекладинами ортогонально ≠ фото в 3/4
+    note = f'просветов у формы {ha:.3f}, у фото {hb:.3f} (грубые сквозные дыры; приближение)'
+    if table:
+        note += (f' — НЕ звонит: опор у формы {legs} (≥{R["holes_table_legs"]}) и силуэт с фото совпал слабо (IoU {iou:.3f} < {R["holes_table_iou"]}), '
+                 f'сравнение просветов тут ненадёжно (ложная тревога на форме стола на ножках, глаз директора 27.11)')
+    c = check('holes', ha - hb, R['holes_extra'], raw and not table, note)
+    if table:
+        c['would_flag'] = True                                                          # видно в записи, что без правила звонило бы
+    out.append(c)
     ra, rb = runs(a, R), runs(b, R)
     out.append(check('legs~', ra - rb, 0, fl and ra < rb, f'опор в нижней полосе: форма {ra}, фото {rb} (приближение)'))
     return out
