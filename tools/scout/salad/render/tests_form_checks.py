@@ -36,7 +36,7 @@ def by(checks, name):
 
 class Rules(unittest.TestCase):
     def test_block_list_and_complete(self):
-        self.assertFalse(RULES['observe'])
+        self.assertNotIn('observe', RULES)               # мёртвый ключ удалён (T-175/В-реестр): режим задаёт список `block`, а `observe` в записи = not block (form_checks.py:646)
         self.assertEqual(sorted(RULES['block']), ['detached', 'glb_sane', 'open_edges'])          # block — только GLB-проверки с 0 ложных на 27 годных (T-184/7)
         for k in ('alpha_min', 'mask_erode', 'relief_graze', 'back_relief', 'back_dup_mask', 'flat_back_roles'):
             self.assertIn(k, R)
