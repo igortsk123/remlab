@@ -43,3 +43,6 @@ tools/scout/rules/edge-sharpen.json
 tools/scout/rules/asset-strategies.json
 tools/scout/rules/mesh-type-passports.json
 tools/scout/rules/plate-strip.json
+tools/scout/rules_label.py
+tools/scout/rules/rules-label.json
+tools/scout/rules/paint-run-all.json
