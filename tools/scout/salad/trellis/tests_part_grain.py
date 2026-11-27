@@ -456,6 +456,27 @@ def main():
     q_on = PG.plan_grain([odd], dict(R, library_max_de00=12.0))
     check(q_off[3]['apply'] and (not q_on[3]['apply']), 'library_max_de00 меняет выход и у цветной детали (без порога — бин дерева на синюю часть, с порогом — ровный тон)')
 
+    # T-99/12 шаг 4: гнутая деталь — две плоскости ОДНОЙ детали с одинаковыми координатами; сдвиг плитки один → рисунок один (выкл — у плоскостей свои сдвиги)
+    check(R['detail_unity']['enabled'] is False, 'T-99/12: detail_unity выкл по умолчанию')
+    nx_, ny_ = 120, 60
+    Q3 = tx.Q.reshape(ny_, nx_, 3).copy()
+    Q3[:, 60:] = Q3[:, :60]
+    tx2 = types.SimpleNamespace(ti=tx.ti, Q=Q3.reshape(-1, 3), N=tx.N, f=np.where((np.arange(n) % nx_) >= 60, 1, 0).astype(np.int64))
+    mk2 = np.ones(n, bool)
+    fp2, pn2 = np.array([0, 1]), np.array([[0.0, 1.0, 0.0], [0.0, 1.0, 0.0]])
+
+    def lum_pairs(fpart, on):
+        rr = dict(R, detail_unity={'enabled': on})
+        o2, _r = PG.apply_grain(tex, tx2, [part(1)], {1: mk2}, fp2, pn2, 100.0, (1, 0, 0), rr, enabled=True, face_part=np.array(fpart))
+        L2 = TC.rgb2lab(o2.reshape(-1, 3)[tx2.ti])[:, 0].reshape(ny_, nx_)
+        return L2[:, :60], L2[:, 60:]
+    la, lb = lum_pairs([5, 5], False)
+    check(np.abs(la - lb).max() > 0.5, 'T-99/12: выкл — у плоскостей одной детали свои сдвиги плитки (рисунок разный)')
+    la, lb = lum_pairs([5, 5], True)
+    check(np.abs(la - lb).max() < 1e-6, 'T-99/12: вкл — плоскости одной детали с общим сдвигом дают один рисунок')
+    la, lb = lum_pairs([5, 6], True)
+    check(np.abs(la - lb).max() > 0.5, 'T-99/12: вкл — разные детали остаются с разными сдвигами')
+
     bad_n = sum(1 for x in OK if not x)
     print(f'\n{len(OK) - bad_n}/{len(OK)} ok')
     sys.exit(1 if bad_n else 0)

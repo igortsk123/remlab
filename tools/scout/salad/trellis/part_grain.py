@@ -606,6 +606,12 @@ def apply_grain(tex, tx, parts: list, masks: dict, face_plane, plane_normal, cm_
                             e1, e2, _r2 = plane_axes(q[mm], plane_normal[g], width_axis, dict(rules, round_ratio=pp_round))
                             u_cm[mm], s_cm[mm] = q[mm] @ e1, q[mm] @ e2
                 key = g + 1
+                if (rules.get('detail_unity') or {}).get('enabled') and face_part is not None:          # T-99/12 шаг 4: плоскости ОДНОЙ детали — один сдвиг/зеркало плитки (рисунок не рвётся на изгибе); выкл — ключ плоскости как раньше
+                    fpd = np.asarray(face_part)[tx.f[tgt]]
+                    fpd = fpd[fpd >= 0]
+                    if len(fpd):
+                        uu, cc = np.unique(fpd, return_counts=True)
+                        key = 2000 + int(uu[int(np.argmax(cc))])
                 n_pl_groups += 1
             elif (per_part or rules.get('fallback_axis_per_part')) and face_part is not None and g < 0:
                 # ось зерна — ось ДЕТАЛИ (главная ось ЕЁ текселей), а не всей группы: у ножек в разные стороны и у перекладин ось группы идёт вкось/поперёк (диагональная «ёлочка», T-63 р.5)

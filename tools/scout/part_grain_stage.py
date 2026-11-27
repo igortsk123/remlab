@@ -122,7 +122,7 @@ def strip_sigma(L, mask, blur_frac: float, erode_px: int, min_texels: int):
     return float(hf[me].std())
 
 
-def amp_from_strip(d: str, parts: list, tex_new, rules: dict, rep: dict, tx=None, fp=None, masks=None) -> dict:
+def amp_from_strip(d: str, parts: list, tex_new, rules: dict, rep: dict, tx=None, fp=None, masks=None, face_part=None) -> dict:
     """T-99/11 шаг 4 (Fable 14 п.3): размах волокна — по ФОТО, не по потолку библиотеки. По каждой применённой группе: σ полосы фото (известные тексели ∩ группа, фото-текстура ДО тона Ш4а)
     и σ полосы нашей новой текстуры (вся группа); k = clip(цель · σ_фото / σ_наша, 1, k_max) — множитель на размах группы (k ≤ 1 — не гасим: ослаблять — дело предохранителей зерна). → {id: k}."""
     import part_grain_measure as PGM
@@ -171,6 +171,25 @@ def amp_from_strip(d: str, parts: list, tex_new, rules: dict, rep: dict, tx=None
                 if sfp is not None and sop is not None and sop > 1e-6:
                     pk[int(g)] = kk(sfp, sop)
                     e['planes'][str(int(g))] = {'σ_фото': round(sfp, 3), 'σ_наша': round(sop, 3), 'k': round(pk[int(g)], 3)}
+        if (rules.get('detail_unity') or {}).get('enabled') and face_part is not None and planes_img is not None:     # T-99/12 шаг 4: ОДНО усиление на деталь (гнутая нога разбита на плоскости — разные k давали блоки): k по всем текселям детали, всем её плоскостям
+            part_img = np.full(T * T, -2, np.int64)
+            part_img[np.asarray(tx.ti)] = np.asarray(face_part)[np.asarray(tx.f)]
+            part_img = part_img.reshape(T, T)
+            e['details'] = {}
+            pk = {}
+            for u in np.unique(part_img[grp]):
+                if u < 0:
+                    continue
+                dm = grp & (part_img == u)
+                sfd, sod = strip_sigma(L_ph, dm & known, cfg['blur_frac'], cfg['erode_px'], cfg['min_texels']), strip_sigma(L_new, dm & known, cfg['blur_frac'], cfg['erode_px'], cfg['min_texels'])
+                if sfd is None or sod is None or sod <= 1e-6:
+                    continue
+                ku = kk(sfd, sod)
+                e['details'][str(int(u))] = {'σ_фото': round(sfd, 3), 'σ_наша': round(sod, 3), 'k': round(ku, 3)}
+                pls = planes_img[dm]
+                for g in np.unique(pls[pls >= 0]):                       # плоскость — детали, у которой в ней больше текселей (плоскость склеила несколько деталей — отдаём большей)
+                    if int(((part_img == u) & (planes_img == g) & grp).sum()) * 2 >= int(((planes_img == g) & grp).sum()) or int(g) not in pk:
+                        pk[int(g)] = ku
         if kpart > 1.0 + 1e-6 or any(v > 1.0 + 1e-6 for v in pk.values()):
             out[p['id']] = {'k': kpart, 'planes': pk}
         rep.setdefault('amp_strip', {})[str(p['name'])] = e
@@ -329,7 +348,7 @@ def process(a, rules: dict, d: str, rep: dict) -> None:
         face_part = fpz if len(fpz) == nF else None
     new, r = PG.apply_grain(tex, tx, parts, masks, fp, pn, cpu, width, rules, enabled=True, axis_ctx=axis_ctx, face_part=face_part)
     if (rules.get('amp_strip') or {}).get('enabled'):                     # T-99/11 шаг 4: размах по фото — второй проход с множителем на группу (выкл — строки не выполняются)
-        ks = amp_from_strip(d, parts, new, rules, rep, tx=tx, fp=fp, masks=masks)
+        ks = amp_from_strip(d, parts, new, rules, rep, tx=tx, fp=fp, masks=masks, face_part=face_part)
         if ks:
             plan2 = PG.plan_grain(parts, rules)
             for pid, kd in ks.items():
