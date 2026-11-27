@@ -264,6 +264,13 @@ def test_make_input_uses_one_module():
     ok(origin['pick'] == 'none', 'у комода шаг «главный предмет» не резал: pick=none')
     ok(CO.check(origin) == [] and origin['steps'] == sorted(CO.STEPS_ALL) and origin['pixels_sha256'] == CO.pixels_sha256(shape), 'запись актуальна, шаги — все, хеш вырезки = хеш shape')
     ok(info['chain']['version'] == CO.CHAIN_VERSION and cut.size[0] <= shape.size[0], 'отчёт несёт версию цепочки; обрезанная копия есть')
+    pphoto, pnet = scene([(40, 60, 130, 200), (170, 70, 270, 200)])          # пара равных стульев → в запись входа формы идёт «взят один из двух, левый»
+    pbuf = io.BytesIO()
+    pphoto.save(pbuf, 'PNG')
+    pshape, _, pinfo, porigin = CO1.make_input(pbuf.getvalue(), 'стул', net=pnet)
+    ok(pinfo.get('picked') == 'left_of_two' and porigin['pick'] == 'left_of_two' and CO.check(porigin) == [] and porigin['steps'] == ['main_object'],
+       f'пара стульев: в записи входа pick={porigin["pick"]!r} (взят один из двух, левый), запись актуальна')
+    ok(porigin['pixels_sha256'] == CO.pixels_sha256(pshape) and porigin['pixels_sha256'] != origin['pixels_sha256'], 'хеш вырезки записи — от вырезки с выбранным стулом')
 
 
 def test_make_inputs_script():
