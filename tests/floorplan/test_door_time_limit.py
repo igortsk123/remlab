@@ -60,6 +60,17 @@ def test_limit_file_has_value_and_why():
     assert fc.door_time_limit() == float(j['plan_cpu_sec_max'])
 
 
+def test_limit_file_records_recount_169_5():
+    """T-169/5: предел пересчитан по замеру на стенде (P95 × 2 = 1090, было 690); в _why — было → стало, замер и «следующий пересчёт»;
+    предел читается из файла, а не из кода (env FP_DOOR_SEC_MAX сильнее файла)."""
+    j = json.loads(Path(fc.DOOR_TIME_FILE).read_text(encoding='utf-8'))
+    assert float(j['plan_cpu_sec_max']) == 1090
+    why = j['_why']
+    for must in ('было 690 → стало 1090', 'P95', 'P99', 'kazan-11908767', 'Следующий пересчёт'):
+        assert must in why, must
+    assert fc.door_time_limit() == 1090.0
+
+
 def test_run_plan_arms_and_always_disarms(monkeypatch):
     seen = {}
 
