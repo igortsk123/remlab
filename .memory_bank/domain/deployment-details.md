@@ -283,6 +283,9 @@ Claude и тысячи `playwright_*`. При квоте запись падае
 - **Перед пушем** — `.git/hooks/pre-push` → ссылка на `tools/ops/prepush-check.sh` (`tools/ops/prepush_check.py`): карта «путь → команда»
   разбирается из `ci.yml` (команда касается файла, если запускает его или её исходник его упоминает/импортирует), окружение job + `CI=true`,
   `GITHUB_ACTIONS=true`, `RUNNER_TEMP`, потолок 120 с (не успел — не стоп, проверит CI), упало → пуш остановлен (обход `--no-verify`).
+  С 27.11 (d914b08a0, урок 1075) карта берёт и каждый pytest-тест любого job, изменённый или упоминающий изменённый файл; нечем
+  запустить pytest → стоп кодом 1 с причиной. Худший случай — `services/planner-solver/planner/models.py` (45 тестовых файлов, ~5 мин) —
+  «не успел N» досчитывать до push (п. 8 приёмки).
   pnpm/docker/playwright/pip/pytest локально не гоняет — их ловит только CI (e2e — урок 09.11). Хук — в `.git/hooks`, не в git: на новой
   копии поставить ссылкой.
 - **«Как в CI» руками:** python в CI — 3.12 (`ci.yml`, job planner/scout-orient/scout-selftest), на DEV системный 3.14 (там `file://?v=` и

@@ -11,6 +11,7 @@
 
   ~/venvs/scout/bin/python mesh_quarantine.py --apply [--limit N]   # замерить новые модели, вывести кривые
   ~/venvs/scout/bin/python mesh_quarantine.py --sync-grey [--dry]   # серая крышка: МЯГКИЙ карантин по всем мешам детектора + удержание болванок (ночью, после mesh_color_guard)
+  ~/venvs/scout/bin/python mesh_quarantine.py --manual <sku> --decision reject --reason "<текст>" [--dry]   # ручная строка по слову владельца
   ~/venvs/scout/bin/python mesh_quarantine.py --pull                # забрать решения владельца
   ~/venvs/scout/bin/python mesh_quarantine.py --page [--publish]    # страница разбора
   python3 mesh_quarantine.py --selftest
@@ -348,6 +349,7 @@ commit;""")
 
 REASON_TEXT = {'mask': 'фото товара — коллаж (надписи, вставки): проверьте, не попали ли они в модель', 'slab': 'под предметом «подложка» — кусок фона на полу',
                'proportion': 'сильно искажены пропорции (после растяжки под паспорт будет заметно)',
+               'manual': 'убрано вручную по слову владельца (причина — в комментарии строки)',
                'grey_top': 'верх (столешница) — пустой серый фон генерации, а не цвет товара: на странице и в кадре стол выходит с серой крышкой'}
 IMGDIR = os.path.expanduser('~/scout-scenes/mesh-quarantine-img')
 
@@ -452,6 +454,65 @@ def page(publish: bool) -> int:
     return 0
 
 
+MANUAL = 'manual'                       # причина ручной строки (решение владельца); не из `soft_reasons` → строка ЖЁСТКАЯ (`room_bindings.hard_sql`)
+MANUAL_DECISIONS = ('reject', 'cut')    # accept вручную не пишем: «принять» — кнопка страницы разбора
+
+
+def manual(sku: str, decision: str, reason: str, dry: bool = False, dbf=None) -> int:
+    """РУЧНАЯ строка карантина по решению владельца (T-20261127-175/brovis): модель товара `sku` — в брак/«порезать», без замера и страницы.
+    sku — только аргументом (в коде ID нет). glb_sha16 — текущая ревизия товара (`asset_revisions`, как у прочих строк). Пишет ОДНУ строку `mesh_quarantine`
+    (`reasons='manual'`, решение, причина в `comment`); `asset_revisions` и файлы моделей не трогает. Повтор не дублирует (первичный ключ sku+glb_sha),
+    то же решение уже стоит — «без изменений». Нет причины, нет ревизии, нет БД, строка не легла → код ≠ 0 и причина (не 0).
+    `dry` — читает базу, печатает SQL, не пишет. `dbf` — подмена базы (тесты)."""
+    if dbf is None:
+        from mesh_queue import db as dbf
+    from mesh_queue import q
+    sku, reason = (sku or '').strip(), (reason or '').strip()
+    if ':' not in sku or ' ' in sku:
+        print(f'ERR:--manual: sku «{sku}» не похож на «магазин:номер»', flush=True)
+        return 2
+    if decision not in MANUAL_DECISIONS:
+        print(f'ERR:--manual: --decision только {"/".join(MANUAL_DECISIONS)} (получено «{decision}»)', flush=True)
+        return 2
+    if not reason:
+        print('ERR:--manual: нужна причина (--reason "…") — без неё строку не пишу', flush=True)
+        return 2
+    try:
+        rev = dbf(f"select glb_sha, status from asset_revisions where sku = {q(sku)} and glb_sha is not null order by updated desc limit 1")
+        if not rev or len(rev[0]) < 2 or not rev[0][0]:
+            print(f'ERR:--manual: у {sku} нет ревизии с моделью (asset_revisions) — карантинить нечего', flush=True)
+            return 3
+        sha, status = rev[0][0][:16], rev[0][1]
+        prev = status if status in ('accepted', 'generated') else 'generated'
+        sql = (f"insert into mesh_quarantine (sku, glb_sha, prev_status, axis, threshold, reasons, metric_version, decision, comment, decided_at) "
+               f"values ({q(sku)}, {q(sha)}, {q(prev)}, 'manual', 0, '{MANUAL}', 2, {q(decision)}, {q(reason[:300])}, now()) "
+               f"on conflict (sku, glb_sha) do update set decision = excluded.decision, comment = excluded.comment, reasons = '{MANUAL}', decided_at = now() "
+               f"where mesh_quarantine.decision is null or mesh_quarantine.decision in {NON_DECISIONS};")
+        have = dbf(f"select coalesce(decision,'') from mesh_quarantine where sku = {q(sku)} and glb_sha = {q(sha)}")
+        now_txt = (have[0][0] or 'строка без решения') if have else 'строки нет'
+        print(f'manual: {sku} glb_sha16={sha} решение={decision}; сейчас в таблице: {now_txt}', flush=True)
+        if dry:
+            print('СУХО: ' + sql, flush=True)
+            return 0
+        if have and have[0][0] == decision:
+            print('manual: без изменений (такая строка уже есть)', flush=True)
+            return 0
+        dbf(sql)
+        got = dbf(f"select coalesce(decision,'') from mesh_quarantine where sku = {q(sku)} and glb_sha = {q(sha)}")
+        if not got or got[0][0] != decision:
+            print(f'ERR:--manual: строка не легла как «{decision}» (в таблице: {got[0][0] if got else "нет"}; другое решение владельца не перетираю)', flush=True)
+            return 5
+        print('manual: записано', flush=True)
+        return 0
+    except Exception as e:  # noqa: BLE001 — нет БД/таблицы: не «0», а причина
+        print(f'ERR:--manual: база не ответила ({type(e).__name__}: {str(e)[:160]})', flush=True)
+        return 4
+
+
+def _arg(a: list, name: str, default: str = '') -> str:
+    return a[a.index(name) + 1] if name in a and a.index(name) + 1 < len(a) else default
+
+
 def _selftest() -> int:
     import remlab_tmp  # временное селфтеста — на диске, не в /tmp (T-20261107-13)
     remlab_tmp.use('mesh_quarantine-selftest')
@@ -489,6 +550,8 @@ if __name__ == '__main__':
         sys.exit(_selftest())
     if '--apply' in a:
         sys.exit(apply(int(a[a.index('--limit') + 1]) if '--limit' in a else 0))
+    if '--manual' in a:
+        sys.exit(manual(_arg(a, '--manual'), _arg(a, '--decision'), _arg(a, '--reason'), dry='--dry' in a))
     if '--sync-grey' in a:
         sys.exit(sync_grey(dry='--dry' in a))
     if '--pull' in a:
