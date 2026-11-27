@@ -392,7 +392,7 @@ def origin_start(run: str, sku: str, a: dict, allow_old: str | None = None, rule
 
 def execute(run: str, sku: str, a: dict, rules: dict, check_rules: dict, only: list | None = None, timeout: int = 3600, origin: dict | None = None) -> dict:
     """Выполнить по порядку; перед каждым этапом гейт считается заново по ФАКТИЧЕСКИМ check.json (не по плану). `origin` — итог проверки происхождения (пишется в журнал `origin`)."""
-    log = {'sku': sku, 'run': run, 'stages': [], 'started': time.strftime('%Y-%m-%d %H:%M:%S')}
+    log = {'sku': sku, 'run': run, 'stages': [], 'started': time.strftime('%Y-%m-%d %H:%M:%S'), 'rules_label': PS._rules_label()}   # метка набора правил круга (T-175/12): та же запись, что в check.json этапов
     if origin:
         log['origin'] = {**origin['origin'], 'bypass': origin['bypass'], 'checked': time.strftime('%Y-%m-%d %H:%M:%S')}
     ctx = make_ctx(run, sku, a, rules)

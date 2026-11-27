@@ -35,7 +35,9 @@
   "data/flat3d/sides-eval.json"
  ],
  "skip_files": {
+  "tools/scout/rules/rules-label.json": "состав метки набора правил (T-175/12): список папок, исключений и переменных окружения, выключателей нет",
   "tools/scout/rules/*.schema.json": "схемы файлов, не выключатели",
+  "tools/scout/rules/rules-guard.json": "настройки стража правил (T-20261127-175/3): числа, сроки, пути — не выключатели покраски/конвейера",
   "tools/scout/rules/bank-*.json": "банк товаров и цены — каталог, не покраска и не конвейер меша",
   "tools/scout/rules/price-*.json": "цены и сегменты — каталог, не покраска и не конвейер меша",
   "tools/scout/rules/openai_prices.json": "прайс модели — данные",
