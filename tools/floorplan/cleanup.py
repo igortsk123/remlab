@@ -58,9 +58,24 @@ def _fold90(a):
     return (np.asarray(a, np.float64) + 45.0) % 90.0 - 45.0
 
 
-def main_angle(gray):
+DESKEW_THICK = 0.003     # штрих толще этой доли длинной стороны (на рабочем размере ≈ 4 px) — «толстый» (стена): тонкие линии, цифры, штриховка не считаются (Fable otvet-36, круг 6)
+
+
+def thick_ink(gray):
+    """оставляет только толстые длинные штрихи (стены): чернила по Оцу → открытие эллипсом толщиной DESKEW_THICK → тёмное на белом.
+    Тонкие линейки, размерные линии, текст и штриховка тоньше ядра и исчезают."""
+    _, t = cv2.threshold(gray, 0, 255, cv2.THRESH_BINARY_INV + cv2.THRESH_OTSU)
+    k = max(3, int(round(DESKEW_THICK * max(gray.shape))))
+    op = cv2.morphologyEx(t, cv2.MORPH_OPEN, cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (k, k)))
+    return 255 - op
+
+
+def main_angle(gray, thick=True):
     """→ (θ | None, info). θ — главный угол линий листа по модулю 90°, градусы −45…45; «+» — линии идут вниз вправо (по часовой в картинке, y вниз).
-    Гистограмма длины линий, шаг 0,5°, окно ±1°, потом уточнение средним по длине в окне ±1,5°. Нет линий / нет главного угла — None с причиной."""
+    Линии — длинные ТОЛСТЫЕ штрихи (`thick_ink`; thick=False — все линии, как было до otvet-36). Гистограмма длины линий, шаг 0,5°, окно ±1°, потом уточнение
+    средним по длине в окне ±1,5°. Нет линий / нет главного угла — None с причиной."""
+    if thick:
+        gray = thick_ink(gray)
     segs = _segments(gray)
     info = {'segs': int(len(segs))}
     if len(segs) < DESKEW_MIN_SEGS:

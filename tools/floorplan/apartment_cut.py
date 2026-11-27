@@ -334,7 +334,7 @@ def source_point(steps, x, y):
         if st["op"] == "crop":
             k = st.get("scale", 1.0)
             p = np.array([p[0] / k + st["box"][0], p[1] / k + st["box"][1], 1.0])
-        elif st["op"] in ("rectify", "deskew"):
+        elif st["op"] in ("rectify", "deskew", "quarter"):
             q = np.linalg.inv(np.array(st["H"], np.float64)) @ p
             p = q / q[2]
     return float(p[0]), float(p[1])
