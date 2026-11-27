@@ -3,12 +3,12 @@
 // Временный git-репозиторий + стенограмма-заглушка (JSONL с tool_use Edit/Write) + страж-заглушка (скрипт печатает строку).
 import { test, after } from "node:test";
 import assert from "node:assert/strict";
-import { mkdtempSync, mkdirSync, writeFileSync, readFileSync, rmSync } from "node:fs";
+import { mkdtempSync, mkdirSync, writeFileSync, readFileSync, rmSync, openSync, ftruncateSync, closeSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
 import { spawnSync } from "node:child_process";
-import { ownEditedPaths, onlyOwn, parseStrazh, strazhVerdict, dropForeignProblems, porcelainPath, defaultStrazhCmd, runStrazh, strazhAnswer, mentions } from "../tools/stop-gate-own.mjs";
+import { ownEditedPaths, readOwnEdits, onlyOwn, parseStrazh, strazhVerdict, dropForeignProblems, porcelainPath, defaultStrazhCmd, runStrazh, strazhAnswer, mentions } from "../tools/stop-gate-own.mjs";
 
 const REPO = join(dirname(fileURLToPath(import.meta.url)), "..");
 const TMP_BASE = process.env.REMLAB_TMP || tmpdir();
@@ -56,6 +56,130 @@ test("ownEditedPaths: пути Edit/Write относительно корня, �
   assert.deepEqual([...own].sort(), ["mine.txt", "sub/a.md"]);
   assert.equal(ownEditedPaths(join(root, "нет.jsonl"), root), null);
   assert.equal(ownEditedPaths(undefined, root), null);
+});
+
+// ── п.7–9 (T-175 срочно 27.11): длинная стенограмма читается кусками; «не читается» ≠ «правок нет» ──
+function mixedTranscript(root, files, { filler = 40, tailNoNewline = false } = {}) {
+  // между правками — строки-«шум» разной длины (с кириллицей: многобайтные знаки режутся границами кусков) и строка без tool_use
+  const p = join(root, "..", `trl-${Math.random().toString(36).slice(2)}.jsonl`);
+  const lines = [];
+  files.forEach((f, i) => {
+    for (let k = 0; k < filler; k++) lines.push(JSON.stringify({ message: { content: [{ type: "text", text: "шум ".repeat(1 + ((i * 7 + k) % 9)) }] } }));
+    lines.push(JSON.stringify({ message: { content: [{ type: "tool_use", name: "Edit", input: { file_path: join(root, f) } }] } }));
+  });
+  writeFileSync(p, lines.join("\n") + (tailNoNewline ? "" : "\n"));
+  MADE.push(p);
+  return p;
+}
+
+test("п.7 читает кусками: на пределе куска 7 / 64 / 1000 байт и без «\\n» в конце — те же правки, что при большом куске (границы режут строки и кириллицу)", () => {
+  const { root } = mk();
+  const files = ["mine.txt", "sub/ёж.md", ".memory_bank/rules/P-070.md", "a/б/в.txt"];
+  for (const tailNoNewline of [false, true]) {
+    const tr = mixedTranscript(root, files, { tailNoNewline });
+    const base = readOwnEdits(tr, root);
+    assert.deepEqual([...base.own].sort(), [...files].sort());
+    for (const chunk of [7, 64, 1000]) {
+      const r = readOwnEdits(tr, root, { chunk });
+      assert.deepEqual([...r.own].sort(), [...base.own].sort(), `chunk=${chunk} tail=${tailNoNewline}`);
+      assert.equal(r.skipped, 0);
+      assert.equal(r.bytes, readFileSync(tr).length, "прочитан весь файл");
+    }
+  }
+});
+
+test("п.7 строка длиннее предела пропускается с учётом (skipped), не роняет и не мешает остальным", () => {
+  const { root } = mk();
+  const p = join(root, "..", `trlong-${Math.random().toString(36).slice(2)}.jsonl`);
+  const ok = (f) => JSON.stringify({ message: { content: [{ type: "tool_use", name: "Edit", input: { file_path: join(root, f) } }] } });
+  const big = JSON.stringify({ message: { content: [{ type: "text", text: "я".repeat(5000) }] } });
+  const bigEdit = JSON.stringify({ message: { content: [{ type: "tool_use", name: "Write", input: { file_path: join(root, "huge.txt"), content: "x".repeat(5000) } }] } });
+  writeFileSync(p, [ok("before.txt"), big, bigEdit, ok("after.txt")].join("\n") + "\n" + big); // и последняя строка без «\n» — тоже длинная
+  MADE.push(p);
+  for (const chunk of [64, 4096, 1 << 20]) {
+    const r = readOwnEdits(p, root, { chunk, maxLine: 1000 });
+    assert.deepEqual([...r.own].sort(), ["after.txt", "before.txt"], `chunk=${chunk}`);
+    assert.equal(r.skipped, 3, `chunk=${chunk}: big, bigEdit и хвост пропущены с учётом`);
+  }
+});
+
+test("п.7 файл > 512 МБ (предел строки V8): старый readFileSync падает ERR_STRING_TOO_LONG, новое чтение — нет и находит правки до него", () => {
+  const { root } = mk();
+  const p = join(root, "..", `trbig-${Math.random().toString(36).slice(2)}.jsonl`);
+  writeFileSync(p, JSON.stringify({ message: { content: [{ type: "tool_use", name: "Edit", input: { file_path: join(root, "mine.txt") } }] } }) + "\n");
+  const fd = openSync(p, "a");
+  ftruncateSync(fd, 600 * 1024 * 1024); // 600 МБ нулей (разреженный файл, диск почти не занимает): одна гигантская «строка» без «\n»
+  closeSync(fd);
+  MADE.push(p);
+  assert.throws(() => readFileSync(p, "utf8"), (e) => e.code === "ERR_STRING_TOO_LONG", "контроль: так читал старый код");
+  const r = readOwnEdits(p, root);
+  assert.deepEqual([...r.own], ["mine.txt"]);
+  assert.equal(r.skipped, 1, "гигантский хвост пропущен с учётом");
+});
+
+test("п.8 не читается (каталог вместо файла / файла нет / путь не передан) → own=null И причина, не «правок нет»", () => {
+  const { root } = mk();
+  const dir = join(root, "ката-лог");
+  mkdirSync(dir);
+  for (const [tr, re] of [[dir, /EISDIR/], [join(root, "нет.jsonl"), /файла стенограммы нет/], [undefined, /не получил путь/]]) {
+    const r = readOwnEdits(tr, root);
+    assert.equal(r.own, null);
+    assert.match(r.why, re);
+  }
+});
+
+test("п.8 гейт: стенограмма не читается → директору БЛОК «стенограмма не читается: причина» (--strazh при файлах правил, --own-edits при несохранённом); остальным — предупреждение, без блока", () => {
+  const dir = (root) => {
+    const d = join(root, "ката-лог");
+    mkdirSync(d, { recursive: true });
+    return d;
+  };
+  { // --strazh: несохранённый файл правил, стенограмма — каталог
+    const { root, cmd } = rulesRepo(GREEN);
+    const r = hook(root, dir(root), DIRECTOR, ["--strazh", "--strazh-cmd", cmd, "--own-edits"]);
+    const d = JSON.parse(r.stdout);
+    assert.equal(d.decision, "block", r.stdout + r.stderr);
+    assert.match(d.reason, /стенограмма не читается: EISDIR/);
+    assert.ok(d.reason.includes("tools/"), d.reason); // git status сворачивает неотслеживаемый каталог: «tools/» может держать файлы правил
+    // не директор / менеджер: без блока, но с предупреждением в stderr
+    for (const env of [{}, { REMLAB_ROLE: "менеджер" }]) {
+      const o = hook(root, dir(root), env, ["--strazh", "--strazh-cmd", cmd, "--own-edits"]);
+      assert.equal(o.stdout.trim(), "", JSON.stringify(env) + o.stdout);
+      assert.match(o.stderr, /стенограмма не читается: EISDIR/);
+    }
+    // только --strazh: решает ОДНО — есть ли несохранённые файлы правил; `?? tools/` (git сворачивает каталог) — возможный файл правил, блок
+    const s = JSON.parse(hook(root, dir(root), DIRECTOR, ["--strazh", "--strazh-cmd", cmd]).stdout);
+    assert.match(s.reason, /стенограмма не читается: EISDIR/);
+    // файла стенограммы нет — тоже блок у директора
+    const m = JSON.parse(hook(root, join(root, "нет.jsonl"), DIRECTOR, ["--strazh", "--strazh-cmd", cmd, "--own-edits"]).stdout);
+    assert.match(m.reason, /файла стенограммы нет/);
+    // путь не передан хуку вовсе
+    const n = JSON.parse(hook(root, undefined, DIRECTOR, ["--strazh", "--strazh-cmd", cmd, "--own-edits"]).stdout);
+    assert.match(n.reason, /не получил путь к стенограмме/);
+  }
+  { // нечего проверять (всё закоммичено) — не блокируем, как раньше
+    const { root, cmd } = rulesRepo(GREEN);
+    spawnSync("git", ["add", "-A"], { cwd: root });
+    spawnSync("git", ["-c", "user.name=t", "-c", "user.email=t@t", "commit", "-qm", "x"], { cwd: root });
+    const r = hook(root, dir(root), DIRECTOR, ["--strazh", "--strazh-cmd", cmd, "--own-edits"]);
+    assert.equal(r.stdout.trim(), "", r.stdout);
+  }
+  { // только --own-edits (без --strazh): в дереве есть несохранённое — директору блок
+    const { root } = mk();
+    const d = JSON.parse(hook(root, dir(root), DIRECTOR, ["--own-edits"]).stdout);
+    assert.equal(d.decision, "block");
+    assert.match(d.reason, /стенограмма не читается/);
+  }
+});
+
+test("п.9 хук целиком на длинной стенограмме при малых пределах (STOP_GATE_CHUNK_BYTES=16): свои правки найдены → страж виден, блок «просрочено 2»", () => {
+  const { root, cmd } = rulesRepo(RED);
+  const tr = mixedTranscript(root, ["tools/scout/rules/rule-registry.json", "mine.txt"], { filler: 60 });
+  const r = hook(root, tr, { ...DIRECTOR, STOP_GATE_CHUNK_BYTES: "16", STOP_GATE_MAX_LINE_BYTES: "100000" }, ["--strazh", "--strazh-cmd", cmd, "--own-edits"]);
+  const d = JSON.parse(r.stdout);
+  assert.equal(d.decision, "block", r.stdout + r.stderr);
+  assert.match(d.reason, /просрочено 2/);
+  assert.doesNotMatch(d.reason, /стенограмма не читается/);
 });
 
 test("onlyOwn: каталог ?? dir/ — своё, если внутри свой файл; переименование — по новому пути", () => {

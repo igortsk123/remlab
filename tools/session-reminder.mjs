@@ -17,7 +17,7 @@ import { readFileSync, existsSync, readdirSync } from "node:fs";
 import { resolve, join } from "node:path";
 import { runChecks, THRESHOLD_KEYS } from "./memory-audit.mjs";
 import {
-  ownEditedPaths, onlyOwn, porcelainPath, isOwn, ownRulesEdits, parseStrazh, strazhVerdict,
+  readOwnEdits, mayHoldRules, onlyOwn, porcelainPath, isOwn, ownRulesEdits, parseStrazh, strazhVerdict,
   runStrazh, strazhAnswer, strazhNotFound, STRAZH_REL, defaultStrazhCmd, dropForeignProblems, DEFAULT_BLOCK_FIELDS,
 } from "./stop-gate-own.mjs";
 
@@ -90,8 +90,31 @@ try {
   process.exit(0);
 }
 // Свои правки сессии (из стенограммы) — только если включён один из флагов T-175/5.
-const own = ownMode || strazhMode ? ownEditedPaths(hookInput.transcript_path, root) : null;
+const transcriptRead = ownMode || strazhMode ? readOwnEdits(hookInput.transcript_path, root) : null;
+const own = transcriptRead ? transcriptRead.own : null;
 const dirtyPaths = dirtyAll.map(porcelainPath);
+
+// Стенограмма не прочиталась (длинная/битая/нет) — «свои правки» неизвестны; это НЕ «правок нет» (27.11: у директора 1,29 ГБ → гейт и страж молчали).
+// Директору — блок, если есть что проверять (незакоммиченные файлы правил при --strazh; чужие/свои несохранённые при --own-edits); остальным — предупреждение в stderr.
+if (transcriptRead && !own) {
+  const rulesDirty = dirtyPaths.filter(mayHoldRules);
+  const need = (strazhMode && rulesDirty.length > 0) || (ownMode && changed.length > 0);
+  if (blockMode && process.env.REMLAB_ROLE === "директор" && need) {
+    console.log(
+      JSON.stringify({
+        decision: "block",
+        reason:
+          `Гейт: стенограмма не читается: ${transcriptRead.why}. Что правила именно эта сессия, не определить, а в дереве есть несохранённое ` +
+          `(${(strazhMode && rulesDirty.length ? rulesDirty : changed.map(porcelainPath)).slice(0, 3).join(", ")}) — проверка «своих правок» и стража молчать не может: ` +
+          `почини чтение (tools/stop-gate-own.mjs, readOwnEdits) или закоммить/верни эти файлы, затем завершай.`,
+      })
+    );
+    process.exit(0);
+  }
+  console.error(`session-reminder: стенограмма не читается: ${transcriptRead.why} — гейт «только свои правки» и строка стража в этом ответе не работают`);
+} else if (transcriptRead?.skipped) {
+  console.error(`session-reminder: в стенограмме пропущено слишком длинных строк: ${transcriptRead.skipped} (свои правки в них не учтены)`);
+}
 
 // Строка стража — только у директора и только по его правкам файлов правил, ещё не закоммиченных (чужие сессии и рабочие не трогаем).
 if (strazhMode && process.env.REMLAB_ROLE === "директор" && blockMode) {
