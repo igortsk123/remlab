@@ -34,6 +34,7 @@ SCOUT = os.path.normpath(os.path.join(HERE, '..', '..'))
 sys.path.insert(0, os.path.join(SCOUT, 'salad'))
 sys.path.insert(0, os.path.join(SCOUT, 'render_gpu'))
 sys.path.insert(0, HERE)
+import cutout_origin as CORIGIN  # noqa: E402 — метка происхождения входа формы (T-175/9): способ+версия цепочки, источник маски, код, хеши
 import kit_driver as KD  # noqa: E402 — общий вход «отправить задание» (post_job: таймаут по размеру тела, POST без ответа → вопрос воркеру)
 
 CARD = {'class_name': 'RTX 4090 (24 GB)', 'class_id': 'ed563892-aacd-40f5-80b7-90c9be6c759b'}
@@ -118,6 +119,9 @@ def build_jobs(skus: list[str], plan: list[dict], inputs: dict, seed: int = 42) 
     for sku in skus:
         if sku not in inputs or 'input_png_sha256' not in inputs[sku]:
             raise ValueError(f'{sku}: нет вырезки в inputs.json — сперва make_inputs.py')
+        oerr = CORIGIN.check(inputs[sku].get('origin'))
+        if oerr:      # вход сделан не единым модулем вырезки или устарел — форма по нему не строится (платный запуск — только по актуальному входу)
+            raise ValueError(f'{sku}: вход формы без актуальной метки происхождения — ' + '; '.join(oerr) + ' — сделай вход заново: salad/trellis/make_inputs.py (единый модуль вырезки)')
         for step in plan:
             for k in range(step['n']):
                 jobs.append({'sku': sku, 'res': step['res'], 'rep': k, 'seed': seed, 'job_id': f'{sku.replace(":", "_")}-{step["res"]}-{seed}-{k}'})
@@ -651,6 +655,11 @@ def run(a, MG, BR, gw_factory=Gateway, sleep=time.sleep, clock=time.time, hf_hea
     """Весь замер. `MG` — `migrate_groups` (API Salad), `BR` — `bench_run` (состояние группы, остановка с проверкой). Подмена обоих + `gw_factory`/`sleep`/`clock`/`hf_head` — тесты."""
     inputs = json.load(open(os.path.join(a.inputs, 'inputs.json'), encoding='utf-8'))
     skus = a.skus or [k for k, v in inputs.items() if isinstance(v, dict) and v.get('input_png_sha256')]      # без --skus — весь набор из inputs.json (30 товаров)
+    perr = CORIGIN.inputs_errors(inputs, [k for k in skus if k in inputs], a.inputs)      # метка в inputs.json И внутри PNG, sha файла — ДО группы и денег
+    if perr:
+        say(f'ОТКАЗ: входы формы без актуальной метки происхождения ({len(perr)}): ' + ' | '.join(perr[:3]) + (' …' if len(perr) > 3 else '')
+            + ' — сделай входы заново: salad/trellis/make_inputs.py (единый модуль вырезки); группа не создаётся')
+        return 2
     jobs = build_jobs(skus, parse_plan(a.plan), inputs, a.seed)
     name = f'trial-{a.model}-{a.suffix}'
     if not getattr(a, 'out', None):

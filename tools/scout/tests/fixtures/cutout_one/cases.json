@@ -1,0 +1,42 @@
+{
+ "komod": {
+  "role": "комод",
+  "bg_mode": "white_flat",
+  "collage": false,
+  "size": [
+   288,
+   216
+  ],
+  "alpha_px": 38741
+ },
+ "komod_grey": {
+  "role": "комод",
+  "bg_mode": "net_only",
+  "collage": false,
+  "size": [
+   288,
+   216
+  ],
+  "alpha_px": 38777
+ },
+ "stol": {
+  "role": "стол обеденный",
+  "bg_mode": "white_flat",
+  "collage": false,
+  "size": [
+   288,
+   216
+  ],
+  "alpha_px": 10695
+ },
+ "shkaf": {
+  "role": "шкаф",
+  "bg_mode": "white_flat",
+  "collage": false,
+  "size": [
+   288,
+   216
+  ],
+  "alpha_px": 20205
+ }
+}

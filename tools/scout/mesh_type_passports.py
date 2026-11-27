@@ -2,7 +2,7 @@
 """Единственный загрузчик реестра паспортов типов (rules/mesh-type-passports.json) — план mesh-type-passports-01, фаза 1 «реестр + тень».
 
 ЧТО ЭТО. Паспорт типа — данные: путь роли (`route`, ссылка на `asset-strategies.json`), флаги цепочки вырезки (`chain_flags`, сверяются с
-константами `components.py`/`hybrid_mask.py` тестом), сторожа (`guards[]`: К1 «потеря изголовья» у кровати, К3 «подушка однотонная» у подушки),
+константами `components.py`/`hybrid_mask.py`/`salad/cutout_one.py` тестом), сторожа (`guards[]`: К1 «потеря изголовья» у кровати, К3 «подушка однотонная» у подушки),
 режим (`observe`/`enforce`), `provisional`. Фаза 1 НИЧЕГО не блокирует: сторожа только пишут вердикт в `passport_shadow`, гейты платных входов
 работают в `observe` (всегда «пропустить», но считают «заблокировал бы»). Блокировка платного — фаза 2, отдельный план.
 
@@ -31,7 +31,7 @@ PATH = os.environ.get('PASSPORTS_PATH') or os.path.join(HERE, 'rules', 'mesh-typ
 # Закрытые списки схемы (неизвестное имя — ошибка, fail-closed).
 STAGES = ('pre_mask', 'full_frame', 'cropped')
 GUARD_NAMES = ('headboard_loss', 'pillow_plain')
-CHAIN_FLAGS = ('grow', 'solid_silhouette', 'attached_prune', 'solid_body')
+CHAIN_FLAGS = ('grow', 'solid_silhouette', 'solid_body', 'main_object')     # main_object — шаг «главный предмет» единого модуля вырезки (T-175/9), роли — salad/cutout_one.MAIN_OBJECT_ROLES; attached_prune убран 27.11 (резал настоящие ножки, решение Fable)
 FAMILIES = ('мягкое', 'корпусное', 'каркасное', 'плоское', 'свет', 'вращательное', 'текстиль', 'смешанное', 'декор', 'настенное')
 MODES = ('observe', 'enforce')
 # Политика покраски невидимых сторон по типу (план type-rules-code-01 § А): что делать с рисунком лица там, где фото нет. Закрытые списки, у КАЖДОГО типа явно.
@@ -384,7 +384,8 @@ def _selftest() -> int:
     ok('неизвестный сторож / стадия / флаг цепочки → ошибка',
        bool(mut(lambda t: t['кровать']['cutout']['guards'][0].update(name='x_guard')))
        and bool(mut(lambda t: t['кровать']['cutout']['guards'][0].update(stage='late')))
-       and bool(mut(lambda t: t['комод']['cutout'].update(chain_flags=['teleport']))))
+       and bool(mut(lambda t: t['комод']['cutout'].update(chain_flags=['teleport'])))
+       and bool(mut(lambda t: t['комод']['cutout'].update(chain_flags=['attached_prune']))))      # снятый флаг (27.11) схема отвергает
     ok('поле-селектор товара (sku/url/sha/product_id) → ошибка',
        all(mut(lambda t, k=k: t['комод'].update({k: 'x'})) for k in ('sku', 'url', 'sha', 'product_name', 'mesh_id')))
     ok('значение-идентификатор (№12, #123, 12:345, 5+ цифр) → ошибка',
