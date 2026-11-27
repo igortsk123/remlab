@@ -771,7 +771,7 @@ class DetachedTouch(unittest.TestCase):
     """Правило detached на все товары (директор 27.11, P-064): «парящий» = БЕЗ касания (зазор > detached_gap габарита) с главным куском, прямо или цепочкой; не «вне габарита главного»."""
 
     def test_params_in_rules(self):
-        for k in ('detached_gap', 'detached_share', 'detached_piece_min', 'detached_samples', 'detached_query_max', 'holes_elev'):
+        for k in ('detached_gap', 'detached_share', 'detached_piece_min', 'detached_samples', 'detached_bridge_min', 'detached_nodes', 'holes_elev', 'holes_view_tol'):
             self.assertIn(k, R)
         self.assertEqual((R['detached_gap'], R['detached_share'], R['detached_piece_min']), (0.01, 0.03, 0.01))       # пороги НЕ подняты (директор)
         self.assertIn(0, R['holes_elev'])
@@ -798,6 +798,15 @@ class DetachedTouch(unittest.TestCase):
         c = FC.detached(trimesh.util.concatenate([body, a, b]), R)
         self.assertTrue(c['flag'], c)
         self.assertIn('парящих (без касания с главным, зазор > 1 % габарита) 2', c['note'])
+
+    def test_chain_through_two_tiny_pieces_is_touching(self):
+        """Codex 27.11: мелкие куски сами не опрашивались — цепочка main → пылинка → пылинка → крупный кусок не находилась (ложный блок). Теперь опрашиваются куски от detached_bridge_min."""
+        body = box((1, 0.4, 0.4), (0, 0.5, 0))
+        t1, t2 = box((0.03, 0.03, 0.03), (0.515, 0.5, 0)), box((0.03, 0.03, 0.03), (0.545, 0.5, 0))
+        far = box((0.3, 0.3, 0.3), (0.71, 0.5, 0))
+        m = trimesh.util.concatenate([body, t1, t2, far])
+        self.assertFalse(FC.detached(m, R)['flag'], FC.detached(m, R))
+        self.assertTrue(FC.detached(trimesh.util.concatenate([body, t1, far]), R)['flag'])       # звено выбито — между t1 и far зазор: парит
 
     def test_chain_through_tiny_piece_is_touching(self):
         body = box((1, 0.4, 0.4), (0, 0.5, 0))
@@ -869,6 +878,20 @@ class HolesFromPhotoView(unittest.TestCase):
         edge = FC.sil_at(pts, 90.0)
         self.assertLess(FC.iou_keep_aspect(edge, np.ones((100, 100), bool)), 0.3)
 
+    def test_view_choice_never_hides_hole_among_near_ties(self):
+        """Codex 27.11: максимум IoU поворачивал раму так, что окно сужалось (195° вместо 180°). Теперь IoU — по заполненным силуэтам, а среди почти равных видов берётся с БОЛЬШИМ просветом."""
+        pts = FC.surface_points(frame_panel(), 100000)
+        full = np.ones((100, 100), bool)
+        cand = FC.view_candidates(pts, full, R)
+        top = max(c[0] for c in cand)
+        near = [c for c in cand if c[0] >= top - R['holes_view_tol']]
+        s, az, el, iou = FC.best_view(pts, full, R)
+        hv = FC.norm(s)
+        chosen = float((FC.fill_holes(hv) & ~hv).sum()) / float(hv.sum())
+        self.assertAlmostEqual(chosen, max(c[4] for c in near), places=6)
+        self.assertGreater(len(near), 1)                                                  # near-tie существует: тест не пустой
+        self.assertGreater(chosen, 0.3)
+
     def test_sil_at_elevation_zero_is_the_old_side_view(self):
         pts = FC.surface_points(plate_table(), 40000)
         self.assertTrue((FC.sil_at(pts, 30.0) == FC.sil_at(pts, 30.0, elev_deg=0.0)).all())
@@ -906,6 +929,25 @@ class CheckFailsLoudly(unittest.TestCase):
             rec = FC.run_sku('s1', os.path.join(self.d, 's1-hd.glb'), os.path.join(self.d, 's1.hd.rgba.png'), None, RULES)
         self.assertIn('ПРОВЕРКА НЕ ВЫПОЛНЕНА: holes: ValueError: пустая маска', by(rec['checks'], FC.FAILED)['note'])
         self.assertNotIn('holes', [c['name'] for c in rec['checks']])                    # молчаливого «holes ок» нет
+
+    def test_photo_prep_crash_is_reported(self):
+        """Codex 27.11: photo_mask/surface_points/best_front были вне защиты — исключение валило весь запуск без записи. Теперь — check_failed с причиной."""
+        from unittest import mock
+        glb, ph = os.path.join(self.d, 's1-hd.glb'), os.path.join(self.d, 's1.hd.rgba.png')
+        for name, exc in (('photo_mask', OSError('битый PNG')), ('surface_points', MemoryError('нет памяти')), ('best_front', ValueError('пустая маска'))):
+            with mock.patch.object(FC, name, side_effect=exc):
+                rec = FC.run_sku('s1', glb, ph, None, RULES)
+            c = by(rec['checks'], FC.FAILED)
+            self.assertIn('ПРОВЕРКА НЕ ВЫПОЛНЕНА: силуэты по фото: подготовка', c['note'], name)
+            self.assertIn(type(exc).__name__, c['note'], name)
+            self.assertEqual(rec['status'], 'needs_review', name)
+
+    def test_corrupt_photo_file_is_reported_not_crash(self):
+        bad = os.path.join(self.d, 'bad.png')
+        open(bad, 'wb').write(b'not a png')
+        rec = FC.run_sku('s1', os.path.join(self.d, 's1-hd.glb'), bad, None, RULES)
+        self.assertIn('ПРОВЕРКА НЕ ВЫПОЛНЕНА', by(rec['checks'], FC.FAILED)['note'])
+        self.assertEqual(FC.failed_skus([rec]), ['s1'])
 
     def test_main_returns_3_with_reason_and_0_when_healthy(self):
         import contextlib

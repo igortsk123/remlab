@@ -109,11 +109,8 @@ def touch_roots(m, comps, nodes: list[int], gap: float, R: dict) -> dict:
             parent[a] = parent[parent[a]]
             a = parent[a]
         return a
-    cap = int(R['detached_query_max'])
     for k in nodes:
-        own = P[L == k]
-        if len(own) > cap:
-            own = own[:: int(math.ceil(len(own) / cap))]
+        own = P[L == k]                                                                # все точки куска (габарит и дерево — по полному облаку, без урезания)
         near = (L != k) & np.all(P >= own.min(0) - gap, 1) & np.all(P <= own.max(0) + gap, 1)       # чужие точки рядом с габаритом куска — остальные не опрашиваем
         if not near.any():
             continue
@@ -126,7 +123,8 @@ def touch_roots(m, comps, nodes: list[int], gap: float, R: dict) -> dict:
 def detached(m, R: dict) -> dict:
     """«Крупный оторванный кусок» (правило на все товары, директор 27.11, P-064): «парящий» — часть БЕЗ касания (зазор > `detached_gap` габарита) с главным куском — ни напрямую, ни цепочкой
     других кусков. Не «вне габарита главного»: диск основания, стыкующийся со стойкой, — не парит; ножки/панели из отдельных кусков, упирающиеся в корпус, — норма. Парящая пара, касающаяся
-    только друг друга, но не главного, — парящая (оба куска). Куски мельче `detached_piece_min` в долю не идут, но служат мостиками касания."""
+    только друг друга, но не главного, — парящая (оба куска). Куски мельче `detached_piece_min` в долю не идут, но служат мостиками касания (опрашиваются куски от `detached_bridge_min` площади, не больше
+    `detached_nodes` самых крупных: цепочка из нескольких пылинок находится, 20 000 крошек — нет). Мелкие парящие куски (< `detached_piece_min`) в долю не суммируются — прежняя семантика, не менялась."""
     import trimesh
     comps = trimesh.graph.connected_components(m.face_adjacency, nodes=np.arange(len(m.faces)), min_len=1)
     area = m.area_faces
@@ -137,7 +135,8 @@ def detached(m, R: dict) -> dict:
     big = [i for i in order[1:] if share[i] >= R['detached_piece_min']]
     far, tot_far = 0, 0.0
     if big:
-        roots = touch_roots(m, comps, [order[0]] + big, gap, R)
+        mid = [i for i in order[1:] if share[i] >= R['detached_bridge_min']]              # мостики-посредники: опрашиваем и мелкие куски (цепочка из нескольких пылинок), но не все 20 000
+        roots = touch_roots(m, comps, [order[0]] + list(dict.fromkeys(big + mid[: int(R['detached_nodes'])])), gap, R)
         for i in big:
             if roots[i] != roots[order[0]]:
                 far += 1
@@ -183,16 +182,27 @@ def best_front(pts: np.ndarray, photo: np.ndarray, R: dict) -> tuple[np.ndarray,
 
 
 def best_view(pts: np.ndarray, photo: np.ndarray, R: dict) -> tuple[np.ndarray, float, float, float]:
-    """Ракурс ФОТО (директор 27.11, P-064): азимут И высота камеры, при которых ортогональный силуэт формы лучше всего совпадает с маской фото (IoU; перебор `az_step` × `holes_elev`; при равенстве —
-    ниже камера). Фото снято сверху 3/4 — столешница закрывает подстолье, и просвет формы с боковой проекции (elev 0) несравним с просветом фото. → (силуэт, азимут, высота камеры, IoU)."""
-    best = (-1.0, 0.0, 0.0, None)
+    """Ракурс ФОТО (директор 27.11, P-064): азимут И высота камеры, при которых ортогональный внешний контур формы лучше всего совпадает с маской фото (IoU заполненных силуэтов с пропорциями; перебор
+    `az_step` × `holes_elev`); среди видов с IoU не хуже лучшего на `holes_view_tol` берётся тот, где у формы БОЛЬШЕ просветов (консервативно: не маскировать дыру подбором позы). Фото снято сверху
+    3/4 — столешница закрывает подстолье, и просвет формы с боковой проекции (elev 0) несравним с просветом фото. → (силуэт, азимут, высота камеры, IoU)."""
+    cand = view_candidates(pts, photo, R)
+    top = max(c[0] for c in cand)
+    near = [c for c in cand if c[0] >= top - float(R['holes_view_tol'])]
+    best = max(near, key=lambda c: (c[4], c[0]))                    # среди почти равных по IoU — вид с БОЛЬШИМ просветом формы: подбор позы не должен «закрывать» настоящее окно (Codex 27.11)
+    return best[3], best[1], best[2], best[0]
+
+
+def view_candidates(pts: np.ndarray, photo: np.ndarray, R: dict) -> list[tuple]:
+    """Все виды сетки `holes_elev` × `az_step`: (IoU ЗАПОЛНЕННЫХ силуэтов с пропорциями, азимут, высота, силуэт, доля просветов формы на нём). IoU — по внешнему контуру (`fill_holes` у обоих): окна формы не
+    участвуют в выборе позы, иначе максимум IoU поворачивал бы вид так, чтобы лишнее окно сузилось (рама против сплошного щита: 195° вместо 180°)."""
+    pf = fill_holes(photo)
+    out = []
     for el in R['holes_elev']:
         for az in range(0, 360, int(R['az_step'])):
             s = sil_at(pts, az, elev_deg=el)
-            iou = iou_keep_aspect(s, photo)
-            if iou > best[0]:
-                best = (iou, float(az), float(el), s)
-    return best[3], best[1], best[2], best[0]
+            hv = norm(s)
+            out.append((iou_keep_aspect(fill_holes(s), pf), float(az), float(el), s, float((fill_holes(hv) & ~hv).sum()) / max(float(hv.sum()), 1.0)))
+    return out
 
 
 def iou_keep_aspect(a: np.ndarray, b: np.ndarray, h: int = SIL_N) -> float:
@@ -746,13 +756,24 @@ def run_sku(sku: str, glb: str | None, photo: str | None, frames: str | None, ru
             rec['checks'] += pose_checks(sku, pose_roots or [])
             rec['checks'] += legs_checks(sku, photo, pose_roots or [], R)
             if photo and os.path.isfile(photo):
-                pm = photo_mask(photo)
-                pts = surface_points(m, int(R['sil_points']))
-                fs, az = best_front(pts, pm, R)
-                rec['checks'] += guarded('holes', lambda: sil_checks(fs, pm, R, az, view=best_view(pts, pm, R)))
-                sil_thin = sil_at(surface_points(m, int(R['thin_points']), seed=3), az, int(R['thin_grid']))
-                rec['checks'] += thin_checks(sil_thin, pm, R, az)
-                rec['checks'] += leg_wave(sil_thin, R)
+                st: dict = {}
+
+                def prep():                                                   # маска фото, облако точек, лучший боковой вид — общая подготовка силуэтных проверок
+                    st['pm'] = photo_mask(photo)
+                    st['pts'] = surface_points(m, int(R['sil_points']))
+                    st['fs'], st['az'] = best_front(st['pts'], st['pm'], R)
+                    return []
+                bad = guarded('силуэты по фото: подготовка (маска фото, облако точек)', prep)
+                rec['checks'] += bad
+                if not bad:
+                    rec['checks'] += guarded('holes', lambda: sil_checks(st['fs'], st['pm'], R, st['az'], view=best_view(st['pts'], st['pm'], R)))
+
+                    def thin_part():
+                        st['thin'] = sil_at(surface_points(m, int(R['thin_points']), seed=3), st['az'], int(R['thin_grid']))
+                        return thin_checks(st['thin'], st['pm'], R, st['az'])
+                    rec['checks'] += guarded('thin', thin_part)
+                    if 'thin' in st:
+                        rec['checks'] += guarded('leg_wave', lambda: leg_wave(st['thin'], R))
             else:
                 rec['checks'].append(check('sil_extra~', None, R['sil_extra'], False, 'нет маски фото — приближённые силуэтные проверки пропущены'))
                 rec['checks'].append(dict(check('thin_width', None, [R['thin_w_lo'], R['thin_w_hi']], False, 'нет маски фото — мерка тонких частей пропущена'), would_flag=False))
