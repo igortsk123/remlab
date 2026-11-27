@@ -10,6 +10,8 @@ import unittest
 HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, os.path.join(HERE, '..'))
 import loop5 as L  # noqa: E402
+
+ALLOW_OLD = 'тест потолка Salad: вход круга здесь не предмет проверки'     # ворота входа круга (T-175/10) зовутся до всего; тесты ниже проверяют другое — обход ключом
 sys.path.append(os.path.join(HERE, "..", "..", "scout"))  # tools/scout — помощник временного
 import remlab_tmp  # noqa: E402
 remlab_tmp.use("test_loop5")
@@ -371,7 +373,7 @@ class T(unittest.TestCase):
             try:
                 L._salad_items = lambda: [{'name': f'x{i}', 'current_state': {'status': 'running', 'instance_status_counts': {'running_count': 1}}} for i in range(3)]
                 with self.assertRaises(SystemExit) as e:
-                    L.main(['--code-ref', 'HEAD', '--from', '08', '--dry', '--rules', rp])
+                    L.main(['--code-ref', 'HEAD', '--from', '08', '--dry', '--rules', rp, '--allow-old-origin', ALLOW_OLD])
                 self.assertIn('потолок 2', str(e.exception))
                 self.assertIn('исчерпан', str(e.exception))
 
@@ -379,11 +381,43 @@ class T(unittest.TestCase):
                     raise RuntimeError('нет сети')
                 L._salad_items = boom
                 with self.assertRaises(SystemExit) as e2:
-                    L.main(['--code-ref', 'HEAD', '--from', '08', '--rules', rp])                  # боевой: счёт не прочитан — не стартуем
+                    L.main(['--code-ref', 'HEAD', '--from', '08', '--rules', rp, '--allow-old-origin', ALLOW_OLD])                  # боевой: счёт не прочитан — не стартуем
                 self.assertIn('не смог прочитать живой счёт', str(e2.exception))
                 self.assertEqual(len(swept), 1)                                           # боевой старт сперва гасит просроченные тёплые; разбор (--dry) — нет
             finally:
                 L._salad_items, L.sweep_warm = orig, orig_sw
+
+    def test_cli_origin_gate_refuses_before_any_start(self):
+        """Ворота входа круга (T-175/10, условие директора): боевой старт на форме без записи происхождения → код 3 ДО чистки нод, живого счёта и первого захода; ключ обхода пропускает и пишется в отчёт."""
+        with tempfile.TemporaryDirectory() as tmp:
+            r, _ = make_base(tmp, with_fill=True)
+            rp = os.path.join(tmp, 'rules.json')
+            json.dump(r, open(rp, 'w'))
+            orig = (L._salad_items, L.sweep_warm, L.run_round)
+            calls = []
+            L._salad_items = lambda: calls.append('счёт') or []
+            L.sweep_warm = lambda: calls.append('sweep') or True
+            L.run_round = lambda *a, **k: calls.append('заход') or ([], [])
+            try:
+                with self.assertRaises(SystemExit) as e:
+                    L.main(['--code-ref', 'HEAD', '--from', '08', '--rules', rp])
+                self.assertEqual(e.exception.code, 3)
+                self.assertEqual(calls, [])                                                 # ни чистки тёплых нод, ни живого счёта Salad, ни захода
+                checks = glob.glob(os.path.join(tmp, '**', 'origin-check.json'), recursive=True)
+                self.assertEqual(len(checks), 1)
+                rep = json.load(open(checks[0], encoding='utf-8'))
+                self.assertFalse(rep['ok'])
+                self.assertEqual(rep['who'], 'loop5')
+                self.assertTrue(rep['refused'])
+                with self.assertRaises(SystemExit):                                         # обход ключом: ворота открыты, дальше — свои остановки этого теста (счёт не прочитан/нет захода)
+                    L._salad_items = lambda: (_ for _ in ()).throw(RuntimeError('нет сети'))
+                    L.main(['--code-ref', 'HEAD', '--from', '08', '--rules', rp, '--allow-old-origin', ALLOW_OLD])
+                self.assertEqual(calls, ['sweep'])                                          # ворота пропустили: дошли до чистки нод и чтения живого счёта
+                rep = json.load(open(checks[0], encoding='utf-8'))
+                self.assertEqual(rep['allow_old'], ALLOW_OLD)
+                self.assertTrue(rep['bypass'])
+            finally:
+                L._salad_items, L.sweep_warm, L.run_round = orig
 
     def test_queue_cmd_nodes_and_variant(self):
         r = L.load_rules()
