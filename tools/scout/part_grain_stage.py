@@ -232,6 +232,79 @@ def measure_parts(d: str, parts: list, z: dict, V, F, fp, pn, rules: dict) -> di
     return out
 
 
+def detail_bands(Ld, sel, ppc: float, pd: dict):
+    """Полосы деталей фото без теней в кадре: (крупное, мелкое) в единицах L. Тень и свет — всё, что шире blur_cm (срез >5 см = тень), вычитается размытием по грани-в-лоб (нормированная свёртка по маске sel,
+    чтобы край и фон не тянули). Крупное = от split_cm до blur_cm (дуги, «соборы»), мелкое = от fine_cm до split_cm (поры, штрих)."""
+    import cv2
+    m = sel.astype(np.float32)
+    L = np.where(sel, Ld, 0.0).astype(np.float32)
+
+    def blur(cm):
+        s = max(float(cm) * ppc, 0.6)
+        num = cv2.GaussianBlur(L, (0, 0), s)
+        den = cv2.GaussianBlur(m, (0, 0), s)
+        return np.where(den > 1e-3, num / np.maximum(den, 1e-3), 0.0)
+    b_fine, b_split, b_hi = blur(pd['fine_cm']), blur(pd['split_cm']), blur(pd['blur_cm'])
+    coarse = np.where(sel, b_split - b_hi, 0.0)
+    fine = np.where(sel, b_fine - b_split, 0.0)
+    return coarse, fine
+
+
+def photo_detail_step(tex_in, tone_tex, tx, g: dict, st: dict, Ld, valid, fgrp, names: list, ppc: float, rules: dict, rep: dict):
+    """T-99/12 шаг 5: рисунок С ФОТО на лице группы (тумба Хостера): слой деталей фото без теней (этап 05) поверх тона Ш4а — только грани в лоб, свет/тени шире blur_cm вычтены.
+    Текселю группы, видимому с камеры в лоб и надёжному, — тон Ш4а (tone_tex, до зерна) + деталь фото (L, усилено gain_*); остальным текселям группы остаётся зерно образца. → (текстура, маска «деталь с фото»)."""
+    import cv2
+    import tex_coverage as TC
+    import tex_visible as TV
+    from scipy.ndimage import map_coordinates
+    pd = rules['photo_detail']
+    info = {'applied': False, 'groups': pd['groups'], 'ppc_frame': round(float(ppc), 2)}
+    rep['photo_detail'] = info
+    gi = [i for i, n in enumerate(names) if n in pd['groups']]
+    if not gi:
+        info['reason'] = 'нет групп %s среди %s' % (pd['groups'], names)
+        return tex_in, None
+    px = int(st['px'])
+    ids = np.clip(st['ids'], 0, len(fgrp) - 1)
+    ingrp = valid & np.isin(fgrp[ids], gi) & (st['cos'] >= float(pd['cos_min']))
+    if int(ingrp.sum()) < int(pd['min_px']):
+        info['reason'] = 'в лоб видно %d px (< %d)' % (int(ingrp.sum()), int(pd['min_px']))
+        return tex_in, None
+    er = int(pd['edge_px'])
+    sel = cv2.erode(ingrp.astype(np.uint8), np.ones((2 * er + 1, 2 * er + 1), np.uint8)).astype(bool) if er > 0 else ingrp
+    coarse, fine = detail_bands(Ld, sel, ppc, pd)
+    D = np.clip(float(pd['gain_coarse']) * coarse + float(pd['gain_fine']) * fine, -float(pd['clip_L']), float(pd['clip_L']))
+    T = tx.T
+    F = np.asarray(g['F'], np.int64)
+    fm = TV.face_maps(st, len(F))
+    ti, f = tx.ti, tx.f
+    ty_, tx_ = ti // T, ti % T
+    ut, vt = (tx_ + 0.5) / T, (ty_ + 0.5) / T
+    du, dv = ut - fm['mu'][f], vt - fm['mv'][f]
+    x = fm['mx'][f] + fm['ax'][f] * du + fm['bx'][f] * dv
+    y = fm['my'][f] + fm['ay'][f] * du + fm['by'][f] * dv
+    inside = fm['ok'][f] & (x >= 0.5) & (x <= px - 0.5) & (y >= 0.5) & (y <= px - 0.5) & np.isin(fgrp[f], gi)
+    xi, yi = np.clip(np.floor(x).astype(np.int64), 0, px - 1), np.clip(np.floor(y).astype(np.int64), 0, px - 1)
+    use = inside & sel[yi, xi] & (ids[yi, xi] == f)                      # пиксель кадра под тексель — той же грани и внутри «в лоб»
+    n_use = int(use.sum())
+    info.update(texels_in_group=int((np.isin(fgrp[f], gi)).sum()), texels_with_detail=n_use)
+    if n_use == 0:
+        info['reason'] = 'ни один тексель группы не лёг на «в лоб»'
+        return tex_in, None
+    d_t = map_coordinates(D.astype(np.float32), [y[use] - 0.5, x[use] - 0.5], order=1, mode='nearest')
+    flat_new = tex_in.reshape(-1, 3).copy()
+    base = tone_tex.reshape(-1, 3)[ti[use]]
+    lab = TC.rgb2lab(base.astype(np.float64))
+    lab[:, 0] = np.clip(lab[:, 0] + d_t, 0.0, 100.0)
+    import tex_fill as TF
+    rgb = TF.lab2rgb(lab)
+    flat_new[ti[use]] = rgb
+    msk = np.zeros(T * T, bool)
+    msk[ti[use]] = True
+    info.update(applied=True, detail_L_std=round(float(np.std(d_t)), 2), coarse_std=round(float(np.std(coarse[sel])), 2), fine_std=round(float(np.std(fine[sel])), 2), frame_px=int(sel.sum()))
+    return flat_new.reshape(tex_in.shape), msk.reshape(T, T)
+
+
 def thin_plate_step(tex, z, roles: list, V, g: dict, d: str, tp: dict, rep: dict):
     """Ф.7 «тонкая плита — один материал»: после зерна. → (текстура, маска перекрашенных | None). Нет роли «верх» / known.png — воздержание с причиной в след (текстура та же)."""
     import thin_plate as TPL
@@ -359,6 +432,25 @@ def process(a, rules: dict, d: str, rep: dict) -> None:
             rep['amp_strip_applied'] = {str(pid): {'часть': round(kd['k'], 3), 'плоскости': {str(g): round(v, 3) for g, v in kd['planes'].items()}} for pid, kd in ks.items()}
     rep['groups'] = {str(k): dict(v, name=names[k]) for k, v in r['parts'].items()}
     rep.update(applied=r['applied'], skipped=r['skipped'], texels_changed=r['texels_changed'], planes=int(len(pn)))
+    pd_mask = None
+    if (rules.get('photo_detail') or {}).get('enabled'):                    # T-99/12 шаг 5: рисунок с фото на лице группы (выкл — строки не выполняются)
+        ppc_pd = 0.0
+        pjp = os.path.join(d, 'part_material.json')
+        if os.path.exists(pjp):
+            with open(pjp, encoding='utf-8') as fh:
+                ppc_pd = float(json.load(fh).get('px_per_cm') or 0.0) * int(st['px']) / float(max(np.asarray(ph).shape[0], np.asarray(ph).shape[1]))
+        dpp = os.path.join(d, '..', '05-delight', 'delight.rgba.png')
+        if ppc_pd <= 0:
+            rep['photo_detail'] = {'applied': False, 'reason': 'нет px_per_cm в part_material.json'}
+        else:
+            if os.path.exists(dpp):
+                rgb_d, _ok = TV.photo_to_frame(np.asarray(Image.open(dpp).convert('RGBA')), st['P'], int(st['px']))
+                Ld_ = TC.rgb2lab(rgb_d.reshape(-1, 3)).reshape(int(st['px']), int(st['px']), 3)[..., 0]
+                src_d = '05-delight (без теней)'
+            else:
+                Ld_, src_d = Lf, 'фото как есть (05 нет)'
+            new, pd_mask = photo_detail_step(new, tex, tx, g, st, Ld_, valid, fgrp, names, ppc_pd, rules, rep)
+            rep['photo_detail']['source'] = src_d
     tp_mask = None
     if (rules.get('thin_plate') or {}).get('enabled'):                      # T-97/1 ф.7: тонкая плита — низ и торец тоном и волокном лица (выкл — строки не выполняются)
         new, tp_mask = thin_plate_step(new, z, roles, V, g, d, rules['thin_plate'], rep)
@@ -370,8 +462,10 @@ def process(a, rules: dict, d: str, rep: dict) -> None:
     gmap = np.asarray(z['group_map'])
     applied_g = [int(k) for k, v in r['parts'].items() if v.get('apply')]
     mk = np.isin(gmap, applied_g)                                    # метка «зерно уже есть»: 07 (заливка и верх top_prior) на этих текселях своей фактуры не кладёт
+    if pd_mask is not None:
+        mk = mk | pd_mask                                            # шаг 5: тексели с деталью фото — тоже «уже есть»
     if tp_mask is not None:
-        mk = mk | tp_mask                                            # ф.7: перекрашенные низ/торец плиты — тоже «уже есть» (07 своей фактуры не кладёт)
+        mk = mk | tp_mask                                          # ф.7: перекрашенные низ/торец плиты — тоже «уже есть» (07 своей фактуры не кладёт)
     Image.fromarray((mk * 255).astype(np.uint8)).save(os.path.join(d, MASK))
     rep['mask_texels'] = int(mk.sum())
     rep['seconds'] = round(time.time() - t0, 1)
