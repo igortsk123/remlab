@@ -112,25 +112,37 @@ export function runStrazh(cmd, cwd, timeoutMs = 20000) {
     return { line: first(out), code: 0 };
   } catch (e) {
     const code = e?.code === "ETIMEDOUT" ? "таймаут" : typeof e?.status === "number" ? e.status : e?.signal ? `сигнал ${e.signal}` : (e?.code ?? "?");
-    return { line: first(e?.stdout), code };
+    return { line: first(e?.stdout), code, cmd: cmd[0] };
   }
+}
+
+/** Путь стража относительно корня — один источник для defaultStrazhCmd и текста «страж не найден». */
+export const STRAZH_REL = join("tools", "ops", "rules_guard.py");
+
+/** Стража в дереве нет → {ok:false, silent} (гейт не молчит: без стража правки правил проверить нечем). */
+export function strazhNotFound(path) {
+  return { ok: false, parsed: null, line: null, kind: "strazh", silent: `страж не найден: ${path}` };
 }
 
 /** Команда стража по умолчанию: tools/ops/rules_guard.py --check (строка-счётчик — первая строка stdout, код 1 при «не ноль»; ключа `--line` у стража нет —
  *  Fable proverka-t175-3 § 2 п.1: гейт звал его и молчал). Файла нет — null (страж не влит → проверка молчит). */
 export function defaultStrazhCmd(root) {
-  const f = join(root, "tools", "ops", "rules_guard.py");
+  const f = join(root, STRAZH_REL);
   return existsSync(f) ? ["python3", f, "--check"] : null;
 }
 
 /** Ответ стража → {ok, parsed, line, silent: текст «страж не ответил: …» или null}. Строки нет или в ней нет ни одного счётчика — страж не ответил
  *  (пустой вывод при коде 2 — падение, а не «чисто»): гейт НЕ молчит, а называет код. */
 export function strazhAnswer(res) {
+  // реестр не читается: страж ответил, но «просрочено»/«вне реестра» не измерил (там «?») — это не «0» и не ответ-счётчик; блок с причиной (kind "registry")
+  const reg = /реестр не читается\s*\(([^)]*)\)/.exec(res?.line ?? "");
+  if (reg) return { ok: false, parsed: null, line: res.line.trim(), kind: "registry", silent: `реестр правил не читается (${reg[1].trim().slice(0, 100)}) — сроки и выключатели не измерены` };
   const parsed = parseStrazh(res?.line);
   if (parsed) return { ok: true, parsed, line: res.line.trim(), silent: null };
+  if (res?.code === "ENOENT") return strazhNotFound(res.cmd ?? "?"); // команда стража не нашлась в системе (нет python3 / указанного файла)
   const code = res?.code ?? "?";
   const what = res?.line ? `вывод не разобран: «${res.line.trim().slice(0, 80)}»` : "пустой вывод";
-  return { ok: false, parsed: null, line: res?.line ?? null, silent: `страж не ответил: код ${code}, ${what}` };
+  return { ok: false, parsed: null, line: res?.line ?? null, kind: "strazh", silent: `страж не ответил: код ${code}, ${what}` };
 }
 
 /** Путь p назван в тексте находки: целиком или без приставки `.memory_bank/` (аудит банка называет файл без неё: «core/x.md — 3,4 КБ»).

@@ -18,7 +18,7 @@ import { resolve, join } from "node:path";
 import { runChecks, THRESHOLD_KEYS } from "./memory-audit.mjs";
 import {
   ownEditedPaths, onlyOwn, porcelainPath, isOwn, ownRulesEdits, parseStrazh, strazhVerdict,
-  runStrazh, strazhAnswer, defaultStrazhCmd, dropForeignProblems, DEFAULT_BLOCK_FIELDS,
+  runStrazh, strazhAnswer, strazhNotFound, STRAZH_REL, defaultStrazhCmd, dropForeignProblems, DEFAULT_BLOCK_FIELDS,
 } from "./stop-gate-own.mjs";
 
 const args = process.argv.slice(2);
@@ -28,8 +28,9 @@ const blockMode = args.includes("--block");
 //                 незакоммиченная правка в общей копии и чужие находки аудита сессию не блокируют; стенограммы нет → не блокируем;
 //   --strazh      у директора (REMLAB_ROLE=директор) и только если он правил файлы правил и они не закоммичены: запускает страж
 //                 (tools/ops/rules_guard.py --check или --strazh-cmd "<команда>") и блокирует при «просрочено»/«вне реестра» > 0
-//                 (--strazh-fields «просрочено,вне реестра,без разбора,на удаление» — чем блокировать). Стража нет в дереве — молчим;
-//                 страж есть, но упал/пустой вывод/нет счётчиков — блок «страж не ответил: код N» (молчать нельзя — так проверка тихо отваливается).
+//                 (--strazh-fields «просрочено,вне реестра,без разбора,на удаление» — чем блокировать). Стража нет в дереве — блок «страж не найден: путь»;
+//                 страж упал/пустой вывод/нет счётчиков — блок «страж не ответил: код N»; страж сказал «реестр не читается» — блок с причиной
+//                 (молчать нельзя — так проверка тихо отваливается).
 const ownMode = args.includes("--own-edits");
 const strazhMode = args.includes("--strazh");
 const argVal = (flag) => {
@@ -97,20 +98,23 @@ if (strazhMode && process.env.REMLAB_ROLE === "директор" && blockMode) {
   const myRules = ownRulesEdits(own).filter((p) => dirtyPaths.some((d) => d === p || (d.endsWith("/") && p.startsWith(d))));
   if (myRules.length) {
     const cmd = strazhCmdArg ? strazhCmdArg.split(/\s+/).filter(Boolean) : defaultStrazhCmd(root);
-    const answer = cmd ? strazhAnswer(runStrazh(cmd, root)) : null; // cmd нет — страж не влит, молчим; команда есть, а ответа нет — НЕ молчим
-    const line = answer?.line ?? null;
-    if (answer && !answer.ok) {
+    // нет файла стража (команды по умолчанию) — НЕ молчим: «страж не найден: путь» (Fable 27 (в)); есть команда, а ответа нет — «не ответил»; реестр не читается — свой блок
+    const answer = cmd ? strazhAnswer(runStrazh(cmd, root)) : strazhNotFound(join(root, STRAZH_REL));
+    const line = answer.line ?? null;
+    if (!answer.ok) {
+      const tail =
+        answer.kind === "registry"
+          ? `починить tools/scout/rules/rule-registry.json (валидный JSON с rules и groups; git diff покажет, что сломалось) и завершать — пока реестр не читается, сроки и выключатели не проверены.`
+          : `а проверить их нечем — почини страж (python3 tools/ops/rules_guard.py --check) и завершай; молча пропускать нельзя.`;
       console.log(
         JSON.stringify({
           decision: "block",
-          reason:
-            `Гейт стража правил: ${answer.silent}. Ты правил файлы правил (${myRules.slice(0, 3).join(", ")}${myRules.length > 3 ? ", …" : ""}), ` +
-            `а проверить их нечем — почини страж (python3 tools/ops/rules_guard.py --check) и завершай; молча пропускать нельзя.`,
+          reason: `Гейт стража правил: ${answer.silent}. Ты правил файлы правил (${myRules.slice(0, 3).join(", ")}${myRules.length > 3 ? ", …" : ""}), ` + tail,
         })
       );
       process.exit(0);
     }
-    const verdict = strazhVerdict(answer?.parsed ?? null, strazhFields.length ? strazhFields : DEFAULT_BLOCK_FIELDS);
+    const verdict = strazhVerdict(answer.parsed, strazhFields.length ? strazhFields : DEFAULT_BLOCK_FIELDS);
     if (verdict.block) {
       console.log(
         JSON.stringify({

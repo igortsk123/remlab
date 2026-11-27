@@ -174,22 +174,41 @@ def read_journal(path: str, now: 'datetime.datetime', old_hours: float) -> dict:
 
 # ── сборка ────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
 
+def registry_problem(reg) -> str | None:
+    """Реестр читается? → None, иначе причина по-русски. Нет файла / не JSON → `_load` даёт None; JSON не того вида (не словарь, нет `rules` списком / `groups` словарём) — тоже не реестр."""
+    if reg is None:
+        return 'файла нет или он не JSON'
+    if not isinstance(reg, dict):
+        return 'верх файла не словарь'
+    if not isinstance(reg.get('rules'), list):
+        return 'нет списка rules'
+    if not isinstance(reg.get('groups'), dict):
+        return 'нет словаря groups'
+    return None
+
+
 def evaluate(root: str, cfg: dict, state: dict, now: 'datetime.datetime', today: 'datetime.date', journal_path: str | None = None) -> dict:
-    reg = _load(os.path.join(root, 'tools', 'scout', 'rules', 'rule-registry.json')) or {}
-    dl = deadlines(reg, today)
+    """Реестр не читается → счётчики «просрочено» и «вне реестра» НЕЛЬЗЯ мерить (без реестра все выключатели «новые» — ложные «новых 23»): они None, в строке «?», а причина — `registry_error`
+    (T-175 fix, Fable 27 (б)). Первые наблюдения выключенных сохраняются как были — сломанный реестр не стирает 14-дневный счёт."""
+    reg = _load(os.path.join(root, 'tools', 'scout', 'rules', 'rule-registry.json'))
+    rerr = registry_problem(reg)
+    dl = [] if rerr else deadlines(reg, today)
     overdue = [d for d in dl if d['days_left'] < 0]
-    sw = switches(root)
+    sw = {'new': [], 'over': 0, 'unclassified': [], 'uncovered': [], 'max': None, 'errors': []} if rerr else switches(root)
     m_items = sw['new'] + ['файл правил не отнесён: %s' % f for f in sw['unclassified']]
     m = max(len(sw['new']), sw['over']) + len(sw['unclassified'])
-    due, seen = off_remove(sw['uncovered'], state, today, int(cfg['off_days']))
+    if rerr:
+        due, seen = [], dict(state.get('off_first_seen') if isinstance(state.get('off_first_seen'), dict) else {})
+    else:
+        due, seen = off_remove(sw['uncovered'], state, today, int(cfg['off_days']))
     j = read_journal(journal_path or os.environ.get('OWNER_JOURNAL') or cfg['journal_path'], now, float(cfg['unreviewed_hours']))
     res = {
-        'now': now.isoformat(), 'today': today.isoformat(),
-        'overdue': len(overdue), 'overdue_items': ['%s — срок %s, прошло %d дн.' % (d['what'], d['decide_by'].isoformat(), -d['days_left']) for d in overdue],
-        'outside': m, 'outside_items': m_items, 'outside_old': max(0, len(sw['uncovered']) - len(sw['new'])), 'outside_max': sw['max'], 'switch_errors': sw['errors'],
+        'now': now.isoformat(), 'today': today.isoformat(), 'registry_error': rerr,
+        'overdue': None if rerr else len(overdue), 'overdue_items': ['%s — срок %s, прошло %d дн.' % (d['what'], d['decide_by'].isoformat(), -d['days_left']) for d in overdue],
+        'outside': None if rerr else m, 'outside_items': m_items, 'outside_old': None if rerr else max(0, len(sw['uncovered']) - len(sw['new'])), 'outside_max': sw['max'], 'switch_errors': sw['errors'],
         'unreviewed': len(j['pending']) if j['exists'] else None, 'unreviewed_old': len(j['old']), 'unreviewed_items': ['%s: %s' % (x['n'], x['text']) for x in j['pending']],
         'journal': {'exists': j['exists'], 'path': j['path'], 'bad': j['bad']},
-        'off_remove': len(due), 'off_remove_items': due, 'off_first_seen': seen,
+        'off_remove': None if rerr else len(due), 'off_remove_items': due, 'off_first_seen': seen,
         'deadlines': [{'what': d['what'], 'gid': d['gid'], 'decide_by': d['decide_by'].isoformat(), 'days_left': d['days_left'], 'rules': d['rules']} for d in dl],
     }
     res['line'] = line_of(res)
@@ -198,12 +217,15 @@ def evaluate(root: str, cfg: dict, state: dict, now: 'datetime.datetime', today:
 
 def line_of(res: dict) -> str:
     k = '?' if res['unreviewed'] is None else str(res['unreviewed'])
+    if res.get('registry_error'):
+        # три счётчика, зависящих от реестра, не мерятся — «?»; гейт директора по «реестр не читается» блокирует (tools/stop-gate-own.mjs: strazhAnswer)
+        return 'правила: реестр не читается (%s), просрочено ?, вне реестра: ? (старый долг ?), сообщений владельца без разбора %s, выключателей на удаление ?' % (res['registry_error'], k)
     return 'правила: просрочено %d, вне реестра: новых %d (старый долг %d), сообщений владельца без разбора %s, выключателей на удаление %d' % (
         res['overdue'], res['outside'], res['outside_old'], k, res['off_remove'])
 
 
 def is_clean(res: dict) -> bool:
-    return not (res['overdue'] or res['outside'] or res['off_remove'] or res['unreviewed'] or res['unreviewed_old'])
+    return not (res.get('registry_error') or res['overdue'] or res['outside'] or res['off_remove'] or res['unreviewed'] or res['unreviewed_old'])
 
 
 def details(res: dict) -> list:
@@ -213,8 +235,11 @@ def details(res: dict) -> list:
             out.append('  · %s: %s' % (title, x))
         if len(res[key]) > 8:
             out.append('  · %s: …и ещё %d' % (title, len(res[key]) - 8))
-    out.append('  справка: вне реестра старых %d из порога %s (только убывают — сторож выключателей); срок ближайшей группы: %s' % (
-        res['outside_old'], res['outside_max'], min((d['decide_by'] for d in res['deadlines']), default='—')))
+    if res.get('registry_error'):
+        out.append('  · реестр правил не читается (tools/scout/rules/rule-registry.json): %s — сроки и выключатели не меряются, починить файл' % res['registry_error'])
+    else:
+        out.append('  справка: вне реестра старых %d из порога %s (только убывают — сторож выключателей); срок ближайшей группы: %s' % (
+            res['outside_old'], res['outside_max'], min((d['decide_by'] for d in res['deadlines']), default='—')))
     if not res['journal']['exists']:
         out.append('  справка: журнала сообщений владельца нет (%s) — K не мерится (задача 175/4)' % res['journal']['path'])
     elif res['journal']['bad']:
@@ -235,6 +260,15 @@ def plan_alerts(res: dict, state: dict, now: 'datetime.datetime', cfg: dict) -> 
     after = float(cfg['alert_after_min']) * 60
     again = float(cfg['realert_hours']) * 3600
     due_lines, marks = [], []
+    # реестр не читается — свой счётчик (1 = сломан), тот же срок «дольше alert_after_min» и повтор; три остальных при этом None и сбрасываются вместе с «since»
+    for key, val, title, items in (('registry', 1 if res.get('registry_error') else 0, 'реестр не читается', [res.get('registry_error') or '']),):
+        if not val:
+            since.pop(key, None)
+            continue
+        t0 = _ts_or(since.setdefault(key, now.isoformat()), now)
+        if (now - t0).total_seconds() >= after and not (key in last and (now - _ts_or(last[key], now)).total_seconds() < again):
+            due_lines.append('• %s: %s' % (title, items[0]))
+            marks.append(key)
     for key, val, title, items in (('overdue', res['overdue'], 'просрочено', res['overdue_items']), ('outside', res['outside'], 'вне реестра', res['outside_items']),
                                    ('off_remove', res['off_remove'], 'выключателей на удаление', res['off_remove_items'])):
         if not val:
