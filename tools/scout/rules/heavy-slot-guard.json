@@ -1,0 +1,9 @@
+{
+ "_about": "Правила сторожа «браузер в крон-шаге — только через heavy-slot» (tools/ops/heavy_slot_guard.py, T-20261127-175/demo-live-slot). browser_pattern — что считается ЗАПУСКОМ браузера в тексте файла (без строк-комментариев; регистр важен: PLAYWRIGHT_* в node-env.sh — настройка, не запуск); slot_pattern — что считается очередью тяжёлых прогонов; exempt — вход → причина, почему браузер идёт без очереди (вход: `step:<имя шага refresh_daily>` или `cron:<файл>`; причина обязательна, вход должен существовать). Выключателей и чисел-порогов здесь нет.",
+ "browser_pattern": "playwright test|exec playwright|npx playwright|@playwright/test|from ['\"]playwright|require\\(['\"]playwright|chromium\\.launch|puppeteer\\.launch|--headless|headless_shell",
+ "slot_pattern": "heavy[-_]slot|HEAVY_SLOT",
+ "exempt": {
+  "step:demo_warm": "ДОЛГ (найден сторожем 27.11): прогрев кадров идёт со своим chromium без очереди, `timeout 1800` внутри demo-warm.sh; обернуть в heavy-slot — отдельной задачей после замера ядер/памяти (решение директора); убрать запись вместе с обёрткой",
+  "step:page_check": "ДОЛГ (найден сторожем 27.11): проверка собранной страницы flat215 в chromium (минуты, 1 браузер) идёт без очереди; обернуть — отдельной задачей после замера (решение директора); убрать запись вместе с обёрткой"
+ }
+}
