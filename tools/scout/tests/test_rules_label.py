@@ -149,6 +149,8 @@ print('== проба = ветка = основная копия по соста�
 cp = os.path.join(BASE, 'copy')
 os.makedirs(os.path.join(cp, 'tools'))
 shutil.copytree(os.path.join(REPO, 'tools', 'scout', 'rules'), os.path.join(cp, 'tools', 'scout', 'rules'))
+os.makedirs(os.path.join(cp, 'services', 'planner-solver', 'rules'))
+shutil.copy(os.path.join(REPO, 'services', 'planner-solver', 'rules', 'bedroom.json'), os.path.join(cp, 'services', 'planner-solver', 'rules', 'bedroom.json'))   # файл спальни тоже в наборе (include)
 ok(RL.diff_trees(cp, REPO) == [] and RL.label(cp)['id'] == RL.label(REPO)['id'], 'копия правил репо = репо: пустая разница, одна метка')
 pm = os.path.join(cp, 'tools', 'scout', 'rules', 'part-material.json')
 dj = json.load(open(pm, encoding='utf-8'))
@@ -200,7 +202,7 @@ def disguised_in(root):
         if isinstance(dj, dict):
             for k, v in dj.items():
                 if str(k).startswith('_') and isinstance(v, dict) and v and all(isinstance(x, str) for x in v.values()):
-                    if f'{os.path.basename(rel)}#{k}' not in DATA_NOT_NOTE:
+                    if f'{os.path.basename(rel)}#{k}' not in DATA_NOT_NOTE and not (root == REPO and k in RL.note_objects()):   # объявленный объект-пометка (note_objects) — осознанно
                         out.append(f'{os.path.basename(rel)}#{k}')
     return out
 
@@ -283,6 +285,99 @@ r4 = conv('cv4', {'fake_step.py': "def (:\n"})
 ok(any('не разобран' in x for x in RL.env_gaps(r4, GC)), 'скрипт конвейера не разобрался → красный')
 ok(subprocess.run([sys.executable, '-I', os.path.join(REPO, 'tools', 'scout', 'rules_label.py'), '--env-check', '--root', REPO], capture_output=True).returncode == 0, 'CLI `rules_label.py --env-check` на реальном дереве — код 0')
 ok(subprocess.run([sys.executable, '-I', os.path.join(REPO, 'tools', 'scout', 'rules_label.py'), '--env-check', '--root', r1], capture_output=True).returncode in (0, 1), 'CLI на чужом корне не падает исключением')
+
+print('== текстовый «_»-ключ с ДАННЫМИ (`_default: "hunyuan3d"`) — в метке; сторож (T-175/12-дыра, проверка Fable 27.11)')
+CFGD = dict(CFG, text_data=['_default'], text_display={'_why': 'печатается в отчёте'})
+T1 = tree('td1', {'p.json': {'roles': {'_default': 'hunyuan3d', 'a': 1}, '_about': 'комментарий'}})
+T2 = tree('td2', {'p.json': {'roles': {'_default': 'none', 'a': 1}, '_about': 'комментарий'}})
+ok(RL.label(T1, CFG)['id'] == RL.label(T2, CFG)['id'], 'контроль: БЕЗ списка text_data правка текстового «_default» метку не двигает (так была дыра)')
+ok(RL.label(T1, CFGD)['id'] != RL.label(T2, CFGD)['id'], 'с text_data=[«_default»] правка «_default»: hunyuan3d → none метку ДВИГАЕТ')
+ok(RL.label(T1, CFGD)['id'] == RL.label(tree('td3', {'p.json': {'roles': {'_default': 'hunyuan3d', 'a': 1}, '_about': 'другой текст'}}), CFGD)['id'], 'а правка комментария «_about» рядом метку по-прежнему не двигает')
+ok(RL.label(T1, CFGD)['id'] == RL.label(tree('td4', {'p.json': {'roles': {'_default': 'hunyuan3d', 'a': 1, '_why': 'ещё пояснение'}, '_about': 'x'}}), CFGD)['id'], 'и «_why» из text_display (только показ) — не в метке')
+dd = RL.diff_trees(T1, T2, CFGD)
+ok(len(dd) == 1 and dd[0]['key'] == 'roles._default' and dd[0]['a'] == 'hunyuan3d' and dd[0]['b'] == 'none', '--diff показывает roles._default: hunyuan3d / none')
+ok(RL.diff_trees(T1, T2, CFG) == [], '…а без списка — разницы нет (контроль)')
+# реальные правила репо: Fable менял roles._default на «none» — метка обязана сдвинуться
+cpd = os.path.join(BASE, 'copy-default')
+os.makedirs(os.path.join(cpd, 'tools'))
+shutil.copytree(os.path.join(REPO, 'tools', 'scout', 'rules'), os.path.join(cpd, 'tools', 'scout', 'rules'))
+os.makedirs(os.path.join(cpd, 'services', 'planner-solver', 'rules'))
+shutil.copy(os.path.join(REPO, 'services', 'planner-solver', 'rules', 'bedroom.json'), os.path.join(cpd, 'services', 'planner-solver', 'rules', 'bedroom.json'))
+asp = os.path.join(cpd, 'tools', 'scout', 'rules', 'asset-strategies.json')
+aj = json.load(open(asp, encoding='utf-8'))
+was = aj['roles']['_default']
+aj['roles']['_default'] = 'none' if was != 'none' else 'hunyuan3d'
+json.dump(aj, open(asp, 'w', encoding='utf-8'), ensure_ascii=False)
+ok(RL.label(cpd)['id'] != RL.label(REPO)['id'], f'реальные правила: asset-strategies.json roles._default «{was}» → «{aj["roles"]["_default"]}» двигает метку (дыра закрыта)')
+aj['roles']['_default'] = was
+aj['_about'] = str(aj.get('_about', '')) + ' — правка пометки'
+json.dump(aj, open(asp, 'w', encoding='utf-8'), ensure_ascii=False)
+ok(RL.label(cpd)['id'] == RL.label(REPO)['id'], 'реальные правила: правка текста пометки «_about» рядом метку не двигает')
+ok('_default' in RL.load_cfg()['text_data'], 'rules-label.json: «_default» в text_data')
+
+
+def tk_root(name, rules, code):
+    """Корень для сторожа: правила + скрипты кода (+ папка tools, чтобы сторож не был слеп)."""
+    root = tree(name, {'p.json': rules})
+    os.makedirs(os.path.join(root, 'tools', 'scout'), exist_ok=True)
+    for rel, txt in code.items():
+        os.makedirs(os.path.dirname(os.path.join(root, rel)), exist_ok=True)
+        with open(os.path.join(root, rel), 'w', encoding='utf-8') as f:
+            f.write(txt)
+    return root
+
+
+TCFG = {'include': ['tools/scout/rules'], 'exclude': [], 'env': [], 'length': 12}
+READ = {'tools/scout/mod.py': "def f(r):\n    return r.get('_default', 'x')\n"}
+g = RL.text_key_gaps(tk_root('tk1', {'_default': 'hunyuan3d', '_about': 'комментарий из слов'}, READ), dict(TCFG, text_data=[], text_display={}))
+ok(len(g) == 1 and g[0].startswith('_default') and 'mod.py:2' in g[0] and 'text_data' in g[0], 'СТОРОЖ: код читает текстовый «_default», а в списках его нет → красный, с именем и файлом:строкой')
+ok(RL.text_key_gaps(tk_root('tk2', {'_default': 'hunyuan3d'}, READ), dict(TCFG, text_data=['_default'])) == [], 'имя в text_data → зелёно')
+ok(RL.text_key_gaps(tk_root('tk3', {'_default': 'hunyuan3d'}, READ), dict(TCFG, text_display={'_default': 'печатается в отчёте'})) == [], 'имя в text_display с причиной → зелёно')
+g = RL.text_key_gaps(tk_root('tk4', {'_default': 'hunyuan3d'}, READ), dict(TCFG, text_display={'_default': ' '}))
+ok(any('без причины' in x for x in g), 'text_display БЕЗ причины → красный')
+g = RL.text_key_gaps(tk_root('tk5', {'_default': 'hunyuan3d'}, READ), dict(TCFG, text_data=['_default'], text_display={'_default': 'причина'}))
+ok(any('одновременно' in x for x in g), 'имя в обоих списках → красный')
+ok(RL.text_key_gaps(tk_root('tk6', {'_x': 'один два'}, {'tools/scout/mod.py': "d = {}\nd['_x'] = 1\n"}), TCFG) == [], 'запись `d[«_x»] = …` — не чтение, не находка (код пишет свой ключ)')
+ok(RL.text_key_gaps(tk_root('tk7', {'_x': 'один два'}, {'tools/scout/tests/test_mod.py': "r.get('_x')\n", 'tools/scout/test_mod2.py': "r.get('_x')\n"}), TCFG) == [], 'чтения в тестах не считаются')
+ok(len(RL.text_key_gaps(tk_root('tk8', {'_x': 'один два'}, {'tools/scout/m.mjs': "const a = r['_x'];\n"}), TCFG)) == 1, 'чтение в .mjs (скобки) тоже ловится')
+g = RL.text_key_gaps(tk_root('tk9', {'_mode': 'fast'}, {}), TCFG)
+ok(len(g) == 1 and '_mode' in g[0] and 'без пробелов' in g[0], 'эвристика: значение «fast» (без пробелов) у не учтённого «_»-ключа → красный, даже если код не нашёлся')
+ok(RL.text_key_gaps(tk_root('tk10', {'_mode': 'fast и медленно'}, {}), TCFG) == [], 'фраза с пробелами — комментарий, не находка')
+blind = os.path.join(BASE, 'tk11')
+os.makedirs(os.path.join(blind, 'rules'))
+json.dump({'_default': 'x'}, open(os.path.join(blind, 'rules', 'p.json'), 'w'))
+g = RL.text_key_gaps(blind, dict(TCFG, include=['rules']))
+ok(any('слеп' in x for x in g),'нет папок кода — красный «слеп», а не молчаливое «чисто»')
+ok(RL.text_key_gaps(REPO) == [], 'реальный репо: все прочитанные кодом текстовые «_»-ключи учтены (text_data / text_display)')
+real_cfg = RL.load_cfg()
+g = RL.text_key_gaps(REPO, dict(real_cfg, text_data=[]))
+ok(any(x.startswith('_default') for x in g), 'СЛОМАНО: убрали «_default» из text_data → сторож на реальном репо краснеет с именем')
+g = RL.text_key_gaps(REPO, dict(real_cfg, text_display={}))
+ok(any(x.startswith('_why') for x in g), 'СЛОМАНО: убрали «_why» из text_display → сторож краснеет с именем')
+ok(subprocess.run([sys.executable, '-I', os.path.join(REPO, 'tools', 'scout', 'rules_label.py'), '--text-check', '--root', REPO], capture_output=True).returncode == 0, 'CLI `rules_label.py --text-check` на репо — код 0')
+rbad = tk_root('tk12', {'_default': 'hunyuan3d'}, READ)
+ok(subprocess.run([sys.executable, '-I', os.path.join(REPO, 'tools', 'scout', 'rules_label.py'), '--text-check', '--root', rbad], capture_output=True).returncode == 1, 'CLI на корне, где ключ не учтён — код 1')
+
+print('== объект-пометка `_meta` с ключом-данными `engine` (services/planner-solver/rules/bedroom.json; замечание Fable 27.11)')
+CFGN = dict(CFG, note_objects={'_meta': ['engine']})
+M = lambda **kw: {'a': 1, '_meta': dict({'source': 'текст', 'about': 'описание', 'engine': 'groups'}, **kw)}   # noqa: E731
+n1 = tree('nm1', {'p.json': M()})
+ok(RL.label(n1, CFGN)['id'] != RL.label(tree('nm2', {'p.json': {**M(), '_meta': dict(M()['_meta'], engine='items')}}), CFGN)['id'], 'смена _meta.engine: groups → items метку ДВИГАЕТ')
+ok(RL.label(n1, CFGN)['id'] == RL.label(tree('nm3', {'p.json': {**M(), '_meta': dict(M()['_meta'], about='совсем другое', source='иной источник')}}), CFGN)['id'], 'правка текстов _meta (about, source) метку НЕ двигает')
+ok(RL.label(tree('nm4', {'p.json': {'a': 1, '_meta': {'source': 'текст'}}}), CFGN)['id'] == RL.label(tree('nm5', {'p.json': {'a': 1}}), CFGN)['id'], 'объект из одних текстов без engine — пометка: его наличие/отсутствие метку не двигает')
+ok(RL.label(tree('nm6', {'p.json': {'a': 1, '_meta': {'source': 'текст', 'limit': 5}}}), CFGN)['id'] != RL.label(tree('nm7', {'p.json': {'a': 1}}), CFGN)['id'], '_meta с числом внутри — данные, метка видит')
+ok(RL.label(n1, CFG)['id'] != RL.label(tree('nm8', {'p.json': {**M(), '_meta': dict(M()['_meta'], engine='items')}}), CFG)['id'], 'контроль: без note_objects объект _meta — данные целиком (метка видит и engine, и тексты — запас)')
+ok(RL.diff_trees(n1, tree('nm9', {'p.json': {**M(), '_meta': dict(M()['_meta'], engine='items')}}), CFGN)[0]['key'] == '_meta.engine', '--diff показывает _meta.engine')
+real_cfg = RL.load_cfg()
+ok('note_objects' not in real_cfg and real_cfg['include'] == ['tools/scout/rules'], 'rules-label.json: include — ТОЛЬКО tools/scout/rules (то, что едет в срезе code.tar для Salad); bedroom.json спальни и note_objects в метке нет — `_meta.engine` сторожит тест эталона спальни')
+# сторож
+NCODE = {'tools/scout/mod.py': "def f(r):\n    return r.get('_meta', {}).get('mode')\n"}
+g = RL.text_key_gaps(tk_root('nk1', {'_meta': {'about': 'текст', 'mode': 'fast'}}, NCODE), dict(TCFG, note_objects={'_meta': ['engine']}))
+ok(any(x.startswith('_meta.mode') and 'mod.py:2' in x and 'note_objects' in x for x in g), 'СТОРОЖ: код читает ключ `_meta.mode` из объекта-пометки, а в note_objects его нет → красный, с именем и файлом:строкой')
+ok(not any('_meta.mode' in x for x in RL.text_key_gaps(tk_root('nk2', {'_meta': {'about': 'текст', 'mode': 'fast'}}, NCODE), dict(TCFG, note_objects={'_meta': ['mode']}))), 'ключ перечислен в note_objects → зелёно')
+g = RL.text_key_gaps(tk_root('nk3', {'_meta': {'about': 'текст'}}, {}), dict(TCFG, note_objects={'_meta': ['engine']}))
+ok(any('_meta.engine' in x and 'устарела' in x for x in g), 'запись note_objects про ключ, которого нет в файлах правил → красный «устарела»')
+ok(RL.text_key_gaps(REPO) == [], 'реальный репо: сторож чист')
 
 shutil.rmtree(BASE, ignore_errors=True)
 print(f'rules_label: ошибок {FAIL}')

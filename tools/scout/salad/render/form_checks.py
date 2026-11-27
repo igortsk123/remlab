@@ -67,6 +67,20 @@ def check(name: str, value, thr, flag: bool, note: str = '') -> dict:
     return {'name': name, 'value': None if value is None else round(float(value), 4), 'thr': thr, 'flag': bool(flag), 'note': note}
 
 
+MASK_NAMES = ('relief_graze', 'back_relief', 'back_dup_mask')                          # проверки по маске формы: им нужны кадры с альфой
+
+
+def skipped(name: str, thr, why: str) -> dict:
+    """Проверка, которой НЕЧЕГО проверять (нет нужного ей входа): не «прошла», а «не выполнена: причина» — `skipped: True`, значение None, флага нет (T-20261127-175/Ш0-fix-2, урок дня 27.11)."""
+    c = check(name, None, thr, False, f'не выполнена: {why}')
+    c['skipped'] = True
+    return c
+
+
+def mask_skipped(why: str, R: dict) -> list[dict]:
+    return [skipped(n, R[n], why) for n in MASK_NAMES]
+
+
 # ---------- геометрия ----------
 def glb_sane(m, why: str, R: dict) -> dict:
     if m is None:
@@ -668,20 +682,20 @@ def cards_from_db(skus: list[str], runner=None) -> dict:
 
 
 def mask_checks(sku_dir: str, role: str, R: dict) -> list[dict]:
-    """Проверки по кадрам с альфой (`<sku>/alpha/NN_<вид>_clay_graze.png` рядом с обычным кадром). Нет кадров — пусто."""
+    """Проверки по кадрам с альфой (`<sku>/alpha/NN_<вид>_clay_graze.png` рядом с обычным кадром). Нет кадров — НЕ пусто и не «прошла»: три записи «не выполнена: …» (`skipped`)."""
     ad = os.path.join(sku_dir, 'alpha')
     if not os.path.isdir(ad):
-        return []
+        return mask_skipped('нет альфа-кадра (папки <товар>/alpha/ нет)', R)
 
     def pick(az):
         return next((f for f in sorted(os.listdir(sku_dir)) if f'_{az}_clay_graze.png' in f), None)
     f0, f1 = pick('az000'), pick('az180')
     if not f0 or not f1:
-        return [check('relief_graze', None, R['relief_graze'], False, 'нет кадров 0°/180° при боковом свете')]
+        return mask_skipped('нет альфа-кадра 0°/180° при боковом свете', R)
     a, ma = hp_in_mask(os.path.join(sku_dir, f0), os.path.join(ad, f0), R)
     b, mb = hp_in_mask(os.path.join(sku_dir, f1), os.path.join(ad, f1), R)
     if a is None or b is None:
-        return [check('relief_graze', None, R['relief_graze'], False, 'маска формы пуста или кадр другого размера')]
+        return mask_skipped('маска формы пуста или кадр другого размера', R)
     ea, eb = energy(a, ma), energy(b, mb)
     out = [check('relief_graze', ea, R['relief_graze'], ea > R['relief_graze'], f'энергия рельефа 0° внутри маски {ea:.2f} (боковой свет)')]
     flat = any((role or '').lower().startswith(x) for x in R['flat_back_roles'])
@@ -779,12 +793,12 @@ def run_sku(sku: str, glb: str | None, photo: str | None, frames: str | None, ru
                 rec['checks'].append(dict(check('thin_width', None, [R['thin_w_lo'], R['thin_w_hi']], False, 'нет маски фото — мерка тонких частей пропущена'), would_flag=False))
     if frames:
         rec['checks'] += back_dup(frames, R)
-    if alpha_dir:
-        rec['checks'] += mask_checks(alpha_dir, role, R)
+    rec['checks'] += mask_checks(alpha_dir, role, R) if alpha_dir else mask_skipped('папка кадров с альфой не задана', R)                  # без альфы — «не выполнена», не молчание
     if vlm_cache and frames and rules.get('vlm_judge'):
         import vlm_judge as VJ
         rec['checks'] += VJ.judge(sku, glb, photo, frames, role, rules['vlm_judge'], vlm_cache, chat, **(vlm_kw or {}))
     flags = [c['name'] for c in rec['checks'] if c['flag']]
+    rec['not_run'] = [c['name'] for c in rec['checks'] if c.get('skipped')]                                # что не выполнено (нечего было проверять)
     rec['auto'] = 'flag' if flags else 'ok'
     rec['status'] = status_of(rec['checks'], block)
     rec['flags'] = flags
