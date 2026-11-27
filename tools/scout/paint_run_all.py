@@ -26,6 +26,7 @@ RULES = os.path.join(HERE, 'rules', 'paint-run-all.json')
 sys.path.insert(0, HERE)
 import paint_check as PC  # noqa: E402  (классификация этапов — тот же код, что в этапе 9)
 import paint_stage as PS  # noqa: E402
+import circle_origin as CO  # noqa: E402  (откуда вход: форма, карточка, профиль правил — проверка на старте круга, T-175/10)
 
 _PH = re.compile(r'\{(\w+)\}')
 
@@ -201,7 +202,7 @@ def resolve_steps(stage: dict, ctx: dict, extra: dict | None = None) -> list:
             if m and isinstance(ctx.get(m.group(1)), list):
                 argv += [str(x) for x in ctx[m.group(1)]]                   # {cam_az_args}, {body_only_args}: список аргументов (пустой — ничего)
                 continue
-            if m and m.group(1) in ('channels', 'product_role', 'channel_classes', 'card') and not ctx.get(m.group(1)):
+            if m and m.group(1) in ('channels', 'product_role', 'channel_classes', 'card', 'photo') and not ctx.get(m.group(1)):
                 if argv and argv[-1].startswith('--'):
                     argv.pop()                                              # убрать и сам флаг без значения
                 continue
@@ -375,9 +376,35 @@ def _run_step(step: dict, name: str, ctx: dict, rules: dict, timeout: int, use_h
     return r
 
 
-def execute(run: str, sku: str, a: dict, rules: dict, check_rules: dict, only: list | None = None, timeout: int = 3600) -> dict:
-    """Выполнить по порядку; перед каждым этапом гейт считается заново по ФАКТИЧЕСКИМ check.json (не по плану)."""
+def origin_start(run: str, sku: str, a: dict, allow_old: str | None = None, rules: dict | None = None, check_rules: dict | None = None, only: list | None = None,
+                 expected_label: str | None = None) -> dict:
+    """Проверка входа на старте круга — пять вещей (T-175/10, circle_origin.py): вырезка формы, генератор и Ш0, камера 04, карточка и тип, метка набора правил. Прежняя метка — из run_all.json этого прогона;
+    камера 04 — по её check.json и плану (посчитает ли этот прогон её сам)."""
+    rules = rules or load_rules()
+    check_rules = check_rules or PC.load_rules()
+    ctx = make_ctx(run, sku, a, rules)
+    cam = rules.get('camera_stage')
+    cam_fact = None
+    if cam:
+        st = stage_status(run, sku, cam, check_rules)
+        will = any(cam in (it.get('produces') or []) and it['action'] in ('run', 'adopt') for it in plan(run, sku, a, rules, check_rules, only))
+        cam_fact = {'status': st['status'], 'reason': st['reason'], 'will_run': will}
+    prior = None
+    try:
+        with open(os.path.join(ctx['sku_dir'], 'run_all.json'), encoding='utf-8') as f:
+            prior = json.load(f).get('origin')
+    except (OSError, ValueError):
+        pass
+    card = os.path.join(ctx['work'], 'card.json')
+    return CO.check_start(sku, form=prep_glb_path(a, sku), record=ctx['_record'], card=card if os.path.exists(card) else None, role=ctx['product_role'] or None, camera=cam_fact,
+                          prior_origin=prior, expected_label=expected_label, allow_old=allow_old)
+
+
+def execute(run: str, sku: str, a: dict, rules: dict, check_rules: dict, only: list | None = None, timeout: int = 3600, origin: dict | None = None) -> dict:
+    """Выполнить по порядку; перед каждым этапом гейт считается заново по ФАКТИЧЕСКИМ check.json (не по плану). `origin` — итог проверки происхождения (пишется в журнал `origin`)."""
     log = {'sku': sku, 'run': run, 'stages': [], 'started': time.strftime('%Y-%m-%d %H:%M:%S'), 'rules_label': PS._rules_label()}   # метка набора правил круга (T-175/12): та же запись, что в check.json этапов
+    if origin:
+        log['origin'] = {**origin['origin'], 'bypass': origin['bypass'], 'checked': time.strftime('%Y-%m-%d %H:%M:%S')}
     ctx = make_ctx(run, sku, a, rules)
     os.makedirs(ctx['work'], exist_ok=True)
     for name in rules['order']:
@@ -446,6 +473,8 @@ def main(argv: list) -> int:
     ap.add_argument('--force', action='store_true')
     ap.add_argument('--heavy', action='store_true', help='тяжёлые шаги — через tools/ops/heavy-slot.sh (на pakardev всегда включать)')
     ap.add_argument('--timeout', type=int, default=3600)
+    ap.add_argument('--allow-old-origin', default=None, metavar='ПРИЧИНА', help='обойти отказ проверки входа круга (вырезка/генератор+Ш0/камера 04/карточка+тип/набор правил, T-175/10); причина ≥ 10 знаков, пишется в run_all.json и печатается')
+    ap.add_argument('--rules-label', default='', help='ожидаемая метка набора правил (замороженный набор экзамена): текущая ≠ ожидаемой → отказ')
     a = ap.parse_args(argv)
     rules, cr = load_rules(), PC.load_rules()
     only = [x for x in a.only.split(',') if x] or None
@@ -457,6 +486,7 @@ def main(argv: list) -> int:
                 print(f"{p:12} {cr['words'][s['status']]:10} {s['reason']}")
         return 0
     if a.cmd == 'plan':
+        print(CO.render(origin_start(a.run, a.sku, d, a.allow_old_origin, rules, cr, only, a.rules_label or None)))   # план показывает, пустит ли проверка входа, но не отказывает
         for it in plan(a.run, a.sku, d, rules, cr, only):
             print(f"{it['stage']:8} {it['action']:8} {it['why']}")
             for path in it.get('files', {}):
@@ -468,9 +498,15 @@ def main(argv: list) -> int:
     if miss:
         print('нужны --native и --photo', file=sys.stderr)
         return 2
-    log = execute(a.run, a.sku, d, rules, cr, only, a.timeout)
+    org = origin_start(a.run, a.sku, d, a.allow_old_origin, rules, cr, only, a.rules_label or None)   # старт круга: пять вещей (вырезка, генератор+Ш0, камера 04, карточка+тип, набор правил) — расхождение → отказ до первого шага
+    print(CO.render(org))
+    if not org['ok']:
+        return 3
+    log = execute(a.run, a.sku, d, rules, cr, only, a.timeout, origin=org)
     for e in log['stages']:
         print(e['stage'], e['action'], e['status'], e['why'])
+    if org['bypass']:
+        print('ОБХОД проверки происхождения (в отчёт): ' + org['bypass']['reason'] + ' — ' + ', '.join(org['bypass']['items']))
     return 0
 
 

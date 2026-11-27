@@ -37,6 +37,8 @@ sys.path.insert(0, SALAD)
 sys.path.insert(0, HERE)
 sys.path.insert(0, os.path.join(SALAD, 'parts'))                                           # parts_to_npz (флаг zones_from, выбор parts.npz для 07)
 sys.path.insert(0, os.path.abspath(os.path.join(HERE, '..', '..', 'render_gpu')))       # bench_run (group_state/instances/stop_and_verify)
+sys.path.insert(0, os.path.join(ROOT, 'tools', 'scout'))
+import circle_origin as CO  # noqa: E402  (ворота входа круга, T-175/10)
 import kit_driver as KD  # noqa: E402
 import kit_worker as KW  # noqa: E402
 import worker_stage as WS  # noqa: E402
@@ -632,6 +634,8 @@ def main() -> int:
     ap.add_argument('--stop-series', default='', metavar='КЛЮЧ', help='T-58/3: штатный стоп серии КЛЮЧ — записать метку и выйти; живые драйверы серии сами погасят свои группы (ни kill, ни pkill)')
     ap.add_argument('--stop-reason', default='', help='с --stop-series: причина в метке')
     ap.add_argument('--apply', action='store_true')
+    ap.add_argument('--allow-old-origin', default=None, metavar='ПРИЧИНА', help='T-175/10: обойти отказ входа круга (вырезка, генератор/Ш0, камера 04, карточка/тип, набор правил); причина ≥10 знаков, попадёт в origin-check.json и в отчёт')
+    ap.add_argument('--origin-rows', default='', help='T-175/10: JSON {товар: {glb, photo, pose_run, extra_in}} — строки входа формы для ворот круга, когда --inputs не несёт формы (--stages 07/seam/08 по готовым этапам); loop5 передаёт сам')
     ap.add_argument('--queue', default='', help='T-34: общая очередь товаров (папка): все ноды-процессы берут из неё товар, как освободился слот, и ведут его по всем --stages без барьера; '
                                                 'очередь наполняется из --inputs (повторно — не дублирует); с --suffix каждой ноды разный')
     ap.add_argument('--slots', type=int, default=0, help='с --queue: товаров в работе на ноде одновременно (0 = --fill-procs)')
@@ -678,6 +682,10 @@ def main() -> int:
     inputs = load_inputs(a.inputs) if a.inputs else (seam_inputs(a.fill_root, a.vis_root, a.skus) if from_fill else vis_inputs(a.vis_root, a.skus))
     if not inputs:
         sys.exit('нет товаров для пакета')
+    o_rows = json.load(open(a.origin_rows, encoding='utf-8')) if a.origin_rows else {}
+    CO.starter_gate({s: {**(o_rows.get(s) or {}), **{k: v for k, v in (inputs[s] or {}).items() if k in ('glb', 'photo', 'pose_run', 'card')}} for s in inputs},
+                    who='stage_trial', out_dir=os.path.join(a.out, '_origin-' + (a.suffix or 'x')), dry=not a.apply, allow_old=a.allow_old_origin, catalog=os.path.expanduser(a.catalog) if a.catalog else None,
+                    pose_roots=[p for p in a.pose_root.split(',') if p], say=say)          # ВОРОТА ВХОДА КРУГА до создания группы Salad (T-175/10): отказ без --allow-old-origin = SystemExit(3)
     if '07' in stages_of(a):
         no_card, no_photo = top_input_problems(inputs)
         say(f'вход 07 для верха Ш3в: карточка у {len(inputs) - len(no_card)} из {len(inputs)}, фото у {len(inputs) - len(no_photo)}; без карточки: {no_card[:10]}{"…" if len(no_card) > 10 else ""}')
