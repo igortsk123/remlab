@@ -292,7 +292,14 @@ def photo_detail_step(tex_in, tone_tex, tx, g: dict, st: dict, Ld, valid, fgrp, 
     inside = (x >= 0.5) & (x <= px - 0.5) & (y >= 0.5) & (y <= px - 0.5) & ing_t
     xi, yi = np.clip(np.floor(x).astype(np.int64), 0, px - 1), np.clip(np.floor(y).astype(np.int64), 0, px - 1)
     fpx = ids[yi, xi]
-    same_pl = (face_n[fpx] * tx.N).sum(1) >= float(pd['plane_cos'])        # тот же наклон, что у грани под пикселем (спиной к камере и чужая плоскость не берутся)
+    Nc = tx.N @ M[:3]                                                       # нормаль тексела в куб камеры (подобие: поворот+масштаб) и взгляд из точки на центр камеры
+    Nc = Nc / np.maximum(np.linalg.norm(Nc, axis=1, keepdims=True), 1e-12)
+    vw = np.asarray(fr['C'], np.float64)[None, :] - Qc if fr.get('C') is not None else None
+    if vw is None:
+        info['reason'] = 'камера ортографическая — направление взгляда не задано'
+        return tex_in, None
+    vw = vw / np.maximum(np.linalg.norm(vw, axis=1, keepdims=True), 1e-12)
+    same_pl = (Nc * vw).sum(1) >= float(pd['plane_cos'])                     # тексел смотрит на камеру (мелкие треугольники сетки шумят по нормали — плоскость по пикселю не сверяем); спиной к камере не берётся
     use = inside & sel[yi, xi] & np.isin(fgrp[fpx], gi) & same_pl
     info['funnel'] = {'texels_group': int(ing_t.sum()), 'inside_frame': int(inside.sum()), 'on_sel': int((inside & sel[yi, xi]).sum()), 'same_plane': int(use.sum()), 'sel_px': int(sel.sum()), 'ingrp_px': int(ingrp.sum())}
     n_use = int(use.sum())
