@@ -42,6 +42,9 @@ import cutout_origin as CO
 BIREFNET_REPO = CO.BIREFNET_REPO
 BIREFNET_REVISION = CO.BIREFNET_REVISION
 
+# Роли, у которых работает шаг «главный предмет» (одобрено владельцем 30.08 — только стулья). Читает тест паспортов: у типа с флагом `main_object` в `chain_flags` роль обязана быть здесь, и наоборот.
+MAIN_OBJECT_ROLES = ('стул',)
+
 _LOCAL = None
 
 
@@ -146,7 +149,7 @@ def cut_shape(src: Image.Image, net: Image.Image, role: str | None = None, steps
     info['collage'] = {'verdict': bool(is_col), 'why': why, 'features': feats}
     shape = PRE.defringe(refined, info)
     # (шаг старой цепочки, только steps∋main_object) пара одинаковых предметов в кадре → один; срез одобрен владельцем только для стульев (30.08)
-    if 'main_object' in steps and (role or '').split()[0:1] == ['стул']:
+    if 'main_object' in steps and ((role or '').split() or [''])[0] in MAIN_OBJECT_ROLES:
         shape, dual = PRE._pick_main_object(shape)
         info.update(dual)
     # мягкий край по известному белому фону (аналитика, T-104/5): α = min(α, α_цвет) в полосе кромки, цвет — F; F ≈ B → α сети не трогаем
