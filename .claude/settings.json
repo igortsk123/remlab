@@ -43,7 +43,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "if command -v node >/dev/null 2>&1 && [ -f tools/session-reminder.mjs ]; then node tools/session-reminder.mjs . --block --scratch-fresh-days 2 --own-edits --strazh; elif command -v r >/dev/null 2>&1 && [ -f tools/session-reminder.mjs ]; then r node tools/session-reminder.mjs . --block --scratch-fresh-days 2 --own-edits --strazh; elif [ -n \"$(git status --porcelain 2>/dev/null | grep -v '^.. \\.memory_bank/')\" ]; then echo 'Внимание: изменения сессии не зафиксированы в памяти — перед /clear запусти /memory-check (.memory_bank/)'; fi"
+            "command": "if command -v node >/dev/null 2>&1 && [ -f tools/session-reminder.mjs ]; then node tools/session-reminder.mjs . --block --scratch-fresh-days 2 --own-edits --strazh; elif command -v r >/dev/null 2>&1 && [ -f tools/session-reminder.mjs ]; then if command -v python3 >/dev/null 2>&1 && [ -f tools/ops/stop_own_edits.py ]; then python3 tools/ops/stop_own_edits.py r node tools/session-reminder.mjs . --block --scratch-fresh-days 2 --own-edits --strazh; else r node tools/session-reminder.mjs . --block --scratch-fresh-days 2 --own-edits --strazh; fi; elif [ -n \"$(git status --porcelain 2>/dev/null | grep -v '^.. \\.memory_bank/')\" ]; then echo 'Внимание: изменения сессии не зафиксированы в памяти — перед /clear запусти /memory-check (.memory_bank/)'; fi"
           }
         ]
       }
