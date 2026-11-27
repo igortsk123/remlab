@@ -390,6 +390,23 @@ class AlphaMaskTests(unittest.TestCase):
         cmd = FR.render_cmd('a.glb', '/o', ('az000',), ('key',), 4, 1, alpha=True)
         self.assertEqual(cmd[cmd.index('--alpha-dir') + 1], os.path.join('/o', FR.ALPHA_SUB))
 
+    def test_worker_passes_alpha_by_name_across_image_versions(self):
+        """Воркер едет в env группы, forms_render — в образе другого SHA: у образа f73aa06e3 `render_cmd(…, shade, empty, alpha)`. Позиционная передача дала бы «empty», а не «alpha» → кадров с альфой нет, задание падает. Имя параметра — единственное, что общее."""
+        import types
+        import forms_render as FR
+        seen = {}
+
+        def old_render_cmd(glb, out, views, lights, samples, cores, shade='orig', empty=False, alpha=False):
+            seen['empty'], seen['alpha'] = empty, alpha
+            return FR.render_cmd(glb, out, views, lights, samples, cores, shade, alpha=alpha)
+        c = make_cfg(tempfile.mkdtemp(prefix='tests_render_skew_'))
+        fr = types.SimpleNamespace(render_cmd=old_render_cmd, frames_of=FR.frames_of, ALPHA_SUB=FR.ALPHA_SUB)
+        pool = WR.Pool(KW.State(), c, fr)
+        pool.submit('s1', GLB, dict(PARAMS, alpha=True))
+        self.assertTrue(wait_for(pool, ['s1']))
+        self.assertEqual(pool.jobs['s1']['status'], 'done', pool.jobs['s1'].get('error'))
+        self.assertEqual((seen['empty'], seen['alpha']), (False, True))
+
     def test_stand_alpha_pass_is_wired(self):
         """Blender в тесте — заглушка, сам проход проверит только живой пробник; здесь — что стенд принимает флаг и делает именно альфа-кадр: прозрачный фон, пола нет, снятие в --alpha-dir под тем же именем, настройки возвращены."""
         with open(os.path.join(REPO, 'tools/scout/stablegen/render_stand.py'), encoding='utf-8') as f:

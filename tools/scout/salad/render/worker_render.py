@@ -194,7 +194,7 @@ class Pool:
             self._refresh()
             out = os.path.join(j['dir'], 'out')
             fdir = os.path.join(out, 'f')
-            cmd = self.fr.render_cmd(os.path.join(j['dir'], 'in.glb'), fdir, views, lights, int(p['samples']), self.c['threads'], p.get('shade') or 'orig', bool(p.get('alpha')))
+            cmd = self.fr.render_cmd(os.path.join(j['dir'], 'in.glb'), fdir, views, lights, int(p['samples']), self.c['threads'], p.get('shade') or 'orig', alpha=bool(p.get('alpha')))      # по ИМЕНИ: воркер едет в env группы, а forms_render — в образе (другой SHA); позиционный 7-й параметр у образа f73aa06e3 — `empty`
             cmd = [x for x in cmd]
             cmd += ['--device', self.c['device']]
             # размер кадра: render_cmd задаёт 1200×900; другое — только явным параметром драйвера
