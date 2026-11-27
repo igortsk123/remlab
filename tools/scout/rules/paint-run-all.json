@@ -400,6 +400,8 @@
             "run_stage",
             "{run}",
             "{sku}",
+            "--photo",
+            "{photo}",
             "{parts_args}",
             "--card-json",
             "{card}"

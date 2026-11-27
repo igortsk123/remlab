@@ -34,6 +34,8 @@ ROOT = os.path.abspath(os.path.join(HERE, '..', '..'))
 RULES = os.path.join(ROOT, 'tools', 'scout', 'rules', 'loop5.json')
 STAGE_TRIAL = os.path.join(ROOT, 'tools', 'scout', 'salad', 'stage', 'stage_trial.py')
 HEAVY = os.path.join(ROOT, 'tools', 'ops', 'heavy-slot.sh')
+sys.path.insert(0, os.path.join(ROOT, 'tools', 'scout'))
+import circle_origin as CO  # noqa: E402  (ворота входа круга, T-175/10: зовутся до первого платного шага)
 
 
 def say(msg: str) -> None:
@@ -393,6 +395,7 @@ def stage_cmd(rules: dict, sha: str, start: str, idx: int, skus: list[str], run_
             cmd += ['--pose-root', ','.join(ex(x) for x in (pr if isinstance(pr, list) else [pr]))]            # несколько корней: камера этапа 4 лежит в разных пакетах (t173-4, t184 pose-out-rest/g*)
     else:
         cmd += ['--inputs', inputs_file]
+    cmd += rules.get('runtime_origin_args') or []                          # ворота входа круга в самом stage_trial (T-175/10): строки входа формы и ключ обхода — те же, что прошли ворота круга
     if apply:
         cmd.append('--apply')
     return cmd
@@ -779,6 +782,7 @@ def main(argv=None) -> int:
     ap.add_argument('--warm-stop', action='store_true', help='погасить тёплые ноды сейчас (с проверкой «0 нод») и выйти')
     ap.add_argument('--warm-sweep', action='store_true', help='погасить тёплые ноды, которым пора (предел жизни/простой по записи); безопасно запускать часто — занятые не трогает')
     ap.add_argument('--rules', default=RULES)
+    ap.add_argument('--allow-old-origin', default=None, metavar='ПРИЧИНА', help='обойти отказ входа круга (вырезка, генератор/Ш0, камера 04, карточка/тип, набор правил): причина ≥10 знаков, попадёт в origin-check.json и в отчёт')
     a = ap.parse_args(argv)
     t0 = time.time()
     rules = load_rules(a.rules)
@@ -807,6 +811,15 @@ def main(argv=None) -> int:
     bad = need_files(a.start, base)
     if bad:
         raise SystemExit('нет входов «до» для шага: ' + '; '.join(bad[:6]))
+    run_dir = os.path.join(ex(rules['out_root']), f'{a.run_id}-from{a.start}-{sha[:8]}')
+    rows_all = load_rows(rules)                                                    # строки входа: форма (glb), фото, камера (pose_run), карточка — то, что проверяют ворота
+    origin_rows = {s: rows_all.get(s) or {} for s in skus}
+    pose_roots = [ex(x) for x in (rules.get('pose_root') if isinstance(rules.get('pose_root'), list) else [rules.get('pose_root')] if rules.get('pose_root') else [])]
+    CO.starter_gate(origin_rows, who='loop5', out_dir=run_dir, dry=a.dry, allow_old=a.allow_old_origin, catalog=ex(rules['catalog']), pose_roots=pose_roots, say=say)   # ВОРОТА ВХОДА КРУГА до первого платного шага (T-175/10): отказ = SystemExit(3)
+    rows_file = os.path.join(run_dir, 'origin-rows.json')
+    with open(rows_file, 'w', encoding='utf-8') as fh:
+        json.dump(origin_rows, fh, ensure_ascii=False, indent=1)
+    rules['runtime_origin_args'] = ['--origin-rows', rows_file] + (['--allow-old-origin', a.allow_old_origin] if a.allow_old_origin is not None else [])
     want = node_count(rules, len(skus))
     if not a.dry and warm_on(rules):
         sweep_warm()                                                               # сперва убрать просроченные тёплые: они занимают потолок живых машин
@@ -824,7 +837,6 @@ def main(argv=None) -> int:
     if can < want:
         say(f'нод урезано {want} → {can} по потолку живых машин')
         rules['machines'] = can
-    run_dir = os.path.join(ex(rules['out_root']), f'{a.run_id}-from{a.start}-{sha[:8]}')
     os.makedirs(os.path.join(run_dir, 'out'), exist_ok=True)
     say(f'круг на 5: код {sha[:8]} ({a.code_ref}), с шага {a.start} → этапы {rules["stages"][a.start]}; товаров {len(skus)}, нод Salad {node_count(rules, len(skus))} (≤{rules["machines"]}), '
         f'{"общая очередь, слотов на ноду " + str((rules.get("queue") or {}).get("slots") or "по fill_procs") if queue_on(rules) else "товары делятся заранее"}; папка {run_dir}')
