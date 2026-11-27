@@ -84,12 +84,14 @@ def gate(out: str, glbs: str, skus: list[str], roles: dict | None = None, photos
         if use_vlm and not photo:
             say(f'vlm {s}: нет фото рядом с прогоном (--photos) — оценщик пропущен')
         kw = {'kinds_only': kinds_only, 'budget': budget, 'log': say}
-        rec = FC.run_sku(s, find_glb(glbs, s), photo, fr, rules, pose_roots or [], None, roles.get(s, ''), cache if (use_vlm and photo) else None, chat, kw,
+        rec = FC.run_sku(s, find_glb(glbs, s), photo, fr, rules, pose_roots or [], fr, roles.get(s, ''), cache if (use_vlm and photo) else None, chat, kw,
                          None if cards is None else cards.get(s.replace(':', '_'), {}))               # размеры карточки (T-20261124-11): dims_depth/dims_axes в observe
         rec = FR.annotate(rec)                                                                # правило повтора формы (T-20261126-99/8): FORM_RESEED=0 — запись не меняется
         json.dump(rec, open(os.path.join(fr, 'form_checks.json'), 'w', encoding='utf-8'), ensure_ascii=False, indent=1)
         recs.append(rec)
         rows.append(eye_row(rec, roles.get(s, '')))
+        if rec.get('not_run'):
+            say(f"{s}: проверки НЕ ВЫПОЛНЕНЫ (не «прошли»): {', '.join(rec['not_run'])} — {next((c['note'] for c in rec['checks'] if c.get('skipped')), '')}")
     if use_vlm:
         say(f"vlm итог: оценка израсходованного ≈${budget.get('spent', 0.0):.4f} из потолка ${budget['limit']:.4f}, групп пропущено по потолку {budget.get('skipped', 0)}")
     if rows:
@@ -123,8 +125,11 @@ def main() -> int:
                 os.path.expanduser(a.vlm_cache) if a.vlm_cache else '', a.rules, [x for x in a.pose_roots.split(',') if x], vlm=not a.no_vlm, vlm_all=a.vlm_all, vlm_budget=a.vlm_budget, cards=cards)
     for r in recs:
         print(f"form_gate {r['sku']} {r['status']} {r['flags']}", flush=True)
+    nr = [r for r in recs if r.get('not_run')]
+    if nr:
+        print(f"form_gate: проверки НЕ ВЫПОЛНЕНЫ у {len(nr)} из {len(recs)} форм: {', '.join(sorted({n for r in nr for n in r['not_run']}))}", flush=True)
     print(f'form_gate: проверено {len(recs)}, к глазам {sum(1 for r in recs if r["status"] in ("needs_review", "shape_reject"))}', flush=True)
-    return 0
+    return 3 if nr else 0                                                            # не выполнено — не «прошла»: код 3 (T-20261127-175/Ш0-fix-2)
 
 
 if __name__ == '__main__':
