@@ -75,6 +75,54 @@ class T(unittest.TestCase):
         self.assertIn('status', json.load(open(os.path.join(out, 'n_1', 'form_checks.json'), encoding='utf-8')))
         self.assertTrue(os.path.isfile(os.path.join(out, 'form_gate.tsv')))
 
+    def alpha_frames(self, out, sku):
+        """Кадры с альфой, как их кладёт рендер: `<sku>/alpha/<то же имя>` (форма — прямоугольник, шумный рельеф внутри)."""
+        import numpy as np
+        os.makedirs(os.path.join(out, sku, 'alpha'), exist_ok=True)
+        rs = np.random.RandomState(7)
+        for n in ('02_az000_clay_graze.png', '05_az180_clay_graze.png'):
+            g = np.clip(128 + rs.normal(0, 30, (240, 320)), 0, 255).astype(np.uint8)
+            Image.fromarray(g).save(os.path.join(out, sku, n))
+            m = np.zeros((240, 320, 4), np.uint8)
+            m[30:210, 40:280, 3] = 255
+            Image.fromarray(m).save(os.path.join(out, sku, 'alpha', n))
+
+    def test_gate_passes_alpha_dir_and_computes_mask_checks(self):
+        """T-20261127-175/Ш0-fix-2: form_gate отдаёт папку кадра в run_sku → при кадрах с альфой relief_graze/back_relief посчитаны (раньше alpha_dir=None — проверок не было вовсе)."""
+        tmp = tempfile.mkdtemp(prefix='tests_fg_')
+        glbs, out = mk(tmp, 'a_1')
+        self.alpha_frames(out, 'a_1')
+        rec = go(tmp, ['a_1'], {'a_1': 'шкаф'}, vlm=False)[0]
+        ch = {c['name']: c for c in rec['checks']}
+        self.assertIsNotNone(ch['relief_graze']['value'])
+        self.assertIsNotNone(ch['back_relief']['value'])
+        self.assertEqual(rec['not_run'], [])
+        self.assertEqual(json.load(open(os.path.join(out, 'a_1', 'form_checks.json'), encoding='utf-8'))['not_run'], [])
+
+    def test_gate_without_alpha_says_not_run(self):
+        """Без альфа-кадров — «не выполнена: нет альфа-кадра» в form_checks.json и в `not_run`, а не молчание и не «прошла»."""
+        tmp = tempfile.mkdtemp(prefix='tests_fg_')
+        glbs, out = mk(tmp, 'b_1')
+        rec = go(tmp, ['b_1'], {'b_1': 'шкаф'}, vlm=False)[0]
+        self.assertEqual(rec['not_run'], ['relief_graze', 'back_relief', 'back_dup_mask'])
+        saved = json.load(open(os.path.join(out, 'b_1', 'form_checks.json'), encoding='utf-8'))
+        ch = {c['name']: c for c in saved['checks']}
+        for n in saved['not_run']:
+            self.assertIsNone(ch[n]['value'])
+            self.assertIn('не выполнена: нет альфа-кадра', ch[n]['note'])
+            self.assertFalse(ch[n]['flag'])
+
+    def test_main_prints_not_run_line(self):
+        """CLI form_gate: итог говорит «проверки НЕ ВЫПОЛНЕНЫ у N из M форм» (подпроцесс настоящего form_gate на заглушках)."""
+        import subprocess
+        tmp = tempfile.mkdtemp(prefix='tests_fg_')
+        glbs, out = mk(tmp, 'c_1')
+        p = subprocess.run([sys.executable, '-I', '-W', 'ignore', os.path.join(HERE, 'form_gate.py'), '--out', out, '--glbs', glbs, '--skus', 'c_1', '--no-vlm', '--no-cards', '--roles', ''],
+                           capture_output=True, text=True, cwd=tmp)
+        self.assertEqual(p.returncode, 0, p.stderr[-400:])
+        self.assertIn('проверки НЕ ВЫПОЛНЕНЫ у 1 из 1 форм', p.stdout)
+        self.assertIn('back_relief', p.stdout)
+
     def test_eye_row_flags_needs_review_only(self):
         ok = {'sku': 'a', 'status': 'pass', 'flags': [], 'checks': []}
         self.assertEqual(FG.eye_row(ok, 'шкаф')[3], 'нет')
