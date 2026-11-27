@@ -342,9 +342,42 @@ def rules_label(role: str | None, rules: dict, root: str = ROOT) -> dict:
         p = os.path.join(root, rel)
         files[rel] = sha256_file(p)[:16] if os.path.exists(p) else None
     pol = policy_of(role)
-    lab = {'files': files, 'role': role, 'type': pol.get('type'), 'type_digest': pol.get('digest'), 'type_reason': pol.get('reason'), 'set': set_label(root)}
+    lab = {'files': files, 'role': role, 'type': pol.get('type'), 'type_digest': pol.get('digest'), 'type_reason': pol.get('reason'), 'set': set_label(root), 'set_def': set_def(root)}
     lab['id'] = sha256_obj({k: lab[k] for k in ('files', 'type', 'type_digest')})[:16]
     return lab
+
+
+def _no_comments(o):
+    """Для отпечатка конфига метки: текстовые ключи на «_» (комментарии) выброшены на всех уровнях — правка комментария определение метки не двигает."""
+    if isinstance(o, dict):
+        return {k: _no_comments(v) for k, v in o.items() if not (str(k).startswith('_') and isinstance(v, str))}
+    if isinstance(o, list):
+        return [_no_comments(v) for v in o]
+    return o
+
+
+def set_def(root: str = ROOT) -> dict:
+    """ОПРЕДЕЛЕНИЕ метки №12 (не правил!): отпечатки файла метки `tools/scout/rules_label.py` (код: как считается) и её конфига `tools/scout/rules/rules-label.json` (include/exclude/список env).
+    Нужны, чтобы при смене `set` показать причину: сменилась сама метка (код/конфиг/список env) или правила (определение то же). Нет файла — None по этой части. В `id` круга не входит."""
+    cfg_p, code_p = os.path.join(root, 'tools', 'scout', 'rules', 'rules-label.json'), os.path.join(root, 'tools', 'scout', 'rules_label.py')
+    cfg = _load_json(cfg_p) if os.path.exists(cfg_p) else None
+    return {'code': sha256_file(code_p)[:12] if os.path.exists(code_p) else None, 'cfg': sha256_obj(_no_comments(cfg))[:12] if cfg is not None else None}
+
+
+def set_change(prior: dict | None, lab: dict) -> dict | None:
+    """Сравнение `set` (метки №12) прежнего старта и сейчас → {from, to, cause, text} или None, если сравнивать нечего/не менялась. cause: `метка` — сменилось определение метки (код rules_label.py и/или rules-label.json:
+    include/exclude/env), а не правила; `правила` — определение то же, значит правила/окружение; `неизвестно` — в прежней записи нет `set_def` (записана до этой правки), причину не отделить. Только показ — решения не меняет."""
+    a, b = (prior or {}).get('set'), lab.get('set')
+    if not a or not b or a == b:
+        return None
+    da, db = (prior or {}).get('set_def'), lab.get('set_def')
+    head = f'метка набора №12 (set) сменилась {a} → {b}'
+    if not isinstance(da, dict) or not db:
+        return {'from': a, 'to': b, 'cause': 'неизвестно', 'text': head + ': причину не отделить — в прежней записи нет определения метки (записана до этой правки)'}
+    moved = [n for n, k in (('rules_label.py', 'code'), ('rules-label.json: include/exclude/env', 'cfg')) if da.get(k) != db.get(k)]
+    if moved:
+        return {'from': a, 'to': b, 'cause': 'метка', 'text': head + f': сменилась из-за правки САМОЙ метки ({", ".join(moved)}), а не правил; правила круга при этом: ' + ('без изменений' if (prior or {}).get('id') == lab.get('id') else 'другие (см. отказ)')}
+    return {'from': a, 'to': b, 'cause': 'правила', 'text': head + ': определение метки то же — менялись правила набора или переменные окружения (`rules_label.py --diff` покажет ключи)'}
 
 
 def set_label(root: str = ROOT) -> str | None:
@@ -364,11 +397,15 @@ def check_rules_set(role: str | None, rules: dict, prior: dict | None = None, ex
     miss = [k for k, v in lab['files'].items() if v is None]
     if miss:
         return _item(I_RULES, REFUSE, f'файлов правил нет: {", ".join(miss)} — метку набора не посчитать', label=lab)
+    ch = set_change(prior, lab)
+    if ch:
+        lab['set_change'] = ch
+    note = f'; {ch["text"]}' if ch else ''
     if prior and prior.get('id') and prior['id'] != lab['id']:
-        return _item(I_RULES, REFUSE, f'в этом прогоне этапы уже посчитаны по набору {prior["id"]}, сейчас {lab["id"]} — правила или паспорт типа изменились; новый прогон в новую папку', label=lab)
+        return _item(I_RULES, REFUSE, f'в этом прогоне этапы уже посчитаны по набору {prior["id"]}, сейчас {lab["id"]} — правила или паспорт типа изменились; новый прогон в новую папку' + note, label=lab)
     if expected and expected != lab['id']:
-        return _item(I_RULES, REFUSE, f'набор правил {lab["id"]} ≠ ожидаемому {expected} (замороженный набор): правила разошлись', label=lab)
-    return _item(I_RULES, OK, f'метка набора {lab["id"]}' + (' = ожидаемой' if expected else '') + (' = прежней в этом прогоне' if prior and prior.get('id') else ''), label=lab)
+        return _item(I_RULES, REFUSE, f'набор правил {lab["id"]} ≠ ожидаемому {expected} (замороженный набор): правила разошлись' + note, label=lab)
+    return _item(I_RULES, OK, f'метка набора {lab["id"]}' + (' = ожидаемой' if expected else '') + (' = прежней в этом прогоне' if prior and prior.get('id') else '') + note, label=lab)
 
 
 def check_start(sku: str, *, form: str | None = None, record: dict | None = None, card: str | None = None, role: str | None = None, camera: dict | None = None,

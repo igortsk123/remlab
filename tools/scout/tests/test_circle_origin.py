@@ -328,6 +328,42 @@ with open(os.path.join(fake_root, R['profile_files'][0]), 'a', encoding='utf-8')
     fh.write('\n')
 ok(CO.rules_label('комод', R, fake_root)['id'] != l1, 'правка файла правил меняет метку набора')
 
+print('— 5б. метка №12 сменилась: из-за правки самой метки или правил (показ, решение не меняется)')
+sd = os.path.join(tmp, 'rootset')
+os.makedirs(os.path.join(sd, 'tools', 'scout', 'rules'))
+for rel in R['profile_files']:
+    shutil.copy(os.path.join(CO.ROOT, rel), os.path.join(sd, rel))
+put(os.path.join(sd, 'tools', 'scout', 'rules', 'rules-label.json'), {'_about': 'комментарий', 'include': ['tools/scout/rules'], 'env': ['A_ENV', 'B_ENV']})
+open(os.path.join(sd, 'tools', 'scout', 'rules_label.py'), 'w', encoding='utf-8').write('# метка v1\n')
+_o = CO.set_label
+SET = ['метка-111']
+CO.set_label = lambda root=CO.ROOT: SET[0]
+old = CO.rules_label('комод', R, sd)
+ok(old['set_def']['code'] and old['set_def']['cfg'], 'определение метки (код rules_label.py и конфиг rules-label.json) считается и пишется в метку круга: %s' % old['set_def'])
+SET[0] = 'метка-222'
+same = CO.check_rules_set('комод', R, old, None, sd)
+ok(same['status'] == CO.OK and 'сменилась' in same['reason'] and 'определение метки то же' in same['reason'] and same['label']['set_change']['cause'] == 'правила', 'set сменился, определение метки то же → «менялись правила/окружение», не «правка метки»; решение прежнее (ok)')
+open(os.path.join(sd, 'tools', 'scout', 'rules_label.py'), 'w', encoding='utf-8').write('# метка v2\n')
+r_code = CO.check_rules_set('комод', R, old, None, sd)
+ok(r_code['status'] == CO.OK and 'САМОЙ метки' in r_code['reason'] and 'rules_label.py' in r_code['reason'] and 'без изменений' in r_code['reason'] and r_code['label']['set_change']['cause'] == 'метка', 'правка кода метки (rules_label.py) → «сменилась из-за правки самой метки», правила круга без изменений, не отказ')
+open(os.path.join(sd, 'tools', 'scout', 'rules_label.py'), 'w', encoding='utf-8').write('# метка v1\n')
+put(os.path.join(sd, 'tools', 'scout', 'rules', 'rules-label.json'), {'_about': 'комментарий', 'include': ['tools/scout/rules'], 'env': ['A_ENV', 'B_ENV', 'C_ENV']})
+r_env = CO.check_rules_set('комод', R, old, None, sd)
+ok(r_env['label']['set_change']['cause'] == 'метка' and 'rules-label.json' in r_env['reason'], 'в список env добавлена переменная (rules-label.json) → причина «сама метка»')
+put(os.path.join(sd, 'tools', 'scout', 'rules', 'rules-label.json'), {'_about': 'другой комментарий', 'include': ['tools/scout/rules'], 'env': ['A_ENV', 'B_ENV']})
+ok(CO.set_def(sd) == old['set_def'] and CO.check_rules_set('комод', R, old, None, sd)['label']['set_change']['cause'] == 'правила', 'правка комментария в rules-label.json определение метки не двигает')
+old_nodef = {k: v for k, v in old.items() if k != 'set_def'}
+r_nd = CO.check_rules_set('комод', R, old_nodef, None, sd)
+ok(r_nd['label']['set_change']['cause'] == 'неизвестно' and 'причину не отделить' in r_nd['reason'], 'прежняя запись без определения метки → «причину не отделить» (честно, без догадки)')
+SET[0] = 'метка-111'
+ok('set_change' not in CO.check_rules_set('комод', R, old, None, sd)['label'] and 'сменилась' not in CO.check_rules_set('комод', R, old, None, sd)['reason'], 'set не менялся → ни слова про смену')
+SET[0] = 'метка-222'
+with open(os.path.join(sd, R['profile_files'][0]), 'a', encoding='utf-8') as fh:
+    fh.write('\n')
+r_both = CO.check_rules_set('комод', R, old, None, sd)
+ok(r_both['status'] == CO.REFUSE and 'новый прогон' in r_both['reason'] and 'метка набора №12' in r_both['reason'], 'правилa круга сменились (id) → прежний отказ «новый прогон» + строка про смену set')
+CO.set_label = _o
+
 print('— старт целиком и обход')
 form, d = mkform()
 put(os.path.join(d, 'form_checks.json'), sh0rec())
