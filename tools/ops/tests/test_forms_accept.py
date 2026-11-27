@@ -49,10 +49,14 @@ def test_render_cmd_takes_views_from_table():
     assert page == ['01_az000_clay.png', '02_az225_clay.png']
 
 
+GATE = {'mode': 'ok'}                                                                         # ok | crash (rc=1 + traceback) | silent (rc=0, отчёта нет)
+
+
 def _fake_run(calls, out_dir_holder):
     """Подмена subprocess.run: «рендер» (команда с --out) создаёт кадры, остальное (form_gate) только записывает команду."""
     class P:
         returncode = 0
+        stderr = ''
 
     def run(cmd, *a, **k):
         if '--views' in cmd:
@@ -62,6 +66,14 @@ def _fake_run(calls, out_dir_holder):
                 open(os.path.join(sku_out, n), 'wb').write(b'p')
         else:
             calls.append(cmd)
+            if GATE['mode'] == 'ok':                                                          # настоящий form_gate пишет form_checks.json каждому товару
+                for s in cmd[cmd.index('--skus') + 1].split(','):
+                    os.makedirs(os.path.join(cmd[cmd.index('--out') + 1], s), exist_ok=True)
+                    open(os.path.join(cmd[cmd.index('--out') + 1], s, 'form_checks.json'), 'w').write('{}')
+            elif GATE['mode'] == 'crash':
+                p = P()
+                p.returncode, p.stderr = 1, "Traceback (most recent call last):\nAttributeError: module 'forms_render' has no attribute 'annotate'\n"
+                return p
         return P()
     return run
 
@@ -79,6 +91,7 @@ def _run_main(monkeypatch, tmp_path, extra):
 
 
 def test_form_gate_runs_after_accept_frames_by_default(monkeypatch, tmp_path):
+    GATE['mode'] = 'ok'
     rc, calls, out = _run_main(monkeypatch, tmp_path, ['--photos', str(tmp_path), '--vlm-cache', str(tmp_path / 'c')])
     assert rc == 0 and len(calls) == 1
     cmd = calls[0]
@@ -88,6 +101,7 @@ def test_form_gate_runs_after_accept_frames_by_default(monkeypatch, tmp_path):
 
 
 def test_form_gate_off_by_flag_and_without_accept(monkeypatch, tmp_path):
+    GATE['mode'] = 'ok'
     rc, calls, _ = _run_main(monkeypatch, tmp_path, ['--no-form-gate'])
     assert rc == 0 and calls == []
 
@@ -95,10 +109,13 @@ def test_form_gate_off_by_flag_and_without_accept(monkeypatch, tmp_path):
 def test_form_gate_failure_does_not_break_render(monkeypatch, tmp_path):
     monkeypatch.setattr(FR.subprocess, 'run', lambda *a, **k: (_ for _ in ()).throw(OSError('нет python')))
     assert FR.run_form_gate(str(tmp_path), str(tmp_path), ['a_1'], {}) == 1               # сбой запуска — код 1 у шага, не исключение
+    rc, why = FR.run_form_gate_why(str(tmp_path), str(tmp_path), ['a_1'], {})
+    assert rc == 1 and 'не запущен' in why and 'нет python' in why
     assert FR.run_form_gate(str(tmp_path), str(tmp_path), [], {}) == 0                    # нечего проверять
 
 
 def test_form_gate_vlm_on_by_default_and_flags_pass_through(monkeypatch, tmp_path):
+    GATE['mode'] = 'ok'
     rc, calls, _ = _run_main(monkeypatch, tmp_path, [])
     cmd = calls[0]
     assert rc == 0 and '--no-vlm' not in cmd and '--vlm-all' not in cmd and '--vlm-budget' not in cmd      # оценщик идёт сам: фото и кэш form_gate находит/ставит сам, потолок — из rules
@@ -107,3 +124,28 @@ def test_form_gate_vlm_on_by_default_and_flags_pass_through(monkeypatch, tmp_pat
     rc, calls, _ = _run_main(monkeypatch, tmp2, ['--no-vlm', '--vlm-all', '--vlm-budget', '0.05'])
     cmd = calls[0]
     assert '--no-vlm' in cmd and '--vlm-all' in cmd and cmd[cmd.index('--vlm-budget') + 1] == '0.05'
+
+
+def test_form_gate_crash_is_loud_not_silent(monkeypatch, tmp_path, capsys):
+    """Сбой Ш0 (T-175/Ш0-fix): строка «Ш0 НЕ ВЫПОЛНЕН: причина» (последняя строка stderr) и в итоге, и код 3 — не молчаливый 0, как было с 26.11."""
+    GATE['mode'] = 'crash'
+    rc, calls, _ = _run_main(monkeypatch, tmp_path, [])
+    out = capsys.readouterr().out
+    assert rc == 3 and len(calls) == 1
+    assert 'Ш0 НЕ ВЫПОЛНЕН: form_gate rc=1' in out and "no attribute 'annotate'" in out
+    assert 'ИТОГ: Ш0 НЕ ВЫПОЛНЕН' in out
+
+
+def test_form_gate_rc0_without_reports_is_not_ok(monkeypatch, tmp_path, capsys):
+    """form_gate вернул 0, но отчёта form_checks.json нет — Ш0 не выполнен (тоже код 3)."""
+    GATE['mode'] = 'silent'
+    rc, calls, _ = _run_main(monkeypatch, tmp_path, [])
+    out = capsys.readouterr().out
+    assert rc == 3 and 'form_checks.json нет у 1 из 1: a_1' in out
+
+
+def test_form_gate_ok_no_false_alarm(monkeypatch, tmp_path, capsys):
+    """Контроль на ложную тревогу: Ш0 выполнен → код 0 и строки «НЕ ВЫПОЛНЕН» нет."""
+    GATE['mode'] = 'ok'
+    rc, _, _ = _run_main(monkeypatch, tmp_path, [])
+    assert rc == 0 and 'НЕ ВЫПОЛНЕН' not in capsys.readouterr().out

@@ -65,6 +65,16 @@ class T(unittest.TestCase):
         self.assertEqual(len(rows), 2)
         self.assertEqual(rows[1].split('\t')[0:2], ['s_1', 'шкаф'])
 
+    def test_gate_without_find_glb_reaches_annotate(self):
+        """Путь `forms_render --accept` → `form_gate.gate()` БЕЗ `find_glb`: `forms_render` подключается своим именем и не перекрывает `form_reseed` (T-20261127-175/Ш0-fix: `FR.annotate` падал AttributeError на каждой форме)."""
+        tmp = tempfile.mkdtemp(prefix='tests_fg_')
+        glbs, out = mk(tmp, 'n_1')
+        recs = FG.gate(out, glbs, ['n_1'], {'n_1': 'шкаф'}, vlm=False, log=lambda x: None)                  # find_glb не передан — берётся forms_render.find_glb_
+        self.assertEqual([r['sku'] for r in recs], ['n_1'])
+        self.assertTrue(os.path.isfile(os.path.join(out, 'n_1', 'form_checks.json')))                       # дошли до annotate и записи отчёта
+        self.assertIn('status', json.load(open(os.path.join(out, 'n_1', 'form_checks.json'), encoding='utf-8')))
+        self.assertTrue(os.path.isfile(os.path.join(out, 'form_gate.tsv')))
+
     def test_eye_row_flags_needs_review_only(self):
         ok = {'sku': 'a', 'status': 'pass', 'flags': [], 'checks': []}
         self.assertEqual(FG.eye_row(ok, 'шкаф')[3], 'нет')

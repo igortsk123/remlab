@@ -3,34 +3,102 @@
 //     чужая незакоммиченная правка в общей рабочей копии гейт не блокирует (27.11: гейт остановил сессию из-за чужого файла);
 //  2) «строка стража — только у директора и только по его правкам»: разбор строки `tools/ops/rules_guard.py`
 //     «правила: просрочено N, вне реестра M, сообщений владельца без разбора K, выключателей на удаление D».
-// Без побочных эффектов, кроме runStrazh (запускает команду стража без оболочки, таймаут). Любой сбой → «не знаю» (null), а не блок:
-// приоритет — 0 ложных блокировок чужих сессий.
-import { readFileSync, existsSync } from "node:fs";
+// Без побочных эффектов, кроме runStrazh (запускает команду стража без оболочки, таймаут). Сбой чтения стенограммы → «не знаю» (own=null) и ПРИЧИНА (readOwnEdits):
+// «не знаю» не означает «правок нет» — session-reminder у директора блокирует («стенограмма не читается»), у остальных пишет предупреждение; 0 ложных блокировок чужих сессий.
+import { existsSync, openSync, readSync, closeSync } from "node:fs";
 import { resolve, relative, isAbsolute, join } from "node:path";
 import { execFileSync } from "node:child_process";
 
 const EDIT_TOOLS = new Set(["Edit", "Write", "MultiEdit", "NotebookEdit"]);
 
-/** Относительные (к root) пути файлов, которые сессия правила инструментами Edit/Write. null — стенограммы нет/не читается («не знаю»). */
-export function ownEditedPaths(transcriptPath, root) {
-  if (!transcriptPath || !existsSync(transcriptPath)) return null;
-  let txt;
+// Размеры чтения стенограммы (байты). Стенограмма директора — 1,29 ГБ: `readFileSync(…, "utf8")` на ней падает ERR_STRING_TOO_LONG (предел строки V8 ≈ 512 МБ), `null` читался как
+// «правок нет», и гейт со стражем молчали (живая проверка 27.11). Теперь читаем кусками фиксированного размера по `readSync` и режем по «\n»; в памяти — один кусок + недочитанная строка.
+// Для теста пределы можно занизить переменными окружения STOP_GATE_CHUNK_BYTES / STOP_GATE_MAX_LINE_BYTES (боевой хук их не задаёт).
+const CHUNK_BYTES = 8 * 1024 * 1024;
+const MAX_LINE_BYTES = 64 * 1024 * 1024; // строка JSONL длиннее (скриншот в base64 и т. п.) — пропускается с учётом, не падаем
+
+function limits(opts = {}) {
+  const num = (v, d) => (Number.isInteger(Number(v)) && Number(v) > 0 ? Number(v) : d);
+  return { chunk: num(opts.chunk ?? process.env.STOP_GATE_CHUNK_BYTES, CHUNK_BYTES), maxLine: num(opts.maxLine ?? process.env.STOP_GATE_MAX_LINE_BYTES, MAX_LINE_BYTES) };
+}
+
+/** Вызывает onLine(Buffer) на каждую строку файла (без «\n»), читая кусками. Строка длиннее maxLine не собирается — считается в skipped. → {skipped, bytes}. Ошибки чтения — наружу. */
+export function forEachLine(path, onLine, opts = {}) {
+  const { chunk, maxLine } = limits(opts);
+  const fd = openSync(path, "r");
   try {
-    txt = readFileSync(transcriptPath, "utf8");
-  } catch {
-    return null;
+    const buf = Buffer.allocUnsafe(chunk);
+    let carry = []; // части строки, оборвавшейся на границе куска
+    let carryLen = 0;
+    let overflow = false; // текущая строка уже длиннее maxLine — выбрасываем до её конца
+    let skipped = 0;
+    let bytes = 0;
+    const take = (piece) => {
+      // piece — вид на общий buf (перезапишется): копируем только то, что переносим
+      if (overflow) return;
+      if (carryLen + piece.length > maxLine) {
+        overflow = true;
+        carry = [];
+        carryLen = 0;
+        return;
+      }
+      carry.push(Buffer.from(piece));
+      carryLen += piece.length;
+    };
+    const finish = (piece) => {
+      if (overflow) {
+        skipped++;
+        overflow = false;
+        return;
+      }
+      if (carryLen + piece.length > maxLine) {
+        skipped++;
+      } else {
+        onLine(carryLen ? Buffer.concat([...carry, piece]) : piece);
+      }
+      carry = [];
+      carryLen = 0;
+    };
+    for (;;) {
+      const n = readSync(fd, buf, 0, chunk, null);
+      if (n === 0) break;
+      bytes += n;
+      const view = buf.subarray(0, n);
+      let start = 0;
+      while (start < n) {
+        const nl = view.indexOf(10, start);
+        if (nl === -1) {
+          take(view.subarray(start));
+          break;
+        }
+        finish(view.subarray(start, nl));
+        start = nl + 1;
+      }
+    }
+    if (overflow) skipped++;
+    else if (carryLen) onLine(Buffer.concat(carry)); // последняя строка без «\n»
+    return { skipped, bytes };
+  } finally {
+    closeSync(fd);
   }
+}
+
+/** Пути правок сессии из стенограммы. → {own: Set<относительный путь>|null, why: причина, если own=null, skipped: пропущено слишком длинных строк, bytes}.
+ *  null НЕ значит «правок нет»: вызывающий обязан сказать «стенограмма не читается: why» (директору — блоком), а не молчать. */
+export function readOwnEdits(transcriptPath, root, opts = {}) {
+  if (!transcriptPath) return { own: null, why: "хук не получил путь к стенограмме (transcript_path пуст)", skipped: 0, bytes: 0 };
+  if (!existsSync(transcriptPath)) return { own: null, why: `файла стенограммы нет: ${transcriptPath}`, skipped: 0, bytes: 0 };
   const own = new Set();
-  for (const line of txt.split("\n")) {
-    if (!line.includes('"tool_use"')) continue;
+  const onLine = (line) => {
+    if (line.indexOf('"tool_use"') === -1) return; // дешёвый отсев по байтам: большинство строк — не вызовы инструментов, в текст их не переводим
     let rec;
     try {
-      rec = JSON.parse(line);
+      rec = JSON.parse(line.toString("utf8"));
     } catch {
-      continue;
+      return;
     }
     const content = rec?.message?.content;
-    if (!Array.isArray(content)) continue;
+    if (!Array.isArray(content)) return;
     for (const c of content) {
       if (c?.type !== "tool_use" || !EDIT_TOOLS.has(c.name)) continue;
       const p = c.input?.file_path ?? c.input?.notebook_path;
@@ -39,8 +107,19 @@ export function ownEditedPaths(transcriptPath, root) {
       const rel = relative(root, abs).split("\\").join("/");
       if (!rel.startsWith("..")) own.add(rel);
     }
+  };
+  try {
+    const { skipped, bytes } = forEachLine(transcriptPath, onLine, opts);
+    return { own, why: null, skipped, bytes };
+  } catch (e) {
+    const msg = String(e?.message ?? e).replace(/^[A-Z_]+:\s*/, "").slice(0, 120); // у Node message уже начинается с кода — второй раз не пишем
+    return { own: null, why: `${e?.code ?? "ошибка"}: ${msg}`, skipped: 0, bytes: 0 };
   }
-  return own;
+}
+
+/** Относительные (к root) пути файлов, которые сессия правила инструментами Edit/Write. null — стенограммы нет/не читается (причину даёт readOwnEdits). */
+export function ownEditedPaths(transcriptPath, root, opts = {}) {
+  return readOwnEdits(transcriptPath, root, opts).own;
 }
 
 /** Путь из строки `git status --porcelain` (после «XY »), для переименования — новый путь; кавычки сняты. */
@@ -93,6 +172,13 @@ export function parseStrazh(text) {
   return n ? out : null;
 }
 
+/** Путь из `git status` может быть СВЁРНУТЫМ каталогом (`?? tools/` — весь каталог не отслежен): внутри могут лежать файлы правил. Когда «свои правки» неизвестны
+ *  (стенограмма не читается), такой каталог тоже считаем возможным файлом правил. */
+const RULES_DIR_PREFIXES = [".memory_bank/rules/", ".memory_bank/decisions/", "tools/scout/rules/", ".claude/rules/", ".memory_bank/plans/"];
+export function mayHoldRules(path) {
+  return RULES_PATH_RE.test(path) || (path.endsWith("/") && RULES_DIR_PREFIXES.some((pre) => pre.startsWith(path) || path.startsWith(pre)));
+}
+
 /** Поля, по которым директору блокируем (по умолчанию — то, что он сам может исправить правкой: срок и реестр). */
 export const DEFAULT_BLOCK_FIELDS = ["просрочено", "вне реестра"];
 
@@ -112,25 +198,40 @@ export function runStrazh(cmd, cwd, timeoutMs = 20000) {
     return { line: first(out), code: 0 };
   } catch (e) {
     const code = e?.code === "ETIMEDOUT" ? "таймаут" : typeof e?.status === "number" ? e.status : e?.signal ? `сигнал ${e.signal}` : (e?.code ?? "?");
-    return { line: first(e?.stdout), code };
+    return { line: first(e?.stdout), code, cmd: cmd[0] };
   }
+}
+
+/** Путь стража относительно корня — один источник для defaultStrazhCmd и текста «страж не найден». */
+export const STRAZH_REL = join("tools", "ops", "rules_guard.py");
+
+/** Стража в дереве нет → {ok:false, silent} (гейт не молчит: без стража правки правил проверить нечем). */
+export function strazhNotFound(path) {
+  return { ok: false, parsed: null, line: null, kind: "strazh", silent: `страж не найден: ${path}` };
 }
 
 /** Команда стража по умолчанию: tools/ops/rules_guard.py --check (строка-счётчик — первая строка stdout, код 1 при «не ноль»; ключа `--line` у стража нет —
  *  Fable proverka-t175-3 § 2 п.1: гейт звал его и молчал). Файла нет — null (страж не влит → проверка молчит). */
 export function defaultStrazhCmd(root) {
-  const f = join(root, "tools", "ops", "rules_guard.py");
+  const f = join(root, STRAZH_REL);
   return existsSync(f) ? ["python3", f, "--check"] : null;
 }
 
 /** Ответ стража → {ok, parsed, line, silent: текст «страж не ответил: …» или null}. Строки нет или в ней нет ни одного счётчика — страж не ответил
  *  (пустой вывод при коде 2 — падение, а не «чисто»): гейт НЕ молчит, а называет код. */
 export function strazhAnswer(res) {
+  // реестр не читается: страж ответил, но «просрочено»/«вне реестра» не измерил (там «?») — это не «0» и не ответ-счётчик; блок с причиной (kind "registry")
+  const reg = /реестр не читается\s*\(([^)]*)\)/.exec(res?.line ?? "");
+  if (reg) return { ok: false, parsed: null, line: res.line.trim(), kind: "registry", silent: `реестр правил не читается (${reg[1].trim().slice(0, 100)}) — сроки и выключатели не измерены` };
+  // сторож выключателей не отработал (нет настроек/порога): «вне реестра»/«на удаление» там «?», а не 0 — тоже не ответ-счётчик
+  const sw = /сторож выключателей не работает\s*\(([^)]*)\)/.exec(res?.line ?? "");
+  if (sw) return { ok: false, parsed: null, line: res.line.trim(), kind: "switches", silent: `сторож выключателей не работает (${sw[1].trim().slice(0, 100)}) — «вне реестра» и «на удаление» не измерены` };
   const parsed = parseStrazh(res?.line);
   if (parsed) return { ok: true, parsed, line: res.line.trim(), silent: null };
+  if (res?.code === "ENOENT") return strazhNotFound(res.cmd ?? "?"); // команда стража не нашлась в системе (нет python3 / указанного файла)
   const code = res?.code ?? "?";
   const what = res?.line ? `вывод не разобран: «${res.line.trim().slice(0, 80)}»` : "пустой вывод";
-  return { ok: false, parsed: null, line: res?.line ?? null, silent: `страж не ответил: код ${code}, ${what}` };
+  return { ok: false, parsed: null, line: res?.line ?? null, kind: "strazh", silent: `страж не ответил: код ${code}, ${what}` };
 }
 
 /** Путь p назван в тексте находки: целиком или без приставки `.memory_bank/` (аудит банка называет файл без неё: «core/x.md — 3,4 КБ»).

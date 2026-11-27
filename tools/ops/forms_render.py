@@ -10,7 +10,7 @@ T-180/7 (директор 22.11, владелец TG 1373/1376): `--accept` — 
 
   python3 tools/ops/forms_render.py --glbs <папка с GLB форм> --out <папка кадров> (--set set40.json | --ids 99272_1,112923_2) [--max N] [--cores 2] [--samples 16] [--no-slot]
 
-Кадры: `<out>/<товар>/01_az000_clay.png`, `02_az225_clay.png`. GLB ищется как `<товар>*.glb` (предпочтительно `-hd`, свежий) — `find_glb_`. Код 1 — если у кого-то кадров нет (причина — в `<out>/render.log`)."""
+Кадры: `<out>/<товар>/01_az000_clay.png`, `02_az225_clay.png`. GLB ищется как `<товар>*.glb` (предпочтительно `-hd`, свежий) — `find_glb_`. Код 1 — если у кого-то кадров нет (причина — в `<out>/render.log`); код 3 — кадры есть, но Ш0 НЕ ВЫПОЛНЕН (в итоге строка «Ш0 НЕ ВЫПОЛНЕН: причина», T-20261127-175/Ш0-fix: сбой Ш0 раньше терялся молча с 26.11)."""
 import argparse
 import json
 import os
@@ -115,6 +115,7 @@ def main() -> int:
     print(f'товаров {len(ids)} · нет формы {len(no_form)} · уже отрисовано {len([s for s in ids if frames_of(out, s, views_of(s), lights)])} · рисую {len(todo)}', flush=True)
     log = os.path.join(out, 'render.log')
     fails = 0
+    gate_rc, gate_why = 0, ''
     for s in todo:
         g = find_glb_(glbs, s)
         t0 = time.time()
@@ -126,12 +127,14 @@ def main() -> int:
         ok = bool(frames_of(out, s, views_of(s), lights))
         fails += 0 if ok else 1
         print(f"{'ok ' if ok else 'НЕТ'} {s} rc={rc} {time.time() - t0:.0f} с", flush=True)
-    if a.accept and not a.no_form_gate:                                      # Ш0: кадры приёмки родились здесь — автопроверки формы идут сразу после них (observe, код возврата не меняют)
+    if a.accept and not a.no_form_gate:                                      # Ш0: кадры приёмки родились здесь — автопроверки формы идут сразу после них (найденный брак код не меняет; сам сбой Ш0 — меняет, код 3)
         if a.roles:
             roles = dict(json.load(open(os.path.expanduser(a.roles), encoding='utf-8')), **roles)
-        run_form_gate(out, glbs, [s for s in ids if frames_of(out, s, views_of(s), lights) and not os.path.isfile(os.path.join(out, s, 'form_checks.json'))], roles,
-                      os.path.expanduser(a.photos), os.path.expanduser(a.vlm_cache), a.no_vlm, a.vlm_all, a.vlm_budget)
-    return 1 if fails else 0
+        gate_rc, gate_why = run_form_gate_why(out, glbs, [s for s in ids if frames_of(out, s, views_of(s), lights) and not os.path.isfile(os.path.join(out, s, 'form_checks.json'))], roles,
+                                              os.path.expanduser(a.photos), os.path.expanduser(a.vlm_cache), a.no_vlm, a.vlm_all, a.vlm_budget)
+    if gate_rc:                                                          # сбой Ш0 — не молча: строка в итоге и ненулевой код (брак формы по-прежнему не бракуется, но «Ш0 не было» видно)
+        print(f'ИТОГ: Ш0 НЕ ВЫПОЛНЕН: {gate_why} — формы без приёмки, в покраску не отдавать', flush=True)
+    return 1 if fails else (3 if gate_rc else 0)
 
 
 def gate_python() -> str:
@@ -140,10 +143,11 @@ def gate_python() -> str:
     return v if os.path.isfile(v) else sys.executable
 
 
-def run_form_gate(out: str, glbs: str, skus: list, roles: dict, photos: str = '', vlm_cache: str = '', no_vlm: bool = False, vlm_all: bool = False, vlm_budget=None) -> int:
-    """Шаг form_gate (tools/scout/salad/render/form_gate.py) по товарам с готовыми кадрами; сбой — строка в лог, не падение рендера (OBSERVE)."""
+def run_form_gate_why(out: str, glbs: str, skus: list, roles: dict, photos: str = '', vlm_cache: str = '', no_vlm: bool = False, vlm_all: bool = False, vlm_budget=None) -> tuple:
+    """Шаг form_gate (tools/scout/salad/render/form_gate.py) по товарам с готовыми кадрами → (код, причина). Код 0 — Ш0 выполнен и записал `form_checks.json` каждому; иначе причина (последняя строка stderr,
+    «не запущен», «вернул 0, но отчёта нет»). Найденный брак формы код не меняет (OBSERVE) — меняет только сам сбой шага."""
     if not skus:
-        return 0
+        return 0, ''
     roles_f = os.path.join(out, 'form_gate_roles.json')
     json.dump({s: roles.get(s, '') for s in skus}, open(roles_f, 'w', encoding='utf-8'), ensure_ascii=False)
     cmd = [gate_python(), '-I', '-W', 'ignore', os.path.join(HERE, '..', 'scout', 'salad', 'render', 'form_gate.py'), '--out', out, '--glbs', glbs, '--skus', ','.join(skus), '--roles', roles_f]
@@ -158,12 +162,27 @@ def run_form_gate(out: str, glbs: str, skus: list, roles: dict, photos: str = ''
     if vlm_budget is not None:
         cmd += ['--vlm-budget', f'{vlm_budget:g}']
     try:
-        rc = subprocess.run(cmd).returncode
+        p = subprocess.run(cmd, stderr=subprocess.PIPE, text=True)                  # stdout — на экран как было; stderr собираем (причина), и печатаем после
     except OSError as exc:
-        print(f'form_gate: не запущен ({exc})', flush=True)
-        return 1
+        return 1, f'form_gate не запущен ({exc})'
+    err = getattr(p, 'stderr', None) or ''
+    if err:
+        sys.stderr.write(err)
+        sys.stderr.flush()
+    if p.returncode:
+        tail = [x.strip() for x in err.splitlines() if x.strip()]
+        return p.returncode, f'form_gate rc={p.returncode}' + (f': {tail[-1][:200]}' if tail else ' (вывод — выше)')
+    miss = [s for s in skus if not os.path.isfile(os.path.join(out, s, 'form_checks.json'))]
+    if miss:
+        return 2, f"form_gate вернул 0, но form_checks.json нет у {len(miss)} из {len(skus)}: {', '.join(miss[:5])}"
+    return 0, ''
+
+
+def run_form_gate(out: str, glbs: str, skus: list, roles: dict, photos: str = '', vlm_cache: str = '', no_vlm: bool = False, vlm_all: bool = False, vlm_budget=None) -> int:
+    """Код шага `run_form_gate_why`; при сбое печатает «Ш0 НЕ ВЫПОЛНЕН: причина»."""
+    rc, why = run_form_gate_why(out, glbs, skus, roles, photos, vlm_cache, no_vlm, vlm_all, vlm_budget)
     if rc:
-        print(f'form_gate: rc={rc} — см. вывод выше; рендер это не ломает', flush=True)
+        print(f'Ш0 НЕ ВЫПОЛНЕН: {why}', flush=True)
     return rc
 
 
