@@ -212,6 +212,17 @@ def test_origin():
         ok(any('подменён' in e for e in CO.check_png(p, dict(entry, input_png_sha256='0' * 64))), 'sha файла ≠ input_png_sha256 — отказ («подменён»)')
         e2 = {'a:1': dict(entry, origin=dict(o, chain_version='c0'))}
         ok(any('версия цепочки' in e for e in CO.inputs_errors(e2, ['a:1'], td)), 'inputs_errors: старая версия в inputs.json — отказ')
+        # «проверка сломана / не смогла запуститься → говорит об этом» (урок дня 27.11): ни один из этих случаев не должен дать пустой список ошибок
+        ok(any('нет в' in e for e in CO.inputs_errors({'z:9': entry}, ['z:9'], td)), 'нет файла вырезки рядом с inputs.json — отказ с причиной, не «чисто»')
+        junk = os.path.join(td, 'd_4.rgba.png')
+        open(junk, 'wb').write(b'not a png at all')
+        ok(any('нет метки' in e for e in CO.check_png(junk)), 'файл не PNG — отказ «нет метки»')
+        open(os.path.join(td, 'e_5.rgba.png'), 'wb').write(data[:len(data) // 2])
+        ok(CO.check_png(os.path.join(td, 'e_5.rgba.png'), entry) != [], 'обрезанный PNG — отказ (метка или sha не сходятся)')
+        ok(CO.check_png(os.path.join(td, 'нет-такого.png'), entry) != [], 'файла нет вовсе — отказ')
+        for bad_origin in ('строка', 5, [], {}, {'format': 1}, dict(o, code='unknown'), dict(o, created='вчера'), dict(o, steps=['сам-придумал'])):
+            ok(CO.check(bad_origin) != [], f'check({str(bad_origin)[:40]}): негодная метка — отказ с причиной')
+        ok(CO.inputs_errors(None, ['a:1'], td) != [] and CO.inputs_errors({'a:1': 'x'}, ['a:1']) != [], 'inputs.json пустой/кривой — отказ')
     big = Image.new('RGBA', (4000, 3000), (1, 2, 3, 255))
     ok(CO.read_png.__doc__ is not None and len(CO.png_text(o)) < 1000, 'метка короткая (одна строка JSON)')
     del big
@@ -228,11 +239,80 @@ def test_make_input_uses_one_module():
     ok(info['chain']['version'] == CO.CHAIN_VERSION and cut.size[0] <= shape.size[0], 'отчёт несёт версию цепочки; обрезанная копия есть')
 
 
+def test_make_inputs_script():
+    print('5. salad/trellis/make_inputs.py: годный вход пишется с меткой; негодный — НЕ пишется, в inputs.json причина (отказ не молчит)')
+    import importlib.util
+    import json
+    import tempfile
+    import types
+    spec = importlib.util.spec_from_file_location('make_inputs_under_test', os.path.join(HERE, 'trellis', 'make_inputs.py'))
+    MI = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(MI)
+    import mesh_photo as MP
+    import preprocess as PRE
+    photo, net = scene([(60, 50, 260, 200)])
+    buf = io.BytesIO()
+    photo.save(buf, 'PNG')
+    raw = buf.getvalue()
+    good_shape, good_cut, good_info, good_origin = CO1.make_input(raw, 'комод', net=net)
+    fake_cm = types.ModuleType('catalog_media')
+    fake_cm.media = lambda mid, eid: {} if mid == '0' else {'img': 'http://x/p.png'}
+    saved = (sys.modules.get('catalog_media'), PRE.fetch, CO1.make_input)
+    sys.modules['catalog_media'] = fake_cm
+    PRE.fetch = lambda url: raw
+    cur = {}
+
+    def fake_make(raw_, role, steps=CO.STEPS_ALL, net=None):
+        if cur.get('raise'):
+            raise RuntimeError('сеть упала')
+        return good_shape, good_cut, dict(good_info, **cur.get('info', {})), good_origin
+    CO1.make_input = fake_make
+    old_rules = MP.load_rules
+    MP.load_rules = lambda *a, **k: {'min_cut_side_px': 10, 'measure': 'min'}      # размер синтетики не должен мешать остальным случаям
+    try:
+        with tempfile.TemporaryDirectory() as td:
+            def run(sku, **c):
+                cur.clear()
+                cur.update(c)
+                out = os.path.join(td, sku.replace(':', '_') + '-out')
+                old_argv = sys.argv
+                sys.argv = ['make_inputs.py', '--out', out, '--role', 'комод', sku]
+                try:
+                    with __import__('contextlib').redirect_stdout(io.StringIO()):
+                        rc = MI.main()
+                finally:
+                    sys.argv = old_argv
+                return rc, out, json.load(open(os.path.join(out, 'inputs.json'), encoding='utf-8'))[sku]
+            rc, out, e = run('1:1')
+            png = os.path.join(out, '1_1.rgba.png')
+            ok(rc == 0 and 'error' not in e and CO.check(e['origin']) == [] and os.path.exists(png) and CO.check_png(png, e) == [],
+               'годный товар: вход записан, метка в inputs.json и в PNG, sha файла сходится')
+            rc, out, e = run('0:2')
+            ok('error' in e and not os.path.exists(os.path.join(out, '0_2.rgba.png')), 'нет адреса фото — error в inputs.json, файл не записан')
+            rc, out, e = run('1:3', **{'raise': True})
+            ok('RuntimeError' in e.get('error', '') and not os.path.exists(os.path.join(out, '1_3.rgba.png')), 'исключение вырезки — error с причиной, файл не записан')
+            rc, out, e = run('1:4', info={'hybrid_error': 'ValueError: гибрид упал'})
+            ok('гибрид' in e.get('error', '') and not os.path.exists(os.path.join(out, '1_4.rgba.png')), 'сбой гибридной маски — отказ с причиной, файл не записан')
+            rc, out, e = run('1:5', info={'verdict': 'bad', 'reason': 'коллаж'})
+            ok('коллаж' in e.get('error', '') and not os.path.exists(os.path.join(out, '1_5.rgba.png')), 'маска не годна — отказ с причиной, файл не записан')
+            MP.load_rules = lambda *a, **k: {'min_cut_side_px': 10 ** 6, 'measure': 'min'}
+            rc, out, e = run('1:6')
+            ok('размера' in e.get('error', '') and not os.path.exists(os.path.join(out, '1_6.rgba.png')), 'вырезка мельче правила размера — отказ с причиной, файл не записан')
+    finally:
+        if saved[0] is None:
+            sys.modules.pop('catalog_media', None)
+        else:
+            sys.modules['catalog_media'] = saved[0]
+        PRE.fetch, CO1.make_input = saved[1], saved[2]
+        MP.load_rules = old_rules
+
+
 if __name__ == '__main__':
     test_frozen()
     test_wrapper_is_thin()
     test_old_chain_steps()
     test_origin()
     test_make_input_uses_one_module()
+    test_make_inputs_script()
     print(f'tests_cutout_one: ошибок {len(bad)}')
     sys.exit(1 if bad else 0)

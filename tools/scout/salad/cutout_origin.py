@@ -200,7 +200,22 @@ def inputs_errors(inputs: dict, skus, inputs_dir: str | None = None) -> list[str
             p = os.path.join(inputs_dir, sku.replace(':', '_') + '.rgba.png')
             if os.path.exists(p):
                 errs += [f'{sku}: {x}' for x in check_png(p, e)]
+            else:      # проверка не смогла сработать — говорим об этом, а не молчим «чисто»
+                errs.append(f'{sku}: файла вырезки {os.path.basename(p)} нет в {inputs_dir} — метку внутри PNG проверить нечем')
     return errs
+
+
+def write_test_inputs(inputs_dir: str, skus) -> dict:
+    """ТОЛЬКО для тестов: пишет `inputs.json` с актуальной меткой и минимальный `<товар>.rgba.png` с той же меткой и честным sha256 — вход, который проверка пропускает."""
+    png = placeholder_png(example())
+    sha = hashlib.sha256(png).hexdigest()
+    inp = {}
+    for sku in skus:
+        open(os.path.join(inputs_dir, sku.replace(':', '_') + '.rgba.png'), 'wb').write(png)
+        inp[sku] = {'input_png_sha256': sha, 'origin': example()}
+    with open(os.path.join(inputs_dir, 'inputs.json'), 'w', encoding='utf-8') as f:
+        json.dump(inp, f)
+    return inp
 
 
 def example(now: datetime.datetime | None = None) -> dict:

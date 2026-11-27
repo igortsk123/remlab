@@ -280,6 +280,25 @@ make_inputs(d)
 open(os.path.join(d, 'a_1.rgba.png'), 'wb').write(T.CORIGIN.placeholder_png(dict(_good, chain_version='c0')))
 rc, mg, br, _ = go(d, apply=True)
 ok('метка внутри PNG устарела (в inputs.json — актуальна) → отказ, группы нет', rc == 2 and ('POST', '') not in mg.calls)
+# проверка не молчит: код ≠ 0 И строка с причиной (урок дня 27.11) — и когда метки нет, и когда проверить нечем (файла вырезки нет)
+
+
+def _drop_origin(d):
+    jp = os.path.join(d, 'inputs.json')
+    inp = json.load(open(jp))
+    inp['a:1'].pop('origin')
+    json.dump(inp, open(jp, 'w'))
+
+
+for what, prep in (('метки нет в inputs.json', _drop_origin), ('файла вырезки нет рядом', lambda d: os.remove(os.path.join(d, 'a_1.rgba.png')))):
+    d = tempfile.mkdtemp(prefix='tt-')
+    make_inputs(d)
+    prep(d)
+    _buf = io.StringIO()
+    with __import__('contextlib').redirect_stdout(_buf):
+        rc, mg, br, _ = go(d, apply=True)
+    ok(f'{what}: код 2, в выводе «ОТКАЗ» с причиной и указанием make_inputs.py, группы нет',
+       rc == 2 and 'ОТКАЗ' in _buf.getvalue() and 'make_inputs.py' in _buf.getvalue() and ('POST', '') not in mg.calls, _buf.getvalue()[-200:])
 d = tempfile.mkdtemp(prefix='tt-')
 make_inputs(d)
 open(os.path.join(d, 'a_1.rgba.png'), 'ab').write(b'\0')
