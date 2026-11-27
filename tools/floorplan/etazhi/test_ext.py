@@ -203,6 +203,14 @@ for nm, rows_x, fit_x, cs_x, want_w in (('нет walls.csv', [], fa['fit'], cs_o
     o, st = X.with_ext_numbers(fa['ov'], 'fx', cs_x, fit_x, rows_x, make_vf(), stop=False)
     check(kd == X.STOP and want_w in ws and raised is not None and raised.startswith('fx:') and want_w in raised and st['лист_для_ext'] == X.STOP and st['ext2b'].startswith('СТОП') and 'ext2b' not in o and 'ext2c' not in o,
           'СТОП (пропал вход при «легло»): %s — ExtStop, а с stop=False пометка «СТОП» и чисел нет' % nm, (kd, ws, raised, st))
+for vh, want_kind in (('как есть', X.APPLIES), ('как есть (4c не лучше)', X.APPLIES), ('4c', X.SKIP), ('4c, потом как есть', X.SKIP), ('', X.SKIP)):   # правило «префикс как есть» (директор 27.11): оба вида «как есть» применяются
+    ov_v = dict(fa['ov'], вход=vh)
+    kd, ws = X.coverage(ov_v, fa['rows'], fa['fit'], cs_ok)
+    o, st = X.with_ext_numbers(ov_v, 'fx', cs_ok, fa['fit'], fa['rows'], make_vf())
+    ok_v = (kd == want_kind and X.applicable(ov_v, fa['rows']) == (want_kind == X.APPLIES) and (st['ext2b'] == 'ok' and 'ext2b' in o) == (want_kind == X.APPLIES))
+    check(ok_v, 'вход «%s» → %s (coverage, applicable и числа согласованы)' % (vh, want_kind), (kd, ws, st))
+o, st = X.with_ext_numbers(dict(fa['ov']), 'fx', cs_ok, fa['fit'], fa['rows'], make_vf())
+check(X.coverage({k: v for k, v in fa['ov'].items() if k != 'вход'}, fa['rows'], fa['fit'], cs_ok)[0] == X.APPLIES, 'нет поля «вход» → как есть (применяется)')
 o, st = X.with_ext_numbers(fa['ov'], 'fx', [], None, [], make_vf(), want_2b=False, want_2c=False)
 check(st['лист_для_ext'] is None and o == fa['ov'], 'оба выключателя 2б/2в выкл — листы не классифицируются, СТОПа нет')
 

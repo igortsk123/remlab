@@ -42,9 +42,17 @@ def vf_refusal(vf):
     return ('настройки vetka_fit не те, на которых мерены числа 2б/2в: ' + ', '.join(bad)) if bad else None
 
 
+AS_IS = 'как есть'
+
+
+def as_is(ov):
+    """Вход листа — «как есть»: поле `вход` начинается с «как есть» (решение директора 27.11: «как есть (4c не лучше)» — тоже как есть; «4c» и прочее — нет). Нет поля → как есть."""
+    return str(ov.get('вход', AS_IS)).startswith(AS_IS)
+
+
 def applicable(ov, rows):
     """Лист годится для чисел 2б/2в: наложение «легло», вход «как есть», есть стены наложения (как отбирала мерка)."""
-    return bool(ov and ov.get('overlay_status') == 'легло' and ov.get('вход', 'как есть') == 'как есть' and rows)
+    return bool(ov and ov.get('overlay_status') == 'легло' and as_is(ov) and rows)
 
 
 def candidates(plans, images):
@@ -277,7 +285,7 @@ def coverage(ov, rows, fit, cands):
     stt = ov.get('overlay_status')
     if stt != 'легло':
         return SKIP, 'наложение не «легло» (статус: %s)' % (stt if stt else 'нет')
-    if ov.get('вход', 'как есть') != 'как есть':
+    if not as_is(ov):
         return SKIP, 'вход не «как есть» (вход: %s)' % ov.get('вход')
     lost = []
     if not rows:
