@@ -341,6 +341,41 @@ def test_make_inputs_script():
         MP.load_rules = old_rules
 
 
+def test_night_report_field():
+    print('6. отчёт ночной оценки несёт счётчик attached_prune_would и от него ничего не ломается (замечание Fable 27.11, п.3)')
+    import photo_fit
+    CS = cs_module()
+    sofa = [(90, 40, 230, 110)]
+    photo, net = scene(sofa, bridge=(158, 110, 160, 132))
+    arr = np.asarray(net).copy()
+    arr[132:142, 148:172] = (118, 108, 100, 255)
+    photo, net = Image.fromarray(arr[..., :3]), Image.fromarray(arr, 'RGBA')
+    if CS is not None:
+        _, info = CS.chain(photo, net, role='диван')           # ровно то, что ночной `cutout_sync.one` кладёт в photo_assessment.metrics
+    else:
+        _, _, info = CO1.chain_cut(photo, net, role='диван')
+    w = info.get('attached_prune_would')
+    ok(isinstance(w, dict) and w.get('applied') is False and w.get('would_cut_px', 0) > 100, f'поле есть в отчёте ночной оценки и считает: {w}')
+    back = json.loads(json.dumps(info, ensure_ascii=False))           # ночь пишет отчёт в jsonb через json.dumps — поле обязано пройти туда и обратно
+    ok(back.get('attached_prune_would') == w, 'поле проходит json.dumps → loads без потерь (jsonb)')
+    stripped = {k: v for k, v in info.items() if k != 'attached_prune_would'}
+    ok(photo_fit.verdict_from_metrics('диван', info) == photo_fit.verdict_from_metrics('диван', stripped),
+       'вердикт `verdict_from_metrics` с полем и без него один и тот же (читатель отчёта поле не замечает)')
+    ok(info.get('photo') and 'object_wh' in info['photo'], 'остальные поля, которые читают потребители (photo.object_wh), на месте')
+    # −контроль: читатель, который бы ломался на лишнем поле, был бы пойман этой же проверкой
+    bad_reader = lambda m: [m[k] for k in sorted(m) if not isinstance(m[k], (dict, list, str, int, float, bool, type(None)))]  # noqa: E731
+    ok(bad_reader(info) == [], 'в отчёте только json-типы (нет numpy/Image-значений)')
+    ok(bad_reader(dict(info, evil=np.float32(1))) != [], '−контроль: numpy-значение в отчёте проверка ловит')
+    src = open(os.path.join(HERE, 'trellis', 'make_inputs.py'), encoding='utf-8').read()
+
+    def hd_first(s):
+        return 'm.get(\'img_hd\') or m.get(\'img\')' in s and s.index('img_hd') < s.index("m.get('img')")
+    ok(hd_first(src) and 'ВЫСОКОГО разрешения' in src, 'вход формы: адрес фото высокого разрешения (img_hd) берётся первым, и это названо в описании')
+    ok('хвосты у пола» и «главный' not in src.split('Раньше здесь')[0], 'в описании сборки входа нет устаревшего «два шага старой цепочки: хвосты у пола…»')
+    ok('хвосты у пола» и «главный' in 'два шага старой цепочки: «хвосты у пола» и «главный предмет»', '−контроль: старую формулировку проверка видит')
+    ok(not hd_first(src.replace("m.get('img_hd') or m.get('img')", "m.get('img') or m.get('img_hd')")), '−контроль: порядок img → img_hd проверка ловит')
+
+
 if __name__ == '__main__':
     test_frozen()
     test_wrapper_is_thin()
@@ -348,5 +383,6 @@ if __name__ == '__main__':
     test_origin()
     test_make_input_uses_one_module()
     test_make_inputs_script()
+    test_night_report_field()
     print(f'tests_cutout_one: ошибок {len(bad)}')
     sys.exit(1 if bad else 0)
