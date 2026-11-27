@@ -11,6 +11,8 @@
     "ab_from_photo": true,
     "mirror_back": true,
     "fill_texels": 14,
+    "fill_same_plane_cos": 0.97,
+    "norm_blur_texels": 6,
     "blur_cm": 4.5,
     "split_cm": 1.0,
     "fine_cm": 0.35,

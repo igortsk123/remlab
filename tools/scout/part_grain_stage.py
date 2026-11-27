@@ -297,7 +297,20 @@ def photo_detail_step(tex_in, tone_tex, tx, g: dict, st: dict, Ld, valid, fgrp, 
     inside = (x >= 0.5) & (x <= px - 0.5) & (y >= 0.5) & (y <= px - 0.5) & ing_t
     xi, yi = np.clip(np.floor(x).astype(np.int64), 0, px - 1), np.clip(np.floor(y).astype(np.int64), 0, px - 1)
     fpx = ids[yi, xi]
-    Nc = tx.N @ M[:3]                                                       # нормаль тексела в куб камеры (подобие: поворот+масштаб) и взгляд из точки на центр камеры
+    Ns = tx.N                                                               # нормаль тексела; сетка из мелких треугольников шумит (до ±20°) — сглаживаем по окрестности в развёртке (box norm_blur_texels, только занятые тексели), иначе граница «лицо/бок» идёт по шуму
+    nb_ = int(pd.get('norm_blur_texels', 0))
+    if nb_ > 0:
+        occ_ = np.zeros(T * T, np.float32)
+        occ_[ti] = 1.0
+        sm = np.zeros((T * T, 3), np.float32)
+        den = cv2.boxFilter(occ_.reshape(T, T), -1, (2 * nb_ + 1, 2 * nb_ + 1), normalize=False)
+        for c_ in range(3):
+            im_ = np.zeros(T * T, np.float32)
+            im_[ti] = tx.N[:, c_]
+            sm[:, c_] = (cv2.boxFilter(im_.reshape(T, T), -1, (2 * nb_ + 1, 2 * nb_ + 1), normalize=False) / np.maximum(den, 1.0)).reshape(-1)
+        Ns = sm[ti].astype(np.float64)
+        Ns = Ns / np.maximum(np.linalg.norm(Ns, axis=1, keepdims=True), 1e-12)
+    Nc = Ns @ M[:3]                                                         # нормаль тексела в куб камеры (подобие: поворот+масштаб) и взгляд из точки на центр камеры
     Nc = Nc / np.maximum(np.linalg.norm(Nc, axis=1, keepdims=True), 1e-12)
     vw = np.asarray(fr['C'], np.float64)[None, :] - Qc if fr.get('C') is not None else None
     if vw is None:
@@ -320,10 +333,10 @@ def photo_detail_step(tex_in, tone_tex, tx, g: dict, st: dict, Ld, valid, fgrp, 
         away = ing_t & ((Nc * vw).sum(1) <= -float(pd['plane_cos']))
         if int(away.sum()) > 0:
             Qt = np.asarray(tx.Q, np.float64)
-            ax = np.argmax(np.abs(tx.N), axis=1)
+            ax = np.argmax(np.abs(Ns), axis=1)
             Qm = Qt.copy()
             for a_ in range(3):
-                sel_a = (ax == a_) & (np.abs(tx.N[:, a_]) >= 0.8) & ing_t
+                sel_a = (ax == a_) & (np.abs(Ns[:, a_]) >= 0.8) & ing_t
                 fa = sel_a & ((Nc * vw).sum(1) >= float(pd['plane_cos'])) & use
                 ba = sel_a & away
                 if fa.sum() < 50 or ba.sum() < 50:
@@ -354,7 +367,10 @@ def photo_detail_step(tex_in, tone_tex, tx, g: dict, st: dict, Ld, valid, fgrp, 
         isl_img[ti] = tx.island
         dist, (iy, ix) = distance_transform_edt(~cov_img.reshape(T, T), return_indices=True)
         src = iy * T + ix
-        cand = ing_t & ~cover & ((Nc * vw).sum(1) >= float(pd['plane_cos']) - 0.0) & (dist.reshape(-1)[ti] <= fill_n) & (isl_img[src.reshape(-1)[ti]] == tx.island)
+        ns_img = np.zeros((T * T, 3), np.float32)
+        ns_img[ti] = Ns.astype(np.float32)
+        same_n = (ns_img[src.reshape(-1)[ti]].astype(np.float64) * Ns).sum(1) >= float(pd['fill_same_plane_cos'])        # цель и её источник — одна плоскость (иначе деталь с лица ползёт на бок диагональным клином)
+        cand = ing_t & ~cover & ((Nc * vw).sum(1) >= float(pd['plane_cos'])) & (dist.reshape(-1)[ti] <= fill_n) & (isl_img[src.reshape(-1)[ti]] == tx.island) & same_n
         if cand.any():
             d_full[cand] = d_img[src.reshape(-1)[ti[cand]]]
             cover = cover | cand
