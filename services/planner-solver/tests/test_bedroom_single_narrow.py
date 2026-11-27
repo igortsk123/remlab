@@ -30,11 +30,11 @@ UK = ROOT / "tools" / "scout" / "uk-bedrooms.json"
 sys.path.insert(0, str(ROOT / "tools" / "scout"))
 import rules_label  # noqa: E402  (стандартная библиотека; тот же файл, что считает метку набора правил)
 
-# Один список на метку и на этот тест — `tools/scout/rules/rules-label.json` (T-175/12-дыра, замечание Fable 27.11): text_data (текстовые «_»-ключи с данными) и
-# note_objects (объект-пометка `_meta`, КРОМЕ ключей-данных: `_meta.engine` — движок солвера спальни, читает planner/bedroom_checks.py:74).
-_CFG = rules_label.load_cfg()
-DATA_NAMES = rules_label.text_data_names(_CFG)
-NOTES = rules_label.note_objects(_CFG)
+# Файл bedroom.json метка набора правил НЕ видит (в срез Salad он не едет — T-175/12-дыра, решение Fable 27.11), поэтому ключ-данные внутри объекта-пометки `_meta`
+# сторожит ЭТОТ тест: NOTES = {объект-пометка: [ключи-данные]} — `_meta.engine` (движок солвера спальни, читает planner/bedroom_checks.py:74). Список текстовых «_»-ключей с
+# данными (text_data) — общий с меткой, `tools/scout/rules/rules-label.json`.
+DATA_NAMES = rules_label.text_data_names(rules_label.load_cfg())
+NOTES = {"_meta": ["engine"]}
 
 
 def _is_note(k, v) -> bool:
@@ -213,7 +213,7 @@ def test_meta_engine_is_data_not_note():
     """`_meta.engine` в bedroom.json — ДАННЫЕ (движок солвера спальни, planner/bedroom_checks.py:74), а не пометка (замечание Fable 27.11, та же дыра, что `_default`):
     смена движка двигает хеш (метка набора правил и этот хеш видят её), правка текста `_meta.about` / `_engine_why` — нет; а без `engine` объект остаётся пометкой."""
     cur = json.loads((ROOT / "services/planner-solver/rules/bedroom.json").read_text(encoding="utf-8"))
-    assert "engine" in cur["_meta"] and "engine" in NOTES.get("_meta", ()), "engine должен стоять в rules-label.json note_objects"
+    assert "engine" in cur["_meta"] and "engine" in NOTES["_meta"], "engine должен стоять в NOTES этого теста"
     h0 = _h(_no_notes(cur))
     other = copy.deepcopy(cur)
     other["_meta"]["engine"] = "items" if cur["_meta"]["engine"] != "items" else "groups"
@@ -226,6 +226,22 @@ def test_meta_engine_is_data_not_note():
     no_engine = copy.deepcopy(cur)
     no_engine["_meta"].pop("engine")
     assert "_meta" not in _no_notes(no_engine), "без engine объект из одних текстов — пометка"
+
+
+def test_meta_reads_are_declared_as_data():
+    """Сторож: код планировщика читает из объекта-пометки `_meta` файла правил только ключи, объявленные данными (NOTES) — новое `…get("_meta", {}).get("x")` без записи → красный
+    (иначе правка `x` не двигала бы эталон, как было с `engine`). −Контроль: тот же поиск на строке без записи находит ключ."""
+    import re
+    rx = re.compile(r"""(?:\.get\(\s*|\[\s*)['"]_meta['"][^)\]]*[\)\]]\s*(?:\.get\(\s*|\[\s*)['"](\w+)['"]""")
+    found = {}
+    for p in sorted((ROOT / "services" / "planner-solver" / "planner").rglob("*.py")):
+        for i, ln in enumerate(p.read_text(encoding="utf-8").split("\n"), 1):
+            for m in rx.finditer(ln):
+                found.setdefault(m.group(1), []).append(f"{p.name}:{i}")
+    assert "engine" in found, "поиск не нашёл чтение _meta.engine в bedroom_checks.py — сторож слеп (поменялся код чтения?)"
+    undeclared = {k: v for k, v in found.items() if k not in NOTES["_meta"]}
+    assert not undeclared, f"код читает ключ из объекта-пометки _meta, а в NOTES его нет (данные → добавить в NOTES): {undeclared}"
+    assert [m.group(1) for m in rx.finditer('x = rules().get("_meta", {}).get("новый_ключ")')] == ["новый_ключ"], "−контроль: поиск не ловит чтение"
 
 
 @pytest.mark.parametrize("name", sorted(FROZEN))

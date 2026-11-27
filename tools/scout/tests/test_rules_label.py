@@ -369,24 +369,7 @@ ok(RL.label(tree('nm6', {'p.json': {'a': 1, '_meta': {'source': 'текст', 'l
 ok(RL.label(n1, CFG)['id'] != RL.label(tree('nm8', {'p.json': {**M(), '_meta': dict(M()['_meta'], engine='items')}}), CFG)['id'], 'контроль: без note_objects объект _meta — данные целиком (метка видит и engine, и тексты — запас)')
 ok(RL.diff_trees(n1, tree('nm9', {'p.json': {**M(), '_meta': dict(M()['_meta'], engine='items')}}), CFGN)[0]['key'] == '_meta.engine', '--diff показывает _meta.engine')
 real_cfg = RL.load_cfg()
-ok(real_cfg['note_objects'] == {'_meta': ['engine']} and 'services/planner-solver/rules/bedroom.json' in real_cfg['include'], 'rules-label.json: note_objects {_meta: [engine]}, bedroom.json спальни — в include')
-cpb = os.path.join(BASE, 'copy-bedroom')
-os.makedirs(os.path.join(cpb, 'tools'))
-os.makedirs(os.path.join(cpb, 'services', 'planner-solver'))
-shutil.copytree(os.path.join(REPO, 'tools', 'scout', 'rules'), os.path.join(cpb, 'tools', 'scout', 'rules'))
-shutil.copytree(os.path.join(REPO, 'services', 'planner-solver', 'rules'), os.path.join(cpb, 'services', 'planner-solver', 'rules'))
-ok(RL.label(cpb)['id'] == RL.label(REPO)['id'], 'копия правил (с bedroom.json спальни) = репо: одна метка')
-bp = os.path.join(cpb, 'services', 'planner-solver', 'rules', 'bedroom.json')
-bj = json.load(open(bp, encoding='utf-8'))
-was_e = bj['_meta']['engine']
-bj['_meta']['engine'] = 'items' if was_e != 'items' else 'groups'
-json.dump(bj, open(bp, 'w', encoding='utf-8'), ensure_ascii=False)
-ok(RL.label(cpb)['id'] != RL.label(REPO)['id'], f'реальный bedroom.json: _meta.engine «{was_e}» → «{bj["_meta"]["engine"]}» двигает метку (дыра закрыта)')
-bj['_meta']['engine'] = was_e
-bj['_meta']['about'] = bj['_meta']['about'] + ' — правка пометки'
-bj['_meta']['_engine_why'] = bj['_meta']['_engine_why'] + ' — правка'
-json.dump(bj, open(bp, 'w', encoding='utf-8'), ensure_ascii=False)
-ok(RL.label(cpb)['id'] == RL.label(REPO)['id'], 'реальный bedroom.json: правка текстов _meta.about / _engine_why метку не двигает')
+ok('note_objects' not in real_cfg and real_cfg['include'] == ['tools/scout/rules'], 'rules-label.json: include — ТОЛЬКО tools/scout/rules (то, что едет в срезе code.tar для Salad); bedroom.json спальни и note_objects в метке нет — `_meta.engine` сторожит тест эталона спальни')
 # сторож
 NCODE = {'tools/scout/mod.py': "def f(r):\n    return r.get('_meta', {}).get('mode')\n"}
 g = RL.text_key_gaps(tk_root('nk1', {'_meta': {'about': 'текст', 'mode': 'fast'}}, NCODE), dict(TCFG, note_objects={'_meta': ['engine']}))
@@ -394,9 +377,7 @@ ok(any(x.startswith('_meta.mode') and 'mod.py:2' in x and 'note_objects' in x fo
 ok(not any('_meta.mode' in x for x in RL.text_key_gaps(tk_root('nk2', {'_meta': {'about': 'текст', 'mode': 'fast'}}, NCODE), dict(TCFG, note_objects={'_meta': ['mode']}))), 'ключ перечислен в note_objects → зелёно')
 g = RL.text_key_gaps(tk_root('nk3', {'_meta': {'about': 'текст'}}, {}), dict(TCFG, note_objects={'_meta': ['engine']}))
 ok(any('_meta.engine' in x and 'устарела' in x for x in g), 'запись note_objects про ключ, которого нет в файлах правил → красный «устарела»')
-g = RL.text_key_gaps(REPO, dict(real_cfg, note_objects={'_meta': []}))
-ok(any(x.startswith('_meta.engine') and 'bedroom_checks.py' in x for x in g), 'СЛОМАНО: убрали engine из note_objects → сторож на реальном репо краснеет: bedroom_checks.py читает _meta.engine')
-ok(RL.text_key_gaps(REPO) == [], 'реальный репо с note_objects — сторож чист')
+ok(RL.text_key_gaps(REPO) == [], 'реальный репо: сторож чист')
 
 shutil.rmtree(BASE, ignore_errors=True)
 print(f'rules_label: ошибок {FAIL}')
