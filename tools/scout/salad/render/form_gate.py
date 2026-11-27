@@ -46,8 +46,8 @@ def gate(out: str, glbs: str, skus: list[str], roles: dict | None = None, photos
     import form_reseed as FR
     import vlm_judge as VJ
     if find_glb is None:
-        import forms_render as FR
-        find_glb = FR.find_glb_
+        import forms_render as FRN                                                        # своё имя: `FR` ниже — form_reseed (annotate); общее имя перекрывало его и роняло Ш0 (T-20261127-175/Ш0-fix)
+        find_glb = FRN.find_glb_
     rules = FC.load_rules(rules_path) if rules_path else FC.load_rules()
     J = rules.get('vlm_judge') or {}
     roles = roles or {}
