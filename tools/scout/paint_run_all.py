@@ -367,7 +367,7 @@ def _run_step(step: dict, name: str, ctx: dict, rules: dict, timeout: int, use_h
 
 def execute(run: str, sku: str, a: dict, rules: dict, check_rules: dict, only: list | None = None, timeout: int = 3600) -> dict:
     """Выполнить по порядку; перед каждым этапом гейт считается заново по ФАКТИЧЕСКИМ check.json (не по плану)."""
-    log = {'sku': sku, 'run': run, 'stages': [], 'started': time.strftime('%Y-%m-%d %H:%M:%S')}
+    log = {'sku': sku, 'run': run, 'stages': [], 'started': time.strftime('%Y-%m-%d %H:%M:%S'), 'rules_label': PS._rules_label()}   # метка набора правил круга (T-175/12): та же запись, что в check.json этапов
     ctx = make_ctx(run, sku, a, rules)
     os.makedirs(ctx['work'], exist_ok=True)
     for name in rules['order']:

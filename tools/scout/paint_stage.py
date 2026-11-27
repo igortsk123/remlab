@@ -7,7 +7,8 @@
   {"version": 1, "stage": "07-fill", "sku": "<sku>", "passed": true,
    "metric": {"name": "...", "value": 0.997, "threshold": 0.99, "op": ">=", "ok": true},            # главная мерка этапа (нет — null)
    "metrics": {"имя": {"value": …, "threshold": …, "op": "<=", "ok": true}, …},                       # остальные мерки (каждая со своим порогом; `passed` = все ok, если не задано явно)
-   "extra": {…любые числа этапа…}, "reason": "", "seconds": 71.2, "outputs": ["файл", …], "frame": "frame.png"}
+   "extra": {…любые числа этапа…}, "reason": "", "seconds": 71.2, "outputs": ["файл", …], "frame": "frame.png",
+   "rules_label": {"id": "<12 hex>", "n": 108, "env": {}, "root": "<дерево>"}}    # метка набора правил этапа (T-175/12, rules_label.py); нет модуля — {"id": "нет", "why": …}
 Использование:
   from paint_stage import stage_dir, write_check, judge, read_check, summary
   d = stage_dir(run, sku, '07-fill')                       # создаёт папку, имя sku безопасно для файловой системы
@@ -65,6 +66,20 @@ def _norm_metric(m: dict | None) -> dict | None:
     return out
 
 
+def _rules_label() -> dict:
+    """Метка набора правил дерева, из которого запущен этап (T-175/12, `rules_label.py`): {id, n, env, root}. Нет модуля в дереве (старая копия пробы) — `id: "нет"`, не падение."""
+    here = os.path.dirname(os.path.abspath(__file__))
+    try:
+        sys.path.insert(0, here)
+        try:
+            import rules_label as RL
+        finally:
+            sys.path.pop(0)
+        return RL.field(os.path.join(here, '..', '..'))
+    except Exception as e:  # noqa: BLE001
+        return {'id': 'нет', 'why': f'{type(e).__name__}: {e}'[:200]}
+
+
 def write_check(stage_dir_: str, stage: str, sku: str, passed: bool | None = None, metric: dict | None = None, reason: str = '', *,
                 metrics: dict | None = None, seconds: float | None = None, outputs: list | None = None, frame: str | None = None, **extra) -> dict:
     """Пишет `<stage_dir>/check.json` атомарно, возвращает словарь. `passed=None` — вывести: все мерки (главная и `metrics`) с порогом прошли и хотя бы одна есть.
@@ -79,7 +94,8 @@ def write_check(stage_dir_: str, stage: str, sku: str, passed: bool | None = Non
     if not passed and not reason:
         reason = 'не прошли: ' + '; '.join(failed) if failed else 'нет измерений'
     doc = {'version': VERSION, 'stage': stage, 'sku': sku, 'passed': bool(passed), 'metric': m1, 'metrics': ms, 'extra': extra, 'reason': reason,
-           'seconds': None if seconds is None else round(float(seconds), 2), 'outputs': list(outputs or []), 'frame': frame}
+           'seconds': None if seconds is None else round(float(seconds), 2), 'outputs': list(outputs or []), 'frame': frame,
+           'rules_label': _rules_label()}
     os.makedirs(stage_dir_, exist_ok=True)
     fd, tmp = tempfile.mkstemp(prefix='.check-', suffix='.tmp', dir=stage_dir_)
     with os.fdopen(fd, 'w', encoding='utf-8') as f:
