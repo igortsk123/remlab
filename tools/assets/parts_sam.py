@@ -180,9 +180,17 @@ def run(args) -> int:
     os.makedirs(sdir, exist_ok=True)
     info = json.load(open(os.path.join(args.orbit, "orbit.json"), encoding="utf-8"))
     mesh = mp.load_mesh(args.glb)
+    nf_full = len(mesh.faces)
+    fmap = pv.duplicate_face_map(mesh.faces)                              # парные дубли граней (TRELLIS): Blender их снимает при импорте — работаем на меше без дублей, в parts.npz раскладываем обратно
+    dedup = fmap["n_dup"] > 0 and fmap["nonconsecutive"] == 0
+    if dedup:
+        mesh_full = mesh
+        mesh = mesh_full.copy()
+        mesh.update_faces(fmap["keep"])
     nf = len(mesh.faces)
     if info["faces"] != nf:
-        ps.write_check(sdir, "03-parts", args.sku, passed=False, reason=f"число граней Blender {info['faces']} ≠ меша {nf}", seconds=time.time() - t0)
+        why = f"число граней Blender {info['faces']} ≠ меша {nf_full}" + (f" (дублей граней меша {fmap['n_dup']}, из них не подряд {fmap['nonconsecutive']}; после карты {nf})" if fmap["n_dup"] else "")
+        ps.write_check(sdir, "03-parts", args.sku, passed=False, reason=why, seconds=time.time() - t0)
         return 1
     has_tex, tex_std = input_colour(mesh)
     ok_in, why_in = pv.colour_verdict(has_tex, tex_std, rules)
@@ -271,9 +279,16 @@ def run(args) -> int:
         parts.append({"id": int(p), "face_share": round(float(c) / nf, 4), "role": (rr["role"] if rr else (role or f"part-{int(p)}")), "vl": None, "colour": colours.get(int(p)),
                       **({"merged_orphan": mo_by[int(p)]} if int(p) in mo_by else {}),
                       **({k: rr[k] for k in ("role_title", "material_channel", "role_conf", "role_why", "unknown_reason")} | {"features": feats.get(int(p))} | {k: rr[k] for k in ("unseen_hint", "dry_hint") if rr.get(k)} if rr else {})})
-    np.savez_compressed(os.path.join(sdir, "parts.npz"), part=part.astype(np.int16), agree=res["agree"].astype(np.float16),
-                        vote_part=vote_part.astype(np.int16), vote_agree=vote_agree.astype(np.float16), seen=res["seen_any"])   # vote_* — до доводки: доводку можно переиграть без SAM2
-    json.dump({"faces": nf, "n_views": len(names), "regions_per_view": per_view_regions, "n_parts_raw": res["n_parts_raw"], "parts": parts, "geometry": geom, "refine": refine_rep, "roles": roles_sum},
+    face_map_note = {"mesh_faces": nf_full, "blender_faces": nf, "duplicate_faces": fmap["n_dup"],
+                     "rule": "parts.npz по граням меша: грань-дубль (тот же набор вершин, подряд идущий номер) получает метку своей первой пары; доли частей и метрики — по граням без дублей"} if dedup else None
+    out_part, out_agree, out_vote_part, out_vote_agree, out_seen = part, res["agree"], vote_part, vote_agree, res["seen_any"]
+    if dedup:                                                         # parts.npz — по числу граней МЕША (читатели 07/08 сверяют с GLB): метка дубля = метка его пары
+        rep = fmap["rep"]
+        out_part, out_agree, out_vote_part, out_vote_agree, out_seen = part[rep], res["agree"][rep], vote_part[rep], vote_agree[rep], res["seen_any"][rep]
+    np.savez_compressed(os.path.join(sdir, "parts.npz"), part=out_part.astype(np.int16), agree=out_agree.astype(np.float16),
+                        vote_part=out_vote_part.astype(np.int16), vote_agree=out_vote_agree.astype(np.float16), seen=out_seen)   # vote_* — до доводки: доводку можно переиграть без SAM2
+    json.dump({"faces": nf_full, "n_views": len(names), "regions_per_view": per_view_regions, "n_parts_raw": res["n_parts_raw"], "parts": parts, "geometry": geom, "refine": refine_rep, "roles": roles_sum,
+               **({"face_map": face_map_note} if face_map_note else {})},
               open(os.path.join(sdir, "parts.json"), "w", encoding="utf-8"), ensure_ascii=False, indent=1)
     tiles = [paint_frame(args.orbit, n, part, u, v, vis, rgb, mask) for (n, rgb, mask, u, v, vis) in (frames[0:8:2] if len(frames) >= 8 else frames[:4])]
     pids = [int(q) for q in np.unique(part[part >= 0])][:12]
@@ -295,7 +310,8 @@ def run(args) -> int:
         metrics["linear_in_blob_part_share"] = {"value": q["linear_in_blob_part_share"], "threshold": rules["check"]["max_linear_in_blob"], "op": "<=",
                                                 "ok": q["linear_in_blob_part_share"] <= rules["check"]["max_linear_in_blob"]}
     ps.write_check(sdir, "03-parts", args.sku, passed=q["ok"], metric={"name": "n_parts", **metrics["n_parts"]}, reason=q["reason"], metrics=metrics, seconds=time.time() - t0,
-                   outputs=["parts.npz", "parts.json"], frame="frame.png", faces_seen_by_views_share=q["faces_seen_by_views_share"], part_face_shares=q["part_face_shares"], geometry=geom, mixed_colour_parts=mixed, refine=refine_rep, roles_summary=roles_sum)
+                   outputs=["parts.npz", "parts.json"], frame="frame.png", faces_seen_by_views_share=q["faces_seen_by_views_share"], part_face_shares=q["part_face_shares"], geometry=geom, mixed_colour_parts=mixed, refine=refine_rep, roles_summary=roles_sum,
+                   **({"face_map": face_map_note} if face_map_note else {}))
     print(json.dumps({"ok": q["ok"], "reason": q["reason"], "n_parts": q["n_parts"], "agree": q["frames_agreement_mean"], "with_part": q["faces_with_part_share"], "geometry": geom and {k: v for k, v in geom.items() if k != "roles"}}, ensure_ascii=False))
     return 0
 
