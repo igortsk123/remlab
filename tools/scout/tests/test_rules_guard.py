@@ -236,6 +236,40 @@ def test_real_repo_line_is_zero_today_and_has_four_counters():
     assert re.fullmatch(r'правила: просрочено 0, вне реестра: новых 0 \(старый долг \d+\), сообщений владельца без разбора \?, выключателей на удаление 0', res['line']), res['line']
 
 
+def test_broken_check_says_so_not_zero():
+    """Урок дня 27.11 (3-й случай): сломанная проверка не молчит и не пишет «0». Сторож выключателей без настроек/порога, журнал не читается, нет файла настроек самого стража —
+    строка с причиной, «?» вместо счётчиков, не чисто (--check rc=1) или громкое падение с текстом."""
+    no_journal = os.path.join(tempfile.mkdtemp(prefix='rgm-'), 'нет.jsonl')
+    for fname, why in (('switch-settings.json', 'нет файла настроек'), ('switch-guard-threshold.json', 'нет порога')):
+        d = world(files={'a.json': {'enabled': False}, 'b.json': {'x': True, 'y': False}})
+        os.remove(os.path.join(d, RULES, fname))
+        res = RG.evaluate(d, CFG, {'off_first_seen': {'k#v': '2026-11-01'}}, NOW, TODAY, no_journal)
+        assert res['switch_error'] and why in res['switch_error'] and res['registry_error'] is None, (fname, res['switch_error'])
+        assert res['line'].startswith('правила: сторож выключателей не работает (') and 'новых' not in res['line'] and 'вне реестра: ?' in res['line'], res['line']
+        assert res['outside'] is None and res['off_remove'] is None and res['overdue'] == 0 and not RG.is_clean(res), fname      # срок мерится (реестр цел), выключатели — нет
+        assert res['off_first_seen'] == {'k#v': '2026-11-01'}
+        assert any('сторож выключателей не работает' in x for x in RG.details(res)), fname
+        msgs, st = RG.plan_alerts(res, {}, NOW, CFG)
+        msgs, _ = RG.plan_alerts(res, st, NOW + datetime.timedelta(minutes=61), CFG)
+        assert len(msgs) == 1 and 'сторож выключателей не работает' in msgs[0][0], msgs
+    # отрицательный контроль: целый сторож (порог есть) — прежняя строка; находка («НОВЫЙ выключатель») — счётчик, а не поломка
+    ok = RG.evaluate(world(files={'a.json': {'enabled': False}, 'b.json': {'x': True, 'y': False}}), CFG, {}, NOW, TODAY, no_journal)
+    assert ok['switch_error'] is None and ok['line'].startswith('правила: просрочено 0, вне реестра: новых'), ok['line']
+    # журнал есть, но не читается (не UTF-8) → «?» и причина, а не «0 ждущих» и не падение
+    bad = os.path.join(tempfile.mkdtemp(prefix='rgj-'), 'journal.jsonl')
+    open(bad, 'wb').write(b'\xff\xfe\x00\xd8 not utf8\n')
+    r = RG.evaluate(world(), CFG, {}, NOW, TODAY, bad)
+    assert r['unreviewed'] is None and r['journal']['error'] and 'без разбора ?,' in r['line'], r['journal']
+    assert any('журнал сообщений владельца не читается' in x for x in RG.details(r))
+    # у самого стража нет файла настроек → громкое падение с текстом (SystemExit со строкой), не тихий «0»
+    try:
+        RG.load_config(os.path.join(tempfile.mkdtemp(prefix='rgc-'), 'нет.json'))
+    except SystemExit as e:
+        assert 'нет файла настроек' in str(e), e
+    else:
+        raise AssertionError('load_config без файла обязан падать с текстом')
+
+
 def test_unreadable_registry_is_reported_not_counted_as_new_switches():
     """T-175 fix (Fable 27 (б)): реестра нет / он битый / не того вида → «реестр не читается», а не «новых N» (без реестра ВСЕ выключатели «новые» — ложная тревога другой природы)."""
     no_journal = os.path.join(tempfile.mkdtemp(prefix='rgm-'), 'нет.jsonl')
