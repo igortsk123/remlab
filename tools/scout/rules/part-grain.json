@@ -17,6 +17,7 @@
     "wrap_full_below": 0.9,
     "wrap_outer_tol": 0.03,
     "wrap_offset": 0.12,
+    "seam_ratio_max": 2.5,
     "sel_smooth_px": 15,
     "fibre_fill": true,
     "fibre_weight": 0.05,

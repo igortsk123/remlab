@@ -242,6 +242,10 @@ def main():
     check(ST.fibre_axis(Qs, xs_i, ys_i, covered, Ns_) == 2, 'fibre_axis: вертикаль кадра ↔ ось 2 модели')
     check(ST.fibre_axis(Qs, xs_i, ys_i, np.zeros(len(Qs), bool), Ns_) is None, 'fibre_axis: нет текселей «в лоб» → None')
     src_ = open(os.path.join(os.path.dirname(os.path.abspath(__file__)), 'part_grain_stage.py'), encoding='utf-8').read()
+    v1 = ST.seam_verdict({'boundary': 0.35, 'interior': 0.25, 'ratio': 1.4, 'pairs_boundary': 100}, 2.5)
+    v2 = ST.seam_verdict({'boundary': 1.2, 'interior': 0.2, 'ratio': 6.0, 'pairs_boundary': 100}, 2.5)
+    v3 = ST.seam_verdict({'ratio': 6.0}, 0.0)
+    check(v1['ok'] is True and v2['ok'] is False and v3['ok'] is None and v1['ratio'] == 1.4, 'seam_verdict: ratio 1,4 ≤ 2,5 — ок; рваная граница (6,0) — не ок; порог не задан — None')
     gm = np.zeros((200, 200), bool)
     gm[20:180, 20:120] = True                                                  # широкая грань (корпус) 100 px
     gm[20:180, 130:150] = True                                                 # кромка плиты 20 px (другая группа)

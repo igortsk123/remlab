@@ -377,6 +377,14 @@ def sel_margin(ingrp: np.ndarray, er0: int, er: int, wide: np.ndarray = None) ->
     return (sel0 & ~w) | core
 
 
+def seam_verdict(sc: dict, ratio_max: float) -> dict:
+    """Автопроверка «нет рваных границ»: перепад детали на стыке источников рисунка внутри одной грани против перепада внутри одного источника (ratio, по худшему направлению) не выше ratio_max. ok=None — порог не задан (проверка не включена)."""
+    out = dict(sc)
+    out['ratio_max'] = ratio_max
+    out['ok'] = None if ratio_max <= 0 else bool(sc.get('ratio', 0.0) <= ratio_max)
+    return out
+
+
 def photo_detail_step(tex_in, tone_tex, tx, g: dict, st: dict, Ld, valid, fgrp, names: list, ppc: float, rules: dict, rep: dict, face_n=None, ab_frame=None):
     """T-99/12 шаг 5: рисунок С ФОТО на лице группы (тумба Хостера): слой деталей фото без теней (этап 05) поверх тона Ш4а — только грани в лоб, свет/тени шире blur_cm вычтены.
     Текселю группы, видимому с камеры в лоб и надёжному, — тон Ш4а (tone_tex, до зерна) + деталь фото (L, усилено gain_*); остальным текселям группы остаётся зерно образца. → (текстура, маска «деталь с фото»)."""
@@ -542,6 +550,7 @@ def photo_detail_step(tex_in, tone_tex, tx, g: dict, st: dict, Ld, valid, fgrp, 
             tag[nf & ~cover] = 5
             cover = cover | nf
     info['seam_check'] = seam_stats(ti, T, tx.island, tag, d_full, cover)
+    info['seam_check'] = seam_verdict(info['seam_check'], float(pd.get('seam_ratio_max', 0.0)))
     flat_new = tex_in.reshape(-1, 3).copy()
     base = tone_tex.reshape(-1, 3)[ti[cover]]
     lab = TC.rgb2lab(base.astype(np.float64))
