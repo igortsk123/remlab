@@ -83,7 +83,18 @@ def test_switches_new_and_unclassified_count_but_legacy_does_not():
     d = world(files={'a.json': {'enabled': False, 'nested': {'on': True}}, 'zz.json': {'x': True}})       # zz.json — ни в scan, ни в skip_files
     res = RG.evaluate(d, CFG, {}, NOW, TODAY, journal([]))
     assert res['outside'] == 1 and any('zz.json' in x for x in res['outside_items']), res
-    assert RG.line_of(res).startswith('правила: просрочено 0, вне реестра 1, ')
+    assert RG.line_of(res).startswith('правила: просрочено 0, вне реестра: новых 1 (старый долг 2), ')
+
+
+def test_line_shows_legacy_debt_not_hides_it():
+    """Fable proverka-t175-3 § 2 п.2: «вне реестра 0» рядом с долгом в сотни выключателей — ложный ноль. Долг — в самой строке; на «новых» он не влияет (is_clean)."""
+    d = world()                                                                       # два старых из known, новых нет
+    res = RG.evaluate(d, CFG, {}, NOW, TODAY, journal([]))
+    assert res['outside'] == 0 and res['outside_old'] == 2 and RG.is_clean(res), res
+    assert 'вне реестра: новых 0 (старый долг 2)' in res['line'], res['line']
+    d = world(threshold={'max_uncovered': 9, 'known': []})                            # те же два — теперь НОВЫЕ: долга 0, новых 2
+    res = RG.evaluate(d, CFG, {}, NOW, TODAY, journal([]))
+    assert 'вне реестра: новых 2 (старый долг 0)' in res['line'] and not RG.is_clean(res), res['line']
 
 
 def test_off_remove_counts_after_off_days_from_first_seen():
@@ -174,7 +185,7 @@ def test_cli_notify_end_to_end_failed_send_is_retried_and_files_written():
     assert RG.main(args + ['--now', '2026-11-27T13:35:00+00:00'], sender=ok) == 0 and len(sent) == 2            # не отмечено доставленным → повтор
     assert RG.main(args + ['--now', '2026-11-27T14:05:00+00:00'], sender=ok) == 0 and len(sent) == 2            # доставлено → тишина до realert
     line = open(os.path.join(sd, 'line.txt'), encoding='utf-8').read().strip()
-    assert line.startswith('правила: просрочено 1, вне реестра 0, сообщений владельца без разбора 0, выключателей на удаление 0'), line
+    assert line.startswith('правила: просрочено 1, вне реестра: новых 0 (старый долг 2), сообщений владельца без разбора 0, выключателей на удаление 0'), line
     rep = json.load(open(os.path.join(sd, 'report.json'), encoding='utf-8'))
     assert rep['overdue'] == 1 and rep['journal']['exists'] is True
     assert RG.main(['--check', '--root', d, '--state-dir', sd, '--journal', jp, '--now', '2026-11-27T14:05:00+00:00']) == 1
@@ -188,8 +199,8 @@ def test_cli_notify_end_to_end_failed_send_is_retried_and_files_written():
 def test_real_repo_line_is_zero_today_and_has_four_counters():
     res = RG.evaluate(ROOT, CFG, {}, NOW, TODAY, os.path.join(tempfile.mkdtemp(prefix='rgm-'), 'нет.jsonl'))
     assert res['overdue'] == 0 and res['outside'] == 0 and res['off_remove'] == 0, res['line']
-    assert res['line'] == 'правила: просрочено 0, вне реестра 0, сообщений владельца без разбора ?, выключателей на удаление 0', res['line']
-
+    import re
+    assert re.fullmatch(r'правила: просрочено 0, вне реестра: новых 0 \(старый долг \d+\), сообщений владельца без разбора \?, выключателей на удаление 0', res['line']), res['line']
 
 if __name__ == '__main__':
     n = 0

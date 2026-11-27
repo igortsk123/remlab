@@ -111,6 +111,52 @@ def test_cli_json_and_errors(tmp_path, capsys):
     assert bs.main(["x1", "--root", str(tmp_path / "нет")]) == 2
 
 
+def make_crowded_bank(tmp: Path, strong: int = 14) -> Path:
+    """Много сильных мест БЕЗ пометки закрытого + одно слабое с «ЗАКРЫЛИ» — как строка 71 плана покраски на запрос «генерация невидимого» (27.11)."""
+    root = tmp / "crowd"
+    pl = root / ".memory_bank" / "plans"
+    pl.mkdir(parents=True)
+    for i in range(strong):                                              # оба слова в трёх строках подряд — окно сильнее одиночной строки
+        (pl / f"strong-{i:02d}.md").write_text("# Про покраску\n\nгенерация текстуры\nневидимого зада\nгенерация и невидимого вместе\n", encoding="utf-8")
+    (pl / "zz-closed.md").write_text("# Правила\n\n19. **Решение.** → Генерацию невидимого ЗАКРЫЛИ (проба TRELLIS.2 не лучше).\n", encoding="utf-8")
+    return root
+
+
+def test_closed_places_come_first_and_survive_the_limit(tmp_path):
+    """Fable 27 § 2: запись «закрыли» без приоритета оставалась за чертой limit (20 мест, показано 12). Закрытое — первым."""
+    root = make_crowded_bank(tmp_path)
+    r = run(root, "генерация невидимого")
+    assert r["total_places"] == 15 and len(r["shown"]) == 12, (r["total_places"], len(r["shown"]))
+    assert r["shown"][0]["file"].endswith("zz-closed.md") and r["shown"][0]["closed"], r["shown"][0]
+    assert all(not h["closed"] for h in r["shown"][1:]), "остальные — без пометки"
+
+
+def test_closed_markers_cover_zakryli_zakryto_ostanovlena_ne_beryom():
+    for phrase in ("Генерацию невидимого ЗАКРЫЛИ", "тема закрыта", "это закрыто", "ветка остановлена", "остановлен прогон", "не берём в работу", "не берем"):
+        assert bs.CLOSED.search(phrase), phrase
+
+
+def test_hidden_places_are_announced_in_last_line(tmp_path):
+    root = make_crowded_bank(tmp_path)
+    lines = bs.bullets(run(root, "генерация невидимого"))
+    assert lines[-1].startswith("- …ещё 3 мест не показано"), lines[-1]
+    full = bs.bullets(run(root, "генерация невидимого", limit=50, per_file=5))
+    assert not any("не показано" in x for x in full)                      # показано всё — строки нет
+    assert "ещё 3 мест не показано" in bs.render([run(root, "генерация невидимого")], block=True)
+
+
+def test_real_bank_query_shows_the_zakryli_record():
+    """Живой банк: «генерация невидимого» обязан показать запись «Генерацию невидимого ЗАКРЫЛИ» (plans/paint-material-01.md, на 27.11 — строка 71; номер плывёт — ищем по тексту)."""
+    root = Path(__file__).resolve().parents[3]
+    plan = root / ".memory_bank" / "plans" / "paint-material-01.md"
+    if not plan.is_file() or "ЗАКРЫЛИ" not in plan.read_text(encoding="utf-8"):
+        import pytest
+        pytest.skip("запись «ЗАКРЫЛИ» в plans/paint-material-01.md переехала — тест надо перевести на её новый адрес")
+    r = run(root, "генерация невидимого")
+    hit = [h for h in r["shown"] if h["file"].endswith("plans/paint-material-01.md") and any("закрыл" in c for c in h["closed"])]   # сниппет обрезан до 220 знаков — слово «ЗАКРЫЛИ» ловим по пометке
+    assert hit, [(h["file"], h["line"]) for h in r["shown"]]
+
+
 GOOD_Q = """# Вопрос Fable 5
 
 ## Факты
