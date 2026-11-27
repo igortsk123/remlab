@@ -389,7 +389,8 @@ def photo_detail_step(tex_in, tone_tex, tx, g: dict, st: dict, Ld, valid, fgrp, 
     if int(ingrp.sum()) < int(pd['min_px']):
         info['reason'] = 'в лоб видно %d px (< %d)' % (int(ingrp.sum()), int(pd['min_px']))
         return tex_in, None
-    er = int(pd['edge_px'])
+    er = max(int(pd['edge_px']), int(round(float(pd.get('edge_cm', 0.0)) * ppc)))                # край видимой грани отступаем на edge_cm: у свеса плиты полутень шире тени 05 — высокочастотный слой там даёт тёмную рваную бахрому по краю (виден на задней стенке под плитой)
+    info['edge_px_used'] = er
     sel = cv2.erode(ingrp.astype(np.uint8), np.ones((2 * er + 1, 2 * er + 1), np.uint8)).astype(bool) if er > 0 else ingrp
     coarse, fine = detail_bands(Ld, sel, ppc, pd)
     D = np.clip(float(pd['gain_coarse']) * coarse + float(pd['gain_fine']) * fine, -float(pd['clip_L']), float(pd['clip_L']))
