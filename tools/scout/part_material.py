@@ -306,6 +306,8 @@ def group_tones(prgb: np.ndarray, pp: np.ndarray, names: list, cosf: np.ndarray,
             if int(fc.sum()) >= int(gl['min_px']) and int((~fc).sum()) >= int(gl['min_px']):
                 vsrc = px if raw is None else raw[m]
                 lf, lg = np.median(lab_of(vsrc[fc]), 0), np.median(lab_of(vsrc[~fc]), 0)
+                info['glare_check'] = {'face_px': int(fc.sum()), 'grazing_px': int((~fc).sum()), 'face_LCh': [round(float(lf[0]), 1), round(chroma(lf), 1), round(hue_of(lf), 1)],
+                                       'grazing_LCh': [round(float(lg[0]), 1), round(chroma(lg), 1), round(hue_of(lg), 1)]}       # числа проверки — в след и когда отблеска нет (чтобы было видно, почему)
                 if abs(hue_diff(hue_of(lf), hue_of(lg))) <= float(gl['hue_deg']) and chroma(lg) <= (1.0 - float(gl['chroma_drop'])) * chroma(lf):
                     info['glare'] = {'face_px': int(fc.sum()), 'grazing_px': int((~fc).sum()), 'face_LCh': [round(float(lf[0]), 1), round(chroma(lf), 1), round(hue_of(lf), 1)],
                                      'grazing_LCh': [round(float(lg[0]), 1), round(chroma(lg), 1), round(hue_of(lg), 1)]}

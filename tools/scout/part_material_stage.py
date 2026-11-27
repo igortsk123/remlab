@@ -165,6 +165,7 @@ def process(a, rules: dict, d: str, rep: dict) -> None:
     tones = PM.group_tones(prgb, pp, names, cosf, rules, comp_px, raw_frame)
     if (rules.get('pixels', {}).get('glare') or {}).get('enabled'):          # T-99/12 шаг 3: отблеск группы (тон взят с граней в лоб) — в след
         rep['glare'] = {gn: t['glare'] for gn, t in tones.items() if t.get('glare')}
+        rep['glare_check'] = {gn: t['glare_check'] for gn, t in tones.items() if t.get('glare_check')}
     if (rules.get('tone_merge') or {}).get('enabled'):                        # T-99/12 шаг 3: части одного материала — один тон (выкл — строки не выполняются)
         rep['tone_merge'] = PM.merge_tones(tones, rules)
     keep, borrowed, same = PM.pick_sources(tones, rules, rep['area_share'])
