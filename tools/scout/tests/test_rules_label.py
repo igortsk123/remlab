@@ -158,6 +158,132 @@ dd = RL.diff_trees(cp, REPO)
 ok(len(dd) == 1 and dd[0]['kind'] == 'только_A' and dd[0]['key'] == 'флаг_пробы.enabled', 'лишний ключ пробы — ровно он в списке')
 ok(RL.label(cp)['id'] != RL.label(REPO)['id'], 'и метка пробы другая — в отчёте этапа видно, что это не основной набор')
 
+print('== «_»-ключи: комментарии-строки не в счёте, данные (число/флаг/объект) — в счёте (T-175/12-дыра)')
+U0 = tree('u0', {'p.json': {'a': 1, '_about': 'комментарий', '_default': 0}})
+ok(lab(U0) == lab(tree('u1', {'p.json': {'a': 1, '_about': 'другой текст комментария', '_default': 0}})), 'правка текстового «_about» метку не двигает')
+ok(lab(U0) == lab(tree('u1b', {'p.json': {'a': 1, '_default': 0}})), 'и удаление текстового «_»-ключа метку не двигает')
+ok(lab(U0) != lab(tree('u2', {'p.json': {'a': 1, '_about': 'комментарий', '_default': 1}})), '«_default»: 0 → 1 (число) метку ДВИГАЕТ — раньше был слепым пятном')
+ok(lab(tree('u3', {'p.json': {'_flag': True}})) != lab(tree('u4', {'p.json': {'_flag': False}})), '«_»-ключ с флагом: True → False двигает метку')
+ok(lab(tree('u5', {'p.json': {'_any': {'x': 1}}})) != lab(tree('u6', {'p.json': {'_any': {'x': 2}}})), '«_»-ключ с объектом: значение внутри двигает метку')
+ok(lab(tree('u7', {'p.json': {'_any': {'x': 1, '_why': 'a'}}})) == lab(tree('u8', {'p.json': {'_any': {'x': 1, '_why': 'b'}}})), 'а текстовый комментарий ВНУТРИ такого объекта — по-прежнему не в счёте')
+ok(lab(tree('u9', {'p.json': {'_list': [1, 2]}})) != lab(tree('u10', {'p.json': {'_list': [1, 3]}})), '«_»-ключ со списком — данные, двигает метку')
+dd = RL.diff_trees(tree('v1', {'p.json': {'_default': 0, '_about': 'x'}}), tree('v2', {'p.json': {'_default': 1, '_about': 'y'}}), CFG)
+ok(len(dd) == 1 and dd[0]['key'] == '_default', '--diff показывает ключ «_default» и не показывает комментарий «_about»')
+
+print('== пометки файлов правил — текстовый «_about», не объект «_meta» (T-175/12-дыра, ответ директора)')
+RULES_DIR = os.path.join(REPO, 'tools', 'scout', 'rules')
+for fn in ('bedroom-composition', 'capabilities', 'openai_prices', 'practice_priors'):
+    real = json.load(open(os.path.join(RULES_DIR, fn + '.json'), encoding='utf-8'))
+    ok('_meta' not in real and isinstance(real.get('_about'), str) and len(real['_about']) > 40, f'{fn}.json: пометка — текстовый «_about» (не «_meta»-объект, который был бы данными в метке)')
+    edited = dict(real, _about=real['_about'] + ' — правка пометки')
+    ok(lab(tree('m_' + fn, {fn + '.json': real})) == lab(tree('m_' + fn + '_e', {fn + '.json': edited})), f'{fn}.json: правка пометки «_about» метку НЕ двигает')
+    first = next(k for k in real if not k.startswith('_'))
+    moved = dict(real, **{first: 'другое значение'})
+    ok(lab(tree('m_' + fn, {fn + '.json': real})) != lab(tree('m_' + fn + '_d', {fn + '.json': moved})), f'{fn}.json: правка данных («{first}») метку ДВИГАЕТ (контроль: сравнение не слепое)')
+cap = json.load(open(os.path.join(RULES_DIR, 'capabilities.json'), encoding='utf-8'))
+ok(cap.get('rules_version') and cap.get('rules_id'), 'capabilities.json: «rules_version» и «rules_id» остались данными (их читает capabilities.py; смена версии двигает метку)')
+ok(lab(tree('cv0', {'c.json': cap})) != lab(tree('cv1', {'c.json': dict(cap, rules_version='9.9')})), 'смена rules_version в метке видна')
+DATA_NOT_NOTE = {'asset-strategies.json#_strategies': 'ключи читает mesh_type_passports.py:90 (набор допустимых стратегий) — данные; тексты-значения внутри двигают метку (запас, не дыра)'}
+def disguised_in(root):
+    """«_»-объект из одних текстов — пометка под видом данных (в метке он был бы данными): по всем файлам набора корня.
+    Сторож сам не молчит при поломке: файл не прочитан/не разобран, набор пуст — это находки с причиной (не «0 находок»)."""
+    out = []
+    files = RL.rule_files(root, RL.load_cfg(os.path.join(RULES_DIR, 'rules-label.json')) if root == REPO else CFG)
+    if not files:
+        return ['набор правил пуст — сторож нечего проверять']
+    for rel in files:
+        try:
+            dj = json.load(open(rel if os.path.isabs(rel) else os.path.join(root, rel), encoding='utf-8'))
+        except (OSError, ValueError) as e:
+            out.append(f'{os.path.basename(rel)}: не прочитан ({type(e).__name__}) — сторож не мог проверить файл')
+            continue
+        if isinstance(dj, dict):
+            for k, v in dj.items():
+                if str(k).startswith('_') and isinstance(v, dict) and v and all(isinstance(x, str) for x in v.values()):
+                    if f'{os.path.basename(rel)}#{k}' not in DATA_NOT_NOTE:
+                        out.append(f'{os.path.basename(rel)}#{k}')
+    return out
+
+
+disguised = disguised_in(REPO)
+ok(not disguised, 'в наборе нет «_»-объектов из одних текстов (пометка под видом данных): ' + ', '.join(disguised))
+ok(disguised_in(tree('dg1', {'old.json': {'_meta': {'why': 'текст', 'source': 'текст'}, 'k': 1}})) == ['old.json#_meta'], 'отрицательный контроль: старый вид «_meta»-объекта из текстов сторож ловит')
+ok(disguised_in(tree('dg2', {'new.json': {'_about': 'текст', 'k': 1}, 'dat.json': {'_any': {'x': 1, 'why': 'текст'}}})) == [], 'а текстовый «_about» и «_»-объект с числом — не пометки под видом данных')
+bk = disguised_in(tree('dg3', {'ok.json': {'k': 1}, 'bad.json': '{"_meta": {"a": '}))
+ok(len(bk) == 1 and bk[0].startswith('bad.json: не прочитан') and 'не мог проверить' in bk[0], 'сторож СЛОМАН (битый JSON) → находка с причиной, а не молчание и не «0 находок»')
+emp = disguised_in(tree('dg4', {}))
+ok(len(emp) == 1 and 'набор правил пуст' in emp[0], 'сторож НЕ ЗАПУСТИЛСЯ (набор правил пуст) → находка с причиной, а не «0 находок»')
+
+print('== переменные окружения конвейера: реальный набор (T-175/12-дыра)')
+real_cfg = RL.load_cfg(os.path.join(REPO, 'tools', 'scout', 'rules', 'rules-label.json'))
+ok(RL.env_gaps(REPO) == [], 'сторож на реальном дереве: каждое чтение окружения в скриптах конвейера учтено: ' + '; '.join(RL.env_gaps(REPO)[:3]))
+ok({'POSE_JUNCTION', 'TEX_VISIBLE_DEPTH_TILT', 'SIGMA', 'EDGE_BG_PX', 'TONE_SRC_COS', 'FILL_RULES', 'KNOWN_SYNTH_TRUSTED'} <= set(real_cfg['env']), 'в env — переменные, которые двигают результат (POSE_*, TEX_VISIBLE_*, SIGMA, EDGE_BG_*, FILL_RULES…)')
+ok(len(real_cfg['env']) >= 40, f"в env не 4, а {len(real_cfg['env'])} переменных")
+ok(all(isinstance(v, str) and v.strip() for v in real_cfg['env_ignore'].values()) and not (set(real_cfg['env']) & set(real_cfg['env_ignore'])), 'у каждой записи «не влияет» есть причина; в обоих списках не стоит ни одна')
+base_id = RL.label(REPO)['id']
+for var, val in (('POSE_JUNCTION', 'probe'), ('TEX_VISIBLE_DEPTH_TILT', '1'), ('SIGMA', '0.7')):
+    old = os.environ.get(var)
+    os.environ[var] = val
+    try:
+        RL._CACHE.clear()
+        lb, fl = RL.label(REPO), RL.field(REPO)
+        ok(lb['id'] != base_id and lb['env'].get(var, {}).get('value') == val, f'{var}={val}: метка сдвинулась ({base_id} → {lb["id"]})')
+        ok(fl['id'] == lb['id'] and fl['env'].get(var, {}).get('value') == val, f'{var} видна в поле rules_label.env отчёта этапа')
+    finally:
+        os.environ.pop(var, None) if old is None else os.environ.__setitem__(var, old)
+        RL._CACHE.clear()
+ok(RL.label(REPO)['id'] == base_id, 'переменные сняты — метка вернулась')
+os.environ['THREADS'] = '7'
+ok(RL.label(REPO)['id'] == base_id and 'THREADS' not in RL.label(REPO)['env'], 'THREADS (число потоков, «не влияет») метку НЕ двигает')
+os.environ.pop('THREADS', None)
+fv = os.path.join(BASE, 'fill-rules.json')
+shutil.copy(os.path.join(REPO, 'tools', 'scout', 'rules', 'paint-fill.json'), fv)
+os.environ['FILL_RULES'] = fv
+e1 = RL.label(REPO)['env']['FILL_RULES']
+ok(len(e1.get('sha', '')) == 12, 'FILL_RULES (путь к файлу правил) входит в метку вместе с sha файла, на который указывает')
+os.environ.pop('FILL_RULES', None)
+
+print('== сторож окружения: выдуманная переменная в скрипте конвейера (отрицательные контроли)')
+
+
+def conv(name, scripts, extra_rules=None):
+    root = os.path.join(BASE, name)
+    sc = os.path.join(root, 'tools', 'scout')
+    os.makedirs(os.path.join(sc, 'rules'), exist_ok=True)
+    json.dump({'stages': {'s1': {'steps': [{'argv': ['py', '{root}/tools/scout/fake_step.py']}]}}}, open(os.path.join(sc, 'rules', 'paint-run-all.json'), 'w'))
+    for fn, txt in scripts.items():
+        open(os.path.join(sc, fn), 'w', encoding='utf-8').write(txt)
+    return root
+
+
+GC = {'env': ['KNOWN_ONE'], 'env_ignore': {}}
+r1 = conv('cv1', {'fake_step.py': "import os\nA = os.environ.get('KNOWN_ONE')\nB = os.environ.get('MY_NEW_KNOB', '1')\n"})
+g = RL.env_gaps(r1, GC)
+ok(len(g) == 1 and 'MY_NEW_KNOB' in g[0] and 'fake_step.py:3' in g[0], 'выдуманная переменная без записи → сторож КРАСНЫЙ с именем и файлом:строкой: ' + (g[0] if g else '—'))
+ok(RL.env_gaps(r1, {'env': ['KNOWN_ONE', 'MY_NEW_KNOB'], 'env_ignore': {}}) == [], 'запись в env → зелёный')
+ok(RL.env_gaps(r1, {'env': ['KNOWN_ONE'], 'env_ignore': {'MY_NEW_KNOB': 'число потоков, скорость'}}) == [], 'запись в «не влияет» С причиной → зелёный')
+for bad in ('', '   ', None):
+    gb = RL.env_gaps(r1, {'env': ['KNOWN_ONE'], 'env_ignore': {'MY_NEW_KNOB': bad}})
+    ok(any('без причины' in x and 'MY_NEW_KNOB' in x for x in gb), f'запись «не влияет» БЕЗ причины ({bad!r}) → красный')
+gb = RL.env_gaps(r1, {'env': ['KNOWN_ONE', 'MY_NEW_KNOB'], 'env_ignore': {'MY_NEW_KNOB': 'причина'}})
+ok(any('одновременно' in x for x in gb), 'переменная в обоих списках → красный')
+r2 = conv('cv2', {'fake_step.py': "import os\nimport helper_mod\n", 'helper_mod.py': "import os\nX = os.getenv('HELPER_KNOB')\n"})
+g = RL.env_gaps(r2, GC)
+ok(len(g) == 1 and 'HELPER_KNOB' in g[0] and 'helper_mod.py:3' in g[0] or (len(g) == 1 and 'HELPER_KNOB' in g[0] and 'helper_mod.py' in g[0]), 'переменная в ИМПОРТИРУЕМОМ модуле конвейера тоже ловится (файл: helper_mod.py)')
+ok(RL.env_gaps(r2, dict(GC, env_stop={'tools/scout/helper_mod.py': 'GPU-воркер'})) == [], 'файл из env_stop не открывается (с причиной) → зелёный')
+ok(RL.env_gaps(r2, dict(GC, env_leaf={'tools/scout/helper_mod.py': 'сам читаем, импорты не разворачиваем'})) != [], 'файл из env_leaf сам читается: его переменная по-прежнему красная')
+r3 = conv('cv3', {'fake_step.py': "import os\nk = 'Z'\nA = os.environ['X_SUB']\nB = 'X_IN' in os.environ\nC = os.getenv('X_GETENV')\nD = (os.environ if k is None else {}).get('X_HIDE')\nE = os.environ.get(k)\n"})
+g = RL.env_gaps(r3, GC)
+names = ' '.join(g)
+ok(all(n in names for n in ('X_SUB', 'X_IN', 'X_GETENV', 'X_HIDE')), 'ловятся все формы чтения: os.environ[..], «in os.environ», os.getenv, (os.environ if … else …).get')
+ok(any('динамическое' in x and 'fake_step.py:7' in x for x in g), 'динамическое чтение (имя не литерал) → красный')
+ok(not any('динамическое' in x for x in RL.env_gaps(r3, dict(GC, env=GC['env'] + ['X_SUB', 'X_IN', 'X_GETENV', 'X_HIDE'], env_ignore={'<динамическое>:fake_step.py': 'потоки'}))), 'запись «<динамическое>:файл» с причиной → зелёный')
+ok(any('не прочитан' in x for x in RL.env_gaps(os.path.join(BASE, 'нет-такого-дерева'), GC)), 'нет рецепта → красный (сторож не слепнет молча)')
+r4 = conv('cv4', {'fake_step.py': "def (:\n"})
+ok(any('не разобран' in x for x in RL.env_gaps(r4, GC)), 'скрипт конвейера не разобрался → красный')
+ok(subprocess.run([sys.executable, '-I', os.path.join(REPO, 'tools', 'scout', 'rules_label.py'), '--env-check', '--root', REPO], capture_output=True).returncode == 0, 'CLI `rules_label.py --env-check` на реальном дереве — код 0')
+ok(subprocess.run([sys.executable, '-I', os.path.join(REPO, 'tools', 'scout', 'rules_label.py'), '--env-check', '--root', r1], capture_output=True).returncode in (0, 1), 'CLI на чужом корне не падает исключением')
+
 shutil.rmtree(BASE, ignore_errors=True)
 print(f'rules_label: ошибок {FAIL}')
 sys.exit(1 if FAIL else 0)

@@ -346,12 +346,12 @@ def main() -> None:
             caps, evidence, pr = project(row, R)
             rec = [str(row['shop_mid']), row['external_id'], row['cat_role'], json.dumps(pr, ensure_ascii=False),
                    json.dumps(caps, ensure_ascii=False), json.dumps(evidence, ensure_ascii=False),
-                   str(SCHEMA_VERSION), R['_meta']['version'], rh, ih]
+                   str(SCHEMA_VERSION), R['rules_version'], rh, ih]
             lines.append('\t'.join(x.replace('\\', '\\\\').replace('\t', ' ').replace('\n', ' ') for x in rec))
         for i in range(0, len(lines), 5000):
             _copy_upsert(lines[i:i + 5000])
         # снятые с in_stock / вне ролей — не трогаем (снапшот истории; heal читает products)
-        print(f'capabilities: строк {len(rows)}, пересчитано {len(lines)}, без изменений {same}, rules {R["_meta"]["version"]}/{rh}')
+        print(f'capabilities: строк {len(rows)}, пересчитано {len(lines)}, без изменений {same}, rules {R["rules_version"]}/{rh}')
     if '--report' in sys.argv:
         report()
     if '--export' in sys.argv:
