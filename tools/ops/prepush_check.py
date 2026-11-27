@@ -16,7 +16,10 @@
   (а) F — файл, который она запускает (путь в командной строке), или
   (б) исходник этого файла упоминает F: путь от корня, путь от своей папки (`../scout/x.sh`), имя файла (если оно в репо
       одно), а для .py — `import F` / `from F import`.
-Не локально (медленно или нужна установка): pnpm, docker, playwright, pip, `-m pytest` — их проверяет CI.
+`python -m pytest <файлы/каталоги> <опции>` (T-20261127-175, карта prepush): цели раскрываются в тестовые файлы (`test_*.py`, `*_test.py`), берётся КАЖДЫЙ тест, который
+изменён или упоминает изменённый файл (те же признаки (б)), — в ЛЮБОМ job; запускается суженная `python -m pytest <только эти файлы> <опции шага>`. Нет pytest в python проверки —
+строка «НЕ ЗАПУЩЕНА» и счётчик в итоге (не молчим, не «упало»). pytest без целей (весь репо) — CI.
+Не локально (медленно или нужна установка): pnpm, docker, playwright, pip — их проверяет CI.
 ВСЕГДА и первыми — команды `ALWAYS` (реестр конвейера `tools/ops/conveyor_check.py` и линт особых случаев `conveyor_ids.py`,
 T-20261112-121): при любой правке;
 не успела в потолок — стоп, как упавшая.
@@ -39,8 +42,15 @@ import time
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 ROOT_DEFAULT = os.path.abspath(os.path.join(HERE, '..', '..'))
-SLOW = re.compile(r'^(pnpm|npx|docker|pip|pip3|apt|apt-get|sudo)\b|playwright|-m\s+pytest')
+SLOW = re.compile(r'^(pnpm|npx|docker|pip|pip3|apt|apt-get|sudo)\b|playwright')
 RUNNERS = ('python', 'python3', 'node', 'bash', 'sh', 'diff')
+# `python -m pytest <цели> <опции>` (T-20261127-175 / карта prepush): раньше такие шаги считались «медленными» и не выбирались вовсе — тест, упоминающий
+# изменённый файл (эталонный хеш файла правил спальни в services/planner-solver/tests), prepush не запускал, и CI main краснел (27.11, переименование
+# _meta → _about в tools/scout/rules/bedroom-composition.json). Теперь цели раскрываются в тестовые файлы, и берётся КАЖДЫЙ тест, который изменён или упоминает
+# изменённый файл, — в любом job; запускается суженная команда `python -m pytest <только эти файлы> <опции шага>`.
+PYTEST_VALOPTS = ('-p', '-k', '-m', '-c', '-o', '-W', '--ignore', '--ignore-glob', '--deselect', '--maxfail', '--rootdir', '--basetemp', '--tb',
+                  '--junitxml', '--durations', '--confcutdir', '--import-mode')
+TEST_FILE = re.compile(r'(^|/)(test_[^/]*|[^/]*_test)\.py$')
 ZERO = '0' * 40
 # проверки при ЛЮБОЙ правке, первыми; не успела — стоп, а не «проверит CI» (реестр конвейера, T-20261112-121:
 # ручную правку собранного файла или новый писатель в обход генератора ловим до пуша, какой бы файл ни поменялся)
@@ -88,10 +98,43 @@ def _first_word(cmd: str) -> str:
     return c.split()[0] if c.split() else ''
 
 
+def pytest_parse(cmd: str, root: str, files: list):
+    """`python -m pytest a.py dir/ -q -p no:cacheprovider` → {'tests': [тестовые файлы от корня], 'opts': ['-q', '-p', 'no:cacheprovider'], 'nodeid': bool}.
+    Каталог — все `test_*.py` / `*_test.py` под ним (из git ls-files); цель вида `файл::тест` — файл, и шаг не сужается (nodeid). None — не pytest-шаг или целей нет
+    (`python -m pytest -q` на весь репо — оставляем «медленным»: CI)."""
+    try:
+        toks = shlex.split(cmd, comments=True)
+    except ValueError:
+        return None
+    try:
+        i = next(k for k in range(len(toks) - 1) if toks[k] == '-m' and toks[k + 1] == 'pytest') + 2
+    except StopIteration:
+        return None
+    tests, opts, nodeid, k = [], [], False, i
+    while k < len(toks):
+        t = toks[k]
+        if t.startswith('-'):
+            opts.append(t)
+            if t in PYTEST_VALOPTS and k + 1 < len(toks):
+                opts.append(toks[k + 1])
+                k += 1
+        else:
+            path = t.split('::')[0].rstrip('/')
+            nodeid = nodeid or '::' in t
+            if os.path.isfile(os.path.join(root, path)):
+                tests.append(path)
+            elif os.path.isdir(os.path.join(root, path)):
+                tests += [x for x in files if x.startswith(path + '/') and TEST_FILE.search(x)]
+        k += 1
+    tests = sorted(set(tests))
+    return {'tests': tests, 'opts': opts, 'nodeid': nodeid} if tests else None
+
+
 def ci_units(ci_path: str, root: str) -> list:
     import yaml
     with open(ci_path, encoding='utf-8') as f:
         d = yaml.safe_load(f)
+    files = None
     out, seen = [], set()
     for job, J in (d.get('jobs') or {}).items():
         env = {k: str(v) for k, v in ((J or {}).get('env') or {}).items()}
@@ -105,7 +148,16 @@ def ci_units(ci_path: str, root: str) -> list:
                 seen.add(cmd)
                 first = _first_word(cmd)
                 slow = bool(SLOW.search(cmd)) or first not in RUNNERS
-                out.append({'job': job, 'cmd': cmd, 'env': env, 'paths': _paths(cmd, root), 'slow': slow})
+                unit = {'job': job, 'cmd': cmd, 'env': env, 'paths': _paths(cmd, root), 'slow': slow}
+                if not slow and re.search(r'-m\s+pytest\b', cmd):
+                    files = _repo_files(root) if files is None else files
+                    pt = pytest_parse(cmd, root, files)
+                    if pt:
+                        unit['pytest'] = pt
+                        unit['paths'] = pt['tests']
+                    else:
+                        unit['slow'] = True      # pytest без целей — весь репо: проверит CI
+                out.append(unit)
     return out
 
 
@@ -162,9 +214,31 @@ def select(units: list, changed: list, root: str) -> list:
                 cache[p] = ''
         return cache[p]
 
+    def unique(f):
+        return cnt.get(os.path.basename(f), 0) == 1
+
+    taken = set()      # тестовый файл, уже взятый другим pytest-шагом, второй раз не запускаем
     always, direct, indirect = [], [], []
     for u in units:
         if u['slow']:
+            continue
+        if u.get('pytest'):
+            pt = u['pytest']
+            hit_d = [t for t in pt['tests'] if t in changed and t not in taken]
+            why = {t: [t] for t in hit_d}
+            for t in pt['tests']:
+                if t in taken or t in why:
+                    continue
+                w = [f for f in changed if f != t and mentions(t, src(t), f, unique(f))]
+                if w:
+                    why[t] = w
+            if not why:
+                continue
+            chosen = sorted(why) if not pt['nodeid'] else pt['tests']
+            taken.update(chosen)
+            cmd = u['cmd'] if pt['nodeid'] else 'python -m pytest ' + ' '.join(shlex.quote(t) for t in chosen) + (' ' + ' '.join(shlex.quote(o) for o in pt['opts']) if pt['opts'] else '')
+            nu = dict(u, cmd=cmd, paths=chosen, why=sorted({f for w in why.values() for f in w}), tests=chosen)
+            (direct if hit_d else indirect).append(nu)
             continue
         if u['cmd'] in ALWAYS:
             always.append(dict(u, why=['всегда'], always=True))
@@ -223,14 +297,22 @@ def nodb_bin(runner_temp: str) -> str:
 def run_units(sel: list, root: str, budget: float, runner_temp: str, py: str | None = None, out=sys.stdout,
               nodb: bool = True) -> int:
     py = py or _python()
-    t0, fails, late, swallowed = time.time(), [], [], []
+    t0, fails, late, swallowed, notrun = time.time(), [], [], [], []
     shim = nodb_bin(runner_temp) if nodb else ''
     hits_log = os.path.join(runner_temp, 'nodb-hits.log')
+    have_pytest = None
     for i, u in enumerate(sel):
         left = budget - (time.time() - t0)
         if left <= 1:
             late = sel[i:]
             break
+        if u.get('pytest'):      # нет pytest в этом python — НЕ «упало» и НЕ тишина: строка, что проверка не запускалась (её проверит CI)
+            if have_pytest is None:
+                have_pytest = subprocess.run([py, '-c', 'import pytest'], capture_output=True).returncode == 0
+            if not have_pytest:
+                notrun.append(u)
+                print(f"НЕ ЗАПУЩЕНА (в {py} нет pytest — поставь или проверит CI): {u['cmd'].splitlines()[0][:110]}  ← {', '.join(u['why'])[:80]}", file=out, flush=True)
+                continue
         env = dict(strip_git_env(os.environ), **u['env'], CI='true', GITHUB_ACTIONS='true', RUNNER_TEMP=runner_temp)
         if not os.environ.get('REMLAB_TMP') and os.path.isdir(os.path.expanduser('~/remlab-scratch')):
             env['REMLAB_TMP'] = os.path.expanduser('~/remlab-scratch/tmp')   # CI=true иначе увело бы временное в /tmp (квота)
@@ -272,7 +354,7 @@ def run_units(sel: list, root: str, budget: float, runner_temp: str, py: str | N
     if swallowed:
         print(f'prepush: ⚠ {len(swallowed)} проверок ходили в живую базу и проглотили отказ (не стоп; подменить базу в тесте): ' +
               '; '.join(u['cmd'].splitlines()[0][:60] for u, _ in swallowed[:5]), file=out)
-    print(f'prepush: проверок {len(sel)}, упало {len(fails)}, не успел {len(late)}' +
+    print(f'prepush: проверок {len(sel)}, упало {len(fails)}, не успел {len(late)}' + (f', НЕ ЗАПУЩЕНО {len(notrun)} (нет pytest)' if notrun else '') +
           (' — ПУШ ОСТАНОВЛЕН, почини и повтори (обойти: git push --no-verify)' if fails else ''), file=out)
     return 1 if fails else 0
 
@@ -391,9 +473,27 @@ jobs:
             echo "== $m"; python tools/scout/$m.py --selftest || exit 1
           done
       - run: pip install pillow && python tools/scout/tests/test_t.py
-      - run: python -m pytest tools/scout/tests -q
+      - run: python -m pytest tools/net_takih_testov -q
       - run: python tools/scout/slow.py
+  planner:
+    steps:
+      - run: pip install -r tools/req.txt
+      - run: python -m pytest tools/pl/tests/ -q
+  other:
+    steps:
+      - run: python -m pytest tools/pl2/test_x.py tools/pl2/test_y.py -q -p no:cacheprovider
+      - run: python -m pytest tools/pl2/test_z.py::test_one -q
+      - run: python -m pytest -q
 """,
+        'tools/req.txt': 'x\n',
+        'tools/pl/tests/__init__.py': '',
+        'tools/pl/tests/test_hash.py': 'FILES = {"tools/scout/rules/pt.json": "abc"}\n',          # упоминает файл правил (как эталон хеша спальни)
+        'tools/pl/tests/test_other.py': 'print("ничего не читает")\n',
+        'tools/pl2/test_x.py': 'import os\nP = os.path.join("rules", "pt.json")\n',                # тот же файл — из ДРУГОГО job, путь по частям
+        'tools/pl2/test_y.py': 'print("y")\n',
+        'tools/pl2/test_z.py': '# читает tools/scout/rules/nodeid.json\n',
+        'tools/scout/rules/pt.json': '{}\n',
+        'tools/scout/rules/nodeid.json': '{}\n',
         'tools/ops/reads_night.mjs': 'const sh = readFileSync(new URL("../scout/night.sh", import.meta.url));\nprocess.exit(0);\n',
         'tools/ops/fails.py': 'import sys\nprint("сломано")\nsys.exit(3)\n',
         'tools/scout/night.sh': 'echo night\n',
@@ -416,7 +516,7 @@ jobs:
     check('python tools/scout/m1.py --selftest' in cmds and 'python tools/scout/m2.py --selftest' in cmds,
           'цикл `for m in …` — по команде на элемент', cmds)
     check('python tools/scout/tests/test_t.py' in cmds and not any(c.startswith('pip') for c in cmds), '`pip install … &&` срезан', cmds)
-    check(all(u['slow'] for u in units if u['cmd'].startswith('pnpm') or 'pytest' in u['cmd']), 'pnpm и -m pytest — не локально', units)
+    check(all(u['slow'] for u in units if u['cmd'].startswith('pnpm')), 'pnpm — не локально', units)
     pick = lambda ch: [u['cmd'] for u in select(units, ch, root)]
     s = pick(['tools/scout/night.sh'])
     check(s == ['node tools/ops/reads_night.mjs --selftest'], 'файл, который тест читает (`../scout/night.sh`) — его тест', s)
@@ -430,6 +530,19 @@ jobs:
     s = pick(['tools/ops/fails.py', 'README.md', 'app/page.tsx'])
     check(s == ['python3 tools/ops/fails.py --selftest'], 'сам скрипт проверки — его команда; чужие файлы — ничего', s)
     check(pick(['package.json']) == [], 'pnpm-шаги не выбираются', pick(['package.json']))
+    # карта pytest (T-20261127-175): файл правил, упомянутый тестами в РАЗНЫХ job, → каждый такой тест, суженной командой; соседние тесты — нет
+    s = pick(['tools/scout/rules/pt.json'])
+    check(sorted(s) == sorted(['python -m pytest tools/pl2/test_x.py -q -p no:cacheprovider', 'python -m pytest tools/pl/tests/test_hash.py -q']),
+          'файл правил упомянут тестом planner (путь целиком) и тестом другого job (путь по частям) — оба взяты, только они (test_other/test_y — нет)', s)
+    s = pick(['tools/pl/tests/test_other.py'])
+    check(s == ['python -m pytest tools/pl/tests/test_other.py -q'], 'изменённый сам тест — берётся он один, а не весь каталог', s)
+    check(pick(['tools/scout/rules/only.json', 'README.md']) == ['node tools/ops/reads_night.mjs --selftest'], 'файл, который pytest-тесты не упоминают, их не тянет')
+    s = pick(['tools/scout/rules/nodeid.json'])
+    check(s == ['python -m pytest tools/pl2/test_z.py::test_one -q'], 'цель «файл::тест» — шаг как есть (не сужаем)', s)
+    check(not any(u['cmd'] == 'python -m pytest -q' for u in select(units, ['tools/pl2/test_x.py'], root)), 'pytest без целей (весь репо) — не локально, CI')
+    check(all(u['slow'] for u in units if u['cmd'] == 'python -m pytest tools/net_takih_testov -q'), 'pytest на несуществующий каталог — не локально, CI')
+    d = select(units, ['tools/scout/rules/pt.json', 'tools/pl2/test_x.py'], root)
+    check(sum('tools/pl2/test_x.py' in u['cmd'] for u in d) == 1, 'тест, взятый и прямо, и по упоминанию, — один раз', [u['cmd'] for u in d])
     # запуск: env job, код выхода, потолок времени
     rt = tempfile.mkdtemp(prefix='prepush-rt-')
     buf = io.StringIO()
@@ -501,6 +614,30 @@ jobs:
     check('python tools/scout/tests/test_img_fallback.py' in s, 'настоящий ci.yml: правка страницы демо запускает test_img_fallback (07.11, 6f2395bc)', s)
     s = [u['cmd'] for u in select(real, ['README.md'], ROOT_DEFAULT)]
     check(s[:len(ALWAYS)] == list(ALWAYS), 'настоящий ci.yml: реестр конвейера и линт особых случаев — при любой правке и первыми (T-20261112-121)', s[:3])
+    # настоящий ci.yml (27.11, CI main 36fbcb001 красный): файл правил спальни, упомянутый тестом planner-solver (эталонный хеш), → этот тест; другие правила — свои тесты
+    s = [u['cmd'] for u in select(real, ['tools/scout/rules/bedroom-composition.json'], ROOT_DEFAULT)]
+    check(any('-m pytest' in c and 'services/planner-solver/tests/test_bedroom_single_narrow.py' in c for c in s),
+          'настоящий ci.yml: правка tools/scout/rules/bedroom-composition.json берёт тест planner-solver test_bedroom_single_narrow (27.11)', s[:6])
+    s = [u['cmd'] for u in select(real, ['services/planner-solver/tests/test_beam.py'], ROOT_DEFAULT)]
+    check(s[len(ALWAYS):len(ALWAYS) + 1] == ['python -m pytest services/planner-solver/tests/test_beam.py -q'],
+          'настоящий ci.yml: правка теста planner — берётся один этот тест (не все ~сотня)', s[:4])
+    # запуск pytest-шага: сломанный тест → код 1 и причина; нет pytest в python проверки → строка «НЕ ЗАПУЩЕНА», не «упало» и не тишина
+    fake_ok = os.path.join(rt, 'fakepy-nopytest')
+    fake_bad = os.path.join(rt, 'fakepy-pytest-red')
+    with open(fake_ok, 'w', encoding='utf-8') as f:
+        f.write('#!/bin/sh\n[ "$1" = "-c" ] && exit 1\nexit 0\n')
+    with open(fake_bad, 'w', encoding='utf-8') as f:
+        f.write('#!/bin/sh\n[ "$1" = "-c" ] && exit 0\necho "fake pytest: 1 failed"\nexit 1\n')
+    os.chmod(fake_ok, 0o755)
+    os.chmod(fake_bad, 0o755)
+    pt_sel = select(units, ['tools/scout/rules/pt.json'], root)
+    buf = io.StringIO()
+    rc = run_units(pt_sel, root, 60, rt, py=fake_bad, out=buf)
+    check(rc == 1 and 'fake pytest: 1 failed' in buf.getvalue() and 'ПУШ ОСТАНОВЛЕН' in buf.getvalue(), 'pytest-тест упал — код 1, вывод и «ПУШ ОСТАНОВЛЕН»', (rc, buf.getvalue()))
+    buf = io.StringIO()
+    rc = run_units(pt_sel, root, 60, rt, py=fake_ok, out=buf)
+    check(rc == 0 and 'НЕ ЗАПУЩЕНА' in buf.getvalue() and 'НЕ ЗАПУЩЕНО 2' in buf.getvalue() and 'упало 0' in buf.getvalue(),
+          'нет pytest в python проверки — строка «НЕ ЗАПУЩЕНА» и счётчик, не «упало» и не тишина', (rc, buf.getvalue()))
     # обязательная проверка, не успевшая в потолок, — стоп (а обычная — «проверит CI», см. выше)
     buf = io.StringIO()
     slow = dict(select(units, ['tools/scout/slow.py'], root)[0], always=True)
