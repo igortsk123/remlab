@@ -1,6 +1,10 @@
 #!/usr/bin/env python3
 """Тест сторожа «браузер в крон-шаге — только через heavy-slot» (T-20261127-175/demo-live-slot): боевое дерево чистое; шаг demo_live под очередью с заявкой 3 ГБ / 3 ядра;
 отрицательный контроль — старая строка шага (мимо очереди) красная и называет шаг; сломанная/не запустившаяся проверка — код ≠0 и строка с причиной (не «чисто»).
+Шаг при «не дождался очереди» (код 124) — красный с причиной «очередь heavy-slot занята больше N мин»; другие коды heavy-slot и успех проходят как есть (проверено на заглушках).
+
+ОГРАНИЧЕНИЕ СТОРОЖА (честно): не видит имена файлов, собранные в переменных (`"$DIR/$name"`), вызовы через `eval`/`xargs`, крон-входы вне `infra/dev/crontab` и шагов
+`refresh_daily.sh`; обфускацию не ловит — страховка от забытой обёртки, не граница безопасности. Два известных шага мимо очереди — «ДОЛГ» в `exempt` (до обёртки).
 Запуск: python tools/scout/tests/test_heavy_slot_guard.py (стандартная библиотека, нужен git)."""
 import json
 import os
@@ -64,10 +68,38 @@ src = open(os.path.join(ROOT, REFRESH), encoding='utf-8').read()
 m = re.search(r'^step demo_live (.*)$', src, re.M)
 check('шаг demo_live есть в refresh_daily.sh', bool(m))
 line = m.group(1) if m else ''
-check('demo_live: вызов через heavy-slot.sh с меткой demo-live', line.startswith('bash ../ops/heavy-slot.sh demo-live '), line)
+check('demo_live: вызов через heavy-slot.sh с меткой demo-live', 'bash ../ops/heavy-slot.sh demo-live ' in line, line)
 check('demo_live: заявка 3 ГБ и 3 ядра', '--min-gb 3' in line and '--cores 3' in line, line)
-check('demo_live: ожидание очереди ограничено (--timeout)', re.search(r'--timeout \d+', line) is not None, line)
-check('demo_live: сама проверка после `--`', line.endswith('-- bash ../ops/demo-live.sh'), line)
+check('demo_live: ожидание очереди ограничено (--timeout), число — последним аргументом', '--timeout "$0"' in line and re.search(r"' (\d+)$", line) is not None, line)
+check('demo_live: сама проверка после `--`', '-- bash ../ops/demo-live.sh;' in line, line)
+check('demo_live: ожидание — не больше часа (шаг своего таймаута не имеет)', re.search(r"' (\d+)$", line) is not None and int(re.search(r"' (\d+)$", line).group(1)) <= 3600, line)
+
+# ---- 1б. поведение шага на заглушках: не дождался (124) → красный с причиной; успех и иные коды — как есть
+d = tempfile.mkdtemp(prefix='hsg-run-')
+os.makedirs(os.path.join(d, 'tools', 'scout'))
+os.makedirs(os.path.join(d, 'tools', 'ops'))
+
+
+def run_step(slot_rc, live_rc=0):
+    open(os.path.join(d, 'tools', 'ops', 'heavy-slot.sh'), 'w').write(
+        '#!/bin/bash\n[ "$SLOT_RC" = 0 ] && { shift 1; while [ "$1" != -- ]; do shift; done; shift; exec "$@"; }\nexit "$SLOT_RC"\n')
+    open(os.path.join(d, 'tools', 'ops', 'demo-live.sh'), 'w').write('#!/bin/bash\necho live-ran\nexit %d\n' % live_rc)
+    r = subprocess.run(['bash', '-c', line], cwd=os.path.join(d, 'tools', 'scout'), env=dict(os.environ, SLOT_RC=str(slot_rc)),
+                       capture_output=True, text=True, stdin=subprocess.DEVNULL, timeout=60)
+    return r.returncode, r.stdout + r.stderr
+
+
+rc, out = run_step(124)
+check('не дождался очереди (124) → шаг красный (код 124)', rc == 124, (rc, out))
+check('не дождался очереди → причина «очередь heavy-slot занята больше 60 мин»', 'очередь heavy-slot занята больше 60 мин' in out and 'ERROR:demo_live' in out, out)
+check('не дождался очереди → проверка демо не запускалась', 'live-ran' not in out, out)
+rc, out = run_step(0)
+check('слот взят → проверка демо идёт, код 0, без ERROR', rc == 0 and 'live-ran' in out and 'ERROR' not in out, (rc, out))
+rc, out = run_step(0, live_rc=1)
+check('слот взят, проверка красная → код 1 доходит до шага', rc == 1 and 'live-ran' in out and 'ERROR' not in out, (rc, out))
+rc, out = run_step(3)
+check('иной код heavy-slot (3) → как есть, без ложной причины про очередь', rc == 3 and 'занята' not in out, (rc, out))
+shutil.rmtree(d, ignore_errors=True)
 rules = json.load(open(os.path.join(ROOT, RULES), encoding='utf-8'))
 for k, why in rules['exempt'].items():
     check('исключение %s: причина ≥15 знаков' % k, isinstance(why, str) and len(why) >= 15)
