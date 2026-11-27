@@ -304,7 +304,7 @@ def fibre_fill(Q: np.ndarray, Ns: np.ndarray, ing: np.ndarray, cover: np.ndarray
     return done
 
 
-def wrap_points(Q: np.ndarray, Ns: np.ndarray, ing: np.ndarray, use: np.ndarray, lab: np.ndarray, v_ax: int, full_below: float, outer_tol: float):
+def wrap_points(Q: np.ndarray, Ns: np.ndarray, ing: np.ndarray, use: np.ndarray, lab: np.ndarray, v_ax: int, full_below: float, outer_tol: float, offset: float = 0.0):
     """Боковая грань — продолжение ЛИЦА (шпон/доска оборачивает угол): точка боковой грани на расстоянии d от плоскости лица переходит на лицо на расстоянии d от ребра. Так на одной грани рисунок из ОДНОГО источника
     (лицо), а стык источников — только по ребру детали, а не по краю видимости (за свесом плиты, в тени). Внешняя боковая грань: нормаль по горизонтальной оси ≠ оси лица, на краю детали (внутренние стенки полого корпуса не берутся);
     если фото само видит её почти целиком (доля use ≥ full_below) — её рисунок прямой, не оборачивается. → (точки Qw (N,3), маска «берётся с лица»)."""
@@ -335,7 +335,7 @@ def wrap_points(Q: np.ndarray, Ns: np.ndarray, ing: np.ndarray, use: np.ndarray,
                     continue
                 Qw[face, f] = c_f
                 dist = np.abs(Q[face, f] - c_f)
-                Qw[face, a] = ext + dist if s_ < 0 else ext - dist
+                Qw[face, a] = ext + offset + dist if s_ < 0 else ext - offset - dist          # offset — сдвиг от ребра вглубь лица: без него рисунок у ребра зеркалится (симметричный «мотылёк» сучка), а бок — отдельная доска
                 wm |= face
     return Qw, wm
 
@@ -439,6 +439,11 @@ def photo_detail_step(tex_in, tone_tex, tx, g: dict, st: dict, Ld, valid, fgrp, 
     if n_use == 0:
         info['reason'] = 'ни один тексель группы не лёг на «в лоб»'
         return tex_in, None
+    ks_ = int(pd.get('sel_smooth_px', 0))
+    sel_s = sel
+    if ks_ >= 3:                                                              # рваная кромка источника (бахрома по краю свеса плиты и тени) → гладкая: медиана маски (деталь вне исходной маски = 0, т.е. ровный тон; край гладкий); для зеркала и оборота (боковые и задняя грани)
+        sel_s = cv2.medianBlur(sel.astype(np.uint8) * 255, ks_ | 1).astype(bool)
+        info['sel_smooth_px'] = ks_
     d_full = np.zeros(len(ti), np.float32)                                    # деталь L на каждый занятый тексель (0 там, где фото её не даёт)
     d_full[use] = map_coordinates(D.astype(np.float32), [y[use] - 0.5, x[use] - 0.5], order=1, mode='nearest')
     cover = use.copy()
@@ -448,7 +453,7 @@ def photo_detail_step(tex_in, tone_tex, tx, g: dict, st: dict, Ld, valid, fgrp, 
     v_ax = fibre_axis(Qt_all, x, y, use, Ns) if (pd.get('fibre_fill') or pd.get('wrap_sides')) else None
     wmask = np.zeros(len(ti), bool)
     if pd.get('wrap_sides') and v_ax is not None:
-        Qw, wmask = wrap_points(Qt_all, Ns, ing_t, use, fgrp[f], v_ax, float(pd['wrap_full_below']), float(pd['wrap_outer_tol']))
+        Qw, wmask = wrap_points(Qt_all, Ns, ing_t, use, fgrp[f], v_ax, float(pd['wrap_full_below']), float(pd['wrap_outer_tol']), float(pd.get('wrap_offset', 0.0)))
         if wmask.any():
             cover[wmask] = False
             d_full[wmask] = 0.0
@@ -458,7 +463,7 @@ def photo_detail_step(tex_in, tone_tex, tx, g: dict, st: dict, Ld, valid, fgrp, 
             xw, yw = xw * px, yw * px
             okw = (xw >= 0.5) & (xw <= px - 0.5) & (yw >= 0.5) & (yw <= px - 0.5)
             xiw, yiw = np.clip(np.floor(xw).astype(np.int64), 0, px - 1), np.clip(np.floor(yw).astype(np.int64), 0, px - 1)
-            okw &= sel[yiw, xiw]
+            okw &= sel_s[yiw, xiw]
             iw = np.nonzero(wmask)[0][okw]
             d_full[iw] = map_coordinates(D.astype(np.float32), [yw[okw] - 0.5, xw[okw] - 0.5], order=1, mode='nearest')
             cover[iw] = True
@@ -487,7 +492,7 @@ def photo_detail_step(tex_in, tone_tex, tx, g: dict, st: dict, Ld, valid, fgrp, 
                 xm, ym = xm * px, ym * px
                 okm = (xm >= 0.5) & (xm <= px - 0.5) & (ym >= 0.5) & (ym <= px - 0.5)
                 xim, yim = np.clip(np.floor(xm).astype(np.int64), 0, px - 1), np.clip(np.floor(ym).astype(np.int64), 0, px - 1)
-                okm &= sel[yim, xim]
+                okm &= sel_s[yim, xim]
                 idx = np.nonzero(mv)[0][okm]
                 d_full[idx] = map_coordinates(D.astype(np.float32), [ym[okm] - 0.5, xm[okm] - 0.5], order=1, mode='nearest')
                 cover[idx] = True
