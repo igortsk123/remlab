@@ -450,3 +450,6 @@ date	doc	reason	claims	mismatch	fixed	note
 2026-11-26	domain/mesh-pool-ops.md	drift	40	10	10	
 2026-11-26	core/catalog.md	rotation	31	4	4	
 2026-11-26	core/data-model.md	rotation	34	2	2	
+2026-11-27	core/demo-planner.md	rotation	30	0	0	
+2026-11-27	lessons/floorplan-trial.md	code	17	2	2	
+2026-11-27	core/agent-trial.md	code	1	0	0	
