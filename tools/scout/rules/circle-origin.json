@@ -64,7 +64,7 @@
       {"file": "tools/assets/loop5.py", "entry": "main", "gate": "CO.starter_gate", "start": ["run_round"], "why": "круг «на 5» (Salad через stage_trial, --from 06|07|08, золотые 5 или --all): ворота на пачке до первого захода (--warm-stop и --warm-sweep — обслуживание нод, не старт круга)"},
       {"file": "tools/scout/salad/stage/stage_trial.py", "entry": "main", "gate": "CO.starter_gate", "start": ["CQ.Queue", "KD.run_probe"], "why": "платная проба этапов 06/07/seam/08 на Salad (зовёт loop5 и руками): ворота до очереди и до создания группы"}
     ],
-    "exempt": [
+    "exempt": [{"file": "tools/scout/salad/ocr/ocr_words_run.py", "why": "OCR слов на листах Этажей (T-176) — не круг покраски: KD.run_probe здесь общий драйвер Salad для чтения слов, форм и мешей не касается"}, 
       {"file": "tools/assets/loop5.sh", "wraps": "tools/assets/loop5.py", "why": "обёртка: exec loop5.py (ворота внутри loop5.py); сторож проверяет, что обёртка зовёт именно его и он в must_call"},
       {"file": "tools/scout/salad/pose/pose_trial.py", "why": "этап 04 (камера по фото) — ДО круга покраски; сама камера входит в проверку (пункт 3), её итог читают ворота стартеров"},
       {"file": "tools/scout/salad/render/render_trial.py", "why": "кадры формы для приёмки Ш0 — ДО круга; их вердикт (form_checks.json) читают ворота (пункт 2)"},
