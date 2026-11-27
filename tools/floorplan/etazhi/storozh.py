@@ -32,6 +32,9 @@ import neutral_names as NN  # noqa: E402  (р.5: один источник пр�
 import words_on_sheet as WS  # noqa: E402  (T-98/15: флаг «имена словами на листе», OCR + кэш)
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))      # T-ЦП рамка: СВОЙ ru_eval (рядом с этим файлом) — раньше nc-models и снимка
 import ru_eval as RE  # noqa: E402
+import ext as X  # noqa: E402  (T-171/paket-ext: числа 2б/2в на листе; ExtStop — СТОП прогона)
+
+ExtStop = X.ExtStop
 import vetka_a_eval as E  # noqa: E402
 import vetka_a_cmp_bd as CB  # noqa: E402  (EYE_D — мой глаз на d)
 
@@ -605,6 +608,8 @@ def guard(sid, var, model, plan, key, overlay=None, ov=None):
     """→ dict признаки+исход. overlay — статус наложения листа («легло»/«частично»/«не легло»/«не проверено») или None (ворота не применяются; T-98/19, Fable 17 §7).
     ov — числа наложения (содержимое overlay.json: «на_линии», …) — для порога правила overlay_fail (T-171/nalozhenie, решение Fable 27.11); нет — правило считает «не легло» без смягчения"""
     res = {'лист': sid, 'вар': var, 'модель': model}
+    if ov and ov.get('ext_статус'):
+        res['ext_статус'] = ov['ext_статус']      # T-171/paket-ext: «не применяется: …» / статусы чисел 2б/2в — не молча (storozh.with_ext_live)
     if plan is None:
         res.update(исход='отказ — ответ не разобрался (нет plan.json)', П1=None, П2=None, П3=None, П4=None, п1='', п2='', п3='', п4='', комнат=0, подписей=None, класс='?')
         return res
@@ -764,20 +769,29 @@ def with_ext2c(ov, ext_path):
 
 
 def with_ext_live(ov, sid, plan_clean, plan, img_d, img_b, fit, rows, vf, rules=None):
-    """T-171/paket-ext (rab-9, OTCHET-ext.md «Строка вызова»): числа 2б/2в считаются НА ЛИСТЕ (ext.py) — вместо файловых with_ext / with_ext2c (папок --ext-dir в живом прогоне нет).
-    Место вызова — где собирается ov после with_walls (rows = стены наложения, walls.csv); fit — fit.json; vf — модуль vetka_fit той же сборки (CORRECT_V2=1, SOFT_INK=1 в окружении ДО его импорта, иначе ext отказывает с причиной).
-    Нужно, если включён хотя бы один из wide_line / pale_line (2б) / windows (2в); для одного 2б — только при звонящем «Ст» по базовым числам (экономия, как в мерке). Нет входа / не годится — (ov без изменений, {}).
-    → (ov, статусы {'ext2b': …, 'ext2c': …} — в guard.json, не молча); поля ext2b / ext2c в ov только при статусе ok, иначе «Ст» считается как раньше."""
-    import ext as X
+    """T-171/paket-ext (rab-9, OTCHET-ext.md «Строка вызова»; Fable 27.11 22:57): числа 2б/2в считаются НА ЛИСТЕ (ext.py) — вместо файловых with_ext / with_ext2c (папок --ext-dir в живом прогоне нет).
+    Место вызова — где собирается ov после with_walls (rows = стены наложения, walls.csv); fit — fit.json; vf — модуль vetka_fit той же сборки (CORRECT_V2=1, SOFT_INK=1 в окружении ДО его импорта, иначе ext отказывает).
+    Нужно, если включён хотя бы один из wide_line / pale_line (2б) / windows (2в); выключены все — числа не считаются (ov, {}). Для одного 2б на годном листе — только когда «Ст» звонит по базовым числам (экономия, как в мерке).
+    Дальше решает ext.coverage (rab-9):
+      • наложения нет / не «легло» / вход не «как есть» → «не применяется: причина» — пометка в ov['ext_статус'] (→ guard.json, поле ext_статус), числа не считаются, прогон идёт, «Ст» как раньше;
+      • наложение «легло», а входа для расчёта нет (walls.csv, fit.json, картинка или ответ листа) → ext.ExtStop = storozh.ExtStop: СТОП прогона с причиной (выключатель ВКЛ, числа пропали по ошибке — тихо не продолжаем);
+      • числа посчитаны, но статус «сбой: …» / «отказ: …» (исключение в расчёте / vetka_fit настроен не так) → тоже ExtStop; «не сошлось с walls.csv» — штатно (числа 2б/2в этого листа не берём, «Ст» как раньше).
+    → (ov, статусы {'ext2b': …, 'ext2c': …, 'лист_для_ext': …, 'причина': …}); поля ext2b / ext2c в ov только при статусе ok."""
     wf = (rules or RULES)['walls_fail']
     need2b = bool((wf.get('wide_line') or {}).get('enabled') or (wf.get('pale_line') or {}).get('enabled'))
     need2c = bool((wf.get('windows') or {}).get('enabled'))
-    if not (need2b or need2c) or not X.applicable(ov, rows):
+    if not (need2b or need2c):
         return ov, {}
-    if need2b and not need2c and not X.current_hit(rows, ov, wf):
+    if need2b and not need2c and X.applicable(ov, rows) and not X.current_hit(rows, ov, wf):
         return ov, {}
     cands = X.candidates({'plan-clean.json': plan_clean, 'plan.json': plan}, {'d': img_d, 'b': img_b})
-    return X.with_ext_numbers(ov, sid, cands, fit, rows, vf, want_2b=need2b, want_2c=need2c)
+    o, st = X.with_ext_numbers(ov, sid, cands, fit, rows, vf, want_2b=need2b, want_2c=need2c)       # ExtStop (пропал вход при «легло») — не ловим: СТОП
+    for k in ('ext2b', 'ext2c'):
+        if str(st.get(k) or '').startswith(('сбой', 'отказ')):
+            raise ExtStop('%s: числа %s не посчитаны — %s' % (sid, k, st[k]))
+    if st.get('лист_для_ext'):
+        o['ext_статус'] = st
+    return o, st
 
 
 def finish(res, bad, info, overlay, rules=None, ov=None):
