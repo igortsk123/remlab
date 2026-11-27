@@ -51,6 +51,7 @@ RUNNERS = ('python', 'python3', 'node', 'bash', 'sh', 'diff')
 PYTEST_VALOPTS = ('-p', '-k', '-m', '-c', '-o', '-W', '--ignore', '--ignore-glob', '--deselect', '--maxfail', '--rootdir', '--basetemp', '--tb',
                   '--junitxml', '--durations', '--confcutdir', '--import-mode')
 TEST_FILE = re.compile(r'(^|/)(test_[^/]*|[^/]*_test)\.py$')
+CTX_FILES = ('conftest.py', '__init__.py')      # правка этих файлов затрагивает все тесты каталога и подкаталогов (T-175/hvosty, б)
 ZERO = '0' * 40
 # проверки при ЛЮБОЙ правке, первыми; не успела — стоп, а не «проверит CI» (реестр конвейера, T-20261112-121:
 # ручную правку собранного файла или новый писатель в обход генератора ловим до пуша, какой бы файл ни поменялся)
@@ -218,6 +219,14 @@ def select(units: list, changed: list, root: str) -> list:
         return cnt.get(os.path.basename(f), 0) == 1
 
     taken = set()      # тестовый файл, уже взятый другим pytest-шагом, второй раз не запускаем
+    # T-175/hvosty (б): conftest.py / __init__.py действуют на ВСЕ тесты своего каталога и подкаталогов (фикстуры, пакет, sys.path) — ни один тест не «упоминает» их
+    # по имени, поэтому правка такого файла раньше не вызывала ничего. Теперь тянет каждый тест из pytest-шагов CI, лежащий в этом каталоге или под ним
+    # (корневой conftest — все тесты шага). Тесты, которых CI не запускает, не берём — это не проверка CI.
+    ctx = {f: os.path.dirname(f) for f in changed if os.path.basename(f) in CTX_FILES}
+
+    def ctx_hit(t):
+        return [f for f, d in ctx.items() if d == '' or t == d or t.startswith(d + '/')]
+
     always, direct, indirect = [], [], []
     for u in units:
         if u['slow']:
@@ -230,6 +239,7 @@ def select(units: list, changed: list, root: str) -> list:
                 if t in taken or t in why:
                     continue
                 w = [f for f in changed if f != t and mentions(t, src(t), f, unique(f))]
+                w = sorted(set(w) | set(ctx_hit(t)))
                 if w:
                     why[t] = w
             if not why:
@@ -415,7 +425,39 @@ def here_root() -> str:
     return ROOT_DEFAULT
 
 
+HELP = """prepush_check.py — проверка ПЕРЕД ПУШЕМ: быстрые самопроверки CI, которые касаются изменённых файлов.
+
+ЧТО ДЕЛАЕТ. Берёт список изменённых файлов, находит в .github/workflows/ci.yml команды, которые их запускают или читают (карта «путь → команда» строится из
+ci.yml, не руками), и гоняет их до пуша. Всегда и первыми — conveyor_check.py и conveyor_ids.py. pytest-шаги сужаются до тестов, которые изменены или упоминают
+изменённый файл; правка conftest.py / __init__.py тянет ВСЕ тесты их каталога и подкаталогов из pytest-шагов CI. pnpm, docker, playwright, pip и pytest без целей
+(весь репо) — не локально: их проверяет CI. Команды идут без живой базы (docker подменён, как в CI).
+
+ЗАПУСК.
+  python3 tools/ops/prepush_check.py [ключи]            файлы — git diff origin/main...HEAD
+  bash tools/ops/prepush-check.sh [ключи]               то же через venv scout (там pyyaml)
+  как git pre-push хук (ссылкой из .git/hooks/pre-push): читает протокол из stdin, проверяется копия, ИЗ КОТОРОЙ пуш
+
+КЛЮЧИ.
+  --files a b c      подставной список файлов вместо git diff
+  --dry              только показать, что запустил бы (проверка → за какой файл), ничего не запускать
+  --budget N         потолок времени, секунд (по умолчанию 120); не успевшие проверки не стоп — их проверит CI
+  --root ПАПКА       корень копии репозитория (по умолчанию — корень git текущей папки)
+  --with-db          разрешить живую базу (только для разбора; в хуке перед пушем не использовать; то же PREPUSH_WITH_DB=1)
+  --stdin-refs       читать протокол pre-push из stdin при ручном запуске
+  --selftest         самопроверка этого скрипта на подставном репозитории (её запускает CI)
+  --help, -h         эта справка
+
+КОД ВЫХОДА. 0 — все выбранные проверки прошли, либо не успели в потолок (их проверит CI), либо проверять нечего.
+            1 — какая-то проверка упала или не запустилась (например, нет pytest в python проверки): пуш остановить.
+            --selftest: 0 — все проверки скрипта прошли, 1 — есть FAIL.
+Подробности и история правил — в начале файла prepush_check.py.
+"""
+
+
 def main(argv: list) -> int:
+    if '--help' in argv or '-h' in argv:
+        print(HELP)
+        return 0
     if '--selftest' in argv:
         return _selftest()
     root = argv[argv.index('--root') + 1] if '--root' in argv else here_root()
@@ -543,6 +585,29 @@ jobs:
     check(all(u['slow'] for u in units if u['cmd'] == 'python -m pytest tools/net_takih_testov -q'), 'pytest на несуществующий каталог — не локально, CI')
     d = select(units, ['tools/scout/rules/pt.json', 'tools/pl2/test_x.py'], root)
     check(sum('tools/pl2/test_x.py' in u['cmd'] for u in d) == 1, 'тест, взятый и прямо, и по упоминанию, — один раз', [u['cmd'] for u in d])
+    # T-175/hvosty (б): conftest.py / __init__.py → ВСЕ тесты каталога и подкаталогов (из pytest-шагов CI); без них — как раньше
+    both_pl = 'python -m pytest tools/pl/tests/test_hash.py tools/pl/tests/test_other.py -q'
+    for f in ('tools/pl/tests/conftest.py', 'tools/pl/tests/__init__.py'):
+        s = pick([f])
+        check(s == [both_pl], f'правка {f.rsplit("/", 1)[1]} — все тесты его каталога (не только упоминающие), одной суженной командой', s)
+    check(pick(['tools/pl/tests/helper.py']) == [], 'без conftest/__init__: соседний вспомогательный файл, которого тесты не упоминают, — ничего (как раньше)')
+    s = pick(['tools/pl2/conftest.py'])
+    check(sorted(s) == sorted(['python -m pytest tools/pl2/test_x.py tools/pl2/test_y.py -q -p no:cacheprovider', 'python -m pytest tools/pl2/test_z.py::test_one -q']),
+          'conftest каталога тянет все его тесты, в т.ч. шаг «файл::тест» (как есть); тесты planner (tools/pl) — нет', s)
+    s = pick(['tools/conftest.py'])
+    check(sorted(s) == sorted([both_pl, 'python -m pytest tools/pl2/test_x.py tools/pl2/test_y.py -q -p no:cacheprovider', 'python -m pytest tools/pl2/test_z.py::test_one -q']),
+          'conftest родительского каталога действует на подкаталоги — тесты обоих', s)
+    check(len(pick(['conftest.py'])) == 3, 'корневой conftest — тесты всех pytest-шагов CI', pick(['conftest.py']))
+    s = pick(['tools/scout/conftest.py'])
+    check(not any('pytest' in c for c in s), 'conftest каталога, где CI не гоняет pytest, чужие тесты не тянет', s)
+    s = pick(['tools/pl/tests/conftest.py', 'tools/pl/tests/test_hash.py'])
+    check(s == [both_pl], 'conftest + изменённый тест — тесты каталога один раз', s)
+    # (в) --help: код 0 и непустая справка с разделами; не запускает проверки и не лезёт в git/stdin
+    hp = subprocess.run([sys.executable, os.path.abspath(__file__), '--help'], capture_output=True, text=True, timeout=60, stdin=subprocess.DEVNULL, cwd=root)
+    check(hp.returncode == 0 and hp.stdout.strip() and all(w in hp.stdout for w in ('ЧТО ДЕЛАЕТ', 'КЛЮЧИ', 'КОД ВЫХОДА', '--files', '--dry', '--budget', '--selftest')),
+          '--help: код 0, непустая справка (что проверяет, ключи, коды выхода)', (hp.returncode, hp.stdout[:80], hp.stderr[-200:]))
+    check(subprocess.run([sys.executable, os.path.abspath(__file__), '-h'], capture_output=True, text=True, timeout=60, stdin=subprocess.DEVNULL, cwd=root).returncode == 0,
+          '-h — то же')
     # запуск: env job, код выхода, потолок времени
     rt = tempfile.mkdtemp(prefix='prepush-rt-')
     buf = io.StringIO()
