@@ -6,8 +6,10 @@
 """
 from __future__ import annotations
 
+import json
 import math
 import os
+import time
 from dataclasses import dataclass, field
 
 import cv2
@@ -1460,6 +1462,39 @@ def cavity_mouth(comp: np.ndarray, wall: np.ndarray, depth: float, min_len: floa
     return sy[sel] + y0, sx[sel] + x0
 
 
+# T-20261126-169/2: предел ВРЕМЕНИ на план (вместо счётчика вызовов: тот ломал легальный стенд C). Лист с тысячами «закрытий»
+# (шумная маска, kazan-14269998) не зависает на десятки минут, а честно отказывает с причиной. Вооружает `bench.run_plan`
+# (`arm_door_budget`); вне прогона плана предела нет. Время — процессорное время потока с момента вооружения (не зависит от
+# очереди heavy-slot и загрузки машины); порог — в `door_time_limit.json` (с _why): максимум легального × 2.
+DOOR_TIME_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'door_time_limit.json')
+_DOOR_BUDGET = {'t0': 0.0, 'max': None}
+
+
+def door_time_limit() -> float | None:
+    """предел процессорных секунд на план: FP_DOOR_SEC_MAX (0 — без предела) или `door_time_limit.json`; нет файла — без предела"""
+    v = os.environ.get('FP_DOOR_SEC_MAX')
+    if v is not None:
+        return float(v) or None
+    try:
+        with open(DOOR_TIME_FILE, encoding='utf-8') as f:
+            return float(json.load(f)['plan_cpu_sec_max'])
+    except (OSError, KeyError, ValueError):
+        return None
+
+
+def arm_door_budget(limit_sec: float | None = None) -> None:
+    """с этого момента `door_evidence` проверяет время плана; больше предела — SystemExit с причиной"""
+    _DOOR_BUDGET['t0'] = time.thread_time()
+    _DOOR_BUDGET['max'] = door_time_limit() if limit_sec is None else limit_sec
+
+
+def disarm_door_budget() -> float:
+    """снять предел; → сколько процессорных секунд прошло с вооружения"""
+    used = time.thread_time() - _DOOR_BUDGET['t0']
+    _DOOR_BUDGET['max'] = None
+    return used
+
+
 def door_evidence(thin: np.ndarray, c, u, n, L: float, depth: float, step_deg: int = 5, tangent_only: bool = False,
                   want_px: bool = False, wall: np.ndarray | None = None, pure_check: bool = True, want_how: bool = False):
     """Есть ли у разрыва дуга двери: доля углов 0–90°, где на радиусе створки от петли (конец разрыва, грань стены)
@@ -1472,6 +1507,8 @@ def door_evidence(thin: np.ndarray, c, u, n, L: float, depth: float, step_deg: i
     `pure_check=False` — прежнее правило без «чистоты» (запасная дверь комнаты без дверей, `bench.doorless_doors`, T-11/3).
     `want_how` → (доля, рисунок лучшего: 'arc' | 'double' | 'leaf' | None) — число створок наружной двери (T-20261112-48);
     'double' — только при проверке «чистоты» (на заштрихованном полу и при `pure_check=False` — None)."""
+    if _DOOR_BUDGET['max'] is not None and time.thread_time() - _DOOR_BUDGET['t0'] > _DOOR_BUDGET['max']:
+        raise SystemExit(f"walls: не сошлось за {_DOOR_BUDGET['max']:.0f} с процессорного времени плана (слишком много закрытий на листе, проверки дуги двери)")
     if tangent_only:
         v = _tangent_evidence(thin, c, u, n, L, depth, step_deg)
         return (v, frozenset()) if want_px else v
@@ -1518,8 +1555,22 @@ def door_evidence(thin: np.ndarray, c, u, n, L: float, depth: float, step_deg: i
             hit &= ~(on(arc_pts(h, d, s, R - k)) & on(arc_pts(h, d, s, R + k)))
         return hit
 
-    def cov(h, d, s, R):
-        return float(cov_mask(h, d, s, R).mean())
+    # T-20261126-169/2: точки дуг ВСЕХ положений петли × радиусов одной стороны — одним массивом (было ~1300 мелких `on` на вызов,
+    # время шло на накладные расходы numpy). Арифметика поэлементно та же, что в `arc_pts`/`cov_mask` → результат побайтно прежний.
+    cth, sth = np.cos(th), np.sin(th)
+
+    def arc_batch(Hs, d, s, Rs):
+        """Hs (nj,2), Rs (nr,) → (nj, nr, na, 2): то же, что `arc_pts(Hs[j], d, s, Rs[r])` для каждой пары."""
+        return Hs[:, None, None, :] + Rs[None, :, None, None] * (cth[None, None, :, None] * d[None, None, None, :]
+                                                                  + sth[None, None, :, None] * s[None, None, None, :])
+
+    def cov_batch(Hs, d, s, Rs):
+        """То же, что `cov_mask` для каждой пары (петля, радиус): (nj, nr, na) bool."""
+        hit = on(arc_batch(Hs, d, s, Rs))
+        if pure:
+            k = np.maximum(PURE_MIN_PX, (1 - pure[0]) * Rs)
+            hit &= ~(on(arc_batch(Hs, d, s, Rs - k)) & on(arc_batch(Hs, d, s, Rs + k)))
+        return hit
 
     def leaf_pts(h, s, R):
         return h[None, :] + s[None, :] * np.linspace(0.15 * R, 0.95 * R, 12)[:, None]
@@ -1538,41 +1589,76 @@ def door_evidence(thin: np.ndarray, c, u, n, L: float, depth: float, step_deg: i
                     hit &= ~on(Q + sg * t * LEAF_WALL * R * w[None, :], wcrop)
         return hit
 
-    def leaf(h, s, R, w):
-        """Створка: прямая тонкая линия от петли поперёк стены длиной ~R (доля покрытых точек)."""
-        return float(leaf_mask(h, s, R, w).mean())
+    def leaf_batch(Hs, s, Rs, LS, w):
+        """То же, что `leaf_mask(Hs[j], s, Rs[r], w).mean()` для каждой пары: (nj, nr) доли. LS (nr, 12) — `linspace(0,15R, 0,95R, 12)` по радиусам."""
+        Q = Hs[:, None, None, :] + s[None, None, None, :] * LS[None, :, :, None]
+        hit = on(Q)
+        if pure:
+            k = np.maximum(PURE_MIN_PX, LEAF_PURE * Rs)[None, :, None, None]
+            hit &= ~(on(Q + w[None, None, None, :] * k) & on(Q - w[None, None, None, :] * k))
+        if wcrop is not None:
+            for t in (0.5, 1.0):
+                for sg in (1, -1):
+                    hit &= ~on(Q + sg * t * LEAF_WALL * Rs[None, :, None, None] * w[None, None, None, :], wcrop)
+        return hit.mean(-1)
 
     best, how = 0.0, None
+    JS = (0.0, 0.1, 0.2, 0.3)                        # петля чуть внутри разрыва (торец рисуют с наличником)
+    FS = np.arange(0.5, 1.06, 0.05)
+    Rs = FS * L
+    LS = np.stack([np.linspace(0.15 * R_, 0.95 * R_, 12) for R_ in Rs])
+    Rh = Rs / 2
+    na = len(th)
+    hks = [(pi, phi // step_deg + 1) for pi, phi in enumerate(HALF_ANGLES) if phi // step_deg + 1 <= na]
     for s in (n, -n):
         face = c + s * depth / 2
-        for j in (0.0, 0.1, 0.2, 0.3):               # петля чуть внутри разрыва (торец рисуют с наличником)
-            e1, e2 = face - u * L * (0.5 - j), face + u * L * (0.5 - j)
-            for f in np.arange(0.5, 1.06, 0.05):
-                R = f * L
-                m1, m2 = cov_mask(e1, u, s, R), cov_mask(e2, -u, s, R)
-                a1, a2 = float(m1.mean()), float(m2.mean())
-                d1, d2 = cov(e1, u, s, R / 2), cov(e2, -u, s, R / 2)
+        hs1 = np.array([face - u * L * (0.5 - j) for j in JS])
+        hs2 = np.array([face + u * L * (0.5 - j) for j in JS])
+        M1, M2 = cov_batch(hs1, u, s, Rs), cov_batch(hs2, -u, s, Rs)
+        A1, A2 = M1.mean(-1), M2.mean(-1)
+        D12 = np.minimum(cov_batch(hs1, u, s, Rh).mean(-1), cov_batch(hs2, -u, s, Rh).mean(-1))
+        LF = [None, None]                  # створка у петли — для всех (петля, радиус) сразу, по первому требованию
+        half_leaf = {}
+        HP1 = HP2 = None
+        if pure:
+            # приоткрытая створка: доля покрытых точек дуги 0–φ ≥ HALF_ARC_MIN — по накопленной сумме (целое / k — как .mean())
+            C1, C2 = np.cumsum(M1, -1), np.cumsum(M2, -1)
+            HP1 = np.zeros(M1.shape[:2] + (len(HALF_ANGLES),), bool)
+            HP2 = HP1.copy()
+            for pi, k in hks:
+                HP1[:, :, pi] = C1[:, :, k - 1] / k >= HALF_ARC_MIN
+                HP2[:, :, pi] = C2[:, :, k - 1] / k >= HALF_ARC_MIN
+        for ji in range(len(JS)):
+            e1, e2 = hs1[ji], hs2[ji]
+            for fi in range(len(FS)):
+                R = Rs[fi]
+                a1, a2 = float(A1[ji, fi]), float(A2[ji, fi])
                 for v, w in ((a1, ('arc', e1, u, s, R)), (a2, ('arc', e2, -u, s, R)),
-                             (min(d1, d2), ('double', e1, e2, u, s, R / 2))):
+                             (float(D12[ji, fi]), ('double', e1, e2, u, s, R / 2))):
                     if v > best:
                         best, how = v, w
                 # второй признак: створка у петли + дуга хотя бы частично (её конец бывает срезан стеной)
                 if best < LEAF_SCORE:
-                    for a, e, d in ((a1, e1, u), (a2, e2, -u)):
-                        if a >= LEAF_ARC_MIN and leaf(e, s, R, u) >= LEAF_MIN:
-                            best, how = LEAF_SCORE, ('leaf', e, d, s, R, s, u)
+                    for si, a, e, d in ((0, a1, e1, u), (1, a2, e2, -u)):
+                        if a >= LEAF_ARC_MIN:
+                            if LF[si] is None:
+                                LF[si] = leaf_batch(hs1 if si == 0 else hs2, s, Rs, LS, u)
+                            if LF[si][ji, fi] >= LEAF_MIN:
+                                best, how = LEAF_SCORE, ('leaf', e, d, s, R, s, u)
                 # T-20261111-11: створка приоткрыта (дверцы шкафов, bs30: шкаф у площадки — на ~37°) — дуга 0–φ почти целиком
                 # и прямая створка под углом φ (HALF_ANGLES)
                 if best < LEAF_SCORE and pure:
-                    for m_, e, d in ((m1, e1, u), (m2, e2, -u)):
-                        for phi in HALF_ANGLES:
-                            k = phi // step_deg + 1
-                            if k > len(m_) or m_[:k].mean() < HALF_ARC_MIN:
+                    for si, hp, e, d in ((0, HP1[ji, fi], e1, u), (1, HP2[ji, fi], e2, -u)):
+                        for pi, phi in enumerate(HALF_ANGLES):
+                            if not hp[pi]:
                                 continue
-                            a_ = np.radians(phi)
-                            q = np.cos(a_) * d + np.sin(a_) * s
-                            wq = np.sin(a_) * d - np.cos(a_) * s
-                            if leaf(e, q, R, wq) >= LEAF_MIN:
+                            if (si, pi) not in half_leaf:      # створка под углом φ — для всех (петля, радиус) сразу, по первому требованию
+                                a_ = np.radians(phi)
+                                q = np.cos(a_) * d + np.sin(a_) * s
+                                wq = np.sin(a_) * d - np.cos(a_) * s
+                                half_leaf[(si, pi)] = (leaf_batch(hs1 if si == 0 else hs2, q, Rs, LS, wq), q, wq)
+                            lfa, q, wq = half_leaf[(si, pi)]
+                            if lfa[ji, fi] >= LEAF_MIN:
                                 best, how = LEAF_SCORE, ('leaf', e, d, s, R, q, wq)
                                 break
     if want_px:

@@ -1870,6 +1870,16 @@ def plan_regions(wall, t, fams, max_open=None):
 
 
 def run_plan(plan, inputs, outdir, gold=None, cfg=None):
+    """`_run_plan` под пределом времени на план (`fpcore.arm_door_budget`, T-20261126-169/2): лист, который считается дольше
+    `door_time_limit.json`, — SystemExit «walls: не сошлось…» (в пайплайне — отказ no_plan с причиной), а не зависание"""
+    fc.arm_door_budget()
+    try:
+        return _run_plan(plan, inputs, outdir, gold=gold, cfg=cfg)
+    finally:
+        fc.disarm_door_budget()
+
+
+def _run_plan(plan, inputs, outdir, gold=None, cfg=None):
     """gold/cfg — для слепого плана (T-04): «золото» собрано из подписей VLM + текста объявления (`blind_gold`),
     маска — `auto_cfg`; иначе — `gold/<план>.json` и CFG стенда."""
     t0 = time.time()
