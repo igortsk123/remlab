@@ -6,10 +6,10 @@
 Проверки (имя → что ловит, строка таблицы брака):
   glb_sane      · не читается / нулевой размер (низ формы — только в отчёт: у форм центр в нуле) · «Не читается, нулевой размер»
   open_edges    · доля открытых рёбер (грань без пары) — дыры и разрывы поверхности · «Дыры, рваный фасад или верх»
-  detached      · доля площади крупных частей, парящих вне габарита главного куска · «крупный оторванный кусок»
+  detached      · доля площади крупных частей БЕЗ касания (зазор > detached_gap габарита) с главным куском, прямо или цепочкой кусков (T-175/Ш0-дыры, 27.11) · «крупный оторванный кусок»
   sil_iou/extra/miss/legs · контур кадра против маски фото и нижняя полоса (ножки) — из этапа 04 камеры (--pose-roots), пороги оттуда же · «Наплыв … меняет контур», «Пропали ножки»
   sil_extra~/sil_miss~/legs~ · то же приближённо (ортогональный силуэт GLB при лучшем азимуте), когда позы нет; только значения (approx_flag: false)
-  holes         · грубые лишние сквозные просветы в силуэте против фото (приближение)  · «Дыры, рваный фасад»
+  holes         · грубые лишние сквозные просветы в силуэте против фото, форма — С РАКУРСА ФОТО (азимут и высота камеры по лучшему IoU, `holes_elev`; 27.11) (приближение)  · «Дыры, рваный фасад»
   relief        · много мелкого рельефа на кадре 0° — рваный, «изъеденный» фасад   · «Дыры, рваный фасад»
   back_dup      · кадр 0° и кадр 180° (прямо или зеркально) совпадают по рельефу    · «фасад продублирован на задней стенке» (ловит только точную копию)
   legs_match    · ножки: компоненты нижней полосы маски фото ↔ формы парой по центрам, ошибка ножки ÷ её толщина, пол, число ножек (T-191/3: legs_check.py, пороги — camera-check.json legs_match; силуэт IoU этого не видит) · «Пропали ножки», «ножки не там»
@@ -87,26 +87,63 @@ def open_edges(m, R: dict) -> dict:
     return check('open_edges', share, R['open_edge_share'], share > R['open_edge_share'], f'рёбер {len(cnt)}, открытых {int((cnt == 1).sum())}')
 
 
+def touch_roots(m, comps, nodes: list[int], gap: float, R: dict) -> dict:
+    """Кто с кем соприкасается: куски `comps` (списки граней), зазор ≤ `gap` между их поверхностями (облако: вершины + `detached_samples` точек по площади, seed 0). Возвращает {кусок: корень
+    группы касаний}: куски одной группы связаны цепочкой касаний. Узлы запроса — `nodes` (главный и крупные), мелкие куски участвуют как мостики (с ними касаются, сами не опрашиваются)."""
+    import trimesh
+    from scipy.spatial import cKDTree
+    fc = np.empty(len(m.faces), int)
+    for k, c in enumerate(comps):
+        fc[c] = k
+    vc = np.full(len(m.vertices), -1, int)
+    vc[m.faces.ravel()] = np.repeat(fc, 3)
+    sp, sf = trimesh.sample.sample_surface(m, int(R['detached_samples']), seed=0)
+    live = vc >= 0
+    P = np.vstack([m.vertices[live], np.asarray(sp, float)])
+    L = np.concatenate([vc[live], fc[sf]])
+    parent = {k: k for k in nodes}
+
+    def find(a):
+        parent.setdefault(a, a)
+        while parent[a] != a:
+            parent[a] = parent[parent[a]]
+            a = parent[a]
+        return a
+    cap = int(R['detached_query_max'])
+    for k in nodes:
+        own = P[L == k]
+        if len(own) > cap:
+            own = own[:: int(math.ceil(len(own) / cap))]
+        near = (L != k) & np.all(P >= own.min(0) - gap, 1) & np.all(P <= own.max(0) + gap, 1)       # чужие точки рядом с габаритом куска — остальные не опрашиваем
+        if not near.any():
+            continue
+        d, _ = cKDTree(own).query(P[near], distance_upper_bound=gap)
+        for t in np.unique(L[near][np.isfinite(d)]):
+            parent[find(int(t))] = find(k)
+    return {k: find(k) for k in list(parent)}
+
+
 def detached(m, R: dict) -> dict:
-    """«Крупный оторванный кусок»: часть, не связанная с главным куском И не касающаяся его по габариту (с запасом `detached_gap` диагонали). Ножки/панели из отдельных кусков, упирающиеся в корпус, — норма."""
+    """«Крупный оторванный кусок» (правило на все товары, директор 27.11, P-064): «парящий» — часть БЕЗ касания (зазор > `detached_gap` габарита) с главным куском — ни напрямую, ни цепочкой
+    других кусков. Не «вне габарита главного»: диск основания, стыкующийся со стойкой, — не парит; ножки/панели из отдельных кусков, упирающиеся в корпус, — норма. Парящая пара, касающаяся
+    только друг друга, но не главного, — парящая (оба куска). Куски мельче `detached_piece_min` в долю не идут, но служат мостиками касания."""
     import trimesh
     comps = trimesh.graph.connected_components(m.face_adjacency, nodes=np.arange(len(m.faces)), min_len=1)
     area = m.area_faces
     tot = float(area.sum())
-    order = sorted(range(len(comps)), key=lambda i: -float(area[comps[i]].sum()))
-    main = m.vertices[np.unique(m.faces[comps[order[0]]])]
+    share = [float(area[c].sum()) / tot for c in comps]
+    order = sorted(range(len(comps)), key=lambda i: -share[i])
     gap = R['detached_gap'] * float(np.linalg.norm(m.extents))
-    lo, hi = main.min(0) - gap, main.max(0) + gap
+    big = [i for i in order[1:] if share[i] >= R['detached_piece_min']]
     far, tot_far = 0, 0.0
-    for i in order[1:]:
-        share = float(area[comps[i]].sum()) / tot
-        if share < R['detached_piece_min']:
-            continue
-        v = m.vertices[np.unique(m.faces[comps[i]])]
-        if np.any(v.max(0) < lo) or np.any(v.min(0) > hi):
-            far += 1
-            tot_far += share
-    return check('detached', tot_far, R['detached_share'], tot_far > R['detached_share'], f'кусков {len(comps)}, крупных парящих (вне габарита главного) {far}, главный {float(area[comps[order[0]]].sum()) / tot:.3f} площади')
+    if big:
+        roots = touch_roots(m, comps, [order[0]] + big, gap, R)
+        for i in big:
+            if roots[i] != roots[order[0]]:
+                far += 1
+                tot_far += share[i]
+    return check('detached', tot_far, R['detached_share'], tot_far > R['detached_share'],
+                 f'кусков {len(comps)}, крупных {len(big)}, парящих (без касания с главным, зазор > {R["detached_gap"] * 100:g} % габарита) {far}, главный {share[order[0]]:.3f} площади')
 
 
 # ---------- силуэты ----------
@@ -115,12 +152,16 @@ def surface_points(m, n: int, seed: int = 0) -> np.ndarray:
     return np.asarray(trimesh.sample.sample_surface(m, n, seed=seed)[0], float)
 
 
-def sil_at(pts: np.ndarray, az_deg: float, grid: int = 384) -> np.ndarray:
-    """Ортогональный силуэт облака точек поверхности при повороте вокруг вертикали (Y вверх; az 0 — смотрим с +Z, как камера az000 после импорта glTF в Blender). Дыры от разрежения закрываются на 2 шага."""
+def sil_at(pts: np.ndarray, az_deg: float, grid: int = 384, elev_deg: float = 0.0) -> np.ndarray:
+    """Ортогональный силуэт облака точек поверхности при повороте вокруг вертикали (Y вверх; az 0 — смотрим с +Z, как камера az000 после импорта glTF в Blender). Дыры от разрежения закрываются на 2 шага.
+    `elev_deg` — камера приподнята над горизонтом (взгляд сверху вниз): ближние к камере точки уходят вниз кадра (y' = y·cos e − глубина·sin e); 0 — вид строго сбоку, как раньше."""
     from scipy import ndimage
     a = math.radians(az_deg)
     x = pts[:, 0] * math.cos(a) + pts[:, 2] * math.sin(a)
     y = pts[:, 1]
+    if elev_deg:
+        e = math.radians(elev_deg)
+        y = y * math.cos(e) - (-pts[:, 0] * math.sin(a) + pts[:, 2] * math.cos(a)) * math.sin(e)
     k = (grid - 5) / max(float(x.max() - x.min()), float(y.max() - y.min()), 1e-9)
     ix, iy = ((x - x.min()) * k + 2).astype(int), ((y.max() - y) * k + 2).astype(int)
     img = np.zeros((int(iy.max()) + 3, int(ix.max()) + 3), bool)
@@ -139,6 +180,34 @@ def best_front(pts: np.ndarray, photo: np.ndarray, R: dict) -> tuple[np.ndarray,
         if iou > best[0]:
             best = (iou, float(az), s)
     return best[2], best[1]
+
+
+def best_view(pts: np.ndarray, photo: np.ndarray, R: dict) -> tuple[np.ndarray, float, float, float]:
+    """Ракурс ФОТО (директор 27.11, P-064): азимут И высота камеры, при которых ортогональный силуэт формы лучше всего совпадает с маской фото (IoU; перебор `az_step` × `holes_elev`; при равенстве —
+    ниже камера). Фото снято сверху 3/4 — столешница закрывает подстолье, и просвет формы с боковой проекции (elev 0) несравним с просветом фото. → (силуэт, азимут, высота камеры, IoU)."""
+    best = (-1.0, 0.0, 0.0, None)
+    for el in R['holes_elev']:
+        for az in range(0, 360, int(R['az_step'])):
+            s = sil_at(pts, az, elev_deg=el)
+            iou = iou_keep_aspect(s, photo)
+            if iou > best[0]:
+                best = (iou, float(az), float(el), s)
+    return best[3], best[1], best[2], best[0]
+
+
+def iou_keep_aspect(a: np.ndarray, b: np.ndarray, h: int = SIL_N) -> float:
+    """IoU двух силуэтов с СОХРАНЕНИЕМ пропорций (оба к высоте `h`, по центру на общем холсте): `norm` растягивает до квадрата, и тонкая рама сбоку «совпадала» бы с квадратным щитом."""
+    def fit(m):
+        w = int(min(max(round(h * m.shape[1] / max(m.shape[0], 1)), 4), 4 * h))
+        return np.asarray(Image.fromarray((m * 255).astype(np.uint8)).resize((w, h), Image.BILINEAR)) > 127
+    x, y = fit(a), fit(b)
+    W = max(x.shape[1], y.shape[1])
+
+    def pad(m):
+        o = (W - m.shape[1]) // 2
+        return np.pad(m, ((0, 0), (o, W - m.shape[1] - o)))
+    x, y = pad(x), pad(y)
+    return float((x & y).sum()) / max(float((x | y).sum()), 1.0)
 
 
 def photo_mask(path: str, alpha_min: int = 127) -> np.ndarray:
@@ -161,7 +230,7 @@ def fill_holes(mask: np.ndarray) -> np.ndarray:
     return ndimage.binary_fill_holes(mask)
 
 
-def sil_checks(front: np.ndarray, photo: np.ndarray, R: dict, az: float = 0.0) -> list[dict]:
+def sil_checks(front: np.ndarray, photo: np.ndarray, R: dict, az: float = 0.0, view: tuple | None = None) -> list[dict]:
     """ПРИБЛИЖЕНИЕ без позы камеры: ортогональный силуэт формы при лучшем азимуте против маски фото (фото снято в 3/4 с перспективой — тонкие ножки и контур считаются грубо).
     Пороги `sil_*` флагают только грубое; точная сверка — `pose_checks` (этап 04 камеры) там, где он есть. `approx_flag: false` — только значения."""
     fl = bool(R.get('approx_flag', False))
@@ -173,9 +242,11 @@ def sil_checks(front: np.ndarray, photo: np.ndarray, R: dict, az: float = 0.0) -
     ar = math.log((front.shape[1] / front.shape[0]) / (photo.shape[1] / photo.shape[0]))
     ctx = f'IoU {iou:.3f} при азимуте {az:.0f}° (приближение, ортогонально), пропорции формы/фото {math.exp(ar):.2f}'
     out = [check('sil_extra~', extra, R['sil_extra'], fl and extra > R['sil_extra'], ctx), check('sil_miss~', miss, R['sil_miss'], fl and miss > R['sil_miss'], ctx)]
-    ha = float((fill_holes(a) & ~a).sum()) / max(float(a.sum()), 1.0)                # сквозные просветы внутри силуэта
+    hv = norm(view[0]) if view is not None else a                                    # просветы — с ракурса ФОТО (best_view); без ракурса — как раньше, с лучшего азимута
+    ha = float((fill_holes(hv) & ~hv).sum()) / max(float(hv.sum()), 1.0)             # сквозные просветы внутри силуэта
     hb = float((fill_holes(b) & ~b).sum()) / max(float(b.sum()), 1.0)
-    out.append(check('holes', ha - hb, R['holes_extra'], ha - hb > R['holes_extra'], f'просветов у формы {ha:.3f}, у фото {hb:.3f} (грубые сквозные дыры; приближение)'))
+    vw = f'ракурс фото: азимут {view[1]:.0f}°, камера {view[2]:.0f}° над горизонтом, IoU {view[3]:.3f}' if view is not None else 'ракурс не оценён — вид сбоку'
+    out.append(check('holes', ha - hb, R['holes_extra'], ha - hb > R['holes_extra'], f'просветов у формы {ha:.3f}, у фото {hb:.3f} (грубые сквозные дыры; приближение); {vw}'))
     ra, rb = runs(a, R), runs(b, R)
     out.append(check('legs~', ra - rb, 0, fl and ra < rb, f'опор в нижней полосе: форма {ra}, фото {rb} (приближение)'))
     return out
@@ -638,6 +709,22 @@ def summary(recs: list[dict], eye: dict) -> str:
     return '\n'.join(lines)
 
 
+FAILED = 'check_failed'
+
+
+def guarded(name: str, fn) -> list[dict]:
+    """Проверка не должна молча пропасть: исключение внутри → запись `check_failed` (флаг, статус needs_review, не shape_reject — сломанный код не бракует форму) с причиной; main() при такой записи
+    возвращает 3. Урок дня 27.11 (директор): «проверка сломана/не запустилась → говорит об этом»."""
+    try:
+        return fn()
+    except Exception as exc:                                       # noqa: BLE001 — причина уходит в запись проверки
+        return [check(FAILED, None, None, True, f'ПРОВЕРКА НЕ ВЫПОЛНЕНА: {name}: {type(exc).__name__}: {str(exc)[:160]}')]
+
+
+def failed_skus(recs: list[dict]) -> list[str]:
+    return [r['sku'] for r in recs if any(c['name'] == FAILED for c in r['checks'])]
+
+
 # ---------- один товар ----------
 def run_sku(sku: str, glb: str | None, photo: str | None, frames: str | None, rules: dict, pose_roots: list[str] | None = None, alpha_dir: str | None = None, role: str = '', vlm_cache: str | None = None, chat=None, vlm_kw: dict | None = None, card: dict | None = None) -> dict:
     """`card` — размеры карточки (см. `card_axes`); None — мерка по карточке не считается вовсе, {} — карточки нет: в записи `dims_*` со значением None и причиной."""
@@ -650,7 +737,8 @@ def run_sku(sku: str, glb: str | None, photo: str | None, frames: str | None, ru
         m, why = load_mesh(glb)
         rec['checks'].append(glb_sane(m, why, R))
         if m is not None:
-            rec['checks'] += [open_edges(m, R), detached(m, R)]
+            rec['checks'].append(open_edges(m, R))
+            rec['checks'] += guarded('detached', lambda: [detached(m, R)])
             rec['checks'] += body_skew(m, role, R)
             rec['checks'] += stitch_depth(m, role, card, R)
             if card is not None:
@@ -659,8 +747,9 @@ def run_sku(sku: str, glb: str | None, photo: str | None, frames: str | None, ru
             rec['checks'] += legs_checks(sku, photo, pose_roots or [], R)
             if photo and os.path.isfile(photo):
                 pm = photo_mask(photo)
-                fs, az = best_front(surface_points(m, int(R['sil_points'])), pm, R)
-                rec['checks'] += sil_checks(fs, pm, R, az)
+                pts = surface_points(m, int(R['sil_points']))
+                fs, az = best_front(pts, pm, R)
+                rec['checks'] += guarded('holes', lambda: sil_checks(fs, pm, R, az, view=best_view(pts, pm, R)))
                 sil_thin = sil_at(surface_points(m, int(R['thin_points']), seed=3), az, int(R['thin_grid']))
                 rec['checks'] += thin_checks(sil_thin, pm, R, az)
                 rec['checks'] += leg_wave(sil_thin, R)
@@ -736,6 +825,10 @@ def main() -> int:
         recs.append(rec)
         print(f"{s} {rec['status']} {rec['flags']}", flush=True)
     json.dump(recs, open(os.path.join(a.out, 'all.json'), 'w', encoding='utf-8'), ensure_ascii=False, indent=1)
+    bad = failed_skus(recs)
+    if bad:
+        print(f'ПРОВЕРКА НЕ ВЫПОЛНЕНА у {len(bad)} из {len(recs)}: ' + ', '.join(bad[:10]) + ' — причина в form_checks.json (check_failed)', flush=True)
+        return 3
     if a.table:
         eye = json.load(open(a.eye, encoding='utf-8')) if a.eye else {}
         open(a.table, 'w', encoding='utf-8').write(table(recs, eye, ['open_edges', 'detached', 'sil_iou', 'sil_extra', 'sil_miss', 'legs', 'sil_extra~', 'sil_miss~', 'holes', 'relief', 'back_dup', 'legs_match', 'relief_graze', 'back_relief', 'back_dup_mask', 'dims_depth', 'dims_axes']) + '\n\n' + summary(recs, eye) + '\n')

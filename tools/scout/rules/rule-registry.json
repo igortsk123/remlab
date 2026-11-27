@@ -1239,6 +1239,58 @@
       "group": "G7"
     },
     {
+      "rule_id": "R-FORM-DETACHED-TOUCH",
+      "title": "Ш0: «парящий кусок» формы — только часть БЕЗ касания (зазор > 1 % габарита) с главным куском, прямо или цепочкой кусков; не «вне габарита главного»",
+      "state": "trial",
+      "source": [
+        "T-20261127-175 / задание Ш0-дыры (директор 27.11, P-064: Мелтон 112923_…707170 — флаг ложный, диск основания стыкуется со стойкой; кусков 16, «парящий» 1)",
+        "OTCHET-sh0-obhod.md (rab-9, 27.11: штатный Ш0 на 9 формах)"
+      ],
+      "applies": {
+        "types": [
+          "all"
+        ]
+      },
+      "executor": "р.9 (T-20261127-175)",
+      "consumer": "tools/scout/salad/render/form_checks.py:detached",
+      "runtime": "enforce",
+      "test": "tools/scout/salad/render/tests_form_checks.py",
+      "test_positive": "tools/scout/salad/render/tests_form_checks.py::test_base_with_gap_over_one_percent_is_floating_positive",
+      "test_negative": "tools/scout/salad/render/tests_form_checks.py::test_base_disk_touching_stem_is_not_floating_negative_control",
+      "run_id": null,
+      "flag": null,
+      "check_field": null,
+      "enabled": null,
+      "note": "Пороги НЕ тронуты: detached_gap 0,01, detached_piece_min 0,01, detached_share 0,03 (блок shape_reject). Новые параметры (числа, не выключатели) — rules/form-checks.json: detached_samples 300000 (точек облака по площади, seed 0), detached_query_max 100000 (точек куска в запросе). Касание — расстояние точка-точка облака (вершины + выборка по площади) ≤ зазор; куски-мостики мельче detached_piece_min в долю не идут, но связывают; парящая пара, касающаяся только друг друга, — парящая. Сломанный расчёт → запись check_failed «ПРОВЕРКА НЕ ВЫПОЛНЕНА» (needs_review, main() код 3), не молчание.",
+      "group": "G7"
+    },
+    {
+      "rule_id": "R-FORM-HOLES-VIEW",
+      "title": "Ш0: просвет формы (holes) считать С РАКУРСА ФОТО — азимут и высота камеры по лучшему IoU с маской фото (с пропорциями), а не с фиксированного бокового вида",
+      "state": "trial",
+      "source": [
+        "T-20261127-175 / задание Ш0-дыры (директор 27.11, P-064: Грейтон 112923_…011216 — просвет формы 0,523 против 0,183 у фото ложный: фото снято сверху 3/4, столешница закрывает подстолье)",
+        "OTCHET-sh0-obhod.md (rab-9, 27.11)"
+      ],
+      "applies": {
+        "types": [
+          "all"
+        ]
+      },
+      "executor": "р.9 (T-20261127-175)",
+      "consumer": "tools/scout/salad/render/form_checks.py:best_view",
+      "runtime": "observe",
+      "test": "tools/scout/salad/render/tests_form_checks.py",
+      "test_positive": "tools/scout/salad/render/tests_form_checks.py::test_real_hole_seen_from_photo_camera_is_flagged_positive",
+      "test_negative": "tools/scout/salad/render/tests_form_checks.py::test_table_seen_from_above_is_not_false_hole_negative_control",
+      "run_id": null,
+      "flag": null,
+      "check_field": null,
+      "enabled": null,
+      "note": "Порог holes_extra 0,3 НЕ тронут. Новый параметр — rules/form-checks.json: holes_elev [0, 15, 30, 45] (высоты камеры над горизонтом, град.; перебор вместе с азимутом az_step). Высота камеры ОЦЕНИВАЕТСЯ по маске фото (точной позы этапа 04 в form_checks нет); максимум IoU склонен выбирать вид, где окна формы сужаются — ограничение, вопрос Codex в отчёте. Остальные приближённые силуэтные проверки (sil_extra~, sil_miss~, legs~, thin_*) по-прежнему на лучшем азимуте с высоты 0 — не менялись. holes в block не входит (observe).",
+      "group": "G7"
+    },
+    {
       "rule_id": "R-FILL-GATE-08",
       "title": "08 идёт только при наличии 07 того же товара (нет папки/check.json, сбой этапа — стоп); красный 07 по порогам 08 не останавливает, вердикт 07 — замечанием в отчёте 08",
       "state": "trial",
