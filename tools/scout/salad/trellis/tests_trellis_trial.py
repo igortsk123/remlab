@@ -54,7 +54,7 @@ try:
 except ValueError:
     ok('разрешение 2048 — отказ', True)
 ok('типы цепочки TRELLIS.2', [T.pipeline_type(r) for r in (512, 1024, 1536)] == ['512', '1024_cascade', '1536_cascade'])
-INP = {'a:1': {'input_png_sha256': 'x'}, 'b:2': {'input_png_sha256': 'y'}}
+INP = {'a:1': {'input_png_sha256': 'x', 'origin': T.CORIGIN.example()}, 'b:2': {'input_png_sha256': 'y', 'origin': T.CORIGIN.example()}}
 js = T.build_jobs(['a:1', 'b:2'], T.parse_plan('1024:1,1536:1'), INP, 7)
 ok('4 задания, id без «:», seed в id', len(js) == 4 and js[0]['job_id'] == 'a_1-1024-7-0' and all(':' not in j['job_id'] for j in js))
 try:
@@ -214,8 +214,9 @@ def args(tmp, **kw):
 def make_inputs(tmp, skus=('a:1',)):
     inp = {}
     for s in skus:
-        open(os.path.join(tmp, s.replace(':', '_') + '.rgba.png'), 'wb').write(b'\x89PNG')
-        inp[s] = {'input_png_sha256': 'x'}
+        png = T.CORIGIN.placeholder_png(T.CORIGIN.example())
+        open(os.path.join(tmp, s.replace(':', '_') + '.rgba.png'), 'wb').write(png)
+        inp[s] = {'input_png_sha256': __import__('hashlib').sha256(png).hexdigest(), 'origin': T.CORIGIN.example()}
     json.dump(inp, open(os.path.join(tmp, 'inputs.json'), 'w'))
 
 
@@ -249,6 +250,41 @@ rc, mg, br, _ = go(d, mg=FakeMG(groups=[{'name': 'other-live', 'current_state': 
 ok('чужая живая группа → отказ, группа не создаётся', rc == 2 and ('POST', '') not in mg.calls)
 rc, mg, br, _ = go(d, mg=FakeMG(groups=[{'name': 'mesh-q-low-1', 'current_state': {'status': 'running'}}]))
 ok('боевая mesh-группа живая — не помеха (её не трогаем)', rc == 0 and all('mesh-q-low-1' not in c[1] for c in mg.calls))
+
+print('[3б] метка происхождения входа (T-175/9): без актуальной метки — отказ ДО группы и денег')
+import copy  # noqa: E402
+_good = T.CORIGIN.example()
+try:
+    T.build_jobs(['a:1'], T.parse_plan('1024:1'), {'a:1': {'input_png_sha256': 'x'}}, 42)
+    ok('build_jobs: вход без метки — отказ', False)
+except ValueError as e:
+    ok('build_jobs: вход без метки — отказ с причиной', 'метки происхождения' in str(e) and 'make_inputs.py' in str(e), str(e)[:120])
+try:
+    T.build_jobs(['a:1'], T.parse_plan('1024:1'), {'a:1': {'input_png_sha256': 'x', 'origin': dict(_good, chain_version='c0')}}, 42)
+    ok('build_jobs: старая версия цепочки — отказ', False)
+except ValueError as e:
+    ok('build_jobs: старая версия цепочки — отказ с причиной', 'версия цепочки' in str(e), str(e)[:120])
+ok('build_jobs: актуальная метка — задания есть', len(T.build_jobs(['a:1'], T.parse_plan('1024:1'), {'a:1': {'input_png_sha256': 'x', 'origin': _good}}, 42)) == 1)
+for what, mut in (('нет origin (как у старых входов)', lambda e: e.pop('origin')), ('старая версия цепочки', lambda e: e['origin'].update(chain_version='c0')),
+                  ('чужой способ', lambda e: e['origin'].update(method='cutout_sync')), ('чужие веса маски', lambda e: e['origin']['mask'].update(revision='0' * 40))):
+    d = tempfile.mkdtemp(prefix='tt-')
+    make_inputs(d)
+    jp = os.path.join(d, 'inputs.json')
+    inp = json.load(open(jp))
+    mut(inp['a:1'])
+    json.dump(inp, open(jp, 'w'))
+    rc, mg, br, _ = go(d, apply=True)
+    ok(f'сухой запуск с --apply: {what} → отказ 2, группа НЕ создаётся, деньги не тратятся', rc == 2 and ('POST', '') not in mg.calls and br.stops == [])
+d = tempfile.mkdtemp(prefix='tt-')
+make_inputs(d)
+open(os.path.join(d, 'a_1.rgba.png'), 'wb').write(T.CORIGIN.placeholder_png(dict(_good, chain_version='c0')))
+rc, mg, br, _ = go(d, apply=True)
+ok('метка внутри PNG устарела (в inputs.json — актуальна) → отказ, группы нет', rc == 2 and ('POST', '') not in mg.calls)
+d = tempfile.mkdtemp(prefix='tt-')
+make_inputs(d)
+open(os.path.join(d, 'a_1.rgba.png'), 'ab').write(b'\0')
+rc, mg, br, _ = go(d, apply=True)
+ok('файл вырезки подменён после записи (sha не сходится) → отказ, группы нет', rc == 2 and ('POST', '') not in mg.calls)
 
 print('[4] драйвер: нормальный ход и предохранители (стоп с проверкой — всегда)')
 d = tempfile.mkdtemp(prefix='tt-')
@@ -343,7 +379,7 @@ ok('--no-pull-guard выключает сторож: медленная дока
 _lp = os.path.join(d3, 'lad-seed.json')
 open(_lp, 'w').write(json.dumps([{'name': 'A', 'input': 'hd', 'res': 1024}, {'name': 'S7', 'input': 'hd', 'res': 1024, 'seed': 7}]))
 _lad = T.parse_ladder(_lp)
-_jj = T.expand_ladder_jobs(T.build_jobs(['a:1'], T.parse_plan('1024:1'), {'a:1': {'input_png_sha256': 'x'}}, 42), _lad)
+_jj = T.expand_ladder_jobs(T.build_jobs(['a:1'], T.parse_plan('1024:1'), {'a:1': {'input_png_sha256': 'x', 'origin': T.CORIGIN.example()}}, 42), _lad)
 ok('лесенка: seed ступени доходит до задания и до payload воркера (7), у ступени без seed — запуск (42)',
    [(j['job_id'], j['seed'], (j.get('worker_params') or {}).get('seed')) for j in _jj] == [('a_1-A', 42, None), ('a_1-S7', 7, 7)])
 for _bad in (-1, 2 ** 31, 1.5, '7', True):

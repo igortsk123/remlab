@@ -44,19 +44,14 @@ import urllib.error
 import urllib.request
 from concurrent.futures import ThreadPoolExecutor
 
-import numpy as np
 from PIL import Image
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, os.path.join(HERE, 'salad'))
 sys.path.insert(0, HERE)
 
-import collage            # noqa: E402
-import components         # noqa: E402
-import studio_bg          # noqa: E402  («известный студийный фон», T-104/5)
-import soft_edge          # noqa: E402  (мягкий край по известному фону, T-104/5)
-import hybrid_mask        # noqa: E402
-import preprocess as PRE  # noqa: E402  (defringe/trim_alpha/mask_verdict — они без GPU)
+import preprocess as PRE  # noqa: E402  (ASSESSOR_VERSION — ключ кэша оценок; цепочка вырезки — в cutout_one)
+import cutout_one as CO1  # noqa: E402  (ЕДИНЫЙ модуль вырезки, T-20261127-175/9: маска, цепочка, обрезка)
 import photo_hash as PH   # noqa: E402  (единственный писатель хеша фото, план mesh-14)
 import pool_gate as PG    # noqa: E402  (ворота пула и граница 0.65)
 import mesh_photo as MP    # noqa: E402  (ЕДИНОЕ правило фото меша и сторож размера, ADR-0452)
@@ -151,35 +146,14 @@ def mask_fal(raw: bytes, tries: int = 8) -> Image.Image:
     raise TimeoutError('fal не ответил за 300 с')
 
 
-_LOCAL = None
-# РЕВИЗИЯ ВЕСОВ И КОДА BiRefNet ЗАКРЕПЛЕНА (T-46/3): модель грузится с trust_remote_code=True, а без ревизии transformers
-# тянет свежий birefnet.py из репозитория автора — чужой код исполняется у нас без проверки. Хеш — снимок, прошедший пробу
-# 3/3 и массовую добивку 06.11 (~/.cache/huggingface/hub/models--ZhengPeng7--BiRefNet/refs/main). Смена — только с пробой.
-BIREFNET_REPO = 'ZhengPeng7/BiRefNet'
-BIREFNET_REVISION = 'e2bf8e4460fc8fa32bba5ea4d94b3233d367b0e4'
+# РЕВИЗИЯ ВЕСОВ И КОДА BiRefNet ЗАКРЕПЛЕНА (T-46/3) — в `cutout_origin.BIREFNET_REVISION` (одно место; смена — только с пробой); здесь — те же значения под старыми именами.
+BIREFNET_REPO = CO1.BIREFNET_REPO
+BIREFNET_REVISION = CO1.BIREFNET_REVISION
 
 
 def mask_local(raw: bytes) -> Image.Image:
-    """BiRefNet на CPU. Веса те же (`ZhengPeng7/BiRefNet`), но в float32: fp16 на CPU не считается."""
-    global _LOCAL
-    src = Image.open(io.BytesIO(raw)).convert('RGB')
-    if _LOCAL is None:
-        import torch
-        from torchvision import transforms
-        from transformers import AutoModelForImageSegmentation
-        m = AutoModelForImageSegmentation.from_pretrained(
-            BIREFNET_REPO, trust_remote_code=True, revision=BIREFNET_REVISION)
-        m.float().eval()
-        torch.set_num_threads(int(os.environ.get('THREADS', '12')))
-        _LOCAL = (torch, m, transforms.Compose([
-            transforms.Resize((1024, 1024)), transforms.ToTensor(),
-            transforms.Normalize([0.485, 0.456, 0.406], [0.229, 0.224, 0.225])]))
-    torch, m, tf = _LOCAL
-    with torch.no_grad():
-        pred = m(tf(src).unsqueeze(0))[-1].sigmoid()[0].squeeze()
-    out = src.convert('RGBA')
-    out.putalpha(Image.fromarray((pred.numpy() * 255).astype(np.uint8)).resize(src.size))
-    return out
+    """BiRefNet на CPU (режим `local`): единая копия — `cutout_one.mask_cpu` (веса те же, float32: fp16 на CPU не считается)."""
+    return CO1.mask_cpu(Image.open(io.BytesIO(raw)).convert('RGB'))
 
 
 def mask_salad(raw: bytes) -> Image.Image:
@@ -194,107 +168,19 @@ BACKENDS = {'fal': mask_fal, 'local': mask_local, 'salad': mask_salad}
 # ------------------------------------------------------------------ цепочка и запись
 
 def chain_shape(src: Image.Image, net: Image.Image, role: str | None = None) -> tuple[Image.Image, dict]:
-    """Цепочка до обрезки: полнокадровая RGBA-вырезка + info. Отдельно от `chain`, чтобы замеры считали маску в координатах кадра."""
-    try:
-        refined, info = hybrid_mask.refine(src, net, role=role)
-    except Exception as e:  # noqa: BLE001 — гибрид не должен ронять шаг; факт отказа виден
-        refined, info = net, {'hybrid_error': f'{type(e).__name__}: {str(e)[:100]}'}
-    a = np.asarray(refined)[..., 3].astype(np.float32) / 255.0
-    cleaned, comp = components.clean(a)
-    # «Известный студийный фон» (T-20261119-104/5, Ч.1): строгий признак ровного белого фона по кольцу кадра; Rcore/Rsoft — заливка от рамки.
-    # Считаем ВСЕГДА (для замера «загрязнения» по шагам); правим вырезку только при включённом правиле. bg_mode: white_flat | net_only (+ причина).
-    src_rgb = np.asarray(src)
-    ms = {}
-    t0 = time.time()
-    bg, st = studio_bg.detect(src_rgb)
-    rcore = rsoft = None
-    act = studio_bg.enabled() and bg is not None
-    info['bg_mode'] = 'white_flat' if bg is not None else 'net_only'
-    info['studio'] = dict(st)
-    if bg is not None:
-        rcore, rsoft = studio_bg.regions(src_rgb, bg, st['t_core'], st['t_soft'])
-        info['studio']['pollution'] = {'raw': studio_bg.pollution(np.asarray(net)[..., 3].astype(np.float32) / 255.0, rcore),
-                                       'hybrid': studio_bg.pollution(a, rcore), 'clean': studio_bg.pollution(cleaned, rcore)}
-    if not studio_bg.enabled():
-        info['studio']['applied'] = False
-        info['studio']['skipped'] = 'выключено CUTOUT_STUDIO_BG=0'
-    ms['detect_regions'] = round(time.time() - t0, 3)
-    # Дырки, внутри которых НЕ фон, — это потерянная основа товара (серый ковёр, узор которого
-    # сеть удержала, а поле потеряла). Просветы проволоки и реек внутри показывают фон и
-    # остаются нетронутыми — различаем по содержимому, а не по размеру (урок 307).
-    cleaned, holes = components.fill_holes_unlike_bg(cleaned, np.asarray(src), role=role)
-    comp.update(holes)
-    # дыры внутри тела корпусной мебели (светлые фасады «как фон», T-20261119-104/3): замкнутые телом возвращаются; стул/стеллаж/стол не трогаются
-    cleaned, bh = components.fill_body_holes(cleaned, np.asarray(refined)[..., :3], role=role)
-    comp.update(bh)
-    # щели 1–2 px у кромки (светлое на белом рвётся «пунктиром», T-20261119-104/2); внутренние дырки и пустоты от 3 px остаются.
-    # С известным фоном — только пикселями «не фон» (T-104/5: белая крупа вокруг трубки торшера склеивалась в «бусины»).
-    t0 = time.time()
-    cleaned, rgb, gap = components.close_edge_gaps(cleaned, np.asarray(refined)[..., :3], rcore=rcore if act else None)
-    comp.update(gap)
-    ms['close_gaps'] = round(time.time() - t0, 3)
-    if rcore is not None:
-        info['studio']['pollution']['closing'] = studio_bg.pollution(cleaned, rcore)
-    # Ч.2 (T-104/5): осторожно вернуть крупное потерянное тело (белый щит на белом); до вычитателя — он потом чистит и край добавки
-    if act:
-        t0 = time.time()
-        cleaned, prop = studio_bg.propose(cleaned, np.asarray(net)[..., 3].astype(np.float32) / 255.0, src_rgb, bg, rsoft)
-        info['studio'].update(prop)
-        ms['propose'] = round(time.time() - t0, 3)
-        info['studio']['pollution']['proposal'] = studio_bg.pollution(cleaned, rcore)
-    # вычитатель — ПОСЛЕДНИЙ из растущих шагов: чистый фон у кромки, связанный с краем кадра, в полосе ≤ 2 px (T-104/5)
-    if act:
-        t0 = time.time()
-        cleaned, sub = studio_bg.subtract(cleaned, src_rgb, bg, rcore)
-        info['studio'].update(sub)
-        ms['subtract'] = round(time.time() - t0, 3)
-        info['studio']['pollution']['subtract'] = studio_bg.pollution(cleaned, rcore)
-        # Ч.3: белые островки цвета фона у тёмного тела, отделённые от рамки тенью (не в Rcore)
-        cleaned, cc = studio_bg.contrast_cut(cleaned, src_rgb, bg, rsoft)
-        info['studio'].update(cc)
-        # клин пола между ножками под плотным телом (T-104/7)
-        cleaned, hw = studio_bg.hang_wedge(cleaned, src_rgb, bg, rsoft)
-        info['studio'].update(hw)
-    info['components'] = comp
-    refined = Image.fromarray(np.dstack([rgb, (np.clip(cleaned, 0, 1) * 255).astype(np.uint8)]), 'RGBA')
-    is_col, why, feats = collage.is_collage(np.asarray(src).astype(np.float32), cleaned)
-    info['collage'] = {'verdict': bool(is_col), 'why': why, 'features': feats}
-    shape = PRE.defringe(refined, info)
-    # мягкий край по известному белому фону (аналитика, T-104/5): α = min(α, α_цвет) в полосе кромки, цвет — F; F ≈ B → α сети не трогаем
-    if act:
-        t0 = time.time()
-        sa = np.asarray(shape)
-        al, rg, soft = studio_bg.soft_alpha(sa[..., 3].astype(np.float32) / 255.0, sa[..., :3], bg, rsoft)
-        shape = Image.fromarray(np.dstack([rg, (np.clip(al, 0, 1) * 255).astype(np.uint8)]), 'RGBA')
-        info['studio'].update(soft)
-        ms['soft'] = round(time.time() - t0, 3)
-        if soft_edge.enabled():                       # опциональный A/B pymatting (по умолчанию выключен)
-            shape = soft_edge.apply(shape, src_rgb, bg, info)
-    if rcore is not None:
-        info['studio']['pollution']['final'] = studio_bg.pollution(np.asarray(shape)[..., 3].astype(np.float32) / 255.0, rcore)
-    info['studio']['applied'] = bool(act)
-    info['studio']['ms'] = ms
-    return shape, info
+    """Цепочка до обрезки: полнокадровая RGBA-вырезка + info. Тело — `cutout_one.cut_shape` (перенесено без изменения байтов; тест `tests_cutout_one.py`).
+    Необязательные шаги старой цепочки здесь ВЫКЛЮЧЕНЫ: ночная оценка пула остаётся такой, какой была."""
+    return CO1.cut_shape(src, net, role=role)
 
 
-def crop_box(shape: Image.Image, pad: int = 8) -> tuple[int, int, int, int]:
-    """Рамка обрезки, ЗЕРКАЛО `PRE.trim_alpha` (альфа > 8, поле `pad`, в пределах кадра; пустая альфа → весь кадр) — а не `getbbox()`.
-    Смещение вырезки в исходном кадре (`photo.object_xy` = левый верх рамки) нужно сторожам паспортов (К1: сравнить исходник с вырезкой без поиска совмещения).
-    Совпадение с `trim_alpha` по байтам держит тест (`shape.crop(crop_box(shape)).tobytes() == trim_alpha(shape).tobytes()`)."""
-    a = np.asarray(shape)[..., 3]
-    ys, xs = np.where(a > 8)
-    if not len(ys):
-        return 0, 0, shape.width, shape.height
-    return (int(max(0, xs.min() - pad)), int(max(0, ys.min() - pad)),
-            int(min(shape.width, xs.max() + pad + 1)), int(min(shape.height, ys.max() + pad + 1)))
+crop_box = CO1.crop_box        # рамка обрезки (зеркало `PRE.trim_alpha`); тесты паспортов зовут `CS.crop_box`
 
 
 def chain(src: Image.Image, net: Image.Image, role: str | None = None) -> tuple[Image.Image, dict]:
-    """Наша цепочка — ровно та же, что в `salad/preprocess._cut_chain`, но с готовой маской.
+    """Наша цепочка (обрезанная вырезка + отчёт): шаги — `chain_shape` (= `cutout_one.cut_shape`, без необязательных шагов старой цепочки), хвост (обрезка, вердикт, `photo`) — здесь,
+    как был: тест паспортов (г) читает его из этого файла. Тот же хвост у входа формы — `cutout_one.chain_cut` (после 9.4 схлопнуть: правка пути в тесте (г)).
 
-    `role` нужен точечным правкам: рост по связности — только коврам, заливка силуэта —
-    только вазам/кашпо/статуэткам. Остальные 95% товаров идут ровно как раньше.
-    """
+    `role` нужен точечным правкам: рост по связности — только коврам, заливка силуэта — только вазам/кашпо/статуэткам. Остальные 95% товаров идут ровно как раньше."""
     shape, info = chain_shape(src, net, role=role)
     cut = PRE.trim_alpha(shape)
     box = crop_box(shape)
@@ -542,9 +428,8 @@ def _selftest() -> int:
         def from_pretrained(repo, **kw):
             got.update(kw, repo=repo)
             raise _Stop
-    global _LOCAL
-    saved, saved_local = sys.modules.get('transformers'), _LOCAL
-    sys.modules['transformers'], _LOCAL = types.SimpleNamespace(AutoModelForImageSegmentation=_Auto), None
+    saved, saved_local = sys.modules.get('transformers'), CO1._LOCAL
+    sys.modules['transformers'], CO1._LOCAL = types.SimpleNamespace(AutoModelForImageSegmentation=_Auto), None
     try:
         buf = io.BytesIO()
         Image.new('RGB', (4, 4)).save(buf, 'PNG')
@@ -556,7 +441,7 @@ def _selftest() -> int:
             sys.modules.pop('transformers', None)
         else:
             sys.modules['transformers'] = saved
-        _LOCAL = saved_local
+        CO1._LOCAL = saved_local
     ok('BiRefNet: ревизия закреплена полным хешем и передаётся в from_pretrained',
        re.fullmatch(r'[0-9a-f]{40}', BIREFNET_REVISION) is not None and got.get('revision') == BIREFNET_REVISION
        and got.get('repo') == BIREFNET_REPO and got.get('trust_remote_code') is True)

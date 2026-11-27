@@ -357,7 +357,7 @@ ok('mvp_options: по умолчанию auto/75/упрощение 1/PBR 1; к�
 ok('веса открытые: бесплатная проверка перед группой — только доступность репозитория', T.HF_GATED['mvpainter'].startswith('shaomq/MVPainter/'))
 
 tp = tempfile.mkdtemp(prefix='mvd-')
-json.dump({'a:1': {'input_png_sha256': 'x'}, 'b:2': {'input_png_sha256': 'y'}}, open(os.path.join(tp, 'inputs.json'), 'w'))
+json.dump({'a:1': {'input_png_sha256': 'x', 'origin': T.CORIGIN.example()}, 'b:2': {'input_png_sha256': 'y', 'origin': T.CORIGIN.example()}}, open(os.path.join(tp, 'inputs.json'), 'w'))
 shape_path = os.path.join(tp, 'shape.glb')
 open(shape_path, 'wb').write(b'glTF')
 
@@ -380,7 +380,7 @@ rc = T.run(NS(**{**base, 'model': 'trellis2', 'worker_env': ['MVP_CKPT=ckpt'], '
 ok('--worker-env для другой модели: отказ до Salad', rc == 2)
 
 
-json.dump({k: {'input_png_sha256': 'x'} for k in ('a:1', 'b:2', 'c:3')}, open(os.path.join(tp, 'inputs.json'), 'w'))      # c:3 есть среди входов, но формы у него нет
+json.dump({k: {'input_png_sha256': 'x', 'origin': T.CORIGIN.example()} for k in ('a:1', 'b:2', 'c:3')}, open(os.path.join(tp, 'inputs.json'), 'w'))      # c:3 есть среди входов, но формы у него нет
 cat = tempfile.mkdtemp(prefix='shp-')                         # каталог форм: у a:1 есть clean2, у b:2 только clean, у c:3 ничего (T-20261119-06/5/2)
 for fn_ in ('a_1-1024-42-0.clean2.glb', 'b_2-1024-42-0.clean.glb'):
     open(os.path.join(cat, fn_), 'wb').write(b'glTF')
