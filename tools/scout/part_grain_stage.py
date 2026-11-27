@@ -286,6 +286,9 @@ def photo_detail_step(tex_in, tone_tex, tx, g: dict, st: dict, Ld, valid, fgrp, 
     inside = fm['ok'][f] & (x >= 0.5) & (x <= px - 0.5) & (y >= 0.5) & (y <= px - 0.5) & np.isin(fgrp[f], gi)
     xi, yi = np.clip(np.floor(x).astype(np.int64), 0, px - 1), np.clip(np.floor(y).astype(np.int64), 0, px - 1)
     use = inside & sel[yi, xi] & (ids[yi, xi] == f)                      # пиксель кадра под тексель — той же грани и внутри «в лоб»
+    ing_t = np.isin(fgrp[f], gi)
+    info['funnel'] = {'texels_group': int(ing_t.sum()), 'face_map_ok': int((fm['ok'][f] & ing_t).sum()), 'inside_frame': int((inside).sum()), 'on_sel': int((inside & sel[yi, xi]).sum()), 'same_face': int(use.sum()),
+                      'faces_group': int(np.isin(fgrp, gi).sum()), 'faces_visible_in_sel': int(len(np.unique(ids[sel]))), 'sel_px': int(sel.sum()), 'ingrp_px': int(ingrp.sum())}
     n_use = int(use.sum())
     info.update(texels_in_group=int((np.isin(fgrp[f], gi)).sum()), texels_with_detail=n_use)
     if n_use == 0:

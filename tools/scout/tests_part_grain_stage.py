@@ -157,7 +157,23 @@ def main():
     s_b = ST.strip_sigma(base + rg.normal(0, 3.0, (n2, n2)).astype(np.float32), m_all, 0.0073, 5, 100)
     check(s_a is not None and s_b is not None and 2.4 < s_b / s_a < 3.6, 'strip_sigma растёт с размахом рисунка (σ 1 → 3): %.2f → %.2f; плавный свет (градиент 40…60) в полосу не входит' % (s_a, s_b))
     check(ST.strip_sigma(base, np.zeros((n2, n2), bool), 0.0073, 5, 100) is None, 'strip_sigma: маска пуста → None (нет оценки)')
+    # T-99/12 шаг 5: полосы деталей фото — тень (плавный градиент шире blur_cm) вычтена, полоса рисунка 1–4 см остаётся
+    pdr = json.load(open(os.path.join(HERE, 'rules', 'part-grain.json'), encoding='utf-8'))['photo_detail']
+    check(pdr['enabled'] is False, 'photo_detail выкл по умолчанию')
+    ppc_t, n3_ = 10.0, 400
+    xx = np.arange(n3_, dtype=np.float32)[None, :].repeat(n3_, 0)
+    shadow = (30.0 * xx / n3_).astype(np.float32)                          # плавный свет/тень на ВСЮ грань (40 см)
+    stripes = (4.0 * np.sin(2 * np.pi * xx / (10.0 * ppc_t))).astype(np.float32)    # рисунок — период 10 см (дуги)
+    sel_ = np.ones((n3_, n3_), bool)
+    co_s, fi_s = ST.detail_bands(60.0 + shadow, sel_, ppc_t, pdr)
+    co_t, fi_t = ST.detail_bands(60.0 + shadow + stripes, sel_, ppc_t, pdr)
+    mid = (slice(100, 300), slice(100, 300))
+    check(float(np.std(co_s[mid])) < 0.4 and float(np.std(fi_s[mid])) < 0.2, 'detail_bands: тень без рисунка — деталей ≈ 0 (крупное %.2f, мелкое %.2f)' % (float(np.std(co_s[mid])), float(np.std(fi_s[mid]))))
+    check(float(np.std(co_t[mid])) > 1.5, 'detail_bands: полосы 10 см выживают в «крупном» (σ %.2f из 2,8)' % float(np.std(co_t[mid])))
+    check(abs(float(np.mean(co_t[mid]))) < 0.5, 'detail_bands: деталь без сдвига тона (среднее ≈ 0: %.2f)' % float(np.mean(co_t[mid])))
+    check(float(np.abs(co_t[~sel_]).sum()) == 0.0 and float(np.abs(fi_t[~sel_]).sum()) == 0.0, 'detail_bands: вне маски — ноль')
     src_ = open(os.path.join(os.path.dirname(os.path.abspath(__file__)), 'part_grain_stage.py'), encoding='utf-8').read()
+    check("rules.get('photo_detail') or {}).get('enabled')" in src_, 'шаг 5 идёт только под photo_detail.enabled')
     check("rules.get('amp_strip') or {}).get('enabled')" in src_ and 'plan=plan2' in src_, 'второй проход зерна идёт только под amp_strip.enabled')
     bad = sum(1 for x in OK if not x)
     print(f'\n{len(OK) - bad}/{len(OK)} ok')
