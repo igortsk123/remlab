@@ -1,6 +1,5 @@
 {
   "_about": "Автопроверки формы TRELLIS.2 (Ш0, T-184/3): режим OBSERVE — пишут вердикт рядом (form_checks.json), НИЧЕГО не бракуют. Пороги СТАРТОВЫЕ, калибруются по таблице «авто ↔ глаз» (директор 22.11, P-064 п.4). Код: tools/scout/salad/render/form_checks.py.",
-  "observe": false,
   "thresholds": {
     "min_extent": 0.0001,
     "floor_tol": 0.02,

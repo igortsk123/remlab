@@ -606,7 +606,7 @@ def test_glass_keeps_colour_map():
         l1 = MS.rgb_to_lab(out[occ].astype(np.float64))
         s0, s1 = np.percentile(l0, 90) - np.percentile(l0, 10), np.percentile(l1[:, 0], 90) - np.percentile(l1[:, 0], 10)
         ok(any(i.get("source") == "keep-map" for i in info) and s1 >= 0.5 * s0, f"карта с рисунком: σL 08 ≥ 50 % от 07 (было {s0:.1f}, стало {s1:.1f})")
-        ok(R["glass_tone"]["keep_map"]["shift"] is False and bool((out[occ] == np.asarray(base)[..., :3][occ]).all()), "карта с рисунком: тексели острова байт в байт как в 07 (shift false, цвет шаг 08 не меняет)")
+        ok("shift" not in R["glass_tone"]["keep_map"] and bool((out[occ] == np.asarray(base)[..., :3][occ]).all()), "карта с рисунком: тексели острова байт в байт как в 07 (ключа shift нет, цвет шаг 08 не меняет)")
         flat = os.path.join(d, "f.glb")
         import trimesh
         from PIL import Image as _I
