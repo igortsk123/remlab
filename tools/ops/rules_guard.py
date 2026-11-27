@@ -28,8 +28,8 @@ Telegram не ответил / не настроен (alert.sh rc 1 / 2) — о�
   python tools/ops/rules_guard.py --json out.json   # + отчёт в файл
 Числа, сроки и пути — в `tools/scout/rules/rules-guard.json`. Таймер — `infra/server/rules-guard/` (файлы готовит рабочий, включает менеджер).
 
-Формат журнала сообщений владельца (JSONL, одна запись на строку; позднейшая строка с тем же `n` заменяет прежнюю — закрытие строки дописывает новую):
-  {"n": 3612, "ts": "2026-11-27T11:36:00+00:00" | 1764243360, "text": "начало текста", "status": "ждёт разбора" | "разобрано" | …, "addr": "T-20261127-175" | "P-…" | "ADR-…" | ""}
+Журнал сообщений владельца: формат и разбор — ТОЛЬКО в `tools/ops/zhurnal_vladeltsa.py` (события msg / zakryt / tekst / napom; ждёт = нет zakryt по паре бот+номер); страж его
+импортирует и считает так же, как `zhurnal-vladeltsa schet --starshe-min 120`. Путь: `--journal`, иначе `$OWNER_JOURNAL`, иначе `journal_path` из настроек (тот же, что по умолчанию у журнала).
 """
 from __future__ import annotations
 
@@ -46,11 +46,12 @@ ROOT = os.path.dirname(os.path.dirname(HERE))
 sys.path.insert(0, HERE)
 import rule_registry_audit as RA  # noqa: E402  (_date, london_today — один источник дат и «сегодня по Лондону»)
 import rule_switch_guard as SG  # noqa: E402  (guard, is_off — один источник «выключатель вне реестра»)
+import zhurnal_vladeltsa as ZV  # noqa: E402  (read_events, fold, pending, parse_ts — один источник формата журнала сообщений владельца, T-175/4)
 
 CONFIG = os.path.join(ROOT, 'tools', 'scout', 'rules', 'rules-guard.json')
 REGISTRY = os.path.join(ROOT, 'tools', 'scout', 'rules', 'rule-registry.json')
 ALERT = os.path.join(ROOT, 'tools', 'scout', 'alert.sh')
-CFG_KEYS = ('alert_after_min', 'realert_hours', 'remind_days', 'off_days', 'unreviewed_hours', 'journal_path', 'state_dir', 'pending_status')
+CFG_KEYS = ('alert_after_min', 'realert_hours', 'remind_days', 'off_days', 'unreviewed_hours', 'journal_path', 'state_dir')
 
 
 def _load(path: str):
@@ -143,41 +144,31 @@ def off_remove(uncovered: list, state: dict, today: 'datetime.date', off_days: i
 
 # ── K: журнал сообщений владельца ────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
 
-def read_journal(path: str, pending: list, now: 'datetime.datetime', old_hours: float) -> dict:
-    """→ {'exists', 'pending': [{n, ts, text}], 'old': [… дольше old_hours]}. Нет файла — exists False (K «?»). Битые строки пропускаются счётчиком `bad` (молча терять нельзя — идёт в отчёт)."""
+def read_journal(path: str, now: 'datetime.datetime', old_hours: float) -> dict:
+    """→ {'exists', 'pending': [{n, ts, text}], 'old': [… ждут дольше old_hours], 'bad', 'path'}. Журнал читается КОДОМ ЖУРНАЛА (`zhurnal_vladeltsa`: read_events → fold → pending — тот же
+    разбор, что у `zhurnal-vladeltsa schet --starshe-min N`; формат — в его докстринге), а не своим: события `msg` / `zakryt` / `tekst` / `napom`, ждёт = нет `zakryt` по паре (бот, номер).
+    Нет файла — exists False (K «?»). Битые строки считаются в `bad` (молча терять нельзя — идёт в отчёт). «Дольше» — `>=`, как у `schet`."""
     path = os.path.expanduser(path)
     out = {'exists': False, 'pending': [], 'old': [], 'bad': 0, 'path': path}
     if not os.path.isfile(path):
         return out
-    out['exists'] = True
-    last = {}
     try:
+        events = ZV.read_events(path)
         with open(path, encoding='utf-8') as f:
-            for line in f:
-                if not line.strip():
-                    continue
-                try:
-                    rec = json.loads(line)
-                except ValueError:
-                    out['bad'] += 1
-                    continue
-                if not isinstance(rec, dict) or rec.get('n') is None:
-                    out['bad'] += 1
-                    continue
-                last[str(rec['n'])] = rec
+            nonblank = sum(1 for ln in f if ln.strip())
     except OSError:
-        out['exists'] = False
         return out
-    want = {str(x).lower() for x in pending}
-    for rec in last.values():
-        if str(rec.get('status', '')).strip().lower() in want:
-            ts = _parse_ts(rec.get('ts'))
-            item = {'n': rec.get('n'), 'ts': ts.isoformat() if ts else None, 'text': str(rec.get('text', ''))[:60]}
-            out['pending'].append(item)
-            if ts and (now - ts).total_seconds() > old_hours * 3600:
-                out['old'].append(item)
-    out['pending'].sort(key=lambda x: str(x['n']))
-    out['old'].sort(key=lambda x: str(x['n']))
+    out['exists'] = True
+    out['bad'] = max(0, nonblank - len(events))
+    for r in ZV.pending(ZV.fold(events)):
+        try:
+            ts = ZV.parse_ts(r['ts']) if r.get('ts') else None
+        except (ValueError, TypeError):
+            ts = None
+        item = {'n': '%s №%s' % (r['bot'], r['id']), 'ts': ts.isoformat() if ts else None, 'text': str(r.get('nachalo', ''))[:60]}
+        out['pending'].append(item)
+        if ts and (now - ts).total_seconds() >= old_hours * 3600:
+            out['old'].append(item)
     return out
 
 
@@ -191,7 +182,7 @@ def evaluate(root: str, cfg: dict, state: dict, now: 'datetime.datetime', today:
     m_items = sw['new'] + ['файл правил не отнесён: %s' % f for f in sw['unclassified']]
     m = max(len(sw['new']), sw['over']) + len(sw['unclassified'])
     due, seen = off_remove(sw['uncovered'], state, today, int(cfg['off_days']))
-    j = read_journal(journal_path or cfg['journal_path'], cfg['pending_status'], now, float(cfg['unreviewed_hours']))
+    j = read_journal(journal_path or os.environ.get('OWNER_JOURNAL') or cfg['journal_path'], now, float(cfg['unreviewed_hours']))
     res = {
         'now': now.isoformat(), 'today': today.isoformat(),
         'overdue': len(overdue), 'overdue_items': ['%s — срок %s, прошло %d дн.' % (d['what'], d['decide_by'].isoformat(), -d['days_left']) for d in overdue],

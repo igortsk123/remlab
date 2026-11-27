@@ -10,9 +10,8 @@
  "_off_days": "выключатель вне реестра выключен дольше N суток → в счётчик «на удаление» (дату первого наблюдения ведёт сам страж)",
  "unreviewed_hours": 2,
  "_unreviewed_hours": "сообщение владельца без разбора дольше N часов → Telegram",
- "pending_status": ["ждёт разбора"],
  "journal_path": "~/.local/state/remlab/owner-journal/journal.jsonl",
- "_journal_path": "журнал сообщений владельца (JSONL; формат — в докстринге rules_guard.py). Ведёт плагин Telegram (задача 175/4); нет файла — K = «?»",
+ "_journal_path": "журнал сообщений владельца (JSONL). Формат и разбор — tools/ops/zhurnal_vladeltsa.py (страж его импортирует); путь: $OWNER_JOURNAL перекрывает этот; нет файла — K = «?»",
  "state_dir": "~/.local/state/remlab/rules-guard",
  "_state_dir": "state.json (первые наблюдения, отметки отправки), line.txt (строка для обхода/гейта), report.json — вне git, на машине запуска"
 }
