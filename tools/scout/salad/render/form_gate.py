@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Шаг form_gate (Ш0, T-184/9, директор 22.11): GLB + кадры приёмки → `<out>/<sku>/form_checks.json` + строка сводки `<out>/form_gate.tsv`. OBSERVE: ничего не бракует и не меняет код возврата рендера.
+"""Шаг form_gate (Ш0, T-184/9, директор 22.11): GLB + кадры приёмки → `<out>/<sku>/form_checks.json` + строка сводки `<out>/form_gate.tsv`. OBSERVE: найденный брак ничего не бракует и код возврата рендера не меняет; сам сбой Ш0 — меняет (`forms_render`: «Ш0 НЕ ВЫПОЛНЕН: причина», код 3).
 Зовётся в конце `tools/ops/forms_render.py --accept` (флаг `--no-form-gate` выключает) — кадры приёмки рождаются там, значит Ш0 идёт сразу после них для любой новой формы; можно и отдельно:
   python form_gate.py --out <папка кадров приёмки> --glbs <папка GLB> --skus a,b [--roles roles.json] [--photos DIR] [--vlm-cache DIR] [--rules F]
 Проверки — `form_checks.run_sku` (пороги и виды — `tools/scout/rules/form-checks.json`). Оценщик по картинке (vlm_judge, платный, ответы кэшируются) идёт САМ: фото — `--photos` или рядом с прогоном (`find_photo`), кэш — `--vlm-cache` или `<out>/vlm-cache`;
