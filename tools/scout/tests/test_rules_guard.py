@@ -14,6 +14,7 @@ remlab_tmp.use('test_rules_guard')
 sys.path.insert(0, os.path.join(ROOT, 'tools', 'ops'))
 import rule_registry_audit as RA  # noqa: E402
 import rules_guard as RG  # noqa: E402
+import zhurnal_vladeltsa as ZV  # noqa: E402
 
 RULES = 'tools/scout/rules/'
 UTC = datetime.timezone.utc
@@ -106,18 +107,50 @@ def test_off_remove_counts_after_off_days_from_first_seen():
     assert due == ['a#x'] and 'gone#z' not in seen and seen['a#m'] == TODAY.isoformat(), (due, seen)    # 17 суток → на удаление; исчезнувший выпал
 
 
+def msg_ev(i, ts, text='сообщение', bot='tg-remlab'):
+    """Строка сообщения в НАСТОЯЩЕМ формате журнала (tools/ops/zhurnal_vladeltsa.py; пишет плагин Telegram, T-175/4)."""
+    return {'t': 'msg', 'bot': bot, 'id': i, 'ts': ts, 'chat': '95903801', 'user': 'igor', 'tip': 'text', 'nachalo': text}
+
+
 def test_journal_pending_old_missing_and_closed_by_later_line():
-    p = journal([{'n': 1, 'ts': '2026-11-27T11:00:00+00:00', 'text': 'новое', 'status': 'ждёт разбора'},
-                 {'n': 2, 'ts': '2026-11-27T08:00:00+00:00', 'text': 'старое', 'status': 'ждёт разбора'},
-                 {'n': 3, 'ts': '2026-11-27T07:00:00+00:00', 'text': 'закрытое', 'status': 'ждёт разбора'},
-                 {'n': 3, 'ts': '2026-11-27T07:00:00+00:00', 'text': 'закрытое', 'status': 'разобрано', 'addr': 'T-20261127-175'},
-                 '{битая строка', {'ts': 'x'}, {'n': 4, 'ts': NOW.timestamp() - 600, 'status': 'ждёт разбора'}])
-    j = RG.read_journal(p, ['ждёт разбора'], NOW, 2)
-    assert [x['n'] for x in j['pending']] == [1, 2, 4] and [x['n'] for x in j['old']] == [2] and j['bad'] == 2, j
-    miss = RG.read_journal(os.path.join(tempfile.mkdtemp(prefix='rgm-'), 'нет.jsonl'), ['ждёт разбора'], NOW, 2)
+    p = journal([msg_ev(1, '2026-11-27T11:00:00.000Z', 'новое'), msg_ev(2, '2026-11-27T08:00:00.000Z', 'старое'), msg_ev(3, '2026-11-27T07:00:00.000Z', 'закрытое'),
+                 {'t': 'zakryt', 'bot': 'tg-remlab', 'id': 3, 'ts': '2026-11-27T07:30:00.000Z', 'adres': 'задача T-20261127-175', 'kto': 'директор'},
+                 {'t': 'napom', 'bot': 'tg-remlab', 'chat': '95903801', 'ts': '2026-11-27T10:00:00.000Z', 'ids': [2]},          # напоминание — не сообщение
+                 '{битая строка', msg_ev(4, (NOW - datetime.timedelta(minutes=10)).isoformat(), 'свежее')])
+    j = RG.read_journal(p, NOW, 2)
+    assert [x['n'] for x in j['pending']] == ['tg-remlab №1', 'tg-remlab №2', 'tg-remlab №4'] and [x['n'] for x in j['old']] == ['tg-remlab №2'] and j['bad'] == 1, j
+    miss = RG.read_journal(os.path.join(tempfile.mkdtemp(prefix='rgm-'), 'нет.jsonl'), NOW, 2)
     assert miss['exists'] is False
     res = RG.evaluate(world(), CFG, {}, NOW, TODAY, os.path.join(tempfile.mkdtemp(prefix='rgm-'), 'нет.jsonl'))
     assert res['unreviewed'] is None and 'без разбора ?,' in res['line'] and RG.is_clean(res)    # нет журнала — «?», не ошибка
+
+
+def test_guard_reads_journal_exactly_as_zhurnal_vladeltsa_does():
+    """T-175/fix-3-5-7 п.6 (Fable 27, proverka-t175-4 § 2 п.1): страж и журнал говорили на разных форматах — страж показывал «?». Теперь страж читает журнал КОДОМ журнала:
+    его число = `zhurnal-vladeltsa schet` (все ждущие) и `schet --starshe-min 120` (дольше 2 ч); запись плагина → строка стража → закрытие командой → строка стража."""
+    old = (NOW - datetime.timedelta(hours=3)).isoformat()
+    p = journal([msg_ev(3612, old, 'Регламент — жду'), msg_ev(3613, (NOW - datetime.timedelta(minutes=30)).isoformat(), 'свежее'), msg_ev(50, old, 'другой бот', bot='tg-tamara')])
+    res = RG.evaluate(world(), CFG, {}, NOW, TODAY, p)
+    assert res['unreviewed'] == ZV.cmd_schet(p, 0, None, NOW) == 3 and res['unreviewed_old'] == ZV.cmd_schet(p, 120, None, NOW) == 2, res
+    assert 'без разбора 3,' in res['line'] and not RG.is_clean(res), res['line']                         # строка стража ПОКАЗЫВАЕТ ждущие, а не «?»
+    assert any('Регламент — жду' in x for x in res['unreviewed_items']), res['unreviewed_items']
+    msgs, _ = RG.plan_alerts(res, {}, NOW, CFG)
+    assert len(msgs) == 1 and 'без разбора дольше 2 ч: 2' in msgs[0][0], msgs                                  # ждущий дольше 2 ч → сигнал
+    rc, out = ZV.cmd_zakryt(p, '3612', 'разобрано', 'tg-remlab')                                                  # «разобрано» без пояснения — отказ (п.5), строка осталась ждать
+    assert rc == 2 and RG.evaluate(world(), CFG, {}, NOW, TODAY, p)['unreviewed_old'] == 2, out
+    rc, out = ZV.cmd_zakryt(p, '3612', 'задача T-20261127-175', 'tg-remlab')
+    assert rc == 0, out
+    res = RG.evaluate(world(), CFG, {}, NOW, TODAY, p)
+    assert res['unreviewed'] == ZV.cmd_schet(p, 0, None, NOW) == 2 and res['unreviewed_old'] == ZV.cmd_schet(p, 120, None, NOW) == 1, res
+    # путь по умолчанию: $OWNER_JOURNAL перекрывает journal_path из настроек (его же читает команда журнала)
+    os.environ['OWNER_JOURNAL'] = p
+    try:
+        assert RG.evaluate(world(), CFG, {}, NOW, TODAY)['unreviewed'] == 2
+    finally:
+        del os.environ['OWNER_JOURNAL']
+    # старый, придуманный стражем формат ({"n","status"}) журнал НЕ читает — единственный формат один, в журнале
+    legacy = journal([{'n': 1, 'ts': old, 'text': 'x', 'status': 'ждёт разбора'}])
+    assert RG.evaluate(world(), CFG, {}, NOW, TODAY, legacy)['unreviewed'] == 0
 
 
 def res_with(**kw):
