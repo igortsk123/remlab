@@ -477,7 +477,7 @@ def photo_detail_step(tex_in, tone_tex, tx, g: dict, st: dict, Ld, valid, fgrp, 
             xw, yw = xw * px, yw * px
             okw = (xw >= 0.5) & (xw <= px - 0.5) & (yw >= 0.5) & (yw <= px - 0.5)
             xiw, yiw = np.clip(np.floor(xw).astype(np.int64), 0, px - 1), np.clip(np.floor(yw).astype(np.int64), 0, px - 1)
-            okw &= sel_s[yiw, xiw]
+            okw &= sel_s[yiw, xiw] & (fgrp[ids[yiw, xiw]] == fgrp[f][wmask])        # источник — пиксель ТОЙ ЖЕ группы (деталь кромки/свеса плиты не переносится на корпус: иначе по верху стенки рваная полоса другого тона)
             iw = np.nonzero(wmask)[0][okw]
             d_full[iw] = map_coordinates(D.astype(np.float32), [yw[okw] - 0.5, xw[okw] - 0.5], order=1, mode='nearest')
             cover[iw] = True
@@ -506,7 +506,7 @@ def photo_detail_step(tex_in, tone_tex, tx, g: dict, st: dict, Ld, valid, fgrp, 
                 xm, ym = xm * px, ym * px
                 okm = (xm >= 0.5) & (xm <= px - 0.5) & (ym >= 0.5) & (ym <= px - 0.5)
                 xim, yim = np.clip(np.floor(xm).astype(np.int64), 0, px - 1), np.clip(np.floor(ym).astype(np.int64), 0, px - 1)
-                okm &= sel_s[yim, xim]
+                okm &= sel_s[yim, xim] & (fgrp[ids[yim, xim]] == fgrp[f][mv])          # то же для зеркала зада
                 idx = np.nonzero(mv)[0][okm]
                 d_full[idx] = map_coordinates(D.astype(np.float32), [ym[okm] - 0.5, xm[okm] - 0.5], order=1, mode='nearest')
                 cover[idx] = True
