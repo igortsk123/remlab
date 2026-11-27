@@ -20,6 +20,7 @@
   "tools/scout/rules/mesh-color-guard.json",
   "tools/scout/rules/mesh-grey-top.json",
   "tools/scout/rules/mesh-input.json",
+  "tools/scout/rules/cutout-mask-cache.json",
   "tools/scout/rules/mesh-photo.json",
   "tools/scout/rules/mesh-pinned.json",
   "tools/scout/rules/mesh-priority.json",

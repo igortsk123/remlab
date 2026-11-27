@@ -1395,6 +1395,31 @@
       "enabled": null,
       "note": "Запись-держатель: у каждой живой пробы — срок решения (группа GP, 12.12) и запись в реестре. Включать блокирующими без размеченных товаров нельзя — разметку даст экзамен на 100; условия включения — по каждой проверке отдельно (enable_if группы GP, решение Fable 27.11). Разнесено по описаниям в файлах правил (окончательно — кодом при разметке экзамена, Fable: «разнести рабочему»). ОСТАНАВЛИВАЮТ товар (строки 1–3 условия; 9): camera-check.json#edge_angle.enforce, camera-check.json#junction.enforce, flat3d/sides-eval.json#back_tone.enforce, form-checks.json#thresholds.approx_flag, form-checks.json#thresholds.back_dup_flag, form-checks.json#thresholds.leg_wave_flag, form-checks.json#thresholds.stitch_flag, paint-fill.json#surface_groups.gate, paint-surface-checks.json#cold_spots.enabled. ТОЛЬКО ОТЧЁТ / МЕТКА, ничего не останавливают и результат не меняют (4; «сработала» = «поставила метку»; условие — строки 1 и 2 (ложные метки на хороших не больше 5 на 100; польза: не меньше 2 меток на настоящем браке и «по делу» не меньше 2 из 3); строка 3 не считается — ничего не останавливают; строка 4 N/A — результат не меняют; не сработала ни разу или не прошла числа — снимается как у всех; решение менеджера по таблице Fable 27.11): camera-check.json#az_sigma.enabled, camera-check.json#form_verdict.enabled, camera-check.json#white_plate.enabled, form-checks.json#thresholds.dims_dia_axes. МЕНЯЮТ РЕЗУЛЬТАТ, «сухой → рабочий» (строка 4; 31): camera-check.json#legs_match.block_photo, camera-check.json#vertical_axis.enabled, flat3d/material-recipes.json#part_photo.apply, flat3d/parts-sam-rules.json#refine.islands.enabled, paint-fill.json#mirror_enabled, paint-fill.json#seam.enabled, paint-fill.json#seam.poisson, paint-run-all.json#soft_camera.enabled, part-llm-roles.json#mode, part-llm-roles.json#name_relax.enabled, part-roles.json#decision.legs_guard.mode, part-roles.json#decision.no_front_same_channel.mode, part-roles.json#decision.similar_to_trusted.mode, part-roles.json#decision.single_class_support.mode, part-roles.json#decision.unseen_adopt.mode, pose-rank.json#camera_refine_v2.enabled, pose-rank.json#flip_always.enabled, pose-rank.json#flip_always.flip_refit.enabled, ref-zone.json#sibling_tone.consensus_enabled, tex-visible.json#back_prune_panels, tex-visible.json#depth_band_tilt, tex-visible.json#edge_bg_inward, tex-visible.json#edge_bg_local, tex-visible.json#edge_bg_rule_inward, tex-visible.json#tone_glare, tex-visible.json#tone_plane_ref, tex-visible.json#z_buffer_depth_all, top-prior.json#enabled, top-prior.json#mode, top-prior.json#stage07.retint_native, top-prior.json#stage07.synth_candidate.massive_enabled. UltraTex ×2 в эту группу НЕ входят — «на удаление» вместе с back_panel (flags записи R-BACKPANEL-06).",
       "group": "GP"
+    },
+    {
+      "rule_id": "R-MASK-CACHE",
+      "title": "Сырая маска вырезки на ЦП считается один раз: дисковый кэш по ключу «пиксели фото + ревизия весов + вход сети + версия torch + версия кода кэша» (потолок 3 ГБ, вытеснение по давности, при нехватке места не пишет). Выключен до приёмки Fable",
+      "state": "proposed",
+      "source": [
+        "T-20261127-175/mask-cache (владелец TG 3689/3692, P-072)",
+        "решение Fable 27.11 19:11: флаг false до приёмки, правила кэша — в метке, потолок 3 ГБ, вытеснение по давности"
+      ],
+      "applies": {
+        "types": [
+          "all"
+        ]
+      },
+      "executor": "р.2 (T-175/mask-cache)",
+      "consumer": "tools/scout/salad/cutout_one.py:mask_cpu",
+      "runtime": "off",
+      "test": "tools/scout/salad/tests_mask_cache.py",
+      "test_positive": "tools/scout/salad/tests_mask_cache.py::test_hit",
+      "test_negative": "tools/scout/salad/tests_mask_cache.py::test_off",
+      "run_id": null,
+      "flag": "tools/scout/rules/cutout-mask-cache.json#enabled",
+      "check_field": null,
+      "enabled": false,
+      "note": "Кэш меняет, откуда берётся сырая маска, поэтому файл правил входит в метку набора правил (rules_label: вся папка rules), а включённый кэш пишется в метку вырезки (origin.mask.cache). Включает директор после приёмки Fable, только на границе ступени. Маски с видеокарты в кэш не попадают."
     }
   ],
   "_active_rule": "active = consumer определён (ast) и вызывается боевым кодом + runtime=enforce и флаг включён + тест в CI + test_positive и test_negative на пример типа + run_id прогона. Без любого — trial (rule_registry_audit: ошибка). run_id — папка прогона в ~/remlab-logs, где правило отработало; проверка прогона структурная (--run): extra.rules[] с rule_id, type, digest, applied|abstain.",
