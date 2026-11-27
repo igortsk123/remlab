@@ -217,6 +217,11 @@ def main():
     check(float(np.abs(Qw_[il_, 0] - (-0.24 + (zz.ravel() + 0.15))).max()) < 1e-9, 'wrap_points: расстояние от ребра = расстоянию от лица (шпон оборачивает угол)')
     check(not bool(wm_[len(front) + len(left): len(front) + len(left) + len(inner)].any()), 'wrap_points: внутренняя стенка (не на краю детали) не оборачивается')
     check(bool(wm_[len(front) + len(left) + len(inner):].all()) and float(np.abs(Qw_[len(front) + len(left) + len(inner):, 0] - (0.24 - (zz.ravel() + 0.15))).max()) < 1e-9, 'wrap_points: правая грань (видна 30 %) оборачивается внутрь с другого края')
+    Qo = np.vstack([Qb, [[-0.5, 0.0, 0.0]]])
+    No = np.vstack([Nb, [[-1.0, 0.0, 0.0]]])
+    uo = np.concatenate([use_b, [False]])
+    Qwo, wmo = ST.wrap_points(Qo, No, np.ones(len(Qo), bool), uo, np.zeros(len(Qo), int), 1, 0.9, 0.02)
+    check(bool(wmo[len(front): len(front) + len(left)].all()), 'wrap_points: одинокий тексел-выброс далеко от края не смещает край детали (грань %d/%d)' % (int(wmo[len(front): len(front) + len(left)].sum()), len(left)))
     use_full = use_b.copy()
     use_full[len(front) + len(left) + len(inner):] = True
     _Qw2, wm2 = ST.wrap_points(Qb, Nb, np.ones(len(Qb), bool), use_full, np.zeros(len(Qb), int), 1, 0.9, 0.02)

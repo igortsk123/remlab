@@ -329,7 +329,7 @@ def wrap_points(Q: np.ndarray, Ns: np.ndarray, ing: np.ndarray, use: np.ndarray,
                 st_ = in_l & strong & (ax == a) & (sg == s_)
                 if int(st_.sum()) < 200:
                     continue
-                ext = float(Q[st_, a].min()) if s_ < 0 else float(Q[st_, a].max())
+                ext = float(np.percentile(Q[st_, a], 0.5)) if s_ < 0 else float(np.percentile(Q[st_, a], 99.5))        # край детали устойчиво (отдельные текселы-выбросы не в счёт)
                 face = st_ & (np.abs(Q[:, a] - ext) <= outer_tol)
                 if int(face.sum()) < 200 or float(use[face].mean()) >= full_below:
                     continue

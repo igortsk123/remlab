@@ -15,7 +15,7 @@
     "norm_blur_texels": 6,
     "wrap_sides": true,
     "wrap_full_below": 0.9,
-    "wrap_outer_tol": 0.02,
+    "wrap_outer_tol": 0.03,
     "fibre_fill": true,
     "fibre_weight": 0.05,
     "fibre_plane_w": 20.0,
