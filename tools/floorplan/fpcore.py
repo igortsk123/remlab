@@ -1300,6 +1300,20 @@ def thin_lines(gray: np.ndarray, wall: np.ndarray, delta: int = 15, k: int = 7) 
     return ((bh >= delta) & (wall == 0)).astype(np.uint8)
 
 
+def label_px(lab: np.ndarray, i: int, bbox) -> tuple[np.ndarray, np.ndarray]:
+    """T-20261127-169/4: пиксели метки i — то же, что `np.nonzero(lab == i)` (порядок по строкам, int64), но в рамке `bbox` =
+    (x, y, w, h) разрыва/компоненты, а не по всему листу (≈1–3 мс → ≈20 мкс). Рамка обязана содержать все пиксели метки: её дают
+    `connectedComponentsWithStats` и `regap` (по самим пикселям); пустая/кривая рамка → весь лист, как раньше."""
+    try:
+        x, y, w, h = (int(v) for v in bbox)
+    except (TypeError, ValueError):
+        return np.nonzero(lab == i)
+    if x < 0 or y < 0 or w <= 0 or h <= 0:
+        return np.nonzero(lab == i)
+    ys, xs = np.nonzero(lab[y:y + h, x:x + w] == i)
+    return ys + y, xs + x
+
+
 def gap_components(add: np.ndarray, dark: np.ndarray, outside: np.ndarray | None):
     """Добавленные пиксели → разрывы: длина/глубина по minAreaRect, «стекло» — доля тонких линий внутри разрыва
     (окно нарисовано рамой внутри толщины стены, проём двери пуст)."""
@@ -1307,7 +1321,7 @@ def gap_components(add: np.ndarray, dark: np.ndarray, outside: np.ndarray | None
     out = []
     near_out = cv2.dilate(outside.astype(np.uint8), np.ones((5, 5), np.uint8)) if outside is not None else None
     for i in range(1, n):
-        ys, xs = np.nonzero(lab == i)
+        ys, xs = label_px(lab, i, st[i, :4])        # T-20261127-169/4: по рамке компоненты, не по всему листу
         if len(xs) < 3:
             continue
         (cx, cy), (w, h), _ = cv2.minAreaRect(np.column_stack([xs, ys]).astype(np.float32))

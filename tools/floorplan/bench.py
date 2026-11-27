@@ -419,6 +419,40 @@ IN_R, IN_TH = _IN[:, 0], np.radians(_IN[:, 1])
 LEAF_JAMB_T = 2.5       # торец: стена за гранью (на t вглубь) не шире 2,5 t поперёк проёма — иначе грань длинной стены
 
 
+def _hit_at(solid, X, Y):
+    """`at` для массива точек (X, Y — float64): округление к чётному, как у питоновского `round` (np.rint), те же границы листа."""
+    H, W = solid.shape
+    xi, yi = np.rint(X).astype(np.int64), np.rint(Y).astype(np.int64)
+    ok = (xi >= 0) & (xi < W) & (yi >= 0) & (yi < H)
+    out = np.zeros(X.shape, bool)
+    out[ok] = solid[yi[ok], xi[ok]]
+    return out
+
+
+LEAF_RAY_CHUNK = 4_000_000      # точек луча за один заход numpy (память)
+
+
+def _leaf_rays(solid, xf, yf, d, kmax, r0):
+    """Пиксели q, у которых (а) `at(q + d)` ложно — грань в сторону d, (б) луч q + d·k (k = 1…kmax) упирается в стену на k с
+    R = k − 1 ≥ r0 (пусто до встречной стены). → (маска по пикселям, R — float на каждый прошедший), порядок пикселей прежний."""
+    n = len(xf)
+    keep = np.zeros(n, bool)
+    Rs = []
+    if n == 0 or kmax < 1:
+        return keep, Rs
+    edge = np.flatnonzero(~_hit_at(solid, xf + d[0], yf + d[1]))
+    kk = np.arange(1, kmax + 1, dtype=np.float64)
+    step = max(1, LEAF_RAY_CHUNK // kmax)
+    for i in range(0, len(edge), step):
+        ix = edge[i:i + step]
+        hit = _hit_at(solid, xf[ix][:, None] + d[0] * kk[None, :], yf[ix][:, None] + d[1] * kk[None, :])
+        first = hit.argmax(axis=1)                     # k − 1 первой стены на луче
+        okr = hit.any(axis=1) & (first.astype(np.float64) >= r0)
+        keep[ix[okr]] = True
+        Rs.extend(first[okr].astype(np.float64).tolist())
+    return keep, Rs
+
+
 def leaf_door(g, thin, dark, arr, t, ppm, angles=(0.0, 90.0), inside=None):
     """T-20261111-13/4: одиночный короткий разрыв у стрелки, но рядом на листе — дуга створки (rgK p0 Family ↔ Utility: разрыв
     13 px между стрелкой и проёмом 86 см; p2 Bedroom 8 ↔ Playroom: разрыв у стрелки ступеней в 40 см от настоящей двери).
@@ -464,18 +498,15 @@ def leaf_door(g, thin, dark, arr, t, ppm, angles=(0.0, 90.0), inside=None):
     y0, y1, x0, x1 = max(0, int(gc[1]) - R1), min(H, int(gc[1]) + R1 + 1), max(0, int(gc[0]) - R1), min(W, int(gc[0]) + R1 + 1)
     ys, xs = np.nonzero(solid[y0:y1, x0:x1])
     best = None
+    kmax = int(math.floor(r1 + 1))                     # луч: k = 1…kmax (раньше `while k <= r1 + 1`)
+    xf, yf = (xs + x0).astype(np.float64), (ys + y0).astype(np.float64)
     for d in dirs:
         nrm = np.array([-d[1], d[0]])
-        for qx, qy in zip((xs + x0).tolist(), (ys + y0).tolist()):
+        # T-20261127-169/4: «не грань в сторону d» и луч до встречной стены — сразу для всех тёмных пикселей окна (numpy; то же
+        # округление и та же арифметика q + d·k, что у `at`), а в питоновский цикл — только прошедшие оба отсева, в прежнем порядке
+        keep = _leaf_rays(solid, xf, yf, d, kmax, r0)
+        for qx, qy, R in zip(xf[keep[0]].tolist(), yf[keep[0]].tolist(), keep[1]):
             q = np.array([qx, qy], float)
-            if at(q + d):
-                continue                               # не грань в сторону d
-            k = 1
-            while k <= r1 + 1 and not at(q + d * k):
-                k += 1
-            R = float(k - 1)                           # пусто до встречной стены
-            if k > r1 + 1 or R < r0:
-                continue
             b = q - d * float(t)
             if not at(b) or 1 + run(b, nrm, jw) + run(b, -nrm, jw) > jw:
                 continue                               # за гранью не узкий торец, а длинная стена
@@ -1108,7 +1139,7 @@ def _analyze(img, gray, wall, ppm, fams, t, regions=None, thin_thr=210, glaze_th
     for p in ps_s:
         lab_s, gs = fc.gap_components(p, dark, out1)
         for g in gs:
-            ys, xs = np.nonzero(lab_s == g.id)
+            ys, xs = fc.label_px(lab_s, g.id, g.bbox)
             c, u, nrm, L, dpt = fc.gap_axes(ys, xs)
             win = g.glaze >= GLAZE_MIN and g.exterior and dpt <= 2.2 * t
             if dpt > 2.2 * t:
@@ -1231,7 +1262,7 @@ def _analyze(img, gray, wall, ppm, fams, t, regions=None, thin_thr=210, glaze_th
                 for g in gt:
                     if g.exterior:
                         continue
-                    ys, xs = np.nonzero(lab_t == g.id)
+                    ys, xs = fc.label_px(lab_t, g.id, g.bbox)
                     c, u, nrm, L, dpt = fc.gap_axes(ys, xs)
                     # полоска вдоль грани стены (мельче перегородки), прибавка вдоль уже закрытого проёма, сантехника шире
                     # одностворчатой двери — не дверь. Касание закрытия соседней двери у торца — можно (две двери у одного угла)
@@ -1367,18 +1398,18 @@ def _analyze(img, gray, wall, ppm, fams, t, regions=None, thin_thr=210, glaze_th
     tails = []                                     # хвосты-клинья, срезанные с дверей (T-20261111-03)
     retype, glazed = [], []
     for g in gaps:
-        if bay.any() and bay[lab_g == g.id].any():
+        if bay.any() and bay[fc.label_px(lab_g, g.id, g.bbox)].any():
             g.kind = 'window'
             if DOORLESS and g.exterior:
                 # T-11/5: дуга открывания у «эркера» — кандидатка в дверь, только для комнаты без дверей (`doorless_doors`, ярус
                 # окна с дугой); rgK5f3 p0 Cupboard у кухни: дверь с дугой наружу принята за эркер, комната без входа
-                ys, xs = np.nonzero(lab_g == g.id)
+                ys, xs = fc.label_px(lab_g, g.id, g.bbox)
                 c, u, nrm, L, dpt = fc.gap_axes(ys, xs)
                 ev = fc.door_evidence(thin, c, u, nrm, L, dpt, wall=wall_drawn)
                 if ev >= DOOR_EV:
                     glazed.append((g.id, float(ev)))
         elif not g.exterior and fc.is_notch(g, t) and not (g.depth >= fc.THIN_PART_MIN_PX
-                                                           and fc.passes_through(wall, *np.nonzero(lab_g == g.id))):
+                                                           and fc.passes_through(wall, *fc.label_px(lab_g, g.id, g.bbox))):
             # T-36: зазубрина грани стены (водяной знак, сжатие) — не проём; наружные не трогаем: рама окна серым в линии стены
             # даёт щель в 1 px. T-20261110-33: мелкий по t листа, но сквозь тонкую межкомнатную стену (по обе стороны — комнаты) — проём;
             # глубина — не мельче самой тонкой стены (щель 2 px между стеной и линией душевой у Nethercote — не дверь)
@@ -1387,7 +1418,7 @@ def _analyze(img, gray, wall, ppm, fams, t, regions=None, thin_thr=210, glaze_th
             # T-36: межкомнатная уже нормы (с запасом на недомер) — просвет/шум, не дверь; закрытие остаётся стеной.
             # Нарисована створка (дуга) — дверца кладовки/шкафа (UK 457/533 мм): остаётся дверью.
             g.kind = 'door'
-            ys, xs = np.nonzero(lab_g == g.id)
+            ys, xs = fc.label_px(lab_g, g.id, g.bbox)
             if fc.along_face(wall_drawn, ys, xs):
                 # T-20261111-03: клин вдоль грани стены (закрытие по наклонному семейству углов листа) — не проём: одна длинная
                 # сторона на стене, другая в комнате. rgK5…: у Bedroom 8 семь «дверей» при одной настоящей — ядра спален не было
@@ -1413,7 +1444,7 @@ def _analyze(img, gray, wall, ppm, fams, t, regions=None, thin_thr=210, glaze_th
             # поэтому здесь проверяется только этот рисунок
             g.kind = 'window'
             if GLAZED_ARC or DOORLESS:
-                ys, xs = np.nonzero(lab_g == g.id)
+                ys, xs = fc.label_px(lab_g, g.id, g.bbox)
                 c, u, nrm, L, dpt = fc.gap_axes(ys, xs)
             if GLAZED_ARC and fc.door_evidence(thin, c, u, nrm, L, dpt, tangent_only=True) >= DOOR_EV_GLAZED:
                 g.kind = 'door'
@@ -1424,7 +1455,7 @@ def _analyze(img, gray, wall, ppm, fams, t, regions=None, thin_thr=210, glaze_th
                 if ev >= DOOR_EV:
                     glazed.append((g.id, float(ev)))
         else:                                        # наружный без рамы: дуга створки → дверь, иначе окно
-            ys, xs = np.nonzero(lab_g == g.id)
+            ys, xs = fc.label_px(lab_g, g.id, g.bbox)
             c, u, nrm, L, dpt = fc.gap_axes(ys, xs)
             g.kind = 'door' if fc.door_evidence(thin, c, u, nrm, L, dpt, wall=wall_drawn) >= DOOR_EV else 'window'
             if g.kind == 'window' and DOORLESS and fc.arc_pure() is not None:
@@ -1436,7 +1467,7 @@ def _analyze(img, gray, wall, ppm, fams, t, regions=None, thin_thr=210, glaze_th
         # косяков. Окна тоже: дверью их может сделать `doorless_doors`; у окна признак не читается
         for g in gaps:
             if g.exterior and g.kind in ('door', 'window') and TWO_ARCS_M[0] * ppm <= g.length <= TWO_ARCS_M[1] * ppm:
-                ys, xs = np.nonzero(lab_g == g.id)
+                ys, xs = fc.label_px(lab_g, g.id, g.bbox)
                 c, u, nrm, L, dpt = fc.gap_axes(ys, xs)
                 ev, how = fc.door_evidence(thin, c, u, nrm, L, dpt, wall=wall_drawn, want_how=True)
                 if how == 'double' and ev >= DOOR_EV:
@@ -1447,7 +1478,7 @@ def _analyze(img, gray, wall, ppm, fams, t, regions=None, thin_thr=210, glaze_th
         dark_gaps = []
         for g in gaps:
             if not g.exterior and g.kind == 'door':
-                ys, xs = np.nonzero(lab_g == g.id)
+                ys, xs = fc.label_px(lab_g, g.id, g.bbox)
                 c, u, nrm, L, dpt = fc.gap_axes(ys, xs)
                 src = thin
                 if fc.hatch_share(thin, c, L, dpt, wall_drawn) >= fc.FLOOR_HATCH:
