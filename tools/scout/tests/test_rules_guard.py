@@ -235,6 +235,41 @@ def test_real_repo_line_is_zero_today_and_has_four_counters():
     import re
     assert re.fullmatch(r'правила: просрочено 0, вне реестра: новых 0 \(старый долг \d+\), сообщений владельца без разбора \?, выключателей на удаление 0', res['line']), res['line']
 
+
+def test_unreadable_registry_is_reported_not_counted_as_new_switches():
+    """T-175 fix (Fable 27 (б)): реестра нет / он битый / не того вида → «реестр не читается», а не «новых N» (без реестра ВСЕ выключатели «новые» — ложная тревога другой природы)."""
+    no_journal = os.path.join(tempfile.mkdtemp(prefix='rgm-'), 'нет.jsonl')
+    healthy = RG.evaluate(world(files={'a.json': {'enabled': False}, 'b.json': {'x': True, 'y': False}}), CFG, {}, NOW, TODAY, no_journal)
+    assert healthy['registry_error'] is None and 'реестр не читается' not in healthy['line'], healthy['line']       # отрицательный контроль: целый реестр — прежняя строка
+    for how, body, why in (('нет файла', None, 'файла нет'), ('битый JSON', '{не json', 'не JSON'), ('массив', '[]', 'не словарь'),
+                           ('нет rules', '{"groups": {}}', 'нет списка rules'), ('нет groups', '{"rules": []}', 'нет словаря groups')):
+        d = world(files={'a.json': {'enabled': False}, 'b.json': {'x': True, 'y': False}})
+        p = os.path.join(d, RULES, 'rule-registry.json')
+        if body is None:
+            os.remove(p)
+        else:
+            open(p, 'w', encoding='utf-8').write(body)
+        res = RG.evaluate(d, CFG, {'off_first_seen': {'k#v': '2026-11-01'}}, NOW, TODAY, no_journal)
+        assert res['registry_error'] and why in res['registry_error'], (how, res['registry_error'])
+        assert res['line'].startswith('правила: реестр не читается (') and 'новых' not in res['line'] and 'просрочено ?' in res['line'], (how, res['line'])
+        assert res['overdue'] is None and res['outside'] is None and res['off_remove'] is None and not RG.is_clean(res), how
+        assert res['off_first_seen'] == {'k#v': '2026-11-01'}, 'сломанный реестр не стирает счёт «выключен дольше N суток»'
+        assert any('реестр правил не читается' in x for x in RG.details(res)), how
+    # тревога: сломанный реестр дольше alert_after_min → Telegram со строкой и причиной
+    st0 = {}
+    msgs, st0 = RG.plan_alerts(res, st0, NOW, CFG)
+    assert msgs == [] and 'registry' in st0['since']                                                                 # ещё < 60 мин
+    msgs, _ = RG.plan_alerts(res, st0, NOW + datetime.timedelta(minutes=61), CFG)
+    assert len(msgs) == 1 and 'реестр не читается' in msgs[0][0] and 'alert:registry' in msgs[0][1], msgs
+    ok = RG.evaluate(world(), CFG, {}, NOW, TODAY, no_journal)                                                        # починили — отметка уходит
+    _, st1 = RG.plan_alerts(ok, st0, NOW + datetime.timedelta(minutes=70), CFG)
+    assert 'registry' not in st1['since']
+    # --check на сломанном реестре: rc=1, строка первой
+    d = world()
+    os.remove(os.path.join(d, RULES, 'rule-registry.json'))
+    assert RG.main(['--check', '--root', d, '--state-dir', os.path.join(tempfile.mkdtemp(prefix='rgs-'), 'st'), '--journal', no_journal]) == 1
+
+
 if __name__ == '__main__':
     n = 0
     for k, v in sorted(globals().items()):

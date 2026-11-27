@@ -162,10 +162,20 @@ test("--strazh: роль не директор (менеджер/без роли
   }
 });
 
-test("--strazh: страж не влит (нет команды и tools/ops/rules_guard.py) — молчим", () => {
+test("--strazh (в): стража нет (нет команды и tools/ops/rules_guard.py) — гейт директора НЕ молчит: блок «страж не найден: путь»", () => {
   const { root } = rulesRepo(RED);
   const r = hook(root, transcript(root, ["tools/scout/rules/rule-registry.json"]), { REMLAB_ROLE: "директор" }, ["--strazh", "--own-edits"]);
-  noBlock(r);
+  const d = JSON.parse(r.stdout);
+  assert.equal(d.decision, "block", r.stdout + r.stderr);
+  assert.ok(d.reason.includes(`страж не найден: ${join(root, "tools/ops/rules_guard.py")}`), d.reason); // путь назван целиком — видно, где искали
+  assert.match(d.reason, /проверить их нечем/);
+  // не директор / правок правил нет — по-прежнему молчим (чужие сессии не трогаем)
+  for (const env of [{}, { REMLAB_ROLE: "рабочий" }]) noBlock(hook(root, transcript(root, ["tools/scout/rules/rule-registry.json"]), env, ["--strazh", "--own-edits"]), JSON.stringify(env));
+  noBlock(hook(root, transcript(root, ["mine.txt"]), { REMLAB_ROLE: "директор" }, ["--strazh", "--own-edits"]));
+  // указанная --strazh-cmd команда не нашлась — тоже «не найден», а не «не ответил: код ENOENT»
+  const e = JSON.parse(asDirector(root, join(root, "нет-такого-стража.sh")).stdout);
+  assert.equal(e.decision, "block");
+  assert.ok(e.reason.includes("страж не найден: ") && e.reason.includes("нет-такого-стража.sh"), e.reason);
 });
 
 test("--strazh: правки правил уже закоммичены — страж не проверяется", () => {
@@ -242,7 +252,8 @@ test("п.1 runStrazh/strazhAnswer: код и причина не теряютс�
   assert.match(junk.silent, /страж не ответил: код 0, вывод не разобран/);
   const missing = strazhAnswer(runStrazh(["/нет/такого/файла"], root));
   assert.equal(missing.ok, false);
-  assert.match(missing.silent, /страж не ответил: код ENOENT/);
+  assert.match(missing.silent, /страж не найден: \/нет\/такого\/файла/);
+  assert.equal(strazhAnswer({ line: "правила: реестр не читается (файла нет или он не JSON), просрочено ?, вне реестра: ? (старый долг ?), сообщений владельца без разбора ?, выключателей на удаление ?", code: 1 }).kind, "registry");
 });
 
 test("п.1 страж упал / молчит — гейт директора НЕ молчит: блок «страж не ответил: код N»", () => {
@@ -329,6 +340,29 @@ test("п.6 сквозной: в журнале (формат журнала) с�
   // все закрыты — гейт и со строгими полями молчит
   const closed = realGuardRepo(false, ev.slice(0, 2).concat([{ t: "zakryt", bot: "tg-remlab", id: 3612, ts: ago(1), adres: "P-069", kto: "директор" }, { t: "zakryt", bot: "tg-remlab", id: 3613, ts: ago(1), adres: "P-069", kto: "директор" }]));
   noBlock(hook(closed.root, transcript(closed.root, [RULES_EDIT]), { ...DIRECTOR, OWNER_JOURNAL: closed.jpath }, strict));
+});
+
+test("п.(б) сквозной: реестр не читается (нет файла / битый) → настоящий страж говорит «реестр не читается», гейт директора блокирует с причиной, а не «вне реестра N»", () => {
+  for (const [how, body] of [["битый JSON", "{не json"], ["нет файла", null]]) {
+    const { root, jpath } = realGuardRepo(false);
+    if (body === null) rmSync(join(root, RULES_EDIT));
+    else writeFileSync(join(root, RULES_EDIT), body);
+    process.env.OWNER_JOURNAL = jpath;
+    try {
+      const line = runStrazh(defaultStrazhCmd(root), root).line;
+      assert.match(line, /^правила: реестр не читается \(/, `${how}: ${line}`);
+      assert.doesNotMatch(line, /новых \d/, how);
+    } finally {
+      delete process.env.OWNER_JOURNAL;
+    }
+    // правку файла правил директор «сделал» (стенограмма) — файла реестра нет, но он в стенограмме и в git status как удалённый/изменённый
+    const r = hook(root, transcript(root, [RULES_EDIT]), { ...DIRECTOR, OWNER_JOURNAL: jpath }, ["--strazh", "--own-edits"]);
+    const d = JSON.parse(r.stdout || "{}");
+    assert.equal(d.decision, "block", `${how}: ${r.stdout}${r.stderr}`);
+    assert.match(d.reason, /реестр правил не читается/, how);
+    assert.doesNotMatch(d.reason, /вне реестра \d|страж не ответил|страж не найден/, `${how}: причина — реестр, не страж и не счётчик`);
+    assert.match(d.reason, /rule-registry\.json/, how);
+  }
 });
 
 test("п.3 находка аудита от 27.11 дословно: «core/access-and-integrations.md — 3,4 КБ» про чужой .memory_bank/core/... отсеивается", () => {
