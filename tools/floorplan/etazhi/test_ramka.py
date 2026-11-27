@@ -56,6 +56,7 @@ check(rules0['walls_fail']['mode'] == 'on' and rules0['walls_fail']['wide_line']
       'база пакета по умолчанию ВКЛ: walls_fail.mode=on, wide_line (2б а), windows (2в), partial_alarm (2г)', (rules0['walls_fail']['mode'], rules0['walls_fail']['wide_line'].get('enabled'), rules0['walls_fail']['windows'].get('enabled'), rules0['overlay_fail']['partial_alarm'].get('enabled')))
 check(rules0['walls_fail']['pale_line']['enabled'] is False, 'pale_line (2б б) в базу не входит — выкл (круг отклонён по потерям)')
 check(rules0['demote_to_info']['enabled'] is True, 'demote_to_info (круг 3) вкл')
+check(rules0['p3_loggia_soft']['enabled'] is False, 'p3_loggia_soft по умолчанию ВЫКЛ (менеджер 27.11)')
 
 # ---- 1. сетка → пиксели на известных листах
 fx = {sid: RE.parse_labels(sid, 'labels5', frame='grid1000') for sid in SIZES}

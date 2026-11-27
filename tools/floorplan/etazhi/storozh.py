@@ -763,6 +763,23 @@ def with_ext2c(ov, ext_path):
     return o
 
 
+def with_ext_live(ov, sid, plan_clean, plan, img_d, img_b, fit, rows, vf, rules=None):
+    """T-171/paket-ext (rab-9, OTCHET-ext.md «Строка вызова»): числа 2б/2в считаются НА ЛИСТЕ (ext.py) — вместо файловых with_ext / with_ext2c (папок --ext-dir в живом прогоне нет).
+    Место вызова — где собирается ov после with_walls (rows = стены наложения, walls.csv); fit — fit.json; vf — модуль vetka_fit той же сборки (CORRECT_V2=1, SOFT_INK=1 в окружении ДО его импорта, иначе ext отказывает с причиной).
+    Нужно, если включён хотя бы один из wide_line / pale_line (2б) / windows (2в); для одного 2б — только при звонящем «Ст» по базовым числам (экономия, как в мерке). Нет входа / не годится — (ov без изменений, {}).
+    → (ov, статусы {'ext2b': …, 'ext2c': …} — в guard.json, не молча); поля ext2b / ext2c в ov только при статусе ok, иначе «Ст» считается как раньше."""
+    import ext as X
+    wf = (rules or RULES)['walls_fail']
+    need2b = bool((wf.get('wide_line') or {}).get('enabled') or (wf.get('pale_line') or {}).get('enabled'))
+    need2c = bool((wf.get('windows') or {}).get('enabled'))
+    if not (need2b or need2c) or not X.applicable(ov, rows):
+        return ov, {}
+    if need2b and not need2c and not X.current_hit(rows, ov, wf):
+        return ov, {}
+    cands = X.candidates({'plan-clean.json': plan_clean, 'plan.json': plan}, {'d': img_d, 'b': img_b})
+    return X.with_ext_numbers(ov, sid, cands, fit, rows, vf, want_2b=need2b, want_2c=need2c)
+
+
 def finish(res, bad, info, overlay, rules=None, ov=None):
     """Сборка звонков/справки/исхода из уже посчитанных признаков (bad — жёсткие [(имя, причина)], info — справка). Вынесено из guard(), чтобы правило наложения проверялось
     без перечитывания листа (тест регресса по сохранённым guard.json) — признаки не пересчитываются, логика сборки та же."""
