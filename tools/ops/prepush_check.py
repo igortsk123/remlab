@@ -18,7 +18,7 @@
       одно), а для .py — `import F` / `from F import`.
 `python -m pytest <файлы/каталоги> <опции>` (T-20261127-175, карта prepush): цели раскрываются в тестовые файлы (`test_*.py`, `*_test.py`), берётся КАЖДЫЙ тест, который
 изменён или упоминает изменённый файл (те же признаки (б)), — в ЛЮБОМ job; запускается суженная `python -m pytest <только эти файлы> <опции шага>`. Нет pytest в python проверки —
-строка «НЕ ЗАПУЩЕНА» и счётчик в итоге (не молчим, не «упало»). pytest без целей (весь репо) — CI.
+СТОП: «FAIL НЕ ЗАПУЩЕНА … нет pytest», счётчик в итоге, код 1 (проверка, которая не запустилась, не молчит и не равна «0 находок»; поставь pytest в venv). pytest без целей (весь репо) — CI.
 Не локально (медленно или нужна установка): pnpm, docker, playwright, pip — их проверяет CI.
 ВСЕГДА и первыми — команды `ALWAYS` (реестр конвейера `tools/ops/conveyor_check.py` и линт особых случаев `conveyor_ids.py`,
 T-20261112-121): при любой правке;
@@ -306,12 +306,12 @@ def run_units(sel: list, root: str, budget: float, runner_temp: str, py: str | N
         if left <= 1:
             late = sel[i:]
             break
-        if u.get('pytest'):      # нет pytest в этом python — НЕ «упало» и НЕ тишина: строка, что проверка не запускалась (её проверит CI)
+        if u.get('pytest'):      # нет pytest в этом python — проверка не запустилась: СТОП (код 1) с причиной, не тишина и не «0 находок» (урок дня 27.11, п. 8 приёмки)
             if have_pytest is None:
                 have_pytest = subprocess.run([py, '-c', 'import pytest'], capture_output=True).returncode == 0
             if not have_pytest:
                 notrun.append(u)
-                print(f"НЕ ЗАПУЩЕНА (в {py} нет pytest — поставь или проверит CI): {u['cmd'].splitlines()[0][:110]}  ← {', '.join(u['why'])[:80]}", file=out, flush=True)
+                print(f"FAIL НЕ ЗАПУЩЕНА: в {py} нет pytest — поставь (pip install pytest в venv scout): {u['cmd'].splitlines()[0][:110]}  ← {', '.join(u['why'])[:80]}", file=out, flush=True)
                 continue
         env = dict(strip_git_env(os.environ), **u['env'], CI='true', GITHUB_ACTIONS='true', RUNNER_TEMP=runner_temp)
         if not os.environ.get('REMLAB_TMP') and os.path.isdir(os.path.expanduser('~/remlab-scratch')):
@@ -355,8 +355,8 @@ def run_units(sel: list, root: str, budget: float, runner_temp: str, py: str | N
         print(f'prepush: ⚠ {len(swallowed)} проверок ходили в живую базу и проглотили отказ (не стоп; подменить базу в тесте): ' +
               '; '.join(u['cmd'].splitlines()[0][:60] for u, _ in swallowed[:5]), file=out)
     print(f'prepush: проверок {len(sel)}, упало {len(fails)}, не успел {len(late)}' + (f', НЕ ЗАПУЩЕНО {len(notrun)} (нет pytest)' if notrun else '') +
-          (' — ПУШ ОСТАНОВЛЕН, почини и повтори (обойти: git push --no-verify)' if fails else ''), file=out)
-    return 1 if fails else 0
+          (' — ПУШ ОСТАНОВЛЕН, почини и повтори (обойти: git push --no-verify)' if fails or notrun else ''), file=out)
+    return 1 if fails or notrun else 0
 
 
 def hook_stdin(stdin) -> bool:
@@ -636,8 +636,11 @@ jobs:
     check(rc == 1 and 'fake pytest: 1 failed' in buf.getvalue() and 'ПУШ ОСТАНОВЛЕН' in buf.getvalue(), 'pytest-тест упал — код 1, вывод и «ПУШ ОСТАНОВЛЕН»', (rc, buf.getvalue()))
     buf = io.StringIO()
     rc = run_units(pt_sel, root, 60, rt, py=fake_ok, out=buf)
-    check(rc == 0 and 'НЕ ЗАПУЩЕНА' in buf.getvalue() and 'НЕ ЗАПУЩЕНО 2' in buf.getvalue() and 'упало 0' in buf.getvalue(),
-          'нет pytest в python проверки — строка «НЕ ЗАПУЩЕНА» и счётчик, не «упало» и не тишина', (rc, buf.getvalue()))
+    check(rc == 1 and 'FAIL НЕ ЗАПУЩЕНА' in buf.getvalue() and 'нет pytest' in buf.getvalue() and 'НЕ ЗАПУЩЕНО 2' in buf.getvalue()
+          and 'ПУШ ОСТАНОВЛЕН' in buf.getvalue(),
+          'нет pytest в python проверки — СТОП: код 1, строка «НЕ ЗАПУЩЕНА» с причиной и счётчик, «ПУШ ОСТАНОВЛЕН» (не тишина, не «0 находок»)', (rc, buf.getvalue()))
+    rc = run_units(select(units, ['tools/scout/m2.py'], root), root, 60, rt, py=fake_ok, out=io.StringIO())
+    check(rc == 0, 'нет pytest, но pytest-шагов в выборке нет — не стоп (python без pytest не мешает остальным проверкам)', rc)
     # обязательная проверка, не успевшая в потолок, — стоп (а обычная — «проверит CI», см. выше)
     buf = io.StringIO()
     slow = dict(select(units, ['tools/scout/slow.py'], root)[0], always=True)
