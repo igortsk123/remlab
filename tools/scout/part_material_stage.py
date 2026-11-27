@@ -163,6 +163,10 @@ def process(a, rules: dict, d: str, rep: dict) -> None:
             raise Abstain('сырое фото в кадре камеры другой формы, чем 05: %s против %s' % (raw_frame.shape, prgb.shape))
         rep['tone_source'] = {'raw_photo': a.raw_photo, 'cluster_raw': bool(rules['pixels']['cluster_raw'])}
     tones = PM.group_tones(prgb, pp, names, cosf, rules, comp_px, raw_frame)
+    if (rules.get('pixels', {}).get('glare') or {}).get('enabled'):          # T-99/12 шаг 3: отблеск группы (тон взят с граней в лоб) — в след
+        rep['glare'] = {gn: t['glare'] for gn, t in tones.items() if t.get('glare')}
+    if (rules.get('tone_merge') or {}).get('enabled'):                        # T-99/12 шаг 3: части одного материала — один тон (выкл — строки не выполняются)
+        rep['tone_merge'] = PM.merge_tones(tones, rules)
     keep, borrowed, same = PM.pick_sources(tones, rules, rep['area_share'])
     rep['pattern_keep'] = sorted(keep)
     rep['borrowed'] = borrowed

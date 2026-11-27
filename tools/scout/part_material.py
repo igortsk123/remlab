@@ -300,6 +300,18 @@ def group_tones(prgb: np.ndarray, pp: np.ndarray, names: list, cosf: np.ndarray,
             if len(px) >= px_r['min_px']:
                 break
         info['n_all'] = int(len(px))
+        gl = px_r.get('glare') or {}
+        if gl.get('enabled') and len(px) >= px_r['min_px']:           # T-99/12 шаг 3: отблеск — грань, видимая вскользь, того же оттенка, но заметно бледнее остальных граней детали: тон берём с граней «в лоб»
+            fc = cosf[m] >= float(gl['face_cos'])
+            if int(fc.sum()) >= int(gl['min_px']) and int((~fc).sum()) >= int(gl['min_px']):
+                vsrc = px if raw is None else raw[m]
+                lf, lg = np.median(lab_of(vsrc[fc]), 0), np.median(lab_of(vsrc[~fc]), 0)
+                if abs(hue_diff(hue_of(lf), hue_of(lg))) <= float(gl['hue_deg']) and chroma(lg) <= (1.0 - float(gl['chroma_drop'])) * chroma(lf):
+                    info['glare'] = {'face_px': int(fc.sum()), 'grazing_px': int((~fc).sum()), 'face_LCh': [round(float(lf[0]), 1), round(chroma(lf), 1), round(hue_of(lf), 1)],
+                                     'grazing_LCh': [round(float(lg[0]), 1), round(chroma(lg), 1), round(hue_of(lg), 1)]}
+                    m = m.copy()
+                    m[m] = fc
+                    px = px[fc]
         if len(px) >= px_r['min_px']:
             mm, share = main_cluster(px, px_r['kmeans_k'], px_r['kmeans_sample'])
             lb = lab_of(px)
@@ -321,6 +333,29 @@ def group_tones(prgb: np.ndarray, pp: np.ndarray, names: list, cosf: np.ndarray,
                     sel2 = vpx[(comp == best) & mm]
                     info.update(lin=med_lin(sel2), lab=np.median(lab_of(sel2), 0), best_leg_px=bn)
         out[gn] = info
+    return out
+
+
+def merge_tones(tones: dict, rules: dict) -> dict:
+    """T-99/12 шаг 3 (Fable 19 §4): части одного материала (по тону: оттенок в hue_deg, |ΔL| ≤ max_dl, у обеих цвет C > c_min) — ОДИН тон: каждая деталь — один голос (по числу пикселей верх, видимый вскользь,
+    проиграл бы ножкам), тон = среднее своих тонов (Lab и линейный). Выкл (`rules.tone_merge.enabled=false`) — не вызывается. → {группа: {'with', 'lab_before', 'lab_after'}}; у тона метка 'merged_with'."""
+    tm = rules.get('tone_merge') or {}
+    out = {}
+    if not tm.get('enabled'):
+        return out
+    gs = [g for g in tm['groups'] if g in tones and tones[g]['own']]
+    for i, a in enumerate(gs):
+        for b in gs[i + 1:]:
+            la, lb = np.asarray(tones[a]['lab'], float), np.asarray(tones[b]['lab'], float)
+            if min(chroma(la), chroma(lb)) <= float(rules['same_material']['c_min']):
+                continue
+            if abs(hue_diff(hue_of(la), hue_of(lb))) > float(tm['hue_deg']) or abs(la[0] - lb[0]) > float(tm['max_dl']):
+                continue
+            lab_m = (la + lb) / 2.0
+            lin_m = (np.asarray(tones[a]['lin'], float) + np.asarray(tones[b]['lin'], float)) / 2.0
+            for g, lo in ((a, la), (b, lb)):
+                out[g] = {'with': b if g == a else a, 'lab_before': [round(float(x), 1) for x in lo], 'lab_after': [round(float(x), 1) for x in lab_m]}
+                tones[g]['lab'], tones[g]['lin'], tones[g]['merged_with'] = lab_m.copy(), lin_m.copy(), (b if g == a else a)
     return out
 
 
@@ -444,6 +479,10 @@ def material_ids(names: list, tones: dict, borrowed: dict, rules: dict) -> list:
     for g, s in borrowed.items():
         if s is not None and g in par and s in par:
             par[find(g)] = find(s)
+    for g in names:                                                          # T-99/12 шаг 3: части с общим тоном (rules.tone_merge) — один материал
+        mw = tones[g].get('merged_with')
+        if mw in par and g in par:
+            par[find(g)] = find(mw)
     lh = float(rules['same_material'].get('legs_hue_deg', 0) or 0)       # ножки и верх/фасад одного дерева: цвет по ОДНОМУ оттенку (ножка не светится как верх — C/L не сравниваем), только при очень близком оттенке
     if lh and 'ножки' in par and tones['ножки']['own']:
         for g in par:

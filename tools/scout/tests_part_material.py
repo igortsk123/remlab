@@ -7,6 +7,7 @@
 лесенка донора (зад = бок, бок = фасад при том же материале, рисунок фасада остаётся), сборка текстуры, подбор альбедо по кадру (подставной рендер), растр меток по развёртке,
 ВЫКЛ по умолчанию и «выключено ничего не пишет», ID товаров в коде нет.
 """
+import copy
 import json
 import os
 import re
@@ -597,6 +598,34 @@ _nt2, _np2, _inf2 = PM.fill_pattern_unknown(_tx, _tm, _pn0, _kn, ['узор', '�
 check(np.array_equal(_nt2, _tx) and np.array_equal(_np2, _pn0) and _inf2['узор']['залито'] == 0 and 'тона группы нет' in _inf2['узор']['причина'], 'T-97 ф.6: мало известных текселей — не заливаем, причина в отчёте; ключ min_known_px меняет выход')
 _nt3, _np3, _inf3 = PM.fill_pattern_unknown(_tx, _tm, _pn0, _kn, ['узор', 'тон'], set(), _Rp)
 check(np.array_equal(_nt3, _tx) and not _inf3, 'T-97 ф.6: нет узорных групп (keep пуст) — ничего не меняется')
+
+# ── T-99/12 шаг 3: отблеск и один тон на материал (оба выкл по умолчанию)
+check(R['pixels']['glare']['enabled'] is False and R['tone_merge']['enabled'] is False, 'T-99/12: отблеск и слияние тонов выключены по умолчанию')
+Hg = 60
+pg = np.zeros((Hg, Hg, 3), np.uint8)
+pg[:, :15] = [200, 150, 105]                     # грань в лоб: насыщенная
+pg[:, 15:] = [180, 155, 132]                     # грань вскользь: тот же оттенок, бледнее (отблеск)
+ppg = np.zeros((Hg, Hg), np.int16)
+cg = np.zeros((Hg, Hg), np.float32); cg[:, :15] = 0.9; cg[:, 15:] = 0.1
+Rg = json.loads(json.dumps(R)); Rg['pixels']['min_px'] = 300; Rg['pixels']['erode_px'] = [1]; Rg['pixels']['cos_min']['верх'] = 0.03
+t_off = PM.group_tones(pg, ppg, ['верх'], cg, Rg)['верх']
+Rg['pixels']['glare']['enabled'] = True
+t_on = PM.group_tones(pg, ppg, ['верх'], cg, Rg)['верх']
+face_lab = PM.lab_of(np.array([200, 150, 105]))
+check('glare' not in t_off, 'T-99/12: отблеск выкл — след не пишется')
+check('glare' in t_on and PM.chroma(t_on['lab']) > PM.chroma(t_off['lab']) + 3 and abs(PM.chroma(t_on['lab']) - PM.chroma(face_lab)) < 2, 'T-99/12: отблеск найден, тон — с граней в лоб (C %.1f → %.1f)' % (PM.chroma(t_off['lab']), PM.chroma(t_on['lab'])))
+pg2 = pg.copy(); pg2[:, 15:] = [120, 150, 190]    # вскользь другого оттенка — не отблеск, а другая деталь
+t_diff = PM.group_tones(pg2, ppg, ['верх'], cg, Rg)['верх']
+check('glare' not in t_diff, 'T-99/12: другой оттенок вскользь — не отблеск')
+Rm = json.loads(json.dumps(R)); Rm['tone_merge']['enabled'] = True
+tm = {'верх': {'own': True, 'lab': np.array([62.8, 26.7, 20.0]), 'lin': np.array([0.30, 0.20, 0.10])}, 'ножки': {'own': True, 'lab': np.array([58.0, 28.2, 19.0]), 'lin': np.array([0.26, 0.17, 0.08])}}
+rm = PM.merge_tones(tm, Rm)
+check(set(rm) == {'верх', 'ножки'} and np.allclose(tm['верх']['lab'], tm['ножки']['lab']) and abs(tm['верх']['lab'][0] - 60.4) < 0.01, 'T-99/12: один материал — один тон, среднее (L 60,4), ΔL ножек и верха 0')
+tz = {'верх': {'own': True, 'lab': np.array([62.8, 26.7, 20.0]), 'lin': np.array([0.3, 0.2, 0.1])}, 'ножки': {'own': True, 'lab': np.array([40.0, 5.0, -40.0]), 'lin': np.array([0.05, 0.05, 0.2])}}
+check(PM.merge_tones(tz, Rm) == {} and abs(tz['верх']['lab'][0] - 62.8) < 1e-9, 'T-99/12: разные оттенки — тоны не трогаем')
+check(PM.merge_tones(copy.deepcopy(tm), R) == {}, 'T-99/12: выкл — слияние ничего не делает')
+tmm = {'верх': dict(tm['верх'], merged_with='ножки'), 'ножки': dict(tm['ножки'], merged_with='верх')}
+check(PM.material_ids(['верх', 'ножки'], tmm, {}, R) == [0, 0], 'T-99/12: слитые тоны — один номер материала для карты граней 07')
 
 print('\nИТОГО: %d провалов' % len(FAILS))
 sys.exit(1 if FAILS else 0)
