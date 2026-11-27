@@ -250,7 +250,7 @@ def detail_bands(Ld, sel, ppc: float, pd: dict):
     return coarse, fine
 
 
-def photo_detail_step(tex_in, tone_tex, tx, g: dict, st: dict, Ld, valid, fgrp, names: list, ppc: float, rules: dict, rep: dict, face_n=None):
+def photo_detail_step(tex_in, tone_tex, tx, g: dict, st: dict, Ld, valid, fgrp, names: list, ppc: float, rules: dict, rep: dict, face_n=None, ab_frame=None):
     """T-99/12 шаг 5: рисунок С ФОТО на лице группы (тумба Хостера): слой деталей фото без теней (этап 05) поверх тона Ш4а — только грани в лоб, свет/тени шире blur_cm вычтены.
     Текселю группы, видимому с камеры в лоб и надёжному, — тон Ш4а (tone_tex, до зерна) + деталь фото (L, усилено gain_*); остальным текселям группы остаётся зерно образца. → (текстура, маска «деталь с фото»)."""
     import cv2
@@ -260,8 +260,11 @@ def photo_detail_step(tex_in, tone_tex, tx, g: dict, st: dict, Ld, valid, fgrp, 
     pd = rules['photo_detail']
     info = {'applied': False, 'groups': pd['groups'], 'ppc_frame': round(float(ppc), 2)}
     rep['photo_detail'] = info
-    gi = [i for i, n in enumerate(names) if n in pd['groups']]
-    if 'внутренность' in pd['groups']:                                         # Ш4а метит корпус/тумбу («Cabinet Frame/Door/Shelf») как внутренность (метка len(names)) — тон ей берётся из соседей, рисунка нет: рисунок с фото кладём и сюда
+    if pd['groups'] == 'all':                                                  # по геометрии/камере: любые грани, видимые фото в лоб, какой бы группе Ш4а (в т.ч. «внутренность» = метка len(names)) они ни принадлежали
+        gi = list(range(len(names) + 1))
+    else:
+        gi = [i for i, n in enumerate(names) if n in pd['groups']]
+    if pd['groups'] != 'all' and 'внутренность' in pd['groups']:                                       # Ш4а метит корпус/тумбу («Cabinet Frame/Door/Shelf») как внутренность (метка len(names)) — тон ей берётся из соседей, рисунка нет: рисунок с фото кладём и сюда
         gi.append(len(names))
     if not gi:
         info['reason'] = 'нет групп %s среди %s' % (pd['groups'], names)
@@ -309,21 +312,76 @@ def photo_detail_step(tex_in, tone_tex, tx, g: dict, st: dict, Ld, valid, fgrp, 
     if n_use == 0:
         info['reason'] = 'ни один тексель группы не лёг на «в лоб»'
         return tex_in, None
-    d_t = map_coordinates(D.astype(np.float32), [y[use] - 0.5, x[use] - 0.5], order=1, mode='nearest')
+    d_full = np.zeros(len(ti), np.float32)                                    # деталь L на каждый занятый тексель (0 там, где фото её не даёт)
+    d_full[use] = map_coordinates(D.astype(np.float32), [y[use] - 0.5, x[use] - 0.5], order=1, mode='nearest')
+    cover = use.copy()
+    # зад — зеркало переда: тексель спиной к камере отражается плоскостью посередине между лицом и задом (по оси его нормали) на лицевую грань и берёт деталь оттуда (вид с задней стороны — зеркальное отражение лицевого рисунка)
+    if pd.get('mirror_back'):
+        away = ing_t & ((Nc * vw).sum(1) <= -float(pd['plane_cos']))
+        if int(away.sum()) > 0:
+            Qt = np.asarray(tx.Q, np.float64)
+            ax = np.argmax(np.abs(tx.N), axis=1)
+            Qm = Qt.copy()
+            for a_ in range(3):
+                sel_a = (ax == a_) & (np.abs(tx.N[:, a_]) >= 0.8) & ing_t
+                fa = sel_a & ((Nc * vw).sum(1) >= float(pd['plane_cos'])) & use
+                ba = sel_a & away
+                if fa.sum() < 50 or ba.sum() < 50:
+                    continue
+                c_ = 0.5 * (float(np.median(Qt[fa, a_])) + float(np.median(Qt[ba, a_])))          # середина между лицом и задом по оси
+                Qm[ba, a_] = 2.0 * c_ - Qt[ba, a_]
+            mv = away & (np.abs(Qm - Qt).sum(1) > 0)
+            if mv.any():
+                Qmc = np.hstack([Qm[mv], np.ones((int(mv.sum()), 1))]) @ M
+                xm, ym, _z = PF.project(Qmc, fr['cam'])
+                xm, ym = xm * px, ym * px
+                okm = (xm >= 0.5) & (xm <= px - 0.5) & (ym >= 0.5) & (ym <= px - 0.5)
+                xim, yim = np.clip(np.floor(xm).astype(np.int64), 0, px - 1), np.clip(np.floor(ym).astype(np.int64), 0, px - 1)
+                okm &= sel[yim, xim]
+                idx = np.nonzero(mv)[0][okm]
+                d_full[idx] = map_coordinates(D.astype(np.float32), [ym[okm] - 0.5, xm[okm] - 0.5], order=1, mode='nearest')
+                cover[idx] = True
+                info['mirror_back_texels'] = int(len(idx))
+    # тексели той же группы и обращённые к камере, но фото их не видело (под свесом плиты, у края, в тени): деталь — от ближайшего покрытого тексела того же островка в пределах fill_texels (вертикальное волокно продолжается)
+    fill_n = int(pd.get('fill_texels', 0))
+    if fill_n > 0:
+        from scipy.ndimage import distance_transform_edt
+        cov_img = np.zeros(T * T, bool)
+        cov_img[ti[cover]] = True
+        d_img = np.zeros(T * T, np.float32)
+        d_img[ti[cover]] = d_full[cover]
+        isl_img = np.full(T * T, -1, np.int64)
+        isl_img[ti] = tx.island
+        dist, (iy, ix) = distance_transform_edt(~cov_img.reshape(T, T), return_indices=True)
+        src = iy * T + ix
+        cand = ing_t & ~cover & ((Nc * vw).sum(1) >= float(pd['plane_cos']) - 0.0) & (dist.reshape(-1)[ti] <= fill_n) & (isl_img[src.reshape(-1)[ti]] == tx.island)
+        if cand.any():
+            d_full[cand] = d_img[src.reshape(-1)[ti[cand]]]
+            cover = cover | cand
+            info['filled_texels'] = int(cand.sum())
     flat_new = tex_in.reshape(-1, 3).copy()
-    base = tone_tex.reshape(-1, 3)[ti[use]]
+    base = tone_tex.reshape(-1, 3)[ti[cover]]
     lab = TC.rgb2lab(base.astype(np.float64))
-    if pd.get('flat_base'):                                                    # основа — ровный тон группы (медиана видимых в лоб текселей), не шум/«шерсть» прежней текстуры: рисунок — только деталь фото
-        med = np.median(lab, axis=0)
-        info['flat_base_lab'] = [round(float(v), 1) for v in med]
-        lab = np.tile(med, (len(lab), 1))
-    lab[:, 0] = np.clip(lab[:, 0] + d_t, 0.0, 100.0)
+    if pd.get('flat_base'):                                                    # основа — ровный тон группы (медиана ЕЁ видимых в лоб текселей), не шум/«шерсть» прежней текстуры: рисунок — только деталь фото
+        glab = fgrp[f][cover]
+        meds = {}
+        for gv in np.unique(glab):
+            mm = glab == gv
+            meds[int(gv)] = np.median(lab[mm & use[cover]] if (mm & use[cover]).any() else lab[mm], axis=0)
+        if pd.get('ab_from_photo') and ab_frame is not None:                    # оттенок/насыщенность СВОИХ деталей берём с фото (медиана a,b по видимым в лоб пикселям группы), а не у соседа по тону (тумба «внутренность» заимствовала тон верха: h 75 вместо 72 с фото); L остаётся от Ш4а (под него подогнан свет)
+            for gv in list(meds):
+                mpx = sel & (fgrp[ids] == gv)
+                if int(mpx.sum()) >= int(pd['min_px']):
+                    meds[gv] = np.array([meds[gv][0], float(np.median(ab_frame[..., 0][mpx])), float(np.median(ab_frame[..., 1][mpx]))])
+        lab = np.stack([meds[int(gv)] for gv in glab])
+        info['flat_base_lab'] = {str(k): [round(float(v), 1) for v in m] for k, m in meds.items()}
+    lab[:, 0] = np.clip(lab[:, 0] + d_full[cover], 0.0, 100.0)
     import tex_fill as TF
     rgb = TF.lab2rgb(lab)
-    flat_new[ti[use]] = rgb
+    flat_new[ti[cover]] = rgb
     msk = np.zeros(T * T, bool)
-    msk[ti[use]] = True
-    info.update(applied=True, detail_L_std=round(float(np.std(d_t)), 2), coarse_std=round(float(np.std(coarse[sel])), 2), fine_std=round(float(np.std(fine[sel])), 2), frame_px=int(sel.sum()))
+    msk[ti[cover]] = True
+    info.update(applied=True, texels_total=int(cover.sum()), detail_L_std=round(float(np.std(d_full[cover])), 2), coarse_std=round(float(np.std(coarse[sel])), 2), fine_std=round(float(np.std(fine[sel])), 2), frame_px=int(sel.sum()))
     return flat_new.reshape(tex_in.shape), msk.reshape(T, T)
 
 
@@ -467,11 +525,12 @@ def process(a, rules: dict, d: str, rep: dict) -> None:
         else:
             if os.path.exists(dpp):
                 rgb_d, _ok = TV.photo_to_frame(np.asarray(Image.open(dpp).convert('RGBA')), st['P'], int(st['px']))
-                Ld_ = TC.rgb2lab(rgb_d.reshape(-1, 3)).reshape(int(st['px']), int(st['px']), 3)[..., 0]
+                lab_d = TC.rgb2lab(rgb_d.reshape(-1, 3)).reshape(int(st['px']), int(st['px']), 3)
+                Ld_, ab_d = lab_d[..., 0], lab_d[..., 1:]
                 src_d = '05-delight (без теней)'
             else:
-                Ld_, src_d = Lf, 'фото как есть (05 нет)'
-            new, pd_mask = photo_detail_step(new, tex, tx, g, st, Ld_, valid, fgrp, names, ppc_pd, rules, rep, face_n=n3)
+                Ld_, ab_d, src_d = Lf, None, 'фото как есть (05 нет)'
+            new, pd_mask = photo_detail_step(new, tex, tx, g, st, Ld_, valid, fgrp, names, ppc_pd, rules, rep, face_n=n3, ab_frame=ab_d)
             rep['photo_detail']['source'] = src_d
     tp_mask = None
     if (rules.get('thin_plate') or {}).get('enabled'):                      # T-97/1 ф.7: тонкая плита — низ и торец тоном и волокном лица (выкл — строки не выполняются)
