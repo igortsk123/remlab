@@ -20,13 +20,13 @@ import os
 import re
 import shutil
 import subprocess
+import sys
 import threading
 import time
 
 MODEL = 'claude-opus-5-5'
 EFFORTS = ('low', 'medium', 'high', 'xhigh', 'max')  # допустимые значения `claude --effort` (2.1.332)
 EFFORT = 'medium'                                    # одно значение на всю пачку (директор 27.11 14:31: замер 3 листа — рассуждений ×0,81 от платного, high ×1,27); меняется set_effort / --agent-effort
-PAID_THINK = 5800                                    # рассуждений на лист у платного Opus (замер директора 26–27.11) — для строки шапки
 LABELS5_CAP_MAX = 3.0                                # потолок шага подписей labels5 при агенте, $ (задание 27.11)
 LABELS5_WORST = 0.07                                 # худший замеренный вызов labels5 ($0,054) с запасом
 SYSTEM = 'You are a helpful assistant.'              # нейтральный системный запрос (ваш пустой запрос программа не принимает как «нет»)
@@ -298,33 +298,140 @@ def set_effort(effort):
     return EFFORT
 
 
-def effort_line(rows):
-    """Строка шапки таблицы: усилие и расхождение числом — рассуждений на лист у агента (среднее по прогону) против платного PAID_THINK. rows — строки calls.jsonl."""
-    th = [r['thinking_tokens'] for r in rows if r.get('ok') and isinstance(r.get('thinking_tokens'), (int, float))]
-    mean = ('%d (по %d листам)' % (round(sum(th) / len(th)), len(th))) if th else 'нет данных (ни одного успешного вызова)'
-    return 'усилие %s; рассуждений на лист: агент %s / платный %d' % (EFFORT, mean, PAID_THINK)
+def paid_think(calls_path, sids, suffix='__b'):
+    """Рассуждения платного Opus по листам: sid → reasoning_tokens из журнала платной стороны (calls.jsonl, usage.completion_tokens_details). Берём только
+    успешные вызовы Opus по ТЕМ ЖЕ листам (id = <лист>__b), при повторах — последний. Нет файла → None (не число): «не меряется»."""
+    if not calls_path or not os.path.exists(calls_path):
+        return None
+    want = set('%s%s' % (s, suffix) for s in sids)
+    out = {}
+    for ln in open(calls_path, encoding='utf-8'):
+        if not ln.strip():
+            continue
+        try:
+            r = json.loads(ln)
+        except ValueError:
+            continue
+        if r.get('ok') and r.get('id') in want and 'opus' in str(r.get('model', '')).lower():
+            n = ((r.get('usage') or {}).get('completion_tokens_details') or {}).get('reasoning_tokens')
+            if isinstance(n, (int, float)):
+                out[r['id'][:-len(suffix)]] = n
+    return out
+
+
+def effort_line(rows, paid=None):
+    """Строка шапки таблицы: усилие и расхождение числом — рассуждений на лист у агента против платного. Платное — НЕ константа: paid = paid_think(...) по тем же
+    листам (None/пусто → «не меряется: нет журнала»). Сравнение — по общим листам; среднее агента по всем его листам — рядом. rows — строки calls.jsonl агента."""
+    ag = {}
+    for r in rows:
+        if r.get('ok') and isinstance(r.get('thinking_tokens'), (int, float)) and str(r.get('id', '')).endswith('__b'):
+            ag[r['id'][:-3]] = r['thinking_tokens']
+    if not ag:
+        return 'усилие %s; рассуждений на лист: агент нет данных (ни одного успешного вызова) / платный %s' % (
+            EFFORT, 'не меряется: нет журнала' if not paid else 'не сравнить')
+    m_all = round(sum(ag.values()) / len(ag))
+    if not paid:
+        return 'усилие %s; рассуждений на лист: агент %d (по %d листам) / платный не меряется: нет журнала' % (EFFORT, m_all, len(ag))
+    common = sorted(set(ag) & set(paid))
+    if not common:
+        return 'усилие %s; рассуждений на лист: агент %d (по %d листам) / платный не меряется: в журнале нет этих листов' % (EFFORT, m_all, len(ag))
+    return 'усилие %s; рассуждений на лист: агент %d / платный %d (по %d общим листам из %d; агент по всем %d листам — %d)' % (
+        EFFORT, round(sum(ag[s] for s in common) / len(common)), round(sum(paid[s] for s in common) / len(common)), len(common), len(ag), len(ag), m_all)
+
+
+K_OK = 'верно (проверено И легло)'
+K_OK_NOLAID = 'проверено, но не легло/частично/не проверено'
+K_PART = 'проверено частично (только с объявлением)'
+K_BELL = 'звонок'
+K_OTHER = 'отказ/прочее'
+VERDICT_OK = re.compile(r'^проверено(\s*\(справка:[^)]*\))?\s*$')    # вердикт РОВНО «проверено» (справка в скобках — можно)
+
+
+def outcome_of(verdict, overlay_status):
+    """Исход одного листа — по ВЕРДИКТУ сторожа, не по подстроке: «проверено частично …» не равно «проверено» (подписей не хватило, часть проверок не работала)."""
+    v = (verdict or '').strip()
+    if VERDICT_OK.match(v):
+        return K_OK if overlay_status == 'легло' else K_OK_NOLAID
+    if v.startswith('проверено частично'):
+        return K_PART
+    if v.startswith('звонок'):
+        return K_BELL
+    return K_OTHER
 
 
 def count_outcomes(rows):
-    """Три исхода шага Б. «Без правки и верно» = сторож сказал «проверено» И наложение «легло» (иначе «проверено» при «не легло» завышало бы долю).
+    """Исходы шага Б. «Верно» = вердикт РОВНО «проверено» (со справкой или без) И наложение «легло»; «проверено частично …» — отдельной строкой, в «верно» не идёт.
     rows — строки таблицы run_sb100: {'opus': вердикт, 'overlay': {'overlay_status': …}}."""
-    c = {'всего': 0, 'верно (проверено И легло)': 0, 'проверено, но не легло/частично/не проверено': 0, 'звонок': 0, 'отказ/прочее': 0}
+    c = {'всего': 0, K_OK: 0, K_OK_NOLAID: 0, K_PART: 0, K_BELL: 0, K_OTHER: 0}
     for r in rows:
         c['всего'] += 1
-        v = r.get('opus') or ''
-        st = (r.get('overlay') or {}).get('overlay_status')
-        if v.startswith('проверено'):
-            c['верно (проверено И легло)' if st == 'легло' else 'проверено, но не легло/частично/не проверено'] += 1
-        elif v.startswith('звонок'):
-            c['звонок'] += 1
-        else:
-            c['отказ/прочее'] += 1
+        c[outcome_of(r.get('opus'), (r.get('overlay') or {}).get('overlay_status'))] += 1
     return c
 
 
 def outcomes_line(rows):
     c = count_outcomes(rows)
     return 'исходы: ' + ' · '.join('%s %d' % (k, v) for k, v in c.items())
+
+
+def read_table_tsv(path):
+    """Строки готового прогона из table.tsv → [{'лист','opus','overlay':{'overlay_status'}}]. Нет нужных колонок — AgentStop (не молчаливый нуль)."""
+    lines = [ln.rstrip('\n') for ln in open(path, encoding='utf-8') if ln.strip() and not ln.startswith('#')]
+    if not lines:
+        raise AgentStop('table.tsv пуст: %s' % path)
+    head = lines[0].split('\t')
+    need = ('лист', 'Opus проверено/звонок', 'наложение (Opus)')
+    miss = [n for n in need if n not in head]
+    if miss:
+        raise AgentStop('в table.tsv нет колонок %s: %s' % (miss, path))
+    ix = [head.index(n) for n in need]
+    rows = []
+    for ln in lines[1:]:
+        f = ln.split('\t')
+        if len(f) <= max(ix):
+            raise AgentStop('короткая строка table.tsv (%d полей из %d): %s' % (len(f), len(head), ln[:80]))
+        rows.append({'лист': f[ix[0]], 'opus': f[ix[1]], 'overlay': {'overlay_status': f[ix[2]]}})
+    return rows
+
+
+def recount(run_dir, out_dir):
+    """ПЕРЕСЧЁТ исходов готового прогона по сохранённой таблице (вердикты сторожа уже в table.tsv): моделей и агента НЕ зовёт, сторож не гоняет.
+    Пишет НОВУЮ папку out_dir (table.md с новой строкой исходов, iskhody.tsv, iskhody.json); исходный прогон не трогает; непустая out_dir или out_dir внутри run_dir — отказ."""
+    run_dir = os.path.abspath(os.path.expanduser(run_dir))
+    out_dir = os.path.abspath(os.path.expanduser(out_dir))
+    if out_dir == run_dir or out_dir.startswith(run_dir + os.sep):
+        raise AgentStop('папка пересчёта не должна быть внутри прогона (чужие файлы не перезаписываем): %s' % out_dir)
+    if os.path.exists(out_dir) and os.listdir(out_dir):
+        raise AgentStop('папка пересчёта не пуста — отказ, ничего не перезаписываю: %s' % out_dir)
+    tsv = run_dir + '/table.tsv'
+    rows = read_table_tsv(tsv)
+    c = count_outcomes(rows)
+    old_ok = sum(1 for r in rows if (r['opus'] or '').startswith('проверено') and r['overlay']['overlay_status'] == 'легло')   # прежний счёт (startswith) — для «было→стало»
+    os.makedirs(out_dir, exist_ok=True)
+    line = '**' + outcomes_line(rows) + '**'
+    note = ('**ПЕРЕСЧЁТ исходов (T-176, правка Fable 27.11): вердикты из table.tsv прогона %s (sha256 %s); моделей и агента не вызывали, сторож не гоняли; '
+            'прежний счёт по подстроке «проверено» давал «верно» %d, по вердикту РОВНО «проверено» — %d, «проверено частично» отдельно — %d**' % (
+                run_dir, hashlib.sha256(open(tsv, 'rb').read()).hexdigest()[:16], old_ok, c[K_OK], c[K_PART]))
+    md_p = run_dir + '/table.md'
+    md = open(md_p, encoding='utf-8').read().splitlines() if os.path.exists(md_p) else []
+    res, done = [], False
+    for ln in md:
+        if ln.startswith('**исходы:'):
+            res.append(line)
+            done = True
+        else:
+            res.append(ln)
+    if not done:
+        res += ['', line]
+    with open(out_dir + '/table.md', 'w', encoding='utf-8') as f:
+        f.write(note + '\n\n' + '\n'.join(res) + '\n')
+    with open(out_dir + '/iskhody.tsv', 'w', encoding='utf-8') as f:
+        f.write('лист\tвердикт\tналожение\tисход\n')
+        for r in rows:
+            f.write('%s\t%s\t%s\t%s\n' % (r['лист'], r['opus'], r['overlay']['overlay_status'], outcome_of(r['opus'], r['overlay']['overlay_status'])))
+    with open(out_dir + '/iskhody.json', 'w', encoding='utf-8') as f:
+        json.dump({'прогон': run_dir, 'листов': len(rows), 'исходы': c, 'верно_по_старому_startswith': old_ok}, f, ensure_ascii=False, indent=1)
+    return c, old_ok
 
 
 def labels5_budget(arg_cap, total_cap, spent_models=0.0):
@@ -378,3 +485,19 @@ def has_addendum(plans, sid):
     except (OSError, ValueError):
         return False
     return bool(((d.get('obyavlenie') or {}).get('dlya_llm') or '').strip())
+
+
+if __name__ == '__main__':
+    # пересчёт исходов готового прогона (моделей не зовёт): python -I opus_agent.py --recount <папка прогона> --out <НОВАЯ папка>
+    av = sys.argv[1:]
+    if len(av) == 4 and av[0] == '--recount' and av[2] == '--out':
+        try:
+            cnt, old = recount(av[1], av[3])
+        except AgentStop as e:
+            print('отказ: %s' % e)
+            sys.exit(2)
+        print('листов %d · было по подстроке: верно %d → стало: верно %d, проверено частично %d, проверено но не легло %d, звонок %d, отказ/прочее %d · выход %s' % (
+            cnt['всего'], old, cnt[K_OK], cnt[K_PART], cnt[K_OK_NOLAID], cnt[K_BELL], cnt[K_OTHER], av[3]))
+    else:
+        print('использование: opus_agent.py --recount <папка прогона> --out <новая папка>')
+        sys.exit(2)

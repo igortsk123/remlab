@@ -324,11 +324,39 @@ def test_effort_invalid_says_so():
     assert AG.EFFORT == 'medium'
 
 
-def test_effort_line_numbers_not_just_name():
-    rows = [{'ok': True, 'thinking_tokens': 2000}, {'ok': True, 'thinking_tokens': 2200}, {'ok': False, 'thinking_tokens': 9999}, {'ok': True}]
-    s = AG.effort_line(rows)
-    assert s == 'усилие medium; рассуждений на лист: агент 2100 (по 2 листам) / платный 5800'
-    assert 'нет данных' in AG.effort_line([])
+def _calls(*pairs):
+    return [{'id': '%s__b' % s, 'ok': True, 'thinking_tokens': t} for s, t in pairs]
+
+
+def test_effort_line_paid_from_journal_not_constant():
+    """Платное — из журнала по ТЕМ ЖЕ листам (общие), не константа 5800."""
+    rows = _calls(('a', 2000), ('b', 2200), ('c', 3000)) + [{'id': 'd__b', 'ok': False, 'thinking_tokens': 9999}, {'id': 'e__b', 'ok': True}]
+    s = AG.effort_line(rows, {'a': 6000, 'b': 8000, 'z': 1})
+    assert s == 'усилие medium; рассуждений на лист: агент 2100 / платный 7000 (по 2 общим листам из 3; агент по всем 3 листам — 2400)'
+    assert '5800' not in s and '5 800' not in s
+    s2 = AG.effort_line(rows, {'a': 100, 'b': 100})
+    assert 'платный 100 ' in s2                                    # число меняется вместе с журналом — значит не константа
+
+
+def test_effort_line_no_journal_says_not_measured():
+    rows = _calls(('a', 2000), ('b', 2200))
+    for paid in (None, {}):
+        s = AG.effort_line(rows, paid)
+        assert 'платный не меряется: нет журнала' in s and 'агент 2100 (по 2 листам)' in s
+    assert 'в журнале нет этих листов' in AG.effort_line(rows, {'x': 5})
+    assert 'нет данных' in AG.effort_line([]) and 'не меряется' in AG.effort_line([])
+
+
+def test_paid_think_reads_same_sheets_last_ok_opus_only(tmp_path):
+    def rec(i, model, rt, ok=True):
+        return json.dumps({'id': i, 'model': model, 'ok': ok, 'usage': {'completion_tokens_details': {'reasoning_tokens': rt}}})
+    p = tmp_path / 'calls.jsonl'
+    p.write_text('\n'.join([rec('a__b', 'anthropic/claude-opus-5.5', 100), rec('a__b', 'anthropic/claude-opus-5.5', 200),       # повтор — последний
+                            rec('b__b', 'anthropic/claude-sonnet-5.5', 999), rec('c__b', 'anthropic/claude-opus-5.5', 7, ok=False),
+                            rec('z__b', 'anthropic/claude-opus-5.5', 55), 'не json', '']))
+    assert AG.paid_think(str(p), ['a', 'b', 'c']) == {'a': 200}   # b — не Opus, c — сбой, z — не наш лист
+    assert AG.paid_think(str(tmp_path / 'нет.jsonl'), ['a']) is None
+    assert AG.paid_think(None, ['a']) is None
 
 
 def test_count_outcomes_verified_needs_laid():
@@ -368,3 +396,88 @@ def test_save_input_jpegs_both_names_same_bytes(tmp_path):
     assert open(paths[0], 'rb').read() == open(paths[1], 'rb').read()
     with pytest.raises(AG.AgentStop, match='ни одной'):
         AG.save_input_jpegs(im, str(tmp_path), 'x', variants=())
+
+
+# ---- правка 27.11 (Fable НЕ принял 4ba7701c3): «верно» — по ВЕРДИКТУ ровно «проверено»; пересчёт готового прогона ----
+def test_outcome_partial_not_ok_even_if_laid():
+    """«проверено частично» + «легло» НЕ в «верно» (подписей не хватило); «проверено (справка …)» + «легло» — верно."""
+    assert AG.outcome_of('проверено частично (только с объявлением)', 'легло') == AG.K_PART
+    assert AG.outcome_of('проверено частично (только с объявлением) (справка: П8)', 'легло') == AG.K_PART
+    assert AG.outcome_of('проверено (справка: П1,П2,П7з)', 'легло') == AG.K_OK
+    assert AG.outcome_of('проверено', 'легло') == AG.K_OK
+    assert AG.outcome_of('проверено', 'не легло') == AG.K_OK_NOLAID
+    assert AG.outcome_of('проверено частично (только с объявлением)', 'не легло') == AG.K_PART      # вердикт решает, не наложение
+    assert AG.outcome_of('проверено как-то иначе', 'легло') == AG.K_OTHER                           # незнакомое «проверено …» в «верно» не попадает
+    assert AG.outcome_of('звонок П4', 'легло') == AG.K_BELL and AG.outcome_of('сбой разбора: x', None) == AG.K_OTHER
+
+
+def test_count_outcomes_partial_is_separate_line():
+    def row(v, st='легло'):
+        return {'opus': v, 'overlay': {'overlay_status': st}}
+    rows = [row('проверено (справка: П2)'), row('проверено'), row('проверено частично (только с объявлением)'),
+            row('проверено частично (только с объявлением) (справка: П8)'), row('звонок П3')]
+    c = AG.count_outcomes(rows)
+    assert c[AG.K_OK] == 2 and c[AG.K_PART] == 2 and c[AG.K_BELL] == 1 and c['всего'] == 5
+    assert 'проверено частично (только с объявлением) 2' in AG.outcomes_line(rows) and 'верно (проверено И легло) 2' in AG.outcomes_line(rows)
+
+
+TSV_HEAD = 'лист\tOpus проверено/звонок\tGPT+сторож\tналожение (Opus)\tлишнее, м (тень)\n'
+
+
+def _run_dir(tmp_path, rows, md_extra=''):
+    d = tmp_path / 'run'
+    d.mkdir()
+    (d / 'table.tsv').write_text('# шапка\n' + TSV_HEAD + ''.join('%s\t%s\t—\t%s\t0.0\n' % r for r in rows), encoding='utf-8')
+    (d / 'table.md').write_text('# шапка\n\n**Итого:** x\n\n**исходы: старая строка**\n\n**наложение: y**\n' + md_extra, encoding='utf-8')
+    return d
+
+
+def test_recount_new_folder_old_files_untouched(tmp_path):
+    rows = [('s1', 'проверено (справка: П2)', 'легло'), ('s2', 'проверено частично (только с объявлением)', 'легло'),
+            ('s3', 'проверено частично (только с объявлением) (справка: П8)', 'легло'), ('s4', 'звонок П3', 'легло'), ('s5', 'проверено', 'не легло')]
+    d = _run_dir(tmp_path, rows)
+    before = {p.name: hashlib.sha256(p.read_bytes()).hexdigest() for p in d.iterdir()}
+    out = tmp_path / 'пересчёт'
+    c, old = AG.recount(str(d), str(out))
+    assert old == 3 and c[AG.K_OK] == 1 and c[AG.K_PART] == 2 and c[AG.K_OK_NOLAID] == 1 and c[AG.K_BELL] == 1     # было 3 «верно» по подстроке → стало 1
+    assert {p.name: hashlib.sha256(p.read_bytes()).hexdigest() for p in d.iterdir()} == before                       # прогон не тронут
+    md = (out / 'table.md').read_text(encoding='utf-8')
+    assert 'старая строка' not in md and 'верно (проверено И легло) 1' in md and 'проверено частично (только с объявлением) 2' in md and 'ПЕРЕСЧЁТ' in md
+    tsv = (out / 'iskhody.tsv').read_text(encoding='utf-8').splitlines()
+    assert tsv[0] == 'лист\tвердикт\tналожение\tисход' and len(tsv) == 6 and tsv[2].endswith('\t' + AG.K_PART)
+    assert json.loads((out / 'iskhody.json').read_text(encoding='utf-8'))['верно_по_старому_startswith'] == 3
+
+
+def test_recount_refuses_to_overwrite_or_nest(tmp_path):
+    d = _run_dir(tmp_path, [('s1', 'проверено', 'легло')])
+    busy = tmp_path / 'занято'
+    busy.mkdir()
+    (busy / 'file').write_text('чужое')
+    with pytest.raises(AG.AgentStop, match='не пуста'):
+        AG.recount(str(d), str(busy))
+    assert (busy / 'file').read_text() == 'чужое'
+    with pytest.raises(AG.AgentStop, match='внутри прогона'):
+        AG.recount(str(d), str(d / 'новая'))
+    with pytest.raises(AG.AgentStop, match='внутри прогона'):
+        AG.recount(str(d), str(d))
+
+
+def test_recount_bad_table_says_so(tmp_path):
+    d = tmp_path / 'bad'
+    d.mkdir()
+    (d / 'table.tsv').write_text('лист\tдругое\nx\ty\n', encoding='utf-8')
+    with pytest.raises(AG.AgentStop, match='нет колонок'):
+        AG.recount(str(d), str(tmp_path / 'o1'))
+    (d / 'table.tsv').write_text('# только шапка\n', encoding='utf-8')
+    with pytest.raises(AG.AgentStop, match='пуст'):
+        AG.recount(str(d), str(tmp_path / 'o2'))
+    assert not (tmp_path / 'o1' / 'table.md').exists()
+
+
+def test_recount_cli(tmp_path):
+    import subprocess
+    d = _run_dir(tmp_path, [('s1', 'проверено частично (только с объявлением)', 'легло'), ('s2', 'проверено', 'легло')])
+    r = subprocess.run([sys.executable, '-I', AG.__file__, '--recount', str(d), '--out', str(tmp_path / 'cli')], capture_output=True, text=True)
+    assert r.returncode == 0 and 'было по подстроке: верно 2 → стало: верно 1, проверено частично 1' in r.stdout, r.stdout + r.stderr
+    r2 = subprocess.run([sys.executable, '-I', AG.__file__, '--recount', str(d), '--out', str(tmp_path / 'cli')], capture_output=True, text=True)
+    assert r2.returncode == 2 and 'отказ' in r2.stdout                                                               # второй раз в ту же папку — отказ
