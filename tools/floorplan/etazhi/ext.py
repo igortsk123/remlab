@@ -259,11 +259,55 @@ def ext2c(sid, cands, fit, rows, vf, types=WINDOW_TYPES):
         return _fail(sid, 'сбой: %s: %s' % (type(ex).__name__, str(ex)[:200]))
 
 
-def with_ext_numbers(ov, sid, cands, fit, rows, vf, want_2b=True, want_2c=True):
+class ExtStop(Exception):
+    """СТОП: лист по своим признакам ОБЯЗАН иметь числа 2б/2в (наложение «легло», вход «как есть»), но вход для расчёта пропал (нет walls.csv, fit.json, картинки или ответа листа).
+    Это ошибка потери файла, а не «лист не годится»: молча считать «Ст» как раньше нельзя — иначе выключатели тихо перестают работать (как было без ext-папок)."""
+
+
+APPLIES, SKIP, STOP = 'применяется', 'не применяется', 'СТОП'
+
+
+def coverage(ov, rows, fit, cands):
+    """Куда относится лист: (APPLIES, '') | (SKIP, причина с пометкой) | (STOP, причина).
+    SKIP — наложения нет или оно не «легло» / вход не «как есть»: числам 2б/2в считаться не из чего, это НЕ ошибка — пометка в guard.json («не применяется: …»), звонок «Ст» как раньше.
+    STOP — наложение «легло», вход «как есть», а файла/картинки/ответа для расчёта нет: файл пропал по ошибке.
+    «Нет наложения» = нет overlay.json (прогон не дошёл) или статус «нет наложения»."""
+    if not ov:
+        return SKIP, 'нет наложения (overlay.json не получен)'
+    stt = ov.get('overlay_status')
+    if stt != 'легло':
+        return SKIP, 'наложение не «легло» (статус: %s)' % (stt if stt else 'нет')
+    if ov.get('вход', 'как есть') != 'как есть':
+        return SKIP, 'вход не «как есть» (вход: %s)' % ov.get('вход')
+    lost = []
+    if not rows:
+        lost.append('нет walls.csv (или пуст)')
+    if not fit:
+        lost.append('нет fit.json')
+    if not cands:
+        lost.append('нет картинки листа или ответа (plan*.json)')
+    if lost:
+        return STOP, '; '.join(lost)
+    return APPLIES, ''
+
+
+def with_ext_numbers(ov, sid, cands, fit, rows, vf, want_2b=True, want_2c=True, stop=True):
     """Копия чисел наложения + ov['ext2b'] / ov['ext2c'] — как storozh.with_ext / with_ext2c, но числа считаются здесь. Статус не «ok» → поле не добавляется (звонок «Ст» как раньше).
-    Возвращает (ov, {'ext2b': статус|None, 'ext2c': статус|None}) — статусы для guard.json (не молча)."""
+    Возвращает (ov, {'ext2b': статус|None, 'ext2c': статус|None, 'лист_для_ext': 'применяется'|'не применяется'|'СТОП', 'причина': …}) — статусы и пометка для guard.json (не молча).
+    Нет наложения / не «легло» / вход не «как есть» → числа не считаются, пометка «не применяется: …». Пропал вход при «легло» → ExtStop (stop=True) либо пометка «СТОП» (stop=False)."""
     o = dict(ov or {})
-    st = {'ext2b': None, 'ext2c': None}
+    if not (want_2b or want_2c):                      # выключатели 2б и 2в оба выключены — числа не нужны, листы не классифицируем
+        return o, {'ext2b': None, 'ext2c': None, 'лист_для_ext': None, 'причина': ''}
+    kind, why = coverage(ov, rows, fit, cands)
+    st = {'ext2b': None, 'ext2c': None, 'лист_для_ext': kind, 'причина': why}
+    if kind == STOP and stop:
+        raise ExtStop('%s: %s' % (sid, why))
+    if kind != APPLIES:
+        if kind == SKIP:
+            st['ext2b'] = st['ext2c'] = 'не применяется: ' + why
+        else:
+            st['ext2b'] = st['ext2c'] = 'СТОП: ' + why
+        return o, st
     if want_2b:
         e = ext2b(sid, cands, fit, rows, vf)
         st['ext2b'] = e['статус']

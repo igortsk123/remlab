@@ -170,7 +170,7 @@ check([c[0] for c in cs] == ['plan-clean.json/d', 'plan-clean.json/b', 'plan.jso
 check(X.candidates({'plan-clean.json': None, 'plan.json': fa['plan']}, {'d': None, 'b': g}) == [('plan.json/b', fa['plan'], g)], 'нет плана или картинки — вариант пропущен')
 ov0 = dict(fa['ov'])
 o, st = X.with_ext_numbers(ov0, 'fx', X.candidates({'plan-clean.json': fa['plan']}, {'d': g}), fa['fit'], fa['rows'], make_vf())
-check(st == {'ext2b': 'ok', 'ext2c': 'ok'} and o['ext2b']['статус'] == 'ok' and o['ext2c']['статус'] == 'ok' and 'ext2b' not in ov0 and 'ext2c' not in ov0, 'with_ext_numbers: добавляет ext2b/ext2c копией, исходное наложение не меняется', (st, sorted(o)))
+check(st['ext2b'] == 'ok' and st['ext2c'] == 'ok' and st['лист_для_ext'] == X.APPLIES and o['ext2b']['статус'] == 'ok' and o['ext2c']['статус'] == 'ok' and 'ext2b' not in ov0 and 'ext2c' not in ov0, 'with_ext_numbers: добавляет ext2b/ext2c копией, исходное наложение не меняется', (st, sorted(o)))
 o, st = X.with_ext_numbers(ov0, 'fx', X.candidates({'plan-clean.json': fa['plan']}, {'d': g}), fa['fit'], fa['rows'], make_vf(V2=False))
 check(st['ext2b'].startswith('отказ') and 'ext2b' not in o and 'ext2c' not in o, 'with_ext_numbers: отказ → полей нет (звонок «Ст» как раньше), статус виден для guard.json', st)
 o, st = X.with_ext_numbers(ov0, 'fx', X.candidates({'plan-clean.json': fa['plan']}, {'d': g}), fa['fit'], fa['rows'], make_vf(), want_2c=False)
@@ -179,6 +179,32 @@ check(X.applicable(fa['ov'], fa['rows']) and not X.applicable(dict(fa['ov'], ove
 wf = {'fabricated_share_min': 0.15, 'extra_m_min': 8.0, 'on_line_min': 0.60}
 check(X.current_hit(fa['rows'], fa['ov'], wf), 'current_hit: выдуманных 600 из 820 px (≥15 %) → «Ст» звонит')
 check(not X.current_hit([fa['rows'][0]], dict(fa['ov'], на_линии=0.9, лишнее_м=1.0), wf) and X.current_hit([fa['rows'][0]], dict(fa['ov'], на_линии=0.5, лишнее_м=1.0), wf) and X.current_hit([fa['rows'][0]], dict(fa['ov'], на_линии=0.9, лишнее_м=9.0), wf), 'current_hit: пороги «на линии» и «лишнее, м»')
+
+# ── два случая «листа без чисел» (Fable по ext): нет наложения → не применяется + пометка; файл/вход пропал по ошибке → СТОП ──────────────────────────────────────────
+cs_ok = X.candidates({'plan-clean.json': fa['plan']}, {'d': g})
+for nm, ov_x, kind_w, why_w in (('нет наложения (overlay.json не получен)', None, X.SKIP, 'нет наложения'),
+                                ('наложение «не легло»', dict(fa['ov'], overlay_status='не легло'), X.SKIP, 'не легло'),
+                                ('наложение «частично»', dict(fa['ov'], overlay_status='частично'), X.SKIP, 'частично'),
+                                ('вход не «как есть» (4c)', dict(fa['ov'], вход='4c'), X.SKIP, '4c')):
+    kd, ws = X.coverage(ov_x, fa['rows'], fa['fit'], cs_ok)
+    o, st = X.with_ext_numbers(ov_x, 'fx', cs_ok, fa['fit'], fa['rows'], make_vf())          # без исключения; числа не считаются; пометка в статусах
+    check(kd == kind_w and why_w in ws and st['лист_для_ext'] == X.SKIP and st['ext2b'].startswith('не применяется') and st['ext2c'].startswith('не применяется') and why_w in st['ext2b'] and 'ext2b' not in o and 'ext2c' not in o,
+          'не применяется + пометка: %s' % nm, (kd, ws, st))
+kd, ws = X.coverage(fa['ov'], fa['rows'], fa['fit'], cs_ok)
+check(kd == X.APPLIES and ws == '', 'применяется: «легло», вход «как есть», стены/fit/картинка есть', (kd, ws))
+for nm, rows_x, fit_x, cs_x, want_w in (('нет walls.csv', [], fa['fit'], cs_ok, 'walls.csv'), ('нет fit.json', fa['rows'], None, cs_ok, 'fit.json'), ('нет картинки/ответа листа', fa['rows'], fa['fit'], [], 'картинки'),
+                                        ('пропало всё сразу', [], None, [], 'walls.csv (или пуст); нет fit.json; нет картинки')):
+    kd, ws = X.coverage(fa['ov'], rows_x, fit_x, cs_x)
+    try:
+        X.with_ext_numbers(fa['ov'], 'fx', cs_x, fit_x, rows_x, make_vf())
+        raised = None
+    except X.ExtStop as ex:
+        raised = str(ex)
+    o, st = X.with_ext_numbers(fa['ov'], 'fx', cs_x, fit_x, rows_x, make_vf(), stop=False)
+    check(kd == X.STOP and want_w in ws and raised is not None and raised.startswith('fx:') and want_w in raised and st['лист_для_ext'] == X.STOP and st['ext2b'].startswith('СТОП') and 'ext2b' not in o and 'ext2c' not in o,
+          'СТОП (пропал вход при «легло»): %s — ExtStop, а с stop=False пометка «СТОП» и чисел нет' % nm, (kd, ws, raised, st))
+o, st = X.with_ext_numbers(fa['ov'], 'fx', [], None, [], make_vf(), want_2b=False, want_2c=False)
+check(st['лист_для_ext'] is None and o == fa['ov'], 'оба выключателя 2б/2в выкл — листы не классифицируются, СТОПа нет')
 
 print('ошибок %d' % len(bad))
 sys.exit(1 if bad else 0)
