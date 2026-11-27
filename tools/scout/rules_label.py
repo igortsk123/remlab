@@ -24,6 +24,7 @@
                                                            разница деревьев списком ключей; --declared — ключи, которым РАЗРЕШЕНО отличаться (флаги пробы): прочие — «не объявлено», код 1
   rules_label.py --env-check [--root КОРЕНЬ]             сторож окружения (код 1: скрипт конвейера читает переменную, которой нет в env / env_ignore)
   rules_label.py --env-table [--root КОРЕНЬ]             то же + таблица «переменная → файл:строка → env / не влияет → причина»
+  rules_label.py --text-check [--root КОРЕНЬ]            сторож текстовых «_»-ключей (код 1: код читает такой ключ из правил, а в text_data / text_display его нет)
   rules_label.py --selftest
 В коде: `from rules_label import label, field, diff_trees`.
 """
@@ -37,7 +38,7 @@ import sys
 HERE = os.path.dirname(os.path.abspath(__file__))
 ROOT = os.path.abspath(os.path.join(HERE, '..', '..'))
 CFG_PATH = os.path.join(HERE, 'rules', 'rules-label.json')
-DEFAULT_CFG = {'include': ['tools/scout/rules'], 'exclude': [], 'env': [], 'length': 12}
+DEFAULT_CFG = {'include': ['tools/scout/rules'], 'exclude': [], 'env': [], 'length': 12, 'text_data': [], 'text_display': {}}
 
 
 def load_cfg(path: str = CFG_PATH) -> dict:
@@ -51,18 +52,24 @@ def load_cfg(path: str = CFG_PATH) -> dict:
     return cfg
 
 
-def _is_comment(k, v) -> bool:
-    """Комментарий — ключ на «_» с ТЕКСТОМ (`_about`, `_why`). Ключ на «_» с числом/флагом/объектом/списком — ДАННЫЕ (`_default: 0`, `_any: {…}`): входит в метку
-    (T-20261127-175/12-дыра: раньше все «_»-ключи считались комментариями, и правка `_default` метку не двигала)."""
-    return str(k).startswith('_') and isinstance(v, str)
+def text_data_names(cfg: dict | None = None) -> frozenset:
+    """Имена текстовых «_»-ключей, которые — ДАННЫЕ (код читает значение как настройку: `_default: "hunyuan3d"` в asset-strategies.json): входят в метку. Список — `rules-label.json:text_data`."""
+    return frozenset((cfg if cfg is not None else load_cfg()).get('text_data') or [])
 
 
-def _strip(o):
-    """Убрать ключи-комментарии (только текстовые «_about», «_why») на любой глубине; «_»-ключи с данными остаются."""
+def _is_comment(k, v, data=frozenset()) -> bool:
+    """Комментарий — ключ на «_» с ТЕКСТОМ (`_about`, `_why`), если его имени нет в `text_data`. Ключ на «_» с числом/флагом/объектом/списком — ДАННЫЕ (`_default: 0`, `_any: {…}`):
+    входит в метку; текстовый «_»-ключ с данными (`_default: "hunyuan3d"`) — по списку `text_data` (T-20261127-175/12-дыра: раньше все текстовые «_»-ключи считались комментариями,
+    и правка `_default` метку не двигала)."""
+    return str(k).startswith('_') and isinstance(v, str) and k not in data
+
+
+def _strip(o, data=frozenset()):
+    """Убрать ключи-комментарии (текстовые «_about», «_why», кроме `text_data`) на любой глубине; «_»-ключи с данными остаются."""
     if isinstance(o, dict):
-        return {k: _strip(v) for k, v in o.items() if not _is_comment(k, v)}
+        return {k: _strip(v, data) for k, v in o.items() if not _is_comment(k, v, data)}
     if isinstance(o, list):
-        return [_strip(v) for v in o]
+        return [_strip(v, data) for v in o]
     return o
 
 
@@ -84,12 +91,12 @@ def rule_files(root: str, cfg: dict | None = None) -> list[str]:
     return sorted(out)
 
 
-def _canon(path: str):
+def _canon(path: str, data_names=frozenset()):
     """→ (каноническое представление для хеша, разобранный JSON или None). Не разобрался — байты как есть (метка не валит этап)."""
     with open(path, 'rb') as f:
         raw = f.read()
     try:
-        data = _strip(json.loads(raw.decode('utf-8')))
+        data = _strip(json.loads(raw.decode('utf-8')), data_names)
         return json.dumps(data, sort_keys=True, ensure_ascii=False, separators=(',', ':')).encode('utf-8'), data
     except (ValueError, UnicodeDecodeError):
         return raw, None
@@ -105,7 +112,7 @@ def _env_part(cfg: dict) -> dict:
             continue
         item = {'value': v}
         if (name in files or name.endswith('RULES')) and os.path.isfile(v):
-            item['sha'] = hashlib.sha256(_canon(v)[0]).hexdigest()[:12]
+            item['sha'] = hashlib.sha256(_canon(v, text_data_names(cfg))[0]).hexdigest()[:12]
         out[name] = item
     return out
 
@@ -115,8 +122,9 @@ def label(root: str | None = None, cfg: dict | None = None) -> dict:
     root = os.path.abspath(root or ROOT)
     cfg = cfg or load_cfg()
     h, n, files = hashlib.sha256(), 0, {}
+    data = text_data_names(cfg)
     for rel in rule_files(root, cfg):
-        canon, _ = _canon(os.path.join(root, rel))
+        canon, _ = _canon(os.path.join(root, rel), data)
         h.update(rel.encode('utf-8') + b'\0' + canon + b'\0')
         files[rel] = hashlib.sha256(canon).hexdigest()[:12]
         n += 1
@@ -155,8 +163,9 @@ def _flatten(o, prefix='') -> dict:
 def _tree_keys(root: str, cfg: dict) -> dict:
     """→ {путь_файла: {ключ.через.точку: значение} | None (не JSON)}."""
     out = {}
+    names = text_data_names(cfg)
     for rel in rule_files(root, cfg):
-        _c, data = _canon(os.path.join(root, rel))
+        _c, data = _canon(os.path.join(root, rel), names)
         out[rel] = _flatten(data) if data is not None else None
     return out
 
@@ -235,6 +244,96 @@ def render(diffs: list[dict], declared=None, name_a='A', name_b='B') -> list[str
     for d in unused:
         lines.append(f'  ⚠ объявлено «{d}», но по этому ключу разницы нет (флаг не выставлен или уже в основной копии)')
     return lines
+
+
+# ───────────── сторож текстовых «_»-ключей (T-20261127-175/12-дыра, проверка Fable 27.11) ─────────────
+# Текстовый ключ на «_» — по умолчанию комментарий, метку не двигает. Но `asset-strategies.json roles._default = "hunyuan3d"` — настройка (4 модуля читают её как данные),
+# а метка этого не видела. Сторож: имя текстового «_»-ключа из файлов правил, которое КОД читает (`.get('_x')`, `['_x']`), обязано стоять в `text_data` (данные → в метке) или
+# в `text_display` {имя: причина} (читается только для показа в отчётах). Плюс эвристика: текстовое значение без пробелов и короче 40 знаков (похоже на настройку, не на фразу)
+# у имени из обоих списков отсутствующего — находка. Динамическое чтение (`for k in d: if k.startswith('_')`) сторож не видит — это ограничение, оно записано здесь.
+import re  # noqa: E402
+
+_CODE_EXT = ('.py', '.mjs', '.js', '.ts', '.tsx')
+_CODE_SKIP = {'node_modules', '.git', '__pycache__', '.next', 'tests', '_intake', 'archive', 'completed_plans'}
+
+
+def _text_keys(root: str, cfg: dict) -> dict:
+    """→ {имя: [(файл, путь_ключа, значение)]} — текстовые «_»-ключи во всех файлах набора."""
+    out: dict = {}
+
+    def walk(o, path, rel):
+        if isinstance(o, dict):
+            for k, v in o.items():
+                if str(k).startswith('_') and isinstance(v, str):
+                    out.setdefault(k, []).append((rel, path, v))
+                walk(v, f'{path}.{k}' if path else str(k), rel)
+        elif isinstance(o, list):
+            for i, v in enumerate(o):
+                walk(v, f'{path}[{i}]', rel)
+    for rel in rule_files(root, cfg):
+        try:
+            with open(os.path.join(root, rel), encoding='utf-8') as f:
+                walk(json.load(f), '', rel)
+        except (OSError, ValueError):
+            pass
+    return out
+
+
+def _code_reads(root: str, names, scan) -> dict:
+    """→ {имя: [файл:строка]} — где код читает ключ с этим именем (`.get('_x'`, `['_x']`; запись `d['_x'] = …` не чтение). Тесты (`test_*`, `tests_*`, `tests/`) не смотрим."""
+    want = set(names)
+    rx = re.compile(r'(?:\.get\(\s*|\[\s*)[\'"](_\w+)[\'"]')   # один проход по строке: имя берём из совпадения и сверяем со списком
+    wr = re.compile(r'^\s*\]?\s*=[^=]')
+    hits: dict = {}
+    for top in scan:
+        for dp, dn, fn in os.walk(os.path.join(root, top)):
+            dn[:] = sorted(d for d in dn if d not in _CODE_SKIP)
+            for f in sorted(fn):
+                if not f.endswith(_CODE_EXT) or f.startswith(('test_', 'tests_')):
+                    continue
+                p = os.path.join(dp, f)
+                try:
+                    with open(p, encoding='utf-8') as fh:
+                        lines = fh.read().split('\n')
+                except (OSError, UnicodeDecodeError):
+                    continue
+                for i, ln in enumerate(lines, 1):
+                    if '_' not in ln:
+                        continue
+                    for m in rx.finditer(ln):
+                        if m.group(1) in want and not (ln[m.end():].lstrip().startswith(']') and wr.match(ln[m.end():].lstrip()[1:])):   # `d['_x'] = …` — запись, не чтение
+                            hits.setdefault(m.group(1), []).append(f'{os.path.relpath(p, root).replace(os.sep, "/")}:{i}')
+    return hits
+
+
+def text_key_gaps(root: str | None = None, cfg: dict | None = None) -> list:
+    """Сторож: пусто = каждый текстовый «_»-ключ, который читает код, отнесён либо к данным (`text_data`), либо к «только показ» (`text_display` с причиной)."""
+    root = os.path.abspath(root or ROOT)
+    cfg = cfg or load_cfg(os.path.join(root, 'tools', 'scout', 'rules', 'rules-label.json'))
+    data, disp = set(cfg.get('text_data') or []), (cfg.get('text_display') or {})
+    gaps = []
+    for n, why in sorted(disp.items()):
+        if not isinstance(why, str) or not why.strip():
+            gaps.append(f'{n} — запись в text_display без причины (одной строкой: где код читает её только для показа)')
+        if n in data:
+            gaps.append(f'{n} — одновременно в text_data и в text_display: данные это или показ?')
+    keys = _text_keys(root, cfg)
+    known = data | set(disp)
+    scan = [d for d in (cfg.get('code_roots') or ['tools', 'services', 'lib', 'app', 'components']) if os.path.isdir(os.path.join(root, d))]
+    if not scan:
+        gaps.append(f'в корне {root} нет ни одной папки кода из code_roots — сторож текстовых «_»-ключей слеп (ничего не проверено)')
+    reads = _code_reads(root, [n for n in keys if n not in known], scan)
+    for n, where in sorted(reads.items()):
+        f, p, _v = keys[n][0]
+        gaps.append(f'{n} — {where[0]} (всего чтений {len(where)}) — код читает текстовый «_»-ключ из файлов правил ({f}::{p}); метка считает его комментарием. '
+                    f'Данные — добавьте в text_data (rules/rules-label.json), только показ — в text_display с причиной')
+    for n, vals in sorted(keys.items()):
+        if n in known or n in reads:
+            continue
+        for f, p, v in vals:
+            if v.strip() and not re.search(r'\s', v.strip()) and len(v.strip()) < 40:
+                gaps.append(f'{n} — {f}::{p} = «{v}» — значение без пробелов, похоже на настройку, а не на фразу: данные → text_data, комментарий → text_display с причиной')
+    return gaps
 
 
 # ───────────── сторож окружения (T-20261127-175/12-дыра) ─────────────
@@ -410,8 +509,15 @@ def main(argv: list) -> int:
     ap.add_argument('--declared-file', default='', help='JSON-список таких ключей')
     ap.add_argument('--env-check', action='store_true', help='сторож окружения: код 1, если скрипт конвейера читает переменную без записи в env / env_ignore')
     ap.add_argument('--env-table', action='store_true', help='таблица «переменная → файл:строка → env / не влияет → причина» по скриптам конвейера')
+    ap.add_argument('--text-check', action='store_true', help='сторож текстовых «_»-ключей: код 1, если код читает такой ключ из файлов правил, а в text_data / text_display его нет')
     ap.add_argument('--selftest', action='store_true')
     a = ap.parse_args(argv)
+    if a.text_check:
+        gaps = text_key_gaps(os.path.abspath(a.root or ROOT))
+        for g in gaps:
+            print('✗', g, file=sys.stderr)
+        print(f'сторож текстовых «_»-ключей: {"красный, находок " + str(len(gaps)) if gaps else "чисто"}')
+        return 1 if gaps else 0
     if a.env_check or a.env_table:
         root = os.path.abspath(a.root or ROOT)
         if a.env_table:
