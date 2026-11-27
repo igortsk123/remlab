@@ -119,7 +119,7 @@ class T(unittest.TestCase):
         glbs, out = mk(tmp, 'c_1')
         p = subprocess.run([sys.executable, '-I', '-W', 'ignore', os.path.join(HERE, 'form_gate.py'), '--out', out, '--glbs', glbs, '--skus', 'c_1', '--no-vlm', '--no-cards', '--roles', ''],
                            capture_output=True, text=True, cwd=tmp)
-        self.assertEqual(p.returncode, 0, p.stderr[-400:])
+        self.assertEqual(p.returncode, 3, p.stderr[-400:])                          # не выполнено → код 3, не 0
         self.assertIn('проверки НЕ ВЫПОЛНЕНЫ у 1 из 1 форм', p.stdout)
         self.assertIn('back_relief', p.stdout)
 

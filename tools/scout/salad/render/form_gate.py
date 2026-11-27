@@ -129,7 +129,7 @@ def main() -> int:
     if nr:
         print(f"form_gate: проверки НЕ ВЫПОЛНЕНЫ у {len(nr)} из {len(recs)} форм: {', '.join(sorted({n for r in nr for n in r['not_run']}))}", flush=True)
     print(f'form_gate: проверено {len(recs)}, к глазам {sum(1 for r in recs if r["status"] in ("needs_review", "shape_reject"))}', flush=True)
-    return 0
+    return 3 if nr else 0                                                            # не выполнено — не «прошла»: код 3 (T-20261127-175/Ш0-fix-2)
 
 
 if __name__ == '__main__':

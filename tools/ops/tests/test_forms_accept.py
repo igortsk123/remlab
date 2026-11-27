@@ -167,12 +167,13 @@ def test_form_gate_crash_marks_forms_and_summary(monkeypatch, tmp_path, capsys):
 
 
 def test_summary_line_for_checks_not_run(monkeypatch, tmp_path, capsys):
-    """Ш0 выполнен, но проверки по альфе не выполнены (нет альфа-кадра): в итоге строка «ИТОГ: проверки Ш0 НЕ ВЫПОЛНЕНЫ …»; код 0 (брак/нет входа — не сбой шага); все выполнены — строки нет."""
+    """Ш0 выполнен, но проверки по альфе не выполнены (нет альфа-кадра): строка «ИТОГ: проверки Ш0 НЕ ВЫПОЛНЕНЫ …» и код 3 (менеджер 27.11: 0 не ставить), метки сбоя шага нет; все выполнены — строки нет, код 0."""
     GATE['mode'] = 'ok'
 
     def with_not_run(cmd, *a, **k):
         r = real_fake(cmd, *a, **k)
         if '--skus' in cmd:
+            r.returncode = 3                                                          # как настоящий form_gate при не выполненных проверках
             for s in cmd[cmd.index('--skus') + 1].split(','):
                 (tmp_path / 'out' / s / 'form_checks.json').write_text(json.dumps({'not_run': ['relief_graze', 'back_relief']}), encoding='utf-8')
         return r
@@ -185,5 +186,6 @@ def test_summary_line_for_checks_not_run(monkeypatch, tmp_path, capsys):
     monkeypatch.setattr(sys, 'argv', ['forms_render.py', '--glbs', str(glbs), '--out', str(tmp_path / 'out'), '--ids', 'a_1', '--no-slot', '--accept'])
     rc = FR.main()
     out = capsys.readouterr().out
-    assert rc == 0 and 'ИТОГ: проверки Ш0 НЕ ВЫПОЛНЕНЫ у 1 из 1 форм' in out and 'back_relief, relief_graze' in out
+    assert rc == 3 and 'ИТОГ: проверки Ш0 НЕ ВЫПОЛНЕНЫ у 1 из 1 форм' in out and 'back_relief, relief_graze' in out and 'код возврата 3' in out
+    assert 'Ш0 НЕ ВЫПОЛНЕН:' not in out and not (tmp_path / 'out' / 'a_1' / FR.SH0_MARK).exists()     # отчёты записаны — это не сбой шага, метки «Ш0 не выполнен» нет
     assert FR.not_run_line(str(tmp_path / 'out'), ['нет_такой']) == ''
