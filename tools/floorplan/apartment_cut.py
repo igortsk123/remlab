@@ -335,6 +335,8 @@ def source_point(steps, x, y):
             k = st.get("scale", 1.0)
             p = np.array([p[0] / k + st["box"][0], p[1] / k + st["box"][1], 1.0])
         elif st["op"] in ("rectify", "deskew", "quarter"):
+            if "H" not in st:       # запись «пропущено/сбой» шага quarter (T-171/quarter-otkaz): геометрии нет — точка как есть
+                continue
             q = np.linalg.inv(np.array(st["H"], np.float64)) @ p
             p = q / q[2]
     return float(p[0]), float(p[1])
