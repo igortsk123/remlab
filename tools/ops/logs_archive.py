@@ -62,7 +62,8 @@ ROOT = os.path.abspath(os.path.join(HERE, '..', '..'))
 RULES_PATH = os.path.join(ROOT, 'tools', 'scout', 'rules', 'dev-disk.json')
 GB = 1024 ** 3
 DEFAULTS = {'src': '~/remlab-logs', 'dst': '/mnt/hdd/remlab-logs-arhiv', 'days': 5, 'min_hdd_free_gb': 50, 'never': [], 'worktrees_block': True, 'refs_exclude': [], 'adaptive': [], 'refs_scope': None, 'memory_paths': None, 'hdd_prune': {'days': 14}, 'protected': [],
-            'monitor_max_h': None, 'stale_holder_hours': None, 'grow_alert_gb': None, 'grow_window_h': None, 'grow_top': None, 'grow_alert_every_h': None, 'forecast_window_h': None, 'forecast_warn_h': None}   # T-89: нет ключа в rules — наблюдатели держат как прежде, сторож роста выключен (чисел порогов в коде нет — они в dev-disk.json)
+            'monitor_max_h': None, 'stale_holder_hours': None, 'grow_alert_gb': None, 'grow_window_h': None, 'grow_top': None, 'grow_alert_every_h': None, 'forecast_window_h': None, 'forecast_warn_h': None,
+            'forecast_relief_window_h': None, 'forecast_relief_cap': None, 'forecast_relief_gap_h': None}   # T-89: нет ключа в rules — наблюдатели держат как прежде, сторож роста выключен (чисел порогов в коде нет — они в dev-disk.json)
 PROTECTED_DEFAULT = ['~/remlab-inputs']   # входы наборов (T-20261125-75/2): не переносить, не удалять; правило `archive.protected` только ДОБАВЛЯЕТ папки
 
 
@@ -1094,7 +1095,72 @@ def hours_to_stop(free_gb_now: float, stop_gb: float, gross_gb: float, span_h: f
     return max(free_gb_now - stop_gb, 0.0) / (gross_gb / span_h)
 
 
-def growth_check(r: dict, now: float | None = None, du=None, state_path: str | None = None, free: float | None = None, stop_gb: float | None = None) -> tuple[str, str]:
+def moved_to_hdd(name: str, src: str | None, dst: str | None) -> bool:
+    """Папка src/name уже ушла на HDD: на её месте ссылка, ведущая под dst (так её оставляет move_one)."""
+    if not src or not dst:
+        return False
+    p = os.path.join(src, name)
+    return os.path.islink(p) and os.path.realpath(p).startswith(os.path.realpath(dst).rstrip('/') + '/')
+
+
+def transfer_relief(ref_sizes: dict, cur_sizes: dict, is_moved) -> float:
+    """ГБ, на которые УБЫЛИ папки, ушедшие на HDD, между снимками (рост других папок не вычитается; ушедшая ссылкой папка в снимке — размер ссылки)."""
+    return sum(max(v - cur_sizes.get(n, 0), 0) for n, v in ref_sizes.items() if is_moved(n)) / GB
+
+
+def transfer_alive(r: dict, repo: str) -> tuple[bool, str]:
+    """(идёт ли почасовой перенос прямо сейчас, причина). Нет — HDD не смонтирован / на нём меньше min_hdd_free_gb / нет кандидатов на перенос (по адаптивному порогу суток)
+    / ни одна кандидатная папка на HDD не помещается. Ничего не переносит и не удаляет; строки наблюдателей в MONITOR_NOTES/STALE_NOTES эта проверка не оставляет."""
+    if not hdd_mounted(r['dst']):
+        return False, 'HDD не смонтирован'
+    hf, mn = hdd_free_gb(r['dst']), float(r['min_hdd_free_gb'])
+    if hf < mn:
+        return False, f'на HDD свободно {hf:.0f} ГБ < {mn:g}'
+    try:
+        days = effective_days(r, free_gb(r['src']))[0]
+    except OSError:
+        days = float(r['days'])
+    saved = (len(MONITOR_NOTES), len(STALE_NOTES))
+    try:
+        todo, _skipped = candidates(dict(r, days=days), repo)
+    except Exception as e:                                    # не смогли узнать — считаем, что переноса нет (прогноз по валовому росту, как раньше)
+        return False, f'кандидатов узнать не удалось: {type(e).__name__}'
+    finally:
+        del MONITOR_NOTES[saved[0]:]
+        del STALE_NOTES[saved[1]:]
+    if not todo:
+        return False, 'кандидатов на перенос нет'
+    fits = [c for c in todo if c['total'] * 1.1 / GB + mn <= hf]
+    if not fits:
+        return False, f'на HDD не помещается ни одна из {len(todo)} кандидатных папок'
+    return True, f'кандидатов {len(fits)}, освободят {sum(c["freed"] for c in fits) / GB:.1f} ГБ'
+
+
+def relief_forecast(r: dict, snaps: list, cur: dict, now: float, free: float, stop_gb: float, fgross: float, fspan: float, transfer=None, is_moved=None) -> tuple[float | None, str]:
+    """(часов до стопа с учётом почасового переноса на HDD | None — не учитываем, пояснение). Чистый темп = валовой рост − то, что перенос реально снял за `forecast_relief_window_h`
+    (убыль ушедших на HDD папок ÷ часы окна; не больше доли `forecast_relief_cap` от валового роста — запас на случай, что перенос не успеет). Перенос не учитываем (прогноз как раньше):
+    нет ключей в rules / нет transfer / снимков мало / часовой запуск пропускал (> `forecast_relief_gap_h` ч с прошлого снимка) / за окно на HDD ничего не ушло /
+    transfer() говорит «не идёт» (HDD нет или полон, кандидатов нет). Порог тревоги и сам перенос не меняются (T-20261128 П1.161, Fable otvet-52)."""
+    rw, cap, gap = (r.get(k) for k in ('forecast_relief_window_h', 'forecast_relief_cap', 'forecast_relief_gap_h'))
+    if transfer is None or rw is None or cap is None or gap is None or fgross <= 0 or len(snaps) < 2:
+        return None, ''
+    rref = next((s for s in snaps[:-1] if now - s['t'] <= float(rw) * 3600 + 1800), None)
+    if rref is None or now - rref['t'] < 3600:
+        return None, ''
+    if now - snaps[-2]['t'] > float(gap) * 3600:
+        return None, f'; часовой запуск пропускал ({(now - snaps[-2]["t"]) / 3600:.0f} ч с прошлого снимка) — перенос не учтён'
+    rspan = (now - rref['t']) / 3600
+    moved = transfer_relief(rref['sizes'], cur, is_moved or (lambda n: moved_to_hdd(n, r.get('src'), r.get('dst'))))
+    credit = min(moved / rspan, float(cap) * fgross / fspan)
+    if credit <= 0:
+        return None, ''
+    ok, why = transfer()
+    if not ok:
+        return None, f'; перенос на HDD не идёт ({why}) — прогноз по валовому росту'
+    return hours_to_stop(free, float(stop_gb), fgross - credit * fspan, fspan), f'; перенос на HDD снимает {credit:.1f} ГБ/ч (за {rspan:.0f} ч ушло {moved:.1f} ГБ; {why})'
+
+
+def growth_check(r: dict, now: float | None = None, du=None, state_path: str | None = None, free: float | None = None, stop_gb: float | None = None, transfer=None, is_moved=None) -> tuple[str, str]:
     """(строка отчёта, WARN или ''). Снимок размеров → файл состояния; сравнение со снимком не новее grow_window_h часов назад (самый старый в окне + 30 мин допуск).
     Меньше часа истории — только снимок, вердикта нет. Прогноз «часов до стопа» (T-89 п.6, Fable): (свободно − stop_gb) ÷ скорость роста за forecast_window_h часов;
     меньше forecast_warn_h — WARN:disk_stop с тремя самыми растущими папками (stop_gb — dev-disk.json start_min_free_gb, ниже него старты прогонов закрыты)."""
@@ -1136,13 +1202,18 @@ def growth_check(r: dict, now: float | None = None, du=None, state_path: str | N
             fgross = sum(x for x in fd.values() if x > 0) / GB
             fspan = (now - fref['t']) / 3600
             h = hours_to_stop(free, float(stop_gb), fgross, fspan)
+            relief_note = ''
+            if h is not None and h < float(fh):               # П1.161: тревога сработала бы — смотрим, снимает ли рост почасовой перенос на HDD
+                h_rel, relief_note = relief_forecast(r, snaps, cur, now, free, float(stop_gb), fgross, fspan, transfer, is_moved)
+                if h_rel is not None:
+                    h = h_rel
             if h is None:
                 msg += f'; прогноз: рост за {fspan:.0f} ч нет — до стопа не дойдём'
             else:
-                msg += f'; прогноз: свободно {free:.1f} ГБ, рост {fgross / fspan:.1f} ГБ/ч за {fspan:.0f} ч → до стопа ({float(stop_gb):g} ГБ) ≈ {h:.1f} ч'
+                msg += f'; прогноз: свободно {free:.1f} ГБ, рост {fgross / fspan:.1f} ГБ/ч за {fspan:.0f} ч → до стопа ({float(stop_gb):g} ГБ) ≈ {h:.1f} ч' + relief_note
                 if h < float(fh):
                     ftop = sorted(((x, n) for n, x in fd.items() if x > 0), reverse=True)[:int(r.get('grow_top') or 3)]
-                    stop_warn = (f'WARN:disk_stop: свободно {free:.0f} ГБ, логи растут {fgross / fspan:.1f} ГБ/ч (за {fspan:.0f} ч) → до стопа ({float(stop_gb):g} ГБ) ≈ {h:.0f} ч (порог {float(fh):g}); растут: '
+                    stop_warn = (f'WARN:disk_stop: свободно {free:.0f} ГБ, логи растут {fgross / fspan:.1f} ГБ/ч (за {fspan:.0f} ч) → до стопа ({float(stop_gb):g} ГБ) ≈ {h:.0f} ч{relief_note} (порог {float(fh):g}); растут: '
                                  + '; '.join(f'{n} +{x / GB:.1f} ГБ' for x, n in ftop))
     send_stop = bool(stop_warn) and now - alerted_stop >= float(r.get('grow_alert_every_h') or 0) * 3600
     try:
@@ -1168,7 +1239,7 @@ def main(argv: list) -> int:
             gstop = json.load(open(os.environ.get('LOGS_ARCHIVE_RULES') or RULES_PATH, encoding='utf-8')).get('start_min_free_gb')   # граница «стоп»: старты прогонов закрыты (один источник)
         except (OSError, ValueError):
             gfree, gstop = None, None
-        gmsg, gwarn = growth_check(r, free=gfree, stop_gb=gstop)
+        gmsg, gwarn = growth_check(r, free=gfree, stop_gb=gstop, transfer=lambda: transfer_alive(r, os.environ.get('LOGS_ARCHIVE_REPO') or ROOT))
         if gmsg:
             print(gmsg)
         if gwarn:
