@@ -1,11 +1,11 @@
 """Изменения rab-4 (97e303407: отсев линий страницы DESKEW_PAGE, запасной проход DESKEW_FALLBACK, запрет доворота у «перспективы» DESKEW_PERSP_VETO) — под СВОЙ флаг
 FP_CLEAN_DESKEW_K6 (T-171/k6-porog5; правило «каждая перемена — под своим выключателем»). По умолчанию ВЫКЛ, FP_INPUT_ALL=1 его не включает.
 
-Без OCR и сети (идёт в CI). Золото `golden_deskew_base.json` — результат input_step.run при FP_INPUT_ALL=1 на коде ДО 97e303407 (390acfbc8) на 7 синтетических листах
-(ops, угол, размер, steps с матрицами; побайтно по листу сверено вне теста: sha256 совпал с кодом ветки при выкл флаге).
-  • все свои флаги выкл + FP_INPUT_ALL=1 → ops, угол, размер, steps как на базе;
-  • −контроль: флаг принудительно ВКЛ → результат другой (тонкий план с чёрной полосой доворачивается, лист-трапеция — нет), тест на золото красный."""
-import json
+Без OCR и сети (идёт в CI). «Все свои флаги выкл + FP_INPUT_ALL=1 = как до 97e303407» проверяется ПРЯМЫМ сравнением в ОДНОМ процессе:
+старая функция — копия кода 390acfbc8 (tests/floorplan/data/base390/*_base390.py, не править) против новой на 7 синтетических листах: ops, угол, размер, steps
+(точное равенство, в т. ч. матрицы H), пиксели листа, cut. Золотого файла нет: числа, снятые на одной версии cv2, ломались на другой (cv2 5.0 против 5.1 — угол 10,0↔9,99), а код в одном
+процессе на любой версии cv2 даёт у обеих функций одно и то же.
+  • −контроль: флаг K6 принудительно ВКЛ → результат другой (тонкий план с чёрной полосой доворачивается, лист-трапеция — нет), прямое сравнение краснеет."""
 import sys
 from pathlib import Path
 
@@ -16,13 +16,13 @@ import pytest
 ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT / 'tools' / 'floorplan'))
 sys.path.insert(0, str(ROOT / 'tests' / 'floorplan'))
+sys.path.insert(0, str(ROOT / 'tests' / 'floorplan' / 'data' / 'base390'))
 import cleanup as cl  # noqa: E402
 import input_step as ins  # noqa: E402
+import input_step_base390 as ins_old  # noqa: E402  (код 390acfbc8, не править)
 import test_cleanup as TC  # noqa: E402
 import test_deskew as TD  # noqa: E402
 import test_k6_continuation as K  # noqa: E402
-
-GOLD = json.loads((ROOT / 'tests' / 'floorplan' / 'golden_deskew_base.json').read_text(encoding='utf-8'))
 
 
 def _pil(img):
@@ -58,16 +58,43 @@ def _clear(monkeypatch):
             monkeypatch.delenv(k, raising=False)
 
 
-def _same_as_gold(name, r):
-    g = GOLD[name]
-    if r['ops'] != g['ops'] or r['deskew_deg'] != g['deskew_deg'] or list(r['sheet'].size) != g['size'] or len(r['steps']) != len(g['steps']):
-        return False
-    for a, b in zip(r['steps'], g['steps']):
-        if a['op'] != b['op'] or ('H' in a) != ('H' in b):
-            return False
-        if 'H' in a and not np.allclose(np.array(a['H']), np.array(b['H']), atol=1e-4):
-            return False
-    return True
+def _norm(x):
+    """Приведение к сравнимому виду без округления: numpy → списки, числа как есть (точное равенство)."""
+    if isinstance(x, dict):
+        return {k: _norm(v) for k, v in x.items()}
+    if isinstance(x, (list, tuple)):
+        return [_norm(v) for v in x]
+    if isinstance(x, np.ndarray):
+        return _norm(x.tolist())
+    if isinstance(x, np.generic):
+        return x.item()
+    return x
+
+
+def diff_old_new(old, new):
+    """Расхождения результатов input_step.run старой и новой функции (пусто = точное равенство)."""
+    out = []
+    for k in ('ops', 'deskew_deg', 'quarter_k', 'steps', 'cut'):
+        if _norm(old[k]) != _norm(new[k]):
+            out.append(k)
+    if old['sheet'].size != new['sheet'].size:
+        out.append('size %s != %s' % (old['sheet'].size, new['sheet'].size))
+    elif not np.array_equal(np.asarray(old['sheet']), np.asarray(new['sheet'])):
+        out.append('pixels')
+    return out
+
+
+def run_both(name, monkeypatch, k6=False):
+    """Старая (390acfbc8) и новая функции, один процесс, одни и те же вход и окружение, все свои флаги выкл (k6=True — только −контроль)."""
+    _clear(monkeypatch)
+    monkeypatch.setenv('FP_INPUT_ALL', '1')
+    old = ins_old.run(_pil(CASES[name]()), ins_old.flags_from_env(), scorer=None)
+    flags = ins.flags_from_env()
+    assert not flags['deskew_k6'] and not flags['deskew_min5'] and not flags['deskew_guard'] and not flags['quarter_after']
+    if k6:
+        flags = {**flags, 'deskew_k6': True}                                               # −контроль: флаг принудительно ВКЛ
+    new = ins.run(_pil(CASES[name]()), flags, scorer=None)
+    return old, new
 
 
 def test_flag_is_own_and_off(monkeypatch):
@@ -81,20 +108,21 @@ def test_flag_is_own_and_off(monkeypatch):
     assert ins.flags_from_env()['deskew_k6'] and cl.flag_deskew_k6()
 
 
+def test_fixture_is_the_base_code():
+    """Фикстура — настоящий старый код: модули разные, у новой функции есть то, чего нет у старой."""
+    import cleanup_base390 as clo
+    assert clo is not cl and ins_old is not ins
+    assert not hasattr(clo, 'flag_deskew_k6') and hasattr(cl, 'flag_deskew_k6')
+    assert 'deskew_k6' not in ins_old.ENV_OWN and 'deskew_k6' in ins.ENV_OWN
+
+
 @pytest.mark.parametrize('name', sorted(CASES))
 def test_all_flags_off_with_input_all_is_as_before_97e303407(monkeypatch, name):
-    _clear(monkeypatch)
-    monkeypatch.setenv('FP_INPUT_ALL', '1')
-    flags = ins.flags_from_env()
-    assert not flags['deskew_k6'] and not flags['deskew_min5'] and not flags['deskew_guard'] and not flags['quarter_after']
-    r = ins.run(_pil(CASES[name]()), flags, scorer=None)
-    assert _same_as_gold(name, r), (name, r['ops'], r['deskew_deg'], GOLD[name]['ops'], GOLD[name]['deskew_deg'])
+    old, new = run_both(name, monkeypatch)
+    assert diff_old_new(old, new) == [], (name, old['ops'], new['ops'], old['deskew_deg'], new['deskew_deg'])
 
 
-def test_control_flag_on_changes_result_so_golden_goes_red(monkeypatch):
-    _clear(monkeypatch)
-    monkeypatch.setenv('FP_INPUT_ALL', '1')
-    flags = {**ins.flags_from_env(), 'deskew_k6': True}                                    # −контроль: флаг принудительно ВКЛ
-    red = [n for n in CASES if not _same_as_gold(n, ins.run(_pil(CASES[n]()), dict(flags), scorer=None))]
-    assert 'thin20_bar' in red and 'keystone6' in red, red                                 # золото краснеет именно там, где флаг что-то меняет
+def test_control_flag_on_changes_result_so_direct_comparison_goes_red(monkeypatch):
+    red = [n for n in CASES if diff_old_new(*run_both(n, monkeypatch, k6=True))]
+    assert 'thin20_bar' in red and 'keystone6' in red, red                                 # сравнение краснеет именно там, где флаг что-то меняет
     assert 'rot+10' not in red and 'rot0' not in red                                       # обычный поворот и прямой лист флаг не трогает
