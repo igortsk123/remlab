@@ -33,7 +33,13 @@ import words_on_sheet as WS  # noqa: E402  (T-98/15: флаг «имена сл�
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))      # T-ЦП рамка: СВОЙ ru_eval (рядом с этим файлом) — раньше nc-models и снимка
 import ru_eval as RE  # noqa: E402
 sys.path.append(os.path.join(os.path.dirname(os.path.abspath(__file__)), '..', '..', 'ops'))
-from run_card import carded  # noqa: E402  (П1.161 шаг 5: карточка прогона RUN.json в выходной папке; сбой карточки прогон не валит)
+try:
+    from run_card import carded  # noqa: E402  (П1.161 шаг 5: карточка прогона RUN.json в выходной папке; сбой карточки прогон не валит)
+except ImportError as _rc_err:  # снимок воронки копирует файлы плоско, без tools/ops (Fable 28.11): нет модуля → прогон идёт без карточки
+    print('storozh: карточка прогона недоступна (%s) — прогон идёт без неё' % _rc_err, file=sys.stderr)
+
+    def carded(run_dir, task=None, intermediate=None):
+        return lambda fn: fn
 import ext as X  # noqa: E402  (T-171/paket-ext: числа 2б/2в на листе; ExtStop — СТОП прогона)
 
 ExtStop = X.ExtStop
@@ -1140,7 +1146,7 @@ def break_control(sid, var, model, plan, key, base=None):
 
 @carded(U)
 def selftest(pairs):
-    lines =['Сверщик на себе (T-98/11): поломки руками на 2 листах; сторож должен увидеть все 3 вида на каждом; нетронутый ответ — как базовая линия.']
+    lines = ['Сверщик на себе (T-98/11): поломки руками на 2 листах; сторож должен увидеть все 3 вида на каждом; нетронутый ответ — как базовая линия.']
     allok = True
     for sid, var, model in pairs:
         key = '%s/%s/%s' % (sid, var, model)

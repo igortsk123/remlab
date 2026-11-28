@@ -20,7 +20,13 @@ from shapely.ops import unary_union
 sys.path.insert(0, os.path.expanduser('~/remlab-logs/etazhi-walls/nc-models'))
 import nc_eval as NE  # noqa: E402  (walls_assembly, poly_of)
 sys.path.append(os.path.join(os.path.dirname(os.path.abspath(__file__)), '..', '..', 'ops'))
-from run_card import carded  # noqa: E402  (П1.161 шаг 5: карточка прогона RUN.json в выходной папке; сбой карточки прогон не валит)
+try:
+    from run_card import carded  # noqa: E402  (П1.161 шаг 5: карточка прогона RUN.json в выходной папке; сбой карточки прогон не валит)
+except ImportError as _rc_err:  # снимок воронки копирует файлы плоско, без tools/ops (Fable 28.11): нет модуля → прогон идёт без карточки
+    print('ru_eval: карточка прогона недоступна (%s) — прогон идёт без неё' % _rc_err, file=sys.stderr)
+
+    def carded(run_dir, task=None, intermediate=None):
+        return lambda fn: fn
 
 W = os.path.expanduser('~/remlab-logs/etazhi-walls')
 N = W + '/nc-models'
