@@ -21,7 +21,7 @@
 | `demo-planner.md` | demo-planner | Демо-планировщик для партнёра — расстановка и кадр | `../domain/demo-planner-ui.md` | 2026-11-18 |
 | `demo-scenarios.md` | demo-scenarios | Сценарии /demo — кнопки, проверки, дефекты | `../domain/demo-scenario-map.md` | 2026-11-13 |
 | `estimate.md` | estimate | Смета — калькуляторы, /go/ реф | `../domain/pricing-works-ru.md` | 2026-11-18 |
-| `etazhi-plans.md` | etazhi-plans | Этажи — РФ-планы → 3D: чтение нейросетью, проверки, набор | `../domain/etazhi-vneshnee-issledovanie-2026-11-26.md` | 2026-11-27 |
+| `etazhi-plans.md` | etazhi-plans | Этажи — РФ-планы → 3D: чтение нейросетью, проверки, набор | `../domain/etazhi-vneshnee-issledovanie-2026-11-26.md` | 2026-11-28 |
 | `furniture.md` | furniture | Мебель — сеты, визуализация | `../domain/viz-fidelity-playbook.md` | 2026-11-19 |
 | `goals.md` | goals | Цели v0.4 — сценарий, монетизация, порядок ступеней | `../plans/MASTER-cost-first.md` | 2026-11-18 |
 | `knowledge-db.md` | knowledge-db | Source-KB из книг — спека, KB0–KB9 | `../../remlab_knowledge_db_v1/spec/SPEC_source_kb_v1.md` | 2026-11-06 |

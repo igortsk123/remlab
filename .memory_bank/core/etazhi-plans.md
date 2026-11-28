@@ -3,7 +3,7 @@ tier: 1
 topic: etazhi-plans
 scope: Этажи — РФ-планы → 3D: чтение нейросетью, проверки, набор
 tier2: ../domain/etazhi-vneshnee-issledovanie-2026-11-26.md
-updated: 2026-11-27
+updated: 2026-11-28
 importance: high
 source: manual
 status: working
@@ -18,6 +18,7 @@ review_after: 2026-12-10
 - Читает агент Opus по подписке (`tools/floorplan/opus_agent.py`, $0; ADR-0491/0492, TG 3717) → plan.v1; вход — `tools/floorplan/cleanup.py` (выкл).
 - Привязка: маска чернил + подгонка (`vetka_fit.py`), класс стены (на линии / сдвинута / выдумана …); правка положения (`vetka_correct.py`, ворота `accept_correction.py`) — выкл.
 - «Проверено» = А (`a_rooms_v2.py`) + Б (`b_check_v2.py`) + состав; паспорт ≤3 % (`passport_sverka.py`). Имена — по словам листа (`words_on_sheet.py`). Сторож `~/remlab-logs/etazhi-walls/ustroystvo/storozh.py` П1–П10 — звонок, не приговор.
+- Сторож в репо (28.11): `tools/floorplan/etazhi/storozh.py`, выключатели `storozh_rules.json`, `ext.py` (без чисел — стоп). ВКЛ рамка+общая, Нал, 2г, 2б(а), 2в; ВЫКЛ круг 3, бледная, П2, П3-лоджии. Экзамен-совместный: поймано 11→17/23, готово с косяком 10/32→5/28 (план § «Ход кругов»).
 - Экзамен 28.11 (ADR-0492): агент, `--labels5`, только снимок `voronka/versii/20261126-2234` + прогонщик `~/remlab-logs/t176/ekz/`; команда — план § «Экзамен 28.11».
 - Эталон глаза — одно место (TG 3735): `~/remlab-logs/etazhi-walls/glaz/glaz-etalon.tsv` (341, строка на ответ), отложенная треть `otlozhennye.txt`. Цикл улучшения проверки (TG 3740) — план § «Цикл улучшения проверки», Fable `otvet-35.md`.
 
@@ -27,4 +28,4 @@ review_after: 2026-12-10
 - Мерка: «ушёл в 3D без правки и верно»; «проверено и неверно» = 0.
 
 ## Внешнее
-- Исследование TG 3113 и записка TG 3186 (не канон, критика — Fable otvet-6) → tier2.
+- Исследование TG 3113, записка TG 3186 (критика — Fable otvet-6) → tier2.
