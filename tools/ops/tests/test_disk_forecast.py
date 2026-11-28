@@ -19,7 +19,7 @@ GB = 1024 ** 3
 FIX = json.loads((Path(__file__).parent / 'fixtures' / 'disk_forecast_47.json').read_text(encoding='utf-8'))
 ROWS, STOP, WARN_H = FIX['rows'], FIX['stop_gb'], FIX['warn_h']
 RULE_OLD = {'grow_alert_gb': 20, 'grow_window_h': 24, 'grow_top': 3, 'grow_alert_every_h': 6, 'forecast_window_h': 6, 'forecast_warn_h': WARN_H, 'src': '/нет', 'dst': '/нет-hdd'}
-RULE_NEW = dict(RULE_OLD, forecast_relief_window_h=24, forecast_relief_cap=0.8, forecast_relief_gap_h=2)
+RULE_NEW = dict(RULE_OLD, forecast_relief_enabled=True, forecast_relief_window_h=24, forecast_relief_cap=0.8, forecast_relief_gap_h=2)
 ALIVE = lambda: (True, 'кандидатов 3, освободят 12.0 ГБ')                        # noqa: E731
 DEAD = lambda: (False, 'HDD не смонтирован')                                      # noqa: E731
 
@@ -170,10 +170,35 @@ def test_transfer_alive_reasons(monkeypatch):
 
 def test_rules_file_has_relief_keys_with_why():
     r = la.rules()
-    assert r['forecast_relief_window_h'] == 24 and r['forecast_relief_cap'] == 0.8 and r['forecast_relief_gap_h'] == 2
+    assert r['forecast_relief_enabled'] is False                                        # по умолчанию ВЫКЛ: включать — после новой недели замеров (директор 28.11)
+    assert r['forecast_relief_window_h'] == 24 and r['forecast_relief_cap'] == 0.8 and r['forecast_relief_gap_h'] == 2   # значения готовы, но не действуют
     assert r['forecast_warn_h'] == 12 and r['forecast_window_h'] == 6                   # порог тревоги не менялся
     d = json.loads((OPS.parent / 'scout' / 'rules' / 'dev-disk.json').read_text(encoding='utf-8'))
     assert 'otvet-52' in d['archive']['_forecast_relief_why'] and 'П1.161' in d['archive']['_forecast_relief_why']
+    assert 'новой недели замеров' in d['archive']['_forecast_relief_why']
+
+
+def test_relief_off_by_default_forecast_is_byte_identical(tmp_path):
+    """−контроль «выкл = прежний»: ключи в dev-disk.json ВЫКЛ → после влития прогноз и тревоги ПОБАЙТНО прежние (строка дайджеста и WARN), даже когда перенос идёт и данные о нём есть."""
+    file_rules = dict(la.rules(), src='/нет', dst='/нет-hdd')
+    assert file_rules['forecast_relief_enabled'] is False
+    off = dict(RULE_NEW, forecast_relief_enabled=False)
+    for r in ROWS:
+        base = replay(tmp_path, r, RULE_OLD)
+        assert replay(tmp_path, r, file_rules, transfer=ALIVE) == base, r['t']
+        assert replay(tmp_path, r, off, transfer=ALIVE) == base, r['t']
+        assert 'перенос' not in ''.join(base)
+    assert len(alarms(tmp_path, file_rules, transfer=ALIVE)) == 43
+
+
+def test_enabled_with_file_values_47_measurements_43_to_25_and_stopped_43(tmp_path):
+    """Те же значения, что лежат в dev-disk.json (24 / 0,8 / 2), но ВКЛЮЧЁННЫЕ: на 47 замерах 43 → 25; перенос остановлен — 43 из 43."""
+    fr = la.rules()
+    assert (fr['forecast_relief_window_h'], fr['forecast_relief_cap'], fr['forecast_relief_gap_h']) == (24, 0.8, 2)
+    on = dict(fr, src='/нет', dst='/нет-hdd', forecast_relief_enabled=True)
+    assert len(alarms(tmp_path, on, transfer=ALIVE)) == EXPECT_NEW == 25
+    assert len(alarms(tmp_path, on, transfer=DEAD)) == 43
+    assert len(alarms(tmp_path, on, transfer=ALIVE, moved_gb=0.0)) == 43
 
 
 EXPECT_NEW = 25                                                                         # на тех же 47 замерах: было 43 → стало 25 (минус 42 %)

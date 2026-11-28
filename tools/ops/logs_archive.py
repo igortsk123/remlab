@@ -63,7 +63,7 @@ RULES_PATH = os.path.join(ROOT, 'tools', 'scout', 'rules', 'dev-disk.json')
 GB = 1024 ** 3
 DEFAULTS = {'src': '~/remlab-logs', 'dst': '/mnt/hdd/remlab-logs-arhiv', 'days': 5, 'min_hdd_free_gb': 50, 'never': [], 'worktrees_block': True, 'refs_exclude': [], 'adaptive': [], 'refs_scope': None, 'memory_paths': None, 'hdd_prune': {'days': 14}, 'protected': [],
             'monitor_max_h': None, 'stale_holder_hours': None, 'grow_alert_gb': None, 'grow_window_h': None, 'grow_top': None, 'grow_alert_every_h': None, 'forecast_window_h': None, 'forecast_warn_h': None,
-            'forecast_relief_window_h': None, 'forecast_relief_cap': None, 'forecast_relief_gap_h': None}   # T-89: нет ключа в rules — наблюдатели держат как прежде, сторож роста выключен (чисел порогов в коде нет — они в dev-disk.json)
+            'forecast_relief_enabled': None, 'forecast_relief_window_h': None, 'forecast_relief_cap': None, 'forecast_relief_gap_h': None}   # T-89: нет ключа в rules — наблюдатели держат как прежде, сторож роста выключен (чисел порогов в коде нет — они в dev-disk.json)
 PROTECTED_DEFAULT = ['~/remlab-inputs']   # входы наборов (T-20261125-75/2): не переносить, не удалять; правило `archive.protected` только ДОБАВЛЯЕТ папки
 
 
@@ -1139,10 +1139,10 @@ def transfer_alive(r: dict, repo: str) -> tuple[bool, str]:
 def relief_forecast(r: dict, snaps: list, cur: dict, now: float, free: float, stop_gb: float, fgross: float, fspan: float, transfer=None, is_moved=None) -> tuple[float | None, str]:
     """(часов до стопа с учётом почасового переноса на HDD | None — не учитываем, пояснение). Чистый темп = валовой рост − то, что перенос реально снял за `forecast_relief_window_h`
     (убыль ушедших на HDD папок ÷ часы окна; не больше доли `forecast_relief_cap` от валового роста — запас на случай, что перенос не успеет). Перенос не учитываем (прогноз как раньше):
-    нет ключей в rules / нет transfer / снимков мало / часовой запуск пропускал (> `forecast_relief_gap_h` ч с прошлого снимка) / за окно на HDD ничего не ушло /
+    ключ forecast_relief_enabled выключен (по умолчанию; директор 28.11: включать после новой недели замеров) / нет ключей в rules / нет transfer / снимков мало / часовой запуск пропускал (> `forecast_relief_gap_h` ч с прошлого снимка) / за окно на HDD ничего не ушло /
     transfer() говорит «не идёт» (HDD нет или полон, кандидатов нет). Порог тревоги и сам перенос не меняются (T-20261128 П1.161, Fable otvet-52)."""
     rw, cap, gap = (r.get(k) for k in ('forecast_relief_window_h', 'forecast_relief_cap', 'forecast_relief_gap_h'))
-    if transfer is None or rw is None or cap is None or gap is None or fgross <= 0 or len(snaps) < 2:
+    if not r.get('forecast_relief_enabled') or transfer is None or rw is None or cap is None or gap is None or fgross <= 0 or len(snaps) < 2:
         return None, ''
     rref = next((s for s in snaps[:-1] if now - s['t'] <= float(rw) * 3600 + 1800), None)
     if rref is None or now - rref['t'] < 3600:

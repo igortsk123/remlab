@@ -32,6 +32,7 @@
   "grow_alert_every_h": 6,
   "forecast_window_h": 6,
   "forecast_warn_h": 12,
+  "forecast_relief_enabled": false,
   "forecast_relief_window_h": 24,
   "forecast_relief_cap": 0.8,
   "forecast_relief_gap_h": 2,
