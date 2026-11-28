@@ -88,4 +88,4 @@ def test_explicit_flags_no_env_and_no_crosstalk(monkeypatch):
     assert dict(os.environ) == before
     monkeypatch.setenv("FP_INPUT_ALL", "1")
     assert ins.run(sheet, {})["ops"] == []                        # явный набор сильнее окружения
-    assert ins.flags_from_env() == {**{k: True for k in ins.ENV}, "quarter": False}      # quarter (OCR) «все шаги» не включают
+    assert ins.flags_from_env() == {**{k: True for k in ins.ENV}, "quarter": False, "quarter_after": False, "deskew_guard": False}      # свои флаги (quarter — OCR; quarter_after, deskew_guard — T-171/k6-zashchita) «все шаги» не включают

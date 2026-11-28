@@ -20,7 +20,7 @@ import apartment_cut
 import cleanup
 
 ENV = {'deskew': 'FP_CLEAN_DESKEW', 'rect': 'FP_CLEAN_RECT', 'bg': 'FP_CLEAN_BG', 'grid': 'FP_CLEAN_GRID', 'lines': 'FP_CLEAN_LINES', 'layers': 'FP_CLEAN_LAYERS', 'cut': 'FP_CUT_APT'}
-ENV_OWN = {'quarter': 'FP_CLEAN_QUARTER'}      # четверть оборота по OCR (Fable otvet-36): ТОЛЬКО своим флагом, FP_INPUT_ALL=1 его не включает (нужен OCR-оценщик `scorer`)
+ENV_OWN = {'quarter': 'FP_CLEAN_QUARTER', 'quarter_after': 'FP_CLEAN_QUARTER_AFTER', 'deskew_guard': 'FP_CLEAN_DESKEW_GUARD'}      # четверть оборота по OCR (Fable otvet-36): ТОЛЬКО своим флагом, FP_INPUT_ALL=1 его не включает (нужен OCR-оценщик `scorer`)
 
 
 def flag_all() -> bool:
@@ -61,9 +61,15 @@ def run(sheet, flags=None, scorer=None):
         sheet, q_ops, q_steps, q_k = _quarter(sheet, scorer)
     sheet, ops, steps = cleanup.clean_sheet_steps(sheet, flags)
     ops, steps = list(q_ops) + list(ops), list(q_steps) + list(steps)
+    if flags.get('quarter') and flags.get('quarter_after') and scorer is not None and q_k is None and 'deskew' in ops \
+            and not any(s.get('op') == 'quarter' and 'fail' in s for s in q_steps):
+        # T-171/k6-zashchita (Fable otvet-48): первый проход четверти шёл на ещё наклонном листе — OCR на нём плохо читает при любом k (ekb-14444966: 43 против 61, ×2 не набрано);
+        # второй проход — на довёрнутом листе, только если доворот сработал и первый проход не повернул. Шаг — в конец steps (порядок применения; source_point разворачивает с конца)
+        sheet, q2_ops, q2_steps, q_k = _quarter(sheet, scorer)
+        ops, steps = list(ops) + list(q2_ops), list(steps) + list(q2_steps)
     sheet, cut = apartment_cut.cut_sheet(sheet, flags)
     if cut.get('status') == 'cut':
         ops = list(ops) + ['cut']
         steps = list(steps) + [{'op': 'crop', **cut['transform']}]
-    deg = next((s['angle_deg'] for s in steps if s.get('op') == 'deskew'), None)
+    deg = next((s['angle_deg'] for s in steps if s.get('op') == 'deskew' and 'angle_deg' in s), None)      # запись «защита доворота сработала» ({'op':'deskew','skip':…}) угла не несёт
     return {'sheet': sheet, 'ops': ops, 'steps': steps, 'cut': cut, 'deskew_deg': deg, 'quarter_k': q_k}

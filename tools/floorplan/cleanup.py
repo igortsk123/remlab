@@ -44,6 +44,10 @@ def flag_deskew() -> bool:
     return os.environ.get('FP_CLEAN_DESKEW', '0') == '1'
 
 
+def flag_deskew_guard() -> bool:
+    return os.environ.get('FP_CLEAN_DESKEW_GUARD', '0') == '1'
+
+
 # ---------------- (0) доворот повёрнутого листа (T-171/vhod, план Fable otvet-33 задача 6) ----------------
 DESKEW_MIN = 1.5         # главный угол линий меньше — лист ровный, не трогаем
 DESKEW_MAX = 30.0        # больше — не доворот (план «под 45°» — вопрос другого шага), не трогаем
@@ -51,6 +55,10 @@ DESKEW_RESID = 1.0       # после поворота угол пересчит
 DESKEW_SHARE_MIN = 0.15  # доля длины линий на главном угле и поперёк него (±1,5°): меньше — главного угла у листа нет (рукописный/круглый план)
 DESKEW_BALANCE_MIN = 0.04  # …и слабая из двух сторон не меньше этой доли: у плана стены идут в обе стороны, у линейки/рамки листа — в одну
 DESKEW_MIN_SEGS = 12
+# защита доворота (T-171/k6-zashchita, Fable otvet-48; флаг FP_CLEAN_DESKEW_GUARD, по умолчанию ВЫКЛ): поворот не должен терять чернила и не идёт на мелких листах
+DESKEW_SIDE_MIN = 450    # длинная сторона листа меньше (px) — доворот не делаем: интерполяция размывает тонкие линии (kazan-14337759: 396 px, чернил 92→38)
+DESKEW_INK_T = 128       # «чернила» — пиксели темнее этого (серый 0…255)
+DESKEW_INK_KEEP = 0.75   # после поворота чернил меньше этой доли от исходных (или нет вовсе) → откат
 
 
 def _fold90(a):
@@ -212,10 +220,13 @@ def perspective(gray):
     return worst >= PERSP_MIN, info
 
 
-def deskew_lines(bgr):
+def deskew_lines(bgr, guard=False):
     """→ (повёрнутый | None, info). Лист поворачивается на главный угол линий (холст расширяется, поле белое); info['H'] — матрица исходный лист → выход.
-    Не применяется: лист ровный (< DESKEW_MIN), угол > DESKEW_MAX, главного угла нет, после поворота остаток ≥ DESKEW_RESID."""
+    Не применяется: лист ровный (< DESKEW_MIN), угол > DESKEW_MAX, главного угла нет, после поворота остаток ≥ DESKEW_RESID.
+    guard=True (флаг FP_CLEAN_DESKEW_GUARD): ещё и мелкий лист (длинная сторона < DESKEW_SIDE_MIN) и «после поворота чернил < DESKEW_INK_KEEP от исходных» — откат с причиной в info['guard']."""
     H0, W0 = bgr.shape[:2]
+    if guard and max(H0, W0) < DESKEW_SIDE_MIN:
+        return None, {'ok': False, 'guard': 'size', 'reason': f'лист мелкий: длинная сторона {max(H0, W0)} px (< {DESKEW_SIDE_MIN}) — доворот размывает линии, откат'}
     k = min(1.0, RECT_WORK / max(H0, W0))
     small = cv2.resize(bgr, (round(W0 * k), round(H0 * k)), interpolation=cv2.INTER_AREA) if k < 1 else bgr
     gsmall = cv2.cvtColor(small, cv2.COLOR_BGR2GRAY)
@@ -247,6 +258,14 @@ def deskew_lines(bgr):
         info['reason'] = f'после поворота остаток {"?" if resid is None else round(resid, 2)}° (≥ {DESKEW_RESID}°) — откат'
         return None, info
     info['residual_deg'] = round(resid, 2)
+    if guard:
+        ink0 = int((cv2.cvtColor(bgr, cv2.COLOR_BGR2GRAY) < DESKEW_INK_T).sum())
+        ink1 = int((cv2.cvtColor(out, cv2.COLOR_BGR2GRAY) < DESKEW_INK_T).sum())
+        info['ink'] = [ink0, ink1]
+        if ink1 < DESKEW_INK_KEEP * ink0:                      # ink0 == 0 (бледный скан без тёмных пикселей) — не повод для отката: мерить нечем
+            info['guard'] = 'ink'
+            info['reason'] = f'после поворота чернил {ink1} из {ink0} (< {DESKEW_INK_KEEP:g} от исходных) — откат'
+            return None, info
     info['ok'] = True
     info['H'] = np.vstack([M, [0, 0, 1.0]]).tolist()
     return out, info
@@ -891,11 +910,11 @@ def separate_layers(bgr):
     return out, info, {'furniture': furn, 'dims': dims}
 
 
-def clean_bgr(bgr, rectify=True, background=True, lines=False, grid=False, layers=False, deskew=False):
+def clean_bgr(bgr, rectify=True, background=True, lines=False, grid=False, layers=False, deskew=False, deskew_guard=False):
     """→ (bgr, ops, info). ops ⊂ ['deskew', 'rectify', 'background', 'grid', 'layers', 'lines']; ничего не применилось — тот же массив."""
     ops, info, cur = [], {}, bgr
     if deskew:                                                # доворот — первым: выпрямление ниже видит уже ровный лист (≥ 0,80 на осях → пропуск)
-        d_, inf = deskew_lines(cur)
+        d_, inf = deskew_lines(cur, guard=deskew_guard)
         info['deskew'] = {k: v for k, v in inf.items() if k != 'H'}
         if d_ is not None:
             cur = d_
@@ -944,19 +963,24 @@ def clean_sheet_steps(sheet, flags=None):
     [{'op': 'rectify', 'H': 3×3 исходный→выход, 'in': [W, H], 'out': [w, h]}]; фон и усиление линий геометрию не меняют. Выключено/не применилось — тот же объект, [], []."""
     if flags is None:
         rect, bg, ln, gr, ly, dk = flag_rect(), flag_bg(), flag_lines(), flag_grid(), flag_layers(), flag_deskew()
+        dg = flag_deskew_guard()
     else:                                                     # явный набор (служба с потоками): окружение не читаем
         rect, bg, ln, gr, ly, dk = (bool(flags.get(k)) for k in ('rect', 'bg', 'lines', 'grid', 'layers', 'deskew'))
+        dg = bool(flags.get('deskew_guard'))
     if not (rect or bg or ln or gr or ly or dk):
         return sheet, [], []
     from PIL import Image
     try:
         bgr = cv2.cvtColor(np.asarray(sheet.convert('RGB')), cv2.COLOR_RGB2BGR)
-        out, ops, info = clean_bgr(bgr, rectify=rect, background=bg, lines=ln, grid=gr, layers=ly, deskew=dk)
+        out, ops, info = clean_bgr(bgr, rectify=rect, background=bg, lines=ln, grid=gr, layers=ly, deskew=dk, deskew_guard=dg)
     except Exception:  # noqa: BLE001 — чистка не должна ронять разбор: лист как есть
         return sheet, [], []
+    guard_step = []
+    if dg and info.get('deskew', {}).get('guard'):            # защита доворота сработала — не молча: запись в steps (геометрии нет, source_point её пропускает)
+        guard_step = [{'op': 'deskew', 'skip': info['deskew'].get('reason', 'защита доворота'), 'guard': info['deskew']['guard']}]
     if not ops:
-        return sheet, [], []
-    steps = []
+        return sheet, [], guard_step
+    steps = list(guard_step)
     if 'deskew' in ops and 'deskew_H' in info:
         d = info['deskew']
         steps.append({'op': 'deskew', 'H': info['deskew_H'], 'angle_deg': d['angle_deg'], 'residual_deg': d['residual_deg'],
