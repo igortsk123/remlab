@@ -429,6 +429,8 @@ def _selftest() -> int:
             got.update(kw, repo=repo)
             raise _Stop
     saved, saved_local = sys.modules.get('transformers'), CO1._LOCAL
+    saved_mc = os.environ.get('MASK_CACHE')
+    os.environ['MASK_CACHE'] = '0'          # заглушка модели не должна читать/писать боевой кэш масок (T-175/mask-cache)
     sys.modules['transformers'], CO1._LOCAL = types.SimpleNamespace(AutoModelForImageSegmentation=_Auto), None
     try:
         buf = io.BytesIO()
@@ -442,6 +444,10 @@ def _selftest() -> int:
         else:
             sys.modules['transformers'] = saved
         CO1._LOCAL = saved_local
+        if saved_mc is None:
+            os.environ.pop('MASK_CACHE', None)
+        else:
+            os.environ['MASK_CACHE'] = saved_mc
     ok('BiRefNet: ревизия закреплена полным хешем и передаётся в from_pretrained',
        re.fullmatch(r'[0-9a-f]{40}', BIREFNET_REVISION) is not None and got.get('revision') == BIREFNET_REVISION
        and got.get('repo') == BIREFNET_REPO and got.get('trust_remote_code') is True)

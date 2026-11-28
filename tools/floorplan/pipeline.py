@@ -170,6 +170,8 @@ def prepare(input_path: Path, mime: str, workdir: Path) -> tuple[Path, dict, lis
         source['inputTransform'] = steps      # шаги входа, меняющие геометрию (по порядку): ответ нейросети → исходный лист (otvet-7)
     if res['ops']:
         source['inputOps'] = res['ops']      # что вход применил (для трассировки/разбора)
+    if res.get('deskew_deg') is not None:
+        source['inputDeskewDeg'] = res['deskew_deg']   # угол, на который лист довёрнут (паспорт листа, T-171/vhod; «+» — линии шли вниз вправо)
     return out, source, flags
 
 

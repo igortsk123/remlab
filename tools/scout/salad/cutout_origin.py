@@ -52,7 +52,7 @@ def pixels_sha256(img) -> str:
     return hashlib.sha256(f'{im.width}x{im.height}:RGBA:'.encode() + im.tobytes()).hexdigest()
 
 
-def build(raw: bytes, steps=(), now: datetime.datetime | None = None, code: str | None = None, *, shape=None, pixels: str | None = None, pick: str = 'none') -> dict:
+def build(raw: bytes, steps=(), now: datetime.datetime | None = None, code: str | None = None, *, shape=None, pixels: str | None = None, pick: str = 'none', mask_cache: str | None = None) -> dict:
     """Запись происхождения входа, сделанного из фото `raw` (исходные байты) единой цепочкой с набором шагов `steps`; `shape` — готовая вырезка полного холста (RGBA) или (для тестов) готовый `pixels` — хеш содержимого."""
     if shape is None and pixels is None:
         raise ValueError('нужна готовая вырезка (shape) — хеш её содержимого входит в запись')
@@ -63,8 +63,11 @@ def build(raw: bytes, steps=(), now: datetime.datetime | None = None, code: str 
     if pick not in PICKS:
         raise ValueError(f'pick={pick!r}: допустимо {PICKS}')
     now = now or datetime.datetime.now(datetime.timezone.utc)
+    mask = {'source': MASK_SOURCE, 'repo': BIREFNET_REPO, 'revision': BIREFNET_REVISION}
+    if mask_cache:
+        mask['cache'] = mask_cache          # дисковый кэш сырой маски включён (T-175/mask-cache): правило в метке; выключен — поля нет, метка прежняя
     return {'format': ORIGIN_FORMAT, 'method': METHOD, 'chain_version': CHAIN_VERSION, 'steps': st, 'pick': pick,
-            'mask': {'source': MASK_SOURCE, 'repo': BIREFNET_REPO, 'revision': BIREFNET_REVISION},
+            'mask': mask,
             'code': code if code is not None else code_version(),
             'photo_sha256': hashlib.sha256(raw).hexdigest(),
             'pixels_sha256': pixels if pixels is not None else pixels_sha256(shape),

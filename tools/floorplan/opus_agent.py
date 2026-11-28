@@ -9,7 +9,9 @@
 Что ни одно сообщение не молчит:
   • программы нет / не вошла в учётку / накладные входные токены контрольного вызова > 1000 / вход не по подписке → `AgentStop` до первого листа (`preflight`);
   • код возврата ≠ 0, таймаут 600 с — один повтор, снова сбой → отказ с причиной; пустой ответ, обрыв по длине, отказ модели — отказ без повтора;
-  • лимит подписки — стоп ВСЕЙ пачки (файл `<out>/STOP` с временем сброса), повторов нет; пятичасовое окно ≥ 70 % — пауза до сброса, неделя ≥ 60 % — стоп;
+  • лимит подписки — стоп ВСЕЙ пачки (файл `<out>/STOP` с временем сброса), повторов нет; пятичасовое окно ≥ 70 % — пауза до сброса, неделя ≥ 60 % — стоп
+    (разовое исключение — `OPUS_AGENT_WEEK_ALLOW='<N>:<YYYY-MM-DD>[/<YYYY-MM-DD>]:<TG владельца>'`: не больше N листов сверх 60 % и только в эти даты UTC, каждый лист — строка журнала с причиной
+    «допуск TG…», счёт N по журналу переживает перезапуск; `OPUS_AGENT_WEEK_HARD` — жёсткий потолок недели, %, по умолчанию 60: с него стоп всегда; битая строка — стоп с причиной);
   • у листа нет добавки из объявления (`dlya_llm`) — отказ БЕЗ вызова (`refuse_no_addendum`), а не запрос со словом «None».
 Журнал `<out>/vetka-a/calls.jsonl` — строка на каждый вызов и каждый отказ (деньги `usd` = 0.0: подписка; `usd_list` — цена по прейскуранту из ответа программы, для сравнения).
 Денег не тратится; платных ключей нет."""
@@ -134,21 +136,104 @@ def limit_numbers():
     return tuple(a)
 
 
-def gate(nums, now=None):
-    """('ok'|'pause'|'stop', причина, секунд паузы). Неделя ≥ 60 % — стоп; пятичасовое ≥ 70 % — пауза до сброса окна."""
+ALLOW_RX = re.compile(r'^(\d+):(\d{4}-\d{2}-\d{2})(?:/(\d{4}-\d{2}-\d{2}))?:(\S.*)$')
+
+
+def week_hard():
+    """OPUS_AGENT_WEEK_HARD — жёсткий потолок недели, %: с него стоп ВСЕГДА, даже с допуском. Не задан — равен WEEK_STOP (допуск ничего не открывает). Битое значение — AgentStop."""
+    s = (os.environ.get('OPUS_AGENT_WEEK_HARD') or '').strip()
+    if not s:
+        return WEEK_STOP
+    try:
+        v = int(s)
+        if not 1 <= v <= 100:
+            raise ValueError(s)
+    except ValueError:
+        raise AgentStop('битая OPUS_AGENT_WEEK_HARD=%r — ждали целое 1…100 (%% недели), пачку не гоню' % s)
+    return v
+
+
+def week_allow(s=None):
+    """OPUS_AGENT_WEEK_ALLOW='<N>:<YYYY-MM-DD>[/<YYYY-MM-DD>]:<TG владельца>' — разовый допуск: не больше N листов СВЕРХ WEEK_STOP и только в названные даты (UTC; две даты — обе разрешены, не диапазон).
+    Не задана/пуста → None (стоп как раньше). Битая → AgentStop с причиной (не молча). → {'n','dates','tg','key'}; key (TG+даты, без N) связывает строки журнала одного допуска."""
+    s = os.environ.get('OPUS_AGENT_WEEK_ALLOW') if s is None else s
+    s = (s or '').strip()
+    if not s:
+        return None
+    bad = AgentStop('битая OPUS_AGENT_WEEK_ALLOW=%r — ждали <N>:<YYYY-MM-DD>[/<YYYY-MM-DD>]:<TG владельца>, N ≥ 1; пачку не гоню' % s)
+    m = ALLOW_RX.match(s)
+    if not m or int(m.group(1)) < 1:
+        raise bad
+    dates = [d for d in (m.group(2), m.group(3)) if d]
+    try:
+        for d in dates:
+            time.strptime(d, '%Y-%m-%d')
+    except ValueError:
+        raise bad
+    tg = m.group(4).strip()
+    return {'n': int(m.group(1)), 'dates': dates, 'tg': tg, 'key': '%s|%s' % (tg, '/'.join(dates))}
+
+
+def gate(nums, now=None, allow=None, used=0, hard=None):
+    """('ok'|'pause'|'stop', причина, секунд паузы). Неделя ≥ 60 % — стоп; пятичасовое ≥ 70 % — пауза до сброса окна.
+    allow (week_allow) и used (сколько листов этого допуска уже вызвано): неделя между WEEK_STOP и hard (week_hard) пускает, если сегодня (UTC) — названная дата и used < N;
+    тогда ответ 'ok' с НЕПУСТОЙ причиной «допуск …» (одно резервирование листа делает вызывающий). Неделя ≥ hard — стоп всегда. Пятичасовая пауза — как была."""
     p5, r5, p7, r7 = nums
     now = time.time() if now is None else now
-    if p7 >= WEEK_STOP and r7 > now:
-        return 'stop', 'неделя %d %% ≥ %d %% (сброс %s)' % (p7, WEEK_STOP, time.strftime('%d.%m %H:%M UTC', time.gmtime(r7))), 0
+    hard = week_hard() if hard is None else hard
+    over = ''
+    if (p7 >= WEEK_STOP or p7 >= hard) and r7 > now:
+        base = 'неделя %d %% ≥ %d %% (сброс %s)' % (p7, min(WEEK_STOP, hard), time.strftime('%d.%m %H:%M UTC', time.gmtime(r7)))
+        if p7 >= hard:
+            return 'stop', base + ('' if hard == WEEK_STOP else ' · жёсткий потолок %d %%: допуск не действует' % hard), 0
+        if allow is None:
+            return 'stop', base, 0
+        today = time.strftime('%Y-%m-%d', time.gmtime(now))
+        if today not in allow['dates']:
+            return 'stop', base + ' · допуск %s не на сегодня (%s UTC; допуск на %s)' % (allow['tg'], today, '/'.join(allow['dates'])), 0
+        if used >= allow['n']:
+            return 'stop', base + ' · допуск %s исчерпан: %d из %d листов' % (allow['tg'], used, allow['n']), 0
+        over = 'допуск %s: лист %d из %d (осталось %d), неделя %d %% ≥ %d %%, потолок %d %%' % (allow['tg'], used + 1, allow['n'], allow['n'] - used - 1, p7, WEEK_STOP, hard)
     if p5 >= FIVE_PAUSE and r5 > now:
         return 'pause', '5 часов %d %% ≥ %d %%: пауза до сброса %s' % (p5, FIVE_PAUSE, time.strftime('%H:%M UTC', time.gmtime(r5))), int(r5 - now) + 30
-    return 'ok', '', 0
+    return 'ok', over, 0
+
+
+def allow_used(allow):
+    """сколько листов этого допуска (тот же TG и даты) уже записано в calls.jsonl — при перезапуске пачки счёт не обнуляется (два запуска ≠ 2N)"""
+    n = 0
+    try:
+        with open(A + '/calls.jsonl', encoding='utf-8') as f:
+            for ln in f:
+                try:
+                    n += 1 if json.loads(ln).get('допуск_ключ') == allow['key'] else 0
+                except ValueError:
+                    continue
+    except OSError:
+        pass
+    return n
+
+
+def gate_reserve(nums, now=None):
+    """gate + резервирование листа допуска под lock (потоки пачки не выдадут N+1). → (вердикт, причина, пауза, grant|None); grant — поля для строки журнала листа.
+    Резерв снимается в _log, когда строка листа записана (до этого учитывается в STATE['allow_pending'])."""
+    with lock:
+        allow = week_allow()
+        used = allow_used(allow) + STATE.get('allow_pending', 0) if allow else 0
+        v, why, secs = gate(nums, now, allow, used)
+        grant = None
+        if v == 'ok' and why:
+            STATE['allow_pending'] = STATE.get('allow_pending', 0) + 1
+            grant = {'допуск': why, 'допуск_ключ': allow['key'], 'допуск_n': allow['n'], 'допуск_лист': used + 1, 'допуск_осталось': allow['n'] - used - 1}
+        return v, why, secs, grant
 
 
 def _log(rec):
     with lock:
         with open(A + '/calls.jsonl', 'a', encoding='utf-8') as f:
             f.write(json.dumps(rec, ensure_ascii=False) + '\n')
+        if rec.get('допуск_ключ'):                    # лист допуска записан — теперь его считает allow_used по файлу, резерв снимаем
+            STATE['allow_pending'] = max(0, STATE.get('allow_pending', 0) - 1)
 
 
 def _stop(reason):
@@ -173,6 +258,8 @@ def preflight(out_dir, effort=None):
     except (OSError, subprocess.SubprocessError) as e:
         raise AgentStop('программа claude не запускается: %s' % e)
     nums = limit_numbers()
+    week_hard()
+    allow = week_allow()                              # битая строка допуска/потолка — стоп до первого листа
     p = _run(build_cmd(claude, effort), build_message_text('Reply with the single word: OK'), env)
     parsed = parse_stream(p.stdout)
     res, init = parsed['result'], parsed['init']
@@ -187,7 +274,7 @@ def preflight(out_dir, effort=None):
         raise AgentStop('накладные входные токены %d > %d: в запрос попало наше окружение (правила/память) — листы не запускаю' % (over, OVERHEAD_MAX))
     info = {'вход': 'подписка', 'apiKeySource': src, 'версия': ver, 'путь': claude, 'модель': MODEL, 'усилие': effort or EFFORT, 'системный запрос': SYSTEM,
             'накладные входные токены': over, 'убраны из окружения': removed, 'пустая папка': CWD, 'лимит п5/сброс5/п7/сброс7': list(nums),
-            'ключи': build_cmd('claude', effort)[1:]}
+            'ключи': build_cmd('claude', effort)[1:], 'допуск недели': allow, 'жёсткий потолок недели %': week_hard()}
     info['усилие'] = effort or EFFORT
     STATE.update(version=ver, removed=removed, preflight=info)
     os.makedirs(out_dir, exist_ok=True)
@@ -219,7 +306,12 @@ def one(cid, key, prompt, img):
         while True:                                   # счётчик лимита перед каждым листом
             if OUT and os.path.exists(OUT + '/STOP'):
                 raise AgentStop('файл STOP')
-            v, why, secs = gate(limit_numbers())
+            nums = limit_numbers()
+            try:
+                v, why, secs, grant = gate_reserve(nums)
+            except AgentStop as e:                    # битая OPUS_AGENT_WEEK_ALLOW / _HARD: стоп ВСЕЙ пачки с причиной (STOP-файл), а не отказ каждого листа по очереди
+                _stop(str(e))
+                raise
             if v == 'stop':
                 _stop(why)
                 raise AgentStop('стоп пачки: ' + why)
@@ -228,6 +320,9 @@ def one(cid, key, prompt, img):
                 print(cid, key, why, flush=True)
                 sleep(min(secs, 600))                 # короткими отрезками: STOP-файл и счётчик перечитываются
                 continue
+            if grant:                                 # разовый допуск сверх недельного стопа: лист записан с причиной (TG, номер листа, сколько осталось)
+                rec.update(grant)
+                print(cid, key, why, flush=True)
             break
         env, _ = clean_env()
         msg = build_message(prompt, img)
