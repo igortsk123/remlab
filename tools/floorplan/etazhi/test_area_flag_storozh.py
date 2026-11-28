@@ -1,6 +1,6 @@
 """Врезка флажка «проверь площадь» в сторож Этажей (T-171/флажок-площади, Fable ❓25/❓26; rab-7 28.11): «выкл = побайтно прежнее», «вкл = только справка», −контроли.
 Синтетика, $0, без сети и чужих папок. Запуск: python tools/floorplan/etazhi/test_area_flag_storozh.py (нужны numpy, pillow, shapely).
-Сам счёт площади и границу 0,222 проверяет tests/floorplan/test_area_flag.py (модуль tools/floorplan/area_flag.py); здесь — только ХУК сторожа:
+Сам счёт площади и границу 0,2216532258064516 проверяет tests/floorplan/test_area_flag.py (модуль tools/floorplan/area_flag.py); здесь — только ХУК сторожа:
   with_area_flag (его зовёт guard) при area_flag.enabled=false возвращает справку как есть и не трогает res; finish даёт тот же исход, что и без ключа area_flag в правилах;
   при enabled=true добавляет ровно одну справку «Пл», звонки/класс/префикс исхода те же; числа в правилах сверяются с модулем (расхождение — остановка)."""
 import json
@@ -70,9 +70,9 @@ def with_rules(r, fn):
 
 
 cfg = S.RULES.get('area_flag') or {}
-check('A1 в правилах репо area_flag есть и ВЫКЛ по умолчанию', cfg.get('enabled') is False and cfg.get('boundary') == 0.222, str(cfg.get('enabled')))
+check('A1 в правилах репо area_flag есть и ВЫКЛ по умолчанию', cfg.get('enabled') is False and cfg.get('boundary') == 0.2216532258064516, str(cfg.get('enabled')))
 AF = S._area_flag_module()
-check('A2 числа в правилах = числам модуля (граница 0,222; 0,35/0,06; 0,40/0,15), путь модуля из правил', AF.BOUNDARY == 0.222 and AF.COND_EXT_M == 0.35 and os.path.basename(AF.__file__) == 'area_flag.py')
+check('A2 числа в правилах = числам модуля (граница 0,2216532258064516; 0,35/0,06; 0,40/0,15), путь модуля из правил', AF.BOUNDARY == 0.2216532258064516 and AF.COND_EXT_M == 0.35 and os.path.basename(AF.__file__) == 'area_flag.py')
 bad_rules = rules_with(boundary=0.5)
 try:
     with_rules(bad_rules, S._area_flag_module)
