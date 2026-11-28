@@ -133,6 +133,21 @@ class T(unittest.TestCase):
         cam = {'sku': 'c', 'status': 'camera_or_mask_uncertain', 'flags': ['sil_iou'], 'checks': []}
         self.assertEqual(FG.eye_row(cam)[3], 'нет')                                  # чисто камерное — не брак формы
 
+    def test_muted_holes_goes_to_eye_and_counted(self):
+        """holes приглушён правилом стола на ножках (would_flag, T-175): форма к глазам директора и в строке сводки (Fable 28.11, P-064); незвонившее — нет."""
+        rec = {'sku': 't', 'status': 'pass', 'flags': [], 'checks': [{'name': 'holes', 'flag': False, 'would_flag': True, 'note': 'НЕ звонит: опор 4'}]}
+        row = FG.eye_row(rec, 'стол')
+        self.assertEqual((row[3], row[4]), ('да', 'holes~приглушён'))
+        self.assertIn('НЕ звонит', row[5])
+        self.assertEqual(FG.muted({'checks': [{'name': 'holes', 'flag': False}]}), [])
+        self.assertEqual(FG.muted({'checks': [{'name': 'holes', 'flag': True, 'would_flag': True}]}), [])      # звонит — не «приглушён»
+        tmp = tempfile.mkdtemp(prefix='tests_fg_')
+        glbs, out = mk(tmp, 'c_1')
+        p = __import__('subprocess').run([sys.executable, '-I', '-W', 'ignore', os.path.join(HERE, 'form_gate.py'), '--out', out, '--glbs', glbs, '--skus', 'c_1', '--no-vlm', '--no-cards', '--roles', ''],
+                                         capture_output=True, text=True, cwd=tmp)
+        self.assertIn('holes приглушён: 0', p.stdout)
+        self.assertIn('holes приглушён: 0', open(os.path.join(out, 'form_gate.log'), encoding='utf-8').read())
+
     def test_default_three_kinds_cabinet_only_and_cached(self):
         tmp = tempfile.mkdtemp(prefix='tests_fg_')
         mk(tmp, 'k_1')
