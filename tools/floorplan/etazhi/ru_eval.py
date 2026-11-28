@@ -19,6 +19,8 @@ from shapely.ops import unary_union
 
 sys.path.insert(0, os.path.expanduser('~/remlab-logs/etazhi-walls/nc-models'))
 import nc_eval as NE  # noqa: E402  (walls_assembly, poly_of)
+sys.path.append(os.path.join(os.path.dirname(os.path.abspath(__file__)), '..', '..', 'ops'))
+from run_card import carded  # noqa: E402  (П1.161 шаг 5: карточка прогона RUN.json в выходной папке; сбой карточки прогон не валит)
 
 W = os.path.expanduser('~/remlab-logs/etazhi-walls')
 N = W + '/nc-models'
@@ -356,6 +358,7 @@ def read_sheet(path):
 
 
 # ---------------------------------------------------------------- главное
+@carded(N + '/ru')
 def main():
     kadry = '--no-kadry' not in sys.argv
     jobs = json.load(open(N + '/ru/jobs-ru-all.json'))
