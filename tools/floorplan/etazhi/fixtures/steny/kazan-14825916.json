@@ -1,0 +1,552 @@
+{
+ "лист": "kazan-14825916",
+ "k": 100.0,
+ "plan0": {
+  "version": 1,
+  "name": "Two-room apartment with kitchen, hall, two sanitary rooms, storage and loggia",
+  "units": "m",
+  "meta": {
+   "source": "image",
+   "scale_note": "Scale from the printed inner dimensions, for example 3.72/3.26 m room widths, 6.83/4.82 m depths and 3.94/2.07 m in the lower part. This gives about 65.5 px per metre, and it matches the printed areas: 25.6+15.7+2.2+9.5+14.6+3.7+2.7 = 74.0 m2, the same as the listing's total area. Wall centerlines were placed from the printed dimensions plus estimated wall thicknesses. Confidence is good for the room layout (about ±5 cm) and lower for the exterior wall thicknesses (about ±0.15 m).",
+   "notes": "The plan prints only room numbers. Functions are guessed from the areas: 4 (14.6 m2) as the kitchen (the listing says 14.4), 5 and 6 as rooms, 1 as the hall, 7 as storage, 2 and 3 as bath/WC, and 8 as the loggia (area 2.4 printed, probably counted at a reduced coefficient; it measures about 1.42x3.38). The origin is the top-left of the traced walls (the outer face of the loggia wall at x=0 and the top exterior wall centerline at y=0). Thickness estimates: top and left exterior walls about 0.9 m, right wall about 0.4 m, bottom wall about 0.2 m (it is cut off on the sheet). Windows come from the triple-line symbols. The opening between the kitchen and the loggia is guessed as a balcony door plus a window. The entrance door on the right wall is placed from the symbol there. The interior doors (rooms 5, 6, 4 and 7, and sanitary rooms 2 and 3) are not clearly drawn on this BTI-style plan; their positions and widths are estimated so the rooms can be reached. The loggia glazing is not modelled. No furniture is drawn."
+  },
+  "levels": [
+   {
+    "id": "L0",
+    "walls": [
+     {
+      "id": "w_top",
+      "from": [
+       1.85,
+       0
+      ],
+      "to": [
+       9.62,
+       0
+      ],
+      "kind": "exterior",
+      "thickness": 0.9
+     },
+     {
+      "id": "w_right",
+      "from": [
+       9.62,
+       0
+      ],
+      "to": [
+       9.62,
+       11.45
+      ],
+      "kind": "exterior",
+      "thickness": 0.4
+     },
+     {
+      "id": "w_bottom",
+      "from": [
+       9.62,
+       11.45
+      ],
+      "to": [
+       1.85,
+       11.45
+      ],
+      "kind": "exterior",
+      "thickness": 0.2
+     },
+     {
+      "id": "w_left1",
+      "from": [
+       1.85,
+       0
+      ],
+      "to": [
+       1.85,
+       7.37
+      ],
+      "kind": "exterior",
+      "thickness": 0.9
+     },
+     {
+      "id": "w_left2",
+      "from": [
+       1.85,
+       7.37
+      ],
+      "to": [
+       1.85,
+       11.45
+      ],
+      "kind": "exterior",
+      "thickness": 0.9
+     },
+     {
+      "id": "w_mid1",
+      "from": [
+       6.1,
+       0
+      ],
+      "to": [
+       6.1,
+       5.3
+      ],
+      "kind": "interior",
+      "thickness": 0.12
+     },
+     {
+      "id": "w_mid2",
+      "from": [
+       6.1,
+       5.3
+      ],
+      "to": [
+       6.1,
+       9.21
+      ],
+      "kind": "interior",
+      "thickness": 0.12
+     },
+     {
+      "id": "w_mid3",
+      "from": [
+       6.1,
+       9.21
+      ],
+      "to": [
+       6.1,
+       11.45
+      ],
+      "kind": "interior",
+      "thickness": 0.12
+     },
+     {
+      "id": "w_5_4",
+      "from": [
+       1.85,
+       7.37
+      ],
+      "to": [
+       6.1,
+       7.37
+      ],
+      "kind": "interior",
+      "thickness": 0.12
+     },
+     {
+      "id": "w_6_hall",
+      "from": [
+       6.1,
+       5.3
+      ],
+      "to": [
+       9.62,
+       5.3
+      ],
+      "kind": "interior",
+      "thickness": 0.12
+     },
+     {
+      "id": "w_7_left",
+      "from": [
+       7.65,
+       5.3
+      ],
+      "to": [
+       7.65,
+       6.71
+      ],
+      "kind": "interior",
+      "thickness": 0.12
+     },
+     {
+      "id": "w_7_bottom",
+      "from": [
+       7.65,
+       6.71
+      ],
+      "to": [
+       9.62,
+       6.71
+      ],
+      "kind": "interior",
+      "thickness": 0.12
+     },
+     {
+      "id": "w_hall_bottom",
+      "from": [
+       6.1,
+       9.21
+      ],
+      "to": [
+       9.62,
+       9.21
+      ],
+      "kind": "interior",
+      "thickness": 0.12
+     },
+     {
+      "id": "w_3_2",
+      "from": [
+       8.04,
+       9.21
+      ],
+      "to": [
+       8.04,
+       11.45
+      ],
+      "kind": "interior",
+      "thickness": 0.12
+     },
+     {
+      "id": "wl_top",
+      "from": [
+       0,
+       7.93
+      ],
+      "to": [
+       1.85,
+       7.93
+      ],
+      "kind": "exterior",
+      "thickness": 0.1
+     },
+     {
+      "id": "wl_left",
+      "from": [
+       0,
+       7.93
+      ],
+      "to": [
+       0,
+       11.26
+      ],
+      "kind": "exterior",
+      "thickness": 0.1
+     },
+     {
+      "id": "wl_bottom",
+      "from": [
+       0,
+       11.26
+      ],
+      "to": [
+       1.85,
+       11.26
+      ],
+      "kind": "exterior",
+      "thickness": 0.1
+     }
+    ],
+    "openings": [
+     {
+      "id": "win_5_top",
+      "wall": "w_top",
+      "type": "window",
+      "offset": 1.75,
+      "width": 0.9
+     },
+     {
+      "id": "win_6_top",
+      "wall": "w_top",
+      "type": "window",
+      "offset": 5.11,
+      "width": 1.5
+     },
+     {
+      "id": "win_5_left",
+      "wall": "w_left1",
+      "type": "window",
+      "offset": 2.9,
+      "width": 2.4
+     },
+     {
+      "id": "d_loggia",
+      "wall": "w_left2",
+      "type": "door",
+      "offset": 0.85,
+      "width": 0.75
+     },
+     {
+      "id": "win_4_loggia",
+      "wall": "w_left2",
+      "type": "window",
+      "offset": 1.65,
+      "width": 0.85
+     },
+     {
+      "id": "d_entrance",
+      "wall": "w_right",
+      "type": "door",
+      "offset": 7.78,
+      "width": 0.85
+     },
+     {
+      "id": "d_5",
+      "wall": "w_mid2",
+      "type": "door",
+      "offset": 1.2,
+      "width": 0.8
+     },
+     {
+      "id": "d_4",
+      "wall": "w_mid2",
+      "type": "door",
+      "offset": 2.4,
+      "width": 0.8
+     },
+     {
+      "id": "d_6",
+      "wall": "w_6_hall",
+      "type": "door",
+      "offset": 0.3,
+      "width": 0.8
+     },
+     {
+      "id": "d_7",
+      "wall": "w_7_left",
+      "type": "door",
+      "offset": 0.3,
+      "width": 0.7
+     },
+     {
+      "id": "d_3",
+      "wall": "w_hall_bottom",
+      "type": "door",
+      "offset": 0.5,
+      "width": 0.7
+     },
+     {
+      "id": "d_2",
+      "wall": "w_hall_bottom",
+      "type": "door",
+      "offset": 2.2,
+      "width": 0.6
+     }
+    ],
+    "rooms": [
+     {
+      "id": "r5",
+      "name": "Комната 5",
+      "polygon": [
+       [
+        1.85,
+        0
+       ],
+       [
+        6.1,
+        0
+       ],
+       [
+        6.1,
+        7.37
+       ],
+       [
+        1.85,
+        7.37
+       ]
+      ],
+      "area": 25.6
+     },
+     {
+      "id": "r6",
+      "name": "Комната 6",
+      "polygon": [
+       [
+        6.1,
+        0
+       ],
+       [
+        9.62,
+        0
+       ],
+       [
+        9.62,
+        5.3
+       ],
+       [
+        6.1,
+        5.3
+       ]
+      ],
+      "area": 15.7
+     },
+     {
+      "id": "r7",
+      "name": "Комната 7",
+      "polygon": [
+       [
+        7.65,
+        5.3
+       ],
+       [
+        9.62,
+        5.3
+       ],
+       [
+        9.62,
+        6.71
+       ],
+       [
+        7.65,
+        6.71
+       ]
+      ],
+      "area": 2.2
+     },
+     {
+      "id": "r1",
+      "name": "Комната 1",
+      "polygon": [
+       [
+        6.1,
+        5.3
+       ],
+       [
+        7.65,
+        5.3
+       ],
+       [
+        7.65,
+        6.71
+       ],
+       [
+        9.62,
+        6.71
+       ],
+       [
+        9.62,
+        9.21
+       ],
+       [
+        6.1,
+        9.21
+       ]
+      ],
+      "area": 9.5
+     },
+     {
+      "id": "r4",
+      "name": "Комната 4",
+      "polygon": [
+       [
+        1.85,
+        7.37
+       ],
+       [
+        6.1,
+        7.37
+       ],
+       [
+        6.1,
+        11.45
+       ],
+       [
+        1.85,
+        11.45
+       ]
+      ],
+      "area": 14.6
+     },
+     {
+      "id": "r3",
+      "name": "Комната 3",
+      "polygon": [
+       [
+        6.1,
+        9.21
+       ],
+       [
+        8.04,
+        9.21
+       ],
+       [
+        8.04,
+        11.45
+       ],
+       [
+        6.1,
+        11.45
+       ]
+      ],
+      "area": 3.7,
+      "floor": "tile"
+     },
+     {
+      "id": "r2",
+      "name": "Комната 2",
+      "polygon": [
+       [
+        8.04,
+        9.21
+       ],
+       [
+        9.62,
+        9.21
+       ],
+       [
+        9.62,
+        11.45
+       ],
+       [
+        8.04,
+        11.45
+       ]
+      ],
+      "area": 2.7,
+      "floor": "tile"
+     },
+     {
+      "id": "r8",
+      "name": "Комната 8",
+      "polygon": [
+       [
+        0,
+        7.93
+       ],
+       [
+        1.85,
+        7.93
+       ],
+       [
+        1.85,
+        11.26
+       ],
+       [
+        0,
+        11.26
+       ]
+      ],
+      "area": 2.4
+     }
+    ],
+    "furniture": [],
+    "stairs": []
+   }
+  ]
+ },
+ "перенесено": [
+  {
+   "стена": "w_left1",
+   "dx_см": 15.29,
+   "dy_см": -0.0,
+   "сдвиг_см": 15.3
+  },
+  {
+   "стена": "w_left2",
+   "dx_см": 15.29,
+   "dy_см": -0.0,
+   "сдвиг_см": 15.3
+  },
+  {
+   "стена": "w_6_hall",
+   "dx_см": 0.0,
+   "dy_см": -20.12,
+   "сдвиг_см": 20.1
+  },
+  {
+   "стена": "wl_left",
+   "dx_см": -33.0,
+   "dy_см": 0.0,
+   "сдвиг_см": 33.0
+  }
+ ]
+}

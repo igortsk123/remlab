@@ -1,0 +1,326 @@
+{
+ "version": 1,
+ "name": "One-room apartment with kitchen, bathroom, hall and loggia",
+ "units": "m",
+ "meta": {
+  "source": "image",
+  "scale_note": "Scale taken from printed interior dimensions: 6.23 m (room 1 / bottom wall), 3.28 x 2.93 m (kitchen), 2.81 x 1.73 m (bathroom), 2.36 x 2.11 m (hall), 1.25 x 6.52 m (loggia). All agree at about 74 px per metre within a few centimetres, so the scale is fairly reliable. Wall thicknesses are estimated from the drawing (outer wall about 0.25-0.4 m, partitions about 0.1-0.17 m) and are less certain.",
+  "notes": "Rooms carry only numbers on the plan: 1 = living room 16.9, 2 = kitchen 9.5, 3 = bathroom 4.3, 4 = hall 5.0, 5 = loggia 2.4 (the area is probably reduced by a coefficient). Origin is the top-left corner of the loggia. No door arcs are visible, so no doors are included: the entrance door, the doors from the hall to the kitchen and to room 1, the bathroom door and the door to the loggia are all left out. The kitchen window position was read from the triple lines. The room 1 window on the loggia wall is a guess for both position and width. The thin line between the kitchen and room 1 (east of the 1.24 m stub wall) is traced as a wall, but it may be a light partition or an opening. The ventilation duct in the kitchen corner (0.43 x 1.44) is not modelled. The printed 5.11 at the top does not fit the other dimensions and was ignored. Room 1 measures about 3.2 m high on the plan although 3.00 is printed on the left."
+ },
+ "levels": [
+  {
+   "id": "L0",
+   "walls": [
+    {
+     "id": "w_top",
+     "from": [
+      1.69,
+      0.26
+     ],
+     "to": [
+      8.27,
+      0.26
+     ],
+     "kind": "exterior",
+     "thickness": 0.25
+    },
+    {
+     "id": "w_right",
+     "from": [
+      8.27,
+      0.26
+     ],
+     "to": [
+      8.27,
+      6.74
+     ],
+     "kind": "exterior",
+     "thickness": 0.25
+    },
+    {
+     "id": "w_bottom",
+     "from": [
+      8.27,
+      6.74
+     ],
+     "to": [
+      1.69,
+      6.74
+     ],
+     "kind": "exterior",
+     "thickness": 0.25
+    },
+    {
+     "id": "w_left",
+     "from": [
+      1.69,
+      0.26
+     ],
+     "to": [
+      1.69,
+      6.74
+     ],
+     "kind": "exterior",
+     "thickness": 0.4
+    },
+    {
+     "id": "w_log_top",
+     "from": [
+      0.05,
+      0.26
+     ],
+     "to": [
+      1.69,
+      0.26
+     ],
+     "kind": "exterior",
+     "thickness": 0.1
+    },
+    {
+     "id": "w_log_left",
+     "from": [
+      0.05,
+      0.26
+     ],
+     "to": [
+      0.05,
+      6.74
+     ],
+     "kind": "exterior",
+     "thickness": 0.1,
+     "height": 1.0
+    },
+    {
+     "id": "w_log_bottom",
+     "from": [
+      0.05,
+      6.74
+     ],
+     "to": [
+      1.69,
+      6.74
+     ],
+     "kind": "exterior",
+     "thickness": 0.1
+    },
+    {
+     "id": "w_bath_w",
+     "from": [
+      5.28,
+      0.26
+     ],
+     "to": [
+      5.28,
+      2.2
+     ],
+     "kind": "interior",
+     "thickness": 0.1
+    },
+    {
+     "id": "w_bath_s",
+     "from": [
+      5.28,
+      2.2
+     ],
+     "to": [
+      8.27,
+      2.2
+     ],
+     "kind": "interior",
+     "thickness": 0.12
+    },
+    {
+     "id": "w_hall_w",
+     "from": [
+      5.73,
+      2.2
+     ],
+     "to": [
+      5.73,
+      4.47
+     ],
+     "kind": "interior",
+     "thickness": 0.1
+    },
+    {
+     "id": "w_hall_s",
+     "from": [
+      5.73,
+      4.47
+     ],
+     "to": [
+      8.27,
+      4.47
+     ],
+     "kind": "interior",
+     "thickness": 0.1
+    },
+    {
+     "id": "w_kit_s",
+     "from": [
+      1.69,
+      3.35
+     ],
+     "to": [
+      5.73,
+      3.35
+     ],
+     "kind": "interior",
+     "thickness": 0.15
+    }
+   ],
+   "openings": [
+    {
+     "id": "win_kitchen",
+     "wall": "w_left",
+     "type": "window",
+     "offset": 0.83,
+     "width": 0.84
+    },
+    {
+     "id": "win_room1",
+     "wall": "w_left",
+     "type": "window",
+     "offset": 4.04,
+     "width": 1.5
+    }
+   ],
+   "rooms": [
+    {
+     "id": "r2",
+     "name": "Комната 2",
+     "polygon": [
+      [
+       1.69,
+       0.26
+      ],
+      [
+       5.28,
+       0.26
+      ],
+      [
+       5.28,
+       2.2
+      ],
+      [
+       5.73,
+       2.2
+      ],
+      [
+       5.73,
+       3.35
+      ],
+      [
+       1.69,
+       3.35
+      ]
+     ],
+     "area": 9.5
+    },
+    {
+     "id": "r3",
+     "name": "Комната 3",
+     "polygon": [
+      [
+       5.28,
+       0.26
+      ],
+      [
+       8.27,
+       0.26
+      ],
+      [
+       8.27,
+       2.2
+      ],
+      [
+       5.28,
+       2.2
+      ]
+     ],
+     "area": 4.3,
+     "floor": "tile"
+    },
+    {
+     "id": "r4",
+     "name": "Комната 4",
+     "polygon": [
+      [
+       5.73,
+       2.2
+      ],
+      [
+       8.27,
+       2.2
+      ],
+      [
+       8.27,
+       4.47
+      ],
+      [
+       5.73,
+       4.47
+      ]
+     ],
+     "area": 5.0
+    },
+    {
+     "id": "r1",
+     "name": "Комната 1",
+     "polygon": [
+      [
+       1.69,
+       3.35
+      ],
+      [
+       5.73,
+       3.35
+      ],
+      [
+       5.73,
+       4.47
+      ],
+      [
+       8.27,
+       4.47
+      ],
+      [
+       8.27,
+       6.74
+      ],
+      [
+       1.69,
+       6.74
+      ]
+     ],
+     "area": 16.9
+    },
+    {
+     "id": "r5",
+     "name": "Комната 5",
+     "polygon": [
+      [
+       0.05,
+       0.26
+      ],
+      [
+       1.69,
+       0.26
+      ],
+      [
+       1.69,
+       6.74
+      ],
+      [
+       0.05,
+       6.74
+      ]
+     ],
+     "area": 2.4
+    }
+   ],
+   "furniture": [],
+   "stairs": []
+  }
+ ]
+}
