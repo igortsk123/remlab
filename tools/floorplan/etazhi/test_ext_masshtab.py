@@ -115,5 +115,39 @@ except S.ExtStop as ex:
     check('нет масштаба' in str(ex), 'Н8 with_ext_live: статус «стоп: …» от ext2b → ExtStop (не молчаливое «Ст как раньше»)', str(ex))
 finally:
     X.with_ext_numbers = _real
+# ── П1–П6. НАСТОЯЩАЯ пара kazan-14066977 (ekz-20261128/…/opus): overlay.json = легло, вход «4c»; fit.json без масштаба. Вход «не как есть» → SKIP РАНЬШЕ проверки масштаба ──
+OV_4C = {'overlay_status': 'легло', 'легло_по_зоне': False, 'на_линии': 0.817, 'покрыто': 0.546, 'доля_точек_3px': 0.756, 'лишнее_м': 0.0, 'пропущено_м': 0.0, 'стена_без_комнаты': [], 'вход': '4c'}
+
+
+def real_pair_ok(mod):
+    """kazan-14066977 через модуль mod (настоящий ext или его копия с порчей): coverage → SKIP «вход не «как есть»», with_ext_numbers (stop=True) НЕ поднимает ExtStop, чисел нет, пометка «не применяется»"""
+    try:
+        kind, why = mod.coverage(OV_4C, ROWS, FIT_KAZAN, CANDS)
+        o, st = mod.with_ext_numbers(OV_4C, 'kazan-14066977', CANDS, FIT_KAZAN, ROWS, VF)
+    except Exception as ex:      # noqa: BLE001  (в т.ч. ExtStop)
+        return False, '%s: %s' % (type(ex).__name__, str(ex)[:120])
+    ok = (kind == mod.SKIP and 'вход не «как есть»' in why and 'нет масштаба' not in why and st['лист_для_ext'] == mod.SKIP
+          and str(st['ext2b']).startswith('не применяется') and str(st['ext2c']).startswith('не применяется') and 'ext2b' not in o and 'ext2c' not in o)
+    return ok, (kind, why, st)
+
+
+ok, info = real_pair_ok(X)
+check(ok, 'П1 настоящая пара kazan-14066977 (легло, вход 4c, fit без масштаба) → SKIP «вход не «как есть»», ExtStop нет, числа не считаются', info)
+check(X.coverage(OV_4C, ROWS, FIT_KAZAN, CANDS)[0] == X.SKIP and X.coverage(dict(OV_4C, вход='как есть'), ROWS, FIT_KAZAN, CANDS)[0] == X.STOP, 'П2 тот же fit без масштаба: вход 4c → SKIP, вход «как есть» → СТОП «нет масштаба» (порядок: сперва вход, потом масштаб)')
+check(X.coverage(dict(OV_4C, вход='как есть (4c не лучше)'), ROWS, FIT_KAZAN, CANDS)[0] == X.STOP, 'П2б вход «как есть (4c не лучше)» — тоже как есть → доходит до проверки масштаба (СТОП)')
+check(X.coverage(dict(OV_4C, overlay_status='не легло'), ROWS, FIT_KAZAN, CANDS)[0] == X.SKIP, 'П2в наложение не «легло» + fit без масштаба → SKIP (статус раньше масштаба)')
+check(X.coverage(None, ROWS, FIT_KAZAN, CANDS)[0] == X.SKIP, 'П2г нет overlay.json + fit без масштаба → SKIP')
+# −контроль: копия ext.py с порчей «проверка входа убрана» (масштаб проверяется раньше входа) — на настоящей паре тест обязан краснеть
+_src = open(X.__file__, encoding='utf-8').read()
+_cut = "    if not as_is(ov):\n        return SKIP, 'вход не «как есть» (вход: %s)' % ov.get('вход')\n"
+check(_src.count(_cut) == 1, 'П3 набор −контроля: кусок «проверка входа» в ext.py ровно один', _src.count(_cut))
+for nm, _new in (('проверка входа убрана (масштаб раньше входа)', _src.replace(_cut, '')), ('проверка входа после масштаба', _src.replace(_cut, '').replace("    if lost:\n        return STOP, '; '.join(lost)\n    return APPLIES, ''", "    if lost:\n        return STOP, '; '.join(lost)\n" + _cut + "    return APPLIES, ''"))):
+    _m = types.ModuleType('ext_porcha')
+    exec(compile(_new, 'ext_porcha.py', 'exec'), _m.__dict__)      # noqa: S102
+    _ok, _info = real_pair_ok(_m)
+    check(not _ok, 'П4 −КОНТРОЛЬ: порча «%s» → проверка настоящей пары краснеет (тест её ловит)' % nm, _info)
+_m = types.ModuleType('ext_cop')
+exec(compile(_src, 'ext_cop.py', 'exec'), _m.__dict__)      # noqa: S102
+check(real_pair_ok(_m)[0], 'П5 контроль без порчи: копия ext.py проходит ту же проверку (порча — единственная разница)')
 print('ИТОГ: красных %d' % len(bad))
 sys.exit(1 if bad else 0)
