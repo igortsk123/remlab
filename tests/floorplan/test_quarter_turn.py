@@ -93,8 +93,9 @@ def test_step_off_by_default_and_not_in_all(monkeypatch):
     monkeypatch.setenv('FP_CLEAN_QUARTER', '1')
     assert ins.flags_from_env()['quarter'] is True
     sheet = _pil(marked())
-    r = ins.run(sheet, {'quarter': True}, scorer=None)                    # флаг без оценщика — ничего не делает
-    assert r['sheet'] is sheet and r['ops'] == [] and r['steps'] == [] and r['quarter_k'] is None
+    r = ins.run(sheet, {'quarter': True}, scorer=None)                    # флаг без оценщика — лист не меняется, но пропуск ВИДЕН (T-171/quarter-otkaz)
+    assert r['sheet'] is sheet and r['ops'] == [] and r['quarter_k'] is None
+    assert r['steps'] == [{'op': 'quarter', 'skip': 'нет оценщика'}]
     r = ins.run(sheet, {}, scorer=scorer_for(1))                          # оценщик без флага — тоже
     assert r['sheet'] is sheet and r['ops'] == []
 
@@ -106,7 +107,9 @@ def test_step_failure_leaves_sheet_as_is(monkeypatch):
     def boom(k, img):
         raise RuntimeError('нет OCR')
     r = ins.run(sheet, {'quarter': True}, scorer=boom)
-    assert r['sheet'] is sheet and r['ops'] == []
+    assert r['sheet'] is sheet and r['ops'] == [] and r['quarter_k'] is None
+    assert len(r['steps']) == 1 and r['steps'][0]['op'] == 'quarter' and 'skip' not in r['steps'][0]
+    assert r['steps'][0]['fail'] == 'RuntimeError: нет OCR'                 # сбой не молчит: класс исключения + сообщение
 
 
 def test_control_swapped_sides_turns_wrong_way(monkeypatch):
@@ -118,3 +121,63 @@ def test_control_swapped_sides_turns_wrong_way(monkeypatch):
     r = ins.run(_pil(img), {'quarter': True}, scorer=scorer_for(1))
     out = cv2.cvtColor(np.asarray(r['sheet']), cv2.COLOR_RGB2BGR)
     assert not np.array_equal(out, real(img, 1))
+
+
+def test_failure_reason_short_and_one_line(monkeypatch):
+    _clear(monkeypatch)
+
+    def boom(k, img):
+        raise ValueError('строка 1\n' + 'х' * 500)
+    f = ins.run(_pil(marked()), {'quarter': True}, scorer=boom)['steps'][0]['fail']
+    assert f.startswith('ValueError: строка 1 хх') and '\n' not in f and len(f) <= len('ValueError: ') + 120
+
+
+def test_flag_off_nothing_new_byte_for_byte(monkeypatch):
+    """флаг выкл — живое побайтно как раньше: тот же объект листа, ни skip, ни fail, оценщик даже не зовётся"""
+    _clear(monkeypatch)
+    sheet = _pil(marked())
+    calls = []
+
+    def scorer(k, img):
+        calls.append(k)
+        raise RuntimeError('не должен звониться')
+    for fl in ({}, {'quarter': False}):
+        for sc in (None, scorer):
+            r = ins.run(sheet, fl, scorer=sc)
+            assert r['sheet'] is sheet and r['ops'] == [] and r['steps'] == [] and r['quarter_k'] is None
+    assert calls == []
+
+
+def test_not_applied_is_not_a_failure(monkeypatch):
+    """оценщик отработал, но поворот не нужен (исходный читается не хуже) — это штатный исход, не пропуск и не сбой: записи нет"""
+    _clear(monkeypatch)
+    sheet = _pil(marked())
+    r = ins.run(sheet, {'quarter': True}, scorer=lambda k, img: 100.0)
+    assert r['sheet'] is sheet and r['steps'] == [] and r['ops'] == []
+
+
+def test_skip_and_fail_records_do_not_break_source_point(monkeypatch):
+    """запись skip/fail — не геометрия: обратное преобразование точки проходит мимо неё (раньше KeyError 'H')"""
+    for rec in ({'op': 'quarter', 'skip': 'нет оценщика'}, {'op': 'quarter', 'fail': 'RuntimeError: x'}):
+        assert ac.source_point([rec], 12.5, 7.0) == (12.5, 7.0)
+        H = Q.matrix(1, 300, 200)
+        q = H @ np.array([25.0, 25.0, 1.0])
+        bx, by = ac.source_point([{'op': 'quarter', 'H': H.tolist()}, rec], q[0], q[1])     # настоящий шаг + запись после него
+        assert abs(bx - 25) < 1 and abs(by - 25) < 1
+
+
+def test_quarter_report_counts_skips_and_fails_with_reasons(monkeypatch):
+    _clear(monkeypatch)
+    sheet = _pil(marked())
+
+    def boom(k, img):
+        raise RuntimeError('нет OCR')
+    runs = [ins.run(sheet, {'quarter': True}, scorer=None)['steps'],
+            ins.run(sheet, {'quarter': True}, scorer=None)['steps'],
+            ins.run(sheet, {'quarter': True}, scorer=boom)['steps'],
+            ins.run(sheet, {'quarter': True}, scorer=scorer_for(1))['steps'],      # применён — не в счёте отказов
+            ins.run(sheet, {}, scorer=None)['steps']]                              # флаг выкл — тоже
+    rep = ins.quarter_report(runs)
+    assert rep['пропущено'] == 2 and rep['нет оценщика'] == 2 and rep['сбоев'] == 1
+    assert rep['причины сбоев'] == {'RuntimeError: нет OCR': 1}
+    assert ins.quarter_report([]) == {'пропущено': 0, 'нет оценщика': 0, 'сбоев': 0, 'причины сбоев': {}}
