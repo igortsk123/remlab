@@ -16,6 +16,8 @@
     "sil_extra": 0.12,
     "sil_miss": 0.12,
     "holes_extra": 0.3,
+    "holes_table_legs": 3,
+    "holes_table_iou": 0.5,
     "leg_band": 0.12,
     "leg_fill": 0.15,
     "leg_min_w": 0.03,
