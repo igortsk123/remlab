@@ -48,8 +48,13 @@ def flag_deskew_guard() -> bool:
     return os.environ.get('FP_CLEAN_DESKEW_GUARD', '0') == '1'
 
 
+def flag_deskew_min5() -> bool:
+    return os.environ.get('FP_CLEAN_DESKEW_MIN5', '0') == '1'
+
+
 # ---------------- (0) доворот повёрнутого листа (T-171/vhod, план Fable otvet-33 задача 6) ----------------
 DESKEW_MIN = 1.5         # главный угол линий меньше — лист ровный, не трогаем
+DESKEW_MIN_HIGH = float(__import__('json').load(open(os.path.join(os.path.dirname(os.path.abspath(__file__)), 'deskew_min.json'), encoding='utf-8'))['min_deg'])   # порог при флаге FP_CLEAN_DESKEW_MIN5 (по умолчанию ВЫКЛ): главный угол меньше — лист не трогаем; число и основание — deskew_min.json (_why)
 DESKEW_MAX = 30.0        # больше — не доворот (план «под 45°» — вопрос другого шага), не трогаем
 DESKEW_RESID = 1.0       # после поворота угол пересчитан: остаток ≥ этого → откат (оценка угла грубая)
 DESKEW_SHARE_MIN = 0.15  # доля длины линий на главном угле и поперёк него (±1,5°): меньше — главного угла у листа нет (рукописный/круглый план)
@@ -220,9 +225,10 @@ def perspective(gray):
     return worst >= PERSP_MIN, info
 
 
-def deskew_lines(bgr, guard=False):
+def deskew_lines(bgr, guard=False, min_deg=None):
     """→ (повёрнутый | None, info). Лист поворачивается на главный угол линий (холст расширяется, поле белое); info['H'] — матрица исходный лист → выход.
     Не применяется: лист ровный (< DESKEW_MIN), угол > DESKEW_MAX, главного угла нет, после поворота остаток ≥ DESKEW_RESID.
+    min_deg (флаг FP_CLEAN_DESKEW_MIN5): порог «лист ровный» вместо DESKEW_MIN; None — прежний DESKEW_MIN (побайтно как раньше).
     guard=True (флаг FP_CLEAN_DESKEW_GUARD): ещё и мелкий лист (длинная сторона < DESKEW_SIDE_MIN) и «после поворота чернил < DESKEW_INK_KEEP от исходных» — откат с причиной в info['guard']."""
     H0, W0 = bgr.shape[:2]
     if guard and max(H0, W0) < DESKEW_SIDE_MIN:
@@ -235,8 +241,9 @@ def deskew_lines(bgr, guard=False):
     info['perspective'], info['persp'] = perspective(gsmall)       # вид «перспектива» — признак, лист не меняет
     if theta is None:
         return None, info
-    if abs(theta) < DESKEW_MIN:
-        info['reason'] = f'лист ровный: главный угол {theta:.2f}° (< {DESKEW_MIN}°)'
+    lo = DESKEW_MIN if min_deg is None else min_deg
+    if abs(theta) < lo:
+        info['reason'] = f'лист ровный: главный угол {theta:.2f}° (< {lo}°)'
         return None, info
     if abs(theta) > DESKEW_MAX:
         info['reason'] = f'главный угол {theta:.1f}° (> {DESKEW_MAX:.0f}°)'
@@ -910,11 +917,11 @@ def separate_layers(bgr):
     return out, info, {'furniture': furn, 'dims': dims}
 
 
-def clean_bgr(bgr, rectify=True, background=True, lines=False, grid=False, layers=False, deskew=False, deskew_guard=False):
+def clean_bgr(bgr, rectify=True, background=True, lines=False, grid=False, layers=False, deskew=False, deskew_guard=False, deskew_min=None):
     """→ (bgr, ops, info). ops ⊂ ['deskew', 'rectify', 'background', 'grid', 'layers', 'lines']; ничего не применилось — тот же массив."""
     ops, info, cur = [], {}, bgr
     if deskew:                                                # доворот — первым: выпрямление ниже видит уже ровный лист (≥ 0,80 на осях → пропуск)
-        d_, inf = deskew_lines(cur, guard=deskew_guard)
+        d_, inf = deskew_lines(cur, guard=deskew_guard, min_deg=deskew_min)
         info['deskew'] = {k: v for k, v in inf.items() if k != 'H'}
         if d_ is not None:
             cur = d_
@@ -964,15 +971,17 @@ def clean_sheet_steps(sheet, flags=None):
     if flags is None:
         rect, bg, ln, gr, ly, dk = flag_rect(), flag_bg(), flag_lines(), flag_grid(), flag_layers(), flag_deskew()
         dg = flag_deskew_guard()
+        dm = DESKEW_MIN_HIGH if flag_deskew_min5() else None
     else:                                                     # явный набор (служба с потоками): окружение не читаем
         rect, bg, ln, gr, ly, dk = (bool(flags.get(k)) for k in ('rect', 'bg', 'lines', 'grid', 'layers', 'deskew'))
         dg = bool(flags.get('deskew_guard'))
+        dm = DESKEW_MIN_HIGH if flags.get('deskew_min5') else None
     if not (rect or bg or ln or gr or ly or dk):
         return sheet, [], []
     from PIL import Image
     try:
         bgr = cv2.cvtColor(np.asarray(sheet.convert('RGB')), cv2.COLOR_RGB2BGR)
-        out, ops, info = clean_bgr(bgr, rectify=rect, background=bg, lines=ln, grid=gr, layers=ly, deskew=dk, deskew_guard=dg)
+        out, ops, info = clean_bgr(bgr, rectify=rect, background=bg, lines=ln, grid=gr, layers=ly, deskew=dk, deskew_guard=dg, deskew_min=dm)
     except Exception:  # noqa: BLE001 — чистка не должна ронять разбор: лист как есть
         return sheet, [], []
     guard_step = []
