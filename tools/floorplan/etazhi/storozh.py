@@ -660,7 +660,51 @@ def guard(sid, var, model, plan, key, overlay=None, ov=None):
     # T-98/19 (Fable 16): ЖЁСТКИЙ звонок только у признаков из storozh_rules.json для этой модели ответа; остальные «нет» — справка (в таблицу, без звонка)
     all_f = [(nm, r, p) for nm, (p, r) in zip(('П1', 'П2', 'П3', 'П4', 'П5', 'П6', 'П7', 'П8', 'П7з', 'П10', 'П7с'), ((p1, r1), (p2, r2), (p3, r3), (p4, r4), (p5, r5), (p6, r6), (p7, r7), (p8, r8), (p7z, r7z), (p10, r10), (p7s, r7s))) if p is False]
     bad, info = split_features(all_f, model, overlay, ov=ov)
+    info = with_area_flag(res, info, plan, rooms, d7, overlay, ov)
     return finish(res, bad, info, overlay, ov=ov)
+
+
+def with_area_flag(res, info, plan, rooms, d7, overlay, ov):
+    """T-171 флажок площади (Fable ❓25/❓26): справка листа, не звонок. Выключатель area_flag.enabled (storozh_rules.json) ВЫКЛ — info возвращается как есть, res не тронут (вывод побайтно прежний)."""
+    if not (RULES.get('area_flag') or {}).get('enabled'):
+        return info
+    return info + area_flag_info(res, plan, rooms, d7, overlay, ov)
+
+
+def _area_flag_module():
+    """T-171 флажок площади: модуль area_flag (tools/floorplan/area_flag.py) — ОДИН источник счёта и чисел; в storozh_rules.json (area_flag) — их копия для глаза.
+    Расхождение json ↔ модуль — остановка с причиной (молчаливого сбоя нет). Путь модуля: AREA_FLAG_DIR или module_dir из правил (относительный — от папки этого файла)."""
+    cfg = RULES['area_flag']
+    d = os.path.expanduser(os.environ.get('AREA_FLAG_DIR') or cfg['module_dir'])
+    d = os.path.normpath(d if os.path.isabs(d) else os.path.join(os.path.dirname(os.path.abspath(__file__)), d))
+    if d not in sys.path:
+        sys.path.insert(0, d)
+    import area_flag as AF  # noqa: E402
+    for key, val in (('boundary', AF.BOUNDARY), ('cond_ext_m', AF.COND_EXT_M), ('cond_int_m', AF.COND_INT_M), ('typ_ext_m', AF.TYP_EXT_M), ('typ_int_m', AF.TYP_INT_M)):
+        if abs(float(cfg[key]) - val) > 1e-12:
+            raise RuntimeError('area_flag: %s в storozh_rules.json (%s) ≠ в модуле %s (%s)' % (key, cfg[key], AF.__file__, val))
+    return AF
+
+
+def area_flag_info(res, plan, rooms, d7, overlay, ov):
+    """→ [(‘Пл’, текст)] для справки листа. Подписи комнат — та же привязка, что у П7 (d7['rr']: комната ↔ цифра листа). На исход/звонки не влияет. Детали — res['площадь_флажок']."""
+    AF = _area_flag_module()
+    printed = {}
+    for x in (d7 or {}).get('rr') or []:
+        rid = rooms[x['j']].get('id')
+        if rid is not None:
+            printed[rid] = x['цифра']
+    ovd = dict(ov or {})
+    ovd.setdefault('overlay_status', overlay)
+    ev = AF.evaluate(plan, printed, overlay=ovd, boundary=float(RULES['area_flag']['boundary']))
+    res['площадь_флажок'] = {'группа_толщины': ev['mode'], 'схема': ev['scheme'], 'флажки': [{k: (round(v, 3) if isinstance(v, float) else v) for k, v in f.items()} for f in ev['flags']], 'пропущено': ev['skipped'], 'строки': ev['lines']}
+    out = []
+    if ev['lines']:
+        out.append(('Пл', '; '.join(ev['lines'])))
+    for rid, why in ev['skipped']:
+        if rid == '*':
+            out.append(('Пл', 'флажок площади не посчитан: %s' % why))
+    return out
 
 
 def p3_only_loggia(reason, cfg):
