@@ -64,12 +64,31 @@ def clean(name: str, shops_re: re.Pattern) -> str:
     s = re.sub(r'(\d)\s*[хХxX]\s*(?:gu|GU)\s*10', r'\1×GU10', s)
     s = re.sub(r'(\d)\s*[хХxX]\s*[еЕeE]\s*(14|27)', r'\1×E\2', s)
     s = re.sub(r'(?<=\d)\s*[вВ]т\b\.?', 'W', s)
-    return re.sub(r'\s+', ' ', s).strip()
+    s = re.sub(r'\s+', ' ', s).strip()
+    # «Кровать Кровать-Софа …» — магазин повторил слово типа перед составным («Кровать-Софа», «Кровать-тахта»): повтор убираем,
+    # иначе тип берётся по первому слову, а составное уходит транслитом («Krovat-Sofa»)
+    return re.sub(r'(?<![\w-])([А-Яа-яЁё]+)\s+(?=\1-[А-Яа-яЁё])', '', s, flags=re.I)
 
 
 def translit(word: str, table: dict) -> str:
     out = ''.join(table.get(ch.lower(), ch) if CYR.match(ch) else ch for ch in word)
     return '-'.join(p[:1].upper() + p[1:] for p in out.split('-'))
+
+
+def colour_tail(t: str, D: dict):
+    """«Пандора-Серый» → ('Пандора', 'grey'); «Пандора-Светло-серый» → ('Пандора', 'light grey') — цвет из одной или двух частей в хвосте
+    слова через дефис (иначе «светло» уходит в имя модели: «Pandora-Svetlo»). Нет цветного хвоста → None."""
+    parts = t.split('-')
+    for n in (2, 1):
+        if len(parts) <= n:
+            continue
+        tail = [x.lower() for x in parts[-n:]]
+        col = D['colours'].get('-'.join(tail))
+        if not col and n == 2 and all(x in D['colours'] for x in tail):
+            col = '-'.join(D['colours'][x] for x in tail)
+        if col:
+            return '-'.join(parts[:-n]), re.sub(r'^(dark|light)-', r'\1 ', col)
+    return None
 
 
 def neutral(role: str, D: dict) -> str:
@@ -130,13 +149,13 @@ def translate(name: str, role: str = '', D: dict | None = None) -> dict:
             items.append(('size', m.group(1) + (' ' + UNIT[m.group(2)] if m.group(2) else '')))
         elif '-' in t and all(x.lower() in D['colours'] for x in t.split('-')):
             items.append(('colour', re.sub(r'^(dark|light)-', r'\1 ', '-'.join(D['colours'][x.lower()] for x in t.split('-')))))
-        elif '-' in t and CYR.search(t) and t.rsplit('-', 1)[1].lower() in D['colours']:
+        elif '-' in t and CYR.search(t) and colour_tail(t, D):
             # «Пандора-Серый» — модель и цвет через дефис (T-20261112-116): модель — именем, цвет — словом, не «Pandora-Seryy»
-            head_t, col = t.rsplit('-', 1)
+            head_t, col_en = colour_tail(t, D)
             if CYR.search(head_t):
                 gone.append(head_t)
             items.append(('model', translit(head_t, D['translit']) if CYR.search(head_t) else head_t))
-            items.append(('colour', D['colours'][col.lower()]))
+            items.append(('colour', col_en))
         elif NUM.match(t):
             items.append(('num', t))
         elif CYR.search(t) and t[:1].islower():
@@ -238,7 +257,7 @@ def annotate(data: dict, M: dict | None = None, D: dict | None = None) -> dict:
     """`name_en` и `colour_en` — каждому товару данных. → отчёт {map, dict, neutral, items, translit: Counter, neutral_names}."""
     D = D or load_dict()
     M = load_map() if M is None else M
-    rep = {'map': 0, 'dict': 0, 'neutral': 0, 'items': 0, 'translit': Counter(), 'neutral_names': []}
+    rep = {'map': 0, 'dict': 0, 'neutral': 0, 'items': 0, 'translit': Counter(), 'neutral_names': [], 'words': {}, 'leaks': {}}
     for p, role in products(data):
         r = name_en(p, role, M, D)
         p['name_en'] = r['name']
@@ -246,6 +265,11 @@ def annotate(data: dict, M: dict | None = None, D: dict | None = None) -> dict:
         rep[r['how']] += 1
         rep['items'] += 1
         rep['translit'].update(r['translit'])
+        for w in r['translit']:
+            if w[:1].islower():                       # обычное слово выпало из названия — нужен перевод в словарь
+                rep['words'].setdefault(w, p.get('name'))
+        if r['how'] != 'map' and leaks(r['name'], p.get('name') or '', D):
+            rep['leaks'].setdefault(p.get('name'), r['name'])
         if r['how'] == 'neutral':
             rep['neutral_names'].append(p.get('name'))
     return rep
@@ -256,6 +280,12 @@ def report_lines(rep: dict) -> list:
              f"нейтральных {rep['neutral']}"]
     if rep['translit']:
         lines.append('  в транслитерацию (топ-30): ' + ', '.join(f'{w} {n}' for w, n in rep['translit'].most_common(30)))
+    # ЗВОНОК ДО ПУБЛИКАЦИИ (28.11): новое слово ночного фида без перевода видно в журнале ночи, а не только владельцу на витрине
+    if rep.get('words'):
+        lines.append('WARN:name_en_word: обычные слова без перевода — дописать в tools/scout/data/names-en-dict.json: ' +
+                     '; '.join(f'{w} («{n}»)' for w, n in sorted(rep['words'].items())[:20]))
+    for ru, en in list(rep.get('leaks', {}).items())[:20]:
+        lines.append(f'WARN:name_en_leak: «{ru}» → «{en}» — слово есть в словаре, но ушло транслитом')
     for n in sorted(set(rep['neutral_names']))[:20]:
         lines.append(f'WARN:name_en_neutral: «{n}» — английского нет, показано нейтральное по роли')
     return lines
