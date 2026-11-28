@@ -787,7 +787,7 @@ def with_ext_live(ov, sid, plan_clean, plan, img_d, img_b, fit, rows, vf, rules=
     cands = X.candidates({'plan-clean.json': plan_clean, 'plan.json': plan}, {'d': img_d, 'b': img_b})
     o, st = X.with_ext_numbers(ov, sid, cands, fit, rows, vf, want_2b=need2b, want_2c=need2c)       # ExtStop (пропал вход при «легло») — не ловим: СТОП
     for k in ('ext2b', 'ext2c'):
-        if str(st.get(k) or '').startswith(('сбой', 'отказ')):
+        if str(st.get(k) or '').startswith(('сбой', 'отказ', 'стоп', 'СТОП')):         # «стоп: нет масштаба» (ext.no_scale) — тоже СТОП, а не молчаливое «Ст как раньше»
             raise ExtStop('%s: числа %s не посчитаны — %s' % (sid, k, st[k]))
     if st.get('лист_для_ext'):
         o['ext_статус'] = st

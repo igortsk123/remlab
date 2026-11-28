@@ -126,8 +126,11 @@ check(stops(lambda: call(OV_QUIET, S.RULES)) is None and 'ext2b' not in res and 
 FAKE_ST.clear()
 # ---- 7. настоящий расчёт с заглушкой vetka_fit без настроек → не тихо: отказ/сбой → СТОП
 X.with_ext_numbers = REAL
-msg = stops(lambda: call(OV_QUIET, S.RULES, vf=types.SimpleNamespace()))
+FIT_REAL = {'scale_px_per_unit_cm': 1.0, 'shift_px': [0, 0], 'sheet_px': [10, 10]}      # настоящему ext нужен fit с масштабом (без него — «стоп: нет масштаба», test_ext_masshtab.py); здесь проверяется отказ по настройкам vetka_fit
+msg = stops(lambda: call(OV_QUIET, S.RULES, vf=types.SimpleNamespace(), fit=FIT_REAL))
 check(msg is not None and ('отказ' in msg or 'сбой' in msg), 'настоящий ext + vetka_fit без CORRECT_V2/SOFT_INK → ExtStop (не тихий пропуск)', msg)
+msg = stops(lambda: call(OV_QUIET, S.RULES, vf=types.SimpleNamespace()))
+check(msg is not None and 'нет масштаба' in msg, 'настоящий ext + fit без масштаба (FIT = {fit: 1}) → ExtStop «нет масштаба» (раньше отказ по vetka_fit/KeyError)', msg)
 # ---- 8. пометка попадает в guard.json: guard() кладёт ov['ext_статус'] в результат; без пометки вывод прежний
 mark = {'ext2b': 'не применяется: нет наложения', 'ext2c': 'не применяется: нет наложения', 'лист_для_ext': 'не применяется', 'причина': 'нет наложения'}
 g1 = S.guard('лист-1', 'b', 'opus', None, 'k', ov={'ext_статус': mark})

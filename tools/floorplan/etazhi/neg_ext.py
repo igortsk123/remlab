@@ -38,7 +38,7 @@ MUT = [
     ('допуск «сошлось с walls.csv» 0,03 → 0,9', "SHEET_TOL = 0.03", "SHEET_TOL = 0.9"),
     ('отказ по SOFT_INK убран', "bad.append('SOFT_INK не включён')", "pass"),
     ('отказ по INK_PALE убран', "for nm in ('INK_PALE', 'INK_THICK'):", "for nm in ('INK_THICK',):"),
-    ('нет входа: fit=None не ловится', "    if not fit:\n        return _fail(sid, 'нет входа')\n    try:\n        import cv2", "    try:\n        import cv2"),
+    ('нет входа: fit=None не ловится', "    if not fit:\n        return _fail(sid, 'нет входа')\n    if no_scale(fit):\n        return _fail(sid, 'стоп: ' + no_scale(fit))\n    try:\n        import cv2", "    if no_scale(fit):\n        return _fail(sid, 'стоп: ' + no_scale(fit))\n    try:\n        import cv2"),
     ('with_ext_numbers: не-ok числа тоже кладутся', "if e['статус'] == 'ok':\n            o['ext2b'] = e", "if True:\n            o['ext2b'] = e"),
     ('with_ext_numbers: правится исходное наложение', "    o = dict(ov or {})\n    if not (want_2b or want_2c):", "    o = ov if ov is not None else {}\n    if not (want_2b or want_2c):"),
     ('порядок вариантов: b раньше d', "for var in ('d', 'b'):\n            p, im", "for var in ('b', 'd'):\n            p, im"),

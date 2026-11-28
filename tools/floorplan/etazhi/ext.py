@@ -77,6 +77,18 @@ def current_hit(rows, ov, wf):
     return (share >= wf['fabricated_share_min']) or (isinstance(extra, (int, float)) and extra >= wf['extra_m_min']) or (isinstance(line, (int, float)) and line < wf['on_line_min'])
 
 
+def no_scale(fit):
+    """T-171 (директор 28.11, kazan-14066977): у fit.json нет годного масштаба (`scale_px_per_unit_cm` нет / не число / ≤ 0 — наложение «не проверено: чернил не найдено» пишет fit.json БЕЗ масштаба и сдвига).
+    → причина «нет масштаба — …» или None (масштаб есть; fit пустой/не словарь — это «нет fit.json», другая причина). Правило общее, на все листы: числам 2б/2в без масштаба считаться не из чего."""
+    if not isinstance(fit, dict) or not fit:
+        return None
+    v = fit.get('scale_px_per_unit_cm')
+    if isinstance(v, (int, float)) and not isinstance(v, bool) and math.isfinite(v) and v > 0:
+        return None
+    note = '; '.join(str(x) for x in (fit.get('found'), fit.get('причина')) if x)
+    return 'нет масштаба — в fit.json нет годного scale_px_per_unit_cm' + (' (fit.json: %s)' % note if note else '')
+
+
 def _gray(vf, im):
     return im if hasattr(im, 'shape') else vf.load_gray(im)
 
@@ -132,6 +144,8 @@ def ext2b(sid, cands, fit, rows, vf):
         return _fail(sid, 'отказ: ' + why)
     if not fit:
         return _fail(sid, 'нет входа')
+    if no_scale(fit):
+        return _fail(sid, 'стоп: ' + no_scale(fit))
     try:
         import cv2
         import numpy as np
@@ -212,6 +226,8 @@ def ext2c(sid, cands, fit, rows, vf, types=WINDOW_TYPES):
         return _fail(sid, 'отказ: ' + why)
     if not fit:
         return _fail(sid, 'нет входа')
+    if no_scale(fit):
+        return _fail(sid, 'стоп: ' + no_scale(fit))
     types = set(types)
     try:
         import numpy as np
@@ -292,6 +308,8 @@ def coverage(ov, rows, fit, cands):
         lost.append('нет walls.csv (или пуст)')
     if not fit:
         lost.append('нет fit.json')
+    elif no_scale(fit):
+        lost.append(no_scale(fit))                     # fit.json есть, а масштаба в нём нет: СТОП «нет масштаба», не KeyError внутри расчёта
     if not cands:
         lost.append('нет картинки листа или ответа (plan*.json)')
     if lost:
