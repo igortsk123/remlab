@@ -32,7 +32,7 @@ def _clear(monkeypatch):
 
 def test_threshold_lives_in_json_with_why():
     d = json.loads((ROOT / 'tools' / 'floorplan' / 'deskew_min.json').read_text(encoding='utf-8'))
-    assert d['min_deg'] == 5.0 and len(d['_why']) > 200 and cl.DESKEW_MIN_HIGH == 5.0
+    assert d['min_deg'] == 5.0 and d['_why'].startswith('5° — рабочее число') and cl.DESKEW_MIN_HIGH == 5.0
     assert cl.DESKEW_MIN == 1.5                                                            # прежний порог не тронут
 
 

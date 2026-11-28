@@ -20,7 +20,7 @@ import apartment_cut
 import cleanup
 
 ENV = {'deskew': 'FP_CLEAN_DESKEW', 'rect': 'FP_CLEAN_RECT', 'bg': 'FP_CLEAN_BG', 'grid': 'FP_CLEAN_GRID', 'lines': 'FP_CLEAN_LINES', 'layers': 'FP_CLEAN_LAYERS', 'cut': 'FP_CUT_APT'}
-ENV_OWN = {'quarter': 'FP_CLEAN_QUARTER', 'quarter_after': 'FP_CLEAN_QUARTER_AFTER', 'deskew_guard': 'FP_CLEAN_DESKEW_GUARD', 'deskew_min5': 'FP_CLEAN_DESKEW_MIN5'}      # четверть оборота по OCR (Fable otvet-36): ТОЛЬКО своим флагом, FP_INPUT_ALL=1 его не включает (нужен OCR-оценщик `scorer`)
+ENV_OWN = {'quarter': 'FP_CLEAN_QUARTER', 'quarter_after': 'FP_CLEAN_QUARTER_AFTER', 'deskew_guard': 'FP_CLEAN_DESKEW_GUARD', 'deskew_min5': 'FP_CLEAN_DESKEW_MIN5', 'deskew_k6': 'FP_CLEAN_DESKEW_K6'}      # четверть оборота по OCR (Fable otvet-36): ТОЛЬКО своим флагом, FP_INPUT_ALL=1 его не включает (нужен OCR-оценщик `scorer`)
 
 
 def flag_all() -> bool:

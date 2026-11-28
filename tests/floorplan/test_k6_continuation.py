@@ -63,7 +63,7 @@ def test_tilted_thin_plan_found_despite_page_bar():
     img = rotate_like_td(thin_grid(), 20.0)
     cv2.line(img, (0, 40), (img.shape[1] - 1, 40), (0, 0, 0), 14)         # чёрная полоса листа поперёк, как на kazan-13345066
     g = _gray(img)
-    th, info = cl.main_angle(g)
+    th, info = cl.main_angle(g, page=True, fallback=True)
     assert th is not None and abs(th - 20.0) < 1.5, (th, info)
     old, oinfo = cl.main_angle(g, page=False, fallback=False)             # −контроль: как в замере 27.11 22:30
     assert old is None or abs(old - 20.0) > 5.0, (old, oinfo)
@@ -88,12 +88,12 @@ def test_perspective_sheet_is_not_rotated_but_rotated_sheet_is(monkeypatch):
     src = np.float32([[0, 0], [w - 1, 0], [w - 1, h - 1], [0, h - 1]])
     dst = np.float32([[w * 0.18, 0], [w * 0.82, 0], [w - 1, h - 1], [0, h - 1]])
     key = cv2.warpPerspective(rot, cv2.getPerspectiveTransform(src, dst), (w, h), borderValue=(255, 255, 255))
-    out, info = cl.deskew_lines(key)
+    out, info = cl.deskew_lines(key, k6=True)
     assert out is None and info['reason'].startswith('перспектива'), info   # лист в трапеции — перспектива, доворот не делаем
-    out, info = cl.deskew_lines(rot)
+    out, info = cl.deskew_lines(rot, k6=True)
     assert out is not None and info['ok'] and not info['perspective'], info   # просто повёрнутый — доворот как раньше
     monkeypatch.setattr(cl, 'DESKEW_PERSP_VETO', False)                      # −контроль: запрет выключен — причина «перспектива» не звучит
-    out, info = cl.deskew_lines(key)
+    out, info = cl.deskew_lines(key, k6=True)
     assert not str(info.get('reason', '')).startswith('перспектива'), info
 
 

@@ -30,7 +30,7 @@ def add_thin_slanted(img, deg=8.0, n=40):
 
 def test_thin_slanted_lines_do_not_set_the_angle():
     img = add_thin_slanted(TC.plan(3, fill=False))
-    th, info = cl.main_angle(cv2.cvtColor(img, cv2.COLOR_BGR2GRAY))
+    th, info = cl.main_angle(cv2.cvtColor(img, cv2.COLOR_BGR2GRAY), page=True, fallback=True)
     assert th is not None and abs(th) < cl.DESKEW_MIN and info['share'] > 0.9, (th, info)   # по толстому — план прямой, угол определён уверенно
     old, oinfo = cl.main_angle(cv2.cvtColor(img, cv2.COLOR_BGR2GRAY), thick=False, page=False, fallback=False)
     assert old is None and oinfo['share'] < cl.DESKEW_SHARE_MIN, (old, oinfo)    # −контроль: по всем линиям тонкие косые тонут/перетягивают — «главного угла нет» (так терялись листы до otvet-36)
@@ -39,7 +39,7 @@ def test_thin_slanted_lines_do_not_set_the_angle():
 def test_real_tilt_found_among_thin_lines():
     img, _ = TD.rotated(10.0)
     img = add_thin_slanted(img, deg=-6.0)
-    th, info = cl.main_angle(cv2.cvtColor(img, cv2.COLOR_BGR2GRAY))
+    th, info = cl.main_angle(cv2.cvtColor(img, cv2.COLOR_BGR2GRAY), page=True, fallback=True)
     assert th is not None and abs(th - 10.0) < 1.0, (th, info)
 
 
