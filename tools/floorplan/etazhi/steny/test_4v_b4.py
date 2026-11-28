@@ -1,5 +1,5 @@
 """Круг Б-3 4в, дописка (rab-10, 28.11 ~11:25): случай, не покрытый test_4v_b3.py, — «после частичной отмены красное ОСТАЛОСЬ → отменяется вся группа» + −контроль «без повторного прохода ворот».
-Запуск (локально, нужна папка work/ — STENY_WORK; вывод — STENY_OUT или tmp): python -B -I test_4v_b4.py (venv scout, heavy-slot 1 ядро; без чернил и OCR).
+Запуск (без внешних данных: модули чтения — steny/work/, лист — fixtures/steny/; CI job planner; вывод — STENY_OUT или tmp): python -B -I test_4v_b4.py (venv scout, heavy-slot 1 ядро; без чернил и OCR).
 СЛУЧАЙ (синтетика): комната r1, переносимые M1 (слева) и M2 (справа); у M2 стык не подгоняется (nofit:M2) → после первого прохода ворот M2 виновна одна (её перенос в одиночку красный), M1 в одиночку зелёная.
 Частичная отмена снимает только M2. Красное, которое остаётся ПОСЛЕ неё, в плане из одной-двух невиновных стен собрать не удалось (по одной они зелёные, а вместе красные — такого плана на синтетике и на 150 листах нет) —
 поэтому красное остатка ИМИТИРУЕТСЯ: обёртка над HB.check_all возвращает красный на ЧЕТВЁРТОМ вызове (1 — вся группа, 2 — M1 одна, 3 — M2 одна, 4 — повторный проход ворот на итоговом плане). Проверяется порядок действий кода, не геометрия.
@@ -13,11 +13,8 @@ import sys
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, HERE)
-try:
-    import steny_ten as ST  # noqa: E402
-except ImportError as _ex:      # нет cv2 или чужой папки work/ (STENY_WORK): в CI тест не гоняется — гонять у себя, где она есть
-    print('SKIP: %s (нужны cv2 и папка work/ — STENY_WORK)' % _ex)
-    sys.exit(0)
+import steny_ten as ST  # noqa: E402      # без SKIP: модули чтения — steny/work/, данные листа — fixtures/steny/ (steny_testenv.py); нет зависимости → тест КРАСНЫЙ, не молчит
+import steny_testenv as TE  # noqa: E402
 import tempfile  # noqa: E402
 OUT = os.environ.get('STENY_OUT') or os.path.join(tempfile.gettempdir(), 'steny-test')      # вывод тестов — не в папку репо
 os.makedirs(OUT, exist_ok=True)

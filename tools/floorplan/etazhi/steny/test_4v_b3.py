@@ -1,6 +1,6 @@
 """Круг Б-3 4в (rab-10, 28.11, Fable ~10:45): (1) вершина комнаты — к пересечению НОВОЙ линии переносимой стены с линией соседней кромки; (2) при красной замкнутости отменяются только ВИНОВНЫЕ
 (после одного его переноса контур не замыкается) + переносы, делящие с ними вершину; ворота затем снова на итоговом плане; (3) ступенька — строкой в счёте (в test_4v_b2.py).
-Запуск (локально, нужна папка work/ — STENY_WORK; вывод — STENY_OUT или tmp): python -B -I test_4v_b3.py (venv scout, heavy-slot 1 ядро; без чернил и OCR).
+Запуск (без внешних данных: модули чтения — steny/work/, лист — fixtures/steny/; CI job planner; вывод — STENY_OUT или tmp): python -B -I test_4v_b3.py (venv scout, heavy-slot 1 ядро; без чернил и OCR).
 (1) РЕАЛЬНЫЙ лист kazan-14825916 (комната r8 с толстой w_left2): новая привязка → комната прямоугольник, замкнута, красных 0; −КОНТРОЛЬ: старая привязка (oldvertex) → КРАСНАЯ (кромка wl_bottom не покрыта);
 (2) синтетика: комната с двумя переносимыми стенами M1 (слева) и M2 (справа), у M2 стык не подгоняется (nofit:M2) → отменена ТОЛЬКО M2, M1 перенесена, ворота на итоговом плане зелёные;
     −КОНТРОЛЬ: старое правило (allgroup) отменяет обе → утверждение «M1 перенесена» на нём КРАСНОЕ;
@@ -11,11 +11,8 @@ import sys
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, HERE)
-try:
-    import steny_ten as ST  # noqa: E402
-except ImportError as _ex:      # нет cv2 или чужой папки work/ (STENY_WORK): в CI тест не гоняется — гонять у себя, где она есть
-    print('SKIP: %s (нужны cv2 и папка work/ — STENY_WORK)' % _ex)
-    sys.exit(0)
+import steny_ten as ST  # noqa: E402      # без SKIP: модули чтения — steny/work/, данные листа — fixtures/steny/ (steny_testenv.py); нет зависимости → тест КРАСНЫЙ, не молчит
+import steny_testenv as TE  # noqa: E402
 import tempfile  # noqa: E402
 OUT = os.environ.get('STENY_OUT') or os.path.join(tempfile.gettempdir(), 'steny-test')      # вывод тестов — не в папку репо
 os.makedirs(OUT, exist_ok=True)
@@ -32,18 +29,10 @@ def setup(brk=''):
 
 def test_vertex_real_sheet():
     sid = 'kazan-14825916'
-    e = None
-    for f in ('inventory-otlozh.json', 'inventory-podbor.json', 'inventory-ekz.json'):
-        for x in json.load(open(ST.ORIG + '/' + f, encoding='utf-8')):
-            if x['лист'] == sid:
-                e = e or x
-    plan0 = json.load(open(e['plan'], encoding='utf-8'))
+    fx = json.load(open(os.path.join(HERE, '..', 'fixtures', 'steny', sid + '.json'), encoding='utf-8'))      # план «до» и 4 переноса прогона Б-3 (фикстура репо)
+    plan0 = fx['plan0']
     ws, k = SC.plan_walls(plan0)
-    res = None
-    for d in ('res-k4v-f-otlozh', 'res-k4v-f'):
-        p = ST.ORIG + '/' + d + '/all.json'
-        if os.path.exists(p):
-            res = res or next((r for r in json.load(open(p, encoding='utf-8')) if r['лист'] == sid), None)
+    res = {'перенесено': fx['перенесено']}
     W = HB._walls(plan0['levels'][0], k)
     exp = []
     for x in res['перенесено']:

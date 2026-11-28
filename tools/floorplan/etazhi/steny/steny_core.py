@@ -12,7 +12,7 @@ import os
 import subprocess
 import sys
 
-W = os.environ.get('STENY_WORK', '/home/pakar/remlab-logs/t171-steny-ten/work')   # копия рабочего 6 (vetka_fit, vetka_correct, passport_load, overlay_status): чужой work/ только читаем; в CI его нет — тесты с ним пропускаются (SKIP)
+W = os.environ.get('STENY_WORK') or os.path.join(os.path.dirname(os.path.abspath(__file__)), 'work')   # по умолчанию — копии модулей чтения в репо (steny/work/, sha256 — work/SHA256SUMS; снимок 20261126-2234); STENY_WORK — своя папка
 sys.dont_write_bytecode = True
 os.environ.update({'CORRECT_V2': '1', 'SOFT_INK': '1', 'STRICT_A': '1', 'PASSPORT_ONLY': '1', 'OMP_NUM_THREADS': '1'})
 os.environ.pop('INK_PALE', None)

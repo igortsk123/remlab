@@ -1,5 +1,5 @@
 """Круг Б-2 4в (rab-10, 28.11, Fable ~10:30): схлопывание ступеньки разрешено только при трёх условиях (длина ≤ перенос + 2 см; чернил нет — класс walls.csv не «на линии»; комнаты/контур целы);
-(б) допуск +1 см; порог кромки 93 % не тронут. Запуск (локально, нужна папка work/ — STENY_WORK; вывод — STENY_OUT или tmp): python -B -I test_4v_b2.py (venv scout, heavy-slot 1 ядро, без OCR и без чернил — синтетический план).
+(б) допуск +1 см; порог кромки 93 % не тронут. Запуск (без внешних данных: модули чтения — steny/work/, лист — fixtures/steny/; CI job planner; вывод — STENY_OUT или tmp): python -B -I test_4v_b2.py (venv scout, heavy-slot 1 ядро, без OCR и без чернил — синтетический план).
 ПЛАН: комната r1 со ступенькой — стена M (400,0)→(400,200) переносится на +17 см, ступенька S (400,200)→(417,200) длиной 17 см (от самого сдвига), дальше C на x=417.
 (1) СТУПЕНЬКА: S без чернил, 17 ≤ 17+2 → перенос проходит, у комнаты стен 6→5 (S схлопнулась), контур замкнут, красных 0; без разрешения (старые ворота Б-1) тот же перенос КРАСНЫЙ (причина «стены до 6 / после 5»);
 (2) НИША: та же S, но класс «на линии» (на ней чернила) → перенос ОТМЕНЁН, причина «контур не замыкается», план побайтно прежний;
@@ -14,11 +14,8 @@ import sys
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, HERE)
-try:
-    import steny_ten as ST  # noqa: E402
-except ImportError as _ex:      # нет cv2 или чужой папки work/ (STENY_WORK): в CI тест не гоняется — гонять у себя, где она есть
-    print('SKIP: %s (нужны cv2 и папка work/ — STENY_WORK)' % _ex)
-    sys.exit(0)
+import steny_ten as ST  # noqa: E402      # без SKIP: модули чтения — steny/work/, данные листа — fixtures/steny/ (steny_testenv.py); нет зависимости → тест КРАСНЫЙ, не молчит
+import steny_testenv as TE  # noqa: E402
 import tempfile  # noqa: E402
 OUT = os.environ.get('STENY_OUT') or os.path.join(tempfile.gettempdir(), 'steny-test')      # вывод тестов — не в папку репо
 os.makedirs(OUT, exist_ok=True)

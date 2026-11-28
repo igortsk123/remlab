@@ -1,0 +1,21 @@
+{
+ "found": "fit",
+ "scale_px_per_unit_cm": 0.73556,
+ "shift_px": [
+  36.9,
+  31.4
+ ],
+ "residual_mean_px_capped": 1.46,
+ "residual_median_px": 0.0,
+ "inliers_share_le_3px": 0.868,
+ "flipy": false,
+ "sheet_px": [
+  669,
+  583
+ ],
+ "start": {
+  "s0": 0.8127
+ },
+ "rot_deg": 0.0,
+ "rot_center_cm": null
+}

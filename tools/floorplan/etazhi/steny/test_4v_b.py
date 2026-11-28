@@ -1,5 +1,5 @@
 """Круг Б 4в (rab-10, 28.11): перенос БЕЗ увода соседей + обязательная проверка замкнутости комнат, с −контролем.
-Запуск (локально, нужна папка work/ — STENY_WORK; вывод — STENY_OUT или tmp): python -B -I test_4v_b.py (venv scout; через heavy-slot 1 ядро), без OCR и агента. Данные — kazan-14726759 из inventory-ekz.json (4в-экзамен).
+Запуск (без внешних данных: модули чтения — steny/work/, лист — fixtures/steny/; CI job planner; вывод — STENY_OUT или tmp): python -B -I test_4v_b.py (venv scout; через heavy-slot 1 ядро), без OCR и агента. Данные — kazan-14726759 из inventory-ekz.json (4в-экзамен).
 ПРОВЕРКИ (зелёные): (1) с --hold-neighbors перенесены обе стены лоджии, проверка замкнутости ЗЕЛЁНАЯ, увод соседей поперёк ≤ 1 см (мерка rab-6 neighbor_drift);
 (2) контрольный «ничего не менять» план — зелёный (проверка не краснит на пустом месте).
 −КОНТРОЛЬ (проверка обязана быть КРАСНОЙ): (3) стык не подгоняется (hold_fit fit=False) → красная; (4) сосед выкинут (w_left убрана из плана «после») → красная;
@@ -13,20 +13,15 @@ import sys
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, HERE)
-try:
-    import steny_ten as ST  # noqa: E402
-except ImportError as _ex:      # нет cv2 или чужой папки work/ (STENY_WORK): в CI тест не гоняется — гонять у себя, где она есть
-    print('SKIP: %s (нужны cv2 и папка work/ — STENY_WORK)' % _ex)
-    sys.exit(0)
+import steny_ten as ST  # noqa: E402      # без SKIP: модули чтения — steny/work/, данные листа — fixtures/steny/ (steny_testenv.py); нет зависимости → тест КРАСНЫЙ, не молчит
+import steny_testenv as TE  # noqa: E402
 import tempfile  # noqa: E402
 OUT = os.environ.get('STENY_OUT') or os.path.join(tempfile.gettempdir(), 'steny-test')      # вывод тестов — не в папку репо
 os.makedirs(OUT, exist_ok=True)
 
 SC, HB = ST.SC, ST.SC.HB
 SID = 'kazan-14726759'
-INV = [e for e in json.load(open(ST.ORIG + '/inventory-ekz.json', encoding='utf-8')) if e['лист'] == SID]
-assert len(INV) == 1
-E = INV[0]
+E = TE.entry(SID)
 PLAN0 = json.load(open(E['plan'], encoding='utf-8'))
 K = SC.plan_walls(PLAN0)[1]
 
@@ -103,7 +98,7 @@ def test_control_gate_cancels_nofit():
 
 
 def test_control_old_4vf_red():
-    p = json.load(open(ST.ORIG + '/res-k4v-f-ekz/' + SID + '/plan-after.json', encoding='utf-8'))
+    p = json.load(open(TE.res_4vf_plan(SID), encoding='utf-8'))
     hb = HB.check_all(PLAN0, p, K)
     assert not hb['зелёная'], 'проверка не видит наклонённую w_top прошлого 4в f'
     return hb, max_drift(p, ['w_log_top', 'w_log_bottom'])
