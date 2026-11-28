@@ -1,5 +1,10 @@
 #!/usr/bin/env python3
 """Тесты драйвера salad_trial.py БЕЗ сети и денег: подставные Salad/шлюз/часы. Запуск: python3 tests_salad_trial.py"""
+import os as _rt_os  # noqa: E402
+import sys as _rt_sys  # noqa: E402
+_rt_sys.path.append(_rt_os.path.join(_rt_os.path.dirname(_rt_os.path.abspath(__file__)), '../..'))
+import remlab_tmp  # noqa: E402,I001  — временное теста на диске и с уборкой при выходе (T-20261107-13)
+remlab_tmp.use('tests_salad_trial')
 import argparse
 import io
 import json

@@ -1,5 +1,10 @@
 #!/usr/bin/env python3
 """Тесты part_grain (T-20261124-69/4): выключатель байт в байт, два предохранителя амплитуды, только L, тон держится, оси по плоскости/круглая плита, детерминизм, только маска части."""
+import os as _rt_os  # noqa: E402
+import sys as _rt_sys  # noqa: E402
+_rt_sys.path.append(_rt_os.path.join(_rt_os.path.dirname(_rt_os.path.abspath(__file__)), '../..'))
+import remlab_tmp  # noqa: E402,I001  — временное теста на диске и с уборкой при выходе (T-20261107-13)
+remlab_tmp.use('tests_part_grain')
 import copy
 import os
 import sys

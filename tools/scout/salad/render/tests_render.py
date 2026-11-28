@@ -2,6 +2,11 @@
 """Тесты воркера и драйвера Salad «кадры форм» (T-184/1, очередь 3). Без сети, Salad и видеокарты: настоящий HTTP-сервер воркера на localhost; вместо Blender — поддельный исполняемый
 файл (пишет кадры с теми же именами, что render_stand). Запуск: python tools/scout/salad/render/tests_render.py (stdlib + numpy/Pillow для сверки; без них тесты сверки пропускаются)."""
 from __future__ import annotations
+import os as _rt_os  # noqa: E402
+import sys as _rt_sys  # noqa: E402
+_rt_sys.path.append(_rt_os.path.join(_rt_os.path.dirname(_rt_os.path.abspath(__file__)), '../..'))
+import remlab_tmp  # noqa: E402,I001  — временное теста на диске и с уборкой при выходе (T-20261107-13)
+remlab_tmp.use('tests_render')
 
 import hashlib
 import io

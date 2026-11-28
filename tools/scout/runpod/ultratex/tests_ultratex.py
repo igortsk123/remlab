@@ -3,6 +3,11 @@
   python tools/scout/runpod/ultratex/tests_ultratex.py
 Нужны numpy и PIL; раздел «рендер/развёртка» пропускается без moderngl+EGL, trimesh или xatlas (в образе он идёт)."""
 from __future__ import annotations
+import os as _rt_os  # noqa: E402
+import sys as _rt_sys  # noqa: E402
+_rt_sys.path.append(_rt_os.path.join(_rt_os.path.dirname(_rt_os.path.abspath(__file__)), '../..'))
+import remlab_tmp  # noqa: E402,I001  — временное теста на диске и с уборкой при выходе (T-20261107-13)
+remlab_tmp.use('tests_ultratex')
 
 import base64
 import json

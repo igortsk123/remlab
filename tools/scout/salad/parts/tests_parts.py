@@ -1,6 +1,11 @@
 #!/usr/bin/env python3
 """Тест воркера разметки частей на kit (Ш5/T-183): сервер `::`, /health с ходом, POST /run → /job → /file, 429 на занятой ноде. MODEL=fake — без GPU и весов.
 Запуск: python tools/scout/salad/parts/tests_parts.py"""
+import os as _rt_os  # noqa: E402
+import sys as _rt_sys  # noqa: E402
+_rt_sys.path.append(_rt_os.path.join(_rt_os.path.dirname(_rt_os.path.abspath(__file__)), '../..'))
+import remlab_tmp  # noqa: E402,I001  — временное теста на диске и с уборкой при выходе (T-20261107-13)
+remlab_tmp.use('tests_parts')
 import base64
 import io
 import json

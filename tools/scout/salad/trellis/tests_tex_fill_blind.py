@@ -1,5 +1,10 @@
 """Тест мерки «слепое продолжение поверхности» (tex_fill_blind): фейковая мишень → заморозка (local/far/side и wholepart) → run → в каждой записи поля причин решений, без `error`.
 Бесплатно, без GPU и без сети: три однотонные «серые» плиты (шум только по яркости), одна роль; черновика TRELLIS нет (источник stat). Запуск: `python tests_tex_fill_blind.py` → «ошибок 0»."""
+import os as _rt_os  # noqa: E402
+import sys as _rt_sys  # noqa: E402
+_rt_sys.path.append(_rt_os.path.join(_rt_os.path.dirname(_rt_os.path.abspath(__file__)), '../..'))
+import remlab_tmp  # noqa: E402,I001  — временное теста на диске и с уборкой при выходе (T-20261107-13)
+remlab_tmp.use('tests_tex_fill_blind')
 import json
 import os
 import sys

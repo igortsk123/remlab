@@ -3,6 +3,11 @@ MAIN_NOT_VISIBLE и «неопределимо» не блокируют; вык
 Без сети, без платного и без настоящего Blender: Blender — подмена, которая пишет кадр и отчёт сторожа по режиму.
 
 Запуск: python tools/scout/render_gpu/tests_render_gate.py   (код 0 — чисто; нужен PIL)"""
+import os as _rt_os  # noqa: E402
+import sys as _rt_sys  # noqa: E402
+_rt_sys.path.append(_rt_os.path.join(_rt_os.path.dirname(_rt_os.path.abspath(__file__)), '..'))
+import remlab_tmp  # noqa: E402,I001  — временное теста на диске и с уборкой при выходе (T-20261107-13)
+remlab_tmp.use('tests_render_gate')
 import contextlib
 import functools
 import json

@@ -1,6 +1,11 @@
 #!/usr/bin/env python3
 """Юнит-тесты сторожа кадров (чистая логика, без Blender): классы слотов, оценка кадра, предпроверка на подделанных данных, хеш отчёта.
 Запуск: `~/venvs/scout/bin/python tools/scout/cycles_probe/test_frame_qa.py` (работает и под pytest)."""
+import os as _rt_os  # noqa: E402
+import sys as _rt_sys  # noqa: E402
+_rt_sys.path.append(_rt_os.path.join(_rt_os.path.dirname(_rt_os.path.abspath(__file__)), '..'))
+import remlab_tmp  # noqa: E402,I001  — временное теста на диске и с уборкой при выходе (T-20261107-13)
+remlab_tmp.use('test_frame_qa')
 import json
 import os
 import shutil
