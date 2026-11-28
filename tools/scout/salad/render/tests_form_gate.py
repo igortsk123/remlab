@@ -1,6 +1,11 @@
 #!/usr/bin/env python3
 """Тесты шага form_gate (Ш0, T-184/9): запись form_checks.json и сводки form_gate.tsv, строка «к глазам»; без сети и без реальных товаров. Запуск: python tests_form_gate.py (numpy, trimesh, pillow)."""
 from __future__ import annotations
+import os as _rt_os  # noqa: E402
+import sys as _rt_sys  # noqa: E402
+_rt_sys.path.append(_rt_os.path.join(_rt_os.path.dirname(_rt_os.path.abspath(__file__)), '../..'))
+import remlab_tmp  # noqa: E402,I001  — временное теста на диске и с уборкой при выходе (T-20261107-13)
+remlab_tmp.use('tests_form_gate')
 
 import json
 import os
@@ -132,6 +137,21 @@ class T(unittest.TestCase):
         self.assertIn('«да» в 1 из 3', row[5])
         cam = {'sku': 'c', 'status': 'camera_or_mask_uncertain', 'flags': ['sil_iou'], 'checks': []}
         self.assertEqual(FG.eye_row(cam)[3], 'нет')                                  # чисто камерное — не брак формы
+
+    def test_muted_holes_goes_to_eye_and_counted(self):
+        """holes приглушён правилом стола на ножках (would_flag, T-175): форма к глазам директора и в строке сводки (Fable 28.11, P-064); незвонившее — нет."""
+        rec = {'sku': 't', 'status': 'pass', 'flags': [], 'checks': [{'name': 'holes', 'flag': False, 'would_flag': True, 'note': 'НЕ звонит: опор 4'}]}
+        row = FG.eye_row(rec, 'стол')
+        self.assertEqual((row[3], row[4]), ('да', 'holes~приглушён'))
+        self.assertIn('НЕ звонит', row[5])
+        self.assertEqual(FG.muted({'checks': [{'name': 'holes', 'flag': False}]}), [])
+        self.assertEqual(FG.muted({'checks': [{'name': 'holes', 'flag': True, 'would_flag': True}]}), [])      # звонит — не «приглушён»
+        tmp = tempfile.mkdtemp(prefix='tests_fg_')
+        glbs, out = mk(tmp, 'c_1')
+        p = __import__('subprocess').run([sys.executable, '-I', '-W', 'ignore', os.path.join(HERE, 'form_gate.py'), '--out', out, '--glbs', glbs, '--skus', 'c_1', '--no-vlm', '--no-cards', '--roles', ''],
+                                         capture_output=True, text=True, cwd=tmp)
+        self.assertIn('holes приглушён: 0', p.stdout)
+        self.assertIn('holes приглушён: 0', open(os.path.join(out, 'form_gate.log'), encoding='utf-8').read())
 
     def test_default_three_kinds_cabinet_only_and_cached(self):
         tmp = tempfile.mkdtemp(prefix='tests_fg_')

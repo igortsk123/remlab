@@ -1,6 +1,11 @@
 """Тесты заготовки кадров (T-20261118-07): `render_jobs` (заготовка `warm`) + `render_prewarm.Prewarmer`. Без сети и без платного: исполнитель и машина — подмены.
 
 Запуск: ~/venvs/scout/bin/python tools/scout/render_gpu/tests_render_prewarm.py   (код 0 — чисто)"""
+import os as _rt_os  # noqa: E402
+import sys as _rt_sys  # noqa: E402
+_rt_sys.path.append(_rt_os.path.join(_rt_os.path.dirname(_rt_os.path.abspath(__file__)), '..'))
+import remlab_tmp  # noqa: E402,I001  — временное теста на диске и с уборкой при выходе (T-20261107-13)
+remlab_tmp.use('tests_render_prewarm')
 import json
 import os
 import shutil

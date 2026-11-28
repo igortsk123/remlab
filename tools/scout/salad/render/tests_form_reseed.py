@@ -2,6 +2,11 @@
 """Тесты правила повтора формы (T-20261126-99/8): выбор лучшего из ВСЕХ образцов, класс Н не повторяется, «не удалось проверить» не повторяется, флаг выкл — запись побайтно та же.
 Часть — на синтетических записях проверок, часть — на СОХРАНЁННЫХ проверках образцов T-99/1 (fixtures/t99_reseed_checks.json: без GLB, новых генераций нет). Запуск: python tests_form_reseed.py (numpy, trimesh, pillow — для проверки гейта)."""
 from __future__ import annotations
+import os as _rt_os  # noqa: E402
+import sys as _rt_sys  # noqa: E402
+_rt_sys.path.append(_rt_os.path.join(_rt_os.path.dirname(_rt_os.path.abspath(__file__)), '../..'))
+import remlab_tmp  # noqa: E402,I001  — временное теста на диске и с уборкой при выходе (T-20261107-13)
+remlab_tmp.use('tests_form_reseed')
 
 import json
 import os

@@ -32,11 +32,17 @@ def find_photo(sku: str, photos: str, glbs: str, out: str) -> str | None:
     return None
 
 
+def muted(rec: dict) -> list[str]:
+    """Проверки, которые звонили бы, но приглушены правилом типа (`would_flag`, напр. holes у стола на ножках, T-175) — такую форму директор смотрит сам (Fable 28.11, P-064)."""
+    return [c['name'] for c in rec.get('checks', []) if c.get('would_flag') and not c.get('flag')]
+
+
 def eye_row(rec: dict, role: str = '') -> list[str]:
-    """Строка сводки по записи `run_sku`: статус, нужно ли глазам, флаги и пояснения флагов оценщика/перекоса."""
-    flags = rec.get('flags') or []
-    why = '; '.join(f"{c['name']}: {c.get('note', '')}"[:140] for c in rec.get('checks', []) if c.get('flag') and (c['name'].startswith('vlm_') or c['name'] == 'body_skew'))
-    return [rec['sku'], role or '—', rec.get('status', '?'), 'да' if rec.get('status') in ('needs_review', 'shape_reject') else 'нет', ','.join(flags) or '—', why or '—']
+    """Строка сводки по записи `run_sku`: статус, нужно ли глазам, флаги и пояснения флагов оценщика/перекоса; приглушённое правилом — тоже к глазам."""
+    flags = list(rec.get('flags') or []) + [n + '~приглушён' for n in muted(rec)]
+    why = '; '.join(f"{c['name']}: {c.get('note', '')}"[:140] for c in rec.get('checks', []) if (c.get('flag') and (c['name'].startswith('vlm_') or c['name'] == 'body_skew')) or (c.get('would_flag') and not c.get('flag')))
+    eye = rec.get('status') in ('needs_review', 'shape_reject') or bool(muted(rec))
+    return [rec['sku'], role or '—', rec.get('status', '?'), 'да' if eye else 'нет', ','.join(flags) or '—', why or '—']
 
 
 def gate(out: str, glbs: str, skus: list[str], roles: dict | None = None, photos: str = '', photo_name: str = '', vlm_cache: str = '', rules_path: str = '',
@@ -92,6 +98,8 @@ def gate(out: str, glbs: str, skus: list[str], roles: dict | None = None, photos
         rows.append(eye_row(rec, roles.get(s, '')))
         if rec.get('not_run'):
             say(f"{s}: проверки НЕ ВЫПОЛНЕНЫ (не «прошли»): {', '.join(rec['not_run'])} — {next((c['note'] for c in rec['checks'] if c.get('skipped')), '')}")
+    hm = [r['sku'] for r in recs if 'holes' in muted(r)]
+    say(f"holes приглушён: {len(hm)}" + (f" ({', '.join(hm)}) — к глазам директора; настоящая дыра под приглушением → правило назад (Fable 28.11)" if hm else ''))
     if use_vlm:
         say(f"vlm итог: оценка израсходованного ≈${budget.get('spent', 0.0):.4f} из потолка ${budget['limit']:.4f}, групп пропущено по потолку {budget.get('skipped', 0)}")
     if rows:
@@ -128,7 +136,7 @@ def main() -> int:
     nr = [r for r in recs if r.get('not_run')]
     if nr:
         print(f"form_gate: проверки НЕ ВЫПОЛНЕНЫ у {len(nr)} из {len(recs)} форм: {', '.join(sorted({n for r in nr for n in r['not_run']}))}", flush=True)
-    print(f'form_gate: проверено {len(recs)}, к глазам {sum(1 for r in recs if r["status"] in ("needs_review", "shape_reject"))}', flush=True)
+    print(f'form_gate: проверено {len(recs)}, к глазам {sum(1 for r in recs if r["status"] in ("needs_review", "shape_reject") or muted(r))}, holes приглушён: {sum(1 for r in recs if "holes" in muted(r))}', flush=True)
     return 3 if nr else 0                                                            # не выполнено — не «прошла»: код 3 (T-20261127-175/Ш0-fix-2)
 
 

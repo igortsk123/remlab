@@ -1,0 +1,65 @@
+{
+ "rooms": [
+  {
+   "name": null,
+   "area_text": "4.54",
+   "area_m2": 4.54,
+   "area_reduced_text": null,
+   "pt": [
+    353,
+    237
+   ],
+   "type": "bathroom",
+   "unsure": false
+  },
+  {
+   "name": null,
+   "area_text": "3.53",
+   "area_m2": 3.53,
+   "area_reduced_text": null,
+   "pt": [
+    760,
+    237
+   ],
+   "type": "hall",
+   "unsure": false
+  },
+  {
+   "name": null,
+   "area_text": "26.24",
+   "area_m2": 26.24,
+   "area_reduced_text": null,
+   "pt": [
+    698,
+    533
+   ],
+   "type": "kitchen_living",
+   "unsure": false
+  },
+  {
+   "name": null,
+   "area_text": "1.09",
+   "area_m2": 1.09,
+   "area_reduced_text": null,
+   "pt": [
+    310,
+    874
+   ],
+   "type": "balcony",
+   "unsure": false
+  }
+ ],
+ "dims": [
+  {
+   "text": "17.08",
+   "value_m": 17.08,
+   "pt": [
+    805,
+    836
+   ],
+   "dir": "h",
+   "room": 2
+  }
+ ],
+ "totals": []
+}

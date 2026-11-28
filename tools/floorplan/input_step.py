@@ -36,7 +36,7 @@ def flags_from_env() -> dict:
 
 
 def _quarter(sheet, scorer):
-    """шаг «четверть оборота» (до всех остальных): → (лист, ops, steps, k). Не применён / нет оценщика / сбой — лист как был."""
+    """шаг «четверть оборота» (до всех остальных): → (лист, ops, steps, k). Не применён (текста мало / исходный не хуже) — лист как был, без записи; сбой — лист как был + {'op':'quarter','fail':причина} в steps."""
     import cv2
     import numpy as np
     import quarter_turn
@@ -44,21 +44,38 @@ def _quarter(sheet, scorer):
     try:
         bgr = cv2.cvtColor(np.asarray(sheet.convert('RGB')), cv2.COLOR_RGB2BGR)
         out, info = quarter_turn.quarter_turn(bgr, scorer)
-    except Exception:  # noqa: BLE001 — сбой шага: лист как был
-        return sheet, [], [], None
+    except Exception as e:  # noqa: BLE001 — сбой шага: лист как был, но НЕ молча (T-171/quarter-otkaz): причина в steps
+        return sheet, [], [{'op': 'quarter', 'fail': '%s: %s' % (type(e).__name__, ' '.join(str(e).split())[:120])}], None
     if out is None:
         return sheet, [], [], None
     return Image.fromarray(cv2.cvtColor(out, cv2.COLOR_BGR2RGB)), ['quarter'], [{'op': 'quarter', 'k': info['k'], 'turn': info['turn'], 'H': info['H']}], info['k']
 
 
+def quarter_report(step_lists) -> dict:
+    """счёт шага quarter по прогону: step_lists — `steps` (или `source['inputTransform']`) каждого листа → {'пропущено': N, 'нет оценщика': n, 'сбоев': M, 'причины сбоев': {текст: сколько}}"""
+    skipped, fails = 0, {}
+    for steps in step_lists:
+        for s in steps or []:
+            if s.get('op') != 'quarter':
+                continue
+            if 'skip' in s:
+                skipped += 1
+            if 'fail' in s:
+                fails[s['fail']] = fails.get(s['fail'], 0) + 1
+    return {'пропущено': skipped, 'нет оценщика': skipped, 'сбоев': sum(fails.values()), 'причины сбоев': fails}
+
+
 def run(sheet, flags=None, scorer=None):
     """PIL RGB → {'sheet', 'ops', 'steps', 'cut', 'deskew_deg', 'quarter_k'}; flags=None — из окружения.
-    scorer(k, img_bgr) → оценка поворота k по OCR (нужен только шагу quarter; без него шаг молча пропущен — флаг без оценщика ничего не делает)."""
+    scorer(k, img_bgr) → оценка поворота k по OCR (нужен только шагу quarter; флаг без оценщика — лист не меняется, в steps {'op':'quarter','skip':'нет оценщика'})."""
     if flags is None:
         flags = flags_from_env()
     q_ops, q_steps, q_k = [], [], None
-    if flags.get('quarter') and scorer is not None:
-        sheet, q_ops, q_steps, q_k = _quarter(sheet, scorer)
+    if flags.get('quarter'):
+        if scorer is None:
+            q_steps = [{'op': 'quarter', 'skip': 'нет оценщика'}]      # флаг включён, а OCR-оценщика нет: лист не меняем, но пропуск виден (молчаливый отказ запрещён)
+        else:
+            sheet, q_ops, q_steps, q_k = _quarter(sheet, scorer)
     sheet, ops, steps = cleanup.clean_sheet_steps(sheet, flags)
     ops, steps = list(q_ops) + list(ops), list(q_steps) + list(steps)
     if flags.get('quarter') and flags.get('quarter_after') and scorer is not None and q_k is None and 'deskew' in ops \

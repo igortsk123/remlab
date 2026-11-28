@@ -40,6 +40,7 @@ import preprocess as PRE
 import soft_edge
 import studio_bg
 import cutout_origin as CO
+import mask_cache as MC
 
 BIREFNET_REPO = CO.BIREFNET_REPO
 BIREFNET_REVISION = CO.BIREFNET_REVISION
@@ -56,6 +57,14 @@ def mask_cpu(img: Image.Image) -> Image.Image:
     Единственная копия этого кода (вход формы и режим `local` ночного шага). Потоки — переменная THREADS (по умолчанию 12)."""
     global _LOCAL
     src = img.convert('RGB')
+    cfg = MC.rules()
+    tag = MC.env_tag(BIREFNET_REPO, BIREFNET_REVISION) if cfg['enabled'] else ''
+    if cfg['enabled']:       # дисковый кэш сырой маски (T-175/mask-cache): по умолчанию ВЫКЛЮЧЕН; попадание модель не грузит. Только ЦП-маска — видеокарта сюда не заходит
+        hit = MC.get(src, tag, cfg)
+        if hit is not None:
+            out = src.convert('RGBA')
+            out.putalpha(hit)
+            return out
     if _LOCAL is None:
         import torch
         from torchvision import transforms
@@ -70,7 +79,10 @@ def mask_cpu(img: Image.Image) -> Image.Image:
     with torch.no_grad():
         pred = m(tf(src).unsqueeze(0))[-1].sigmoid()[0].squeeze()
     out = src.convert('RGBA')
-    out.putalpha(Image.fromarray((pred.numpy() * 255).astype(np.uint8)).resize(src.size))
+    alpha = Image.fromarray((pred.numpy() * 255).astype(np.uint8)).resize(src.size)
+    out.putalpha(alpha)
+    if cfg['enabled']:
+        MC.put(alpha, src, tag, cfg)         # не бросает: нет места/не пишется — строка, результат остаётся
     return out
 
 
@@ -242,7 +254,9 @@ def make_input(raw: bytes, role: str | None, steps=CO.STEPS_ALL, net: Image.Imag
     """ВХОД ФОРМЫ из байтов фото: сырая маска (`mask_cpu`; `net` — готовая, только для тестов) → `chain_cut` → запись происхождения.
     Возвращает (shape RGBA полного холста, обрезанная копия, info, origin). Решать «годен ли» (размер, коллаж, сбой гибрида) — вызывающему: отчёт в `info`."""
     src = Image.open(io.BytesIO(raw)).convert('RGB')
+    cache = None
     if net is None:
         net = mask_cpu(src)
+        cache = MC.label()             # правила кэша масок — в метке (только когда кэш включён и маска реально шла через `mask_cpu`; выключен — метка прежняя)
     shape, cut, info = chain_cut(src, net, role=role, steps=steps)
-    return shape, cut, info, CO.build(raw, steps, shape=shape, pick=info.get('picked', 'none'))
+    return shape, cut, info, CO.build(raw, steps, shape=shape, pick=info.get('picked', 'none'), mask_cache=cache)
