@@ -26,6 +26,7 @@ import vetka_correct as VC  # noqa: E402
 import passport_load as PL  # noqa: E402
 import overlay_status as OV  # noqa: E402
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+import target_center as TC  # noqa: E402      # рабочий 10, (в): центр плато профиля
 import hold_b as HB  # noqa: E402      # рабочий 10, круг Б 4в: подгонка стыков и проверка замкнутости
 
 UNIT = vf.UNIT
@@ -66,6 +67,10 @@ PR_FILL_DELTA = CFG.get('profile_fill_delta', 25.0)     # КРУГ 4в: стар
 PR_FILL_WIN_CM = CFG.get('profile_fill_win_cm', 60.0)
 NEIGHBOR_DRIFT = CFG.get('neighbor_drift_gate', False)      # рабочий 6, Fable 28.11: ВЫКЛ; ключ --neighbor-drift: у соседа (не переносимая стена) мерка — увод конца поперёк его линии, не поворот >2°
 HOLD_NEIGHBORS = CFG.get('hold_neighbors', False)      # рабочий 10, круг Б 4в (директор 28.11): ВЫКЛ; ключ --hold-neighbors: соседи держатся на своей линии, стык переносимой подгоняется к ним; замкнутость комнат — обязательная проверка, красная → перенос отменён
+CENTER_TARGET = CFG.get('center_target', False)      # рабочий 10, (в) Fable 28.11: ВЫКЛ; ключ --center-target: цель класса 1 — в центр плато профиля (двойная линия: середина пары; цель села на одну из двух линий / на край полосы — сдвигается)
+CENTER_WIN_CM = CFG.get('center_win_cm', 40.0)       # окно поперёк, как у профиля (PR_WIN_CM); шаг 1 см
+CENTER_MIN_CM = CFG.get('center_min_cm', 2.0)        # меньше 2 см (≈1,3 px листа) — шум замера, цель не трогаем
+CENTER_MAX_CM = CFG.get('center_max_cm', 8.0)        # больше 8 см — не «внутри полосы»: не доверяем, цель не трогаем
 HOLD_BREAK = ''                                          # ТОЛЬКО тест (−контроль): 'nofit' — стык не подгоняется
 DRIFT_MAX_CM = CFG.get('neighbor_drift_max_cm', 5.0)       # порог увода, см (один, абсолютный; причина — _why_neighbor_drift_max_cm)
 AREA_FLAG_ONLY = CFG.get('area_flag_only', False)      # КРУГ 4в (4), Fable otvet-46: ВЫКЛ; драйвер включает ключом --area-flag: отмены по площади нет, вместо неё строка в отчёт (флажок не считается — прибор не калиброван)
@@ -297,6 +302,21 @@ def evidence_class1(c, kind, fit, dt, openings=None):
             'остаток_доля': round(left_frac, 3), 'остаток_точек': left_pts, 'тонкий_остаток': thin}
 
 
+def center_target(a, b, d, fit, dt, openings):
+    """(в): → (вектор добавки к d, см по нормали) или None. Профиль P(o) шагом 1 см в окне ±CENTER_WIN_CM, центр плато (target_center.plateau_center); добавка ≥ CENTER_MIN_CM и ≤ CENTER_MAX_CM."""
+    A, B, dd = np.array(a, float), np.array(b, float), np.array(d, float)
+    L = float(np.hypot(*(B - A))) or 1.0
+    u = (B - A) / L
+    n = np.array([-u[1], u[0]])
+    skip = [(o / L, (o + w) / L) for o, w in (openings or [])]
+    offs = [float(o) for o in np.arange(-CENTER_WIN_CM, CENTER_WIN_CM + 0.01, 1.0)]
+    P = [share_on_ink(dt, fit, A + dd + n * o, B + dd + n * o, skip=skip) for o in offs]
+    r = TC.plateau_center(offs, P)
+    if r is None or abs(r['center']) < CENTER_MIN_CM or abs(r['center']) > CENTER_MAX_CM:
+        return None
+    return (float(n[0] * r['center']), float(n[1] * r['center'])), r['center']
+
+
 def cands_class1(plan, rows, dt=None, fit=None, rej=None, evidence=None):
     """evidence (по умолчанию SC.EVIDENCE, ВЫКЛ): ворота доказательства вместо доли «после сдвига» из walls.csv — см. evidence_class1; dt — карта расстояний до чернил листа, fit — привязка «до».
     Не прошедшие → rej (список {'стена', 'до','после','пара','доказательство','прирост','причина'})."""
@@ -344,7 +364,14 @@ def cands_class1(plan, rows, dt=None, fit=None, rej=None, evidence=None):
                 continue
         elif aft is None or aft < MIN_AFTER_SHARE:
             continue
-        out.append({'id': w['id'], 'a': w['a'], 'b': w['b'], 'd': d, 'tol': max(w['th'] / 2, 5.0) + 2.0, 'класс': 1, 'shift_cm': sh, 'вид': w['kind'], 'доказательство': ev})
+        cen = None
+        if CENTER_TARGET and ev_on and dt is not None and fit is not None:
+            cen = center_target(w['a'], w['b'], d, fit, dt, ops.get(w['id']))
+            if cen is not None:
+                d = (d[0] + cen[0][0], d[1] + cen[0][1])
+                sh = float(math.hypot(*d))
+        out.append({'id': w['id'], 'a': w['a'], 'b': w['b'], 'd': d, 'tol': max(w['th'] / 2, 5.0) + 2.0, 'класс': 1, 'shift_cm': sh, 'вид': w['kind'], 'доказательство': ev,
+                    'центр_цели_см': None if cen is None else round(cen[1], 1)})
     return out
 
 

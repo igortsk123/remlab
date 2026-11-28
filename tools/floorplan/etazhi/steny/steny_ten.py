@@ -155,6 +155,7 @@ def main():
     ap.add_argument('--profile', action='store_true', help='КРУГ 4в (2): ворота «цель там, где линия» (профиль поперёк стены ±40 см) вместо порога 0,80; включает --evidence')
     ap.add_argument('--nodigit-flag', dest='nodigit_flag', action='store_true', help='КРУГ 4в, Fable шаг 3: комната без цифры не блокирует перенос — вместо блока флажок «площадь не проверена»')
     ap.add_argument('--old-on-ink', dest='old_on_ink', action='store_true', help='КРУГ 4в: на старом месте чернил ≥ 0,448 (как у верных по глазу) — «неоднозначно», флажок, без переноса (только с --profile)')
+    ap.add_argument('--center-target', dest='center_target', action='store_true', help='рабочий 10, (в) Fable 28.11: цель класса 1 — в центр плато профиля (двойная линия: середина пары), добавка 2–8 см (только с --evidence)')
     ap.add_argument('--hold-neighbors', dest='hold_neighbors', action='store_true', help='рабочий 10, круг Б 4в: перенос БЕЗ увода соседей — их концы держатся на своей линии, стык переносимой подгоняется; проверка замкнутости комнат обязательна')
     ap.add_argument('--neighbor-drift', dest='neighbor_drift', action='store_true', help='рабочий 6, Fable 28.11: у соседа мерка — увод конца поперёк его линии > 5 см (вместо поворота >2°); отмена «сосед <id> уводится на N см»')
     ap.add_argument('--whole-miss', dest='whole_miss', action='store_true', help='КРУГ 4: «весь план мимо» (доля ≤3 px <0,40 или остаток >7 px) — стены не двигать, флажок')
@@ -173,6 +174,7 @@ def main():
     SC.WHOLE_MISS = a.whole_miss or SC.WHOLE_MISS
     SC.NEIGHBOR_DRIFT = a.neighbor_drift or SC.NEIGHBOR_DRIFT
     SC.HOLD_NEIGHBORS = a.hold_neighbors or SC.HOLD_NEIGHBORS
+    SC.CENTER_TARGET = a.center_target or SC.CENTER_TARGET
     inv = json.load(open(('%s/' % ORIG) + a.inv, encoding='utf-8'))
     if a.only:
         ids = set(a.only.split(','))
