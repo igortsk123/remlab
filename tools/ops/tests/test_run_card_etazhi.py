@@ -6,12 +6,15 @@
   3. −контроль: прогон упал → карточка со статусом fail и причиной, а не ok; исключение летит дальше как было; SystemExit(0) — ok, SystemExit(2) и KeyboardInterrupt — fail;
   4. сбой самой карточки (папка — файл; схема новее известной) прогон не валит: результат тот же, в stderr строка;
   5. запускатели Этажей в репозитории (список ниже) несут декоратор — это ловится по тексту (AST), без импорта cv2; −контроль: копия без декоратора — красная;
-  6. новый файл Этажей с `if __name__ == '__main__'` без записи в списке (запускатель или исключение с причиной) — красный: карточку не забудут.
+  6. новый файл Этажей с `if __name__ == '__main__'` без записи в списке (запускатель или исключение с причиной) — красный: карточку не забудут;
+  7. режим-обёртка `run_card.py run --out ПАПКА -- команда` (для прогонщиков вне git): код 0 → ok, код 3 → fail и выход обёртки 3 (−контроль: не 0), вывод/ввод насквозь, без shell,
+     сигнал → 128+N, нет команды → 127, сбой карточки команду не останавливает (код сквозной), без `--`/команды/--out → код 2 с пояснением.
 Запуск: `python -m pytest tools/ops/tests/test_run_card_etazhi.py -q -p no:cacheprovider`."""
 from __future__ import annotations
 
 import ast
 import json
+import subprocess
 import sys
 from pathlib import Path
 
@@ -220,3 +223,95 @@ def test_every_etazhi_main_is_registered():
     assert unknown == [], f"новый запускатель Этажей без карточки: {unknown} — добавь @carded или запиши в EXEMPT с причиной"
     for name, why in EXEMPT.items():
         assert (ETAZHI / name).exists() and why.strip(), name
+
+
+# ───────── 7. режим-обёртка `run_card.py run … -- команда` (прогонщики вне git) ─────────
+def wrap(*args, stdin: str | None = None):
+    """Настоящий запуск CLI обёртки отдельным процессом (код выхода, вывод и карточка — как их увидит запускатель)."""
+    return subprocess.run([sys.executable, str(OPS / "run_card.py"), "run", *args], input=stdin, capture_output=True, text=True, timeout=60)
+
+
+def py(code: str) -> list:
+    return [sys.executable, "-c", code]
+
+
+def test_wrap_ok_card_and_exit_zero(tmp_path):
+    out = tmp_path / "run1"
+    r = wrap("--kind", "etazhi-sb100", "--out", str(out), "--", *py("print('таблица готова')"))
+    assert r.returncode == 0 and r.stdout == "таблица готова\n" and r.stderr == ""   # вывод команды прошёл насквозь, обёртка своего не добавила
+    c = json.loads((out / "RUN.json").read_text(encoding="utf-8"))
+    assert c["status"] == "ok" and c["finished_utc"] and c["task"] == "etazhi-sb100"
+    assert rc.check_card(str(out)) == []
+
+
+def test_wrap_nonzero_exit_is_fail_and_passes_through(tmp_path):
+    out = tmp_path / "run3"
+    r = wrap("--kind", "k", "--out", str(out), "--", *py("import sys; print('до'); sys.stderr.write('упал\\n'); sys.exit(3)"))
+    assert r.returncode == 3 and r.returncode != 0         # −контроль: код команды, а не 0 и не общий 1
+    assert r.stdout == "до\n" and r.stderr == "упал\n"
+    c = json.loads((out / "RUN.json").read_text(encoding="utf-8"))
+    assert c["status"] == "fail" and c["status"] != "ok" and "3" in c["note"]
+    assert rc.check_card(str(out)) == []                    # карточка закончена честно, статус fail
+
+
+def test_wrap_stdin_passes_through_and_no_shell(tmp_path):
+    out = tmp_path / "in"
+    r = wrap("--out", str(out), "--", *py("import sys; print(sys.stdin.read().upper())"), stdin="abc")
+    assert r.returncode == 0 and r.stdout == "ABC\n"
+    r = wrap("--out", str(out / "2"), "--", "echo", "a;b", "$HOME")   # shell нет: аргументы — как есть, без раскрытия
+    assert r.stdout == "a;b $HOME\n"
+
+
+def test_wrap_signal_exit_is_128_plus_n(tmp_path):
+    out = tmp_path / "sig"
+    r = wrap("--out", str(out), "--", *py("import os, signal; os.kill(os.getpid(), signal.SIGKILL)"))
+    assert r.returncode == 128 + 9
+    c = json.loads((out / "RUN.json").read_text(encoding="utf-8"))
+    assert c["status"] == "fail" and "SIGKILL" in c["note"]
+
+
+def test_wrap_command_not_found_is_127_fail(tmp_path):
+    out = tmp_path / "nf"
+    r = wrap("--out", str(out), "--", str(tmp_path / "нет-такой-команды"))
+    assert r.returncode == 127 and "не запустить" in r.stderr
+    assert rm.read_card(str(out))["state"] == "fail"
+
+
+def test_wrap_card_failure_does_not_stop_command(tmp_path):
+    blocker = tmp_path / "файл"
+    blocker.write_text("не папка", encoding="utf-8")
+    mark = tmp_path / "mark.txt"
+    r = wrap("--out", str(blocker), "--", *py(f"open({str(mark)!r}, 'w').write('сделано'); raise SystemExit(5)"))
+    assert "карточку не начал" in r.stderr                  # сбой карточки — строка в stderr
+    assert mark.read_text(encoding="utf-8") == "сделано"    # команда всё равно выполнена
+    assert r.returncode == 5                                # и её код сквозной
+    assert blocker.read_text(encoding="utf-8") == "не папка"
+
+
+def test_wrap_usage_errors_are_code_2_with_message(tmp_path):
+    out = str(tmp_path / "u")
+    for args, why in [((), "нет `--`"),
+                      (("--out", out), "нет `--`"),                       # без `--`
+                      (("--out", out, "--"), "нет команды"),              # без команды
+                      (("--kind", "k", "--", "echo", "x"), "--out"),      # без папки прогона
+                      (("--bad", "--out", out, "--", "echo", "x"), "неизвестная опция")]:
+        r = wrap(*args)
+        assert r.returncode == 2 and why in r.stderr and "использование" in r.stderr, (args, r.stderr)
+        assert r.stdout == ""
+    assert not Path(out).exists()                           # при ошибке использования карточку не заводим и команду не гоним
+
+
+def test_wrap_args_after_dashdash_are_not_wrapper_options(tmp_path):
+    out = tmp_path / "opt"
+    r = wrap("--out", str(out), "--", *py("import sys; print(sys.argv[1:])"), "--out", "other", "--kind", "x", "--")
+    assert r.returncode == 0 and r.stdout == "['--out', 'other', '--kind', 'x', '--']\n"
+    assert (out / "RUN.json").exists() and not (tmp_path / "other").exists()
+
+
+def test_wrap_restart_same_dir_keeps_start(tmp_path):
+    out = tmp_path / "rs"
+    assert wrap("--out", str(out), "--", *py("raise SystemExit(1)")).returncode == 1
+    c1 = json.loads((out / "RUN.json").read_text(encoding="utf-8"))
+    assert wrap("--out", str(out), "--", *py("pass")).returncode == 0
+    c2 = json.loads((out / "RUN.json").read_text(encoding="utf-8"))
+    assert c1["status"] == "fail" and c2["status"] == "ok" and c2["started_utc"] == c1["started_utc"] and c2["restarts"] == 1
