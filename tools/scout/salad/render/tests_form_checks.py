@@ -1,6 +1,11 @@
 #!/usr/bin/env python3
 """Тесты автопроверок формы (T-184/3, режим observe): синтетические меши и кадры, без видеокарты и без реальных товаров. Запуск: python tests_form_checks.py (venv scout: numpy, Pillow, scipy, trimesh)."""
 from __future__ import annotations
+import os as _rt_os  # noqa: E402
+import sys as _rt_sys  # noqa: E402
+_rt_sys.path.append(_rt_os.path.join(_rt_os.path.dirname(_rt_os.path.abspath(__file__)), '../..'))
+import remlab_tmp  # noqa: E402,I001  — временное теста на диске и с уборкой при выходе (T-20261107-13)
+remlab_tmp.use('tests_form_checks')
 
 import inspect
 import json

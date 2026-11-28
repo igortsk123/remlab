@@ -2,6 +2,11 @@
 """Тесты `pose_rank.py` (T-173/3 Ш2б(а)): расстояние контуров и Boundary-F, семейства поз, гипотеза yaw+180°, «камера не под полом», выбор. Синтетика, без GLB и сети.
   python3 tools/scout/salad/trellis/tests_pose_rank.py"""
 from __future__ import annotations
+import os as _rt_os  # noqa: E402
+import sys as _rt_sys  # noqa: E402
+_rt_sys.path.append(_rt_os.path.join(_rt_os.path.dirname(_rt_os.path.abspath(__file__)), '../..'))
+import remlab_tmp  # noqa: E402,I001  — временное теста на диске и с уборкой при выходе (T-20261107-13)
+remlab_tmp.use('tests_pose_rank')
 
 import inspect
 import os

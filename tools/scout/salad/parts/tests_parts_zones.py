@@ -1,6 +1,11 @@
 #!/usr/bin/env python3
 """Тест подключения частей PartLLM к 07 (T-198/1): faces.npy → parts.npz (формат `tex_fill.parts_from_npz`), флаг `zones_from`, выбор источника зон, вход задания 07.
 Запуск: python tools/scout/salad/parts/tests_parts_zones.py"""
+import os as _rt_os  # noqa: E402
+import sys as _rt_sys  # noqa: E402
+_rt_sys.path.append(_rt_os.path.join(_rt_os.path.dirname(_rt_os.path.abspath(__file__)), '../..'))
+import remlab_tmp  # noqa: E402,I001  — временное теста на диске и с уборкой при выходе (T-20261107-13)
+remlab_tmp.use('tests_parts_zones')
 import io
 import json
 import os

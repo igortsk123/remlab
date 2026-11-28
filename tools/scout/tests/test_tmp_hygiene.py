@@ -26,12 +26,15 @@ import remlab_tmp  # noqa: E402
 remlab_tmp.use('test_tmp_hygiene')
 
 BAD = []
-TEST_GLOBS = [('tools/scout/tests', 'test_'), ('tools/scout/salad', 'tests_'), ('tools/scout', 'tests_'), ('tools/assets/tests', 'test_')]
+# Корни обхода — РЕКУРСИВНО (28.11: раньше смотрели только саму папку, и тесты из salad/pose, salad/render, salad/trellis, render_gpu, runpod/ultratex,
+# stablegen, cycles_probe не попадали в проверку — ~35 тыс. брошенных tests_pose_*/tests_fg_*/tests_vj_* в /tmp с 22.11). Имя: test_*.py / tests_*.py.
+TEST_ROOTS = ['tools/scout', 'tools/assets/tests']
+SKIP_DIRS = {'__pycache__', 'node_modules', '.venv', 'venv', '.git'}
 # свои правила временного: стенд в ~/.cache (dbtest), REMLAB_TMP через BR.tmp_root, этот тест и проверка жёсткого /tmp
 TEST_EXEMPT = {'tools/scout/tests/mesh_owner_audit_dbtest.py', 'tools/scout/tests/pipeline_chain_dbtest.py',
                'tools/scout/tests/test_bank_rehearsal.py', 'tools/scout/tests/test_no_hard_tmp.py',
                'tools/scout/tests/test_tmp_hygiene.py'}
-USES_TMP = re.compile(r'^(?!\s*#).*(tempfile\.|[\'"]/tmp[/\'"])', re.M)
+USES_TMP = re.compile(r'^(?!\s*#).*(tempfile\.|\bmkdtemp\b|\bmkstemp\b|\bTemporaryDirectory\b|\bNamedTemporaryFile\b|[\'"]/tmp[/\'"])', re.M)
 
 
 def ok(cond, msg):
@@ -40,13 +43,15 @@ def ok(cond, msg):
         BAD.append(msg)
 
 
-def test_files():
+def test_files(root=ROOT, roots=None):
+    """Все test_*.py / tests_*.py под корнями обхода, на любой глубине (os.walk)."""
     out = []
-    for d, pre in TEST_GLOBS:
-        p = os.path.join(ROOT, d)
-        for n in sorted(os.listdir(p)):
-            if n.startswith(pre) and n.endswith('.py'):
-                out.append(f'{d}/{n}')
+    for d in (TEST_ROOTS if roots is None else roots):
+        for cur, dirs, names in os.walk(os.path.join(root, d)):
+            dirs[:] = sorted(x for x in dirs if x not in SKIP_DIRS)
+            for n in sorted(names):
+                if n.startswith(('test_', 'tests_')) and n.endswith('.py'):
+                    out.append(os.path.relpath(os.path.join(cur, n), root).replace(os.sep, '/'))
     return out
 
 
@@ -104,6 +109,25 @@ def main():
        'проверка ловит подложенный тест без помощника и пропускает с ним')
     ok(selftests_without_helper(['tools/scout/fake_mod.py'], read=fake.get) == ['tools/scout/fake_mod.py:_selftest'],
        'проверка ловит подложенный селфтест без помощника')
+    with tempfile.TemporaryDirectory() as t:                          # −контроль глубины (28.11): тест в подпапке подпапки — раньше проверка его не видела
+        deep = os.path.join(t, 'tools', 'scout', 'salad', 'pose')
+        os.makedirs(deep)
+        os.makedirs(os.path.join(t, 'tools', 'scout', 'salad', 'node_modules'))
+        bodies = {'tests_leak.py': 'import tempfile\nd = tempfile.mkdtemp(prefix="tests_leak_")\n',
+                  'tests_leak2.py': 'from tempfile import mkdtemp\nd = mkdtemp()\n',
+                  'tests_clean.py': 'import remlab_tmp\nremlab_tmp.use("tests_clean")\nimport tempfile\nd = tempfile.mkdtemp()\n',
+                  'helper.py': 'import tempfile\n'}
+        for n, body in bodies.items():
+            open(os.path.join(deep, n), 'w', encoding='utf-8').write(body)
+        open(os.path.join(t, 'tools', 'scout', 'salad', 'node_modules', 'tests_dep.py'), 'w', encoding='utf-8').write(bodies['tests_leak.py'])
+        found = test_files(root=t, roots=['tools/scout'])
+        rd = lambda f: open(os.path.join(t, f), encoding='utf-8').read()
+        ok(found == ['tools/scout/salad/pose/tests_clean.py', 'tools/scout/salad/pose/tests_leak.py', 'tools/scout/salad/pose/tests_leak2.py'],
+           f'обход находит тесты на любой глубине, пропускает node_modules и не-тесты ({found})')
+        ok(tests_without_helper(found, read=rd) == ['tools/scout/salad/pose/tests_leak.py', 'tools/scout/salad/pose/tests_leak2.py'],
+           'проверка ловит в подпапке тест с tempfile.mkdtemp и с `from tempfile import mkdtemp`, пропускает с помощником')
+    deep_real = [f for f in test_files() if f.count('/') >= 4]
+    ok(len(deep_real) >= 10, f'на настоящем дереве обход видит тесты глубже второго уровня ({len(deep_real)})')
 
     print('shell — remlab-tmp.sh:')
     with tempfile.TemporaryDirectory() as t:

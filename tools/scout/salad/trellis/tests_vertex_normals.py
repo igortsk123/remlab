@@ -1,6 +1,11 @@
 """Тесты vertex_normals и NORMAL в GLB писателей этапов 06/07 (T-20261124-10/4). Синтетика, без GPU и сети.
 Сфера «широта–долгота» со швом UV по меридиану (позиции дублируются) и вырожденными гранями у полюсов; куб — складка 90°.
 Запуск: python tests_vertex_normals.py → «ошибок 0»."""
+import os as _rt_os  # noqa: E402
+import sys as _rt_sys  # noqa: E402
+_rt_sys.path.append(_rt_os.path.join(_rt_os.path.dirname(_rt_os.path.abspath(__file__)), '../..'))
+import remlab_tmp  # noqa: E402,I001  — временное теста на диске и с уборкой при выходе (T-20261107-13)
+remlab_tmp.use('tests_vertex_normals')
 import json
 import os
 import struct

@@ -2,6 +2,11 @@
 """Тест thin_plate (T-97/1 фаза 7): синтетика — плита-коробка 1,0×0,5×0,03: лицо (группа «верх», дубовый узор), низ (группа «ножки», серый), торец (серый).
 Проверяем: тонкая плита → низ и торец берут цвет лица, лицо не тронуто, маска = перекрашенное; «известные на фото» торец не трогается; толстая плита и плита без нижней плоскости — текстура та же с причиной;
 ключ меняет выход (выкл по умолчанию в rules-json; включённый обязан менять); check_rules ловит плохие пороги; load_rules при enabled=false thin_plate не читает."""
+import os as _rt_os  # noqa: E402
+import sys as _rt_sys  # noqa: E402
+_rt_sys.path.append(_rt_os.path.join(_rt_os.path.dirname(_rt_os.path.abspath(__file__)), '../..'))
+import remlab_tmp  # noqa: E402,I001  — временное теста на диске и с уборкой при выходе (T-20261107-13)
+remlab_tmp.use('tests_thin_plate')
 import copy
 import json
 import os

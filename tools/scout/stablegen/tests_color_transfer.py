@@ -1,6 +1,11 @@
 #!/usr/bin/env python3
 """Тесты переноса родного цвета и сторожа шага 0 (T-20261120-167). Без видеокарты и Blender: numpy + scipy + trimesh + PIL. Запуск: python tools/scout/stablegen/tests_color_transfer.py
 Подставные формы — сетки-«ткань»: родная частая (48×48) с развёрткой XY и картой, где цвет = функция точки; упрощённая редкая (6×6) с ДРУГОЙ развёрткой (повёрнута, меньше карты)."""
+import os as _rt_os  # noqa: E402
+import sys as _rt_sys  # noqa: E402
+_rt_sys.path.append(_rt_os.path.join(_rt_os.path.dirname(_rt_os.path.abspath(__file__)), '..'))
+import remlab_tmp  # noqa: E402,I001  — временное теста на диске и с уборкой при выходе (T-20261107-13)
+remlab_tmp.use('tests_color_transfer')
 import os
 import sys
 import tempfile

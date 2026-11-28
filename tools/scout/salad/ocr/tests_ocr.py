@@ -2,6 +2,11 @@
 """Тесты «кэш слов OCR на Salad» (T-176/ocr-salad). Без сети, Salad и rapidocr: настоящий HTTP-сервер воркера на localhost, вместо OCR — поддельный `words_on_sheet`.
 Запуск: python tools/scout/salad/ocr/tests_ocr.py (stdlib). Сторожа: (1) код образа = снимок 20261126-2234 побайтно; (2) слияние не теряет строки при параллельной записи; (3) воркер и драйвер."""
 from __future__ import annotations
+import os as _rt_os  # noqa: E402
+import sys as _rt_sys  # noqa: E402
+_rt_sys.path.append(_rt_os.path.join(_rt_os.path.dirname(_rt_os.path.abspath(__file__)), '../..'))
+import remlab_tmp  # noqa: E402,I001  — временное теста на диске и с уборкой при выходе (T-20261107-13)
+remlab_tmp.use('tests_ocr')
 
 import base64
 import hashlib

@@ -2,6 +2,11 @@
 Остров + зазор: после заливки зазор у острова = цвет острова, покрытое не меняется ни на единицу, дальше `passes` — как было; правила — только из paint-fill.json;
 писатель 07/шва `tex_fill.write_glb(pad=True)` пишет залитую текстуру и отдаёт отчёт, без pad — как раньше.
 Запуск: python tests_texel_pad.py → «ошибок 0»."""
+import os as _rt_os  # noqa: E402
+import sys as _rt_sys  # noqa: E402
+_rt_sys.path.append(_rt_os.path.join(_rt_os.path.dirname(_rt_os.path.abspath(__file__)), '../..'))
+import remlab_tmp  # noqa: E402,I001  — временное теста на диске и с уборкой при выходе (T-20261107-13)
+remlab_tmp.use('tests_texel_pad')
 import json
 import os
 import sys

@@ -1,6 +1,11 @@
 #!/usr/bin/env python3
 """Тесты ref_zone (Ш8м, T-187/4): тот же меш, решения по свойствам с not_applicable, гейт по свойству, продолжение зон по сваренным вершинам и отказ при споре.
   python3 tools/scout/salad/trellis/tests_ref_zone.py"""
+import os as _rt_os  # noqa: E402
+import sys as _rt_sys  # noqa: E402
+_rt_sys.path.append(_rt_os.path.join(_rt_os.path.dirname(_rt_os.path.abspath(__file__)), '../..'))
+import remlab_tmp  # noqa: E402,I001  — временное теста на диске и с уборкой при выходе (T-20261107-13)
+remlab_tmp.use('tests_ref_zone')
 import os
 import sys
 

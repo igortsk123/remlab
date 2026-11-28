@@ -2,6 +2,11 @@
 """Тесты воркера и драйвера Salad «камера по фото» (T-184/1, очередь 2). Без сети и без Salad: настоящий HTTP-сервер воркера на localhost, вместо цепочки pose_fit — маленькие поддельные
 скрипты (пишут те же файлы результата). Запуск: python tools/scout/salad/pose/tests_pose.py (нужны только stdlib и numpy-free код воркера)."""
 from __future__ import annotations
+import os as _rt_os  # noqa: E402
+import sys as _rt_sys  # noqa: E402
+_rt_sys.path.append(_rt_os.path.join(_rt_os.path.dirname(_rt_os.path.abspath(__file__)), '../..'))
+import remlab_tmp  # noqa: E402,I001  — временное теста на диске и с уборкой при выходе (T-20261107-13)
+remlab_tmp.use('tests_pose')
 
 import ast
 import hashlib
